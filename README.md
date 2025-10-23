@@ -1,312 +1,209 @@
 # AI Agent Instructions Template
 
-A comprehensive template repository for AI coding agent workflow instructions and development guidelines. Fork this repository to give your AI coding agents context about your project's architecture, coding standards, and development workflows.
+**Pre-built, customizable instruction templates for AI coding agents.** This repo includes ready-to-use AGENTS.md, CLAUDE.md, and PLANS.md files with best practices already written—you just fill in your project-specific details (or let AI do it automatically).
 
-## What's Included
+**Don't start from scratch.** Clone these pre-written templates and customize them for your project in minutes, not hours.
 
-This template provides a structured approach to documenting your project for AI coding agents, including:
+**Works with:** Claude Code, Cursor, GitHub Copilot, Windsurf, and more.
 
-- **Agent Instruction Files** (`AGENTS.md`): Comprehensive guidelines for how AI agents should work with your codebase
-- **Execution Plans** (`PLANS.md`): Methodology for creating detailed, self-contained implementation plans
-- **Development Setup** (`DEV_SETUP.md`): Template for onboarding documentation
-- **Directory Structure**: Organized file layout for both backend and frontend projects
-
-## Repository Structure
-
-```
-.
-├── README.md                    # This file
-├── LICENSE                      # MIT License
-├── DEV_SETUP.md                 # Development setup template
-├── backend/
-│   ├── AGENTS.md                # Backend agent instructions (template)
-│   └── .agent/
-│       └── PLANS.md             # Execution plan methodology
-└── frontend/
-    ├── AGENTS.md                # Frontend agent instructions (template)
-    └── .agent/
-        └── PLANS.md             # Execution plan methodology
-```
+---
 
 ## Quick Start
 
-### 1. Fork or Clone This Repository
+### 1. Clone This Repository
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/agent-instructions.git
 cd agent-instructions
 ```
 
-### 2. Customize for Your Project
+You now have pre-written AGENTS.md, CLAUDE.md, and PLANS.md templates ready to customize.
 
-Replace all template placeholders (marked with `[YOUR_*]` or `<!--TEMPLATE INSTRUCTIONS-->`) with your project-specific information:
+### 2. Customize Templates
 
-- **Project Overview**: Describe what your project does
-- **Architecture**: Document your code structure and organization
-- **Technology Stack**: List frameworks, libraries, and tools you use
-- **Development Guidelines**: Add your team's coding standards
-- **Testing Approach**: Specify testing frameworks and practices
-- **Tools**: Document any MCP tools or custom utilities available
+**Option A: AI Auto-Fill (Recommended)**
 
-### 3. Use with Your AI Coding Agent
+Share `metaprompt.txt` with your AI agent and ask:
 
-Different AI coding agents have different requirements for loading instruction files:
+> *"Please analyze this project and populate all AGENTS.md and CLAUDE.md files using the metaprompt instructions"*
 
-#### Claude Code
+The AI will detect your tech stack, analyze your structure, and auto-fill all `[YOUR_*]` placeholders.
 
-Claude Code looks for a `CLAUDE.md` file in the project root. You have two options:
+**Option B: Manual Customization**
 
-1. **Copy approach** (recommended for separate backend/frontend):
-   ```bash
-   cp backend/AGENTS.md CLAUDE.md
-   # or
-   cp frontend/AGENTS.md CLAUDE.md
-   ```
+Browse the template files and replace `[YOUR_*]` placeholders with your project details. The templates already have structure, examples, and guidelines—you just fill in the specifics.
 
-2. **Symlink approach** (if you want changes to sync):
-   ```bash
-   ln -s backend/AGENTS.md CLAUDE.md
-   # or
-   ln -s frontend/AGENTS.md CLAUDE.md
-   ```
+### 3. Configure Your AI Agent
 
-#### Cursor
-
-Cursor typically uses `.cursorrules` in the project root. Create this file and import or reference your `AGENTS.md`:
-
+**Claude Code:**
 ```bash
-# Option 1: Copy content
-cp backend/AGENTS.md .cursorrules
-
-# Option 2: Reference the file
-echo "See backend/AGENTS.md for full guidelines" > .cursorrules
+# CLAUDE.md is automatically loaded from root - already configured!
 ```
 
-#### GitHub Copilot
-
-GitHub Copilot can use `.github/copilot-instructions.md`:
-
+**Cursor:**
 ```bash
-mkdir -p .github
-cp backend/AGENTS.md .github/copilot-instructions.md
+cp AGENTS.md .cursorrules
 ```
 
-#### Windsurf / Codeium
-
-Windsurf typically looks for a `.windsurfrules` file or similar. Check their documentation for the latest conventions:
-
+**GitHub Copilot:**
 ```bash
-cp backend/AGENTS.md .windsurfrules
+mkdir -p .github && cp AGENTS.md .github/copilot-instructions.md
 ```
 
-#### Other AI Agents
-
-For other AI coding agents, consult their documentation for where they expect instruction files. The pattern is usually:
-- A file in the project root
-- Named according to the agent's convention
-- Containing markdown-formatted instructions
-
-## File Organization
-
-### AGENTS.md Files
-
-These are the main instruction files that tell AI agents:
-- What your project is and does
-- How code is organized (architecture)
-- Which technologies and frameworks you use
-- Development guidelines and best practices
-- Code style and conventions
-- Testing requirements
-- Available tools and when to use them
-
-**Location**: Place one in each major part of your project (e.g., `backend/AGENTS.md`, `frontend/AGENTS.md`).
-
-### PLANS.md Files
-
-Based on the [OpenAI Cookbook's Codex Execution Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md), these files define how to create detailed, self-contained implementation plans (called "ExecPlans") for complex features.
-
-**Key concepts**:
-- Self-contained: Each plan includes all context needed
-- Living documents: Updated as work progresses
-- Observable outcomes: Focus on demonstrable results
-- Milestones: Break work into verifiable steps
-
-**Location**: In `.agent/` subdirectories alongside `AGENTS.md`.
-
-## Customization Guide
-
-### Step 1: Update Project Overview
-
-In each `AGENTS.md`, replace the Project Overview section:
-
-```markdown
-# Project Overview
-
-[YOUR_PROJECT_DESCRIPTION]
+**Windsurf:**
+```bash
+cp AGENTS.md .windsurfrules
 ```
 
-with your actual project description, for example:
+### 4. Start Coding
 
-```markdown
-# Project Overview
+Your AI agent now understands your project structure, tech stack, and conventions.
 
-This is a Next.js/TypeScript web application for managing developer documentation.
-It provides a wiki-style interface with full-text search, version control, and
-collaborative editing features.
+---
+
+## What's Included
+
+**Pre-written template files with best practices built-in:**
+
+| Feature | Description |
+|---------|-------------|
+| **📝 AGENTS.md** | Comprehensive agent instructions template (architecture, tech stack, conventions) |
+| **⚙️ CLAUDE.md** | Claude Code-specific template with ExecPlan methodology pre-configured |
+| **📋 PLANS.md** | Complete ExecPlan framework based on OpenAI's methodology |
+| **📁 Three-Tier Specs** | Organized directory structure for root, frontend, and backend specs |
+| **🤖 Metaprompt** | AI tool that auto-fills all `[YOUR_*]` placeholders by analyzing your code |
+
+**You get:** Professional templates with sections, examples, and guidelines already written. Just customize the project-specific parts.
+
+## Repository Structure
+
+```
+.
+├── metaprompt.txt          # AI analyzes your project and fills templates
+├── AGENTS.md               # Root-level agent instructions
+├── CLAUDE.md               # Root-level Claude Code configuration
+├── DEV_SETUP.md            # Onboarding documentation template
+├── specs/                  # Root specs (full-stack features)
+│   ├── PLANS.md
+│   ├── README.md
+│   └── sample-spec-1.md
+├── backend/
+│   ├── AGENTS.md
+│   ├── CLAUDE.md
+│   └── specs/              # Backend-only features
+└── frontend/
+    ├── AGENTS.md
+    ├── CLAUDE.md
+    └── specs/              # Frontend-only features
 ```
 
-### Step 2: Document Your Architecture
+## Why Use This?
 
-Replace the architecture placeholders with your actual structure:
+**Problem:** AI agents produce better code when they understand your project, but writing instructions from scratch takes hours.
 
-```markdown
-# Architecture
+**Solution:** Start with pre-written templates containing best practices, then customize just the project-specific parts. Or use the metaprompt to auto-fill everything.
 
-The project follows a standard Next.js App Router structure:
-- Route handlers in `src/app/`
-- React components in `src/components/`
-- UI primitives in `src/components/ui/` (shadcn/ui)
-- Utilities in `src/lib/`
-- API routes in `src/app/api/`
-```
+**What you get:**
+- ✅ **Templates, not blank files** - Architecture sections, code style guidelines, testing approaches already written
+- ✅ **Example placeholders** - Clear `[YOUR_FRAMEWORK]` markers show exactly what to customize
+- ✅ **AI auto-fill** - Metaprompt analyzes your code and populates templates automatically
+- ✅ **Multi-agent support** - Works with Claude Code, Cursor, Copilot, Windsurf
 
-### Step 3: Specify Your Tech Stack
+**Results:**
+- ⚡ Minutes to configure, not hours of writing from scratch
+- 🎯 Professional structure with proven best practices
+- 📈 Consistent AI output across your entire team
 
-Update the technology stack section:
+---
 
-```markdown
-## Technology Stack Focus
-* **Next.js 14**: App Router, Server Components, Server Actions
-* **TypeScript 5**: Strict mode enabled
-* **Tailwind CSS**: Utility-first styling
-* **shadcn/ui**: Component library
-* **PostgreSQL**: Primary database
-* **Prisma**: ORM
-```
+## Key Concepts
 
-### Step 4: Add Your Development Commands
+### Three-Tier Specs Structure
 
-Replace package management placeholders:
+Organize implementation plans by scope:
+- **`specs/`**: Full-stack features spanning frontend and backend
+- **`frontend/specs/`**: Frontend-only features and changes
+- **`backend/specs/`**: Backend-only features and changes
 
-```markdown
-## Package Management
+### ExecPlans (Execution Plans)
 
-This project uses `npm` as the package manager. Common commands:
+Based on [OpenAI's Codex Execution Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md), for complex features:
 
-- `npm install` - Install dependencies
-- `npm run dev` - Start development server
-- `npm test` - Run tests
-- `npm run lint` - Run ESLint
-- `npm run build` - Build for production
-```
+1. **Determine Scope**: Frontend, backend, or full-stack?
+2. **Create Spec File**: Place in appropriate `specs/` directory
+3. **Follow PLANS.md**: Use the structure provided
+4. **Keep Self-Contained**: Include all context needed
+5. **Update as You Go**: Living document approach
+6. **Update README**: Link spec in `specs/README.md`
 
-### Step 5: Customize Code Style Guidelines
+### Using the Metaprompt
 
-Add your specific coding standards, patterns, and examples.
+The `metaprompt.txt` instructs AI to:
+- Scan codebase for tech indicators (package.json, configs, etc.)
+- Extract project info (description, commands, patterns)
+- Populate all templates with accurate, project-specific data
+- Validate completeness (no placeholders left)
 
-### Step 6: Document Available Tools
+**When to use:**
+- Initial setup after forking
+- After major tech stack changes
+- When documentation becomes outdated
 
-If you have MCP tools or custom utilities available to the agent, document them:
+---
 
-```markdown
-# Tools
+## FAQ
 
-- `context7` - Fetch up-to-date library documentation
-- `playwright` - Browser automation for E2E tests
-- Custom build scripts in `scripts/` directory
-```
+**Q: Why separate AGENTS.md files for backend/frontend?**
+A: Different tech stacks, conventions, and tools. Separate files = focused instructions. Root-level file helps agents determine scope.
 
-## ExecPlans (Execution Plans)
+**Q: AGENTS.md vs CLAUDE.md?**
+A: AGENTS.md works with any AI agent. CLAUDE.md is specifically for Claude Code with ExecPlan methodology built-in.
 
-The `PLANS.md` files define a methodology for creating detailed implementation plans. When working on complex features:
+**Q: Why three specs directories?**
+A: Clear separation, smart organization, reduced complexity. Frontend/backend teams work independently. Full-stack features go in root `specs/`.
 
-1. **Create a new ExecPlan file** in the `.agent/`
-2. **Follow the skeleton** provided in `PLANS.md`
-3. **Keep it self-contained** - include all context needed
-4. **Update as you go** - it's a living document
-5. **Focus on outcomes** - what will work when you're done?
+**Q: Can I use this for a monorepo?**
+A: Yes! Place AGENTS.md and CLAUDE.md in each package. The three-tier specs structure scales well.
 
-See the PLANS.md files for complete guidelines.
+**Q: Metaprompt or manual?**
+A: Metaprompt (fast, accurate) or manual (more control). Many teams use metaprompt for initial setup, then refine manually.
+
+**Q: Can I delete ExecPlans?**
+A: Yes, delete PLANS.md files and specs directories if not using. But try it first - many teams find it valuable.
+
+---
 
 ## Best Practices
 
-### For AI Agents
+**For AI Agents:**
+1. Read full AGENTS.md before starting work
+2. Follow documented patterns
+3. Use ExecPlans for complex features
+4. Update documentation when making architectural changes
 
-1. **Read the full AGENTS.md** before starting work on a project
-2. **Follow the documented patterns** - don't invent new approaches unless necessary
-3. **Use ExecPlans for complex work** - helps maintain context across sessions
-4. **Update documentation** when making architectural changes
+**For Developers:**
+1. Keep instructions current
+2. Be specific, not vague
+3. Include code examples
+4. Document exceptions
+5. Version control your instructions
 
-### For Developers
-
-1. **Keep instructions up to date** - outdated docs confuse agents
-2. **Be specific** - vague guidelines lead to inconsistent code
-3. **Include examples** - show the preferred patterns
-4. **Document exceptions** - explain when rules don't apply
-5. **Version your instructions** - commit changes to git
+---
 
 ## Credits
 
-- **PLANS.md methodology**: Based on [Codex Execution Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md) from the OpenAI Cookbook
-- **Template structure**: Designed for modern AI coding agents (Claude Code, Cursor, GitHub Copilot, etc.)
-
-## Contributing
-
-This is a template repository. If you have suggestions for improving the template structure or documentation:
-
-1. Fork this repository
-2. Make your improvements
-3. Submit a pull request
-
-For issues specific to your project, customize your fork as needed.
+- **PLANS.md**: Based on [Codex Execution Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md)
+- **Metaprompt**: Inspired by meta-prompting for AI-assisted documentation
+- **Three-tier architecture**: Designed for scalable full-stack projects
 
 ## License
 
 MIT License - see [LICENSE](LICENSE) file for details.
 
-## FAQ
+## Contributing
 
-### Why separate AGENTS.md files for backend and frontend?
-
-Different parts of your codebase often have different:
-- Technology stacks
-- Coding conventions
-- Testing approaches
-- Available tools
-
-Separate files let you provide focused, relevant instructions for each context.
-
-### Can I use this for a monorepo?
-
-Absolutely! Place an `AGENTS.md` file in each package or workspace that has distinct development guidelines. You can also have a root-level file for shared conventions.
-
-### How often should I update these files?
-
-Update them whenever you:
-- Add new frameworks or libraries
-- Change architectural patterns
-- Establish new coding conventions
-- Add new development tools
-- Refactor major parts of the codebase
-
-### Can I delete the ExecPlans methodology if I don't use it?
-
-Yes, if you don't plan to use the ExecPlan approach, you can delete the `PLANS.md` files and references to them in `AGENTS.md`. However, we recommend trying it for complex features first, many teams find it valuable.
-
-### What if my AI agent doesn't support loading custom instructions?
-
-You can still use these files as:
-- Onboarding documentation for new team members
-- A reference you manually provide to the AI in conversations
-- Templates for creating smaller, task-specific instructions
-
-## Support
-
-For questions about:
-- **This template**: Open an issue in this repository
-- **Your specific project**: Customize the template and maintain your own documentation
-- **AI coding agents**: Consult the documentation for your specific agent (Claude Code, Cursor, etc.)
+Fork, improve, submit PR. Issues specific to your project should be handled in your fork.
 
 ---
 
-**Ready to get started?** Fork this repo, customize the templates, and give your AI agents the context they need to write great code for your project!
+**Ready?** Fork this repo, run the metaprompt, and give your AI agents the context they need! 🚀

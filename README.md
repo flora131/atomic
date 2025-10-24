@@ -127,7 +127,7 @@ Organize implementation plans by scope:
 
 ### ExecPlans (Execution Plans)
 
-Based on [OpenAI's Codex Execution Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md), for complex features:
+PLANS.md based on [OpenAI's Codex Execution Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md), for complex features:
 
 1. **Determine Scope**: Frontend, backend, or full-stack?
 2. **Create Spec File**: Place in appropriate `specs/` directory

@@ -72,6 +72,7 @@ Your AI agent now understands your project structure, tech stack, and convention
 | **📋 PLANS.md** | Complete ExecPlan framework based on OpenAI's methodology |
 | **📁 Three-Tier Specs** | Organized directory structure for root, frontend, and backend specs |
 | **🤖 Metaprompt** | AI tool that auto-fills all `[YOUR_*]` placeholders by analyzing your code |
+| **🔍 DeepWiki Integration** | AI consults best practices for design patterns and architecture decisions |
 
 **You get:** Professional templates with sections, examples, and guidelines already written. Just customize the project-specific parts.
 
@@ -135,6 +136,8 @@ PLANS.md based on [OpenAI's Codex Execution Plans](https://github.com/openai/ope
 4. **Keep Self-Contained**: Include all context needed
 5. **Update as You Go**: Living document approach
 6. **Update README**: Link spec in `specs/README.md`
+
+**DeepWiki Integration:** AI agents automatically consult DeepWiki for best practices on design patterns, architecture, and implementation strategies when creating ExecPlans. This ensures your specs follow industry standards and proven patterns.
 
 ### Using the Metaprompt
 

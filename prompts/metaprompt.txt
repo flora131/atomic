@@ -350,6 +350,127 @@ Before completing the task:
 - Provide usage examples for common scenarios
 - Document plugin or extension mechanisms
 
+## Creating Project-Specific Skills
+
+The repository includes a skills library (`skills/` directory) with reusable development workflows. You can create custom skills tailored to the project:
+
+### When to Create Custom Skills
+
+Create project-specific skills when:
+- Project uses unique patterns not covered by default skills
+- Team has established conventions worth codifying
+- Specific workflows are repeated across development
+- Project-specific tools or frameworks need guidance
+
+### Skill Creation Process
+
+1. **Identify the Need**:
+   - Look for patterns in existing code
+   - Identify repeated development workflows
+   - Note project-specific conventions
+
+2. **Choose Template**:
+   - Use `skills/templates/claude-code-SKILL.md.template` for Claude Code
+   - Use `skills/templates/cursor-rule.template` for Cursor
+   - Use `skills/templates/copilot-instruction.template` for Copilot
+   - Use `skills/templates/windsurf-rule.template` for Windsurf
+
+3. **Populate Template**:
+   ```
+   Analyze project to determine:
+   - Skill category (workflow, architecture, tools, domain)
+   - When the skill should be triggered
+   - Step-by-step instructions specific to this project
+   - Code examples from the actual codebase
+   - Common pitfalls observed in this project
+   ```
+
+4. **Example Custom Skills**:
+
+   **For a Next.js project with tRPC:**
+   ```
+   Skill: architecture-trpc-api-design
+   Description: tRPC API endpoint design for this Next.js project
+   Instructions:
+   - All endpoints in src/server/api/routers/
+   - Use Zod schemas for input validation
+   - Follow existing router patterns
+   - Examples from actual routers in project
+   ```
+
+   **For a project with specific testing patterns:**
+   ```
+   Skill: workflow-integration-testing
+   Description: Integration testing workflow for this microservices project
+   Instructions:
+   - Use testcontainers for database
+   - Follow src/tests/integration/example.test.ts patterns
+   - Mock external services with MSW
+   - Examples from actual test files
+   ```
+
+   **For a project with deployment procedures:**
+   ```
+   Skill: tools-deployment-workflow
+   Description: Deployment process for this AWS-based project
+   Instructions:
+   - Run pre-deployment checks (npm run pre-deploy)
+   - Deploy to staging first
+   - Verify with smoke tests
+   - Promote to production
+   ```
+
+### Skill Content Guidelines
+
+When populating skill templates:
+
+1. **Use Project-Specific Examples**:
+   - Extract actual code from the project
+   - Reference real file paths
+   - Show patterns already in use
+
+2. **Document Existing Patterns**:
+   - Don't invent new patterns
+   - Codify what the team already does
+   - Explain why patterns exist
+
+3. **Include Validation**:
+   - How to verify the pattern was followed
+   - What tests should pass
+   - What output to expect
+
+4. **Link to Documentation**:
+   - Reference internal docs
+   - Link to framework documentation
+   - Point to example files in codebase
+
+### Installing Custom Skills
+
+After creating custom skills, document in AGENTS.md/CLAUDE.md:
+
+```markdown
+## Custom Development Skills
+
+This project includes custom skills for common workflows:
+
+### Installation
+
+```bash
+# Claude Code (if custom skills created)
+ln -s $(pwd)/.claude/skills/custom-skill-name ~/.claude/skills/
+
+# Cursor
+# Custom rules already in .cursor/rules/
+
+# Copilot
+# Custom instructions already in .github/copilot-instructions.md
+```
+
+### Available Custom Skills
+
+- **custom-skill-name**: Brief description and when to use
+```
+
 ## Common Pitfalls to Avoid
 
 1. **Don't assume knowledge**: Never assume the agent knows framework conventions

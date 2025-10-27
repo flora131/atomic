@@ -73,6 +73,7 @@ Your AI agent now understands your project structure, tech stack, and convention
 | **📁 Three-Tier Specs** | Organized directory structure for root, frontend, and backend specs |
 | **🤖 Metaprompt** | AI tool that auto-fills all `[YOUR_*]` placeholders by analyzing your code |
 | **🔍 DeepWiki Integration** | AI consults best practices for design patterns and architecture decisions |
+| **🎓 Skills Library** | Reusable development workflows for Claude Code, Cursor, Copilot, and Windsurf |
 
 **You get:** Professional templates with sections, examples, and guidelines already written. Just customize the project-specific parts.
 
@@ -84,6 +85,15 @@ Your AI agent now understands your project structure, tech stack, and convention
 ├── AGENTS.md               # Root-level agent instructions
 ├── CLAUDE.md               # Root-level Claude Code configuration
 ├── DEV_SETUP.md            # Onboarding documentation template
+├── skills/                 # Reusable development skills
+│   ├── claude-code/        # Claude Code skills (YAML + Markdown)
+│   ├── cursor/             # Cursor rules (.cursorrules)
+│   ├── copilot/            # GitHub Copilot instructions (.md)
+│   ├── windsurf/           # Windsurf rules (.md)
+│   ├── templates/          # Templates for creating custom skills
+│   ├── install.sh          # Installation script
+│   ├── README.md           # Skills quick start guide
+│   └── SKILLS.md           # Comprehensive skills documentation
 ├── specs/                  # Root specs (full-stack features)
 │   ├── PLANS.md
 │   ├── README.md
@@ -114,6 +124,46 @@ Your AI agent now understands your project structure, tech stack, and convention
 - ⚡ Minutes to configure, not hours of writing from scratch
 - 🎯 Professional structure with proven best practices
 - 📈 Consistent AI output across your entire team
+
+---
+
+## Skills Library
+
+This repository includes a comprehensive library of **reusable development skills** for AI coding agents. Skills are workflow templates that guide AI through common development tasks like TDD, debugging, API design, security, and performance optimization.
+
+### Available Skills
+
+- **Workflow Skills:** Test-Driven Development (TDD), Systematic Debugging
+- **Architecture Skills:** REST API Design
+- **Tools Skills:** Git Workflow Best Practices
+- **Domain Skills:** Security Best Practices, Performance Optimization
+
+### Quick Install
+
+```bash
+# Install for specific agent
+./skills/install.sh claude-code    # Global skills at ~/.claude/skills/
+./skills/install.sh cursor         # Project rules in .cursor/rules/
+./skills/install.sh copilot        # Instructions in .github/copilot-instructions.md
+./skills/install.sh windsurf       # Rules in .windsurf/rules.md
+
+# Or install for all agents
+./skills/install.sh all
+```
+
+### Benefits
+
+- **Consistency:** Same workflows across different AI agents
+- **Quality:** Codified industry best practices
+- **Reusability:** Install once, use across all projects (Claude Code)
+- **Shareability:** Commit to git, share with team
+- **Customizable:** Templates for creating project-specific skills
+
+### Documentation
+
+- **Quick Start:** `skills/README.md`
+- **Comprehensive Guide:** `skills/SKILLS.md`
+- **Agent-Specific:** See README in each agent directory
 
 ---
 

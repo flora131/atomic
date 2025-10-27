@@ -1,0 +1,93 @@
+---
+name: category-skill-name
+description: Brief description of what this skill does and when to use it
+---
+
+# Skill Title
+
+## Description
+
+Detailed description of what this skill provides and why it's useful.
+
+## When to Use
+
+- Trigger condition 1
+- Trigger condition 2
+- When user requests X
+- Before doing Y
+
+## Prerequisites
+
+- Requirement 1
+- Requirement 2
+- Understanding of X
+
+## Instructions
+
+### Phase 1: [Phase Name]
+
+**Goal: [What this phase accomplishes]**
+
+1. **Step 1**
+   - Sub-step details
+   - Examples or clarifications
+
+2. **Step 2**
+   - Sub-step details
+   - Code examples if applicable
+
+### Phase 2: [Phase Name]
+
+3. **Step 3**
+   - Details
+
+4. **Step 4**
+   - Details
+
+## Critical Rules
+
+- **RULE 1** - Explanation
+- **RULE 2** - Explanation
+- **ALWAYS do X** - Reason
+- **NEVER do Y** - Reason
+
+## Examples
+
+### Example 1: [Scenario]
+
+**Context:** [Describe the situation]
+
+**Approach:**
+```language
+// Show code or process
+```
+
+**Result:** [What was achieved]
+
+### Example 2: [Another Scenario]
+
+[Another concrete example]
+
+## Validation
+
+After completing this skill's workflow, verify:
+
+- ✅ Criterion 1
+- ✅ Criterion 2
+- ✅ Criterion 3
+
+## Common Pitfalls to Avoid
+
+1. **Pitfall 1** - Why it's a problem and what to do instead
+2. **Pitfall 2** - Explanation
+3. **Pitfall 3** - Explanation
+
+## Related Skills
+
+- `related-skill-1` - How it relates
+- `related-skill-2` - How it relates
+
+## Additional Resources
+
+- Tool or documentation references
+- External resources if applicable

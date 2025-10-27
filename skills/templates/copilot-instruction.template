@@ -1,0 +1,48 @@
+# [Skill Name] Instructions for Copilot
+
+When I ask you to [action], follow this approach:
+
+## Overview
+
+[Brief description of the workflow or pattern]
+
+## Process
+
+1. **Step 1**
+   - Details
+   - Reasoning
+
+2. **Step 2**
+   - Details
+   - Reasoning
+
+3. **Step 3**
+   - Details
+   - Reasoning
+
+## Code Pattern
+
+```language
+// Example showing the expected pattern
+code here
+```
+
+## Good vs Bad Examples
+
+**❌ Don't do this:**
+```language
+bad example
+```
+
+**✅ Do this instead:**
+```language
+good example
+```
+
+## Checklist
+
+- Item 1
+- Item 2
+- Item 3
+
+Always follow this approach when [condition].

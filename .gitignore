@@ -24,3 +24,8 @@ Temporary Items
 
 # iCloud files
 *.icloud
+
+# Project-specific generated AI skills (personal configuration)
+# Keep directory structure but ignore generated files
+skills/generated/**/*
+!skills/generated/**/.gitkeep

@@ -23,7 +23,7 @@ You now have pre-written AGENTS.md, CLAUDE.md, and PLANS.md templates ready to c
 
 **Option A: AI Auto-Fill (Recommended)**
 
-Share `metaprompt.txt` with your AI agent and ask:
+Share `prompts/metaprompt.txt` with your AI agent and ask:
 
 > *"Please analyze this project and populate all AGENTS.md and CLAUDE.md files using the metaprompt instructions"*
 
@@ -59,6 +59,20 @@ cp AGENTS.md .windsurfrules
 
 Your AI agent now understands your project structure, tech stack, and conventions.
 
+### 5. Install Superpowers Plugin (Claude Code Only)
+
+If using Claude Code, install the superpowers plugin for enhanced workflow automation:
+
+```bash
+# In Claude Code
+/plugin marketplace add obra/superpowers-marketplace
+/plugin install superpowers@superpowers-marketplace
+```
+
+The superpowers plugin provides workflow skills that are automatically invoked during ExecPlans. See CLAUDE.md for which skills are used at each phase.
+
+**Attribution:** Superpowers plugin by [@obra](https://github.com/obra/superpowers)
+
 ---
 
 ## What's Included
@@ -73,7 +87,7 @@ Your AI agent now understands your project structure, tech stack, and convention
 | **📁 Three-Tier Specs** | Organized directory structure for root, frontend, and backend specs |
 | **🤖 Metaprompt** | AI tool that auto-fills all `[YOUR_*]` placeholders by analyzing your code |
 | **🔍 DeepWiki Integration** | AI consults best practices for design patterns and architecture decisions |
-| **🎓 Skills Library** | Reusable development workflows for Claude Code, Cursor, Copilot, and Windsurf |
+| **🦸 Superpowers Skills** | Claude Code workflow automation (brainstorming, TDD, debugging, code review) |
 
 **You get:** Professional templates with sections, examples, and guidelines already written. Just customize the project-specific parts.
 
@@ -81,19 +95,12 @@ Your AI agent now understands your project structure, tech stack, and convention
 
 ```
 .
-├── metaprompt.txt          # AI analyzes your project and fills templates
 ├── AGENTS.md               # Root-level agent instructions
 ├── CLAUDE.md               # Root-level Claude Code configuration
 ├── DEV_SETUP.md            # Onboarding documentation template
-├── skills/                 # Reusable development skills
-│   ├── claude-code/        # Claude Code skills (YAML + Markdown)
-│   ├── cursor/             # Cursor rules (.cursorrules)
-│   ├── copilot/            # GitHub Copilot instructions (.md)
-│   ├── windsurf/           # Windsurf rules (.md)
-│   ├── templates/          # Templates for creating custom skills
-│   ├── install.sh          # Installation script
-│   ├── README.md           # Skills quick start guide
-│   └── SKILLS.md           # Comprehensive skills documentation
+├── prompts/                # Metaprompt for auto-filling templates
+│   ├── metaprompt.txt      # AI analyzes your project and fills templates
+│   └── README.md
 ├── specs/                  # Root specs (full-stack features)
 │   ├── PLANS.md
 │   ├── README.md
@@ -119,51 +126,12 @@ Your AI agent now understands your project structure, tech stack, and convention
 - ✅ **Example placeholders** - Clear `[YOUR_FRAMEWORK]` markers show exactly what to customize
 - ✅ **AI auto-fill** - Metaprompt analyzes your code and populates templates automatically
 - ✅ **Multi-agent support** - Works with Claude Code, Cursor, Copilot, Windsurf
+- ✅ **Superpowers integration** - CLAUDE.md prescribes which skills to use at each ExecPlans phase
 
 **Results:**
 - ⚡ Minutes to configure, not hours of writing from scratch
 - 🎯 Professional structure with proven best practices
 - 📈 Consistent AI output across your entire team
-
----
-
-## Skills Library
-
-This repository includes a comprehensive library of **reusable development skills** for AI coding agents. Skills are workflow templates that guide AI through common development tasks like TDD, debugging, API design, security, and performance optimization.
-
-### Available Skills
-
-- **Workflow Skills:** Test-Driven Development (TDD), Systematic Debugging
-- **Architecture Skills:** REST API Design
-- **Tools Skills:** Git Workflow Best Practices
-- **Domain Skills:** Security Best Practices, Performance Optimization
-
-### Quick Install
-
-```bash
-# Install for specific agent
-./skills/install.sh claude-code    # Global skills at ~/.claude/skills/
-./skills/install.sh cursor         # Project rules in .cursor/rules/
-./skills/install.sh copilot        # Instructions in .github/copilot-instructions.md
-./skills/install.sh windsurf       # Rules in .windsurf/rules.md
-
-# Or install for all agents
-./skills/install.sh all
-```
-
-### Benefits
-
-- **Consistency:** Same workflows across different AI agents
-- **Quality:** Codified industry best practices
-- **Reusability:** Install once, use across all projects (Claude Code)
-- **Shareability:** Commit to git, share with team
-- **Customizable:** Templates for creating project-specific skills
-
-### Documentation
-
-- **Quick Start:** `skills/README.md`
-- **Comprehensive Guide:** `skills/SKILLS.md`
-- **Agent-Specific:** See README in each agent directory
 
 ---
 
@@ -189,9 +157,11 @@ PLANS.md based on [OpenAI's Codex Execution Plans](https://github.com/openai/ope
 
 **DeepWiki Integration:** AI agents automatically consult DeepWiki for best practices on design patterns, architecture, and implementation strategies when creating ExecPlans. This ensures your specs follow industry standards and proven patterns.
 
+**Superpowers Skills Integration:** When using Claude Code, the CLAUDE.md files prescribe which superpowers skills to use at each phase of the ExecPlans workflow, providing automated assistance for brainstorming, implementation, debugging, and code review.
+
 ### Using the Metaprompt
 
-The `metaprompt.txt` instructs AI to:
+The `prompts/metaprompt.txt` instructs AI to:
 - Scan codebase for tech indicators (package.json, configs, etc.)
 - Extract project info (description, commands, patterns)
 - Populate all templates with accurate, project-specific data
@@ -246,6 +216,7 @@ A: Yes, delete PLANS.md files and specs directories if not using. But try it fir
 ## Credits
 
 - **PLANS.md**: Based on [Codex Execution Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md)
+- **Superpowers Skills**: Plugin by [@obra](https://github.com/obra/superpowers)
 - **Metaprompt**: Inspired by meta-prompting for AI-assisted documentation
 - **Three-tier architecture**: Designed for scalable full-stack projects
 

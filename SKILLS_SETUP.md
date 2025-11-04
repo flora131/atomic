@@ -21,22 +21,22 @@ Choose your agent and run the corresponding command:
 
 **For Codex:**
 ```bash
-git clone https://github.com/anthropics/anthropic-skills ~/.codex/skills
+git clone https://github.com/obra/superpowers.git ~/.codex/skills
 ```
 
 **For Cursor:**
 ```bash
-git clone https://github.com/anthropics/anthropic-skills ~/.cursor/skills
+git clone https://github.com/obra/superpowers.git ~/.cursor/skills
 ```
 
 **For Windsurf:**
 ```bash
-git clone https://github.com/anthropics/anthropic-skills ~/.windsurf/skills
+git clone https://github.com/obra/superpowers.git ~/.windsurf/skills
 ```
 
 **For GitHub Copilot:**
 ```bash
-git clone https://github.com/anthropics/anthropic-skills ~/.github/skills
+git clone https://github.com/obra/superpowers.git ~/.github/skills
 ```
 
 ### 2. Install list-skills Script
@@ -287,6 +287,6 @@ Skills are updated immediately - no need to restart your agent.
 
 ## Additional Resources
 
-- [Anthropic Skills Repository](https://github.com/anthropics/anthropic-skills)
+- [Supoerpowers Skills Repo](https://github.com/obra/superpowers/tree/main)
 - [Claude Skills Documentation](https://docs.anthropic.com/claude/docs/skills)
 - [uv Documentation](https://github.com/astral-sh/uv)

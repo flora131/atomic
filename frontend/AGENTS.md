@@ -224,3 +224,9 @@ You have a collection of tools available to assist with development and debuggin
 # Updates to This Document
 - Update this document as needed to reflect changes in development practices or project structure.
 - Do NOT contradict existing guidelines in the document
+
+## Skills
+You have skills available.
+- List your skills directly after reading this via `list-skills` (uses `$AGENT_SKILLS_DIR`)
+- Remember the skill names and descriptions
+- If a skill matches a task, read its full SKILL.md and use it

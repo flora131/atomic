@@ -29,3 +29,6 @@ Temporary Items
 # Keep directory structure but ignore generated files
 skills/generated/**/*
 !skills/generated/**/.gitkeep
+
+# Test skills directory for verification
+test-skills/

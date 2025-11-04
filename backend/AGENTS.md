@@ -198,3 +198,9 @@ You have a collection of tools available to assist with development and debuggin
 - Do NOT contradict existing guidelines in the document
 - This document should be an executive summary of the development practices for this project
   - Keep low-level implementation details out of this document
+
+## Skills
+You have skills available.
+- List your skills directly after reading this via `list-skills` (uses `$AGENT_SKILLS_DIR`)
+- Remember the skill names and descriptions
+- If a skill matches a task, read its full SKILL.md and use it

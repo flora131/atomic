@@ -1,292 +1,243 @@
-# Skills Setup Guide
+# Skills Setup - Agent Instructions
 
-Add Claude Skills support to your AI coding agent (Codex, Cursor, Windsurf, or GitHub Copilot).
+This document tells you, the AI coding agent, how to automatically set up skills support for users.
 
-**Note:** Claude Code has native skills support - no setup needed.
+**IMPORTANT:** When a user asks to set up skills, execute all steps automatically like running a setup script. Only ask which agent they're using, then execute all remaining steps automatically without waiting for approval.
 
-## Prerequisites
+**Note:** Claude Code has native skills support - no setup needed. If your user is using Claude Code, inform them this setup is not necessary.
 
-- **uv installed**: Python package runner ([install guide](https://github.com/astral-sh/uv))
-- **~/bin in PATH**: Or use alternative location like `/usr/local/bin`
-- **Git installed**: For cloning the skills repository
-- **Shell profile**: Access to `~/.zshrc` or `~/.bashrc` to set environment variables
+## Your Role
+
+When a user asks to "set up skills @SKILLS_SETUP.md" or "install skills support", **execute the setup automatically like a setup script**:
+
+1. **Ask which agent** they're using (Codex, Cursor, Windsurf, or GitHub Copilot)
+2. **Then execute all remaining steps automatically** - don't wait for approval between steps
+3. **Run each command** using the Bash tool
+4. **Report progress** as you go
+5. **Verify at the end** that everything works
+
+**Think of this as running `./setup-skills.sh` - once the user confirms they want to proceed, you execute through all steps automatically.**
+
+**Note:** This setup is only for the skills system itself (cloning the skills repo and installing the list-skills script). Setting up agent config files like .cursorrules or .windsurfrules is handled separately.
 
 ---
 
-## Quick Start (3 Steps)
+## Setup Steps
 
-### 1. Clone Skills Repository
+**Execute these steps in order automatically. Do NOT wait for user approval between steps.**
 
-Choose your agent and run the corresponding command:
+### Step 1: Detect Agent & Clone Skills Repositories
 
-**For Codex:**
+Ask the user which AI coding agent they're using, then proceed with cloning automatically:
+- **Codex**: `~/.codex/skills`
+- **Cursor**: `~/.cursor/skills`
+- **Windsurf**: `~/.windsurf/skills`
+- **GitHub Copilot**: `~/.github/skills`
+
+Create a skills directory and clone both the Superpowers and Anthropic skills repositories as subdirectories.
+
+**Example for Cursor:**
+
+First, create the skills directory:
 ```bash
-git clone https://github.com/obra/superpowers.git ~/.codex/skills
+mkdir -p ~/.cursor/skills
 ```
 
-**For Cursor:**
+Then, clone both repositories:
 ```bash
-git clone https://github.com/obra/superpowers.git ~/.cursor/skills
+git clone https://github.com/obra/superpowers.git ~/.cursor/skills/superpowers
+git clone https://github.com/anthropics/skills.git ~/.cursor/skills/anthropic-skills
 ```
 
-**For Windsurf:**
+Use the appropriate path for their agent (replace `~/.cursor` with `~/.codex`, `~/.windsurf`, or `~/.github` as needed).
+
+If a directory already exists, inform the user and skip (don't re-clone).
+
+**Note:** The `list-skills` script recursively searches for `SKILL.md` files in the provided skills directory, so both repositories will be automatically discovered.
+
+### Step 2: Install list-skills Script
+
+Install the list-skills script to a location in the user's PATH.
+
+**Prerequisites:** The script requires Node.js (which is typically already installed on development machines).
+
+**The script is located at `scripts/list-skills.js` in the current repository (agent-instructions).**
+
+Check if ~/bin is in PATH:
 ```bash
-git clone https://github.com/obra/superpowers.git ~/.windsurf/skills
+echo $PATH | grep -q "$HOME/bin" && echo "~/bin is in PATH" || echo "~/bin not in PATH"
 ```
 
-**For GitHub Copilot:**
+If ~/bin is in PATH:
 ```bash
-git clone https://github.com/obra/superpowers.git ~/.github/skills
-```
-
-### 2. Install list-skills Script
-
-From the agent-instructions repository root:
-
-```bash
-cp scripts/list-skills ~/bin/list-skills
+cp scripts/list-skills.js ~/bin/list-skills
 chmod +x ~/bin/list-skills
 ```
 
-**Alternative:** If `~/bin` is not in your PATH, use `/usr/local/bin`:
+If ~/bin is NOT in PATH, use /usr/local/bin (requires sudo):
 ```bash
-sudo cp scripts/list-skills /usr/local/bin/list-skills
+sudo cp scripts/list-skills.js /usr/local/bin/list-skills
 sudo chmod +x /usr/local/bin/list-skills
 ```
 
-### 3. Set Environment Variable
+### Step 3: Verify Setup
 
-Add to your shell profile (`~/.zshrc` for Zsh or `~/.bashrc` for Bash):
+After completing all setup steps, automatically verify everything is working:
 
-**For Codex:**
-```bash
-export AGENT_SKILLS_DIR="$HOME/.codex/skills"
-```
+**Test list-skills script:**
 
-**For Cursor:**
-```bash
-export AGENT_SKILLS_DIR="$HOME/.cursor/skills"
-```
+For the agent you set up, test with the absolute path to the skills directory:
+- **Cursor:** `list-skills ~/.cursor/skills`
+- **Windsurf:** `list-skills ~/.windsurf/skills`
+- **Codex:** `list-skills ~/.codex/skills`
+- **GitHub Copilot:** `list-skills ~/.github/skills`
 
-**For Windsurf:**
-```bash
-export AGENT_SKILLS_DIR="$HOME/.windsurf/skills"
-```
+Expected: Should print JSON array of available skills
 
-**For GitHub Copilot:**
-```bash
-export AGENT_SKILLS_DIR="$HOME/.github/skills"
-```
-
-Then reload your shell:
-```bash
-source ~/.zshrc  # or source ~/.bashrc
-```
-
----
-
-## Agent-Specific Configuration
-
-After completing the Quick Start, follow your agent's specific setup:
-
-### Codex
-
-Codex reads `AGENTS.md` directly. No additional configuration needed.
-
-**Verification:**
-1. Start Codex in a project with `AGENTS.md`
-2. Codex should automatically run `list-skills` and enumerate skills
-
-### Cursor
-
-Link AGENTS.md to Cursor's configuration file:
-
-```bash
-# In your project root
-cp AGENTS.md .cursorrules
-```
-
-**Verification:**
-1. Open project in Cursor
-2. Cursor should read `.cursorrules` and run `list-skills`
-
-### Windsurf
-
-Link AGENTS.md to Windsurf's configuration file:
-
-```bash
-# In your project root
-cp AGENTS.md .windsurfrules
-```
-
-**Verification:**
-1. Open project in Windsurf
-2. Windsurf should read `.windsurfrules` and run `list-skills`
-
-### GitHub Copilot
-
-Link AGENTS.md to Copilot's instructions file:
-
-```bash
-# In your project root
-mkdir -p .github
-cp AGENTS.md .github/copilot-instructions.md
-```
-
-**Verification:**
-1. Open project with GitHub Copilot enabled
-2. Copilot should read `.github/copilot-instructions.md` and run `list-skills`
-
----
-
-## Verification
-
-Test your setup works correctly:
-
-### 1. Check Environment Variable
-
-```bash
-echo $AGENT_SKILLS_DIR
-```
-
-Expected output: `/Users/yourname/.codex/skills` (or your agent's path)
-
-### 2. Test list-skills Script
-
-```bash
-list-skills
-```
-
-Expected output: JSON array of skills:
+**Example output:**
 ```json
 [
   {
     "name": "brainstorming",
     "description": "Transform rough ideas into fully-formed designs...",
-    "path": "/Users/yourname/.codex/skills/brainstorming/SKILL.md"
-  },
-  {
-    "name": "systematic-debugging",
-    "description": "Four-phase framework for debugging...",
-    "path": "/Users/yourname/.codex/skills/systematic-debugging/SKILL.md"
+    "path": "/Users/username/.cursor/skills/brainstorming/SKILL.md"
   }
 ]
 ```
 
-### 3. Test in Your Agent
-
-Start your agent in a project and ask:
-```
-"What skills do you have available?"
-```
-
-The agent should list the skills from the JSON output.
+**Report results:**
+- If all tests pass: "✅ Skills setup complete! You now have X skills available."
+- If any test fails: Help troubleshoot using the Troubleshooting section below
 
 ---
 
-## Troubleshooting
+## Troubleshooting Common Issues
+
+If setup verification fails, help the user debug:
 
 ### Error: "missing skills dir"
 
-**Cause:** `AGENT_SKILLS_DIR` not set or points to non-existent directory
+**Diagnosis:**
+
+For the agent you're using, check if the skills directory exists:
+- **Cursor:** `ls ~/.cursor/skills`
+- **Windsurf:** `ls ~/.windsurf/skills`
+- **Codex:** `ls ~/.codex/skills`
+- **GitHub Copilot:** `ls ~/.github/skills`
+
+**Possible causes:**
+- Skills directory doesn't exist
+- Wrong path specified
 
 **Fix:**
-1. Verify env var: `echo $AGENT_SKILLS_DIR`
-2. Verify directory exists: `ls $AGENT_SKILLS_DIR`
-3. If missing, clone skills repo again (see Quick Start step 1)
-4. Reload shell: `source ~/.zshrc`
+1. Verify the skills directory was created during setup
+2. If directory is missing, re-run the git clone command from Step 1
 
 ### Error: "command not found: list-skills"
 
-**Cause:** Script not in PATH
-
-**Fix:**
-1. Verify ~/bin in PATH: `echo $PATH | grep bin`
-2. If missing, add to shell profile:
-   ```bash
-   export PATH="$HOME/bin:$PATH"
-   ```
-3. Reload: `source ~/.zshrc`
-4. Verify: `which list-skills`
-
-### Error: "uv: command not found"
-
-**Cause:** uv not installed
-
-**Fix:**
-Install uv:
+**Diagnosis:**
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
+which list-skills
+echo $PATH | grep bin
 ```
 
-### Agent Doesn't List Skills
-
-**Cause:** Agent not reading AGENTS.md or not executing list-skills
+**Possible causes:**
+- Script not copied to PATH location
+- ~/bin not in PATH
+- Permissions issue
 
 **Fix:**
-1. Verify AGENTS.md has skills section (see this repo's AGENTS.md)
-2. For Cursor/Windsurf/Copilot, verify config file exists:
-   - Cursor: `.cursorrules`
-   - Windsurf: `.windsurfrules`
-   - Copilot: `.github/copilot-instructions.md`
-3. Restart your agent
+1. Verify the script exists: `ls -l ~/bin/list-skills` or `ls -l /usr/local/bin/list-skills`
+2. Check permissions: `chmod +x ~/bin/list-skills`
+3. If ~/bin not in PATH, either:
+   - Add it: `export PATH="$HOME/bin:$PATH"` in shell profile
+   - Or use /usr/local/bin instead
+
+### Error: "node: command not found"
+
+**Fix:**
+
+The list-skills script requires Node.js. If you don't have it installed (rare for development machines), install from https://nodejs.org/.
+
+### Agent Can't Access Skills
+
+**Possible causes:**
+- Agent not reading AGENTS.md file
+- Agent config file not set up (separate from skills setup)
+- `list-skills` command not working
+
+**Fix:**
+1. Verify AGENTS.md exists in the project root
+2. Check if agent-specific config file is needed (e.g., `.cursorrules` for Cursor)
+3. Test `list-skills` manually with the appropriate path (e.g., `list-skills ~/.codex/skills`)
+
+**Note:** Setting up agent config files (.cursorrules, .windsurfrules, etc.) is separate from skills setup. See the main setup documentation for that.
 
 ---
 
-## Multiple Agents on Same Machine
+## Additional Information
 
-You can use multiple agents on the same machine. Each maintains its own skills directory:
+Share these tips with users as needed:
 
+### Multiple Agents
+
+Users can set up multiple agents on the same machine. Each agent gets its own skills directory:
+- Codex: `~/.codex/skills/`
+- Cursor: `~/.cursor/skills/`
+- Windsurf: `~/.windsurf/skills/`
+- GitHub Copilot: `~/.github/skills/`
+
+All agents can coexist and share the same `list-skills` script installation.
+
+### Custom Skills
+
+Users can create their own skills in their agent's skills directory:
+
+**Example for Cursor:**
 ```bash
-# Example: Using both Codex and Cursor
-~/.codex/skills/        # Codex skills
-~/.cursor/skills/       # Cursor skills
+mkdir -p ~/.cursor/skills/my-custom-skill
 ```
 
-Each agent's `AGENT_SKILLS_DIR` points to its own directory. No conflicts.
-
----
-
-## Custom Skills
-
-To add your own skills:
-
-1. Create a directory in your agent's skills folder:
-   ```bash
-   mkdir -p $AGENT_SKILLS_DIR/my-custom-skill
-   ```
-
-2. Create `SKILL.md` with YAML front-matter:
-   ```markdown
-   ---
-   name: my-custom-skill
-   description: What this skill does
-   ---
-
-   # Skill Instructions
-
-   [Your skill content here]
-   ```
-
-3. The skill will automatically appear in `list-skills` output
-
----
-
-## Updating Skills
-
-To update the anthropic-skills repository:
-
+**Example for Windsurf:**
 ```bash
-cd $AGENT_SKILLS_DIR
-git pull origin main
+mkdir -p ~/.windsurf/skills/my-custom-skill
 ```
 
-Skills are updated immediately - no need to restart your agent.
+Then create `SKILL.md` with YAML front-matter:
+```markdown
+---
+name: my-custom-skill
+description: What this skill does
+---
+
+# Skill Instructions
+[Content here]
+```
+
+The skill will automatically appear in `list-skills` output.
+
+### Updating Skills
+
+To update the skills repositories, navigate to your agent's skills directory:
+
+**Example for Cursor:**
+```bash
+cd ~/.cursor/skills/superpowers && git pull origin main
+cd ~/.cursor/skills/anthropic-skills && git pull origin main
+```
+
+**Example for Windsurf:**
+```bash
+cd ~/.windsurf/skills/superpowers && git pull origin main
+cd ~/.windsurf/skills/anthropic-skills && git pull origin main
+```
+
+Skills update immediately - no agent restart needed.
 
 ---
 
-## Additional Resources
+## Resources
 
-- [Supoerpowers Skills Repo](https://github.com/obra/superpowers/tree/main)
-- [Claude Skills Documentation](https://docs.anthropic.com/claude/docs/skills)
-- [uv Documentation](https://github.com/astral-sh/uv)
+- [Superpowers Skills Repo](https://github.com/obra/superpowers/tree/main)
+- [Anthropic Skills Repo](https://github.com/anthropics/skills)
+- [Node.js Downloads](https://nodejs.org/)

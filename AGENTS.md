@@ -15,3 +15,9 @@ Based off of the user request you need to determine the appropriate scope of the
 1. **Frontend Only**: If the request only involves user interface changes, visual elements, or client-side logic, target the frontend component.
 2. **Backend Only**: If the request involves data processing, business logic, database interactions, or server-side functionality, target the backend component.
 3. **Both Frontend and Backend**: If the request involves changes that affect both the user interface and server-side logic, you will need to make coordinated changes in both the frontend and backend components.
+
+## Skills
+You have skills available.
+- List your skills directly after reading this via `list-skills` (uses `$AGENT_SKILLS_DIR`)
+- Remember the skill names and descriptions
+- If a skill matches a task, read its full SKILL.md and use it

@@ -24,13 +24,32 @@ Ready-to-use instruction templates (AGENTS.md, CLAUDE.md, PLANS.md) with best pr
 git clone https://github.com/YOUR_USERNAME/agent-instructions.git
 ```
 
-### 2. Auto-Fill Templates with Metaprompt
+### 2. Add Skills Support
+
+Extend your AI agent with proven workflows from [Superpowers](https://github.com/obra/superpowers) and [Anthropic skills](https://github.com/anthropics/anthropic-skills) (TDD, systematic debugging, code review, etc.).
+
+**Supported:** All agents (Claude Code, Cursor, Windsurf, GitHub Copilot, Codex)
+
+**One-minute setup:**
+1. Open your AI coding agent in the cloned `agent-instructions` repo
+2. Type: `set up skills @SKILLS_SETUP.md`
+3. Specify which agent you're using (Cursor, Windsurf, etc.)
+4. Approve the automated steps
+5. Done! Skills ready to use
+
+Create additional custom skills anytime with the `create-skills` skill.
+
+**Note:** Claude Code has native skills support - no setup needed!
+
+*Setup script credit: [Robert Glaser](https://www.robert-glaser.de/claude-skills-in-codex-cli/)*
+
+### 3. Auto-Fill AGENTS.md Templates with Metaprompt
 
 **What the metaprompt does:** Scans the current directory's codebase and automatically fills `[YOUR_*]` placeholders in AGENTS.md and CLAUDE.md.
 
 **How to use it:**
 
-1. **Navigate to the directory** where you want AI instructions (root, `backend/`, `frontend/`, etc.)
+1. **Navigate to the directory** where you want AI instructions in your project (root, `backend/`, `frontend/`, etc.)
    ```bash
    cd agent-instructions/backend  # or frontend, or stay in root
    ```
@@ -51,19 +70,15 @@ After:  Express, PostgreSQL
 
 **Repeat for each directory** where you want AI instructions (backend, frontend, etc.).
 
-### 3. Link Templates to Your AI Agent
+### 4. Copy to Your Project & Link to Your AI Agent
 
-**Claude Code:** Already configured (reads CLAUDE.md automatically)
-**Cursor:** `cp AGENTS.md .cursorrules`
-**GitHub Copilot:** `cp AGENTS.md .github/copilot-instructions.md`
-**Windsurf:** `cp AGENTS.md .windsurfrules`
+**First:** Copy the filled `AGENTS.md` and `CLAUDE.md` files to your own project repository.
 
-### 4. (Optional) Add Skills Support
-
-Want to extend your AI agent with reusable workflows? See [SKILLS_SETUP.md](SKILLS_SETUP.md) for instructions.
-
-**Supported agents:** Codex, Cursor, Windsurf, GitHub Copilot
-**Note:** Claude Code has native skills support (no setup needed)
+**Then link using your agent's file naming convention:**
+- **Claude Code:** Already configured (reads CLAUDE.md automatically)
+- **Cursor:** `cp AGENTS.md .cursorrules`
+- **GitHub Copilot:** `cp AGENTS.md .github/copilot-instructions.md`
+- **Windsurf:** `cp AGENTS.md .windsurfrules`
 
 ---
 

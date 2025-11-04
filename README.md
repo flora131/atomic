@@ -58,6 +58,13 @@ After:  Express, PostgreSQL
 **GitHub Copilot:** `cp AGENTS.md .github/copilot-instructions.md`
 **Windsurf:** `cp AGENTS.md .windsurfrules`
 
+### 4. (Optional) Add Skills Support
+
+Want to extend your AI agent with reusable workflows? See [SKILLS_SETUP.md](SKILLS_SETUP.md) for instructions.
+
+**Supported agents:** Codex, Cursor, Windsurf, GitHub Copilot
+**Note:** Claude Code has native skills support (no setup needed)
+
 ---
 
 ## How It Works

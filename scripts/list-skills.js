@@ -37,7 +37,14 @@ function findSkills(dir) {
   const skills = [];
 
   function walk(currentDir) {
-    const entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    let entries;
+    try {
+      entries = fs.readdirSync(currentDir, { withFileTypes: true });
+    } catch (err) {
+      // Skip directories we can't read (permissions, system folders, etc.)
+      return;
+    }
+
     for (const entry of entries) {
       const fullPath = path.join(currentDir, entry.name);
       if (entry.isDirectory()) {

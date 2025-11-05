@@ -51,10 +51,10 @@ If you think there is even a 1% chance a skill might apply to what you are doing
 IF A SKILL APPLIES TO YOUR TASK, YOU DO NOT HAVE A CHOICE. YOU MUST USE IT.
 This is not negotiable. This is not optional. You cannot rationalize your way out of this.
 - List your skills by running the list-skills command with your agent's skills directory:
-  - Codex: `list-skills.js ~/.codex/skills`
-  - Cursor: `list-skills.js ~/.cursor/skills`
-  - Windsurf: `list-skills.js ~/.windsurf/skills`
-  - GitHub Copilot: `list-skills.js ~/.github/skills`
+  - Codex: `list-skills ~/.codex/skills`
+  - Cursor: `list-skills ~/.cursor/skills`
+  - Windsurf: `list-skills ~/.windsurf/skills`
+  - GitHub Copilot: `list-skills ~/.github/skills`
 - Remember the skill names and descriptions
 - If a skill matches a task, read its full SKILL.md and use it
 - Announce: "I've read the [Skill Name] skill and I'm using it to [purpose]"

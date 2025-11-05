@@ -63,22 +63,65 @@ Install the list-skills script to a location in the user's PATH.
 
 **The script is located at `scripts/list-skills.js` in the current repository (agent-instructions).**
 
+**Choose installation location:**
+
 Check if ~/bin is in PATH:
 ```bash
 echo $PATH | grep -q "$HOME/bin" && echo "~/bin is in PATH" || echo "~/bin not in PATH"
 ```
 
-If ~/bin is in PATH:
+**Option A: Install to ~/bin (recommended for single user)**
+
+If ~/bin is already in PATH:
 ```bash
+mkdir -p ~/bin
 cp scripts/list-skills.js ~/bin/list-skills
 chmod +x ~/bin/list-skills
 ```
 
-If ~/bin is NOT in PATH, use /usr/local/bin (requires sudo):
+If ~/bin is NOT in PATH, add it first, then install:
+
+1. Detect user's shell:
+```bash
+echo $SHELL
+```
+
+2. Add ~/bin to PATH based on shell type:
+
+**For zsh (default on modern Macs):**
+```bash
+mkdir -p ~/bin
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+cp scripts/list-skills.js ~/bin/list-skills
+chmod +x ~/bin/list-skills
+```
+
+**For bash:**
+```bash
+mkdir -p ~/bin
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+cp scripts/list-skills.js ~/bin/list-skills
+chmod +x ~/bin/list-skills
+```
+
+**For bash on macOS (login shell):**
+```bash
+mkdir -p ~/bin
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bash_profile
+source ~/.bash_profile
+cp scripts/list-skills.js ~/bin/list-skills
+chmod +x ~/bin/list-skills
+```
+
+**Option B: Install to /usr/local/bin (system-wide, requires sudo)**
 ```bash
 sudo cp scripts/list-skills.js /usr/local/bin/list-skills
 sudo chmod +x /usr/local/bin/list-skills
 ```
+
+**Note:** /usr/local/bin is already in PATH on most systems and doesn't require shell config changes. This is simpler but requires admin privileges.
 
 ### Step 3: Verify Setup
 
@@ -149,9 +192,46 @@ echo $PATH | grep bin
 **Fix:**
 1. Verify the script exists: `ls -l ~/bin/list-skills` or `ls -l /usr/local/bin/list-skills`
 2. Check permissions: `chmod +x ~/bin/list-skills`
-3. If ~/bin not in PATH, either:
-   - Add it: `export PATH="$HOME/bin:$PATH"` in shell profile
-   - Or use /usr/local/bin instead
+3. If ~/bin not in PATH, you have two options:
+
+**Option A: Add ~/bin to PATH permanently**
+
+First, detect which shell the user is using:
+```bash
+echo $SHELL
+```
+
+Then add ~/bin to PATH in the appropriate config file:
+
+**For zsh (default on modern Macs):**
+```bash
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+**For bash:**
+```bash
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+**For bash on macOS (login shell):**
+```bash
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bash_profile
+source ~/.bash_profile
+```
+
+**For fish:**
+```bash
+fish_add_path ~/bin
+```
+
+**Option B: Use /usr/local/bin instead**
+```bash
+sudo cp scripts/list-skills.js /usr/local/bin/list-skills
+sudo chmod +x /usr/local/bin/list-skills
+```
+This location is already in PATH on most systems and doesn't require shell config changes.
 
 ### Error: "node: command not found"
 

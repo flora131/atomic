@@ -13,34 +13,15 @@
 
 **Example**: This is a [YOUR_FRAMEWORK]/[YOUR_LANGUAGE] project that [YOUR_PROJECT_PURPOSE].
 
-# MANDATORY FIRST RESPONSE PROTOCOL
+# Skills Protocol
 
-Before responding to ANY user message, you MUST complete this checklist:
+**IMPORTANT:** Before responding to ANY user message, you MUST check for relevant skills and use them. See [SKILLS.md](../SKILLS.md) for the complete mandatory first response protocol and usage guidelines.
 
-1. ☐ List available skills in your mind
-2. ☐ Ask yourself: "Does ANY skill match this request?"
-3. ☐ If yes → Use the Skill tool to read and run the skill file
-4. ☐ Announce which skill you're using
-5. ☐ Follow the skill exactly
-
-**Responding WITHOUT completing this checklist = automatic failure.**
-
-## Common Rationalizations That Mean You're About To Fail
-
-If you catch yourself thinking ANY of these thoughts, STOP. You are rationalizing. Check for and use the skill.
-
-- "This is just a simple question" → WRONG. Questions are tasks. Check for skills.
-- "I can check git/files quickly" → WRONG. Files don't have conversation context. Check for skills.
-- "Let me gather information first" → WRONG. Skills tell you HOW to gather information. Check for skills.
-- "This doesn't need a formal skill" → WRONG. If a skill exists for it, use it.
-- "I remember this skill" → WRONG. Skills evolve. Run the current version.
-- "This doesn't count as a task" → WRONG. If you're taking action, it's a task. Check for skills.
-- "The skill is overkill for this" → WRONG. Skills exist because simple things become complex. Use it.
-- "I'll just do this one thing first" → WRONG. Check for skills BEFORE doing anything.
-
-**Why:** Skills document proven techniques that save time and prevent mistakes. Not using available skills means repeating solved problems and making known errors.
-
-If a skill for your task exists, you must use it or you will fail at your task.
+**Key points:**
+- If a skill exists for your task, you MUST use it
+- List available skills, check for matches, then proceed
+- Announce which skill you're using
+- See SKILLS.md for detailed instructions and common pitfalls to avoid
 
 # ExecPlans
 
@@ -255,12 +236,5 @@ You have a collection of tools available to assist with development and debuggin
 - Do NOT contradict existing guidelines in the document
 
 ## Skills
-You have skills available.
-- List your skills by running the list-skills command with your agent's skills directory:
-  - Codex: `list-skills ~/.codex/skills`
-  - Cursor: `list-skills ~/.cursor/skills`
-  - Windsurf: `list-skills ~/.windsurf/skills`
-  - GitHub Copilot: `list-skills ~/.github/skills`
-- Remember the skill names and descriptions
-- If a skill matches a task, read its full SKILL.md and use it
-- Announce: "I've read the [Skill Name] skill and I'm using it to [purpose]"
+
+For complete skills usage guidelines, see [SKILLS.md](../SKILLS.md).

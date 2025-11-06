@@ -30,8 +30,8 @@ Extend your AI agent with proven workflows from [Superpowers](https://github.com
 
 **Supported:** All agents (Claude Code, Cursor, Windsurf, GitHub Copilot, Codex)
 
-**One-minute setup:**
-1. Open your AI coding agent in the cloned `agent-instructions` repo
+**One-minute setup** (complete these steps inside the `agent-instructions` repo):
+1. Open your AI coding agent in the cloned `agent-instructions` directory
 2. Type: `set up skills @SKILLS_SETUP.md`
 3. Specify which agent you're using (Cursor, Windsurf, etc.)
 4. Approve the automated steps

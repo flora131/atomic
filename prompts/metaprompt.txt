@@ -352,7 +352,7 @@ Before completing the task:
 
 ## Creating Project-Specific Skills
 
-The repository includes a skills library (`skills/` directory) with reusable development workflows. You can create custom skills tailored to the project:
+You can create custom skills tailored to the project:
 
 ### When to Create Custom Skills
 
@@ -369,11 +369,11 @@ Create project-specific skills when:
    - Identify repeated development workflows
    - Note project-specific conventions
 
-2. **Choose Template**:
-   - Use `skills/templates/claude-code-SKILL.md.template` for Claude Code
-   - Use `skills/templates/cursor-rule.template` for Cursor
-   - Use `skills/templates/copilot-instruction.template` for Copilot
-   - Use `skills/templates/windsurf-rule.template` for Windsurf
+2. **Use Existing Skills as Templates**:
+   - Review installed skills from Superpowers or Anthropic repositories
+   - Follow the SKILL.md format used by existing skills
+   - Reference the YAML frontmatter structure for skill metadata
+   - Adapt patterns from similar skills to your project's needs
 
 3. **Populate Template**:
    ```

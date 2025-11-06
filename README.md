@@ -37,9 +37,9 @@ Extend your AI agent with proven workflows from [Superpowers](https://github.com
 4. Approve the automated steps
 5. Done! Skills ready to use
 
-Create additional custom skills anytime with the `create-skills` skill.
-
 **Note:** Claude Code has native skills support - no setup needed!
+
+After installing the Anthropic skills repository, you can create additional custom skills using the `create-skills` skill.
 
 *Setup script credit: [Robert Glaser](https://www.robert-glaser.de/claude-skills-in-codex-cli/)*
 

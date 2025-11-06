@@ -41,6 +41,7 @@ For other agents, skills must be installed first. See [SKILLS_SETUP.md](SKILLS_S
 
 ### Listing Available Skills
 
+- **Note:** `list-skills` is installed globally in PATH. Use it directly as a command (no need for `node` or full file paths).
 - List your skills by running the list-skills command with your agent's skills directory:
   - **Codex**: `list-skills ~/.codex/skills`
   - **Cursor**: `list-skills ~/.cursor/skills`

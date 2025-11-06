@@ -34,7 +34,7 @@ Ask the user which AI coding agent they're using, then proceed with cloning auto
 - **Windsurf**: `~/.windsurf/skills`
 - **GitHub Copilot**: `~/.github/skills`
 
-Create a skills directory and clone both the Superpowers and Anthropic skills repositories as subdirectories.
+Create a skills directory and clone both the Superpowers and Anthropic Skills (anthropic-skills) repositories as subdirectories.
 
 **Example for Cursor:**
 

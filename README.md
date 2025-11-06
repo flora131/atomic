@@ -26,7 +26,7 @@ git clone https://github.com/YOUR_USERNAME/agent-instructions.git
 
 ### 2. Add Skills Support
 
-Extend your AI agent with proven workflows from [Superpowers](https://github.com/obra/superpowers) and [Anthropic skills](https://github.com/anthropics/anthropic-skills) (TDD, systematic debugging, code review, etc.).
+Extend your AI agent with proven workflows from [Superpowers](https://github.com/obra/superpowers) and [Anthropic Skills (anthropic-skills)](https://github.com/anthropics/anthropic-skills) (TDD, systematic debugging, code review, etc.).
 
 **Supported:** All agents (Claude Code, Cursor, Windsurf, GitHub Copilot, Codex)
 
@@ -39,7 +39,7 @@ Extend your AI agent with proven workflows from [Superpowers](https://github.com
 
 **Note:** Claude Code has native skills support - no setup needed!
 
-After installing the Anthropic skills repository, you can create additional custom skills using the `create-skills` skill.
+After installing the anthropic-skills repository, you can create additional custom skills using the `create-skills` skill.
 
 *Setup script credit: [Robert Glaser](https://www.robert-glaser.de/claude-skills-in-codex-cli/)*
 
@@ -72,13 +72,25 @@ After:  Express, PostgreSQL
 
 ### 4. Copy to Your Project & Link to Your AI Agent
 
-**First:** Copy the filled `AGENTS.md` and `CLAUDE.md` files to your own project repository.
+**First:** Copy the filled files to your own project repository:
+
+**For Claude Code:**
+```bash
+cp AGENTS.md CLAUDE.md your-project/
+```
+Claude Code has native skills support - no additional files needed.
+
+**For other agents (Cursor, Windsurf, GitHub Copilot, Codex):**
+```bash
+cp AGENTS.md CLAUDE.md SKILLS.md your-project/
+```
+**Important:** You MUST copy `SKILLS.md` to your project root. Your AGENTS.md files reference it for the skills protocol.
 
 **Then link using your agent's file naming convention:**
-- **Claude Code:** Already configured (reads CLAUDE.md automatically)
 - **Cursor:** `cp AGENTS.md .cursorrules`
 - **GitHub Copilot:** `cp AGENTS.md .github/copilot-instructions.md`
 - **Windsurf:** `cp AGENTS.md .windsurfrules`
+- **Codex:** `cp AGENTS.md .codexrc` (or your agent's config file)
 
 ---
 

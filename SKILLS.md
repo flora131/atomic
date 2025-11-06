@@ -46,6 +46,7 @@ For other agents, skills must be installed first. See [SKILLS_SETUP.md](SKILLS_S
   - **Cursor**: `list-skills ~/.cursor/skills`
   - **Windsurf**: `list-skills ~/.windsurf/skills`
   - **GitHub Copilot**: `list-skills ~/.github/skills`
+  - **Note:** The tilde (~) is automatically expanded to your home directory by the list-skills script
 - Remember the skill names and descriptions
 - If a skill matches a task, read its full SKILL.md and use it
 - Announce: "I've read the [Skill Name] skill and I'm using it to [purpose]"

@@ -24,13 +24,32 @@ Ready-to-use instruction templates (AGENTS.md, CLAUDE.md, PLANS.md) with best pr
 git clone https://github.com/YOUR_USERNAME/agent-instructions.git
 ```
 
-### 2. Auto-Fill Templates with Metaprompt
+### 2. Add Skills Support
+
+Extend your AI agent with proven workflows from [Superpowers](https://github.com/obra/superpowers) and [Anthropic Skills (anthropic-skills)](https://github.com/anthropics/anthropic-skills) (TDD, systematic debugging, code review, etc.).
+
+**Supported:** All agents (Claude Code, Cursor, Windsurf, GitHub Copilot, Codex)
+
+**One-minute setup** (complete these steps inside the `agent-instructions` repo):
+1. Open your AI coding agent in the cloned `agent-instructions` directory
+2. Type: `set up skills @SKILLS_SETUP.md`
+3. Specify which agent you're using (Cursor, Windsurf, etc.)
+4. Approve the automated steps
+5. Done! Skills ready to use
+
+**Note:** Claude Code has native skills support - no setup needed!
+
+After installing the anthropic-skills repository, you can create additional custom skills using the `create-skills` skill.
+
+*Setup script credit: [Robert Glaser](https://www.robert-glaser.de/claude-skills-in-codex-cli/)*
+
+### 3. Auto-Fill AGENTS.md Templates with Metaprompt
 
 **What the metaprompt does:** Scans the current directory's codebase and automatically fills `[YOUR_*]` placeholders in AGENTS.md and CLAUDE.md.
 
 **How to use it:**
 
-1. **Navigate to the directory** where you want AI instructions (root, `backend/`, `frontend/`, etc.)
+1. **Navigate to the directory** where you want AI instructions in your project (root, `backend/`, `frontend/`, etc.)
    ```bash
    cd agent-instructions/backend  # or frontend, or stay in root
    ```
@@ -51,12 +70,27 @@ After:  Express, PostgreSQL
 
 **Repeat for each directory** where you want AI instructions (backend, frontend, etc.).
 
-### 3. Link Templates to Your AI Agent
+### 4. Copy to Your Project & Link to Your AI Agent
 
-**Claude Code:** Already configured (reads CLAUDE.md automatically)
-**Cursor:** `cp AGENTS.md .cursorrules`
-**GitHub Copilot:** `cp AGENTS.md .github/copilot-instructions.md`
-**Windsurf:** `cp AGENTS.md .windsurfrules`
+**First:** Copy the filled files to your own project repository:
+
+**For Claude Code:**
+```bash
+cp AGENTS.md CLAUDE.md your-project/
+```
+Claude Code has native skills support - no additional files needed.
+
+**For other agents (Cursor, Windsurf, GitHub Copilot, Codex):**
+```bash
+cp AGENTS.md CLAUDE.md SKILLS_INSTRUCTIONS.md your-project/
+```
+**Important:** You MUST copy `SKILLS_INSTRUCTIONS.md` to your project root. Your AGENTS.md files reference it for the skills protocol.
+
+**Then link using your agent's file naming convention:**
+- **Cursor:** `cp AGENTS.md .cursorrules`
+- **GitHub Copilot:** `cp AGENTS.md .github/copilot-instructions.md`
+- **Windsurf:** `cp AGENTS.md .windsurfrules`
+- **Codex:** `cp AGENTS.md .codexrc` (or your agent's config file)
 
 ---
 
@@ -89,13 +123,12 @@ Enable DeepWiki in CLAUDE.md for AI to consult best practices when planning comp
 
 ## What's Included
 
-| Component | Purpose |
-|-----------|---------|
-| **AGENTS.md** | Project context: architecture, tech stack, conventions (works with any AI agent) |
-| **CLAUDE.md** | Claude Code-specific instructions with ExecPlan workflow |
-| **PLANS.md** | Template for complex feature execution plans |
-| **Metaprompt** | Auto-fills all templates by analyzing your codebase |
-| **Three-tier structure** | Root + `frontend/` + `backend/` for organized mono/multi-repo support |
+| Component      | Purpose                                                                          |
+| -------------- | -------------------------------------------------------------------------------- |
+| **AGENTS.md**  | Project context: architecture, tech stack, conventions (works with any AI agent) |
+| **CLAUDE.md**  | Claude Code-specific instructions with ExecPlan workflow                         |
+| **PLANS.md**   | Template for complex feature execution plans                                     |
+| **Metaprompt** | Auto-fills all templates by analyzing your codebase                              |
 
 **Result:** Professional templates with best practices built-in. You customize project specifics, not structure.
 

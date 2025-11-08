@@ -53,80 +53,14 @@ You have skills available.
 
 ### Automatic Setup Detection
 
-**IMPORTANT:** Before attempting to use skills, you MUST verify that the skills system is properly installed. If any of the following conditions are true, you MUST run the setup process automatically:
+**IMPORTANT:** Before attempting to use skills, you MUST verify that the skills system is properly installed by checking if you see skills like this:
 
-1. The skills directory doesn't exist for your agent
-2. The agents directory doesn't exist for your agent  
-3. The `list-skills` command is not found or doesn't work
+# Should see:
+# /superpowers:brainstorm - Interactive design refinement
+# /superpowers:write-plan - Create implementation plan
+# /superpowers:execute-plan - Execute plan in batches
 
-**Identify Your Agent Type:**
-You are one of the following AI coding agents:
-- **Claude Code** (Claude with VS Code) → config dir: `~/.claude`
-- **Codex** (Cursor's AI) → config dir: `~/.codex`
-- **Cursor** → config dir: `~/.cursor`
-- **Windsurf** → config dir: `~/.windsurf`
-- **GitHub Copilot** → config dir: `~/.github`
-
-**Automatic Setup Process:**
-
-When you detect that setup is needed (missing skills/agents directories or `list-skills` command), automatically execute the following:
-
-1. **Inform the user:** "I've detected that the agent instructions system is not yet set up. I'll automatically install it now by fetching the metaprompt from the agent-instructions repository and executing it."
-
-2. **Clone the metaprompt from the remote repository:**
-   
-   **IMPORTANT:** The metaprompt is stored as **METAPROMPT.md** in the `agent-setup` branch of the **agent-instructions repository** (`git@github.com:flora131/agent-instructions.git`), NOT in the user's current project repository. You must clone this external repository to access the metaprompt.
-   
-   ```bash
-   # Create temporary directory
-   TEMP_DIR=$(mktemp -d)
-   echo "Fetching metaprompt from agent-instructions repository..."
-   
-   # Clone the agent-setup branch from the agent-instructions repository
-   # This is an EXTERNAL repository, not the user's current project
-   git clone -b agent-setup git@github.com:flora131/agent-instructions.git "$TEMP_DIR/agent-instructions"
-   
-   # The METAPROMPT.md is now available at: $TEMP_DIR/agent-instructions/METAPROMPT.md
-   ```
-
-3. **Read the METAPROMPT.md file** from the temporary directory and follow ALL instructions in order:
-   - **Phase 1**: Analyze the project and populate AGENTS.md and CLAUDE.md files
-   - **Phase 2**: Execute SETUP.md to install skills, agents, and commands
-   - The metaprompt provides comprehensive instructions for both phases
-
-4. **Execute each step automatically** following the metaprompt's two-phase process - don't wait for approval between steps
-
-5. **If any step fails:**
-   - STOP immediately and inform the user what went wrong
-   - Show the error message clearly
-   - Explain what the error means in plain language
-   - Suggest possible fixes from the Troubleshooting section in SETUP.md (which will be referenced by METAPROMPT.md)
-   - Ask the user for help if the issue is unclear
-
-6. **Clean up temporary directory** after setup completes:
-   ```bash
-   rm -rf "$TEMP_DIR"
-   ```
-
-7. **Verify setup** by running the verification tests described in the metaprompt
-
-**Note:** The METAPROMPT.md file is maintained in the `agent-setup` branch of the **external agent-instructions repository** (https://github.com/flora131/agent-instructions), and is cloned to a temporary directory only for reading the setup instructions. The metaprompt then guides you through both documentation population (Phase 1) and environment setup (Phase 2) via SETUP.md. After setup completes, the temporary directory is deleted. This approach ensures you always get the latest instructions regardless of which project the user is currently working in.
-
-### Listing Available Skills
-
-Once setup is complete, list your skills by running the list-skills command with your agent's skills directory:
-- **Codex**: `list-skills ~/.codex/skills`
-- **Cursor**: `list-skills ~/.cursor/skills`
-- **Windsurf**: `list-skills ~/.windsurf/skills`
-- **GitHub Copilot**: `list-skills ~/.github/skills`
-- **Note:** The tilde (~) is automatically expanded to your home directory by the list-skills script
-
-**Using Skills:**
-- Remember the skill names and descriptions
-- If a skill matches a task, read its full SKILL.md and use it
-- Announce: "I've read the [Skill Name] skill and I'm using it to [purpose]"
-
-**Note:** `list-skills` is a shell script (`.sh` for Unix/Mac/Linux, `.ps1` for Windows) installed globally in PATH. Use it directly as a command.
+If any of the following conditions are true, you MUST ask the user to run the setup process described in: https://github.com/obra/superpowers/tree/main?tab=readme-ov-file#claude-code-via-plugin-marketplace
 
 ### Skills with Checklists
 
@@ -151,13 +85,6 @@ If a skill has a checklist, you MUST create TodoWrite todos for EACH item.
 ## Custom Agents
 
 The system supports custom specialized agents stored in agent-specific directories. These agents can be invoked for specific tasks that match their expertise.
-
-### Agent Directories by Platform
-
-- **Codex**: `~/.codex/agents/`
-- **Cursor**: `~/.cursor/agents/`
-- **Windsurf**: `~/.windsurf/agents/`
-- **GitHub Copilot**: `~/.github/agents/`
 
 ### Agent Selection and Usage
 

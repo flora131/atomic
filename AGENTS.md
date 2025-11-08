@@ -59,7 +59,6 @@ You have skills available.
 
 **Identify Your Agent Type:**
 You are one of the following AI coding agents:
-- **Claude Code** (Claude with VS Code) → config dir: `~/.claude`
 - **Codex** (Cursor's AI) → config dir: `~/.codex`
 - **Cursor** → config dir: `~/.cursor`
 - **Windsurf** → config dir: `~/.windsurf`
@@ -88,8 +87,8 @@ When you detect that setup is needed (missing skills/agents directories or `list
    ```
 
 3. **Read the METAPROMPT.md file** from the temporary directory and follow ALL instructions in order:
-   - **Phase 1**: Analyze the project and populate AGENTS.md and CLAUDE.md files
-   - **Phase 2**: Execute SETUP.md to install skills, agents, and commands
+   - **Phase 1**: Analyze the project and populate AGENTS.md file
+   - **Phase 2**: Execute SETUP.md to install skills and sub-agents
    - The metaprompt provides comprehensive instructions for both phases
 
 4. **Execute each step automatically** following the metaprompt's two-phase process - don't wait for approval between steps

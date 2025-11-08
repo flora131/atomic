@@ -82,9 +82,9 @@ Claude Code has native skills support - no additional files needed.
 
 **For other agents (Cursor, Windsurf, GitHub Copilot, Codex):**
 ```bash
-cp AGENTS.md CLAUDE.md SKILLS.md your-project/
+cp AGENTS.md CLAUDE.md SKILLS_INSTRUCTIONS.md your-project/
 ```
-**Important:** You MUST copy `SKILLS.md` to your project root. Your AGENTS.md files reference it for the skills protocol.
+**Important:** You MUST copy `SKILLS_INSTRUCTIONS.md` to your project root. Your AGENTS.md files reference it for the skills protocol.
 
 **Then link using your agent's file naming convention:**
 - **Cursor:** `cp AGENTS.md .cursorrules`
@@ -123,13 +123,12 @@ Enable DeepWiki in CLAUDE.md for AI to consult best practices when planning comp
 
 ## What's Included
 
-| Component | Purpose |
-|-----------|---------|
-| **AGENTS.md** | Project context: architecture, tech stack, conventions (works with any AI agent) |
-| **CLAUDE.md** | Claude Code-specific instructions with ExecPlan workflow |
-| **PLANS.md** | Template for complex feature execution plans |
-| **Metaprompt** | Auto-fills all templates by analyzing your codebase |
-| **Three-tier structure** | Root + `frontend/` + `backend/` for organized mono/multi-repo support |
+| Component      | Purpose                                                                          |
+| -------------- | -------------------------------------------------------------------------------- |
+| **AGENTS.md**  | Project context: architecture, tech stack, conventions (works with any AI agent) |
+| **CLAUDE.md**  | Claude Code-specific instructions with ExecPlan workflow                         |
+| **PLANS.md**   | Template for complex feature execution plans                                     |
+| **Metaprompt** | Auto-fills all templates by analyzing your codebase                              |
 
 **Result:** Professional templates with best practices built-in. You customize project specifics, not structure.
 

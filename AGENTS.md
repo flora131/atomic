@@ -51,7 +51,7 @@ You have skills available.
 
 ### Automatic Setup Detection
 
-**IMPORTANT:** Before attempting to use skills, you MUST verify that the skills system and CLAUDE.md is properly configured by checking if you see skills like this. Also if the user already has a well-formatted CLAUDE.md with the project information filled in below, you can skip the setup:
+**IMPORTANT:** Before attempting to use skills, you MUST verify that the skills system and AGENTS.md is properly configured by checking if you see skills like this. Also if the user already has a well-formatted AGENTS.md with the project information filled in below, you can skip the setup:
 
 1. The skills directory doesn't exist for your agent
 2. The agents directory doesn't exist for your agent  
@@ -158,6 +158,7 @@ The system supports custom specialized agents stored in agent-specific directori
 
 ### Agent Selection and Usage
 
+- IMPORTANT: ALWAYS start by invoking the agent-organizer sub-agent, an expert agent organizer specializing in multi-agent orchestration.
 - Custom agents are automatically selected based on the context and task requirements
 - The system analyzes the user's request and matches it with the most appropriate specialized agent
 - Multiple sub-agents can work in parallel on different aspects of a complex task

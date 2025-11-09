@@ -79,7 +79,7 @@ You have skills available.
    ```
 
 3. **Read the METAPROMPT.md file** from the temporary directory and follow ALL instructions in order:
-   - **Phase 1**: Analyze the project and populate AGENTS.md file
+   - **Phase 1**: Analyze the project and populate CLAUDE.md file
    - **Phase 2**: IMPORTANT: Since you are Claude Code, you MUST stop after Phase 1 because you already have native skills support. You do NOT need to set up skills again.
    - The metaprompt provides comprehensive instructions for both phases
 
@@ -123,6 +123,7 @@ The system supports custom specialized agents stored in agent-specific directori
 
 ### Agent Selection and Usage
 
+- IMPORTANT: ALWAYS start by invoking the agent-organizer sub-agent, an expert agent organizer specializing in multi-agent orchestration.
 - Custom agents are automatically selected based on the context and task requirements
 - The system analyzes the user's request and matches it with the most appropriate specialized agent
 - Multiple sub-agents can work in parallel on different aspects of a complex task

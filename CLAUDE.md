@@ -53,14 +53,49 @@ You have skills available.
 
 ### Automatic Setup Detection
 
-**IMPORTANT:** Before attempting to use skills, you MUST verify that the skills system is properly installed by checking if you see skills like this:
+**IMPORTANT:** Before attempting to use skills, you MUST verify that the skills system and CLAUDE.md is properly configured by checking if you see skills like this. Also if the user already has a well-formatted CLAUDE.md with the project information filled in below, you can skip the setup:
 
 # Should see:
 # /superpowers:brainstorm - Interactive design refinement
 # /superpowers:write-plan - Create implementation plan
 # /superpowers:execute-plan - Execute plan in batches
 
-If any of the following conditions are true, you MUST ask the user to run the setup process described in: https://github.com/obra/superpowers/tree/main?tab=readme-ov-file#claude-code-via-plugin-marketplace
+1. **Inform the user:** "I've detected that the agent instructions system is not yet set up. I'll automatically install it now by fetching the metaprompt from the agent-instructions repository and executing it. You will need to install the setup process described in: https://github.com/obra/superpowers/tree/main?tab=readme-ov-file#claude-code-via-plugin-marketplace to enable Claude Code Superpowers."
+
+2. **Clone the metaprompt from the remote repository:**
+   
+   **IMPORTANT:** The metaprompt is stored as **METAPROMPT.md** in the `agent-setup` branch of the **agent-instructions repository** (`git@github.com:flora131/agent-instructions.git`), NOT in the user's current project repository. You must clone this external repository to access the metaprompt.
+   
+   ```bash
+   # Create temporary directory
+   TEMP_DIR=$(mktemp -d)
+   echo "Fetching metaprompt from agent-instructions repository..."
+   
+   # Clone the agent-setup branch from the agent-instructions repository
+   # This is an EXTERNAL repository, not the user's current project
+   git clone -b agent-setup git@github.com:flora131/agent-instructions.git "$TEMP_DIR/agent-instructions"
+   
+   # The METAPROMPT.md is now available at: $TEMP_DIR/agent-instructions/METAPROMPT.md
+   ```
+
+3. **Read the METAPROMPT.md file** from the temporary directory and follow ALL instructions in order:
+   - **Phase 1**: Analyze the project and populate AGENTS.md file
+   - **Phase 2**: IMPORTANT: Since you are Claude Code, you MUST stop after Phase 1 because you already have native skills support. You do NOT need to set up skills again.
+   - The metaprompt provides comprehensive instructions for both phases
+
+4. **Execute each step automatically** following the metaprompt's two-phase process - don't wait for approval between steps
+
+5. **If any step fails:**
+   - STOP immediately and inform the user what went wrong
+   - Show the error message clearly
+   - Explain what the error means in plain language
+   - Suggest possible fixes from the Troubleshooting section in SETUP.md (which will be referenced by METAPROMPT.md)
+   - Ask the user for help if the issue is unclear
+
+6. **Clean up temporary directory** after setup completes:
+   ```bash
+   rm -rf "$TEMP_DIR"
+   ```
 
 ### Skills with Checklists
 

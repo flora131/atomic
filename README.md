@@ -21,78 +21,26 @@ Ready-to-use instruction templates (AGENTS.md, CLAUDE.md, PLANS.md) with best pr
 ### 1. Clone This Repo
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/agent-instructions.git
+git clone https://github.com/flora131/agent-instructions.git
 ```
 
-### 2. Add Skills Support
+### 2. Add Skills + Sub-Agent + Claude Code Commands Support
 
-Extend your AI agent with proven workflows from [Superpowers](https://github.com/obra/superpowers) and [Anthropic Skills (anthropic-skills)](https://github.com/anthropics/anthropic-skills) (TDD, systematic debugging, code review, etc.).
+Extend your AI agent with proven workflows from [Superpowers](https://github.com/obra/superpowers).
 
 **Supported:** All agents (Claude Code, Cursor, Windsurf, GitHub Copilot, Codex)
+**Notes**:
+- Commands are only supported in Claude Code at the moment.
+- Claude Code has native skills support - no setup needed!
+  - Auto detects if skills exist and asks you to install from the Superpowers repo.
 
-**One-minute setup** (complete these steps inside the `agent-instructions` repo):
-1. Open your AI coding agent in the cloned `agent-instructions` directory
-2. Type: `set up skills @SKILLS_SETUP.md`
-3. Specify which agent you're using (Cursor, Windsurf, etc.)
-4. Approve the automated steps
-5. Done! Skills ready to use
+**One-minute setup**
 
-**Note:** Claude Code has native skills support - no setup needed!
+As you use your AI coding assistant, it should auto detect the required installation by cloning the `agent-setup` branch in this repo. You can also explicitly ask it:
 
-After installing the anthropic-skills repository, you can create additional custom skills using the `create-skills` skill.
+*"Set up Superpowers skills and sub-agent support for this project"*
 
-*Setup script credit: [Robert Glaser](https://www.robert-glaser.de/claude-skills-in-codex-cli/)*
-
-### 3. Auto-Fill AGENTS.md Templates with Metaprompt
-
-**What the metaprompt does:** Scans the current directory's codebase and automatically fills `[YOUR_*]` placeholders in AGENTS.md and CLAUDE.md.
-
-**How to use it:**
-
-1. **Navigate to the directory** where you want AI instructions in your project (root, `backend/`, `frontend/`, etc.)
-   ```bash
-   cd agent-instructions/backend  # or frontend, or stay in root
-   ```
-
-2. **Open your AI coding assistant** in that directory
-
-3. **Share** `prompts/metaprompt.txt`
-
-4. **Say:** *"Fill in AGENTS.md and CLAUDE.md for this directory using the metaprompt"*
-
-The AI analyzes the focused context (tech stack, patterns, dependencies in that directory) and populates templates in ~2 minutes.
-
-**Before/After Example:**
-```
-Before: [YOUR_FRAMEWORK], [YOUR_DATABASE]
-After:  Express, PostgreSQL
-```
-
-**Repeat for each directory** where you want AI instructions (backend, frontend, etc.).
-
-### 4. Copy to Your Project & Link to Your AI Agent
-
-**First:** Copy the filled files to your own project repository:
-
-**For Claude Code:**
-```bash
-cp AGENTS.md CLAUDE.md your-project/
-```
-Claude Code has native skills support - no additional files needed.
-
-**For other agents (Cursor, Windsurf, GitHub Copilot, Codex):**
-```bash
-cp AGENTS.md CLAUDE.md SKILLS_INSTRUCTIONS.md your-project/
-```
-**Important:** You MUST copy `SKILLS_INSTRUCTIONS.md` to your project root. Your AGENTS.md files reference it for the skills protocol.
-
-**Then link using your agent's file naming convention:**
-- **Cursor:** `cp AGENTS.md .cursorrules`
-- **GitHub Copilot:** `cp AGENTS.md .github/copilot-instructions.md`
-- **Windsurf:** `cp AGENTS.md .windsurfrules`
-- **Codex:** `cp AGENTS.md .codexrc` (or your agent's config file)
-
----
+The AI analyzes the focused context (tech stack, patterns, dependencies in that directory) and populates templates in a few minutes.
 
 ## How It Works
 
@@ -109,26 +57,17 @@ Once configured, templates provide context for **every request** automatically.
 - "Build notification system" → Creates detailed plan in `specs/`, implements systematically
 - "Add real-time collaboration" → Designs architecture, validates before coding
 
-**You don't write individual plans.** Templates handle straightforward work. AI creates plans only when complexity requires it.
-
-### Optional: DeepWiki Integration
-
-Enable DeepWiki in CLAUDE.md for AI to consult best practices when planning complex features:
-- Architecture patterns (microservices, event-driven, caching)
-- Library-specific guidance (React, PostgreSQL, Redis)
-
-**Example:** Designing rate-limiting → DeepWiki surfaces token bucket algorithms and proven patterns.
+**You don't write individual plans.** Templates handle straightforward work using spec and test driven development. AI creates plans only when complexity requires it.
 
 ---
 
 ## What's Included
 
-| Component      | Purpose                                                                          |
-| -------------- | -------------------------------------------------------------------------------- |
-| **AGENTS.md**  | Project context: architecture, tech stack, conventions (works with any AI agent) |
-| **CLAUDE.md**  | Claude Code-specific instructions with ExecPlan workflow                         |
-| **PLANS.md**   | Template for complex feature execution plans                                     |
-| **Metaprompt** | Auto-fills all templates by analyzing your codebase                              |
+| Component     | Purpose                                                                          |
+| ------------- | -------------------------------------------------------------------------------- |
+| **AGENTS.md** | Project context: architecture, tech stack, conventions (works with any AI agent) |
+| **CLAUDE.md** | Claude Code-specific instructions with ExecPlan workflow                         |
+| **PLANS.md**  | Template for complex feature execution plans                                     |
 
 **Result:** Professional templates with best practices built-in. You customize project specifics, not structure.
 
@@ -138,34 +77,24 @@ Enable DeepWiki in CLAUDE.md for AI to consult best practices when planning comp
 
 ```
 .
-├── AGENTS.md               # Root-level instructions
-├── CLAUDE.md               # Claude Code configuration
-├── prompts/metaprompt.txt  # Auto-fill tool
-├── specs/                  # Full-stack feature plans
-│   └── PLANS.md
-├── backend/
-│   ├── AGENTS.md
-│   ├── CLAUDE.md
-│   └── specs/              # Backend-only plans
-└── frontend/
-    ├── AGENTS.md
-    ├── CLAUDE.md
-    └── specs/              # Frontend-only plans
+├── AGENTS.md               # Agents Memory (Github Copilot, Codex, Cursor, Windsurf)
+├── CLAUDE.md               # Claude Code Memory 
+├── specs/                  # Feature plans
+│   └── PLANS.md            # Execution plan template
+├── .vscode/                # Optional: VSCode settings for AI agents
+│   └── mcp.json            # MCP configuration for GitHub Copilot and other agents
+├── .mcp.json               # MCP configuration for Claude Code
 ```
 
 ---
 
 ## FAQ
 
-**Q: Why separate files for backend/frontend?**
-A: Different tech stacks need focused context. Keeps instructions clean and AI responses accurate.
-
-**Q: What if I have a simple single-tier project?**
-A: Just use root-level AGENTS.md and CLAUDE.md. Delete backend/frontend directories.
+**Q: What if I have an existing project?**
+A: Already handled by the agent instructions. Just add all the repo files to your project and run your coding agent. Make sure to have the `AGENTS.md` or `CLAUDE.md` files copied from this repo so that your coding agent knows how to setup skills and sub-agents. 
 
 ---
 
 **License:** MIT
-**Credits:** PLANS.md based on [OpenAI's Codex Execution Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md)
 
-Ready? Clone, run the metaprompt, and give your AI agents the context they need. 🚀
+**Credits:** PLANS.md based on [OpenAI's Codex Execution Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md)

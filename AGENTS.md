@@ -51,7 +51,7 @@ You have skills available.
 
 ### Automatic Setup Detection
 
-**IMPORTANT:** Before attempting to use skills, you MUST verify that the skills system is properly installed. If any of the following conditions are true, you MUST run the setup process automatically:
+**IMPORTANT:** Before attempting to use skills, you MUST verify that the skills system and CLAUDE.md is properly configured by checking if you see skills like this. Also if the user already has a well-formatted CLAUDE.md with the project information filled in below, you can skip the setup:
 
 1. The skills directory doesn't exist for your agent
 2. The agents directory doesn't exist for your agent  

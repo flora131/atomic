@@ -105,7 +105,11 @@ def format_concise(json_data: dict[str, Any]) -> None:
     type_color = get_type_color(msg_type)
 
     # Special handling for TodoWrite calls
-    if msg_type == "assistant" and json_data.get("message", {}).get("content", [{}])[0].get("name") == "TodoWrite":
+    if (
+        msg_type == "assistant"
+        and json_data.get("message", {}).get("content", [{}])[0].get("name")
+        == "TodoWrite"
+    ):
         tool_input = json_data["message"]["content"][0].get("input", {})
         if "todos" in tool_input and isinstance(tool_input["todos"], list):
             format_todo_list(tool_input["todos"])
@@ -194,12 +198,18 @@ def format_concise(json_data: dict[str, Any]) -> None:
             # Show result summary and first 2 lines
             tool_content = content[0].get("content")
             if tool_content:
-                result_text = tool_content if isinstance(tool_content, str) else json.dumps(tool_content)
+                result_text = (
+                    tool_content
+                    if isinstance(tool_content, str)
+                    else json.dumps(tool_content)
+                )
                 lines = result_text.split("\n")
                 chars = len(result_text)
                 console.print()
                 console.print("  ⎿  ", end="")
-                console.print(f"{len(lines)} lines, {chars} chars", style=colors["dim"], end="")
+                console.print(
+                    f"{len(lines)} lines, {chars} chars", style=colors["dim"], end=""
+                )
                 if content[0].get("is_error"):
                     console.print(" ERROR", style=colors["red"], end="")
 
@@ -291,13 +301,17 @@ def display_tool_call_with_result(
 
     if "content" in tool_result:
         result_text = (
-            tool_result["content"] if isinstance(tool_result["content"], str) else json.dumps(tool_result["content"])
+            tool_result["content"]
+            if isinstance(tool_result["content"], str)
+            else json.dumps(tool_result["content"])
         )
         lines = result_text.split("\n")
         chars = len(result_text)
 
         console.print(" ", end="")
-        console.print(f"({len(lines)} lines, {chars} chars)", style=colors["dim"], end="")
+        console.print(
+            f"({len(lines)} lines, {chars} chars)", style=colors["dim"], end=""
+        )
 
         if is_error:
             console.print(" ERROR", style=colors["red"], end="")
@@ -314,7 +328,11 @@ def display_tool_call_with_result(
         if len(lines) > lines_to_show:
             console.print()
             console.print("    ⎿  ", end="")
-            console.print(f"... {len(lines) - lines_to_show} more lines", style=colors["dim"], end="")
+            console.print(
+                f"... {len(lines) - lines_to_show} more lines",
+                style=colors["dim"],
+                end="",
+            )
 
     console.print("\n")
 
@@ -323,8 +341,12 @@ def process_stream() -> None:
     """Process JSONL stream from stdin."""
     debug_mode = "--debug" in sys.argv
     tool_calls: dict[str, dict[str, Any]] = {}  # Store tool calls by their ID
-    pending_results: dict[str, dict[str, Any]] = {}  # Store results waiting for their tool calls
-    last_line: dict[str, Any] | None = None  # Track the last line to detect final message
+    pending_results: dict[
+        str, dict[str, Any]
+    ] = {}  # Store results waiting for their tool calls
+    last_line: dict[str, Any] | None = (
+        None  # Track the last line to detect final message
+    )
     is_last_assistant_message = False
 
     for line in sys.stdin:
@@ -336,7 +358,9 @@ def process_stream() -> None:
         if debug_mode:
             from datetime import datetime, timezone
 
-            timestamp = console.render_str(f"[{datetime.now(timezone.utc).isoformat()}] ", style=colors["dim"])
+            timestamp = console.render_str(
+                f"[{datetime.now(timezone.utc).isoformat()}] ", style=colors["dim"]
+            )
 
         try:
             json_data = json.loads(line)
@@ -372,7 +396,9 @@ def process_stream() -> None:
                     console.print()
 
             # Check if this is a tool result
-            elif json_data.get("type") == "user" and json_data.get("message", {}).get("content"):
+            elif json_data.get("type") == "user" and json_data.get("message", {}).get(
+                "content"
+            ):
                 content = json_data["message"]["content"]
                 if content and content[0].get("type") == "tool_result":
                     tool_result = content[0]
@@ -402,7 +428,9 @@ def process_stream() -> None:
                 console.print(timestamp, end="")
                 format_concise(json_data)
                 console.print()
-                console.print("=== Final Result ===", style=colors["bright"] + colors["green"])
+                console.print(
+                    "=== Final Result ===", style=colors["bright"] + colors["green"]
+                )
                 console.print()
                 console.print(json_data["result"])
 
@@ -414,9 +442,11 @@ def process_stream() -> None:
 
             # Track if this might be the last assistant message
             last_line = json_data
-            is_last_assistant_message = json_data.get("type") == "assistant" and not json_data.get("message", {}).get(
-                "content", [{}]
-            )[0].get("id")
+            is_last_assistant_message = json_data.get(
+                "type"
+            ) == "assistant" and not json_data.get("message", {}).get("content", [{}])[
+                0
+            ].get("id")
 
         except json.JSONDecodeError:
             console.print(timestamp, end="")
@@ -425,11 +455,18 @@ def process_stream() -> None:
             console.print()
 
     # If the last message was an assistant message (not a tool call), display the full content
-    if is_last_assistant_message and last_line and last_line.get("message", {}).get("content"):
+    if (
+        is_last_assistant_message
+        and last_line
+        and last_line.get("message", {}).get("content")
+    ):
         content = last_line["message"]["content"]
         if content and content[0].get("text"):
             console.print()
-            console.print("=== Final Assistant Message ===", style=colors["bright"] + colors["green"])
+            console.print(
+                "=== Final Assistant Message ===",
+                style=colors["bright"] + colors["green"],
+            )
             console.print()
             console.print(content[0]["text"])
 

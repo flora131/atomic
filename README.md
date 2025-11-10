@@ -1,75 +1,136 @@
-# AI Agent Instructions Template
+# AI Agent Development System
 
-**Pre-built templates that make AI agents write better code with less back-and-forth.**
+**Pre-configured toolkit that gives AI agents your project context, proven workflows, and autonomous execution capabilities.**
 
-## The Problem
-AI coding agents (Claude Code, Cursor, Copilot, Windsurf) produce higher-quality code when they understand your project's architecture, conventions, and tech stack. But explaining this context every time—or writing instruction docs from scratch—wastes hours.
+## Core Components
 
-## This Solution
-Ready-to-use instruction templates (AGENTS.md, CLAUDE.md, PLANS.md) with best practices already written. You customize project-specific details quickly, and your AI agent immediately:
-- ✅ Follows your patterns without repeated prompting
-- ✅ Handles simple requests instantly with context
-- ✅ Auto-generates execution plans for complex features
-- ✅ Scales across your team with zero per-request overhead
+1. **Context Templates** (AGENTS.md, CLAUDE.md, PLANS.md) - Project architecture, conventions, and tech stack
+2. **Battle-Tested Workflows** - TDD, debugging, code review from [Superpowers](https://github.com/obra/superpowers) and [Anthropic Skills](https://github.com/anthropics/skills)
+3. **Sub-Agent Orchestration** - Parallel specialized agents for complex tasks
+4. **Autonomous Execution** - Ralph Wiggum method for running agents continuously overnight for development
 
-**ROI:** 5-minute setup saves 2+ hours/week in context-explaining and back-and-forth.
+**Setup:** 5 minutes | **Result:** Agents that follow your patterns, auto-generate plans, and work autonomously
 
 ---
 
 ## 5-Minute Setup
 
-### 1. Clone This Repo
+### Step 1: Copy Templates to Your Project
+
+Navigate to this repo and copy the essential files to your project:
 
 ```bash
-git clone https://github.com/flora131/agent-instructions.git
+# Required: Agent memory (choose one)
+cp CLAUDE.md /path/to/your-project/        # For Claude Code
+# OR
+cp AGENTS.md /path/to/your-project/        # For other agents
+
+# Required: Execution plan templates
+cp -r specs/ /path/to/your-project/
+
+# Optional: Ralph Wiggum autonomous execution
+cp -r .ralph/ /path/to/your-project/
+
+# Optional: MCP and VSCode configs for recommended MCP servers
+cp .mcp.json /path/to/your-project/
+cp -r .vscode/ /path/to/your-project/
 ```
 
-### 2. Add Skills + Sub-Agent + Claude Code Commands Support
+**What each component does:**
+- **AGENTS.md/CLAUDE.md**: Contains your project context (architecture, stack, patterns) - agent reads this automatically
+- **specs/**: Houses PLANS.md template for complex feature execution plans
+- **.ralph/**: Scripts for running agents continuously overnight (autonomous development)
+- **.mcp.json**: Model Context Protocol configuration
+- **.vscode/**: VSCode settings for AI agents
 
-Extend your AI agent with proven workflows from [Superpowers](https://github.com/obra/superpowers).
+### Step 2: Auto-Populate Your Project Context
 
-**Supported:** All agents (Claude Code, Cursor, Windsurf, GitHub Copilot, Codex)
-**Notes**:
-- Commands are only supported in Claude Code at the moment.
-- Claude Code has native skills support - no setup needed!
-  - Auto detects if skills exist and asks you to install from the Superpowers repo.
-
-**One-minute setup**
-
-As you use your AI coding assistant, it should auto detect the required installation by cloning the `agent-setup` branch in this repo. You can also explicitly ask it:
+Open your project in your AI coding assistant and ask:
 
 *"Set up Superpowers skills and sub-agent support for this project"*
 
-The AI analyzes the focused context (tech stack, patterns, dependencies in that directory) and populates templates in a few minutes.
+The agent will:
+- Analyze your codebase (tech stack, patterns, dependencies)
+- Populate AGENTS.md/CLAUDE.md with your project specifics
+- Install Superpowers skills and workflows from [Superpowers](https://github.com/obra/superpowers) and [Anthropic Skills](https://github.com/anthropics/skills)
+- Set up sub-agent orchestration
 
-## How It Works
+**Note:** Claude Code has native skills support and auto-detects when to install.
 
-### One-Time Setup, Zero Ongoing Overhead
+---
 
-Once configured, templates provide context for **every request** automatically.
+## Ralph Wiggum Method: Autonomous Execution
 
-**Simple requests:** Handled instantly with AGENTS.md context
-- "Add error handling to login" → AI knows your patterns, no explanation needed
-- "Fix TypeScript error" → AI understands your type system
-- "Refactor component" → AI follows established conventions
+Run AI agents in continuous loops until task completion - no manual intervention required.
 
-**Complex features:** AI auto-generates structured execution plans
+**Prerequisites:** You must have copied `.ralph/` to your project (see Step 1 above).
+
+**How it works:** Agent reads `.ralph/prompt.md`, executes tasks, iterates until done, manages its own context.
+
+### Usage
+
+1. **Update `.ralph/prompt.md`** with your implementation instructions
+   - Keep it concise - reference detailed specs from `specs/` directory
+   - Example prompt in the prompt.md folder
+
+2. **Test one iteration:**
+   ```bash
+   cd /path/to/your-project
+   ./.ralph/sync.sh
+   ```
+   Verifies the agent can read your prompt and execute successfully
+
+3. **Run continuously:**
+   ```bash
+   ./.ralph/ralph.sh
+   ```
+   Agent loops, working until task completion
+
+**Best Practices:** One task per loop, clear completion criteria, reference specific specs from `specs/`
+
+**Results:** Ships 6 repos overnight at YC hackathons, builds programming languages, autonomously migrates codebases
+
+---
+
+## How Everything Works
+
+Once configured, templates provide context automatically for **every request** - no repeated prompting needed. Skills are all automatically discoverable for accelerated development.
+
+### Simple Requests
+Handled instantly with AGENTS.md context:
+- "Add error handling to login" → Agent knows your patterns
+- "Fix TypeScript error" → Agent understands your type system
+- "Refactor component" → Agent follows your conventions
+
+### Complex Features
+Agent auto-generates execution plans:
 - "Build notification system" → Creates detailed plan in `specs/`, implements systematically
 - "Add real-time collaboration" → Designs architecture, validates before coding
+- Ralph can run specs autonomously for development with human review
 
-**You don't write individual plans.** Templates handle straightforward work using spec and test driven development. AI creates plans only when complexity requires it.
+**You don't write plans.** The agent handles straightforward work with TDD. It only creates execution plans when complexity requires structured planning.
 
 ---
 
 ## What's Included
 
-| Component     | Purpose                                                                          |
-| ------------- | -------------------------------------------------------------------------------- |
-| **AGENTS.md** | Project context: architecture, tech stack, conventions (works with any AI agent) |
-| **CLAUDE.md** | Claude Code-specific instructions with ExecPlan workflow                         |
-| **PLANS.md**  | Template for complex feature execution plans                                     |
+| Component          | Purpose                                                                       | Required? |
+| ------------------ | ----------------------------------------------------------------------------- | --------- |
+| **AGENTS.md**      | Project context for any AI agent (architecture, stack, patterns)              | Yes       |
+| **CLAUDE.md**      | Claude Code-specific instructions with ExecPlan workflow                      | Yes*      |
+| **specs/**         | Directory containing PLANS.md template for execution plans                    | Yes       |
+| **specs/PLANS.md** | Template for complex feature execution plans - agent creates copies as needed | Yes       |
+| **.ralph/**        | Scripts for autonomous overnight development                                  | Optional  |
+| **.mcp.json**      | Model Context Protocol configuration                                          | Optional  |
+| **.vscode/**       | VSCode settings for AI agents                                                 | Optional  |
 
-**Result:** Professional templates with best practices built-in. You customize project specifics, not structure.
+*Use CLAUDE.md for Claude Code OR AGENTS.md for other agents (Cursor, Windsurf, GitHub Copilot, Codex)
+
+**How specs/ works:**
+- Agent auto-generates execution plans in `specs/` when features are complex
+- Uses `specs/PLANS.md` as template
+- Creates files like `specs/notification-system.md`, `specs/auth-refactor.md`, etc.
+- Updates `specs/README.md` with links to all specs
 
 ---
 
@@ -77,24 +138,40 @@ Once configured, templates provide context for **every request** automatically.
 
 ```
 .
-├── AGENTS.md               # Agents Memory (Github Copilot, Codex, Cursor, Windsurf)
-├── CLAUDE.md               # Claude Code Memory 
-├── specs/                  # Feature plans
-│   └── PLANS.md            # Execution plan template
-├── .vscode/                # Optional: VSCode settings for AI agents
-│   └── mcp.json            # MCP configuration for GitHub Copilot and other agents
-├── .mcp.json               # MCP configuration for Claude Code
+├── AGENTS.md      # Agent memory (all agents)
+├── CLAUDE.md      # Claude Code memory
+├── specs/         # Feature plans & templates
+│   ├── PLANS.md   # Template for execution plans
+│   └── README.md  # Index of all specs
+├── .ralph/        # Autonomous execution scripts (optional)
+│   ├── prompt.md  # Your instructions for Ralph
+│   ├── sync.sh    # Single iteration
+│   └── ralph.sh   # Continuous loop
+├── .vscode/       # VSCode settings (optional)
+└── .mcp.json      # MCP config (optional)
 ```
 
 ---
 
 ## FAQ
 
-**Q: What if I have an existing project?**
-A: Already handled by the agent instructions. Just add all the repo files to your project and run your coding agent. Make sure to have the `AGENTS.md` or `CLAUDE.md` files copied from this repo so that your coding agent knows how to setup skills and sub-agents. 
+**Q: Can I use this with an existing project?**
+A: Yes! Copy the required files (AGENTS.md/CLAUDE.md and specs/) to your project root, then tell your agent: *"Set up Superpowers skills and sub-agent support for this project"*. The agent will analyze your codebase and populate the templates automatically.
+
+**Q: Which file should I use - AGENTS.md or CLAUDE.md?**
+A: Use `CLAUDE.md` for Claude Code (includes ExecPlan workflow). Use `AGENTS.md` for other agents (Cursor, Windsurf, GitHub Copilot, Codex).
+
+**Q: Do I need to write execution plans manually?**
+A: No. The agent auto-generates plans in `specs/` only when needed for complex features. Simple tasks execute immediately using TDD. The agent uses `specs/PLANS.md` as a template when creating new execution plans.
+
+**Q: How do I use the specs/ directory?**
+A: Copy the entire `specs/` directory to your project. When you ask the agent to implement complex features, it will automatically create execution plans in `specs/` (like `specs/notification-system.md`) using the `PLANS.md` template. You don't manually create these - the agent does.
+
+**Q: Do I need Ralph Wiggum (.ralph/) for basic usage?**
+A: Ralph is optional and only needed if you want autonomous overnight development. 
 
 ---
 
 **License:** MIT
 
-**Credits:** PLANS.md based on [OpenAI's Codex Execution Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md)
+**Credits:** [Superpowers](https://github.com/obra/superpowers) • [Anthropic Skills](https://github.com/anthropics/skills) • [OpenAI Codex Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md) • [Ralph Wiggum](https://ghuntley.com/ralph/) • [repomirror](https://github.com/repomirrorhq/repomirror)

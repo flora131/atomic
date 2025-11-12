@@ -56,7 +56,7 @@ cp -r .vscode/ /path/to/your-project/
 
 Open your project in your AI coding assistant and ask:
 
-*"Set up Superpowers skills and sub-agent support for this project"*
+*"Set up agent instructions, skills, and sub-agent support for this project"*
 
 The agent will:
 - Analyze your codebase (tech stack, patterns, dependencies)

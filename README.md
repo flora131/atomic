@@ -1,13 +1,22 @@
 # AI Agent Development System
 
-**Pre-configured toolkit that gives AI agents your project context, proven workflows, and autonomous execution capabilities.**
+**Pre-configured toolkit that gives AI agents your project context, proven workflows, and autonomous execution capabilities. Give your AI agents access to sub-agents and skills in minutes.**
 
 ## Core Components
 
 1. **Context Templates** (AGENTS.md, CLAUDE.md, PLANS.md) - Project architecture, conventions, and tech stack
 2. **Battle-Tested Workflows** - TDD, debugging, code review from [Superpowers](https://github.com/obra/superpowers) and [Anthropic Skills](https://github.com/anthropics/skills)
 3. **Sub-Agent Orchestration** - Parallel specialized agents for complex tasks
-4. **Autonomous Execution** - Ralph Wiggum method for running agents continuously overnight for development
+4. **114+ Custom Specialized Sub-Agents** - Pre-configured expert agents available in the `agent-setup` branch for:
+   - **Engineering**: Python Pro, TypeScript Pro, React Specialist, Next.js Developer, Django Developer, Rails Expert, and 40+ more language/framework specialists
+   - **Infrastructure & DevOps**: Cloud Architect, Kubernetes Specialist, Terraform Engineer, DevOps Engineer, SRE Engineer, Database Administrator
+   - **Security & Testing**: Security Engineer, Penetration Tester, Test Automator, QA Expert, Accessibility Tester, Compliance Auditor
+   - **AI/ML**: AI Engineer, ML Engineer, MLOps Engineer, LLM Architect, NLP Engineer, Data Scientist
+   - **Architecture & Design**: Microservices Architect, API Designer, GraphQL Architect, Code Reviewer, Refactoring Specialist
+   - **Product & Business**: Product Manager, UX Researcher, Business Analyst, SEO Specialist, Content Marketer
+   - **Specialized Domains**: Blockchain Developer, Game Developer, Fintech Engineer, IoT Engineer, Legal Advisor
+   - **Coordination**: Agent Organizer, Multi-Agent Coordinator, Task Distributor, Error Coordinator, Knowledge Synthesizer
+5. **Autonomous Execution** - Ralph Wiggum method for running agents continuously overnight for development
 
 **Setup:** 5 minutes | **Result:** Agents that follow your patterns, auto-generate plans, and work autonomously
 

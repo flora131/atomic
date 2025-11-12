@@ -81,7 +81,7 @@ When you detect that setup is needed (missing skills/agents directories or `list
    
    # Clone the agent-setup branch from the agent-instructions repository
    # This is an EXTERNAL repository, not the user's current project
-   git clone -b agent-setup git@github.com:flora131/agent-instructions.git "$TEMP_DIR/agent-instructions"
+   git clone -b agent-setup https://github.com/flora131/agent-instructions.git "$TEMP_DIR/agent-instructions"
    
    # The METAPROMPT.md is now available at: $TEMP_DIR/agent-instructions/METAPROMPT.md
    ```

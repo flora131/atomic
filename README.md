@@ -95,7 +95,30 @@ Run AI agents in continuous loops until task completion - no manual intervention
    ```
    Agent loops, working until task completion
 
-**Best Practices:** One task per loop, clear completion criteria, reference specific specs from `specs/`
+### Agent Prompt Guidelines
+
+#### Best Practices
+
+**Keep prompts short and concise.** Effective agent prompts are clear and focused, not verbose. Detailed specifications should be maintained in separate documents (specs, design docs, etc.) and referenced when needed.
+
+**Additional guidelines:**
+- One task per loop
+- Clear completion criteria
+- Reference specific specs from `specs/`
+
+#### Example: Repository Porting Project Prompt (inspired by repomirror)
+
+```
+Your job is to port repomirror (TypeScript) to repomirror-py (Python) and maintain the repository. Use the implementation spec under specs/port-repomirror.
+
+Use the specs/port-repomirror/agent/ directory as a scratchpad for your work. Store long term plans and todo lists there.
+
+Make a commit and push your changes after every single file edit.
+
+You have access to the current ./ repository as well as the target /tmp/test-target2 repository.
+
+The original project was mostly tested by manually running the code. When porting, you will need to write end to end and unit tests for the project. But make sure to spend most of your time on the actual porting, not on the testing. A good heuristic is to spend 80% of your time on the actual porting, and 20% on the testing.
+```
 
 **Results:** Ships 6 repos overnight at YC hackathons, builds programming languages, autonomously migrates codebases
 

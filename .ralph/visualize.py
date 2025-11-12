@@ -99,6 +99,14 @@ def format_todo_list(todos: list[dict[str, Any]]) -> None:
     console.print(f" ({progress_pct}% done)", style=colors["dim"])
 
 
+def safe_str(value: Any, max_len: int | None = None) -> str:
+    """Safely convert any value to string and optionally truncate."""
+    result = str(value) if not isinstance(value, str) else value
+    if max_len is not None and len(result) > max_len:
+        return result[:max_len]
+    return result
+
+
 def format_concise(json_data: dict[str, Any]) -> None:
     """Format a JSON message in concise mode."""
     msg_type = json_data.get("type", "unknown")
@@ -131,27 +139,29 @@ def format_concise(json_data: dict[str, Any]) -> None:
 
                 # Extract the most important argument for each tool type
                 if "file_path" in tool_input:
-                    key_args.append(tool_input["file_path"])
+                    key_args.append(safe_str(tool_input["file_path"]))
                 elif "path" in tool_input:
-                    key_args.append(tool_input["path"])
+                    key_args.append(safe_str(tool_input["path"]))
                 elif "pattern" in tool_input:
-                    key_args.append(f'"{tool_input["pattern"]}"')
+                    key_args.append(f'"{safe_str(tool_input["pattern"])}"')
                 elif "command" in tool_input:
-                    key_args.append(tool_input["command"])
+                    key_args.append(safe_str(tool_input["command"]))
                 elif "cmd" in tool_input:
-                    key_args.append(tool_input["cmd"])
+                    key_args.append(safe_str(tool_input["cmd"]))
                 elif "query" in tool_input:
-                    key_args.append(f'"{tool_input["query"]}"')
+                    key_args.append(f'"{safe_str(tool_input["query"])}"')
                 elif "description" in tool_input:
-                    key_args.append(tool_input["description"])
+                    key_args.append(safe_str(tool_input["description"]))
                 elif "prompt" in tool_input:
-                    key_args.append(f'"{tool_input["prompt"][:30]}..."')
+                    key_args.append(f'"{safe_str(tool_input["prompt"], 30)}..."')
                 elif "url" in tool_input:
-                    key_args.append(tool_input["url"])
+                    key_args.append(safe_str(tool_input["url"]))
 
                 if key_args:
                     console.print("(", end="")
-                    console.print(key_args[0], style=colors["green"], end="")
+                    console.print(
+                        key_args[0], style=colors["green"], end="", markup=False
+                    )
                     console.print(")", end="")
 
             # Show additional arguments on next lines for complex tools
@@ -159,7 +169,7 @@ def format_concise(json_data: dict[str, Any]) -> None:
                 additional_args = []
 
                 if tool_name == "Bash" and "cwd" in tool_input:
-                    additional_args.append(f"cwd: {tool_input['cwd']}")
+                    additional_args.append(f"cwd: {safe_str(tool_input['cwd'])}")
                 if "limit" in tool_input:
                     additional_args.append(f"limit: {tool_input['limit']}")
                 if "offset" in tool_input:
@@ -167,8 +177,8 @@ def format_concise(json_data: dict[str, Any]) -> None:
                 if "include" in tool_input:
                     additional_args.append(f"include: {tool_input['include']}")
                 if "old_string" in tool_input and "new_string" in tool_input:
-                    old_str = tool_input["old_string"][:20]
-                    new_str = tool_input["new_string"][:20]
+                    old_str = safe_str(tool_input["old_string"], 20)
+                    new_str = safe_str(tool_input["new_string"], 20)
                     additional_args.append(f'replace: "{old_str}..." → "{new_str}..."')
                 if "timeout" in tool_input:
                     additional_args.append(f"timeout: {tool_input['timeout']}ms")
@@ -176,7 +186,9 @@ def format_concise(json_data: dict[str, Any]) -> None:
                 if additional_args:
                     console.print()
                     console.print("  ⎿  ", end="")
-                    console.print(", ".join(additional_args), style=colors["dim"])
+                    console.print(
+                        ", ".join(additional_args), style=colors["dim"], markup=False
+                    )
             return
 
     # Print the type indicator for non-tool messages
@@ -217,17 +229,17 @@ def format_concise(json_data: dict[str, Any]) -> None:
                 if lines and lines[0].strip():
                     console.print()
                     console.print("  ⎿  ", end="")
-                    console.print(lines[0], style=colors["reset"])
+                    console.print(lines[0], style=colors["reset"], markup=False)
                 if len(lines) > 1 and lines[1].strip():
                     console.print("      ", end="")
-                    console.print(lines[1], style=colors["dim"])
+                    console.print(lines[1], style=colors["dim"], markup=False)
             return
 
         if content and content[0].get("text"):
-            text = content[0]["text"][:50]
+            text = safe_str(content[0]["text"], 50)
             console.print(": ", end="")
-            console.print(text, style=colors["dim"], end="")
-            if len(content[0]["text"]) > 50:
+            console.print(text, style=colors["dim"], end="", markup=False)
+            if len(safe_str(content[0]["text"])) > 50:
                 console.print("...", style=colors["dim"], end="")
 
     elif msg_type == "system" and "subtype" in json_data:
@@ -240,17 +252,17 @@ def format_concise(json_data: dict[str, Any]) -> None:
         content_items = json_data["message"]["content"]
         text_content = next((c for c in content_items if c.get("type") == "text"), None)
         if text_content and text_content.get("text"):
-            lines = text_content["text"].split("\n")[:3]  # Show first 3 lines
+            lines = safe_str(text_content["text"]).split("\n")[:3]  # Show first 3 lines
             console.print()
             console.print("  ⎿  ", end="")
-            console.print(lines[0], style=colors["reset"])
+            console.print(lines[0], style=colors["reset"], markup=False)
             if len(lines) > 1:
                 console.print("      ", end="")
-                console.print(lines[1], style=colors["dim"])
+                console.print(lines[1], style=colors["dim"], markup=False)
             if len(lines) > 2:
                 console.print("      ", end="")
-                console.print(lines[2], style=colors["dim"])
-            if len(text_content["text"].split("\n")) > 3:
+                console.print(lines[2], style=colors["dim"], markup=False)
+            if len(safe_str(text_content["text"]).split("\n")) > 3:
                 console.print("      ", end="")
                 console.print("...", style=colors["dim"])
 
@@ -323,7 +335,7 @@ def display_tool_call_with_result(
                 line_color = colors["reset"] if i == 0 else colors["dim"]
                 console.print()
                 console.print("    ⎿  ", end="")
-                console.print(lines[i], style=line_color, end="")
+                console.print(lines[i], style=line_color, end="", markup=False)
 
         if len(lines) > lines_to_show:
             console.print()
@@ -432,7 +444,7 @@ def process_stream() -> None:
                     "=== Final Result ===", style=colors["bright"] + colors["green"]
                 )
                 console.print()
-                console.print(json_data["result"])
+                console.print(json_data["result"], markup=False)
 
             # For all other message types, display normally
             else:
@@ -451,7 +463,7 @@ def process_stream() -> None:
         except json.JSONDecodeError:
             console.print(timestamp, end="")
             console.print("⏺ Parse Error", style=colors["red"])
-            console.print(f"  ⎿  {line[:50]}...", style=colors["dim"])
+            console.print(f"  ⎿  {line[:50]}...", style=colors["dim"], markup=False)
             console.print()
 
     # If the last message was an assistant message (not a tool call), display the full content
@@ -468,7 +480,7 @@ def process_stream() -> None:
                 style=colors["bright"] + colors["green"],
             )
             console.print()
-            console.print(content[0]["text"])
+            console.print(content[0]["text"], markup=False)
 
 
 if __name__ == "__main__":
@@ -477,5 +489,5 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         sys.exit(0)
     except Exception as e:
-        console.print(f"Error: {e}", style=colors["red"])
+        console.print(f"Error: {e}", style=colors["red"], markup=False)
         sys.exit(1)

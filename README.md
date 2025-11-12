@@ -5,9 +5,9 @@
 ## Core Components
 
 1. **Context Templates** (AGENTS.md, CLAUDE.md, PLANS.md) - Project architecture, conventions, and tech stack
-2. **Battle-Tested Workflows** - TDD, debugging, code review from [Superpowers](https://github.com/obra/superpowers) and [Anthropic Skills](https://github.com/anthropics/skills)
+2. **Battle-Tested Workflows** - TDD, debugging, code review from [Superpowers](https://github.com/obra/superpowers) and [Anthropic Skills](https://github.com/anthropics/skills), custom built prompt-engineer based on Anthropic's prompt engineering overview
 3. **Sub-Agent Orchestration** - Parallel specialized agents for complex tasks
-4. **114+ Custom Specialized Sub-Agents** - Pre-configured expert agents available in the `agent-setup` branch for:
+4. **114+ Custom Specialized Sub-Agents** - Pre-configured expert agents from [Awesome Claude Code Subagents](https://github.com/VoltAgent/awesome-claude-code-subagents) available in the `agent-setup` branch for:
    - **Engineering**: Python Pro, TypeScript Pro, React Specialist, Next.js Developer, Django Developer, Rails Expert, and 40+ more language/framework specialists
    - **Infrastructure & DevOps**: Cloud Architect, Kubernetes Specialist, Terraform Engineer, DevOps Engineer, SRE Engineer, Database Administrator
    - **Security & Testing**: Security Engineer, Penetration Tester, Test Automator, QA Expert, Accessibility Tester, Compliance Auditor
@@ -62,6 +62,7 @@ The agent will:
 - Analyze your codebase (tech stack, patterns, dependencies)
 - Populate AGENTS.md/CLAUDE.md with your project specifics
 - Install Superpowers skills and workflows from [Superpowers](https://github.com/obra/superpowers) and [Anthropic Skills](https://github.com/anthropics/skills)
+- Install the custom `prompt-engineer` skill based on Anthropic's prompt engineering overview
 - Set up sub-agent orchestration
 
 **Note:** Claude Code has native skills support and auto-detects when to install.
@@ -194,7 +195,7 @@ Agent auto-generates execution plans:
 ## FAQ
 
 **Q: Can I use this with an existing project?**
-A: Yes! Copy the required files (AGENTS.md/CLAUDE.md and specs/) to your project root, then tell your agent: *"Set up Superpowers skills and sub-agent support for this project"*. The agent will analyze your codebase and populate the templates automatically.
+A: Yes! Copy the required files (AGENTS.md/CLAUDE.md and specs/) to your project root, then tell your agent: *"Set up agent instructions, skills, and sub-agent support for this project"*. The agent will analyze your codebase and populate the templates automatically.
 
 **Q: Which file should I use - AGENTS.md or CLAUDE.md?**
 A: Use `CLAUDE.md` for Claude Code (includes ExecPlan workflow). Use `AGENTS.md` for other agents (Cursor, Windsurf, GitHub Copilot, Codex).
@@ -216,6 +217,7 @@ A: Ralph is optional and only needed if you want autonomous overnight developmen
 
 - [Superpowers](https://github.com/obra/superpowers)
 - [Anthropic Skills](https://github.com/anthropics/skills)
+- [Awesome Claude Code Subagents](https://github.com/VoltAgent/awesome-claude-code-subagents)
 - [OpenAI Codex Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md)
 - [Ralph Wiggum](https://ghuntley.com/ralph/)
 - [repomirror](https://github.com/repomirrorhq/repomirror)

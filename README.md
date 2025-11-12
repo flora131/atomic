@@ -95,6 +95,12 @@ Run AI agents in continuous loops until task completion - no manual intervention
    ```
    Agent loops, working until task completion
 
+### Best Environments to Run Ralph
+
+Since Ralph runs continuously, it's best to run it in environments designed for long-running processes. Consider the following options:
+- **Cloud VM**: Use a terminal multiplexer like [tmux](https://github.com/tmux/tmux) and setup your development environment with basic tools (git, Node.js, Python, Rust, C, C++, etc.)
+  - Providers: AWS EC2, Google Cloud Compute Engine, DigitalOcean Droplets, etc.
+
 ### Agent Prompt Guidelines
 
 #### Best Practices
@@ -206,4 +212,10 @@ A: Ralph is optional and only needed if you want autonomous overnight developmen
 
 **License:** MIT
 
-**Credits:** [Superpowers](https://github.com/obra/superpowers) • [Anthropic Skills](https://github.com/anthropics/skills) • [OpenAI Codex Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md) • [Ralph Wiggum](https://ghuntley.com/ralph/) • [repomirror](https://github.com/repomirrorhq/repomirror)
+**Credits:**
+
+- [Superpowers](https://github.com/obra/superpowers)
+- [Anthropic Skills](https://github.com/anthropics/skills)
+- [OpenAI Codex Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md)
+- [Ralph Wiggum](https://ghuntley.com/ralph/)
+- [repomirror](https://github.com/repomirrorhq/repomirror)

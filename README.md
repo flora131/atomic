@@ -1,6 +1,6 @@
 # AI Agent Development System
 
-**Pre-configured toolkit that gives AI agents your project context, proven workflows, and autonomous execution capabilities. Give your AI agents access to sub-agents and skills in minutes. Support for Claude Code, Github Copilot, Cursor, Codex, Windsurf, Kiro, and Cline.**
+**Pre-configured toolkit that gives AI agents your project context, proven workflows, and autonomous execution capabilities. Give your AI agents access to sub-agents and skills in minutes. Support for Claude Code, Github Copilot, Cursor, Codex, Windsurf, Kiro, and Cline for both Mac and Windows users.**
 
 ## Core Components
 

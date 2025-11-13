@@ -4,6 +4,8 @@
 
 https://github.com/user-attachments/assets/7dc0e5dd-afcd-4215-9274-a5047c359c8a
 
+*Instruct your AI agent of choice and watch as it explores your codebase, automatically fills the AGENTS.md template with your project information, installs skills, sub-agents, and autonomous execution capabilities. Here we show how after instsalling Cursor invokes a debugging skill to solve a real problem.*
+
 ## Core Components
 
 1. **Context Templates** (AGENTS.md, CLAUDE.md, PLANS.md) - Project architecture, conventions, and tech stack

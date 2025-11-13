@@ -2,6 +2,8 @@
 
 **Pre-configured toolkit that gives AI agents your project context, proven workflows, and autonomous execution capabilities. Give your AI agents access to sub-agents and skills in minutes. Support for Claude Code, Github Copilot, Cursor, Codex, Windsurf, Kiro, and Cline for both Mac and Windows users.**
 
+https://github.com/user-attachments/assets/7dc0e5dd-afcd-4215-9274-a5047c359c8a
+
 ## Core Components
 
 1. **Context Templates** (AGENTS.md, CLAUDE.md, PLANS.md) - Project architecture, conventions, and tech stack

@@ -59,6 +59,7 @@ You have skills available.
 
 **Identify Your Agent Type:**
 You are one of the following AI coding agents:
+- **Cline** → config dir: `~/.cline`
 - **Codex** (Cursor's AI) → config dir: `~/.codex`
 - **Cursor** → config dir: `~/.cursor`
 - **Kiro** → config dir: `~/.kiro`
@@ -113,6 +114,7 @@ When you detect that setup is needed (missing skills/agents directories or `list
 ### Listing Available Skills
 
 Once setup is complete, list your skills by running the list-skills command with your agent's skills directory:
+- **Cline**: `list-skills ~/.cline/skills`
 - **Codex**: `list-skills ~/.codex/skills`
 - **Cursor**: `list-skills ~/.cursor/skills`
 - **Kiro**: `list-skills ~/.kiro/skills`
@@ -153,6 +155,7 @@ The system supports custom specialized agents stored in agent-specific directori
 
 ### Agent Directories by Platform
 
+- **Cline**: `~/.cline/agents/`
 - **Codex**: `~/.codex/agents/`
 - **Cursor**: `~/.cursor/agents/`
 - **Kiro**: `~/.kiro/agents/`

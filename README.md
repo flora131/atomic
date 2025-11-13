@@ -1,6 +1,6 @@
 # AI Agent Development System
 
-**Pre-configured toolkit that gives AI agents your project context, proven workflows, and autonomous execution capabilities. Give your AI agents access to sub-agents and skills in minutes. Support for Claude Code, Github Copilot, Cursor, Codex, Windsurf, and Kiro.**
+**Pre-configured toolkit that gives AI agents your project context, proven workflows, and autonomous execution capabilities. Give your AI agents access to sub-agents and skills in minutes. Support for Claude Code, Github Copilot, Cursor, Codex, Windsurf, Kiro, and Cline for both Mac and Windows users.**
 
 ## Core Components
 
@@ -66,6 +66,14 @@ The agent will:
 - Set up sub-agent orchestration
 
 **Note:** Claude Code has native skills support and auto-detects when to install.
+
+**For Cline Users:** After the agent populates AGENTS.md with your project context, you need to add it to Cline's global rules so it's available in every conversation:
+- **Via UI**: Click the `+` button in Cline's Rules tab, then copy the contents of AGENTS.md into the new rule file
+- **Via CLI**: Copy AGENTS.md to your global rules directory:
+  - **macOS/Linux**: `cp AGENTS.md ~/Documents/Cline/Rules/`
+  - **Windows**: `copy AGENTS.md %USERPROFILE%\Documents\Cline\Rules\`
+
+For more details, see [Cline Rules documentation](https://docs.cline.bot/features/cline-rules).
 
 ---
 
@@ -163,7 +171,7 @@ Agent auto-generates execution plans:
 | **.mcp.json**      | Model Context Protocol configuration                                          | Optional  |
 | **.vscode/**       | VSCode settings for AI agents                                                 | Optional  |
 
-*Use CLAUDE.md for Claude Code OR AGENTS.md for other agents (Cursor, Kiro, Windsurf, GitHub Copilot, Codex)
+*Use CLAUDE.md for Claude Code OR AGENTS.md for other agents (Cursor, Kiro, Windsurf, GitHub Copilot, Codex, Cline)
 
 **How specs/ works:**
 - Agent auto-generates execution plans in `specs/` when features are complex
@@ -198,7 +206,7 @@ Agent auto-generates execution plans:
 A: Yes! Copy the required files (AGENTS.md/CLAUDE.md and specs/) to your project root, then tell your agent: *"Set up agent instructions, skills, and sub-agent support for this project"*. The agent will analyze your codebase and populate the templates automatically.
 
 **Q: Which file should I use - AGENTS.md or CLAUDE.md?**
-A: Use `CLAUDE.md` for Claude Code (includes ExecPlan workflow). Use `AGENTS.md` for other agents (Cursor, Kiro, Windsurf, GitHub Copilot, Codex).
+A: Use `CLAUDE.md` for Claude Code (includes ExecPlan workflow). Use `AGENTS.md` for other agents (Cursor, Kiro, Windsurf, GitHub Copilot, Codex, Cline).
 
 **Q: Do I need to write execution plans manually?**
 A: No. The agent auto-generates plans in `specs/` only when needed for complex features. Simple tasks execute immediately using TDD. The agent uses `specs/PLANS.md` as a template when creating new execution plans.

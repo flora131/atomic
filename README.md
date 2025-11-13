@@ -1,28 +1,47 @@
-# AI Agent Development System
+# Infrastructure for AI Coding Agents
 
-**Pre-configured toolkit that gives AI agents your project context, proven workflows, and autonomous execution capabilities. Give your AI agents access to sub-agents and skills in minutes. Support for Claude Code, Github Copilot, Cursor, Codex, Windsurf, Kiro, and Cline for both Mac and Windows users.**
+**5-minute setup gives your AI coding agent project context, proven workflows, and autonomous execution capabilities.** Works with Claude Code, Cursor, Codex, Windsurf, Kiro, Cline, and GitHub Copilot for both Mac and Windows users.
+
+**Demo:** Watch Cursor auto-install the system and invoke debugging skills to solve a real problem.
 
 https://github.com/user-attachments/assets/7dc0e5dd-afcd-4215-9274-a5047c359c8a
 
-*Instruct your AI agent of choice and watch as it explores your codebase, automatically fills the AGENTS.md template with your project information, installs skills, sub-agents, and autonomous execution capabilities. Here we show how after instsalling Cursor invokes a debugging skill to solve a real problem.*
+*After setup, prompt naturally and your agent auto-selects the right approach. Simple tasks use your context automatically. Complex features generate ExecPlans for review before implementation. Specialized work dispatches sub-agents in parallel. Skills (proven workflows agents invoke automatically) activate based on prompts. Ralph (continuous execution framework) runs agents in loops for autonomous overnight development.*
 
-## Core Components
+---
 
-1. **Context Templates** (AGENTS.md, CLAUDE.md, PLANS.md) - Project architecture, conventions, and tech stack
-2. **Battle-Tested Workflows** - TDD, debugging, code review from [Superpowers](https://github.com/obra/superpowers) and [Anthropic Skills](https://github.com/anthropics/skills), custom built prompt-engineer based on Anthropic's prompt engineering overview
-3. **Sub-Agent Orchestration** - Parallel specialized agents for complex tasks
-4. **114+ Custom Specialized Sub-Agents** - Pre-configured expert agents from [Awesome Claude Code Subagents](https://github.com/VoltAgent/awesome-claude-code-subagents) available in the `agent-setup` branch for:
-   - **Engineering**: Python Pro, TypeScript Pro, React Specialist, Next.js Developer, Django Developer, Rails Expert, and 40+ more language/framework specialists
-   - **Infrastructure & DevOps**: Cloud Architect, Kubernetes Specialist, Terraform Engineer, DevOps Engineer, SRE Engineer, Database Administrator
-   - **Security & Testing**: Security Engineer, Penetration Tester, Test Automator, QA Expert, Accessibility Tester, Compliance Auditor
-   - **AI/ML**: AI Engineer, ML Engineer, MLOps Engineer, LLM Architect, NLP Engineer, Data Scientist
-   - **Architecture & Design**: Microservices Architect, API Designer, GraphQL Architect, Code Reviewer, Refactoring Specialist
-   - **Product & Business**: Product Manager, UX Researcher, Business Analyst, SEO Specialist, Content Marketer
-   - **Specialized Domains**: Blockchain Developer, Game Developer, Fintech Engineer, IoT Engineer, Legal Advisor
-   - **Coordination**: Agent Organizer, Multi-Agent Coordinator, Task Distributor, Error Coordinator, Knowledge Synthesizer
-5. **Autonomous Execution** - Ralph Wiggum method for running agents continuously overnight for development
+## Why?
 
-**Setup:** 5 minutes | **Result:** Agents that follow your patterns, auto-generate plans, and work autonomously
+AI coding agents ship as tools, not systems. Install Cursor or Codex and you get the agent, but no infrastructure. No proven workflows, no sub-agents, no project context templates. Developers spend weeks building their setup from scratch, iterating on what works. We've already done that work. We built this for developers who need to ship code, not learn new tools.
+
+**Without this setup?** You spend hours explaining the same architecture decisions, watching agents violate your conventions, and fixing bugs that proper workflows would have prevented. The promise of AI-assisted development feels hollow when you're stuck in an endless loop of context-setting and cleanup.
+
+**The actual problem isn't the agents, it's the missing infrastructure.**
+
+We spent weeks iterating on support systems for our AI agents: project memory files, mandatory TDD workflows, sub-agent orchestration, planning templates, and autonomous execution scripts. The impact was immediate:
+
+- **100,000 lines of high-quality code in two weeks** (AI handled 80%, we handled the critical 20%)
+- **Mandatory TDD caught design bugs** before expensive implementation
+- **Parallel sub-agents** eliminated bottlenecks on complex features
+- **ExecPlans survived context switches** and team handoffs
+- **Skills unlocked 10x engineering velocity** without prescriptive prompting, agents invoked proven workflows automatically (and you can even create custom skills for your domain)
+- **Overnight autonomous execution** meant waking up to completed features ready for review
+
+That setup took significant time to compile. **This repo gives you the same infrastructure in 5 minutes.**
+
+One prompt installs everything: project memory, proven workflows, 114+ specialized sub-agents, planning systems, and autonomous execution. Then you work exactly like before, no new commands to learn, no workflow changes.
+
+**Here's what happens automatically:**
+- Ask to fix a bug → agent invokes systematic debugging skills
+- Request a complex feature → Ask the agent to generate an ExecPlans for your review, research, brainstorm with the agent, review and give feedback, and break into milestones. Agent implements complex changes highly effectively.
+- Need specialized help → agent dispatches sub-agents (frontend, backend, testing) in parallel contexts
+- Want overnight development → enable Ralph to autonomously execute 
+
+**You prompt naturally. Infrastructure handles the rest.** Skills activate when needed. Sub-agents orchestrate themselves. Plans generate on complex features. You review, approve, ship.
+
+The ROI is clear: 5 minutes of setup, zero behavior change, maximum output.
+
+We built this after watching a small group of developers with fully-configured AI setups ship high-quality code at 10x velocity. The right infrastructure makes that speed accessible to everyone, not just the few who spend weeks building it from scratch.
 
 ---
 
@@ -58,9 +77,11 @@ cp -r .vscode/ /path/to/your-project/
 
 ### Step 2: Auto-Populate Your Project Context
 
+```
 Open your project in your AI coding assistant and ask:
 
-*"Set up agent instructions, skills, and sub-agent support for this project"*
+"Set up agent instructions, skills, and sub-agent support for this project"
+```
 
 The agent will:
 - Analyze your codebase (tech stack, patterns, dependencies)
@@ -85,122 +106,27 @@ For more details, see [Cline Rules documentation](https://docs.cline.bot/feature
 
 Run AI agents in continuous loops until task completion - no manual intervention required.
 
-**Prerequisites:** You must have copied `.ralph/` to your project (see Step 1 above).
-
-**How it works:** Agent reads `.ralph/prompt.md`, executes tasks, iterates until done, manages its own context.
-
-### Usage
-
-1. **Update `.ralph/prompt.md`** with your implementation instructions
-   - Keep it concise - reference detailed specs from `specs/` directory
-   - Example prompt in the prompt.md folder
-
-2. **Test one iteration:**
-   ```bash
-   cd /path/to/your-project
-   ./.ralph/sync.sh
-   ```
-   Verifies the agent can read your prompt and execute successfully
-
-3. **Run continuously:**
-   ```bash
-   ./.ralph/ralph.sh
-   ```
-   Agent loops, working until task completion
-
-### Best Environments to Run Ralph
-
-Since Ralph runs continuously, it's best to run it in environments designed for long-running processes. Consider the following options:
-- **Cloud VM**: Use a terminal multiplexer like [tmux](https://github.com/tmux/tmux) and setup your development environment with basic tools (git, Node.js, Python, Rust, C, C++, etc.)
-  - Providers: AWS EC2, Google Cloud Compute Engine, DigitalOcean Droplets, etc.
-
-### Agent Prompt Guidelines
-
-#### Best Practices
-
-**Keep prompts short and concise.** Effective agent prompts are clear and focused, not verbose. Detailed specifications should be maintained in separate documents (specs, design docs, etc.) and referenced when needed.
-
-**Additional guidelines:**
-- One task per loop
-- Clear completion criteria
-- Reference specific specs from `specs/`
-
-#### Example: Repository Porting Project Prompt (inspired by repomirror)
-
-```
-Your job is to port repomirror (TypeScript) to repomirror-py (Python) and maintain the repository. Use the implementation spec under specs/port-repomirror.
-
-Use the specs/port-repomirror/agent/ directory as a scratchpad for your work. Store long term plans and todo lists there.
-
-Make a commit and push your changes after every single file edit.
-
-You have access to the current ./ repository as well as the target /tmp/test-target2 repository.
-
-The original project was mostly tested by manually running the code. When porting, you will need to write end to end and unit tests for the project. But make sure to spend most of your time on the actual porting, not on the testing. A good heuristic is to spend 80% of your time on the actual porting, and 20% on the testing.
-```
-
-**Results:** Ships 6 repos overnight at YC hackathons, builds programming languages, autonomously migrates codebases
+**For detailed setup instructions, usage guidelines, and examples, see [.ralph/README.md](.ralph/README.md).**
 
 ---
 
-## How Everything Works
+## Core Components
 
-Once configured, templates provide context automatically for **every request** - no repeated prompting needed. Skills are all automatically discoverable for accelerated development.
+1. **Context Templates** (AGENTS.md, CLAUDE.md, PLANS.md) - Project architecture, conventions, and tech stack
+2. **Battle-Tested Workflows** - TDD, debugging, code review from [Superpowers](https://github.com/obra/superpowers) and [Anthropic Skills](https://github.com/anthropics/skills), custom built prompt-engineer based on Anthropic's prompt engineering overview
+3. **Sub-Agent Orchestration** - Parallel specialized agents for complex tasks
+4. **114+ Custom Specialized Sub-Agents** - Pre-configured expert agents from [Awesome Claude Code Subagents](https://github.com/VoltAgent/awesome-claude-code-subagents) available in the `agent-setup` branch for:
+   - **Engineering**: Python Pro, TypeScript Pro, React Specialist, Next.js Developer, Django Developer, Rails Expert, and 40+ more language/framework specialists
+   - **Infrastructure & DevOps**: Cloud Architect, Kubernetes Specialist, Terraform Engineer, DevOps Engineer, SRE Engineer, Database Administrator
+   - **Security & Testing**: Security Engineer, Penetration Tester, Test Automator, QA Expert, Accessibility Tester, Compliance Auditor
+   - **AI/ML**: AI Engineer, ML Engineer, MLOps Engineer, LLM Architect, NLP Engineer, Data Scientist
+   - **Architecture & Design**: Microservices Architect, API Designer, GraphQL Architect, Code Reviewer, Refactoring Specialist
+   - **Product & Business**: Product Manager, UX Researcher, Business Analyst, SEO Specialist, Content Marketer
+   - **Specialized Domains**: Blockchain Developer, Game Developer, Fintech Engineer, IoT Engineer, Legal Advisor
+   - **Coordination**: Agent Organizer, Multi-Agent Coordinator, Task Distributor, Error Coordinator, Knowledge Synthesizer
+5. **Autonomous Execution** - Ralph Wiggum method for running agents continuously overnight for development
 
-### Simple Requests
-Handled instantly with AGENTS.md context:
-- "Add error handling to login" → Agent knows your patterns
-- "Fix TypeScript error" → Agent understands your type system
-- "Refactor component" → Agent follows your conventions
-
-### Complex Features
-Agent auto-generates execution plans:
-- "Build notification system" → Creates detailed plan in `specs/`, implements systematically
-- "Add real-time collaboration" → Designs architecture, validates before coding
-- Ralph can run specs autonomously for development with human review
-
-**You don't write plans.** The agent handles straightforward work with TDD. It only creates execution plans when complexity requires structured planning.
-
----
-
-## What's Included
-
-| Component          | Purpose                                                                       | Required? |
-| ------------------ | ----------------------------------------------------------------------------- | --------- |
-| **AGENTS.md**      | Project context for any AI agent (architecture, stack, patterns)              | Yes       |
-| **CLAUDE.md**      | Claude Code-specific instructions with ExecPlan workflow                      | Yes*      |
-| **specs/**         | Directory containing PLANS.md template for execution plans                    | Yes       |
-| **specs/PLANS.md** | Template for complex feature execution plans - agent creates copies as needed | Yes       |
-| **.ralph/**        | Scripts for autonomous overnight development                                  | Optional  |
-| **.mcp.json**      | Model Context Protocol configuration                                          | Optional  |
-| **.vscode/**       | VSCode settings for AI agents                                                 | Optional  |
-
-*Use CLAUDE.md for Claude Code OR AGENTS.md for other agents (Cursor, Kiro, Windsurf, GitHub Copilot, Codex, Cline)
-
-**How specs/ works:**
-- Agent auto-generates execution plans in `specs/` when features are complex
-- Uses `specs/PLANS.md` as template
-- Creates files like `specs/notification-system.md`, `specs/auth-refactor.md`, etc.
-- Updates `specs/README.md` with links to all specs
-
----
-
-## Repository Structure
-
-```
-.
-├── AGENTS.md      # Agent memory (all agents)
-├── CLAUDE.md      # Claude Code memory
-├── specs/         # Feature plans & templates
-│   ├── PLANS.md   # Template for execution plans
-│   └── README.md  # Index of all specs
-├── .ralph/        # Autonomous execution scripts (optional)
-│   ├── prompt.md  # Your instructions for Ralph
-│   ├── sync.sh    # Single iteration
-│   └── ralph.sh   # Continuous loop
-├── .vscode/       # VSCode settings (optional)
-└── .mcp.json      # MCP config (optional)
-```
+**Setup:** 5 minutes | **Result:** Agents that follow your patterns, auto-generate plans, and work autonomously
 
 ---
 

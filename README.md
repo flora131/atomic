@@ -163,7 +163,7 @@ Agent auto-generates execution plans:
 | **.mcp.json**      | Model Context Protocol configuration                                          | Optional  |
 | **.vscode/**       | VSCode settings for AI agents                                                 | Optional  |
 
-*Use CLAUDE.md for Claude Code OR AGENTS.md for other agents (Cursor, Windsurf, GitHub Copilot, Codex)
+*Use CLAUDE.md for Claude Code OR AGENTS.md for other agents (Cursor, Kiro, Windsurf, GitHub Copilot, Codex)
 
 **How specs/ works:**
 - Agent auto-generates execution plans in `specs/` when features are complex
@@ -198,7 +198,7 @@ Agent auto-generates execution plans:
 A: Yes! Copy the required files (AGENTS.md/CLAUDE.md and specs/) to your project root, then tell your agent: *"Set up agent instructions, skills, and sub-agent support for this project"*. The agent will analyze your codebase and populate the templates automatically.
 
 **Q: Which file should I use - AGENTS.md or CLAUDE.md?**
-A: Use `CLAUDE.md` for Claude Code (includes ExecPlan workflow). Use `AGENTS.md` for other agents (Cursor, Windsurf, GitHub Copilot, Codex).
+A: Use `CLAUDE.md` for Claude Code (includes ExecPlan workflow). Use `AGENTS.md` for other agents (Cursor, Kiro, Windsurf, GitHub Copilot, Codex).
 
 **Q: Do I need to write execution plans manually?**
 A: No. The agent auto-generates plans in `specs/` only when needed for complex features. Simple tasks execute immediately using TDD. The agent uses `specs/PLANS.md` as a template when creating new execution plans.

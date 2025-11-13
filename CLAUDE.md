@@ -63,8 +63,8 @@ You have skills available.
 1. **Inform the user:** "I've detected that the agent instructions system is not yet set up. I'll automatically install it now by fetching the metaprompt from the agent-instructions repository and executing it. You will need to install the setup process described in: https://github.com/obra/superpowers/tree/main?tab=readme-ov-file#claude-code-via-plugin-marketplace to enable Claude Code Superpowers."
 
 2. **Clone the metaprompt from the remote repository:**
-   
-   **IMPORTANT:** The metaprompt is stored as **METAPROMPT.md** in the `agent-setup` branch of the **agent-instructions repository** (`git@github.com:flora131/agent-instructions.git`), NOT in the user's current project repository. You must clone this external repository to access the metaprompt.
+
+   **IMPORTANT:** The metaprompt is stored as **METAPROMPT.md** in the `agent-setup` branch of the **agent-instructions repository** (`https://github.com/flora131/agent-instructions.git`), NOT in the user's current project repository. You must clone this external repository to access the metaprompt.
    
    ```bash
    # Create temporary directory

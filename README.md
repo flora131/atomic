@@ -2,7 +2,7 @@
 
 **5-minute setup gives your AI coding agent project context, proven workflows, and autonomous execution capabilities.**
 
-Works with Claude Code, Cursor, Codex, Windsurf, Kiro, Cline, and GitHub Copilot.
+Works with Claude Code, Cursor, Codex, Windsurf, Kiro, Cline, and GitHub Copilot for both Mac and Windows users.
 
 **Demo:** Watch Cursor auto-install the system and invoke debugging skills to solve a real problem.
 
@@ -24,17 +24,19 @@ AI coding agents ship as tools, not systems. Install Cursor or Codex and you get
 
 No proven workflows. No sub-agents. No project context templates.
 
-Developers spend weeks building their setup from scratch, iterating on what works. We've already done that work. We built this for developers who need to ship code, not learn new tools.
+Developers spend weeks building their setup from scratch, iterating on what works. We've already done that work. 
+
+We built this for developers who need to ship code, not learn new tools.
 
 ### The Problem
 
 **Without infrastructure?** You spend hours explaining the same architecture decisions, watching agents violate your conventions, and fixing bugs that proper workflows would have prevented.
 
-The promise of AI-assisted development feels hollow when you're stuck in an endless loop of context-setting and cleanup.
+The promise of AI-assisted development feels empty when you're stuck in an endless loop of context-setting and cleanup.
 
 ### What We Built
 
-We spent weeks iterating on support systems: project memory files, mandatory TDD workflows, sub-agent orchestration, planning templates, and autonomous execution scripts.
+We spent weeks iterating on support systems: project memory files, mandatory TDD workflows, sub-agent orchestration, planning templates, and autonomous execution scripts, bringing you what developers who get real quality output from AI coding agents are actually doing.
 
 **The impact was immediate:**
 
@@ -49,7 +51,7 @@ We spent weeks iterating on support systems: project memory files, mandatory TDD
 
 **One prompt installs everything.** Project memory, proven workflows, 114+ specialized sub-agents, planning systems, and autonomous execution.
 
-Then you work exactly like before. No new commands to learn. No workflow changes.
+**Then you work exactly like before. No new commands to learn. No workflow changes.**
 
 **What happens automatically:**
 

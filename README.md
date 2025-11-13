@@ -1,47 +1,72 @@
 # Infrastructure for AI Coding Agents
 
-**5-minute setup gives your AI coding agent project context, proven workflows, and autonomous execution capabilities.** Works with Claude Code, Cursor, Codex, Windsurf, Kiro, Cline, and GitHub Copilot for both Mac and Windows users.
+**5-minute setup gives your AI coding agent project context, proven workflows, and autonomous execution capabilities.**
+
+Works with Claude Code, Cursor, Codex, Windsurf, Kiro, Cline, and GitHub Copilot.
 
 **Demo:** Watch Cursor auto-install the system and invoke debugging skills to solve a real problem.
 
 https://github.com/user-attachments/assets/7dc0e5dd-afcd-4215-9274-a5047c359c8a
 
-*After setup, prompt naturally and your agent auto-selects the right approach. Simple tasks use your context automatically. Complex features generate ExecPlans for review before implementation. Specialized work dispatches sub-agents in parallel. Skills (proven workflows agents invoke automatically) activate based on prompts. Ralph (continuous execution framework) runs agents in loops for autonomous overnight development.*
+**After setup:**
+- Prompt naturally—agent auto-selects the right approach
+- Simple tasks use your context automatically
+- Complex features generate ExecPlans for review
+- Specialized work dispatches sub-agents in parallel
+- Skills (proven workflows) activate based on prompts
+- Ralph (continuous execution) runs agents autonomously overnight
 
 ---
 
 ## Why?
 
-AI coding agents ship as tools, not systems. Install Cursor or Codex and you get the agent, but no infrastructure. No proven workflows, no sub-agents, no project context templates. Developers spend weeks building their setup from scratch, iterating on what works. We've already done that work. We built this for developers who need to ship code, not learn new tools.
+AI coding agents ship as tools, not systems. Install Cursor or Codex and you get the agent, but no infrastructure.
 
-**Without this setup?** You spend hours explaining the same architecture decisions, watching agents violate your conventions, and fixing bugs that proper workflows would have prevented. The promise of AI-assisted development feels hollow when you're stuck in an endless loop of context-setting and cleanup.
+No proven workflows. No sub-agents. No project context templates.
 
-**The actual problem isn't the agents, it's the missing infrastructure.**
+Developers spend weeks building their setup from scratch, iterating on what works. We've already done that work. We built this for developers who need to ship code, not learn new tools.
 
-We spent weeks iterating on support systems for our AI agents: project memory files, mandatory TDD workflows, sub-agent orchestration, planning templates, and autonomous execution scripts. The impact was immediate:
+### The Problem
+
+**Without infrastructure?** You spend hours explaining the same architecture decisions, watching agents violate your conventions, and fixing bugs that proper workflows would have prevented.
+
+The promise of AI-assisted development feels hollow when you're stuck in an endless loop of context-setting and cleanup.
+
+### What We Built
+
+We spent weeks iterating on support systems: project memory files, mandatory TDD workflows, sub-agent orchestration, planning templates, and autonomous execution scripts.
+
+**The impact was immediate:**
 
 - **100,000 lines of high-quality code in two weeks** (AI handled 80%, we handled the critical 20%)
 - **Mandatory TDD caught design bugs** before expensive implementation
 - **Parallel sub-agents** eliminated bottlenecks on complex features
 - **ExecPlans survived context switches** and team handoffs
-- **Skills unlocked 10x engineering velocity** without prescriptive prompting, agents invoked proven workflows automatically (and you can even create custom skills for your domain)
+- **Skills unlocked 10x engineering velocity** without prescriptive prompting
 - **Overnight autonomous execution** meant waking up to completed features ready for review
 
-That setup took significant time to compile. **This repo gives you the same infrastructure in 5 minutes.**
+### How It Works
 
-One prompt installs everything: project memory, proven workflows, 114+ specialized sub-agents, planning systems, and autonomous execution. Then you work exactly like before, no new commands to learn, no workflow changes.
+**One prompt installs everything.** Project memory, proven workflows, 114+ specialized sub-agents, planning systems, and autonomous execution.
 
-**Here's what happens automatically:**
+Then you work exactly like before. No new commands to learn. No workflow changes.
+
+**What happens automatically:**
+
 - Ask to fix a bug → agent invokes systematic debugging skills
 - Request a complex feature → Ask the agent to generate an ExecPlans for your review, research, brainstorm with the agent, review and give feedback, and break into milestones. Agent implements complex changes highly effectively.
 - Need specialized help → agent dispatches sub-agents (frontend, backend, testing) in parallel contexts
-- Want overnight development → enable Ralph to autonomously execute 
+- Want overnight development → enable Ralph to autonomously execute
 
-**You prompt naturally. Infrastructure handles the rest.** Skills activate when needed. Sub-agents orchestrate themselves. Plans generate on complex features. You review, approve, ship.
+**You prompt naturally. Infrastructure handles the rest.**
 
-The ROI is clear: 5 minutes of setup, zero behavior change, maximum output.
+Skills activate when needed. Sub-agents orchestrate themselves. Plans generate on complex features. You review, approve, ship.
 
-We built this after watching a small group of developers with fully-configured AI setups ship high-quality code at 10x velocity. The right infrastructure makes that speed accessible to everyone, not just the few who spend weeks building it from scratch.
+### The ROI
+
+5 minutes of setup. Zero behavior change. Maximum output.
+
+We built this from our own experiences working across large enterprise organizations and startups, driven by the desire to extract every possible optimization from our coding tools to ship real high-quality code at velocity. The right infrastructure makes that speed accessible to everyone, not just the few who spend weeks building it from scratch.
 
 ---
 

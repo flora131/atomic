@@ -61,6 +61,7 @@ You have skills available.
 You are one of the following AI coding agents:
 - **Codex** (Cursor's AI) → config dir: `~/.codex`
 - **Cursor** → config dir: `~/.cursor`
+- **Kiro** → config dir: `~/.kiro`
 - **Windsurf** → config dir: `~/.windsurf`
 - **GitHub Copilot** → config dir: `~/.github`
 
@@ -71,8 +72,8 @@ When you detect that setup is needed (missing skills/agents directories or `list
 1. **Inform the user:** "I've detected that the agent instructions system is not yet set up. I'll automatically install it now by fetching the metaprompt from the agent-instructions repository and executing it."
 
 2. **Clone the metaprompt from the remote repository:**
-   
-   **IMPORTANT:** The metaprompt is stored as **METAPROMPT.md** in the `agent-setup` branch of the **agent-instructions repository** (`git@github.com:flora131/agent-instructions.git`), NOT in the user's current project repository. You must clone this external repository to access the metaprompt.
+
+   **IMPORTANT:** The metaprompt is stored as **METAPROMPT.md** in the `agent-setup` branch of the **agent-instructions repository** (`https://github.com/flora131/agent-instructions.git`), NOT in the user's current project repository. You must clone this external repository to access the metaprompt.
    
    ```bash
    # Create temporary directory
@@ -114,6 +115,7 @@ When you detect that setup is needed (missing skills/agents directories or `list
 Once setup is complete, list your skills by running the list-skills command with your agent's skills directory:
 - **Codex**: `list-skills ~/.codex/skills`
 - **Cursor**: `list-skills ~/.cursor/skills`
+- **Kiro**: `list-skills ~/.kiro/skills`
 - **Windsurf**: `list-skills ~/.windsurf/skills`
 - **GitHub Copilot**: `list-skills ~/.github/skills`
 - **Note:** The tilde (~) is automatically expanded to your home directory by the list-skills script
@@ -153,6 +155,7 @@ The system supports custom specialized agents stored in agent-specific directori
 
 - **Codex**: `~/.codex/agents/`
 - **Cursor**: `~/.cursor/agents/`
+- **Kiro**: `~/.kiro/agents/`
 - **Windsurf**: `~/.windsurf/agents/`
 - **GitHub Copilot**: `~/.github/agents/`
 

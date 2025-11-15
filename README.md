@@ -74,7 +74,7 @@ We built this from our own experiences working across large enterprise organizat
 
 ## Real-World Results
 
-We measured the impact on a **~186,000 LOC production backend service** by comparing two development approaches:
+We measured the impact on our production backend service by comparing two development approaches:
 
 **Manual with spec-driven development and prompting** (PRs #1-15, 15 days) vs **Autonomous with agent-instructions repo** (PRs #16-20 + active branch, 6 days)
 
@@ -100,7 +100,6 @@ We measured the impact on a **~186,000 LOC production backend service** by compa
 **Project Scope:**
 - Backend service with distributed architecture
 - Multiple subsystems
-- ~186,000 lines of code
 
 **Autonomous Period Delivered (6 days):**
 - 970 commits across 735 files
@@ -232,7 +231,7 @@ A: Copy the entire `specs/` directory to your project. When you ask the agent to
 A: Ralph is optional and only needed if you want autonomous overnight development.
 
 **Q: Do you have benchmarks or evals?**
-A: This repo curates proven practices from Anthropic, Superpowers, and the Claude community with validation from original sources. We've shared our real-world results above showing 7x productivity improvement, 100% development continuity, and zero TODOs/FIXMEs debt on a ~186,000 LOC production backend service. We encourage measuring impact on your specific use case using similar before/after metrics.
+A: This repo curates proven practices from Anthropic, Superpowers, and the Claude community with validation from original sources. We've shared our real-world results above showing 7x productivity improvement, 100% development continuity, and zero TODOs/FIXMEs debt on our backend service. We encourage measuring impact on your specific use case using similar before/after metrics.
 
 ---
 

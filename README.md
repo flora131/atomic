@@ -76,7 +76,7 @@ We built this from our own experiences working across large enterprise organizat
 
 We measured the impact on a **~186,000 LOC production backend service** by comparing two development approaches:
 
-**Manual Development** (PRs #1-15, 15 days) vs **Autonomous with agent-instructions repo** (PRs #16-20 + active branch, 6 days)
+**Manual with spec-driven development and prompting** (PRs #1-15, 15 days) vs **Autonomous with agent-instructions repo** (PRs #16-20 + active branch, 6 days)
 
 ### Velocity Metrics → Impact
 
@@ -84,7 +84,7 @@ We measured the impact on a **~186,000 LOC production backend service** by compa
 |--------|--------|-------|------------|
 | **Commit Velocity** | 23 commits/day | 162 commits/day | **7x faster iteration cycles** |
 | **Development Continuity** | 53% active days | 100% active days | **Zero idle time** - agent iterated on specs in parallel with code |
-| **Time to Production** | 15 days | 6 days | **2.5x faster delivery** with higher quality |
+| **Time to Production** | 15 days | 6 days | **2.5x faster delivery** with higher quality using skills, sub-agents, customized AGENTS.md, and ExecPlans |
 
 ### Quality Metrics → Impact
 
@@ -93,7 +93,7 @@ We measured the impact on a **~186,000 LOC production backend service** by compa
 | **PR Success Rate** | 14/15 merged | 5/5 merged | **Rapid iteration** - failed PR fixed within minutes (PR#17→PR#18) via autonomous execution |
 | **Technical Debt** | Untracked | 0 TODOs/FIXMEs | **Zero todos** - audit validated and continously refined with agent |
 | **Test Coverage** | Basic scaffolding | 457 active tests | **98.7% test success rate** - thorough e2e test coverage |
-| **Code Review Time** | Hours to days | Seconds to 5 hours | **Instant feedback loops** |
+| **Code Review Time** | Hours to days | Seconds to max 5 hours | **Instant feedback loops** |
 
 ### Scale & Execution
 

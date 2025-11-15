@@ -1,8 +1,8 @@
 # Infrastructure for AI Coding Agents
 
-**5-minute setup gives your AI coding agent project context, proven workflows, and autonomous execution capabilities.**
+**5-minute setup enhances Claude Code, Cursor, Codex, Windsurf, Kiro, Cline, and GitHub Copilot with project context, proven workflows, and autonomous execution capabilities.**
 
-Works with Claude Code, Cursor, Codex, Windsurf, Kiro, Cline, and GitHub Copilot for both Mac and Windows users.
+This is *not* an agent, it's infrastructure *for* agents. Works with any AI coding agent on Mac and Windows.
 
 **Demo:** Watch Cursor auto-install the system and invoke debugging skills to solve a real problem.
 
@@ -162,7 +162,7 @@ cp -r .vscode /path/to/your-project/
 ### Step 2: Auto-Populate Your Project Context
 
 ```
-Open your project in your AI coding assistant and ask:
+Open your project in your AI coding agent and ask:
 
 "Set up agent instructions, skills, and sub-agent support"
 ```

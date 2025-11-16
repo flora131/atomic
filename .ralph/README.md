@@ -2,6 +2,8 @@
 
 Run AI agents in continuous loops until task completion - no manual intervention required.
 
+> **Note:** Currently only supported for Claude Code. Support for other AI coding assistants coming soon.
+
 **Prerequisites:** You must have copied `.ralph/` to your project (see [main setup instructions](../README.md#step-1-copy-templates-to-your-project)).
 
 **How it works:** Agent reads `.ralph/prompt.md`, executes tasks, iterates until done, manages its own context.

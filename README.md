@@ -133,6 +133,8 @@ For more details, see [Cline Rules documentation](https://docs.cline.bot/feature
 
 Run AI agents in continuous loops until task completion - no manual intervention required.
 
+> **Note:** Currently only supported for Claude Code. Support for other AI coding assistants coming soon.
+
 **For detailed setup instructions, usage guidelines, and examples, see [.ralph/README.md](.ralph/README.md).**
 
 ---

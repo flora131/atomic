@@ -12,7 +12,7 @@ Run AI agents in continuous loops until task completion - no manual intervention
 
 1. **Update `.ralph/prompt.md`** with your implementation instructions
    - Keep it concise - reference detailed specs from `specs/` directory
-   - Example prompt in the prompt.md folder
+   - Example prompt below
 
 2. **Test one iteration:**
    ```bash

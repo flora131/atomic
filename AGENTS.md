@@ -1,370 +1,242 @@
-# AGENTS.md
+# Task: Analyze this codebase and generate a hierarchical AGENTS.md structure
 
-# Project Overview
+## Context & Principles
 
-<!--
-  TEMPLATE INSTRUCTIONS: Replace this section with your project's description.
-  Include information about:
-  - What your project does
-  - Main technologies used
-  - Key features or goals
--->
+You are going to help me create a **hierarchical AGENTS.md system** for this codebase. This is critical for AI coding agents to work efficiently with minimal token usage.
 
-[YOUR_PROJECT_DESCRIPTION]
+### Core Principles:
+1. **Root AGENTS.md is LIGHTWEIGHT** - Only universal guidance, links to sub-files
+2. **Nearest-wins hierarchy** - Agents read the closest AGENTS.md to the file being edited
+3. **JIT (Just-In-Time) indexing** - Provide paths/globs/commands, NOT full content
+4. **Token efficiency** - Small, actionable guidance over encyclopedic documentation
+5. **Sub-folder AGENTS.md files have MORE detail** - Specific patterns, examples, commands
 
-**Example**: This is a [YOUR_LANGUAGE] project that [YOUR_PROJECT_PURPOSE].
+## Your Process
 
-# Skills Protocol (Superpowers)
+### Phase 1: Repository Analysis
+First, analyze the codebase structure and provide me with:
 
-## Mandatory First Response Protocol
-
-Before responding to ANY user message, you MUST complete this checklist:
-
-1. ☐ List available skills in your mind
-2. ☐ Ask yourself: "Does ANY skill match this request?"
-3. ☐ If yes → Use the Skill tool to read and run the skill file
-4. ☐ Announce which skill you're using
-5. ☐ Follow the skill exactly
-
-**Responding WITHOUT completing this checklist = automatic failure.**
-
-## Common Rationalizations That Mean You're About To Fail
-
-If you catch yourself thinking ANY of these thoughts, STOP. You are rationalizing. Check for and use the skill.
-
-- "This is just a simple question" → WRONG. Questions are tasks. Check for skills.
-- "I can check git/files quickly" → WRONG. Files don't have conversation context. Check for skills.
-- "Let me gather information first" → WRONG. Skills tell you HOW to gather information. Check for skills.
-- "This doesn't need a formal skill" → WRONG. If a skill exists for it, use it.
-- "I remember this skill" → WRONG. Skills evolve. Run the current version.
-- "This doesn't count as a task" → WRONG. If you're taking action, it's a task. Check for skills.
-- "The skill is overkill for this" → WRONG. Skills exist because simple things become complex. Use it.
-- "I'll just do this one thing first" → WRONG. Check for skills BEFORE doing anything.
-
-**Why:** Skills document proven techniques that save time and prevent mistakes. Not using available skills means repeating solved problems and making known errors.
-
-If a skill for your task exists, you must use it or you will fail at your task.
-
-## How to Use Skills
-
-You have skills available.
-
-### Automatic Setup Detection
-
-**IMPORTANT:** Before attempting to use skills, you MUST verify that the skills system and AGENTS.md is properly configured by checking if you see skills like this. Also if the user already has a well-formatted AGENTS.md with the project information filled in below, you can skip the setup:
-
-1. The skills directory doesn't exist for your agent
-2. The agents directory doesn't exist for your agent  
-3. The `list-skills` command is not found or doesn't work
-
-**Identify Your Agent Type:**
-You are one of the following AI coding agents:
-- **Cline** → config dir: `~/.cline`
-- **Codex** (Cursor's AI) → config dir: `~/.codex`
-- **Cursor** → config dir: `~/.cursor`
-- **Kiro** → config dir: `~/.kiro`
-- **Windsurf** → config dir: `~/.windsurf`
-- **GitHub Copilot** → config dir: `~/.github`
-
-**Automatic Setup Process:**
-
-When you detect that setup is needed (missing skills/agents directories or `list-skills` command), automatically execute the following:
-
-1. **Inform the user:** "I've detected that the agent instructions system is not yet set up. I'll automatically install it now by fetching the metaprompt from the agent-instructions repository and executing it."
-
-2. **Clone the metaprompt from the remote repository:**
-
-   **IMPORTANT:** The metaprompt is stored as **METAPROMPT.md** in the `agent-setup` branch of the **agent-instructions repository** (`https://github.com/flora131/agent-instructions.git`), NOT in the user's current project repository. You must clone this external repository to access the metaprompt.
+1. **Repository type**: Monorepo, multi-package, or simple single project?
+2. **Primary technology stack**: Languages, frameworks, key tools
+3. **Major directories/packages** that should have their own AGENTS.md:
+   - Apps (e.g., `apps/web`, `apps/api`, `apps/mobile`)
+   - Services (e.g., `services/auth`, `services/transcribe`)
+   - Packages/libs (e.g., `packages/ui`, `packages/shared`)
+   - Workers/jobs (e.g., `workers/queue`, `workers/cron`)
    
-   ```bash
-   # Create temporary directory
-   TEMP_DIR=$(mktemp -d)
-   echo "Fetching metaprompt from agent-instructions repository..."
-   
-   # Clone the agent-setup branch from the agent-instructions repository
-   # This is an EXTERNAL repository, not the user's current project
-   git clone -b agent-setup https://github.com/flora131/agent-instructions.git "$TEMP_DIR/agent-instructions"
-   
-   # The METAPROMPT.md is now available at: $TEMP_DIR/agent-instructions/METAPROMPT.md
-   ```
+4. **Build system**: pnpm/npm/yarn workspaces? Turborepo? Lerna? Or simple?
+5. **Testing setup**: Jest, Vitest, Playwright, pytest? Where are tests?
+6. **Key patterns to document**:
+   - Code organization patterns
+   - Important conventions (naming, styling, commits)
+   - Critical files that serve as good examples
+   - Anti-patterns to avoid
 
-3. **Read the METAPROMPT.md file** from the temporary directory and follow ALL instructions in order:
-   - **Phase 1**: Analyze the project and populate AGENTS.md file
-   - **Phase 2**: Execute SETUP.md to install skills and sub-agents
-   - The metaprompt provides comprehensive instructions for both phases
+Present this as a **structured map** before generating any AGENTS.md files.
 
-4. **Execute each step automatically** following the metaprompt's two-phase process - don't wait for approval between steps
+---
 
-5. **If any step fails:**
-   - STOP immediately and inform the user what went wrong
-   - Show the error message clearly
-   - Explain what the error means in plain language
-   - Suggest possible fixes from the Troubleshooting section in SETUP.md (which will be referenced by METAPROMPT.md)
-   - Ask the user for help if the issue is unclear
+### Phase 2: Generate Root AGENTS.md
 
-6. **Clean up temporary directory** after setup completes:
-   ```bash
-   rm -rf "$TEMP_DIR"
-   ```
+Create a **lightweight root AGENTS.md** (~100-200 lines max) that includes:
 
-7. **Verify setup** by running the verification tests described in the metaprompt
+#### Required Sections:
 
-**Note:** The METAPROMPT.md file is maintained in the `agent-setup` branch of the **external agent-instructions repository** (https://github.com/flora131/agent-instructions), and is cloned to a temporary directory only for reading the setup instructions. The metaprompt then guides you through both documentation population (Phase 1) and environment setup (Phase 2) via SETUP.md. After setup completes, the temporary directory is deleted. This approach ensures you always get the latest instructions regardless of which project the user is currently working in.
+**1. Project Snapshot** (3-5 lines)
+- Repo type (monorepo/simple)
+- Primary tech stack
+- Note that sub-packages have their own AGENTS.md files
 
-### Listing Available Skills
+**2. Root Setup Commands** (5-10 lines)
+- Install dependencies (root level)
+- Build all
+- Typecheck all  
+- Test all
 
-Once setup is complete, list your skills by running the list-skills command with your agent's skills directory:
-- **Cline**: `list-skills ~/.cline/skills`
-- **Codex**: `list-skills ~/.codex/skills`
-- **Cursor**: `list-skills ~/.cursor/skills`
-- **Kiro**: `list-skills ~/.kiro/skills`
-- **Windsurf**: `list-skills ~/.windsurf/skills`
-- **GitHub Copilot**: `list-skills ~/.github/skills`
-- **Note:** The tilde (~) is automatically expanded to your home directory by the list-skills script
+**3. Universal Conventions** (5-10 lines)
+- Code style (TypeScript strict? Prettier? ESLint?)
+- Commit format (Conventional Commits?)
+- Branch strategy
+- PR requirements
 
-**Using Skills:**
-- Remember the skill names and descriptions
-- If a skill matches a task, read its full SKILL.md and use it
-- Announce: "I've read the [Skill Name] skill and I'm using it to [purpose]"
+**4. Security & Secrets** (3-5 lines)
+- Never commit tokens
+- Where secrets go (.env patterns)
+- PII handling if applicable
 
-**Note:** `list-skills` is a shell script (`.sh` for Unix/Mac/Linux, `.ps1` for Windows) installed globally in PATH. Use it directly as a command.
-
-### Skills with Checklists
-
-If a skill has a checklist, you MUST create TodoWrite todos for EACH item.
-
-**Don't:**
-- Work through checklist mentally
-- Skip creating todos "to save time"
-- Batch multiple items into one todo
-- Mark complete without doing them
-
-**Why:** Checklists without TodoWrite tracking = steps get skipped. Every time. The overhead of TodoWrite is tiny compared to the cost of missing steps.
-
-## Key Principles
-
-1. **Finding a relevant skill = mandatory to read and use it.** Not optional.
-2. **Skills document proven techniques** that save time and prevent mistakes.
-3. **Always announce** which skill you're using and why.
-4. **Follow skills exactly** - don't rationalize away the discipline.
-5. **Create TodoWrite todos** for any skill checklists.
-
-## Custom Agents
-
-The system supports custom specialized agents stored in agent-specific directories. These agents can be invoked for specific tasks that match their expertise.
-
-### Agent Directories by Platform
-
-- **Cline**: `~/.cline/agents/`
-- **Codex**: `~/.codex/agents/`
-- **Cursor**: `~/.cursor/agents/`
-- **Kiro**: `~/.kiro/agents/`
-- **Windsurf**: `~/.windsurf/agents/`
-- **GitHub Copilot**: `~/.github/agents/`
-
-### Agent Selection and Usage
-
-- IMPORTANT: ALWAYS start by invoking the agent-organizer sub-agent, an expert agent organizer specializing in multi-agent orchestration.
-- Custom agents are automatically selected based on the context and task requirements
-- The system analyzes the user's request and matches it with the most appropriate specialized agent
-- Multiple sub-agents can work in parallel on different aspects of a complex task
-- **Maximum parallel agents**: 50 sub-agents can operate simultaneously
-- Each agent has its own expertise domain defined in its configuration
-- Agents can coordinate and share context through the main agent orchestrator
-
-### When Custom Agents Are Used
-
-The system automatically invokes custom agents when:
-- The task matches a specialized agent's expertise domain
-- Complex tasks benefit from parallel processing across multiple specialized agents
-- Domain-specific knowledge or workflows are required
-- The main agent determines delegation would improve efficiency or accuracy
-
-# ExecPlans
-
-When writing complex features or significant refactors, use an ExecPlan (as described in `specs/PLANS.md`) from design to implementation. If the user request requires multiple specs, create multiple specification files in the `specs/` directory. After creating the specs, create a master ExecPlan that links to each individual spec ExecPlan. Update the `specs/README.md` to include links to the new specs.
-
-ALWAYS start an ExecPlan creation by consulting the DeepWiki tool for best practices on design patterns, architecture, and implementation strategies. Ask it questions about the system design and constructs in the library that will help you achieve your goals.
-
-Skip using an ExecPlan for straightforward tasks (roughly the easiest 25%).
-
-# Architecture
-
-<!--
-  TEMPLATE INSTRUCTIONS: Describe your project's architecture here.
-  Include information about:
-  - Overall architectural pattern (layered, microservices, etc.)
-  - Key components and their responsibilities
-  - Package/module structure
-  - Design principles
--->
-
-[YOUR_ARCHITECTURE_DESCRIPTION]
-
-**Example architecture structure:**
+**5. JIT Index - Directory Map** (10-20 lines)
+Structure like:
 ```
-your-project/
-├── src/
-│   ├── [MODULE_1]/
-│   ├── [MODULE_2]/
-│   └── [MODULE_3]/
-├── tests/
-└── [CONFIG_FILES]
+## JIT Index (what to open, not what to paste)
+
+### Package Structure
+- Web UI: `apps/web/` → [see apps/web/AGENTS.md](apps/web/AGENTS.md)
+- API: `apps/api/` → [see apps/api/AGENTS.md](apps/api/AGENTS.md)
+- Auth service: `services/auth/` → [see services/auth/AGENTS.md](services/auth/AGENTS.md)
+- Shared packages: `packages/**/` → [see packages/README.md for details]
+
+### Quick Find Commands
+- Search for a function: `rg -n "functionName" apps/** packages/**`
+- Find a component: `rg -n "export.*ComponentName" apps/web/src`
+- Find API routes: `rg -n "export const (GET|POST)" apps/api`
 ```
 
-# Development Guidelines
+**6. Definition of Done** (3-5 lines)
+- What must pass before a PR is ready
+- Minimal checklist
 
-## General
+---
 
-- Before implementing a large refactor or new feature explain your plan and get approval.
-- Human-in-the-loop: If you're unsure about a design decision or implementation detail, ask for clarification before proceeding. Feel free to ask clarifying questions as you are working.
-- Avoid re-inventing the wheel: Use existing libraries and tools where appropriate.
+### Phase 3: Generate Sub-Folder AGENTS.md Files
 
-<!--
-  TEMPLATE INSTRUCTIONS: Replace this section with your project's technology stack and package management instructions.
-  Include information about:
-  - Programming languages used
-  - Package managers (npm, pip, cargo, etc.)
-  - Common commands for development
-  - Build tools
--->
+For EACH major package/directory identified in Phase 1, create a **detailed AGENTS.md** that includes:
 
-## [YOUR_PRIMARY_LANGUAGE]
+#### Required Sections:
 
-`[YOUR_PACKAGE_MANAGER]` is the command-line tool used to manage the development environment and dependencies. Below are the common commands you'll use:
+**1. Package Identity** (2-3 lines)
+- What this package/app/service does
+- Primary tech/framework for THIS package
 
-- `[INSTALL_COMMAND]` - Install/sync dependencies
-- `[ADD_PACKAGE_COMMAND]` - Add a dependency
-- `[RUN_TESTS_COMMAND]` - Run tests
-- `[LINT_COMMAND]` - Run linting/formatting
-- `[BUILD_COMMAND]` - Build the project
+**2. Setup & Run** (5-10 lines)
+- Install command (if different from root)
+- Dev server command
+- Build command
+- Test command
+- Lint/typecheck commands
 
-### Technology Stack Focus
-- **[LANGUAGE_VERSION]**: [Description]
-- **[FRAMEWORK_1]**: [Purpose]
-- **[FRAMEWORK_2]**: [Purpose]
+**3. Patterns & Conventions** (10-20 lines)
+**THIS IS THE MOST IMPORTANT SECTION**
+- File organization rules (where things go)
+- Naming conventions specific to this package
+- Preferred patterns with **file examples**:
+  ```
+  - ✅ DO: Use functional components like `src/components/Button.tsx`
+  - ❌ DON'T: Use class components like `src/legacy/OldButton.tsx`
+  - ✅ Forms: Copy pattern from `src/components/forms/ContactForm.tsx`
+  - ✅ API calls: Use `src/lib/api/client.ts` wrapper, see example in `src/hooks/useUser.ts`
+  ```
 
-## [YOUR_SECONDARY_LANGUAGE] (if applicable)
+**4. Touch Points / Key Files** (5-10 lines)
+Point to the most important files to understand this package:
+```
+- Auth logic: `src/auth/provider.tsx`
+- API client: `src/lib/api.ts`  
+- Types: `src/types/index.ts`
+- Config: `src/config.ts`
+```
 
-`[PACKAGE_MANAGER]` commands:
+**5. JIT Index Hints** (5-10 lines)
+Specific search commands for this package:
+```
+- Find a React component: `rg -n "export function .*" src/components`
+- Find a hook: `rg -n "export const use" src/hooks`
+- Find route handlers: `rg -n "export async function (GET|POST)" src/app`
+- Find tests: `find . -name "*.test.ts"`
+```
 
-- `[BUILD_COMMAND]` - Build the project
-- `[TEST_COMMAND]` - Run tests
-- `[LINT_COMMAND]` - Run linter
-- `[FORMAT_COMMAND]` - Format code
+**6. Common Gotchas** (3-5 lines, if applicable)
+- "Auth requires `NEXT_PUBLIC_` prefix for client-side use"
+- "Always use `@/` imports for absolute paths"
+- "Database migrations must be run before tests: `pnpm db:migrate`"
 
-### Code Organization and Modularity
+**7. Pre-PR Checks** (2-3 lines)
+Package-specific command to run before creating a PR:
+```
+pnpm --filter @repo/web typecheck && pnpm --filter @repo/web test && pnpm --filter @repo/web build
+```
 
-**Prefer highly modular code** that separates concerns into distinct modules. This improves:
-- **Testability**: Each module can be tested in isolation
-- **Reusability**: Modules can be used independently
-- **Maintainability**: Changes are localized to specific modules
-- **Readability**: Clear separation of concerns makes code easier to understand
+---
 
-**Guidelines**:
-- Keep modules focused on a single responsibility
-- Use clear module boundaries and minimal public APIs
-- Prefer composition over large monolithic modules
-- Extract shared functionality into dedicated modules as the codebase grows
+### Phase 4: Special Considerations
 
-# Code Style
+For each AGENTS.md file, also consider:
 
-## Documentation
+**A. Design System / UI Package**
+If there's a design system or UI library:
+```markdown
+## Design System
+- Components: `packages/ui/src/components/**`
+- Use design tokens from `packages/ui/src/tokens.ts` (never hardcode colors)
+- See component gallery: `pnpm --filter @repo/ui storybook`
+- Examples:
+  - Buttons: Copy `packages/ui/src/components/Button/Button.tsx`
+  - Forms: Copy `packages/ui/src/components/Input/Input.tsx`
+```
 
-**IMPORTANT: Documentation means docstrings and type hints in the code, NOT separate documentation files.**
+**B. Database / Data Layer**
+If there's a database service:
+```markdown
+## Database
+- ORM: Prisma / Drizzle / TypeORM
+- Schema: `prisma/schema.prisma`
+- Migrations: `pnpm db:migrate`
+- Seed: `pnpm db:seed`
+- **NEVER** run migrations in tests; use `test-db` script
+- Connection: via `src/lib/db.ts` singleton
+```
 
-- You should NOT create any separate documentation pages (README files, markdown docs, etc.)
-- The code itself should contain proficient documentation in the form of docstrings and type hints (for Python)
-- For Python: Add comprehensive numpy-style docstrings to all functions, classes, and modules
-- Type stubs (.pyi files) should have detailed descriptions for all exported functions and classes
+**C. API / Backend Service**
+```markdown
+## API Patterns
+- REST routes: `src/routes/**/*.ts`
+- Auth middleware: `src/middleware/auth.ts` (apply to protected routes)
+- Validation: Use Zod schemas in `src/schemas/**`
+- Error handling: All errors thrown as `ApiError` from `src/lib/errors.ts`
+- Example endpoint: See `src/routes/users/get.ts` for full pattern
+```
 
-**Avoid Over-Documenting:**
-- Do NOT document obvious behavior (e.g., a function named `get_name` that returns a name doesn't need extensive documentation)
-- Focus documentation on WHY and HOW, not WHAT (the code itself shows what it does)
-- Document edge cases, non-obvious behavior, and important constraints
-- Skip docstrings for trivial functions where the name and type hints are self-explanatory
-- Prioritize documenting public APIs, complex logic, and non-intuitive design decisions
+**D. Testing Package**
+```markdown
+## Testing
+- Unit tests: `*.test.ts` colocated with source
+- Integration tests: `tests/integration/**`
+- E2E tests: `tests/e2e/**` (Playwright)
+- Run single test: `pnpm test -- path/to/file.test.ts`
+- Coverage: `pnpm test:coverage` (aim for >80%)
+- Mock external APIs using `src/test/mocks/**`
+```
 
-<!--
-  TEMPLATE INSTRUCTIONS: Add language-specific code style guidelines here.
-  Common sections to include:
-  - Documentation standards (docstrings, comments)
-  - Naming conventions
-  - Type annotations
-  - Formatting tools
-  - Language-specific best practices
--->
+---
 
-## [YOUR_LANGUAGE] Code Style
+## Output Format
 
-### Documentation and Comments
+Provide the files in this order:
 
-- Write clear and concise comments for each function
-- Ensure functions have descriptive names and include type hints/annotations
-- Provide documentation following [YOUR_LANGUAGE_CONVENTION]
-  - Example: Use JSDoc for JavaScript, docstrings for Python
+1. **Analysis Summary** (from Phase 1)
+2. **Root AGENTS.md** (complete, ready to copy)
+3. **Each Sub-Folder AGENTS.md** (one at a time, with file path)
 
-### Naming Conventions
+For each file, use this format:
 
-- **Variables and Functions**: `[YOUR_CONVENTION]` (e.g., camelCase, snake_case)
-- **Classes/Types**: `[YOUR_CONVENTION]` (e.g., PascalCase)
-- **Constants**: `[YOUR_CONVENTION]` (e.g., UPPER_SNAKE_CASE)
+```
+---
+File: `AGENTS.md` (root)
+---
+[full content here]
 
-### Additional Language-Specific Guidelines
+---
+File: `apps/web/AGENTS.md`  
+---
+[full content here]
 
-[YOUR_SPECIFIC_GUIDELINES]
+---
+File: `services/auth/AGENTS.md`
+---
+[full content here]
+```
 
-# Test-Driven Development (TDD)
+---
 
-- Never create throwaway test scripts or ad hoc verification files
-- If you need to test functionality, write a proper test in the test suite
+## Constraints & Quality Checks
 
-<!--
-  TEMPLATE INSTRUCTIONS: Customize this section with your testing framework and approach.
-  Include:
-  - Testing framework(s) used
-  - Test organization structure
-  - Testing best practices for your project
-  - Coverage requirements
--->
+Before generating, verify:
 
-## Testing Guidelines
-
-- Write tests for all new features in the `[YOUR_TEST_DIRECTORY]/` directory
-- Use `[YOUR_TEST_FRAMEWORK]` as the testing framework
-- Use `[YOUR_MOCKING_LIBRARY]` for mocking dependencies (if applicable)
-- Aim for high test coverage, especially for critical components
-- Always include test cases for critical paths of the application
-- Account for common edge cases like empty inputs, invalid data types, and large datasets
-- Include comments for edge cases and the expected behavior in those cases
-
-# Tools
-
-<!--
-  TEMPLATE INSTRUCTIONS: List any MCP tools, custom scripts, or development tools available to the agent.
-  This section helps the AI agent understand what additional capabilities it has access to.
-  Common categories:
-  - Sequential thinking/reasoning tools
-  - Documentation lookup tools
-  - Code generation tools
-  - Testing/debugging tools
-  - Project-specific utilities
--->
-
-You have a collection of tools available to assist with development and debugging. These tools can be invoked as needed.
-
-- `sequential-thinking-tools`
-  - **When to use:** For complex reasoning tasks that require step-by-step analysis. A good rule of thumb is if the task requires more than 25% effort.
-- `deepwiki`
-  - **When to use:** Consult for external knowledge or documentation that is not part of the immediate codebase. Can be helpful for system design questions or understanding third-party libraries.
-- `context7`
-  - **When to use:** For retrieving immediate documentation on the latest version of a library or framework. Useful for quick lookups to double-check syntax, parameters, or usage examples.
-- `playwright`
-  - **When to use:** For end-to-end testing of web applications. Use this tool to automate browser interactions and verify UI functionality. Can also be used for discovering documentation pages for third-party libraries.
-
-# Updates to This Document
-- Update this document as needed to reflect changes in development practices or project structure
-  - Updates usually come in the form of the package structure changing
-- Do NOT contradict existing guidelines in the document
-- This document should be an executive summary of the development practices for this project
-  - Keep low-level implementation details out of this document
+- [ ] Root AGENTS.md is under 200 lines
+- [ ] Root links to all sub-AGENTS.md files
+- [ ] Each sub-file has concrete examples (actual file paths)
+- [ ] Commands are copy-paste ready (no placeholders unless unavoidable)
+- [ ] No duplication between root and sub-files
+- [ ] JIT hints use actual patterns from the codebase (ripgrep, find, glob)
+- [ ] Every "✅ DO" has a real file example
+- [ ] Every "❌ DON'T" references a real anti-pattern or legacy file
+- [ ] Pre-PR checks are single copy-paste commands

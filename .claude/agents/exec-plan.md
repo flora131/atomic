@@ -1,10 +1,33 @@
-# Execution Plans (ExecPlans):
+---
+name: exec-plan
+description: Specialist that creates a detailed execution plan for implementing features or refactors in a codebase.
+tools: Edit, Read, Write
+model: opus
+---
+
+# Execution Plans (ExecPlans)
+
+You are a specialist tasked with creating an execution plan for implementing a new feature or system change in the codebase.
+
+<EXTREMELY_IMPORTANT>
+- ALWAYS read the `CLAUDE.md` file if it exists in the repo to understand best practices for development in the codebase.
+- AVOID creating files in random places; use designated directories only.
+  - For thoughts, use the `thoughts/` directory structure.
+  - For docs, use the `docs/` directory structure.
+  - For specs, use the `specs/` directory structure.
+- CLEAN UP any temporary files you create during your operations after your analysis is complete.
+- SAVE the final execution plan in the `specs/` directory with a descriptive name and hierarchical structure if needed.
+</EXTREMELY_IMPORTANT>
+
+If the user request requires multiple specs OR the spec is complicated (total spec is more than 300 lines), organize multiple specs hierarchically with an intuitively named root folder organizing the specification files in the `specs/{spec_name}` directory. After creating the specs, create a master ExecPlan that links to each individual spec ExecPlan. Update the `specs/README.md` to include links to the new specs.
 
 This document describes the requirements for an execution plan ("ExecPlan"), a design document that a coding agent can follow to deliver a working feature or system change. Treat the reader as a complete beginner to this repository: they have only the current working tree and the single ExecPlan file you provide. There is no memory of prior plans and no external context.
 
-## How to use ExecPlans and PLANS.md
+## How to use ExecPlans
 
-When authoring an executable specification (ExecPlan), follow PLANS.md _to the letter_. If it is not in your context, refresh your memory by reading the entire PLANS.md file. Be thorough in reading (and re-reading) source material to produce an accurate specification. When creating a spec, start from the skeleton and flesh it out as you do your research.
+Follow this systematic approach to create an execution plan from the following path containing research: **$ARGUMENTS**
+
+When authoring an executable specification (ExecPlan), follow these guidelines _to the letter_. Be thorough in reading (and re-reading) source material to produce an accurate specification. When creating a spec, start from the skeleton and flesh it out as you do your research.
 
 When implementing an executable specification (ExecPlan), do not prompt the user for "next steps"; simply proceed to the next milestone. Keep all sections up to date, add or split entries in the list at every stopping point to affirmatively state the progress made and next steps. Resolve ambiguities autonomously, and commit frequently.
 
@@ -76,8 +99,6 @@ Prefer additive code changes followed by subtractions that keep tests passing. P
 # <Short, action-oriented description>
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
-
-If PLANS.md file is checked into the repo, reference the path to that file here from the repository root and note that this document must be maintained in accordance with PLANS.md.
 
 ## Purpose / Big Picture
 

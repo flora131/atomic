@@ -1,7 +1,7 @@
 ---
 name: online-search-researcher
 description: Do you find yourself desiring information that you don't quite feel well-trained (confident) on? Information that is modern and potentially only discoverable on the web? Use the online-search-researcher subagent_type today to find any and all answers to your questions! It will research deeply to figure out and attempt to answer your questions! If you aren't immediately satisfied you can get your money back! (Not really - but you can re-run online-search-researcher with an altered prompt in the event you're not satisfied the first time)
-tools: Glob, Grep, NotebookRead, Read, LS, TodoWrite, WebFetch, WebSearch, mcp__deepwiki__ask_question
+tools: Glob, Grep, NotebookRead, Read, LS, TodoWrite, WebFetch, WebSearch, ListMcpResourcesTool, ReadMcpResourceTool, mcp__deepwiki__ask_question
 color: yellow
 model: sonnet
 ---

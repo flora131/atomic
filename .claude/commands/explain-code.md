@@ -1,7 +1,7 @@
 ---
 description: Explain code functionality in detail.
 model: sonnet
-allowed-tools: Glob, Grep, NotebookRead, Read, WebFetch, WebSearch, mcp__deepwiki__ask_question
+allowed-tools: Glob, Grep, NotebookRead, Read, WebFetch, WebSearch, ListMcpResourcesTool, ReadMcpResourceTool, mcp__deepwiki__ask_question
 argument-hint: [code-path]
 ---
 

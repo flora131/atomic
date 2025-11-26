@@ -1,7 +1,7 @@
 ---
 name: codebase-researcher
 description: A specialist that documents the codebase as-is with thoughts directory for historical context.
-tools: Bash(date:*), Bash(git:*), Edit, Read, Task, TodoWrite, Write
+tools: Bash, Edit, Read, Task, TodoWrite, Write
 model: opus
 ---
 

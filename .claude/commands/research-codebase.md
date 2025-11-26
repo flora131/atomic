@@ -1,7 +1,7 @@
 ---
 description: Document codebase as-is with thoughts directory for historical context
 model: opus
-allowed-tools: Bash(date:*), Bash(git:*), Edit, Read, Task, TodoWrite, Write
+allowed-tools: Bash, Edit, Read, Task, TodoWrite, Write
 argument-hint: [research-question]
 ---
 

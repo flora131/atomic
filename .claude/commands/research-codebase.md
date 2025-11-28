@@ -1,7 +1,7 @@
 ---
 description: Document codebase as-is with thoughts directory for historical context
 model: opus
-allowed-tools: Bash, Edit, Read, Task, TodoWrite, Write
+allowed-tools: AskUserQuestion, Edit, Task, TodoWrite, Write, Bash(git:*), Bash(gh:*), Bash(basename:*), Bash(date:*)
 argument-hint: [research-question]
 ---
 
@@ -11,25 +11,9 @@ You are tasked with conducting comprehensive research across the codebase to ans
 
 The user's research question/request is: **$ARGUMENTS**
 
-<EXTREMELY_IMPORTANT>
-- OPTIMIZE the user's research question request using your prompt-engineer skill and confirm that the your refined question captures the user's intent BEFORE proceeding.
-- ALWAYS read the `CLAUDE.md` file if it exists in the repo to understand best practices for development in the codebase.
-- AVOID creating files in random places; use designated directories only.
-  - For thoughts, use the `thoughts/` directory structure.
-  - For docs, use the `docs/` directory structure.
-  - For specs, use the `specs/` directory structure.
-- CLEAN UP any temporary files you create during your operations after your analysis is complete.
-- YOUR ONLY JOB IS TO DOCUMENT AND EXPLAIN THE CODEBASE AS IT EXISTS TODAY
-  - DO NOT suggest improvements or changes unless the user explicitly asks for them
-  - DO NOT perform root cause analysis unless the user explicitly asks for them
-  - DO NOT propose future enhancements unless the user explicitly asks for them
-  - DO NOT critique the implementation or identify problems
-  - DO NOT recommend refactoring, optimization, or architectural changes
-  - ONLY describe what exists, where it exists, how it works, and how components interact
-  - You are creating a technical map/documentation of the existing system
-</EXTREMELY_IMPORTANT>
-
 ## Steps to follow after receiving the research query:
+
+IMPORTANT: OPTIMIZE the user's research question request using your prompt-engineer skill and confirm that the your refined question captures the user's intent BEFORE proceeding.
 
 1. **Read any directly mentioned files first:**
    - If the user mentions specific files (tickets, docs, JSON), read them FULLY first
@@ -49,18 +33,18 @@ The user's research question/request is: **$ARGUMENTS**
    - We now have specialized agents that know how to do specific research tasks:
 
    **For codebase research:**
-   - Use the **CodebaseLocator** agent to find WHERE files and components live
-   - Use the **CodebaseAnalyzer** agent to understand HOW specific code works (without critiquing it)
-   - Use the **CodebasePatternFinder** agent to find examples of existing patterns (without evaluating them)
+   - Use the **codebase-locator** agent to find WHERE files and components live
+   - Use the **codebase-analyzer** agent to understand HOW specific code works (without critiquing it)
+   - Use the **codebase-pattern-finder** agent to find examples of existing patterns (without evaluating them)
 
    **IMPORTANT**: All agents are documentarians, not critics. They will describe what exists without suggesting improvements or identifying issues.
 
    **For thoughts directory:**
-   - Use the **ThoughtsLocator** agent to discover what documents exist about the topic
-   - Use the **ThoughtsAnalyzer** agent to extract key insights from specific documents (only the most relevant ones)
+   - Use the **codebase-thoughts-locator** agent to discover what documents exist about the topic
+   - Use the **codebase-thoughts-analyzer** agent to extract key insights from specific documents (only the most relevant ones)
 
    **For online search:**
-   - VERY IMPORTANT: In case you discover external libraries as dependencies, use the **OnlineSearchResearcher** agent for external documentation and resources
+   - VERY IMPORTANT: In case you discover external libraries as dependencies, use the **codebase-online-researcher** agent for external documentation and resources
      - IF you use DeepWiki tools, instruct the agent to return references to code snippets or documentation, PLEASE INCLUDE those references (e.g. source file names, line numbers, etc.) in your final report
      - IF you perform a web search, instruct the agent to return LINKS with their findings, and please INCLUDE those links in your final report
 
@@ -202,3 +186,6 @@ The user's research question/request is: **$ARGUMENTS**
   - Update frontmatter when adding follow-up research
   - Use snake_case for multi-word field names (e.g., `last_updated`, `git_commit`)
   - Tags should be relevant to the research topic and components studied
+
+## Final Outputs
+

@@ -1,5 +1,5 @@
 ---
-description: Document codebase as-is with thoughts directory for historical context
+description: Document codebase as-is with research directory for historical context
 model: opus
 allowed-tools: AskUserQuestion, Edit, Task, TodoWrite, Write, Bash(git:*), Bash(gh:*), Bash(basename:*), Bash(date:*)
 argument-hint: [research-question]
@@ -16,7 +16,7 @@ The user's research question/request is: **$ARGUMENTS**
 IMPORTANT: OPTIMIZE the user's research question request using your prompt-engineer skill and confirm that the your refined question captures the user's intent BEFORE proceeding.
 
 1. **Read any directly mentioned files first:**
-   - If the user mentions specific files (tickets, docs, JSON), read them FULLY first
+   - If the user mentions specific files (tickets, docs, or other notes), read them FULLY first
    - **IMPORTANT**: Use the `readFile` tool WITHOUT limit/offset parameters to read entire files
    - **CRITICAL**: Read these files yourself in the main context before spawning any sub-tasks
    - This ensures you have full context before decomposing the research
@@ -36,17 +36,25 @@ IMPORTANT: OPTIMIZE the user's research question request using your prompt-engin
    - Use the **codebase-locator** agent to find WHERE files and components live
    - Use the **codebase-analyzer** agent to understand HOW specific code works (without critiquing it)
    - Use the **codebase-pattern-finder** agent to find examples of existing patterns (without evaluating them)
+   - Output directory: `research/docs/`
+   - Examples:
+     - The database logic is found and can be documented in `research/docs/2024-01-10-database-implementation.md`
+     - The authentication flow is found and can be documented in `research/docs/2024-01-11-authentication-flow.md`
 
    **IMPORTANT**: All agents are documentarians, not critics. They will describe what exists without suggesting improvements or identifying issues.
 
-   **For thoughts directory:**
-   - Use the **codebase-thoughts-locator** agent to discover what documents exist about the topic
-   - Use the **codebase-thoughts-analyzer** agent to extract key insights from specific documents (only the most relevant ones)
+   **For research directory:**
+   - Use the **codebase-research-locator** agent to discover what documents exist about the topic
+   - Use the **codebase-research-analyzer** agent to extract key insights from specific documents (only the most relevant ones)
 
    **For online search:**
    - VERY IMPORTANT: In case you discover external libraries as dependencies, use the **codebase-online-researcher** agent for external documentation and resources
-     - IF you use DeepWiki tools, instruct the agent to return references to code snippets or documentation, PLEASE INCLUDE those references (e.g. source file names, line numbers, etc.) in your final report
-     - IF you perform a web search, instruct the agent to return LINKS with their findings, and please INCLUDE those links in your final report
+     - If you use DeepWiki tools, instruct the agent to return references to code snippets or documentation, PLEASE INCLUDE those references (e.g. source file names, line numbers, etc.)
+     - If you perform a web search, instruct the agent to return LINKS with their findings, and please INCLUDE those links in
+     - Output directory: `research/docs/`
+     - Examples:
+       - If researching `Redis` locks usage, the agent might find relevant usage and create a document `research/docs/2024-01-15-redis-locks-usage.md` with internal links to Redis docs and code references
+       - If researching `OAuth` flows, the agent might find relevant external articles and create a document `research/docs/2024-01-16-oauth-flows.md` with links to those articles
 
    The key is to use these agents intelligently:
    - Start with locator agents to find what exists
@@ -58,25 +66,37 @@ IMPORTANT: OPTIMIZE the user's research question request using your prompt-engin
 
 4. **Wait for all sub-agents to complete and synthesize findings:**
    - IMPORTANT: Wait for ALL sub-agent tasks to complete before proceeding
-   - Compile all sub-agent results (both codebase and thoughts findings)
+   - Compile all sub-agent results (both codebase and research findings)
    - Prioritize live codebase findings as primary source of truth
-   - Use thoughts/ findings as supplementary historical context
+   - Use research findings as supplementary historical context
    - Connect findings across different components
    - Include specific file paths and line numbers for reference
-   - Verify all thoughts/ paths are correct (e.g., thoughts/allison/ not thoughts/shared/ for personal files)
    - Highlight patterns, connections, and architectural decisions
    - Answer the user's specific questions with concrete evidence
 
 5. **Generate research document:**
-   - Create a new research document using the following naming convention:
-     - Filename: `thoughts/shared/research/YYYY-MM-DD-ENG-XXXX-description.md`
-          - Format: `YYYY-MM-DD-ENG-XXXX-description.md` where:
-            - YYYY-MM-DD is today's date
-            - ENG-XXXX is the ticket number (omit if no ticket)
-            - description is a brief kebab-case description of the research topic
-          - Examples:
-            - With ticket: `2025-01-08-ENG-1478-parent-child-tracking.md`
-            - Without ticket: `2025-01-08-authentication-flow.md`
+
+   - Follow the directory structure for research documents:
+```
+research/
+├── tickets/
+│   ├── YYYY-MM-DD-XXXX-description.md
+├── docs/
+│   ├── YYYY-MM-DD-topic.md
+├── notes/
+│   ├── YYYY-MM-DD-meeting.md
+├── ...
+└──
+```
+   - Naming conventions:
+      - YYYY-MM-DD is today's date
+      - topic is a brief kebab-case description of the research topic
+      - meeting is a brief kebab-case description of the meeting topic
+      - XXXX is the ticket number (omit if no ticket)
+      - description is a brief kebab-case description of the research topic
+      - Examples:
+        - With ticket: `2025-01-08-1478-parent-child-tracking.md`
+        - Without ticket: `2025-01-08-authentication-flow.md`
    - Structure the document with YAML frontmatter followed by content:
      ```markdown
      ---
@@ -117,32 +137,32 @@ IMPORTANT: OPTIMIZE the user's research question request using your prompt-engin
      ## Architecture Documentation
      [Current patterns, conventions, and design implementations found in the codebase]
 
-     ## Historical Context (from thoughts/)
-     [Relevant insights from thoughts/ directory with references]
-     - `thoughts/shared/something.md` - Historical decision about X
-     - `thoughts/local/notes.md` - Past exploration of Y
-     Note: Paths exclude "searchable/" even if found there
+     ## Historical Context (from research/)
+     [Relevant insights from research/ directory with references]
+     - `research/docs/YYYY-MM-DD-topic.md` - Information about module X
+     - `research/notes/YYYY-MM-DD-meeting.md` - Past notes from internal engineering, customer, etc. discussions
+     - ...
 
      ## Related Research
-     [Links to other research documents in thoughts/shared/research/]
+     [Links to other research documents in research/]
 
      ## Open Questions
      [Any areas that need further investigation]
      ```
 
-6. **Add GitHub permalinks (if applicable):**
+1. **Add GitHub permalinks (if applicable):**
    - Check if on main branch or if commit is pushed: `git branch --show-current` and `git status`
    - If on main/master or pushed, generate GitHub permalinks:
      - Get repo info: `gh repo view --json owner,name`
      - Create permalinks: `https://github.com/{owner}/{repo}/blob/{commit}/{file}#L{line}`
    - Replace local file references with permalinks in the document
 
-7. **Present findings:**
+2. **Present findings:**
    - Present a concise summary of findings to the user
    - Include key file references for easy navigation
    - Ask if they have follow-up questions or need clarification
 
-8.  **Handle follow-up questions:**
+3.  **Handle follow-up questions:**
    - If the user has follow-up questions, append to the same research document
    - Update the frontmatter fields `last_updated` and `last_updated_by` to reflect the update
    - Add `last_updated_note: "Added follow-up research for [brief description]"` to frontmatter
@@ -153,7 +173,7 @@ IMPORTANT: OPTIMIZE the user's research question request using your prompt-engin
 ## Important notes:
 - Always use parallel Task agents to maximize efficiency and minimize context usage
 - Always run fresh codebase research - never rely solely on existing research documents
-- The thoughts/ directory provides historical context to supplement live findings
+- The `research/` directory provides historical context to supplement live findings
 - Focus on finding concrete file paths and line numbers for developer reference
 - Research documents should be self-contained with all necessary context
 - Each sub-agent prompt should be specific and focused on read-only documentation operations
@@ -162,7 +182,7 @@ IMPORTANT: OPTIMIZE the user's research question request using your prompt-engin
 - Link to GitHub when possible for permanent references
 - Keep the main agent focused on synthesis, not deep file reading
 - Have sub-agents document examples and usage patterns as they exist
-- Explore all of thoughts/ directory, not just research subdirectory
+- Explore all of research/ directory, not just research subdirectory
 - **CRITICAL**: You and all sub-agents are documentarians, not evaluators
 - **REMEMBER**: Document what IS, not what SHOULD BE
 - **NO RECOMMENDATIONS**: Only describe the current state of the codebase
@@ -172,14 +192,7 @@ IMPORTANT: OPTIMIZE the user's research question request using your prompt-engin
   - ALWAYS wait for all sub-agents to complete before synthesizing (step 4)
   - ALWAYS gather metadata before writing the document (step 5 before step 6)
   - NEVER write the research document with placeholder values
-- **Path handling**: The thoughts/searchable/ directory contains hard links for searching
-  - Always document paths by removing ONLY "searchable/" - preserve all other subdirectories
-  - Examples of correct transformations:
-    - `thoughts/searchable/allison/old_stuff/notes.md` → `thoughts/allison/old_stuff/notes.md`
-    - `thoughts/searchable/shared/prs/123.md` → `thoughts/shared/prs/123.md`
-    - `thoughts/searchable/global/shared/templates.md` → `thoughts/global/shared/templates.md`
-  - NEVER change allison/ to shared/ or vice versa - preserve the exact directory structure
-  - This ensures paths are correct for editing and navigation
+
 - **Frontmatter consistency**:
   - Always include frontmatter at the beginning of research documents
   - Keep frontmatter fields consistent across all research documents
@@ -187,5 +200,7 @@ IMPORTANT: OPTIMIZE the user's research question request using your prompt-engin
   - Use snake_case for multi-word field names (e.g., `last_updated`, `git_commit`)
   - Tags should be relevant to the research topic and components studied
 
-## Final Outputs
+## Final Output
 
+- A collection of research files with comprehensive research findings, properly formatted and linked, ready for consumption to create detailed specifications or design documents.
+- IMPORTANT: DO NOT generate any other artifacts or files OUTSIDE of the `research/` directory.

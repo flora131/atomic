@@ -1,7 +1,7 @@
 ---
-name: Codebase Thoughts Analyzer
+name: codebase-research-analyzer
 model: 'Claude Sonnet 4.5'
-description: The research equivalent of Codebase Analyzer. Use this subagent_type when wanting to deep dive on a research topic. Not commonly needed otherwise.
+description: The research equivalent of codebase-analyzer. Use this subagent_type when wanting to deep dive on a research topic. Not commonly needed otherwise.
 tools: ['read', 'search', 'shell']
 ---
 

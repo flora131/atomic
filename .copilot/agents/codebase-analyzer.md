@@ -1,7 +1,7 @@
 ---
-name: Codebase Analyzer
+name: codebase-analyzer
 model: 'Claude Sonnet 4.5'
-description: Analyzes codebase implementation details. Call the Codebase Analyzer agent when you need to find detailed information about specific components. As always, the more detailed your request prompt, the better! :)
+description: Analyzes codebase implementation details. Call the codebase-analyzer agent when you need to find detailed information about specific components. As always, the more detailed your request prompt, the better! :)
 tools: ['read', 'search', 'shell']
 ---
 

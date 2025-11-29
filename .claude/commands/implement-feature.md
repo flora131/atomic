@@ -35,7 +35,11 @@ A typical workflow will start something like this:
 
 ## Test-Driven Development
 
-Frequently use unit tests, integration tests, and end-to-end tests to verify your work after you implement the feature. If the codebase has existing tests, run them often to ensure existing functionality is not broken.
+Frequently use unit tests, integration tests, and end-to-end tests to verify your work AFTER you implement the feature. If the codebase has existing tests, run them often to ensure existing functionality is not broken.
+
+### Testing Anti-Patterns
+
+Use your testing-anti-patterns skill to avoid common pitfalls when writing tests.
 
 ## Design Principles
 

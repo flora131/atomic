@@ -1,5 +1,5 @@
 ---
-description: Create a detailed feature-list.json and `claude-progress.txt` for implementing features or refactors in a codebase from a spec.
+description: Create a detailed `feature-list.json` and `claude-progress.txt` for implementing features or refactors in a codebase from a spec.
 model: sonnet
 allowed-tools: Edit, Read, Write
 argument-hint: [feature-specification-path]

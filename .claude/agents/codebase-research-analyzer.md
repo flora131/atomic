@@ -1,7 +1,7 @@
 ---
 name: codebase-research-analyzer
 description: The research equivalent of codebase-analyzer. Use this subagent_type when wanting to deep dive on a research topic. Not commonly needed otherwise.
-tools: Read, Grep, Glob, LS
+tools: Read, Grep, Glob, LS, Bash
 model: sonnet
 ---
 

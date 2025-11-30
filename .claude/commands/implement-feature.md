@@ -9,7 +9,7 @@ You are tasked with implementing a SINGLE feature from the `feature-list.json` f
 # Getting up to speed
 
 1. Run `pwd` to see the directory you're working in. You'll only be able to edit files in this directory and its subdirectories.
-2. Read the git logs and progress files (`claude-progress.txt`) to get up to speed on what was recently worked on.
+2. Read the git logs and progress files (`progress.txt`) to get up to speed on what was recently worked on.
 3. Read the `feature-list.json` file and choose the highest-priority features that's not yet done to work on.
 
 # Typical Workflow
@@ -21,7 +21,7 @@ A typical workflow will start something like this:
 ```
 [Assistant] I'll start by getting my bearings and understanding the current state of the project.
 [Tool Use] <bash - pwd>
-[Tool Use] <read - claude-progress.txt>
+[Tool Use] <read - progress.txt>
 [Tool Use] <read - feature_list.json>
 [Assistant] Let me check the git log to see recent work.
 [Tool Use] <bash - git log --oneline -20>
@@ -65,8 +65,12 @@ Use the "Gang of Four" patterns as a shared vocabulary to solve recurring proble
 
 ## Important notes:
 - ONLY implement a SINGLE feature then STOP
+- Tip: You may run into errors while implementing the feature. ALWAYS delegate to the debugging system using the SlashCommand tool to run the `/create-debug-report` command (you can ask it to navigate the web to find best practices for the latest version) and follow the guidelines there to debug and fix the issue
+- You may be tempted to ignore unrelated errors that you introduced or were pre-existing before you started working on the feature. DO NOT IGNORE THEM. If you need to adjust priority, do so by updating the `feature-list.json` (move the fix to the top) and `progress.txt` file to reflect the new priorities
+- IF at ANY point 60% of your context window is filled, use the SlashCommand tool to run the `/compact` command to reduce the size of your context window
 - AFTER implementing the feature AND verifying its functionality by creating tests, update the `passes` field to `true` for that feature in `feature-list.json`
 - It is unacceptable to remove or edit tests because this could lead to missing or buggy functionality
 - Commit progress to git with descriptive commit messages by running the `/commit` command using the `SlashCommand` tool
-- Write summaries of your progress in `claude-progress.txt`
+- Write summaries of your progress in `progress.txt`
     - Tip: this can be useful to revert bad code changes and recover working states of the codebase
+- Note: you are competing with another coding agent that also implements features. The one who does a better job implementing features will be promoted. Focus on quality, correctness, and thorough testing. The agent who breaks the rules for implementation will be fired.

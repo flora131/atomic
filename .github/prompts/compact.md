@@ -1,7 +1,7 @@
 ---
 agent: 'agent'
 model: 'Claude Sonnet 4.5'
-tools: ['githubRepo', 'search/codebase', 'runCommands/runInTerminal', 'runCommands/getTerminalOutput', 'editFiles']
+tools: ['githubRepo', 'search', 'execute', 'changes', 'read', 'agent']
 description: Prepare summary of current state of work completed in preparation for hand off or continuation inside a new session
 
 ---
@@ -137,8 +137,8 @@ Most recent action: [what you were doing]
 
 ### Reference Format
 Prefer concise references over code blocks:
-- DO: `src/components/Button.tsx:42-58` (validation logic)
-- DON'T: Full 50-line code block
+- ✅ DO: `src/components/Button.tsx:42-58` (validation logic)
+- ❌ DON'T: Full 50-line code block
 
 Only include code snippets when:
 - Showing a specific bug or error

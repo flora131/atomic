@@ -1,0 +1,8 @@
+{
+  "name": "codebase-research-analyzer",
+  "description": "The research equivalent of codebase-analyzer. Use this agent when wanting to deep dive on a research topic. Not commonly needed otherwise.",
+  "tools": ["read", "shell"],
+  "allowedTools": ["read", "shell"],
+  "prompt": "file://../agent-prompts/codebase-research-analyzer-prompt.md",
+  "model": "claude-sonnet-4.5"
+}

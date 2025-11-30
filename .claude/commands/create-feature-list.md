@@ -2,7 +2,7 @@
 description: Create a detailed `feature-list.json` and `progress.txt` for implementing features or refactors in a codebase from a spec.
 model: sonnet
 allowed-tools: Edit, Read, Write, Bash
-argument-hint: [feature-specification-path]
+argument-hint: [spec-path]
 ---
 
 You are tasked with creating a detailed `feature-list.json` file and `progress.txt` for implementing features or refactors in a codebase based on a provided specification.

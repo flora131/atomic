@@ -1,0 +1,8 @@
+{
+  "name": "codebase-online-researcher",
+  "description": "Do you find yourself desiring information that you don't quite feel well-trained (confident) on? Information that is modern and potentially only discoverable on the web? Use the codebase-online-researcher agent today to find any and all answers to your questions! It will research deeply to figure out and attempt to answer your questions!",
+  "tools": ["read", "shell", "web_search", "web_fetch", "todo"],
+  "allowedTools": ["read", "shell", "web_search", "web_fetch", "todo"],
+  "prompt": "file://../agent-prompts/codebase-online-researcher-prompt.md",
+  "model": "claude-sonnet-4.5"
+}

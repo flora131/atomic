@@ -1,0 +1,8 @@
+{
+  "name": "codebase-analyzer",
+  "description": "Analyzes codebase implementation details. Call the codebase-analyzer agent when you need to find detailed information about specific components. As always, the more detailed your request prompt, the better! :)",
+  "tools": ["read", "shell"],
+  "allowedTools": ["read", "shell"],
+  "prompt": "file://../agent-prompts/codebase-analyzer-prompt.md",
+  "model": "claude-sonnet-4.5"
+}

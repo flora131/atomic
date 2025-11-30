@@ -24,6 +24,146 @@ We spent weeks iterating on support systems: project memory files, sub-agent orc
 
 ---
 
+## Workflow: Research → Plan → Implement → Ship
+
+Follow this end-to-end workflow to go from feature idea to merged PR. Each step is designed for human-in-the-loop review at critical decision points.
+
+### Step 1: Research the Codebase
+
+Before any implementation, build context about existing patterns and architecture.
+
+```bash
+# Run the research command with your question
+/research-codebase "How does authentication work in this codebase?"
+```
+
+**What happens:** The command dispatches `codebase-locator` and `codebase-analyzer` agents to explore your codebase. Results are saved to `research/` directory for reference.
+
+**You review:** Skim the research output. Confirm the agent understood the relevant parts of your codebase.
+
+### Step 2: Create a Specification
+
+Generate an execution plan based on your research.
+
+```bash
+# Create a spec referencing your research
+/create-spec
+```
+
+**What happens:** The agent reads your research from `research/`, synthesizes it, and produces a structured specification with:
+- Problem statement
+- Proposed solution
+- Implementation approach
+- Edge cases and risks
+
+**You review (CRITICAL):** This is your main decision point. Read the spec carefully. Ask clarifying questions. Request changes. The spec becomes the contract for implementation.
+
+```bash
+# If the context is getting long, compact before continuing
+/compact
+```
+
+### Step 3: Break Into Features
+
+Decompose the spec into discrete, implementable tasks.
+
+```bash
+# Generate feature list from the approved spec
+/create-feature-list path/to/spec.md
+```
+
+**What happens:** Creates `feature-list.json` and `claude-progress.txt` with:
+- Ordered list of features
+- Dependencies between features
+- Acceptance criteria for each
+
+**You review:** Verify the breakdown makes sense. Reorder if needed. Remove features that are out of scope.
+
+### Step 4: Implement Features (One at a Time)
+
+Execute each feature from your list.
+
+```bash
+# Implement the next feature
+/implement-feature
+```
+
+**What happens:** The agent:
+1. Reads `feature-list.json` for the next task
+2. References the spec for context
+3. Uses `testing-anti-patterns` skill to avoid common mistakes
+4. Produces incremental commits
+5. Updates `claude-progress.txt`
+
+**You review:** After each feature:
+- Run the tests: `npm test` (or your test command)
+- Check the diff: `git diff HEAD~1`
+- If issues, use `/create-debug-report` and fix before continuing
+
+```bash
+# Compact between features to manage context
+/compact
+
+# Repeat for each feature
+/implement-feature
+```
+
+### Step 5: Create Pull Request
+
+Package all changes for review.
+
+```bash
+# Create the PR with all your commits
+/create-pr
+```
+
+**What happens:** Creates a PR with:
+- Summary of changes
+- Link to spec
+- Test plan
+- Screenshots (if applicable)
+
+**You review:** This is where you apply the final 40% of effort:
+- Review the full diff
+- Refactor code that doesn't meet your standards
+- Add missing tests or documentation
+- Merge when satisfied
+
+### Debugging Flow
+
+When something breaks during implementation:
+
+```bash
+# Generate a debug report
+/create-debug-report
+
+# The agent analyzes logs, stack traces, and code
+# Fix the issue, then commit
+/commit "fix: resolve authentication race condition"
+```
+
+### Session Management
+
+Keep your context clean throughout:
+
+```bash
+# Compact after completing major steps (spec review, each feature)
+/compact
+
+# This summarizes work done and prepares for handoff or continuation
+```
+
+### Key Principle
+
+**You own the decisions. Agents own the execution.**
+
+- Review specs before implementation (architecture decisions)
+- Review code after each feature (quality gate)
+- Use `/compact` to manage context between steps
+- The 40-60% rule: agents get you most of the way, you provide the polish
+
+---
+
 ## The ROI
 
 **1 minute of setup. Zero behavior change. Maximum output.**
@@ -125,32 +265,6 @@ cp -r .vscode/ /path/to/your-project/
 ### 2 Skills
 - **prompt-engineer** - Prompt engineering best practices
 - **testing-anti-patterns** - Testing patterns to avoid
-
----
-
-## Workflow: Chaining Commands and Agents
-
-The architecture diagram above shows how these components work together. Here's how to chain them effectively:
-
-### Research → Plan → Implement → Ship
-
-1. **Research the codebase** - Start with `/research-codebase` to understand existing patterns and architecture. This dispatches locator and analyzer agents to build context.
-
-2. **Create a spec** - Use `/create-spec` to generate an execution plan. The agent references your research and produces a structured plan for review.
-
-3. **Break into features** - Run `/create-feature-list` to decompose the spec into discrete, implementable tasks.
-
-4. **Implement features** - Execute `/implement-feature` for each task. The agent follows your spec, uses the `testing-anti-patterns` skill, and produces incremental commits.
-
-5. **Review and ship** - Use `/create-pr` to package changes. Review the 40-60% complete work, refactor in flow state, and merge.
-
-### Debugging Flow
-
-When issues arise: `/create-debug-report` → analyze with `codebase-analyzer` → fix → `/commit`
-
-### Key Principle
-
-Let agents handle research and boilerplate. You handle architecture decisions and final polish.
 
 ---
 

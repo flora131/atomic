@@ -2,6 +2,38 @@
 
 Pre-configured agents, commands, and skills for Claude Code, GitHub Copilot, Kiro, and OpenCode. Copy to your project and start using immediately.
 
+This is *not* an agent, it's infrastructure *for* agents.
+
+---
+
+## Why?
+
+AI coding agents need proven workflows to execute successfully on feature tasks. Without them, agents fall into common failure modes: spiraling over wrong solutions, producing spaghetti code and AI slop, misunderstanding intent. They require a principled approach built on foundational software engineering principles.
+
+### The Problem
+
+Most of our time goes to figuring out *how* to use these AI tools rather than just *using* them.
+
+The promise of AI-assisted development feels empty when you're stuck in an endless loop of context-setting and cleanup.
+
+### What We Built
+
+We spent weeks iterating on support systems: project memory files, sub-agent orchestration, planning templates, and proven workflows—bringing you what developers who get real quality output from AI coding agents are actually doing.
+
+![Architecture](architecture.svg)
+
+---
+
+## The ROI
+
+**1 minute of setup. Zero behavior change. Maximum output.**
+
+- **Minimal set of curated sub-agents** for the most common workflows
+- **Skills and commands** that enforce proven software engineering practices
+- **Overnight autonomous execution** (Ralph) means waking up to completed features ready for review
+
+This approach highlights the best of SDLC and gets you 40-60% of the way there so you can review, refactor, and continue in a flow state.
+
 ---
 
 ## Quick Start
@@ -20,7 +52,9 @@ cp AGENTS.md /path/to/your-project/
 
 Then open your project in your AI coding assistant and ask:
 
+```
 > "Analyze this codebase and populate the CLAUDE.md (or AGENTS.md) with project-specific context"
+```
 
 The AI will analyze your tech stack, patterns, and architecture to fill in the template.
 
@@ -94,6 +128,32 @@ cp -r .vscode/ /path/to/your-project/
 
 ---
 
+## Workflow: Chaining Commands and Agents
+
+The architecture diagram above shows how these components work together. Here's how to chain them effectively:
+
+### Research → Plan → Implement → Ship
+
+1. **Research the codebase** - Start with `/research-codebase` to understand existing patterns and architecture. This dispatches locator and analyzer agents to build context.
+
+2. **Create a spec** - Use `/create-spec` to generate an execution plan. The agent references your research and produces a structured plan for review.
+
+3. **Break into features** - Run `/create-feature-list` to decompose the spec into discrete, implementable tasks.
+
+4. **Implement features** - Execute `/implement-feature` for each task. The agent follows your spec, uses the `testing-anti-patterns` skill, and produces incremental commits.
+
+5. **Review and ship** - Use `/create-pr` to package changes. Review the 40-60% complete work, refactor in flow state, and merge.
+
+### Debugging Flow
+
+When issues arise: `/create-debug-report` → analyze with `codebase-analyzer` → fix → `/commit`
+
+### Key Principle
+
+Let agents handle research and boilerplate. You handle architecture decisions and final polish.
+
+---
+
 ## Optional: Autonomous Execution (Ralph)
 
 Run AI agents in continuous loops until task completion.
@@ -110,6 +170,9 @@ MIT
 
 ## Credits
 
+Inspiration from
+
 - [Superpowers](https://github.com/obra/superpowers)
 - [Anthropic Skills](https://github.com/anthropics/skills)
 - [Ralph Wiggum Method](https://ghuntley.com/ralph/)
+- [OpenAI Codex Cookbook](https://github.com/openai/openai-cookbook)

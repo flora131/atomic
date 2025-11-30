@@ -1,26 +1,46 @@
-# 🌀 DaneshKit: Deep Context Infrastructure for Coding Agents
+# 🌀 Automated Procedures and Memory for AI Coding Agents
 
-Pre-configured agents, commands, and skills for Claude Code, GitHub Copilot, Kiro, and OpenCode. Copy to your project and start using immediately.
+AI coding agents are exceptionally powerful but have key gaps in principaled software engineering, context, and memory. 
 
-This is *not* an agent, it's infrastructure *for* agents.
+Engineers spend a lot of their time figuring out how to get tools to work for them rather than iterating on and shipping code with AI coding agents.
 
----
+**This repo automates AI coding agents with an operating procedure and memory**
 
-## Why?
+We provide *procedures* that teach agents how to work on your project based on software engineering best practices, and *specs* that persist as memory of decisions made and lessons learned.
 
-AI coding agents need proven workflows to execute successfully on feature tasks. Without them, agents fall into common failure modes: spiraling over wrong solutions, producing spaghetti code and AI slop, misunderstanding intent. They require a principled approach built on foundational software engineering principles.
+## The Memory Gap
 
-### The Problem
+| Memory Type | What It Is | AI Coding Agents Out of the Box | This repo |
+|-------------|-----------|---------------|-----------|
+| **Semantic** | Facts about code | ✅ "Auth is in /src/auth" | ✅ |
+| **Episodic** | What happened | ⚠️ Fragmented | ✅ Via specs |
+| **Procedural** | How to do things | ❌ Missing | ✅ **Our focus** |
 
-Most of our time goes to figuring out *how* to use these AI tools rather than just *using* them.
+This repo enables agents with *how* to work on your code and builds lasting memory through specs.
 
-The promise of AI-assisted development feels empty when you're stuck in an endless loop of context-setting and cleanup.
+## The Flywheel
 
-### What We Built
+```
+Research → Specs → Execution → Outcomes → Specs (persistent memory)
+                ↑                                    ↓
+                └────────────────────────────────────┘
+```
 
-We spent weeks iterating on support systems: project memory files, sub-agent orchestration, planning templates, and proven workflows—bringing you what developers who get real quality output from AI coding agents are actually doing.
+Every feature you ship follows proven software engineering lifecycle best practices. Specs aren't just documentation, they're **persistent memory** that survives sessions and teaches future agents.
+
+## How It Works
 
 ![Architecture](architecture.svg)
+
+This repo provides three primitives that power the flywheel:
+
+| Primitive | Purpose | Examples |
+|-----------|---------|----------|
+| **Commands** | Orchestrate the workflow | `/research-codebase`, `/create-spec`, `/implement-feature` |
+| **Agents** | Execute specialized tasks | `codebase-analyzer`, `codebase-locator`, `pattern-finder` |
+| **Skills** | Inject domain knowledge | `testing-anti-patterns`, `prompt-engineer` |
+
+**Commands** call **Agents** to do the work, while **Skills** ensure they follow best practices. The output? Specs that become memory for the next session.
 
 ---
 

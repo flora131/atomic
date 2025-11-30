@@ -24,6 +24,59 @@ We spent weeks iterating on support systems: project memory files, sub-agent orc
 
 ---
 
+## 1 Minute Quick Start
+
+### Step 1: Populate Your Project Context
+
+Copy the appropriate context file to your project root and ask your AI assistant to populate it:
+
+```bash
+# For Claude Code
+cp CLAUDE.md /path/to/your-project/
+
+# For other AI tools (GitHub Copilot, Kiro, OpenCode)
+cp AGENTS.md /path/to/your-project/
+```
+
+Then open your project in your AI coding assistant and ask:
+
+```
+> "Analyze this codebase and populate the CLAUDE.md (or AGENTS.md) with project-specific context"
+```
+
+The AI will analyze your tech stack, patterns, and architecture to fill in the template.
+
+### Step 2: Copy Your Platform's Agent Folder
+
+Copy the folder for your AI coding assistant to your project:
+
+```bash
+# For Claude Code
+cp -r .claude /path/to/your-project/
+
+# For GitHub Copilot
+cp -r .github /path/to/your-project/
+
+# For Kiro
+cp -r .kiro /path/to/your-project/
+
+# For OpenCode
+cp -r .opencode /path/to/your-project/
+```
+
+#### MCP Configuration
+
+Copy the MCP configuration files for recommended MCP servers (deepwiki, playwright):
+
+```bash
+cp .mcp.json /path/to/your-project/
+cp -r .vscode/ /path/to/your-project/
+```
+
+**Important:** If you already have a `.claude/`, `.github/`, `.kiro/`, or `.opencode/` folder in your project, merge the contents carefully rather than overwriting. The `settings.json` files contain tool permissions that you may want to customize.
+
+---
+
 ## Workflow: Research → Plan → Implement → Ship
 
 Follow this end-to-end workflow to go from feature idea to merged PR. Each step is designed for human-in-the-loop review at critical decision points.
@@ -173,59 +226,6 @@ Keep your context clean throughout:
 - **Overnight autonomous execution** (Ralph) means waking up to completed features ready for review
 
 This approach highlights the best of SDLC and gets you 40-60% of the way there so you can review, refactor, and continue in a flow state.
-
----
-
-## Quick Start
-
-### Step 1: Populate Your Project Context
-
-Copy the appropriate context file to your project root and ask your AI assistant to populate it:
-
-```bash
-# For Claude Code
-cp CLAUDE.md /path/to/your-project/
-
-# For other AI tools (GitHub Copilot, Kiro, OpenCode)
-cp AGENTS.md /path/to/your-project/
-```
-
-Then open your project in your AI coding assistant and ask:
-
-```
-> "Analyze this codebase and populate the CLAUDE.md (or AGENTS.md) with project-specific context"
-```
-
-The AI will analyze your tech stack, patterns, and architecture to fill in the template.
-
-### Step 2: Copy Your Platform's Agent Folder
-
-Copy the folder for your AI coding assistant to your project:
-
-```bash
-# For Claude Code
-cp -r .claude /path/to/your-project/
-
-# For GitHub Copilot
-cp -r .github /path/to/your-project/
-
-# For Kiro
-cp -r .kiro /path/to/your-project/
-
-# For OpenCode
-cp -r .opencode /path/to/your-project/
-```
-
-#### MCP Configuration
-
-Copy the MCP configuration files for recommended MCP servers (deepwiki, playwright):
-
-```bash
-cp .mcp.json /path/to/your-project/
-cp -r .vscode/ /path/to/your-project/
-```
-
-**Important:** If you already have a `.claude/`, `.github/`, `.kiro/`, or `.opencode/` folder in your project, merge the contents carefully rather than overwriting. The `settings.json` files contain tool permissions that you may want to customize.
 
 ---
 

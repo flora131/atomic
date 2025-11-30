@@ -1,18 +1,18 @@
-# 🌀 Automated Procedures and Memory for AI Coding Agents
+# ⛓️ Agent Armory: Automated Procedures and Memory for AI Coding Agents
 
-AI coding agents are exceptionally powerful but have key gaps in principaled software engineering, context, and memory. 
+AI coding agents are exceptionally powerful but have key gaps in principled software engineering, context, and memory. This makes them difficult to use in large codebases or generate higher quality code.
 
 Engineers spend a lot of their time figuring out how to get tools to work for them rather than iterating on and shipping code with AI coding agents.
 
-**This repo automates AI coding agents with an operating procedure and memory**
+**This repo automates AI coding agents with an operating procedure and memory.**
 
-We provide *procedures* that teach agents how to work on your project based on software engineering best practices, and *specs* that persist as memory of decisions made and lessons learned.
+We provide the *procedures* that agents use to work on your project based on software engineering best practices, and *specs* that persist as memory of decisions made and lessons learned.
 
 ## The Memory Gap
 
 | Memory Type | What It Is | AI Coding Agents Out of the Box | This repo |
 |-------------|-----------|---------------|-----------|
-| **Semantic** | Facts about code | ✅ "Auth is in /src/auth" | ✅ |
+| **Semantic** | Facts about code | ✅ "Auth is in /src/auth" | ✅ Via your coding agent |
 | **Episodic** | What happened | ⚠️ Fragmented | ✅ Via specs |
 | **Procedural** | How to do things | ❌ Missing | ✅ **Our focus** |
 
@@ -26,7 +26,7 @@ Research → Specs → Execution → Outcomes → Specs (persistent memory)
                 └────────────────────────────────────┘
 ```
 
-Every feature you ship follows proven software engineering lifecycle best practices. Specs aren't just documentation, they're **persistent memory** that survives sessions and teaches future agents.
+Every feature you ship follows proven software engineering lifecycle best practices. Specs aren't just documentation, they're **persistent memory** that survives sessions and informs future agents.
 
 ## How It Works
 
@@ -40,7 +40,7 @@ This repo provides three primitives that power the flywheel:
 | **Agents** | Execute specialized tasks | `codebase-analyzer`, `codebase-locator`, `pattern-finder` |
 | **Skills** | Inject domain knowledge | `testing-anti-patterns`, `prompt-engineer` |
 
-**Commands** call **Agents** to do the work, while **Skills** ensure they follow best practices. The output? Specs that become memory for the next session.
+**Commands** call **Agents** to do the work, while **Skills** ensure they follow best practices. The output? Specs that become memory for the next session. This standard operating procedure enables your AI coding agents to deliver results. You ship code faster and spend less time wrestling with the tools.
 
 ---
 
@@ -114,6 +114,11 @@ Before any implementation, build context about existing patterns and architectur
 
 **You review:** Skim the research output. Confirm the agent understood the relevant parts of your codebase.
 
+```bash
+# compact the context and information into a progress.txt before continuing 
+/compact
+```
+
 ### Step 2: Create a Specification
 
 Generate an execution plan based on your research.
@@ -123,18 +128,13 @@ Generate an execution plan based on your research.
 /create-spec
 ```
 
-**What happens:** The agent reads your research from `research/`, synthesizes it, and produces a structured specification with:
+**What happens:** The agent reads your research from `research/` and `progress.txt` to know what has been done, synthesizes it, and produces a structured specification with:
 - Problem statement
 - Proposed solution
 - Implementation approach
 - Edge cases and risks
 
 **You review (CRITICAL):** This is your main decision point. Read the spec carefully. Ask clarifying questions. Request changes. The spec becomes the contract for implementation.
-
-```bash
-# If the context is getting long, compact before continuing
-/compact
-```
 
 ### Step 3: Break Into Features
 
@@ -145,7 +145,7 @@ Decompose the spec into discrete, implementable tasks.
 /create-feature-list path/to/spec.md
 ```
 
-**What happens:** Creates `feature-list.json` and `claude-progress.txt` with:
+**What happens:** Creates `feature-list.json` and `progress.txt` with:
 - Ordered list of features
 - Dependencies between features
 - Acceptance criteria for each
@@ -154,7 +154,7 @@ Decompose the spec into discrete, implementable tasks.
 
 ### Step 4: Implement Features (One at a Time)
 
-Execute each feature from your list.
+Execute each feature from your list and compact to keep progress 
 
 ```bash
 # Implement the next feature
@@ -171,7 +171,7 @@ Execute each feature from your list.
 **You review:** After each feature:
 - Run the tests: `npm test` (or your test command)
 - Check the diff: `git diff HEAD~1`
-- If issues, use `/create-debug-report` and fix before continuing
+- If issues, use `/compact` and `/create-debug-report` and fix before continuing
 
 ```bash
 # Compact between features to manage context
@@ -183,7 +183,7 @@ Execute each feature from your list.
 
 ### Step 5: Create Pull Request
 
-Package all changes for review.
+Package all changes for review. Try to do this for each feature to keep commits clean and DO NOT commit directly to main.
 
 ```bash
 # Create the PR with all your commits
@@ -234,6 +234,7 @@ Keep your context clean throughout:
 - Review code after each feature (quality gate)
 - Use `/compact` to manage context between steps
 - The 40-60% rule: agents get you most of the way, you provide the polish
+- Play around with the agents and use them as your swiss army knife
 
 ---
 
@@ -310,7 +311,3 @@ Inspiration from
 - [Anthropic Skills](https://github.com/anthropics/skills)
 - [Ralph Wiggum Method](https://ghuntley.com/ralph/)
 - [OpenAI Codex Cookbook](https://github.com/openai/openai-cookbook)
-
----
-
-<sub>*Danesh (دانش) is Persian for knowledge or wisdom.*</sub>

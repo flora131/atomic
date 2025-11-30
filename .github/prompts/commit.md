@@ -1,7 +1,7 @@
 ---
 agent: 'agent'
 model: 'Claude Sonnet 4.5'
-tools: ['githubRepo', 'search/codebase', 'runCommands/runInTerminal', 'runCommands/getTerminalOutput']
+tools: ['githubRepo', 'search', 'execute', 'changes', 'read', 'agent']
 description: Create well-formatted commits with conventional commit format.
 argument-hint: [message] | --amend
 

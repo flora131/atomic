@@ -1,7 +1,7 @@
 ---
 agent: 'agent'
 model: 'GPT-5.1-Codex (Preview)'
-tools: ['githubRepo', 'search/codebase', 'editFiles']
+tools: ['githubRepo', 'search', 'read', 'execute', 'agent', 'fetch']
 description: Create a detailed execution plan for implementing features or refactors in a codebase by leveraging existing research in the `research/` directory.
 
 ---

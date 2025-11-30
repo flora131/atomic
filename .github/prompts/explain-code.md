@@ -1,7 +1,7 @@
 ---
 agent: 'agent'
 model: 'Claude Sonnet 4.5'
-tools: ['githubRepo', 'search/codebase', 'search/web', 'fetch']
+tools: ['githubRepo', 'search', 'search', 'fetch', 'agent', 'execute','playwright']
 description: Explain code functionality in detail.
 argument-hint: [code-path]
 

@@ -1,4 +1,4 @@
-# Curated Agents & Commands for AI Coding Assistants
+# DaneshKit: Deep Context Infrastructure for Coding Agents
 
 Pre-configured agents, commands, and skills for Claude Code, GitHub Copilot, Kiro, and OpenCode. Copy to your project and start using immediately.
 
@@ -290,3 +290,7 @@ Inspiration from
 - [Anthropic Skills](https://github.com/anthropics/skills)
 - [Ralph Wiggum Method](https://ghuntley.com/ralph/)
 - [OpenAI Codex Cookbook](https://github.com/openai/openai-cookbook)
+
+---
+
+<sub>*Danesh (دانش) is Persian for knowledge or wisdom.*</sub>

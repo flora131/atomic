@@ -271,7 +271,7 @@ This approach highlights the best of SDLC and gets you 40-60% of the way there s
 - **codebase-research-analyzer** - Synthesizes research data
 - **codebase-research-locator** - Locates research info in codebase
 
-### 11 Commands
+### 9 Commands
 - `research-codebase` - Deep codebase analysis
 - `create-pr` - Create pull requests
 - `implement-feature` - Feature implementation workflow
@@ -281,7 +281,6 @@ This approach highlights the best of SDLC and gets you 40-60% of the way there s
 - `commit` - Git commit workflow
 - `compact` - Session summarization
 - `create-debug-report` - Debugging assistant
-- And more...
 
 ### 2 Skills
 - **prompt-engineer** - Prompt engineering best practices

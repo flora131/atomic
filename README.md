@@ -219,7 +219,7 @@ Keep your context clean throughout:
 
 ## The ROI
 
-**1 minute of setup. Zero behavior change. Maximum output.**
+**1 minute of setup. Maximum output.**
 
 - **Minimal set of curated sub-agents** for the most common workflows
 - **Skills and commands** that enforce proven software engineering practices

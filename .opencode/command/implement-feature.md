@@ -18,7 +18,7 @@ You are tasked with implementing a SINGLE feature from the `feature-list.json` f
 ## Getting Up to Speed
 
 1. Run `pwd` to see the directory you're working in. You'll only be able to edit files in this directory and its subdirectories.
-2. Read the git logs and progress files (`claude-progress.txt`) to get up to speed on what was recently worked on.
+2. Read the git logs and progress files (`progress.txt`) to get up to speed on what was recently worked on.
 3. Read the `feature-list.json` file and choose the highest-priority feature that's not yet done to work on.
 
 ## Typical Workflow
@@ -30,7 +30,7 @@ A typical workflow will start something like this:
 ```
 [Assistant] I'll start by getting my bearings and understanding the current state of the project.
 [Tool Use] <bash - pwd>
-[Tool Use] <read - claude-progress.txt>
+[Tool Use] <read - progress.txt>
 [Tool Use] <read - feature_list.json>
 [Assistant] Let me check the git log to see recent work.
 [Tool Use] <bash - git log --oneline -20>
@@ -74,5 +74,5 @@ Use the "Gang of Four" patterns as a shared vocabulary to solve recurring proble
 - AFTER implementing the feature AND verifying its functionality by creating tests, update the `passes` field to `true` for that feature in `feature-list.json`
 - It is unacceptable to remove or edit tests because this could lead to missing or buggy functionality
 - Commit progress to git with descriptive commit messages
-- Write summaries of your progress in `claude-progress.txt`
+- Write summaries of your progress in `progress.txt`
   - Tip: this can be useful to revert bad code changes and recover working states of the codebase

@@ -2,19 +2,19 @@
 agent: 'agent'
 model: 'Claude Sonnet 4.5'
 tools: ['githubRepo', 'search/codebase', 'editFiles']
-description: Create a detailed `feature-list.json` and `claude-progress.txt` for implementing features or refactors in a codebase from a spec.
+description: Create a detailed `feature-list.json` and `progress.txt` for implementing features or refactors in a codebase from a spec.
 argument-hint: [feature-specification-path]
 
 ---
 
 # Create Feature List
 
-You are tasked with creating a detailed `feature-list.json` file and `claude-progress.txt` for implementing features or refactors in a codebase based on a provided specification.
+You are tasked with creating a detailed `feature-list.json` file and `progress.txt` for implementing features or refactors in a codebase based on a provided specification.
 
 ## Tasks
 
-1. If a `claude-progress.txt` file already exists in the repository root, remove it.
-2. Create an empty `claude-progress.txt` file to log your development progress.
+1. If a `progress.txt` file already exists in the repository root, remove it.
+2. Create an empty `progress.txt` file to log your development progress.
 3. Read the feature specification document located at **$ARGUMENTS** and follow the guidelines below to create the `feature-list.json` file.
 
 ## Create a `feature-list.json`
@@ -101,4 +101,4 @@ The `feature-list.json` should contain an array of feature objects:
 - Each feature should be independent when possible
 - Steps should be clear and actionable
 - Consider dependencies between features when ordering
-- Update `claude-progress.txt` with creation timestamp and summary
+- Update `progress.txt` with creation timestamp and summary

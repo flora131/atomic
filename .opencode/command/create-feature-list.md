@@ -1,19 +1,19 @@
 ---
-description: Create a detailed feature-list.json and claude-progress.txt for implementing features or refactors from a spec.
+description: Create a detailed feature-list.json and progress.txt for implementing features or refactors from a spec.
 agent: build
 model: anthropic/claude-sonnet-4-5
 ---
 
 # Create Feature List
 
-You are tasked with creating a detailed `feature-list.json` file and `claude-progress.txt` for implementing features or refactors in a codebase based on a provided specification.
+You are tasked with creating a detailed `feature-list.json` file and `progress.txt` for implementing features or refactors in a codebase based on a provided specification.
 
 Feature specification path: $ARGUMENTS
 
 ## Tasks
 
-1. If a `claude-progress.txt` file already exists in the repository root, remove it.
-2. Create an empty `claude-progress.txt` file to log your development progress.
+1. If a `progress.txt` file already exists in the repository root, remove it.
+2. Create an empty `progress.txt` file to log your development progress.
 3. Read the feature specification document located at the provided path and follow the guidelines below to create the `feature-list.json` file.
 
 ## Create a `feature-list.json`
@@ -65,4 +65,4 @@ Order features by:
 ## Output
 
 - `feature-list.json` with prioritized feature list
-- Empty `claude-progress.txt` ready for progress logging
+- Empty `progress.txt` ready for progress logging

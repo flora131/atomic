@@ -22,7 +22,7 @@ Create a high-fidelity summary of the current session for continuation in a new 
 2. Identifies critical context that must be preserved
 3. Discards redundant information (old tool outputs, superseded attempts)
 4. Creates a structured handoff document
-5. Updates `claude-progress.txt` with a summary of current state
+5. Updates `progress.txt` with a summary of current state
 
 ## Analysis Process
 
@@ -46,7 +46,7 @@ Before creating the summary, wrap your analysis in `<analysis>` tags:
 
 ## Output Document Structure
 
-Update `claude-progress.txt` with a structured summary like this:
+Update `progress.txt` with a structured summary like this:
 
 ```markdown
 ---

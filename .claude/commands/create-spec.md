@@ -1,7 +1,7 @@
 ---
 description: Create a detailed execution plan for implementing features or refactors in a codebase by leveraging existing research in the `research/` directory.
 model: opus
-allowed-tools: Edit, Read, Write
+allowed-tools: Edit, Read, Write, Bash
 ---
 
 You are tasked with creating a spec for implementing a new feature or system change in the codebase by leveraging existing research in the `research/` directory. Follow the template below to produce a comprehensive specification using the findings from RELEVANT research documents.

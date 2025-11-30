@@ -1,4 +1,4 @@
-# DaneshKit: Deep Context Infrastructure for Coding Agents
+# 🌀 DaneshKit: Deep Context Infrastructure for Coding Agents
 
 Pre-configured agents, commands, and skills for Claude Code, GitHub Copilot, Kiro, and OpenCode. Copy to your project and start using immediately.
 

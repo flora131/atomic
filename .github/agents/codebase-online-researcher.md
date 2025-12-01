@@ -11,7 +11,7 @@ mcp-servers:
   playwright:
     type: stdio
     command: "npx"
-    args: ["-y", "@anthropic-ai/mcp-playwright", "--headless", "--isolated"]
+    args: ["-y", "@anthropic-ai/mcp-playwright", "--headless"]
     tools: ["browser_close", "browser_resize", "browser_console_messages", "browser_handle_dialog", "browser_evaluate", "browser_file_upload", "browser_install", "browser_press_key", "browser_type", "browser_navigate", "browser_navigate_back", "browser_network_requests", "browser_take_screenshot", "browser_snapshot", "browser_click", "browser_drag", "browser_hover", "browser_select_option", "browser_tabs", "browser_wait_for"]
 ---
 

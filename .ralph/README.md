@@ -4,7 +4,7 @@ Run AI agents in continuous loops until task completion - no manual intervention
 
 > **Note:** Currently only supported for Claude Code. Support for other AI coding assistants coming soon.
 
-**Prerequisites:** You must have copied `.ralph/` to your project (see [main setup instructions](../README.md#step-1-copy-templates-to-your-project)).
+**Prerequisites:** You must copy `.ralph/` to your project folder
 
 **How it works:** Agent reads `.ralph/prompt.md`, executes tasks, iterates until done, manages its own context.
 
@@ -20,8 +20,8 @@ Ralph supports both Mac/Linux (bash) and Windows (PowerShell):
 ## Usage
 
 1. **Update `.ralph/prompt.md`** with your implementation instructions
-   - Keep it concise - reference detailed specs from `specs/` directory
-   - Example prompt below
+   - Keep it concise
+   - Example prompt in `.ralph/prompt.md`
 
 2. **Test one iteration:**
 
@@ -73,11 +73,11 @@ By default, Ralph runs indefinitely until the task is complete. You can limit th
 .\.ralph\ps1\ralph.ps1
 ```
 
-This is useful for:
+This is useful, depending on your use case, for:
 - Budget control (limit API calls)
 - Testing a fixed amount of work
 - Running overnight with a cap
-- Defining completion based on iteration count rather than agent judgment
+- Defining completion based on iteration count rather than only relying on agent judgment
 
 ## Best Environments to Run Ralph
 
@@ -94,18 +94,4 @@ Since Ralph runs continuously, it's best to run it in environments designed for 
 **Additional guidelines:**
 - One task per loop
 - Clear completion criteria
-- Reference specific specs from `specs/`
 
-### Example: Repository Porting Project Prompt (inspired by repomirror)
-
-```
-Your job is to port repomirror (TypeScript) to repomirror-py (Python) and maintain the repository. Use the implementation spec under specs/port-repomirror.
-
-Use the specs/port-repomirror/agent/ directory as a scratchpad for your work. Store long term plans and todo lists there.
-
-Make a commit and push your changes after every single file edit.
-
-You have access to the current ./ repository as well as the target /tmp/test-target2 repository.
-
-The original project was mostly tested by manually running the code. When porting, you will need to write end to end and unit tests for the project. But make sure to spend most of your time on the actual porting, not on the testing. A good heuristic is to spend 80% of your time on the actual porting, and 20% on the testing.
-```

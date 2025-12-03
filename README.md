@@ -17,7 +17,7 @@ We provide the *procedures* that agents use to work on your project based on sof
 | Memory Type | What It Is | AI Coding Agents Out of the Box | This repo |
 |-------------|-----------|---------------|-----------|
 | **Semantic** | Facts about code | ✅ "Auth is in /src/auth" | ✅ Via your coding agent |
-| **Episodic** | What happened | ⚠️ Fragmented | ✅ Via specs |
+| **Episodic** | What happened | ⚠️ Fragmented | ✅ Via specs, progress files |
 | **Procedural** | How to do things | ❌ Missing | ✅ **Our focus** |
 
 This repo enables agents with *how* to work on your code and builds lasting memory through specs.

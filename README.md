@@ -1,5 +1,9 @@
 # ⚛ Atomic: Automated Procedures and Memory for AI Coding Agents
 
+<p align="center">
+  <img src="atomic.png" alt="Atomic" width="200">
+</p>
+
 AI coding agents are exceptionally powerful but have key gaps in principled software engineering, context, and memory. This makes them difficult to use in large codebases or generate higher quality code.
 
 Engineers spend a lot of their time figuring out how to get tools to work for them rather than iterating on and shipping code with AI coding agents.

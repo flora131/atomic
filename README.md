@@ -14,11 +14,13 @@ We provide the *procedures* that agents use to work on your project based on sof
 
 ## The Memory Gap
 
+This repo helps fill the episodic and procedural gaps.
+
 | Memory Type | What It Is | AI Coding Agents Out of the Box | This repo |
 |-------------|-----------|---------------|-----------|
-| **Semantic** | Facts about code | ✅ "Auth is in /src/auth" | ✅ Via your coding agent |
+| Semantic | Facts about code | "Auth is in /src/auth" | Via your coding agent |
 | **Episodic** | What happened | ⚠️ Fragmented | ✅ Via specs, progress files |
-| **Procedural** | How to do things | ❌ Missing | ✅ **Our focus** |
+| **Procedural** | How to do things | ❌ Missing | ✅ Via automated procedure |
 
 This repo enables agents with *how* to work on your code and builds lasting memory through specs.
 
@@ -40,7 +42,7 @@ This repo provides three primitives that power the flywheel:
 
 | Primitive | Purpose | Examples |
 |-----------|---------|----------|
-| **Commands** | Orchestrate the workflow | `/research-codebase`, `/create-spec`, `/implement-feature` |
+| **Commands** | Orchestrate the agents | `/research-codebase`, `/create-spec`, `/implement-feature` |
 | **Agents** | Execute specialized tasks | `codebase-analyzer`, `codebase-locator`, `pattern-finder` |
 | **Skills** | Inject domain knowledge | `testing-anti-patterns`, `prompt-engineer` |
 
@@ -109,9 +111,9 @@ See [.ralph/README.md](.ralph/README.md) for setup instructions.
 
 ---
 
-## Workflow: Research → Plan → Implement → Ship
+## Our Procedure
 
-Follow this end-to-end workflow to go from feature idea to merged PR. Each step is designed for human-in-the-loop review at critical decision points.
+Follow our automated procedure below, built on top of the Research, Plan, Implement workflow, to go from feature idea to merged PR. Each step is designed for human-in-the-loop review at critical decision points.
 
 ### Step 1: Research the Codebase
 

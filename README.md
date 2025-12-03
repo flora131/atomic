@@ -180,7 +180,7 @@ Execute each feature from your list and compact to keep progress
 2. References the spec for context
 3. Uses `testing-anti-patterns` skill to avoid common mistakes
 4. Produces incremental commits
-5. Updates `claude-progress.txt`
+5. Updates `progress.txt`
 
 **You review:** After each feature:
 - Run the tests: `npm test` (or your test command)

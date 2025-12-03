@@ -99,6 +99,14 @@ cp -r .vscode/ /path/to/your-project/
 
 **Important:** If you already have a `.claude/`, `.github/`, `.kiro/`, or `.opencode/` folder in your project, merge the contents carefully rather than overwriting. The `settings.json` files contain tool permissions that you may want to customize.
 
+### Optional: Autonomous Execution (Ralph)
+
+Run Claude Code autonomously in continuous loops. After approving your spec and feature list, let Ralph work in the background or overnight while you focus on other tasks. The key is crisp, well-defined instructions coupled with human review. Learn more below!
+
+> **Note:** Currently only supported for Claude Code. Supports both Mac/Linux and Windows PowerShell.
+
+See [.ralph/README.md](.ralph/README.md) for setup instructions.
+
 ---
 
 ## Workflow: Research → Plan → Implement → Ship
@@ -289,16 +297,6 @@ This approach highlights the best of SDLC and gets you 40-60% of the way there s
 ### 2 Skills
 - **prompt-engineer** - Prompt engineering best practices
 - **testing-anti-patterns** - Testing patterns to avoid
-
----
-
-## Optional: Autonomous Execution (Ralph)
-
-Run AI agents in continuous loops until task completion.
-
-> **Note:** Currently only supported for Claude Code.
-
-See [.ralph/README.md](.ralph/README.md) for setup instructions.
 
 ---
 

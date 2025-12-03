@@ -111,7 +111,7 @@ See [.ralph/README.md](.ralph/README.md) for setup instructions.
 
 ---
 
-## Our Procedure
+## Our Procedure (Follow step-by-step or use commands/sub-agents in repo to build your own)
 
 Follow our automated procedure below, built on top of the Research, Plan, Implement workflow, to go from feature idea to merged PR. Each step is designed for human-in-the-loop review at critical decision points.
 

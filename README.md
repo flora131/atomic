@@ -8,7 +8,7 @@ AI coding agents are exceptionally powerful but have key gaps in principled soft
 
 Engineers spend a lot of their time figuring out how to get tools to work for them rather than iterating on and shipping code with AI coding agents.
 
-This project is named 'Atomic' for its approach of decomposing complex goals into discrete, manageable steps. By following core SDLC principles, it creates a foundation for effectively steering AI coding agents. This approach enables engineers to transition from vibe coding to true AI-assisted development.
+This project is named 'Atomic' for its approach of decomposing complex goals into discrete, manageable steps. By following core Softwware Development Lifecycle (SDLC) principles, it creates a foundation for effectively steering AI coding agents. This approach enables engineers to transition from vibe coding to true AI-assisted development.
 
 **This repo automates AI coding agents with an operating procedure and memory.**
 

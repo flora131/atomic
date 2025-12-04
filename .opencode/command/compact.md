@@ -135,13 +135,88 @@ Most recent action: [what you were doing]
 
 ### Reference Format
 Prefer concise references over code blocks:
-- DO: `src/components/Button.tsx:42-58` (validation logic)
-- DON'T: Full 50-line code block
+- ✅ DO: `src/components/Button.tsx:42-58` (validation logic)
+- ❌ DON'T: Full 50-line code block
 
 Only include code snippets when:
 - Showing a specific bug or error
 - The exact syntax is critical and non-obvious
 - It's a pattern that must be replicated exactly
+
+## Example Handoff
+
+```markdown
+---
+date: 2025-01-15T14:30:00-08:00
+git_commit: abc1234
+branch: feature/auth-refactor
+status: in_progress
+type: handoff
+---
+
+# Handoff: OAuth2 Integration with Role-Based Access
+
+## 1. Primary Request and Intent
+User requested implementing OAuth2 authentication with Google/GitHub providers,
+including role-based access control (admin, user, guest) with JWT tokens.
+
+## 2. Key Technical Concepts
+- OAuth2 PKCE flow for SPA security
+- JWT with RS256 signing
+- Role hierarchy: admin > user > guest
+- Middleware pattern for route protection
+
+## 3. Files and Code Sections
+- `src/auth/providers/oauth.ts:15-89`
+  - Why: Core OAuth flow implementation
+  - Changes: Added PKCE challenge generation
+- `src/middleware/auth.ts:1-45`
+  - Why: Route protection middleware
+  - Changes: Created from scratch
+- `prisma/schema.prisma:23-35`
+  - Why: User model with roles enum
+
+## 4. Problem Solving
+- Solved: CORS issue with OAuth callback (added origin to allowed list)
+- Ongoing: Token refresh race condition when multiple tabs open
+- Root cause: Was using symmetric signing (HS256) which doesn't work with JWKS
+
+## 5. Pending Tasks
+- [ ] Implement token refresh logic (in progress)
+- [ ] Add rate limiting to auth endpoints
+- [ ] Write integration tests for OAuth flow
+
+## 6. Current Work
+Implementing automatic token refresh. Last working on
+`src/auth/refresh.ts` adding logic to handle concurrent refresh requests.
+
+## 7. Next Step
+Complete the mutex-based refresh lock in `src/auth/refresh.ts:34`
+
+## 8. Verbatim Context
+> "The refresh token should use a mutex pattern to prevent race conditions
+> when multiple tabs try to refresh simultaneously"
+
+## 9. Anti-Context
+- Don't use localStorage for tokens (security risk, discussed and rejected)
+- Don't implement custom session management (use existing Prisma sessions)
+
+---
+
+## For Next Agent: Resumption Protocol
+
+**Before writing any code, you MUST:**
+
+1. Read these files to verify current state (don't trust this summary):
+   - `src/auth/refresh.ts` - may have partial mutex implementation
+   - `src/auth/providers/oauth.ts` - verify PKCE is working
+2. Run: `git log --oneline -3` to confirm you're at or ahead of commit `abc1234`
+3. Your first action should be: Complete the mutex lock at `src/auth/refresh.ts:34`
+
+**Traps to avoid:**
+- Don't refactor to use HS256 signing (seems simpler but breaks JWKS)
+- Don't add token storage to localStorage (security issue, already rejected)
+```
 
 ## Important Notes
 

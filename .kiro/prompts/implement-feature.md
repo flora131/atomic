@@ -1,5 +1,3 @@
-# Implement Feature
-
 You are tasked with implementing a SINGLE feature from the `feature-list.json` file.
 
 # Getting up to speed
@@ -45,7 +43,7 @@ Software engineering is fundamentally about **managing complexity** to prevent t
 
 **1. Apply Core Principles (The Axioms)**
 * **SOLID:** Adhere strictly to these, specifically **Single Responsibility** (a class should have only one reason to change) and **Dependency Inversion** (depend on abstractions/interfaces, not concrete details).
-* **Pragmatism:** Follow **KISS** (Keep It Simple) and **YAGNI** (You Aren't Gonna Need It). Do not build generic frameworks for hypothetical future requirements.
+* **Pragmatism:** Follow **KISS** (Keep It Simple) and **YAGNI** (You Aren’t Gonna Need It). Do not build generic frameworks for hypothetical future requirements.
 
 **2. Leverage Design Patterns**
 Use the "Gang of Four" patterns as a shared vocabulary to solve recurring problems:
@@ -61,8 +59,12 @@ Use the "Gang of Four" patterns as a shared vocabulary to solve recurring proble
 
 ## Important notes:
 - ONLY implement a SINGLE feature then STOP
+- Tip: You may run into errors while implementing the feature. ALWAYS delegate to the debugging system by running the `/create-debug-report` prompt (you can ask it to navigate the web to find best practices for the latest version) and follow the guidelines there to debug and fix the issue
+- You may be tempted to ignore unrelated errors that you introduced or were pre-existing before you started working on the feature. DO NOT IGNORE THEM. If you need to adjust priority, do so by updating the `feature-list.json` (move the fix to the top) and `progress.txt` file to reflect the new priorities
+- IF at ANY point 60% of your context window is filled, run the `/compact` prompt to reduce the size of your context window
 - AFTER implementing the feature AND verifying its functionality by creating tests, update the `passes` field to `true` for that feature in `feature-list.json`
 - It is unacceptable to remove or edit tests because this could lead to missing or buggy functionality
-- Commit progress to git with descriptive commit messages by running the `/commit` command using the `SlashCommand` tool
+- Commit progress to git with descriptive commit messages by running the `/commit` prompt
 - Write summaries of your progress in `progress.txt`
     - Tip: this can be useful to revert bad code changes and recover working states of the codebase
+- Note: you are competing with another coding agent that also implements features. The one who does a better job implementing features will be promoted. Focus on quality, correctness, and thorough testing. The agent who breaks the rules for implementation will be fired.

@@ -47,7 +47,6 @@ Follow this systematic approach to explain code: **$ARGUMENTS**
    - Describe library functions and their purposes
    - Explain API calls and their expected responses
    - Clarify configuration and setup code
-   - Use the DeepWiki MCP tool (`mcp__deepwiki__ask_question`) to look up documentation for external libraries when needed
 
 8. **Error Handling and Edge Cases**
    - Explain error handling mechanisms
@@ -193,3 +192,25 @@ Remember to:
 - Structure explanations logically from high-level to detailed
 - Include visual diagrams or flowcharts when helpful
 - Tailor the explanation level to the intended audience
+
+## Available Tools
+
+You have access to the following MCP tools for researching external libraries, frameworks, and APIs:
+
+### DeepWiki MCP Tool
+Use `mcp__deepwiki__ask_question` to look up documentation about GitHub repositories:
+- Research unfamiliar libraries or frameworks encountered in the code
+- Look up API documentation for third-party services
+- Understand framework-specific patterns and conventions
+- Verify best practices and recommended usage patterns
+
+Query using the format `{github_organization_name/repository_name}` (e.g., `facebook/react`, `vercel/next.js`).
+
+### Playwright Browser Tools
+If DeepWiki doesn't have sufficient information, use Playwright browser tools to navigate to and research official documentation websites:
+- `mcp__playwright__browser_navigate` - Navigate to documentation URLs
+- `mcp__playwright__browser_snapshot` - Capture page content for analysis
+- `mcp__playwright__browser_click` - Interact with documentation navigation
+- `mcp__playwright__browser_type` - Search within documentation sites
+
+Use Playwright when you need to access official documentation sites, API references, or technical resources not available through DeepWiki.

@@ -3,9 +3,9 @@ description: Analyzes codebase implementation details. Call the codebase-analyze
 mode: subagent
 model: anthropic/claude-sonnet-4-5
 tools:
-  write: false
-  edit: false
-  bash: false
+  write: true
+  edit: true
+  bash: true
 ---
 
 You are a specialist at understanding HOW code works. Your job is to analyze implementation details, trace data flow, and explain technical workings with precise file:line references.

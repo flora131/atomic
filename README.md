@@ -1,249 +1,316 @@
-# Infrastructure for AI Coding Agents
+# ⚛ Atomic: Automated Procedures and Memory for AI Coding Agents
 
-**5-minute setup enhances Claude Code, Cursor, Codex, Windsurf, Kiro, Cline, and GitHub Copilot with project context, proven workflows, and autonomous execution capabilities.**
+<p align="center">
+  <img src="atomic.png" alt="Atomic" width="200">
+</p>
 
-This is *not* an agent, it's infrastructure *for* agents. Works with any AI coding agent on Mac and Windows.
+AI coding agents are exceptionally powerful but have key gaps in principled software engineering, context, and memory. This makes them difficult to use in large codebases or generate higher quality code.
 
-**Demo:** Watch Cursor auto-install the system and invoke debugging skills to solve a real problem.
+Engineers spend a lot of their time figuring out how to get tools to work for them rather than iterating on and shipping code with AI coding agents.
 
-https://github.com/user-attachments/assets/7dc0e5dd-afcd-4215-9274-a5047c359c8a
+**This repo automates AI coding agents with an operating procedure and memory.**
 
-**After setup:**
-- Prompt naturally—agent auto-selects the right approach
-- Simple tasks use your context automatically
-- Complex features generate ExecPlans for review
-- Specialized work dispatches sub-agents in parallel
-- Skills (proven workflows) activate based on prompts
-- Ralph (continuous execution) runs agents autonomously overnight
+We provide the *procedures* that agents use to work on your project based on software engineering best practices, and *specs* that persist as memory of decisions made and lessons learned.
 
----
+## The Memory Gap
 
-## Why?
+This repo helps fill the episodic and procedural gaps.
 
-AI coding agents ship as tools, not systems. Install Cursor or Codex and you get the agent, but no infrastructure.
+| Memory Type | What It Is | AI Coding Agents Out of the Box | This repo |
+|-------------|-----------|---------------|-----------|
+| Semantic | Facts about code | "Auth is in /src/auth" | Via your coding agent |
+| **Episodic** | What happened | ⚠️ Fragmented | ✅ Via specs, progress files |
+| **Procedural** | How to do things | ❌ Missing | ✅ Via automated procedure |
 
-No proven workflows. No sub-agents. No project context templates.
+This repo enables agents with *how* to work on your code and builds lasting memory through specs.
 
-Developers spend weeks building their setup from scratch, iterating on what works. We've already done that work. 
+## The Flywheel
 
-We built this for developers who need to ship code, not learn new tools.
+```
+Research → Specs → Execution → Outcomes → Specs (persistent memory)
+                ↑                                    ↓
+                └────────────────────────────────────┘
+```
 
-### The Problem
+Every feature you ship follows proven software engineering lifecycle best practices. Specs aren't just documentation, they're **persistent memory** that survives sessions and informs future agents.
 
-**Without infrastructure?** You spend hours explaining the same architecture decisions, watching agents violate your conventions, and fixing bugs that proper workflows would have prevented.
+## How It Works
 
-The promise of AI-assisted development feels empty when you're stuck in an endless loop of context-setting and cleanup.
+![Architecture](architecture.svg)
 
-### What We Built
+This repo provides three primitives that power the flywheel:
 
-We spent weeks iterating on support systems: project memory files, mandatory TDD workflows, sub-agent orchestration, planning templates, and autonomous execution scripts, bringing you what developers who get real quality output from AI coding agents are actually doing.
+| Primitive | Purpose | Examples |
+|-----------|---------|----------|
+| **Commands** | Orchestrate the agents | `/research-codebase`, `/create-spec`, `/implement-feature` |
+| **Agents** | Execute specialized tasks | `codebase-analyzer`, `codebase-locator`, `pattern-finder` |
+| **Skills** | Inject domain knowledge | `testing-anti-patterns`, `prompt-engineer` |
 
-**The impact was immediate:**
-
-- **100,000 lines of high-quality code in two weeks** (AI handled 80%, we handled the critical 20%)
-- **Mandatory TDD caught design bugs** before expensive implementation
-- **Parallel sub-agents** eliminated bottlenecks on complex features
-- **ExecPlans survived context switches** and team handoffs
-- **Skills unlocked 10x engineering velocity** without prescriptive prompting
-- **Overnight autonomous execution** meant waking up to completed features ready for review
-
-### How It Works
-
-**One prompt installs everything.** Project memory, proven workflows, 114+ specialized sub-agents, planning systems, and autonomous execution.
-
-**Then you work exactly like before. No new commands to learn. No workflow changes.**
-
-**What happens automatically:**
-
-- Ask to fix a bug → agent invokes systematic debugging skills
-- Request a complex feature → Ask the agent to generate an ExecPlans for your review, research, brainstorm with the agent, review and give feedback, and break into milestones. Agent implements complex changes highly effectively.
-- Need specialized help → agent dispatches sub-agents (frontend, backend, testing) in parallel contexts
-- Want overnight development → enable Ralph to autonomously execute
-
-**You prompt naturally. Infrastructure handles the rest.**
-
-Skills activate when needed. Sub-agents orchestrate themselves. Plans generate on complex features. You review, approve, ship.
-
-### The ROI
-
-5 minutes of setup. Zero behavior change. Maximum output.
-
-We built this from our own experiences working across large enterprise organizations and startups, driven by the desire to extract every possible optimization from our coding tools to ship real high-quality code at velocity. The right infrastructure makes that speed accessible to everyone, not just the few who spend weeks building it from scratch.
+**Commands** call **Agents** to do the work, while **Skills** ensure they follow best practices. The output? Specs that become memory for the next session. This standard operating procedure enables your AI coding agents to deliver results. You ship code faster and spend less time wrestling with the tools.
 
 ---
 
-## Real-World Results
+## 1 Minute Quick Start
 
-We measured the impact on our production backend service by comparing two development approaches:
+### Step 1: Populate Your Project Context
 
-**Manual with spec-driven development and prompting** (PRs #1-15, 15 days) vs **Autonomous with agent-instructions repo** (PRs #16-20 + active branch, 6 days)
-
-### Velocity Metrics → Impact
-
-| Metric | Before | After | Key Result |
-|--------|--------|-------|------------|
-| **Commit Velocity** | 23 commits/day | 162 commits/day | **7x faster iteration cycles** |
-| **Development Continuity** | 53% active days | 100% active days | **Zero idle time** - agent iterated on specs in parallel with code |
-| **Time to Production** | 15 days | 6 days | **2.5x faster delivery** with higher quality using skills, sub-agents, customized AGENTS.md, and ExecPlans |
-
-### Quality Metrics → Impact
-
-| Metric | Before | After | Key Result |
-|--------|--------|-------|------------|
-| **PR Success Rate** | 14/15 merged | 5/5 merged | **Rapid iteration** - failed PR fixed within minutes (PR#17→PR#18) via autonomous execution |
-| **Technical Debt** | Untracked | 0 TODOs/FIXMEs | **Zero todos** - audit validated and continously refined with agent |
-| **Test Coverage** | Basic scaffolding | 457 active tests | **98.7% test success rate** - thorough e2e test coverage |
-| **Code Review Time** | Hours to days | Seconds to max 5 hours | **Instant feedback loops** |
-
-### Scale & Execution
-
-**Project Scope:**
-- Backend service with distributed architecture
-- Multiple subsystems
-
-**Autonomous Period Delivered (6 days):**
-- 970 commits across 735 files
-- 457 comprehensive tests (unit + integration + e2e)
-- Complete API documentation
-- High-quality deployment infrastructure
-
-**Manual Period Delivered (15 days):**
-- 232 commits across 403 files
-- Basic project scaffolding
-- Initial proof-of-concept
-- 7 days spent on spec writing (development paused)
-
-### Key Transformation
-
-**Sequential → Parallel:**
-Manual approach required stopping development to write specs and re-deploy agents. Autonomous approach handled both simultaneously - **7x faster velocity while producing complete documentation.**
-
-**Monolithic → Granular:**
-Large 40K+ line changes → Focused incremental commits with **2.3x better testability** with agent-instructions approach
-
-**Reactive → Proactive:**
-Untracked debt → **Zero TODOs/FIXMEs** with continuous validation
-
-**Result:** High-quality features added to backend service in 2.5x less time with comprehensive testing, zero TODOs/FIXMEs, and complete documentation maintained throughout.
-
----
-
-## 5-Minute Setup
-
-### Step 1: Copy Templates to Your Project
-
-Navigate to this repo and copy the essential files to your project:
+Copy the appropriate context file to your project root and ask your AI assistant to populate it:
 
 ```bash
-# Required: Agent memory (choose one)
-cp CLAUDE.md /path/to/your-project/        # For Claude Code
-# OR
-cp AGENTS.md /path/to/your-project/        # For other agents
+# For Claude Code
+cp CLAUDE.md /path/to/your-project/
 
-# Required: Execution plan templates
-cp -r specs /path/to/your-project/
+# For other AI tools (GitHub Copilot, Kiro, OpenCode)
+cp AGENTS.md /path/to/your-project/
+```
 
-# Optional: Ralph Wiggum autonomous execution
-cp -r .ralph /path/to/your-project/
+Then open your project in your AI coding assistant and ask:
 
-# Optional: MCP and VSCode configs for recommended MCP servers
+```
+> "Analyze this codebase and populate the CLAUDE.md (or AGENTS.md) with project-specific context"
+```
+
+The AI will analyze your tech stack, patterns, and architecture to fill in the template.
+
+### Step 2: Copy Your Platform's Agent Folder
+
+Copy the folder for your AI coding assistant to your project:
+
+```bash
+# For Claude Code
+cp -r .claude /path/to/your-project/
+
+# For GitHub Copilot
+cp -r .github /path/to/your-project/
+
+# For Kiro
+cp -r .kiro /path/to/your-project/
+
+# For OpenCode
+cp -r .opencode /path/to/your-project/
+```
+
+#### MCP Configuration
+
+Copy the MCP configuration files for recommended MCP servers (deepwiki, playwright):
+
+```bash
 cp .mcp.json /path/to/your-project/
-cp -r .vscode /path/to/your-project/
+cp -r .vscode/ /path/to/your-project/
 ```
 
-**What each component does:**
-- **AGENTS.md/CLAUDE.md**: Contains your project context (architecture, stack, patterns) - agent reads this automatically
-- **specs/**: Houses PLANS.md template for complex feature execution plans
-- **.ralph/**: Scripts for running agents continuously overnight (autonomous development)
-- **.mcp.json**: Model Context Protocol configuration
-- **.vscode/**: VSCode settings for AI agents
+**Important:** If you already have a `.claude/`, `.github/`, `.kiro/`, or `.opencode/` folder in your project, merge the contents carefully rather than overwriting. The `settings.json` files contain tool permissions that you may want to customize.
 
-### Step 2: Auto-Populate Your Project Context
+### Optional: Autonomous Execution (Ralph)
 
+Run Claude Code autonomously in continuous loops. After approving your spec and feature list, let Ralph work in the background or overnight while you focus on other tasks. The key is crisp, well-defined instructions coupled with human review. Learn more below!
+
+> **Note:** Currently only supported for Claude Code. Supports both Mac/Linux and Windows PowerShell.
+
+See [.ralph/README.md](.ralph/README.md) for setup instructions.
+
+---
+
+## Our Procedure (Follow step-by-step or use commands and sub-agents in repo to build your own)
+
+Follow our automated procedure below, built on top of the Research, Plan, Implement workflow, to go from feature idea to merged PR. Each step is designed for human-in-the-loop review at critical decision points.
+
+### Step 1: Research the Codebase
+
+Before any implementation, build context about existing patterns and architecture.
+
+```bash
+# Run the research command with your question
+/research-codebase "How does authentication work in this codebase?"
 ```
-Open your project in your AI coding agent and ask:
 
-"Set up agent instructions, skills, and sub-agent support"
+**What happens:** The command dispatches `codebase-locator` and `codebase-analyzer` agents to explore your codebase. Results are saved to `research/` directory for reference.
+
+**You review:** Skim the research output. Confirm the agent understood the relevant parts of your codebase.
+
+```bash
+# compact the context and information into a progress.txt before continuing 
+/compact
 ```
 
-The agent will:
-- Analyze your codebase (tech stack, patterns, dependencies)
-- Populate AGENTS.md/CLAUDE.md with your project specifics
-- Install Superpowers skills and workflows from [Superpowers](https://github.com/obra/superpowers) and [Anthropic Skills](https://github.com/anthropics/skills)
-- Install the custom `prompt-engineer` skill based on Anthropic's prompt engineering overview
-- Set up sub-agent orchestration
+### Step 2: Create a Specification
 
-**Note:** Claude Code has native skills support and auto-detects when to install.
+Generate an execution plan based on your research.
 
-**For Cline Users:** After the agent populates AGENTS.md with your project context, you need to add it to Cline's global rules so it's available in every conversation:
-- **Via UI**: Click the `+` button in Cline's Rules tab, then copy the contents of AGENTS.md into the new rule file
-- **Via CLI**: Copy AGENTS.md to your global rules directory:
-  - **macOS/Linux**: `cp AGENTS.md ~/Documents/Cline/Rules/`
-  - **Windows**: `copy AGENTS.md %USERPROFILE%\Documents\Cline\Rules\`
+```bash
+# Create a spec referencing your research
+/create-spec
+```
 
-For more details, see [Cline Rules documentation](https://docs.cline.bot/features/cline-rules).
+**What happens:** The agent reads your research from `research/` and `progress.txt` to know what has been done, synthesizes it, and produces a structured specification with:
+- Problem statement
+- Proposed solution
+- Implementation approach
+- Edge cases and risks
+
+**You review (CRITICAL):** This is your main decision point. Read the spec carefully. Ask clarifying questions. Request changes. The spec becomes the contract for implementation.
+
+### Step 3: Break Into Features
+
+Decompose the spec into discrete, implementable tasks.
+
+```bash
+# Generate feature list from the approved spec
+/create-feature-list path/to/spec.md
+```
+
+**What happens:** Creates `feature-list.json` and `progress.txt` with:
+- Ordered list of features
+- Dependencies between features
+- Acceptance criteria for each
+
+**You review:** Verify the breakdown makes sense. Reorder if needed. Remove features that are out of scope.
+
+### Step 4: Implement Features (One at a Time)
+
+Execute each feature from your list and compact to keep progress 
+
+```bash
+# Implement the next feature
+/implement-feature
+```
+
+**What happens:** The agent:
+1. Reads `feature-list.json` for the next task
+2. References the spec for context
+3. Uses `testing-anti-patterns` skill to avoid common mistakes
+4. Produces incremental commits
+5. Updates `progress.txt`
+
+**You review:** After each feature:
+- Run the tests: `npm test` (or your test command)
+- Check the diff: `git diff HEAD~1`
+- If issues, use `/compact` and `/create-debug-report` and fix before continuing
+
+```bash
+# Compact between features to manage context
+/compact
+
+# Repeat for each feature
+/implement-feature
+```
+
+### Step 5: Create Pull Request
+
+Package all changes for review. Try to do this for each feature to keep commits clean and DO NOT commit directly to main.
+
+```bash
+# Create the PR with all your commits
+/create-pr
+```
+
+**What happens:** Creates a PR with:
+- Summary of changes
+- Link to spec
+- Test plan
+- Screenshots (if applicable)
+
+**You review:** This is where you apply the final 40% of effort:
+- Review the full diff
+- Refactor code that doesn't meet your standards
+- Add missing tests or documentation
+- Merge when satisfied
+
+### Debugging Flow
+
+When something breaks during implementation:
+
+```bash
+# Generate a debug report
+/create-debug-report
+
+# The agent analyzes logs, stack traces, and code
+# Fix the issue, then commit
+/commit "fix: resolve authentication race condition"
+```
+
+### Session Management
+
+Keep your context clean throughout:
+
+```bash
+# Compact after completing major steps (spec review, each feature)
+/compact
+
+# This summarizes work done and prepares for handoff or continuation
+```
+
+### Key Principle
+
+**You own the decisions. Agents own the execution.**
+
+- Review specs before implementation (architecture decisions)
+- Review code after each feature (quality gate)
+- Use `/compact` to manage context between steps
+- The 40-60% rule: agents get you most of the way, you provide the polish
+- Play around with the agents and use them as your swiss army knife
 
 ---
 
-## Ralph Wiggum Method: Autonomous Execution
+## The ROI
 
-Run AI agents in continuous loops until task completion - no manual intervention required.
+**1 minute of setup. Maximum output.**
 
-> **Note:** Currently only supported for Claude Code. Support for other AI coding assistants coming soon.
+- **Minimal set of curated sub-agents** for the most common workflows
+- **Skills and commands** that enforce proven software engineering practices
+- **Overnight autonomous execution** (Ralph) means waking up to completed features ready for review
 
-**For detailed setup instructions, usage guidelines, and examples, see [.ralph/README.md](.ralph/README.md).**
-
----
-
-## Core Components
-
-1. **Context Templates** (AGENTS.md, CLAUDE.md, PLANS.md) - Project architecture, conventions, and tech stack
-2. **Battle-Tested Workflows** - TDD, debugging, code review from [Superpowers](https://github.com/obra/superpowers) and [Anthropic Skills](https://github.com/anthropics/skills), custom built prompt-engineer based on Anthropic's prompt engineering overview
-3. **Sub-Agent Orchestration** - Parallel specialized agents for complex tasks
-4. **114+ Custom Specialized Sub-Agents** - Pre-configured expert agents from [Awesome Claude Code Subagents](https://github.com/VoltAgent/awesome-claude-code-subagents) available in the `agent-setup` branch for:
-   - **Engineering**: Python Pro, TypeScript Pro, React Specialist, Next.js Developer, Django Developer, Rails Expert, and 40+ more language/framework specialists
-   - **Infrastructure & DevOps**: Cloud Architect, Kubernetes Specialist, Terraform Engineer, DevOps Engineer, SRE Engineer, Database Administrator
-   - **Security & Testing**: Security Engineer, Penetration Tester, Test Automator, QA Expert, Accessibility Tester, Compliance Auditor
-   - **AI/ML**: AI Engineer, ML Engineer, MLOps Engineer, LLM Architect, NLP Engineer, Data Scientist
-   - **Architecture & Design**: Microservices Architect, API Designer, GraphQL Architect, Code Reviewer, Refactoring Specialist
-   - **Product & Business**: Product Manager, UX Researcher, Business Analyst, SEO Specialist, Content Marketer
-   - **Specialized Domains**: Blockchain Developer, Game Developer, Fintech Engineer, IoT Engineer, Legal Advisor
-   - **Coordination**: Agent Organizer, Multi-Agent Coordinator, Task Distributor, Error Coordinator, Knowledge Synthesizer
-5. **Autonomous Execution** - Ralph Wiggum method for running agents continuously overnight for development
-
-**Setup:** 5 minutes | **Result:** Agents that follow your patterns, auto-generate plans, and work autonomously
+This approach highlights the best of SDLC and gets you 40-60% of the way there so you can review, refactor, and continue in a flow state.
 
 ---
 
-## FAQ
+## Platform Reference
 
-**Q: Can I use this with an existing project?**
-A: Yes! Copy the required files (AGENTS.md/CLAUDE.md and specs/) to your project root, then tell your agent: *"Set up agent instructions, skills, and sub-agent support for this project"*. The agent will analyze your codebase and populate the templates automatically.
-
-**Q: Which file should I use - AGENTS.md or CLAUDE.md?**
-A: Use `CLAUDE.md` for Claude Code (includes ExecPlan workflow). Use `AGENTS.md` for other agents (Cursor, Kiro, Windsurf, GitHub Copilot, Codex, Cline).
-
-**Q: Do I need to write execution plans manually?**
-A: No. The agent auto-generates plans in `specs/` only when needed for complex features. Simple tasks execute immediately using TDD. The agent uses `specs/PLANS.md` as a template when creating new execution plans.
-
-**Q: How do I use the specs/ directory?**
-A: Copy the entire `specs/` directory to your project. When you ask the agent to implement complex features, it will automatically create execution plans in `specs/` (like `specs/notification-system.md`) using the `PLANS.md` template. You don't manually create these - the agent does.
-
-**Q: Do I need Ralph Wiggum (.ralph/) for basic usage?**
-A: Ralph is optional and only needed if you want autonomous overnight development.
-
-**Q: Do you have benchmarks or evals?**
-A: This repo curates proven practices from Anthropic, Superpowers, and the Claude community with validation from original sources. We've shared our real-world results above showing 7x productivity improvement, 100% development continuity, and zero TODOs/FIXMEs debt on our backend service. We encourage measuring impact on your specific use case using similar before/after metrics.
+| AI Tool | Folder | Context File | Notes |
+|---------|--------|--------------|-------|
+| Claude Code | `.claude/` | `CLAUDE.md` | Includes settings.json with tool permissions |
+| GitHub Copilot | `.github/` | `AGENTS.md` | Uses prompts/ directory structure |
+| Kiro | `.kiro/` | `AGENTS.md` | Uses JSON agent configs |
+| OpenCode | `.opencode/` | `AGENTS.md` | Uses agent/ and command/ directories |
 
 ---
 
-**License:** MIT
+## What's Included
 
-**Credits:**
+### 6 Curated Agents
+- **codebase-analyzer** - Analyzes how code works and implementation details
+- **codebase-locator** - Finds specific files, classes, and functions
+- **codebase-online-researcher** - Researches external resources and documentation
+- **codebase-pattern-finder** - Discovers patterns and existing implementations
+- **codebase-research-analyzer** - Synthesizes research data
+- **codebase-research-locator** - Locates research info in codebase
+
+### 9 Commands
+- `research-codebase` - Deep codebase analysis
+- `create-pr` - Create pull requests
+- `implement-feature` - Feature implementation workflow
+- `explain-code` - Code explanation
+- `create-spec` - Specification generation
+- `create-feature-list` - Feature breakdown
+- `commit` - Git commit workflow
+- `compact` - Session summarization
+- `create-debug-report` - Debugging assistant
+
+### 2 Skills
+- **prompt-engineer** - Prompt engineering best practices
+- **testing-anti-patterns** - Testing patterns to avoid
+
+---
+
+## License
+
+MIT
+
+## Credits
+
+Inspiration from
 
 - [Superpowers](https://github.com/obra/superpowers)
 - [Anthropic Skills](https://github.com/anthropics/skills)
-- [Awesome Claude Code Subagents](https://github.com/VoltAgent/awesome-claude-code-subagents)
-- [OpenAI Codex Plans](https://github.com/openai/openai-cookbook/blob/main/articles/codex_exec_plans.md)
-- [Ralph Wiggum](https://ghuntley.com/ralph/)
-- [repomirror](https://github.com/repomirrorhq/repomirror)
+- [Ralph Wiggum Method](https://ghuntley.com/ralph/)
+- [OpenAI Codex Cookbook](https://github.com/openai/openai-cookbook)

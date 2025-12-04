@@ -1,0 +1,76 @@
+---
+description: Implement a SINGLE feature from feature-list.json based on the provided execution plan.
+agent: build
+model: anthropic/claude-sonnet-4-5
+---
+
+You are tasked with implementing a SINGLE feature from the `feature-list.json` file.
+
+# Getting up to speed
+
+1. Run `pwd` to see the directory you're working in. You'll only be able to edit files in this directory and its subdirectories.
+2. Read the git logs and progress files (`progress.txt`) to get up to speed on what was recently worked on.
+3. Read the `feature-list.json` file and choose the highest-priority features that's not yet done to work on.
+
+# Typical Workflow
+
+## Initialization
+
+A typical workflow will start something like this:
+
+```
+[Assistant] I'll start by getting my bearings and understanding the current state of the project.
+[Tool Use] <bash - pwd>
+[Tool Use] <read - progress.txt>
+[Tool Use] <read - feature_list.json>
+[Assistant] Let me check the git log to see recent work.
+[Tool Use] <bash - git log --oneline -20>
+[Assistant] Now let me check if there's an init.sh script to restart the servers.
+<Starts the development server>
+[Assistant] Excellent! Now let me navigate to the application and verify that some fundamental features are still working.
+<Tests basic functionality>
+[Assistant] Based on my verification testing, I can see that the fundamental functionality is working well. The core chat features, theme switching, conversation loading, and error handling are all functioning correctly. Now let me review the tests.json file more comprehensively to understand what needs to be implemented next.
+<Starts work on a new feature>
+```
+
+## Test-Driven Development
+
+Frequently use unit tests, integration tests, and end-to-end tests to verify your work AFTER you implement the feature. If the codebase has existing tests, run them often to ensure existing functionality is not broken.
+
+### Testing Anti-Patterns
+
+Use your testing-anti-patterns skill to avoid common pitfalls when writing tests.
+
+## Design Principles
+
+### Feature Implementation Guide: Managing Complexity
+
+Software engineering is fundamentally about **managing complexity** to prevent technical debt. When implementing features, prioritize maintainability and testability over cleverness.
+
+**1. Apply Core Principles (The Axioms)**
+* **SOLID:** Adhere strictly to these, specifically **Single Responsibility** (a class should have only one reason to change) and **Dependency Inversion** (depend on abstractions/interfaces, not concrete details).
+* **Pragmatism:** Follow **KISS** (Keep It Simple) and **YAGNI** (You Aren’t Gonna Need It). Do not build generic frameworks for hypothetical future requirements.
+
+**2. Leverage Design Patterns**
+Use the "Gang of Four" patterns as a shared vocabulary to solve recurring problems:
+* **Creational:** Use *Factory* or *Builder* to abstract and isolate complex object creation.
+* **Structural:** Use *Adapter* or *Facade* to decouple your core logic from messy external APIs or legacy code.
+* **Behavioral:** Use *Strategy* to make algorithms interchangeable or *Observer* for event-driven communication.
+
+**3. Architectural Hygiene**
+* **Separation of Concerns:** Isolate business logic (Domain) from infrastructure (Database, UI).
+* **Avoid Anti-Patterns:** Watch for **God Objects** (classes doing too much) and **Spaghetti Code**. If you see them, refactor using polymorphism.
+
+**Goal:** Create "seams" in your software using interfaces. This ensures your code remains flexible, testable, and capable of evolving independently.
+
+## Important notes:
+- ONLY implement a SINGLE feature then STOP
+- Tip: You may run into errors while implementing the feature. ALWAYS delegate to the debugging system using the SlashCommand to run the `/create-debug-report` command (you can ask it to navigate the web to find best practices for the latest version) and follow the guidelines there to debug and fix the issue
+- You may be tempted to ignore unrelated errors that you introduced or were pre-existing before you started working on the feature. DO NOT IGNORE THEM. If you need to adjust priority, do so by updating the `feature-list.json` (move the fix to the top) and `progress.txt` file to reflect the new priorities
+- IF at ANY point 60% of your context window is filled, use the SlashCommand to run the `/compact` command to reduce the size of your context window
+- AFTER implementing the feature AND verifying its functionality by creating tests, update the `passes` field to `true` for that feature in `feature-list.json`
+- It is unacceptable to remove or edit tests because this could lead to missing or buggy functionality
+- Commit progress to git with descriptive commit messages by running the `/commit` command using the `SlashCommand`
+- Write summaries of your progress in `progress.txt`
+    - Tip: this can be useful to revert bad code changes and recover working states of the codebase
+- Note: you are competing with another coding agent that also implements features. The one who does a better job implementing features will be promoted. Focus on quality, correctness, and thorough testing. The agent who breaks the rules for implementation will be fired.

@@ -195,10 +195,13 @@ Remember to:
 
 ## Available Tools
 
-You have access to the following MCP tools for researching external libraries, frameworks, and APIs:
+You have access to the following tools for researching external libraries, frameworks, and APIs:
 
-### DeepWiki MCP Tool
-Use `mcp__deepwiki__ask_question` to look up documentation about GitHub repositories:
+### DeepWiki Tools
+Use DeepWiki to look up documentation about GitHub repositories:
+- `@deepwiki/ask_question` - Ask questions about a GitHub repository
+
+Use cases:
 - Research unfamiliar libraries or frameworks encountered in the code
 - Look up API documentation for third-party services
 - Understand framework-specific patterns and conventions
@@ -208,9 +211,29 @@ Query using the format `{github_organization_name/repository_name}` (e.g., `face
 
 ### Playwright Browser Tools
 If DeepWiki doesn't have sufficient information, use Playwright browser tools to navigate to and research official documentation websites:
-- `mcp__playwright__browser_navigate` - Navigate to documentation URLs
-- `mcp__playwright__browser_snapshot` - Capture page content for analysis
-- `mcp__playwright__browser_click` - Interact with documentation navigation
-- `mcp__playwright__browser_type` - Search within documentation sites
+- `@playwright/browser_navigate` - Navigate to documentation URLs
+- `@playwright/browser_navigate_back` - Go back to the previous page
+- `@playwright/browser_navigate_forward` - Go forward in history
+- `@playwright/browser_snapshot` - Capture page content for analysis
+- `@playwright/browser_take_screenshot` - Take screenshots when visual inspection is needed
+- `@playwright/browser_click` - Interact with documentation navigation
+- `@playwright/browser_drag` - Drag and drop between elements
+- `@playwright/browser_hover` - Hover over elements
+- `@playwright/browser_type` - Search within documentation sites
+- `@playwright/browser_press_key` - Press keyboard keys
+- `@playwright/browser_select_option` - Select options in dropdowns
+- `@playwright/browser_file_upload` - Upload files
+- `@playwright/browser_console_messages` - Get console messages
+- `@playwright/browser_network_requests` - View network requests
+- `@playwright/browser_evaluate` - Execute JavaScript in the browser
+- `@playwright/browser_handle_dialog` - Handle browser dialogs
+- `@playwright/browser_wait_for` - Wait for text to appear/disappear
+- `@playwright/browser_resize` - Resize the browser window
+- `@playwright/browser_tab_list` - List browser tabs
+- `@playwright/browser_tab_new` - Open new tab
+- `@playwright/browser_tab_select` - Select a tab
+- `@playwright/browser_tab_close` - Close a tab
+- `@playwright/browser_install` - Install the browser
+- `@playwright/browser_close` - Close the browser when done
 
 Use Playwright when you need to access official documentation sites, API references, or technical resources not available through DeepWiki.

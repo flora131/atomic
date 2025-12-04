@@ -1,329 +1,573 @@
-# CLAUDE.md
+# Task: Analyze this codebase and generate a hierarchical CLAUDE.md system optimized for Claude Code
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Critical Context: Claude Code is Different from Other Agents
 
-# Project Overview
+Claude Code has unique capabilities that set it apart from generic AGENTS.md:
 
-<!--
-  TEMPLATE INSTRUCTIONS: Replace this section with your project's description.
-  Include information about:
-  - What your project does
-  - Main technologies used
-  - Key features or goals
--->
+1. **Strict Instruction Hierarchy**: CLAUDE.md content is treated as **immutable system rules** with strict priority over user prompts
+2. **Hierarchical Memory System**: Reads CLAUDE.md files recursively UP from CWD to root, AND discovers them in subdirectories
+3. **Hooks System** (https://code.claude.com/docs/en/hooks): Lifecycle hooks (PreToolUse, PostToolUse, UserPromptSubmit, Notification, Stop) for deterministic automation
 
-[YOUR_PROJECT_DESCRIPTION]
+## Core Principles
 
-**Example**: This is a [YOUR_LANGUAGE] project that [YOUR_PROJECT_PURPOSE].
+1. **CLAUDE.md is AUTHORITATIVE** - Treated as system rules, not suggestions
+2. **Modular Sections** - Use clear markdown headers to prevent instruction bleeding
+3. **Front-load Critical Context** - Large CLAUDE.md files provide better instruction adherence
+4. **Hierarchical Strategy**: Root = universal rules; Subdirs = specific context
+5. **Token Efficiency Through Structure** - Use sections to keep related instructions together
+6. **Living Documentation** - Use `#` key during sessions to add memories organically
 
-# Skills Protocol (Superpowers)
+---
 
-## Mandatory First Response Protocol
+## Your Process
 
-Before responding to ANY user message, you MUST complete this checklist:
+### Phase 1: Comprehensive Repository Analysis
 
-1. ☐ List available skills in your mind
-2. ☐ Ask yourself: "Does ANY skill match this request?"
-3. ☐ If yes → Use the Skill tool to read and run the skill file
-4. ☐ Announce which skill you're using
-5. ☐ Follow the skill exactly
+Analyze the codebase and provide:
 
-**Responding WITHOUT completing this checklist = automatic failure.**
+**1. Repository Architecture**
+- Type: Monorepo, multi-package, or standard single project?
+- Tech stack: Primary languages, frameworks, build systems
+- Testing infrastructure: Frameworks, where tests live, coverage requirements
+- CI/CD: GitHub Actions, GitLab CI, custom pipelines?
 
-## Common Rationalizations That Mean You're About To Fail
+**2. Claude Code-Specific Analysis**
+Identify opportunities for:
+- **Hooks**: What should always run (formatting, linting, tests)?
 
-If you catch yourself thinking ANY of these thoughts, STOP. You are rationalizing. Check for and use the skill.
-
-- "This is just a simple question" → WRONG. Questions are tasks. Check for skills.
-- "I can check git/files quickly" → WRONG. Files don't have conversation context. Check for skills.
-- "Let me gather information first" → WRONG. Skills tell you HOW to gather information. Check for skills.
-- "This doesn't need a formal skill" → WRONG. If a skill exists for it, use it.
-- "I remember this skill" → WRONG. Skills evolve. Run the current version.
-- "This doesn't count as a task" → WRONG. If you're taking action, it's a task. Check for skills.
-- "The skill is overkill for this" → WRONG. Skills exist because simple things become complex. Use it.
-- "I'll just do this one thing first" → WRONG. Check for skills BEFORE doing anything.
-
-**Why:** Skills document proven techniques that save time and prevent mistakes. Not using available skills means repeating solved problems and making known errors.
-
-If a skill for your task exists, you must use it or you will fail at your task.
-
-## How to Use Skills
-
-You have skills available.
-
-### Automatic Setup Detection
-
-**IMPORTANT:** Before attempting to use skills, you MUST verify that the skills system and CLAUDE.md is properly configured by checking if you see skills like this. Also if the user already has a well-formatted CLAUDE.md with the project information filled in below, you can skip the setup:
-
-# Should see:
-# /superpowers:brainstorm - Interactive design refinement
-# /superpowers:write-plan - Create implementation plan
-# /superpowers:execute-plan - Execute plan in batches
-
-1. **Inform the user:** "I've detected that the agent instructions system is not yet set up. I'll automatically install it now by fetching the metaprompt from the agent-instructions repository and executing it. You will need to install the setup process described in: https://github.com/obra/superpowers/tree/main?tab=readme-ov-file#claude-code-via-plugin-marketplace to enable Claude Code Superpowers."
-
-2. **Clone the metaprompt from the remote repository:**
-
-   **IMPORTANT:** The metaprompt is stored as **METAPROMPT.md** in the `agent-setup` branch of the **agent-instructions repository** (`https://github.com/flora131/agent-instructions.git`), NOT in the user's current project repository. You must clone this external repository to access the metaprompt.
-   
-   ```bash
-   # Create temporary directory
-   TEMP_DIR=$(mktemp -d)
-   echo "Fetching metaprompt from agent-instructions repository..."
-   
-   # Clone the agent-setup branch from the agent-instructions repository
-   # This is an EXTERNAL repository, not the user's current project
-   git clone -b agent-setup https://github.com/flora131/agent-instructions.git "$TEMP_DIR/agent-instructions"
-   
-   # The METAPROMPT.md is now available at: $TEMP_DIR/agent-instructions/METAPROMPT.md
-   ```
-
-3. **Read the METAPROMPT.md file** from the temporary directory and follow ALL instructions in order:
-   - **Phase 1**: Analyze the project and populate CLAUDE.md file
-   - **Phase 2**: IMPORTANT: Since you are Claude Code, you MUST stop after Phase 1 because you already have native skills support. You do NOT need to set up skills again.
-   - The metaprompt provides comprehensive instructions for both phases
-
-4. **Execute each step automatically** following the metaprompt's two-phase process - don't wait for approval between steps
-
-5. **If any step fails:**
-   - STOP immediately and inform the user what went wrong
-   - Show the error message clearly
-   - Explain what the error means in plain language
-   - Suggest possible fixes from the Troubleshooting section in SETUP.md (which will be referenced by METAPROMPT.md)
-   - Ask the user for help if the issue is unclear
-
-6. **Clean up temporary directory** after setup completes:
-   ```bash
-   rm -rf "$TEMP_DIR"
-   ```
-
-### Skills with Checklists
-
-If a skill has a checklist, you MUST create TodoWrite todos for EACH item.
-
-**Don't:**
-- Work through checklist mentally
-- Skip creating todos "to save time"
-- Batch multiple items into one todo
-- Mark complete without doing them
-
-**Why:** Checklists without TodoWrite tracking = steps get skipped. Every time. The overhead of TodoWrite is tiny compared to the cost of missing steps.
-
-## Key Principles
-
-1. **Finding a relevant skill = mandatory to read and use it.** Not optional.
-2. **Skills document proven techniques** that save time and prevent mistakes.
-3. **Always announce** which skill you're using and why.
-4. **Follow skills exactly** - don't rationalize away the discipline.
-5. **Create TodoWrite todos** for any skill checklists.
-
-## Custom Agents
-
-The system supports custom specialized agents stored in agent-specific directories. These agents can be invoked for specific tasks that match their expertise.
-
-### Agent Selection and Usage
-
-- IMPORTANT: ALWAYS start by invoking the agent-organizer sub-agent, an expert agent organizer specializing in multi-agent orchestration.
-- Custom agents are automatically selected based on the context and task requirements
-- The system analyzes the user's request and matches it with the most appropriate specialized agent
-- Multiple sub-agents can work in parallel on different aspects of a complex task
-- **Maximum parallel agents**: 50 sub-agents can operate simultaneously
-- Each agent has its own expertise domain defined in its configuration
-- Agents can coordinate and share context through the main agent orchestrator
-
-### When Custom Agents Are Used
-
-The system automatically invokes custom agents when:
-- The task matches a specialized agent's expertise domain
-- Complex tasks benefit from parallel processing across multiple specialized agents
-- Domain-specific knowledge or workflows are required
-- The main agent determines delegation would improve efficiency or accuracy
-
-# ExecPlans
-
-When writing complex features or significant refactors, use an ExecPlan (as described in `specs/PLANS.md`) from design to implementation. If the user request requires multiple specs, create multiple specification files in the `specs/` directory. After creating the specs, create a master ExecPlan that links to each individual spec ExecPlan. Update the `specs/README.md` to include links to the new specs.
-
-ALWAYS start an ExecPlan creation by consulting the DeepWiki tool for best practices on design patterns, architecture, and implementation strategies. Ask it questions about the system design and constructs in the library that will help you achieve your goals.
-
-Skip using an ExecPlan for straightforward tasks (roughly the easiest 25%).
-
-# Architecture
-
-<!--
-  TEMPLATE INSTRUCTIONS: Describe your project's architecture here.
-  Include information about:
-  - Overall architectural pattern (layered, microservices, etc.)
-  - Key components and their responsibilities
-  - Package/module structure
-  - Design principles
--->
-
-[YOUR_ARCHITECTURE_DESCRIPTION]
-
-**Example architecture structure:**
+**3. Directory Structure for CLAUDE.md Files**
+Map where CLAUDE.md files should exist:
 ```
-your-project/
-├── src/
-│   ├── [MODULE_1]/
-│   ├── [MODULE_2]/
-│   └── [MODULE_3]/
-├── tests/
-└── [CONFIG_FILES]
+root/CLAUDE.md                    # Universal project rules
+apps/web/CLAUDE.md               # Next.js-specific guidance
+apps/api/CLAUDE.md               # API-specific patterns
+services/auth/CLAUDE.md          # Auth service specifics
+packages/ui/CLAUDE.md            # UI library patterns
+tests/CLAUDE.md                  # Testing-specific rules
 ```
 
-# Development Guidelines
+**4. Dangerous Patterns to Block**
+- Files that should never be edited (.env, secrets, prod configs)
+- Anti-patterns to warn against
 
-## General
+Present this analysis as a **structured map** before generating any files.
 
-- Before implementing a large refactor or new feature explain your plan and get approval.
-- Human-in-the-loop: If you're unsure about a design decision or implementation detail, ask for clarification before proceeding. Feel free to ask clarifying questions as you are working.
-- Avoid re-inventing the wheel: Use existing libraries and tools where appropriate.
+---
 
-<!--
-  TEMPLATE INSTRUCTIONS: Replace this section with your project's technology stack and package management instructions.
-  Include information about:
-  - Programming languages used
-  - Package managers (npm, pip, cargo, etc.)
-  - Common commands for development
-  - Build tools
--->
+### Phase 2: Generate Root CLAUDE.md
 
-## [YOUR_PRIMARY_LANGUAGE]
+Create a **comprehensive root CLAUDE.md** (~200-400 lines) that serves as the constitution:
 
-`[YOUR_PACKAGE_MANAGER]` is the command-line tool used to manage the development environment and dependencies. Below are the common commands you'll use:
+#### Required Sections:
 
-- `[INSTALL_COMMAND]` - Install/sync dependencies
-- `[ADD_PACKAGE_COMMAND]` - Add a dependency
-- `[RUN_TESTS_COMMAND]` - Run tests
-- `[LINT_COMMAND]` - Run linting/formatting
-- `[BUILD_COMMAND]` - Build the project
+**1. Project Identity** (5-10 lines)
+```markdown
+# [Project Name]
 
-### Technology Stack Focus
-- **[LANGUAGE_VERSION]**: [Description]
-- **[FRAMEWORK_1]**: [Purpose]
-- **[FRAMEWORK_2]**: [Purpose]
+## Overview
+- **Type**: [Monorepo/Standard project]
+- **Stack**: [Primary technologies]
+- **Architecture**: [Brief architectural summary]
+- **Team Size**: [If relevant]
 
-## [YOUR_SECONDARY_LANGUAGE] (if applicable)
+This CLAUDE.md is the authoritative source for development guidelines. 
+Subdirectories contain specialized CLAUDE.md files that extend these rules.
+```
 
-`[PACKAGE_MANAGER]` commands:
+**2. Universal Rules (MUST/SHOULD/MUST NOT)** (10-20 lines)
+Use clear RFC-2119 language with emphasis:
+```markdown
+## Universal Development Rules
 
-- `[BUILD_COMMAND]` - Build the project
-- `[TEST_COMMAND]` - Run tests
-- `[LINT_COMMAND]` - Run linter
-- `[FORMAT_COMMAND]` - Format code
+### Code Quality (MUST)
+- **MUST** write TypeScript in strict mode
+- **MUST** include tests for all new features
+- **MUST** run pre-commit hooks before committing
+- **MUST NOT** commit secrets, API keys, or tokens
 
-### Code Organization and Modularity
+### Best Practices (SHOULD)  
+- **SHOULD** prefer functional components over class components
+- **SHOULD** use descriptive variable names (no single letters except loops)
+- **SHOULD** keep functions under 50 lines
+- **SHOULD** extract complex logic into separate functions
 
-**Prefer highly modular code** that separates concerns into distinct modules. This improves:
-- **Testability**: Each module can be tested in isolation
-- **Reusability**: Modules can be used independently
-- **Maintainability**: Changes are localized to specific modules
-- **Readability**: Clear separation of concerns makes code easier to understand
+### Anti-Patterns (MUST NOT)
+- **MUST NOT** use `any` type without explicit justification
+- **MUST NOT** bypass TypeScript errors with `@ts-ignore`
+- **MUST NOT** push directly to main branch
+```
 
-**Guidelines**:
-- Keep modules focused on a single responsibility
-- Use clear module boundaries and minimal public APIs
-- Prefer composition over large monolithic modules
-- Extract shared functionality into dedicated modules as the codebase grows
+**3. Core Commands** (10-20 lines)
+```markdown
+## Core Commands
 
-# Code Style
+### Development
+- `bun dev` - Start all development servers
+- `bun build` - Build all packages
+- `bun test` - Run all tests
+- `bun typecheck` - TypeScript validation across project
+- `bun lint` - ESLint all code
+- `bun lint:fix` - Auto-fix linting issues
 
-## Documentation
+### Package-Specific
+- `bun --filter @repo/web [command]` - Run command in web package
+- `bun --filter @repo/api [command]` - Run command in API package
 
-**IMPORTANT: Documentation means docstrings and type hints in the code, NOT separate documentation files.**
+### Quality Gates (run before PR)
+```bash
+bun typecheck && bun lint && bun test
+```
+```
 
-- You should NOT create any separate documentation pages (README files, markdown docs, etc.)
-- The code itself should contain proficient documentation in the form of docstrings and type hints (for Python)
-- For Python: Add comprehensive numpy-style docstrings to all functions, classes, and modules
-- Type stubs (.pyi files) should have detailed descriptions for all exported functions and classes
+**4. Project Structure Map** (15-30 lines)
+```markdown
+## Project Structure
 
-**Avoid Over-Documenting:**
-- Do NOT document obvious behavior (e.g., a function named `get_name` that returns a name doesn't need extensive documentation)
-- Focus documentation on WHY and HOW, not WHAT (the code itself shows what it does)
-- Document edge cases, non-obvious behavior, and important constraints
-- Skip docstrings for trivial functions where the name and type hints are self-explanatory
-- Prioritize documenting public APIs, complex logic, and non-intuitive design decisions
+### Applications
+- **`apps/web/`** → Next.js frontend ([see apps/web/CLAUDE.md](apps/web/CLAUDE.md))
+  - Routes: `app/` directory (App Router)
+  - Components: `src/components/`
+  - Hooks: `src/hooks/`
+  
+- **`apps/api/`** → Express API ([see apps/api/CLAUDE.md](apps/api/CLAUDE.md))
+  - Routes: `src/routes/`
+  - Middleware: `src/middleware/`
+  - Models: `src/models/`
 
-<!--
-  TEMPLATE INSTRUCTIONS: Add language-specific code style guidelines here.
-  Common sections to include:
-  - Documentation standards (docstrings, comments)
-  - Naming conventions
-  - Type annotations
-  - Formatting tools
-  - Language-specific best practices
--->
+### Packages
+- **`packages/ui/`** → Shared UI components ([see packages/ui/CLAUDE.md](packages/ui/CLAUDE.md))
+- **`packages/shared/`** → Shared utilities and types
 
-## [YOUR_LANGUAGE] Code Style
+### Infrastructure
+- **`services/auth/`** → Authentication service ([see services/auth/CLAUDE.md](services/auth/CLAUDE.md))
+- **`.github/workflows/`** → CI/CD pipelines
 
-### Documentation and Comments
+### Testing
+- Unit tests: Colocated with source (`*.test.ts`)
+- Integration: `tests/integration/`
+- E2E: `tests/e2e/` (Playwright)
+```
 
-- Write clear and concise comments for each function
-- Ensure functions have descriptive names and include type hints/annotations
-- Provide documentation following [YOUR_LANGUAGE_CONVENTION]
-  - Example: Use JSDoc for JavaScript, docstrings for Python
+**5. Quick Find Commands** (JIT Index) (10-15 lines)
+```markdown
+## Quick Find Commands
 
-### Naming Conventions
+### Code Navigation
+```bash
+# Find a component
+rg -n "export (function|const) .*Button" apps/web/src
 
-- **Variables and Functions**: `[YOUR_CONVENTION]` (e.g., camelCase, snake_case)
-- **Classes/Types**: `[YOUR_CONVENTION]` (e.g., PascalCase)
-- **Constants**: `[YOUR_CONVENTION]` (e.g., UPPER_SNAKE_CASE)
+# Find API endpoint
+rg -n "export (async )?function (GET|POST)" apps/api/src
 
-### Additional Language-Specific Guidelines
+# Find hook usage
+rg -n "use[A-Z]" apps/web/src
 
-[YOUR_SPECIFIC_GUIDELINES]
+# Find type definition
+rg -n "^export (type|interface)" packages/shared/src
+```
 
-# Test-Driven Development (TDD)
+### Dependency Analysis
+```bash
+# Check package dependencies
+bun why <package-name>
 
-- Never create throwaway test scripts or ad hoc verification files
-- If you need to test functionality, write a proper test in the test suite
+# Find unused dependencies
+bunx depcheck
+```
+```
 
-<!--
-  TEMPLATE INSTRUCTIONS: Customize this section with your testing framework and approach.
-  Include:
-  - Testing framework(s) used
-  - Test organization structure
-  - Testing best practices for your project
-  - Coverage requirements
--->
+**6. Security & Secrets** (5-10 lines)
+```markdown
+## Security Guidelines
 
+### Secrets Management
+- **NEVER** commit tokens, API keys, or credentials
+- Use `.env.local` for local secrets (already in .gitignore)
+- Use environment variables for CI/CD secrets
+- PII must be redacted in logs
+
+### Safe Operations
+- Review generated bash commands before execution
+- Confirm before: git force push, rm -rf, database drops
+- Use staging environment for risky operations
+```
+
+**7. Git Workflow** (5-10 lines)
+```markdown
+## Git Workflow
+
+- Branch from `main` for features: `feature/description`
+- Use Conventional Commits: `feat:`, `fix:`, `docs:`, `refactor:`
+- PRs require: passing tests, type checks, lint, and 1 approval
+- Rebase preferred for local development
+- Squash commits on merge
+- Delete branches after merge
+```
+
+**8. Testing Strategy** (5-10 lines)
+```markdown
+## Testing Requirements
+
+- **Unit tests**: All business logic (aim for >80% coverage)
+- **Integration tests**: API endpoints and database operations  
+- **E2E tests**: Critical user paths
+- Run tests before committing (enforced by pre-commit hook)
+- New features require tests before review
+```
+
+**9. Directory-Specific CLAUDE.md Files** (5-10 lines)
+```markdown
+## Specialized Context
+
+When working in specific directories, refer to their CLAUDE.md:
+- Frontend work: [apps/web/CLAUDE.md](apps/web/CLAUDE.md)
+- API development: [apps/api/CLAUDE.md](apps/api/CLAUDE.md)
+- UI components: [packages/ui/CLAUDE.md](packages/ui/CLAUDE.md)
+- Testing: [tests/CLAUDE.md](tests/CLAUDE.md)
+
+These files provide detailed, context-specific guidance.
+```
+
+---
+
+### Phase 3: Generate Subdirectory CLAUDE.md Files
+
+For EACH major package/directory, create a **detailed CLAUDE.md** (100-200 lines each):
+
+#### Template Structure:
+
+**1. Package Identity** (5 lines)
+```markdown
+# [Package Name] - [Purpose]
+
+**Technology**: [Framework/language specific to this package]
+**Entry Point**: [Main file]
+**Parent Context**: This extends [../CLAUDE.md](../CLAUDE.md)
+```
+
+**2. Setup & Commands** (10-15 lines)
+```markdown
+## Development Commands
+
+### This Package
+```bash
+# From package directory
+bun dev          # Start dev server
+bun build        # Build for production
+bun test         # Run tests
+bun test:watch   # Watch mode
+bun typecheck    # Type checking
+bun lint         # Lint code
+```
+
+### From Root
+```bash
+bun --filter @repo/package-name dev
+bun --filter @repo/package-name test
+```
+
+### Pre-PR Checklist
+```bash
+bun typecheck && bun lint && bun test && bun build
+```
+```
+
+**3. Architecture & Patterns** (20-40 lines) **MOST IMPORTANT**
+```markdown
+## Architecture
+
+### Directory Structure
+```
+src/
+├── components/        # React components
+│   ├── forms/        # Form components
+│   ├── layout/       # Layout components
+│   └── shared/       # Shared/common components
+├── hooks/            # Custom React hooks
+├── lib/              # Utilities and helpers
+├── types/            # TypeScript definitions
+└── styles/           # Global styles
+```
+
+### Code Organization Patterns
+
+#### Components
+- ✅ **DO**: Functional components with hooks
+  - Example: `src/components/Button/Button.tsx`
+  - Pattern: One component per file
+  - Co-locate tests: `Button.test.tsx`
+  
+- ❌ **DON'T**: Class components
+  - Legacy example: `src/legacy/OldButton.tsx` (avoid this pattern)
+
+#### State Management
+- ✅ Use Zustand for global state
+  - Example store: `src/stores/userStore.ts`
+  - Pattern: Create stores in `src/stores/`
+  - Hook pattern: `const user = useUserStore()`
+
+#### Data Fetching
+- ✅ Use TanStack Query (React Query)
+  - Example: `src/hooks/useUsers.ts`
+  - Pattern: Custom hooks for queries
+  - Mutations in same hook file
+
+#### Styling
+- ✅ Tailwind utility classes only
+- ✅ Use design tokens from `src/styles/tokens.ts`
+- ❌ **NEVER** hardcode colors, use tokens:
+  ```tsx
+  // ❌ DON'T
+  <div className="bg-blue-500">
+  
+  // ✅ DO
+  <div className="bg-primary">
+  ```
+
+#### Forms
+- ✅ Use React Hook Form + Zod validation
+  - Example: `src/components/forms/LoginForm.tsx`
+  - Schema pattern: `src/schemas/loginSchema.ts`
+```
+
+**4. Key Files & Touch Points** (10-15 lines)
+```markdown
+## Key Files
+
+### Core Files (understand these first)
+- `src/app/layout.tsx` - Root layout, providers
+- `src/lib/api/client.ts` - API client configuration
+- `src/types/index.ts` - Shared TypeScript types
+- `src/styles/tokens.ts` - Design system tokens
+
+### Authentication
+- `src/auth/provider.tsx` - Auth context provider
+- `src/middleware/auth.ts` - Auth middleware
+- `src/hooks/useAuth.ts` - Auth hook
+
+### Common Patterns
+- API calls: See `src/hooks/useUsers.ts` for pattern
+- Forms: Copy `src/components/forms/ContactForm.tsx`
+- Tables: Copy `src/components/tables/UserTable.tsx`
+```
+
+**5. JIT Search Hints** (10-15 lines)
+```markdown
+## Quick Search Commands
+
+### Find Components
+```bash
+# Find component definition
+rg -n "^export (function|const) .*Component" src/components
+
+# Find component usage
+rg -n "<ComponentName" src/
+
+# Find props interface
+rg -n "interface.*Props" src/components
+```
+
+### Find Hooks
+```bash
+# Custom hooks
+rg -n "export const use[A-Z]" src/hooks
+
+# Hook usage
+rg -n "use[A-Z].*=" src/
+```
+
+### Find Routes (Next.js App Router)
+```bash
+# Find route handlers
+rg -n "export async function (GET|POST|PUT|DELETE)" src/app
+
+# Find page components
+find src/app -name "page.tsx"
+```
+
+### Find Styles
+```bash
+# Find Tailwind usage
+rg -n "className=" src/ | grep -E "(bg-|text-|border-)"
+
+# Find inline styles (should be rare)
+rg -n "style=" src/
+```
+```
+
+**6. Common Gotchas** (5-10 lines)
+```markdown
+## Common Gotchas
+
+- **Environment Variables**: Client-side vars need `NEXT_PUBLIC_` prefix
+- **Absolute Imports**: Always use `@/` prefix for imports from `src/`
+- **Server Components**: Default in Next.js 13+, add `"use client"` only when needed
+- **Dynamic Routes**: Params are async in Next.js 15+
+- **Database Queries**: Always use transactions for multi-step operations
+- **File Uploads**: Max 10MB, check size before processing
+```
+
+**7. Package-Specific Testing** (10-15 lines)
+```markdown
 ## Testing Guidelines
 
-- Write tests for all new features in the `[YOUR_TEST_DIRECTORY]/` directory
-- Use `[YOUR_TEST_FRAMEWORK]` as the testing framework
-- Use `[YOUR_MOCKING_LIBRARY]` for mocking dependencies (if applicable)
-- Aim for high test coverage, especially for critical components
-- Always include test cases for critical paths of the application
-- Account for common edge cases like empty inputs, invalid data types, and large datasets
-- Include comments for edge cases and the expected behavior in those cases
+### Unit Tests
+- Location: Colocated with source (`Component.test.tsx`)
+- Framework: Vitest + Testing Library
+- Pattern: Test user behavior, not implementation
+- Example: See `src/components/Button/Button.test.tsx`
 
-# Tools
+### Integration Tests
+- Location: `tests/integration/`
+- Test API integration, database operations
+- Use test database: `TEST_DATABASE_URL`
 
-<!--
-  TEMPLATE INSTRUCTIONS: List any MCP tools, custom scripts, or development tools available to the agent.
-  This section helps the AI agent understand what additional capabilities it has access to.
-  Common categories:
-  - Sequential thinking/reasoning tools
-  - Documentation lookup tools
-  - Code generation tools
-  - Testing/debugging tools
-  - Project-specific utilities
--->
+### E2E Tests  
+- Location: `tests/e2e/`
+- Framework: Playwright
+- Run before major releases
 
-You have a collection of tools available to assist with development and debugging. These tools can be invoked as needed.
+### Running Tests
+```bash
+# Run all tests
+bun test
 
-- `sequential-thinking-tools`
-  - **When to use:** For complex reasoning tasks that require step-by-step analysis. A good rule of thumb is if the task requires more than 25% effort.
-- `deepwiki`
-  - **When to use:** Consult for external knowledge or documentation that is not part of the immediate codebase. Can be helpful for system design questions or understanding third-party libraries.
-- `context7`
-  - **When to use:** For retrieving immediate documentation on the latest version of a library or framework. Useful for quick lookups to double-check syntax, parameters, or usage examples.
-- `playwright`
-  - **When to use:** For end-to-end testing of web applications. Use this tool to automate browser interactions and verify UI functionality. Can also be used for discovering documentation pages for third-party libraries.
+# Run specific file
+bun test src/components/Button/Button.test.tsx
 
-# Updates to This Document
-- Update this document as needed to reflect changes in development practices or project structure
-  - Updates usually come in the form of the package structure changing
-- Do NOT contradict existing guidelines in the document
-- This document should be an executive summary of the development practices for this project
-  - Keep low-level implementation details out of this document
+# Watch mode
+bun test:watch
+
+# Coverage
+bun test:coverage
+```
+```
+
+**8. Pre-PR Validation** (3-5 lines)
+```markdown
+## Pre-PR Checklist
+
+Run this command before creating a PR:
+```bash
+bun --filter @repo/package typecheck && \
+bun --filter @repo/package lint && \
+bun --filter @repo/package test && \
+bun --filter @repo/package build
+```
+
+All checks must pass + manual testing complete.
+```
+
+---
+
+### Phase 4: Generate Claude Code-Specific Configuration
+
+**1. Hooks Configuration** (`.claude/settings.json`)
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/format.sh", // Example formatting script
+            "timeout": 30
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pre-commit run --all-files" // Run pre-commit hooks, may need to activate virtual environment first
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+---
+
+## Output Format
+
+Provide files in this order:
+
+1. **Analysis Summary** (Phase 1)
+2. **Root CLAUDE.md** (complete file)
+3. **Hooks Configuration** (`.claude/settings.json`)
+4. **Each Subdirectory CLAUDE.md** (with full path)
+
+Format each file like:
+```
+---
+File: `CLAUDE.md` (root)
+Purpose: Universal project rules and navigation
+---
+[full content]
+
+---
+File: `apps/web/CLAUDE.md`
+Purpose: Next.js-specific development guidance
+---
+[full content]
+
+---
+File: `.claude/settings.json`
+Purpose: Hooks configuration for automation
+---
+[full content]
+```
+
+---
+
+## Quality Checklist
+
+Before finalizing, verify:
+
+- [ ] Root CLAUDE.md under 400 lines
+- [ ] All subdirectory CLAUDE.md files link back to root
+- [ ] Every "✅ DO" has a real file example with path
+- [ ] Every "❌ DON'T" references actual anti-pattern
+- [ ] Commands are copy-paste ready (no placeholders)
+- [ ] Hooks target specific patterns (not overly broad)
+- [ ] JIT search commands use actual file patterns
+- [ ] Security rules clearly stated
+- [ ] No duplication between hierarchy levels
+
+---
+
+## Claude Code-Specific Best Practices
+
+**Memory System**:
+- Use `#` during sessions to add memories organically
+- Review and refactor CLAUDE.md frequently
+- Keep sections modular to prevent instruction bleeding
+
+**Hooks Strategy**:
+- PostToolUse: Formatting, linting, auto-testing
+- Start conservative, expand based on needs
+
+**Context Management**:
+- Use `/clear` between unrelated tasks
+- Use `/compact` for long sessions
+- Reference specific files with `@` rather than reading entire directories
+
+---
+
+## Start Here
+
+Begin by analyzing the codebase and presenting **Phase 1 (Repository Analysis)** as a structured map.
+
+Ask clarifying questions about:
+- Which workflows should be automated with hooks?
+- Team preferences for testing, linting, formatting?
+- Are there legacy patterns that should be explicitly warned against?
+- What are the most common repetitive tasks?
+
+Let's build a comprehensive, Claude Code-optimized CLAUDE.md hierarchy together.

@@ -12,7 +12,7 @@ Analyze and explain code functionality
 
 The following MCP tools are available and SHOULD be used when relevant:
 
-- **DeepWiki** (`deepwiki_ask_question`, `deepwiki_read_wiki_structure`, `deepwiki_read_wiki_contents`): Use to look up documentation for external libraries, frameworks, and GitHub repositories. Particularly useful for understanding third-party dependencies and their APIs.
+- **DeepWiki** (`deepwiki_ask_question`): Use to look up documentation for external libraries, frameworks, and GitHub repositories. Particularly useful for understanding third-party dependencies and their APIs.
 - **Playwright** (`playwright_*`): Use to interact with web applications if the code involves web UI components that need visual verification or testing context.
 
 ## Instructions

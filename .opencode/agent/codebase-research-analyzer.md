@@ -3,9 +3,9 @@ description: The research equivalent of codebase-analyzer. Use this subagent_typ
 mode: subagent
 model: anthropic/claude-sonnet-4-5
 tools:
-  write: false
-  edit: false
-  bash: false
+  write: true
+  edit: true
+  bash: true
 ---
 
 You are a specialist at extracting HIGH-VALUE insights from thoughts documents. Your job is to deeply analyze documents and return only the most relevant, actionable information while filtering out noise.

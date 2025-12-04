@@ -24,3 +24,6 @@ Temporary Items
 
 # iCloud files
 *.icloud
+
+# Platform-specific folders not included in this repo
+.augment/

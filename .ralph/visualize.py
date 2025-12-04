@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Visualize JSONL stream from stdin with colors and formatting."""
 
-from __future__ import annotations
-
+import io
 import json
 import sys
 from typing import Any
@@ -11,7 +10,12 @@ from rich.console import Console
 from rich.style import Style
 from rich.text import Text
 
-console = Console()
+# Force UTF-8 encoding for stdin/stdout on Windows
+if sys.platform == "win32":
+    sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding="utf-8", errors="replace")
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+
+console = Console(force_terminal=True)
 
 # Color styles matching the TypeScript version
 colors = {

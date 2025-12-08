@@ -4,7 +4,6 @@ model: 'Claude Sonnet 4.5'
 tools: ['githubRepo', 'search', 'read', 'execute', 'agent']
 description: Create a detailed `feature-list.json` and `progress.txt` for implementing features or refactors in a codebase from a spec.
 argument-hint: [feature-specification-path]
-
 ---
 
 You are tasked with creating a detailed `feature-list.json` file and `progress.txt` for implementing features or refactors in a codebase based on a provided specification.

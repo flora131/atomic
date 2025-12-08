@@ -27,3 +27,5 @@ Temporary Items
 
 # Platform-specific folders not included in this repo
 .augment/
+
+.claude/.ralph/claude_output.jsonl

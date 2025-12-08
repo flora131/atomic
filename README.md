@@ -1,4 +1,4 @@
-# ⚛ Atomic: Automated Procedures and Memory for AI Coding Agents
+# ⚛️ Atomic: Automated Procedures and Memory for AI Coding Agents
 
 <p align="center">
   <img src="atomic.png" alt="Atomic" width="200">
@@ -8,7 +8,7 @@ AI coding agents are exceptionally powerful but have key gaps in principled soft
 
 Engineers spend a lot of their time figuring out how to get tools to work for them rather than iterating on and shipping code with AI coding agents.
 
-This project is named 'Atomic' for its approach of decomposing complex goals into discrete, manageable steps. By following core Softwware Development Lifecycle (SDLC) principles, it creates a foundation for effectively steering AI coding agents. This approach enables engineers to transition from vibe coding to true AI-assisted development.
+This project is named 'Atomic' for its approach of decomposing complex goals into discrete, manageable steps. By following core Software Development Lifecycle (SDLC) principles, it creates a foundation for effectively steering AI coding agents. This approach enables engineers to transition from vibe coding to true AI-assisted development.
 
 **This repo automates AI coding agents with an operating procedure and memory.**
 
@@ -18,11 +18,11 @@ We provide the *procedures* that agents use to work on your project based on sof
 
 This repo helps fill the episodic and procedural gaps.
 
-| Memory Type | What It Is | AI Coding Agents Out of the Box | This repo |
-|-------------|-----------|---------------|-----------|
-| Semantic | Facts about code | "Auth is in /src/auth" | Via your coding agent |
-| **Episodic** | What happened | ⚠️ Fragmented | ✅ Via specs, progress files |
-| **Procedural** | How to do things | ❌ Missing | ✅ Via automated procedure |
+| Memory Type    | What It Is       | AI Coding Agents Out of the Box | This repo                   |
+| -------------- | ---------------- | ------------------------------- | --------------------------- |
+| Semantic       | Facts about code | "Auth is in /src/auth"          | Via your coding agent       |
+| **Episodic**   | What happened    | ⚠️ Fragmented                    | ✅ Via specs, progress files |
+| **Procedural** | How to do things | ❌ Missing                       | ✅ Via automated procedure   |
 
 This repo enables agents with *how* to work on your code and builds lasting memory through specs.
 
@@ -42,17 +42,23 @@ Every feature you ship follows proven software engineering lifecycle best practi
 
 This repo provides three primitives that power the flywheel:
 
-| Primitive | Purpose | Examples |
-|-----------|---------|----------|
-| **Commands** | Orchestrate the agents | `/research-codebase`, `/create-spec`, `/implement-feature` |
-| **Agents** | Execute specialized tasks | `codebase-analyzer`, `codebase-locator`, `pattern-finder` |
-| **Skills** | Inject domain knowledge | `testing-anti-patterns`, `prompt-engineer` |
+| Primitive    | Purpose                   | Examples                                                   |
+| ------------ | ------------------------- | ---------------------------------------------------------- |
+| **Commands** | Orchestrate the agents    | `/research-codebase`, `/create-spec`, `/implement-feature` |
+| **Agents**   | Execute specialized tasks | `codebase-analyzer`, `codebase-locator`, `pattern-finder`  |
+| **Skills**   | Inject domain knowledge   | `testing-anti-patterns`, `prompt-engineer`                 |
 
 **Commands** call **Agents** to do the work, while **Skills** ensure they follow best practices. The output? Specs that become memory for the next session. This standard operating procedure enables your AI coding agents to deliver results. You ship code faster and spend less time wrestling with the tools.
 
 ---
 
 ## 1 Minute Quick Start
+
+### Install the necessary dependencies
+
+[uv](https://docs.astral.sh/uv/getting-started/installation/#installing-uv) - Python package manager
+[bun](https://bun.com/docs/installation) - JavaScript runtime
+
 
 ### Step 1: Populate Your Project Context
 
@@ -109,7 +115,7 @@ Run Claude Code autonomously in continuous loops. After approving your spec and 
 
 > **Note:** Currently only supported for Claude Code. Supports both Mac/Linux and Windows PowerShell.
 
-See [.ralph/README.md](.ralph/README.md) for setup instructions.
+See [.claude/.ralph/README.md](.claude/.ralph/README.md) for setup instructions.
 
 ---
 
@@ -268,12 +274,12 @@ This approach highlights the best of SDLC and gets you 40-60% of the way there s
 
 ## Platform Reference
 
-| AI Tool | Folder | Context File | Notes |
-|---------|--------|--------------|-------|
-| Claude Code | `.claude/` | `CLAUDE.md` | Includes settings.json with tool permissions |
-| GitHub Copilot | `.github/` | `AGENTS.md` | Uses prompts/ directory structure |
-| Kiro | `.kiro/` | `AGENTS.md` | Uses JSON agent configs |
-| OpenCode | `.opencode/` | `AGENTS.md` | Uses agent/ and command/ directories |
+| AI Tool        | Folder       | Context File | Notes                                           |
+| -------------- | ------------ | ------------ | ----------------------------------------------- |
+| Claude Code    | `.claude/`   | `CLAUDE.md`  | Includes settings.json with tool permissions    |
+| GitHub Copilot | `.github/`   | `AGENTS.md`  | Uses prompts/ directory for commands            |
+| Kiro           | `.kiro/`     | `AGENTS.md`  | Uses JSON agent configs + prompts/ for commands |
+| OpenCode       | `.opencode/` | `AGENTS.md`  | Uses agent/ and command/ directories            |
 
 ---
 

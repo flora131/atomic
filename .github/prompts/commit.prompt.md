@@ -4,7 +4,6 @@ model: 'Claude Sonnet 4.5'
 tools: ['githubRepo', 'search', 'execute', 'changes', 'read', 'agent']
 description: Create well-formatted commits with conventional commit format.
 argument-hint: [message] | --amend
-
 ---
 
 # Smart Git Commit

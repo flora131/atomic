@@ -4,7 +4,6 @@ model: 'Claude Sonnet 4.5'
 tools: ['githubRepo', 'search', 'search', 'fetch', 'agent', 'execute','playwright']
 description: Explain code functionality in detail.
 argument-hint: [code-path]
-
 ---
 
 # Analyze and Explain Code Functionality

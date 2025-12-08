@@ -3,7 +3,6 @@ agent: 'agent'
 model: 'Claude Sonnet 4.5'
 tools: ['githubRepo', 'search', 'read', 'execute', 'agent', 'fetch']
 description: Implement a SINGLE feature from `feature-list.json` based on the provided execution plan.
-
 ---
 
 You are tasked with implementing a SINGLE feature from the `feature-list.json` file.

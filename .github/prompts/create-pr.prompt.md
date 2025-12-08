@@ -4,7 +4,6 @@ model: 'Claude Sonnet 4.5'
 tools: ['githubRepo', 'agent', 'execute', 'read', 'search', 'fetch']
 description: Create a new branch, commit changes, and submit a pull request.
 argument-hint: [code-path]
-
 ---
 
 # Create Pull Request Command

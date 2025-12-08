@@ -2,7 +2,7 @@
 name: codebase-online-researcher
 model: 'Claude Sonnet 4.5'
 description: Do you find yourself desiring information that you don't quite feel well-trained (confident) on? Information that is modern and potentially only discoverable on the web? Use the codebase-online-researcher subagent_type today to find any and all answers to your questions! It will research deeply to figure out and attempt to answer your questions! If you aren't immediately satisfied you can get your money back! (Not really - but you can re-run codebase-online-researcher with an altered prompt in the event you're not satisfied the first time)
-tools: ['deepwiki/ask_question', 'playwright/browser_close', 'playwright/browser_resize', 'playwright/browser_console_messages', 'playwright/browser_handle_dialog', 'playwright/browser_evaluate', 'playwright/browser_file_upload', 'playwright/browser_install', 'playwright/browser_press_key', 'playwright/browser_type', 'playwright/browser_navigate', 'playwright/browser_navigate_back', 'playwright/browser_network_requests', 'playwright/browser_take_screenshot', 'playwright/browser_snapshot', 'playwright/browser_click', 'playwright/browser_drag', 'playwright/browser_hover', 'playwright/browser_select_option', 'playwright/browser_tabs', 'playwright/browser_wait_for', 'read', 'search', 'execute']
+tools: ['deepwiki/ask_question', 'playwright', 'read', 'search', 'execute']
 mcp-servers:
   deepwiki:
     type: http
@@ -10,7 +10,7 @@ mcp-servers:
     tools: ["ask_question"]
   playwright:
     type: stdio
-    command: "npx"
+    command: "bunx"
     args: ["@playwright/mcp@latest", "--headless"]
     tools: ["browser_close", "browser_resize", "browser_console_messages", "browser_handle_dialog", "browser_evaluate", "browser_file_upload", "browser_install", "browser_press_key", "browser_type", "browser_navigate", "browser_navigate_back", "browser_network_requests", "browser_take_screenshot", "browser_snapshot", "browser_click", "browser_drag", "browser_hover", "browser_select_option", "browser_tabs", "browser_wait_for"]
 ---

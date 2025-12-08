@@ -6,11 +6,11 @@ param(
 
 function Show-Usage {
     @"
-Usage: .\.claude\.ralph\ralph.ps1 [-Help] [-MaxIterations <int>] [-CompletionMarker <string>]
+Usage: ./.claude/.ralph/ralph.ps1 [-Help] [-MaxIterations <int>] [-CompletionMarker <string>]
 
   -Help               Show this message
   -MaxIterations      Number of loop iterations (0 = infinite, default: 0)
-    -CompletionMarker   Marker to stop after detecting in .claude\.ralph\claude_output.jsonl
+    -CompletionMarker   Marker to stop after detecting in .claude/.ralph/claude_output.jsonl
                                             (default: <promise>COMPLETE</promise>)
 "@
 }
@@ -20,7 +20,7 @@ if ($Help) {
     exit 0
 }
 
-$OutputLog = ".claude\.ralph\claude_output.jsonl"
+$OutputLog = ".claude/.ralph/claude_output.jsonl"
 
 function CheckCompletion {
     param(
@@ -38,7 +38,7 @@ function CheckCompletion {
 if ($MaxIterations -gt 0) {
     for ($i = 1; $i -le $MaxIterations; $i++) {
         Write-Host "Iteration: $i / $MaxIterations"
-        & .\.claude\.ralph\sync.ps1
+        & ./.claude/.ralph/sync.ps1
         if (CheckCompletion -Path $OutputLog -Marker $CompletionMarker) {
             Write-Host "Completion promise detected. Exiting loop."
             break
@@ -49,7 +49,7 @@ if ($MaxIterations -gt 0) {
     }
 } else {
     while ($true) {
-        & .\.claude\.ralph\sync.ps1
+        & ./.claude/.ralph/sync.ps1
         if (CheckCompletion -Path $OutputLog -Marker $CompletionMarker) {
             Write-Host "Completion promise detected. Exiting loop."
             break

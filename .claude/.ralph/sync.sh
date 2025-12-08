@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-cat .ralph/prompt.md | \
+cat .claude/.ralph/prompt.md | \
     claude -p --output-format=stream-json --verbose --dangerously-skip-permissions --add-dir . | \
-    tee -a .ralph/claude_output.jsonl | \
-    uvx --from rich python .ralph/visualize.py --debug
+    tee -a .claude/.ralph/claude_output.jsonl | \
+    uvx --from rich python .claude/.ralph/visualize.py --debug

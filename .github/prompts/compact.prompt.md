@@ -3,7 +3,6 @@ agent: 'agent'
 model: 'Claude Sonnet 4.5'
 tools: ['githubRepo', 'search', 'execute', 'changes', 'read', 'agent']
 description: Prepare summary of current state of work completed in preparation for hand off or continuation inside a new session
-
 ---
 
 # Context Compaction & Handoff

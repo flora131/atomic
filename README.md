@@ -316,9 +316,10 @@ MIT
 
 ## Credits
 
-Inspiration from
+Learnings from
 
 - [Superpowers](https://github.com/obra/superpowers)
 - [Anthropic Skills](https://github.com/anthropics/skills)
 - [Ralph Wiggum Method](https://ghuntley.com/ralph/)
 - [OpenAI Codex Cookbook](https://github.com/openai/openai-cookbook)
+- [HumanLayer](https://github.com/humanlayer/humanlayer)

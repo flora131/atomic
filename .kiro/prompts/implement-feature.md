@@ -60,8 +60,9 @@ Use the "Gang of Four" patterns as a shared vocabulary to solve recurring proble
 ## Important notes:
 - ONLY implement a SINGLE feature then STOP
 - Tip: You may run into errors while implementing the feature. ALWAYS delegate to the debugging system by running the `/create-debug-report` prompt (you can ask it to navigate the web to find best practices for the latest version) and follow the guidelines there to debug and fix the issue
+    - AFTER the debug report is generated, add a new feature to `feature-list.json` with the highest priority to fix the bug and set its `passes` field to `false` AND IMMEDIATELY STOP working on the current feature and EXIT
 - You may be tempted to ignore unrelated errors that you introduced or were pre-existing before you started working on the feature. DO NOT IGNORE THEM. If you need to adjust priority, do so by updating the `feature-list.json` (move the fix to the top) and `progress.txt` file to reflect the new priorities
-- IF at ANY point 60% of your context window is filled, run the `/compact` prompt to reduce the size of your context window
+- IF at ANY point MORE THAN 60% of your context window is filled, STOP
 - AFTER implementing the feature AND verifying its functionality by creating tests, update the `passes` field to `true` for that feature in `feature-list.json`
 - It is unacceptable to remove or edit tests because this could lead to missing or buggy functionality
 - Commit progress to git with descriptive commit messages by running the `/commit` prompt

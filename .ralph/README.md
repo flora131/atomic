@@ -12,10 +12,10 @@ Run AI agents in continuous loops until task completion - no manual intervention
 
 Ralph supports both Mac/Linux (bash) and Windows (PowerShell):
 
-| Platform | Scripts Location | Usage |
-|----------|------------------|-------|
-| Mac/Linux | `.ralph/sh/` | `ralph.sh`, `sync.sh` |
-| Windows | `.ralph/ps1/` | `ralph.ps1`, `sync.ps1` |
+| Platform  | Scripts Location | Usage                   |
+| --------- | ---------------- | ----------------------- |
+| Mac/Linux | `.ralph/`        | `ralph.sh`, `sync.sh`   |
+| Windows   | `.ralph/`        | `ralph.ps1`, `sync.ps1` |
 
 ## Usage
 
@@ -28,13 +28,13 @@ Ralph supports both Mac/Linux (bash) and Windows (PowerShell):
    **Mac/Linux:**
    ```bash
    cd /path/to/your-project
-   ./.ralph/sh/sync.sh
+   ./.ralph/sync.sh
    ```
 
    **Windows PowerShell:**
    ```powershell
    cd C:\path\to\your-project
-   .\.ralph\ps1\sync.ps1
+   .\.ralph\sync.ps1
    ```
    Verifies the agent can read your prompt and execute successfully
 
@@ -42,12 +42,12 @@ Ralph supports both Mac/Linux (bash) and Windows (PowerShell):
 
    **Mac/Linux:**
    ```bash
-   ./.ralph/sh/ralph.sh
+   ./.ralph/ralph.sh
    ```
 
    **Windows PowerShell:**
    ```powershell
-   .\.ralph\ps1\ralph.ps1
+   .\.ralph\ralph.ps1
    ```
    Agent loops, working until task completion
 
@@ -58,19 +58,19 @@ By default, Ralph runs indefinitely until the task is complete. You can limit th
 **Mac/Linux:**
 ```bash
 # Run exactly 10 iterations
-./.ralph/sh/ralph.sh 10
+./.ralph/ralph.sh 10
 
 # Run indefinitely (default)
-./.ralph/sh/ralph.sh
+./.ralph/ralph.sh
 ```
 
 **Windows PowerShell:**
 ```powershell
 # Run exactly 10 iterations
-.\.ralph\ps1\ralph.ps1 -MaxIterations 10
+.\.ralph\ralph.ps1 -MaxIterations 10
 
 # Run indefinitely (default)
-.\.ralph\ps1\ralph.ps1
+.\.ralph\ralph.ps1
 ```
 
 This is useful, depending on your use case, for:

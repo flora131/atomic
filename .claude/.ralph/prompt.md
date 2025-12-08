@@ -1,11 +1,6 @@
-Your job is to [TASK_GOES_HERE] and maintain the repository.
+/implement-feature
 
-You have access to the current repo.
-
-Make a commit and push your changes after every single file edit.
-
-[TASK_DESCRIPTION_GOES_HERE]
-
-When complete:
-- [COMPLETION_CRITERIA_GOES_HERE]
+When FINALLY complete:
+- All features in `feature-list.json` must have their `passes` field set to `true`
+- All pre-commit checks and tests must pass
 - Output: <promise>COMPLETE</promise>

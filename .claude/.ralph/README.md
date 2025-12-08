@@ -33,8 +33,8 @@ Ralph supports both Mac/Linux (bash) and Windows (PowerShell):
 
    **Windows PowerShell:**
    ```powershell
-   cd C:\path\to\your-project
-   .\.claude\.ralph\sync.ps1
+   cd C:/path/to/your-project
+   ./.claude/.ralph/sync.ps1
    ```
    Verifies the agent can read your prompt and execute successfully
 
@@ -47,7 +47,7 @@ Ralph supports both Mac/Linux (bash) and Windows (PowerShell):
 
    **Windows PowerShell:**
    ```powershell
-   .\.claude\.ralph\ralph.ps1
+   ./.claude/.ralph/ralph.ps1
    ```
    Agent loops, working until task completion
 
@@ -67,10 +67,10 @@ By default, Ralph runs indefinitely until the task is complete. You can limit th
 **Windows PowerShell:**
 ```powershell
 # Run exactly 10 iterations
-.\.claude\.ralph\ralph.ps1 -MaxIterations 10
+./.claude/.ralph/ralph.ps1 -MaxIterations 10
 
 # Run indefinitely (default)
-.\.claude\.ralph\ralph.ps1
+./.claude/.ralph/ralph.ps1
 ```
 
 This is useful, depending on your use case, for:

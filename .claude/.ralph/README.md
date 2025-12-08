@@ -4,37 +4,37 @@ Run AI agents in continuous loops until task completion - no manual intervention
 
 > **Note:** Currently only supported for Claude Code. Support for other AI coding assistants coming soon.
 
-**Prerequisites:** You must copy `.ralph/` to your project folder
+**Prerequisites:** You must copy `.claude/.ralph/` to your project folder
 
-**How it works:** Agent reads `.ralph/prompt.md`, executes tasks, iterates until done, manages its own context.
+**How it works:** Agent reads `.claude/.ralph/prompt.md`, executes tasks, iterates until done, manages its own context.
 
 ## Platform Support
 
 Ralph supports both Mac/Linux (bash) and Windows (PowerShell):
 
-| Platform  | Scripts Location | Usage                   |
-| --------- | ---------------- | ----------------------- |
-| Mac/Linux | `.ralph/`        | `ralph.sh`, `sync.sh`   |
-| Windows   | `.ralph/`        | `ralph.ps1`, `sync.ps1` |
+| Platform  | Scripts Location  | Usage                   |
+| --------- | ----------------- | ----------------------- |
+| Mac/Linux | `.claude/.ralph/` | `ralph.sh`, `sync.sh`   |
+| Windows   | `.claude/.ralph/` | `ralph.ps1`, `sync.ps1` |
 
 ## Usage
 
-1. **Update `.ralph/prompt.md`** with your implementation instructions
+1. **Update `.claude/.ralph/prompt.md`** with your implementation instructions
    - Keep it concise
-   - Example prompt in `.ralph/prompt.md`
+   - Example prompt in `.claude/.ralph/prompt.md`
 
 2. **Test one iteration:**
 
    **Mac/Linux:**
    ```bash
    cd /path/to/your-project
-   ./.ralph/sync.sh
+   ./.claude/.ralph/sync.sh
    ```
 
    **Windows PowerShell:**
    ```powershell
    cd C:\path\to\your-project
-   .\.ralph\sync.ps1
+   .\.claude\.ralph\sync.ps1
    ```
    Verifies the agent can read your prompt and execute successfully
 
@@ -42,12 +42,12 @@ Ralph supports both Mac/Linux (bash) and Windows (PowerShell):
 
    **Mac/Linux:**
    ```bash
-   ./.ralph/ralph.sh
+   ./.claude/.ralph/ralph.sh
    ```
 
    **Windows PowerShell:**
    ```powershell
-   .\.ralph\ralph.ps1
+   .\.claude\.ralph\ralph.ps1
    ```
    Agent loops, working until task completion
 
@@ -58,19 +58,19 @@ By default, Ralph runs indefinitely until the task is complete. You can limit th
 **Mac/Linux:**
 ```bash
 # Run exactly 10 iterations
-./.ralph/ralph.sh 10
+./.claude/.ralph/ralph.sh 10
 
 # Run indefinitely (default)
-./.ralph/ralph.sh
+./.claude/.ralph/ralph.sh
 ```
 
 **Windows PowerShell:**
 ```powershell
 # Run exactly 10 iterations
-.\.ralph\ralph.ps1 -MaxIterations 10
+.\.claude\.ralph\ralph.ps1 -MaxIterations 10
 
 # Run indefinitely (default)
-.\.ralph\ralph.ps1
+.\.claude\.ralph\ralph.ps1
 ```
 
 This is useful, depending on your use case, for:

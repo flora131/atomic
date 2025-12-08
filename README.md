@@ -1,4 +1,4 @@
-# ⚛ Atomic: Automated Procedures and Memory for AI Coding Agents
+# ⚛️ Atomic: Automated Procedures and Memory for AI Coding Agents
 
 <p align="center">
   <img src="atomic.png" alt="Atomic" width="200">
@@ -115,7 +115,7 @@ Run Claude Code autonomously in continuous loops. After approving your spec and 
 
 > **Note:** Currently only supported for Claude Code. Supports both Mac/Linux and Windows PowerShell.
 
-See [.ralph/README.md](.ralph/README.md) for setup instructions.
+See [.claude/.ralph/README.md](.claude/.ralph/README.md) for setup instructions.
 
 ---
 
@@ -274,12 +274,12 @@ This approach highlights the best of SDLC and gets you 40-60% of the way there s
 
 ## Platform Reference
 
-| AI Tool        | Folder       | Context File | Notes                                        |
-| -------------- | ------------ | ------------ | -------------------------------------------- |
-| Claude Code    | `.claude/`   | `CLAUDE.md`  | Includes settings.json with tool permissions |
-| GitHub Copilot | `.github/`   | `AGENTS.md`  | Uses prompts/ directory structure            |
-| Kiro           | `.kiro/`     | `AGENTS.md`  | Uses JSON agent configs                      |
-| OpenCode       | `.opencode/` | `AGENTS.md`  | Uses agent/ and command/ directories         |
+| AI Tool        | Folder       | Context File | Notes                                           |
+| -------------- | ------------ | ------------ | ----------------------------------------------- |
+| Claude Code    | `.claude/`   | `CLAUDE.md`  | Includes settings.json with tool permissions    |
+| GitHub Copilot | `.github/`   | `AGENTS.md`  | Uses prompts/ directory for commands            |
+| Kiro           | `.kiro/`     | `AGENTS.md`  | Uses JSON agent configs + prompts/ for commands |
+| OpenCode       | `.opencode/` | `AGENTS.md`  | Uses agent/ and command/ directories            |
 
 ---
 

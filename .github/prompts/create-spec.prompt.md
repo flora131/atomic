@@ -3,7 +3,6 @@ agent: 'agent'
 model: 'GPT-5.1-Codex (Preview)'
 tools: ['githubRepo', 'search', 'read', 'execute', 'agent', 'fetch']
 description: Create a detailed execution plan for implementing features or refactors in a codebase by leveraging existing research in the `research/` directory.
-
 ---
 
 You are tasked with creating a spec for implementing a new feature or system change in the codebase by leveraging existing research in the **$ARGUMENTS** directory. If no path is specified, use the entire `research/` directory. Follow the template below to produce a comprehensive specification using the findings from RELEVANT research documents. Tip: It's good practice to use the `codebase-research-locator` and `codebase-research-analyzer` agents to help you find and analyze the research documents. It is also HIGHLY recommended to cite relevant research throughout the spec for additional context.

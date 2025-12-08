@@ -4,7 +4,6 @@ model: 'GPT-5.1-Codex (Preview)'
 tools: ['githubRepo', 'search', 'execute', 'agent', 'fetch']
 description: Document codebase as-is with research directory for historical context
 argument-hint: [research-question]
-
 ---
 
 # Research Codebase

@@ -1,6 +1,6 @@
 ---
 agent: 'agent'
-model: 'GPT-5.1-Codex (Preview)'
+model: 'Claude Opus 4.5 (Preview)'
 tools: ['githubRepo', 'search', 'execute', 'agent', 'fetch']
 description: Document codebase as-is with research directory for historical context
 argument-hint: [research-question]

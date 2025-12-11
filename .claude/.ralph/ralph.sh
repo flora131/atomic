@@ -1,53 +1,122 @@
 #!/usr/bin/env bash
 
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+NC='\033[0m' # No Color
+
 print_usage() {
     cat <<'USAGE'
-Usage: ./.claude/.ralph/ralph.sh [max_iterations] [completion_marker]
+Usage: ./.claude/.ralph/ralph.sh [-h|--help] [-m|--max-iterations <int>]
 
-Arguments:
-  max_iterations    Number of loop iterations (0 = infinite, default: 0)
-    completion_marker Marker to stop after detecting in .claude/.ralph/claude_output.jsonl
-                                        (default: <promise>COMPLETE</promise>)
+  -h, --help              Show this message
+  -m, --max-iterations    Max iterations before force stop (0 = infinite, default: 0)
+
+The script monitors feature-list.json and iterates until all entries have "passes": true.
+If --max-iterations > 0, the script will stop after that many iterations regardless of feature status.
 USAGE
 }
 
-if [[ $1 == "-h" || $1 == "--help" ]]; then
-    print_usage
-    exit 0
+# Parse arguments
+max_iterations=0
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            print_usage
+            exit 0
+            ;;
+        -m|--max-iterations)
+            max_iterations="$2"
+            shift 2
+            ;;
+        *)
+            echo -e "${RED}ERROR: Unknown option: $1${NC}"
+            print_usage
+            exit 1
+            ;;
+    esac
+done
+
+feature_list_path="feature-list.json"
+
+# Check if feature-list.json exists at root level
+if [[ ! -f "$feature_list_path" ]]; then
+    echo -e "${RED}ERROR: feature-list.json not found at repository root.${NC}"
+    echo ""
+    echo -e "${YELLOW}Please run the /create-feature-list command first to generate the feature list.${NC}"
+    echo ""
+    exit 1
 fi
 
-max_iterations=${1:-0}
-completion_marker=${2:-"<promise>COMPLETE</promise>"}
-output_log=".claude/.ralph/claude_output.jsonl"
+test_all_features_passing() {
+    local path="$1"
 
-check_completion() {
-    if [ -f "$output_log" ] && grep -q "$completion_marker" "$output_log"; then
-        echo "Completion promise detected. Exiting loop."
-        return 0
+    if [[ ! -f "$path" ]]; then
+        return 1
     fi
 
-    return 1
+    # Parse JSON and count features
+    local total_features passing_features failing_features
+
+    total_features=$(jq 'length' "$path" 2>/dev/null)
+    if [[ $? -ne 0 || -z "$total_features" ]]; then
+        echo -e "${RED}ERROR: Failed to parse feature-list.json${NC}"
+        return 1
+    fi
+
+    if [[ "$total_features" -eq 0 ]]; then
+        echo -e "${RED}ERROR: feature-list.json is empty.${NC}"
+        return 1
+    fi
+
+    passing_features=$(jq '[.[] | select(.passes == true)] | length' "$path" 2>/dev/null)
+    if [[ $? -ne 0 ]]; then
+        echo -e "${RED}ERROR: Failed to parse feature-list.json${NC}"
+        return 1
+    fi
+
+    failing_features=$((total_features - passing_features))
+
+    echo -e "${CYAN}Feature Progress: $passing_features / $total_features passing ($failing_features remaining)${NC}"
+
+    if [[ "$failing_features" -eq 0 ]]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
-if [ "$max_iterations" -gt 0 ]; then
-    for ((i = 1; i <= max_iterations; i++)); do
-        echo "Iteration: $i / $max_iterations"
-        ./.claude/.ralph/sync.sh
-        if check_completion; then
-            break
-        fi
-        echo -e "===SLEEP===\n===SLEEP===\n"
-        echo "looping"
-        sleep 10
-    done
-else
-    while true; do
-        ./.claude/.ralph/sync.sh
-        if check_completion; then
-            break
-        fi
-        echo -e "===SLEEP===\n===SLEEP===\n"
-        echo "looping"
-        sleep 10
-    done
+echo -e "${GREEN}Starting ralph - monitoring feature-list.json for completion...${NC}"
+if [[ "$max_iterations" -gt 0 ]]; then
+    echo -e "${YELLOW}Max iterations set to $max_iterations${NC}"
 fi
+echo ""
+
+iteration=0
+while true; do
+    ((iteration++))
+
+    if [[ "$max_iterations" -gt 0 ]]; then
+        echo "Iteration: $iteration / $max_iterations"
+    else
+        echo "Iteration: $iteration"
+    fi
+
+    ./.claude/.ralph/sync.sh
+
+    if test_all_features_passing "$feature_list_path"; then
+        echo -e "${GREEN}All features passing! Exiting loop.${NC}"
+        break
+    fi
+
+    if [[ "$max_iterations" -gt 0 && "$iteration" -ge "$max_iterations" ]]; then
+        echo -e "${YELLOW}Max iterations ($max_iterations) reached. Force stopping.${NC}"
+        break
+    fi
+
+    echo -e "===SLEEP===\n===SLEEP===\n"
+    echo "looping"
+    sleep 10
+done

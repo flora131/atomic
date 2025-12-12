@@ -1,6 +1,6 @@
 ---
 agent: 'agent'
-model: 'GPT-5.1-Codex (Preview)'
+model: 'Claude Opus 4.5 (Preview)'
 tools: ['githubRepo', 'search', 'execute', 'changes', 'read', 'agent', 'fetch', 'playwright']
 description: Debugging specialist for errors, test failures, and unexpected behavior. Use PROACTIVELY when encountering issues, analyzing stack traces, or investigating system problems.
 ---

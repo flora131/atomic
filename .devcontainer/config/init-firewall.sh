@@ -65,6 +65,8 @@ done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | aggregate -q)
 
 # Resolve and add other allowed domains
 for domain in \
+    "mcr.microsoft.com" \
+    "mcp.deepwiki.com" \
     "registry.npmjs.org" \
     "api.anthropic.com" \
     "sentry.io" \
@@ -72,7 +74,39 @@ for domain in \
     "statsig.com" \
     "marketplace.visualstudio.com" \
     "vscode.blob.core.windows.net" \
-    "update.code.visualstudio.com"; do
+    "update.code.visualstudio.com" \
+    "stackoverflow.com" \
+    "dev.to" \
+    "medium.com" \
+    "hashnode.com" \
+    "css-tricks.com" \
+    "smashingmagazine.com" \
+    "devdocs.io" \
+    "docs.docker.com" \
+    "docs.python.org" \
+    "pypi.org" \
+    "fastapi.tiangolo.com" \
+    "flask.palletsprojects.com" \
+    "www.djangoproject.com" \
+    "nodejs.org" \
+    "docs.npmjs.com" \
+    "www.typescriptlang.org" \
+    "developer.mozilla.org" \
+    "react.dev" \
+    "vuejs.org" \
+    "angular.io" \
+    "svelte.dev" \
+    "nextjs.org" \
+    "go.dev" \
+    "pkg.go.dev" \
+    "www.rust-lang.org" \
+    "doc.rust-lang.org" \
+    "docs.rs" \
+    "crates.io" \
+    "www.ruby-lang.org" \
+    "rubygems.org" \
+    "learn.microsoft.com" \
+    "web.dev"; do
     echo "Resolving $domain..."
     ips=$(dig +noall +answer A "$domain" | awk '$4 == "A" {print $5}')
     if [ -z "$ips" ]; then
@@ -86,7 +120,7 @@ for domain in \
             exit 1
         fi
         echo "Adding $ip for $domain"
-        ipset add allowed-domains "$ip"
+        ipset add allowed-domains "$ip" 2>/dev/null || true
     done < <(echo "$ips")
 done
 

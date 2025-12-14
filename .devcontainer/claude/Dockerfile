@@ -35,6 +35,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     tar \
     xz-utils \
+    libicu-dev \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install multiple .NET SDK versions (8/9/10) via Microsoft's official dotnet-install script.

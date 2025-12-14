@@ -1,0 +1,11 @@
+[alias]
+  rf = "reflog"
+  s = "status -s"
+  sv = "status"
+  p = "push"
+  pl = "pull"
+  ac = "!git add . && git commit -m"
+  c = "commit -m"
+  gg = "!git fetch origin && git reset --hard @{u} && git clean -fd"
+[push]
+	autoSetupRemote = true

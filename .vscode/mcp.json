@@ -5,8 +5,16 @@
       "url": "https://mcp.deepwiki.com/mcp"
     },
     "playwright": {
-      "command": "bunx",
-      "args": ["@playwright/mcp@latest", "--headless"]
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--init",
+        "--pull=always",
+        "--network=host",
+        "mcr.microsoft.com/playwright/mcp"
+      ]
     }
   }
 }

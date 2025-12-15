@@ -38,7 +38,7 @@ Every feature you ship follows proven software engineering lifecycle best practi
 
 ## How It Works
 
-![Architecture](architecture.svg)
+[![Architecture](architecture.svg)](architecture.svg)
 
 This repo provides three resources that power the flywheel:
 

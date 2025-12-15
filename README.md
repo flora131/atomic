@@ -40,9 +40,9 @@ Every feature you ship follows proven software engineering lifecycle best practi
 
 ![Architecture](architecture.svg)
 
-This repo provides three primitives that power the flywheel:
+This repo provides three resources that power the flywheel:
 
-| Primitive    | Purpose                   | Examples                                                   |
+| Resources    | Purpose                   | Examples                                                   |
 | ------------ | ------------------------- | ---------------------------------------------------------- |
 | **Commands** | Orchestrate the agents    | `/research-codebase`, `/create-spec`, `/implement-feature` |
 | **Agents**   | Execute specialized tasks | `codebase-analyzer`, `codebase-locator`, `pattern-finder`  |

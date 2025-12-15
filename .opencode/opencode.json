@@ -3,7 +3,7 @@
   "mcp": {
     "playwright": {
       "type": "local",
-      "command": ["bunx", "@playwright/mcp@latest", "--headless"],
+      "command": ["docker", "run", "-i", "--rm", "--init", "--pull=always", "mcr.microsoft.com/playwright/mcp"],
       "enabled": true
     },
     "deepwiki": {

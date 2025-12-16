@@ -82,20 +82,20 @@ The AI will analyze your tech stack, patterns, and architecture to fill in the t
 
 ### Step 2: Copy Your Platform's Agent Folder
 
-Copy the folder for your AI coding assistant to your project:
+Copy the folder for your AI coding assistant to your project's root directory (where your `package.json` or main config file lives):
 
 ```bash
 # For Claude Code
-cp -r .claude /path/to/your-project/
+cp -r .claude /path/to/your-project-root/
 
 # For GitHub Copilot
-cp -r .github /path/to/your-project/
+cp -r .github /path/to/your-project-root/
 
 # For Kiro
-cp -r .kiro /path/to/your-project/
+cp -r .kiro /path/to/your-project-root/
 
 # For OpenCode
-cp -r .opencode /path/to/your-project/
+cp -r .opencode /path/to/your-project-root/
 ```
 
 #### MCP Configuration

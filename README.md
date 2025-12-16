@@ -56,8 +56,7 @@ This repo provides three resources that power the flywheel:
 
 ### Install the necessary dependencies
 
-[uv](https://docs.astral.sh/uv/getting-started/installation/#installing-uv) - Python package manager
-[bun](https://bun.com/docs/installation) - JavaScript runtime
+[bun](https://bun.sh/docs/installation) - JavaScript runtime for MCP servers (more efficient startup). If you prefer, you can use `npx` instead by adjusting the commands in `.mcp.json` and `.vscode/mcp.json`.
 
 
 ### Step 1: Populate Your Project Context
@@ -114,6 +113,8 @@ cp -r .vscode/ /path/to/your-project/
 Run Claude Code autonomously in continuous loops. After approving your spec and feature list, let Ralph work in the background or overnight while you focus on other tasks. The key is crisp, well-defined instructions coupled with human review. Learn more below!
 
 > **Note:** Currently only supported for Claude Code. Supports both Mac/Linux and Windows PowerShell.
+
+**Required:** [uv](https://docs.astral.sh/uv/getting-started/installation/#installing-uv) - Python package manager
 
 See [.claude/.ralph/README.md](.claude/.ralph/README.md) for setup instructions.
 

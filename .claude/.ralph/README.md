@@ -4,8 +4,6 @@ Run AI agents in continuous loops until task completion - no manual intervention
 
 > **Note:** Currently only supported for Claude Code. Support for other AI coding assistants coming soon.
 
-**Prerequisites:** You must copy `.claude/.ralph/` to your project folder
-
 **How it works:** Agent reads `.claude/.ralph/prompt.md`, executes tasks, iterates until done, manages its own context.
 
 ## Platform Support
@@ -17,11 +15,9 @@ Ralph supports both Mac/Linux (bash) and Windows (PowerShell):
 | Mac/Linux | `.claude/.ralph/` | `ralph.sh`, `sync.sh`   |
 | Windows   | `.claude/.ralph/` | `ralph.ps1`, `sync.ps1` |
 
-## Usage
+## 1 Minute Quick Start
 
-1. **Update `.claude/.ralph/prompt.md`** with your implementation instructions
-   - Keep it concise
-   - Example prompt in `.claude/.ralph/prompt.md`
+1. **Update `.claude/.ralph/prompt.md`** with specific instructions after the `/implement-feature` slash command for what you want to implement. Keep it concise
 
 2. **Test one iteration:**
 
@@ -83,7 +79,7 @@ This is useful, depending on your use case, for:
 
 Since Ralph runs continuously, it's best to run it in environments designed for long-running processes. Consider the following options:
 - **Cloud VM**: Use a terminal multiplexer like [tmux](https://github.com/tmux/tmux) and setup your development environment with basic tools (git, Node.js, Python, Rust, C, C++, etc.)
-  - Providers: AWS EC2, Google Cloud Compute Engine, DigitalOcean Droplets, etc.
+  - Providers: AWS EC2, Google Cloud Compute Engine, DigitalOcean Droplets, Kamatera, etc. NOTE: You can start with a more cost-effective option like DigitalOcean or Kamatera for pay-as-you-go or $4-6/month. If your organization already has AWS, GCP, etc. feel free to leverage those.
 
 ## Agent Prompt Guidelines
 

@@ -74,10 +74,12 @@ cp AGENTS.md /path/to/your-project/
 Then open your project in your AI coding assistant and ask:
 
 ```
-> "Analyze this codebase and populate the CLAUDE.md (or AGENTS.md) with project-specific context"
+> "Analyze this project and populate the CLAUDE.md (or AGENTS.md) with project-specific context"
+
+NOTE: If you only want to populate CLAUDE.md with a subset of folders and not your entire repo, please add and specify to the prompt above.
 ```
 
-The AI will analyze your tech stack, patterns, and architecture to fill in the template.
+The AI will analyze your tech stack, patterns, and architecture to fill in the template. 
 
 ### Step 2: Copy Your Platform's Agent Folder
 

@@ -191,7 +191,7 @@ Execute each feature from your list and compact to keep progress
 ```
 **Optional:** Use [Ralph](.claude/.ralph/README.md) to run `/implement-feature` in a loop for fully autonomous feature implementation in Claude Code.
 
-** Important NOTE**: at the end of the /implement-feature slash command you will notice that we commit the changes in a specific format. This is not hallucination and we recommend not changing this pattern. We commit and do so in this format so that the agent can more easily track the work it has done and search for recent commits more effectively, respectively. Removing the behavior to commit or changing the messages can result in undesired behvior and hallucations with lower feature quality or poor completion rates.
+** Important NOTE**: at the end of the /implement-feature slash command you will notice that we commit the changes in a specific format. This is not hallucination and we recommend not changing this pattern. We commit and do so in this format so that the agent can more easily track the work it has done and search for recent commits more effectively, respectively. The prefixes we add to commit messages enable the model to identify changes. Removing the behavior to commit or changing the messages can result in undesired behvior and hallucations with lower feature quality or poor completion rates.
 
 **What happens:** The agent:
 1. Reads `feature-list.json` for the next task

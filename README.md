@@ -79,7 +79,7 @@ Then open your project in your AI coding assistant and ask:
 NOTE: If you only want to populate CLAUDE.md with a subset of folders and not your entire repo, please add and specify to the prompt above.
 ```
 
-The AI will analyze your tech stack, patterns, and architecture to fill in the template. 
+The AI will analyze your tech stack, patterns, and architecture to fill in the template.
 
 ### Step 2: Copy Your Platform's Agent Folder
 
@@ -322,6 +322,18 @@ This approach highlights the best of SDLC and gets you 40-60% of the way there s
 ### 2 Skills
 - **prompt-engineer** - Prompt engineering best practices
 - **testing-anti-patterns** - Testing patterns to avoid
+
+---
+
+## Troubleshooting
+
+### Git Identity Error
+If you see an error like `Error: Bash command failed for pattern "!git config user.name":` when running slash commands, make sure you configure your git identity:
+
+```bash
+git config --global user.name "Your Name"
+git config --global user.email "your.email@example.com"
+```
 
 ---
 

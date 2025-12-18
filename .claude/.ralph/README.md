@@ -17,6 +17,16 @@ Ralph supports both Mac/Linux (bash) and Windows (PowerShell):
 
 ## 1 Minute Quick Start
 
+### Prerequisites: Have Your Feature List Ready
+
+**Ralph loops through your `feature-list.json` and implements features autonomously.** Before using Ralph, you must complete the research and planning phases to generate your feature list.
+
+If you don't have a `feature-list.json` yet, follow the [Procedure section in the main README](../../README.md#our-procedure-follow-step-by-step-or-use-commands-and-sub-agents-in-repo-to-build-your-own):
+
+Once you have your approved spec and `feature-list.json`, continue below.
+
+### Quick Start Steps
+
 1. **Update `.claude/.ralph/prompt.md`** with specific instructions after the `/implement-feature` slash command for what you want to implement. Keep it concise
 
 2. **Test one iteration:**

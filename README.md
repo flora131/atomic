@@ -131,8 +131,12 @@ Follow our automated procedure below, built on top of the Research, Plan, Implem
 Before any implementation, build context about existing patterns and architecture.
 
 ```bash
-# Run the research command with your question
-/research-codebase "How does authentication work in this codebase?"
+# Run the research command with your prompt for both brownfield and greenfield projects
+
+  # With a description of what you're building
+  /research-codebase "I'm building a real-time collaboration tool with WebSocket support, document versioning, and role-based permissions. Research best practices and architecture patterns for these requirements."
+  # Or reference your PRD
+  /research-codebase "Research implementation approaches for the requirements outlined in docs/prd.md"
 ```
 
 **What happens:** The command dispatches `codebase-locator` and `codebase-analyzer` agents to explore your codebase. Results are saved to `research/` directory for reference.

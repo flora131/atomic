@@ -112,7 +112,7 @@ cp -r .vscode/ /path/to/your-project/
 
 ### Optional: Autonomous Execution (Ralph)
 
-Run Claude Code autonomously in continuous loops. After approving your spec and feature list, let Ralph work in the background or overnight while you focus on other tasks. The key is crisp, well-defined instructions coupled with human review. Learn more below!
+Run Claude Code autonomously in continuous loops. ONLY AFTER approving your spec and feature list, let Ralph work in the background or overnight while you focus on other tasks. The key is crisp, well-defined instructions coupled with human review. Learn more below!
 
 > **Note:** Currently only supported for Claude Code. Supports both Mac/Linux and Windows PowerShell.
 
@@ -185,6 +185,9 @@ Execute each feature from your list and compact to keep progress
 # Implement the next feature
 /implement-feature
 ```
+**Optional:** Use [Ralph](.claude/.ralph/README.md) to run `/implement-feature` in a loop for fully autonomous feature implementation in Claude Code.
+
+** Important NOTE**: at the end of the /implement-feature slash command you will notice that we commit the changes in a specific format. This is not hallucination and we recommend not changing this pattern. We commit and do so in this format so that the agent can more easily track the work it has done and search for recent commits more effectively, respectively. Removing the behavior to commit or changing the messages can result in undesired behvior and hallucations with lower feature quality or poor completion rates.
 
 **What happens:** The agent:
 1. Reads `feature-list.json` for the next task
@@ -198,11 +201,16 @@ Execute each feature from your list and compact to keep progress
 - Check the diff: `git diff HEAD~1`
 - If issues, use `/compact` and `/create-debug-report` and fix before continuing
 
+
+### Step 5: Move to next feature
 ```bash
-# Compact between features to manage context
+# If continuing the same feature and exceeding token window for a hand off
 /compact
 
-# Repeat for each feature
+# If moving to the next feature, reset the context window
+/new
+
+# Then implement the next feature
 /implement-feature
 ```
 

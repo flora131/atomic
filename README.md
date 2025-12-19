@@ -399,6 +399,12 @@ git config --global user.name "Your Name"
 git config --global user.email "your.email@example.com"
 ```
 
+### Slash Commands Not Working or Permission Issues
+If slash commands aren't executing or you're encountering permission errors:
+
+- **Claude Code:** Ensure you have bypass permissions enabled. Run with `--dangerously-skip-permissions` flag or configure it in `.claude/settings.json`
+- **Other AI Agents:** Make sure you're running in **agent mode** (not assistant or chat mode) which grants the necessary tool execution permissions
+
 ---
 
 ## License

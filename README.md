@@ -58,6 +58,8 @@ This repo provides three resources that power the flywheel:
 
 [bun](https://bun.sh/docs/installation) - JavaScript runtime for MCP servers (more efficient startup). If you prefer, you can use `npx` instead by adjusting the commands in `.mcp.json` and `.vscode/mcp.json`.
 
+[Docker](https://docs.docker.com/get-docker/) - Required for local MCP servers. Ensure Docker is installed and running.
+
 ### Sandboxed Environment for Claude Code
 
 The commands in this repo require Claude Code to run with permissions bypassed (`--dangerously-skip-permissions` or via `.claude/settings.json`). For a safer development environment, use our pre-configured devcontainer with network restrictions and security boundaries:

@@ -33,6 +33,7 @@ We provide the *procedures* that agents use to work on your project based on sof
 - [📈 The ROI](#the-roi)
 - [🖥️ Platform Reference](#platform-reference)
 - [📦 What's Included](#whats-included)
+- [🆚 How Atomic Differs from Spec Kit](#how-atomic-differs-from-spec-kit)
 - [🔧 Troubleshooting](#troubleshooting)
 - [📄 License](#license)
 - [🙏 Credits](#credits)
@@ -362,6 +363,36 @@ This approach highlights the best of SDLC and gets you 40-60% of the way there s
 ### 2 Skills
 - **prompt-engineer** - Prompt engineering best practices
 - **testing-anti-patterns** - Testing patterns to avoid
+
+---
+
+## How Atomic Differs from Spec-Kit
+
+[Spec-Kit](https://github.com/github/spec-kit) is GitHub's toolkit for "Spec-Driven Development" where specifications become executable artifacts. While both projects aim to improve AI-assisted development, they solve different problems:
+
+| Aspect | Spec-Kit | Atomic |
+|--------|----------|--------|
+| **Primary Focus** | Greenfield projects - building new features from specifications | **Large existing codebases** - understanding patterns before implementing |
+| **First Step** | `/speckit.constitution` - define project principles | `/research-codebase` - analyze existing architecture and patterns |
+| **Memory Model** | Per-feature specs in `.specify/specs/` | Flywheel: `Research → Specs → Execution → Outcomes` with `progress.txt` tracking |
+| **Agent Architecture** | Single agent executes slash commands via shell scripts | **Specialized sub-agents**: `codebase-analyzer`, `codebase-locator`, `codebase-pattern-finder` |
+| **Setup** | Requires `specify` CLI installation via `uv` | **Copy folder** - no external CLI needed |
+| **Human Review** | Implicit in workflow | **Explicit checkpoints** with "You review (CRITICAL)" markers |
+| **Debugging** | Not addressed | Dedicated `/create-debug-report` workflow |
+| **Autonomous Runs** | Not available | **Ralph** for overnight feature implementation |
+| **Skills System** | Templates structure output | **Skills inject expertise** (e.g., `testing-anti-patterns` prevents common mistakes) |
+
+**When to choose Atomic:**
+- Working with an existing codebase where you need to discover patterns first
+- Need session continuity and context management (`/compact`)
+- Want explicit human-in-the-loop checkpoints
+- Need debugging workflows when implementations fail
+- Want autonomous overnight execution (Ralph)
+
+**When to choose Spec-Kit:**
+- Starting a brand new project from scratch
+- Want a more prescriptive, step-by-step specification process
+- Need support for 17+ AI agents with a single CLI tool
 
 ---
 

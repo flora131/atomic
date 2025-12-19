@@ -14,6 +14,31 @@ This project is named 'Atomic' for its approach of decomposing complex goals int
 
 We provide the *procedures* that agents use to work on your project based on software engineering best practices, and *specs* that persist as memory of decisions made and lessons learned.
 
+---
+
+## 📽️ Video Overview
+
+[![Atomic Video Overview](https://img.youtube.com/vi/Lq8-qzGfoy4/maxresdefault.jpg)](https://www.youtube.com/watch?v=Lq8-qzGfoy4)
+
+---
+
+## 📑 Table of Contents
+
+- [📽️ Video Overview](#️-video-overview)
+- [🧠 The Memory Gap](#the-memory-gap)
+- [🔄 The Flywheel](#the-flywheel)
+- [⚙️ How It Works](#how-it-works)
+- [⚡ 1 Minute Quick Start](#1-minute-quick-start)
+- [📋 Our Procedure - Follow Step-by-Step After Install](#our-procedure-follow-step-by-step-or-use-commands-and-sub-agents-in-repo-to-build-your-own)
+- [📈 The ROI](#the-roi)
+- [🖥️ Platform Reference](#platform-reference)
+- [📦 What's Included](#whats-included)
+- [🔧 Troubleshooting](#troubleshooting)
+- [📄 License](#license)
+- [🙏 Credits](#credits)
+
+---
+
 ## The Memory Gap
 
 This repo helps fill the episodic and procedural gaps.

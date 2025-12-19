@@ -137,7 +137,7 @@ See [.claude/.ralph/README.md](.claude/.ralph/README.md) for setup instructions.
 
 Follow our automated procedure below, built on top of the Research, Plan, Implement workflow, to go from feature idea to merged PR. Each step is designed for human-in-the-loop review at critical decision points.
 
-### Step 1: Research the Codebase
+### Step 1: Research the Codebase & Review Research
 
 Before any implementation, build context about existing patterns and architecture.
 
@@ -152,31 +152,27 @@ Before any implementation, build context about existing patterns and architectur
 
 **What happens:** The command dispatches `codebase-locator` and `codebase-analyzer` agents to explore your codebase. Results are saved to `research/` directory for reference.
 
-**You review:** Skim the research output. Confirm the agent understood the relevant parts of your codebase.
+**You review:** Review the research output. Confirm the agent understood the relevant parts of your codebase and overall requirements. Fix anything that may be missing.
 
 ```bash
 # compact the context and information into a progress.txt before continuing 
 /compact
 ```
 
-### Step 2: Create a Specification
+### Step 2: Create a Specification & Thoroughly Review Specification
 
 Generate an execution plan based on your research.
 
 ```bash
 # Create a spec referencing your research
-/create-spec
+/create-spec research/research.md
 ```
 
-**What happens:** The agent reads your research from `research/` and `progress.txt` to know what has been done, synthesizes it, and produces a structured specification with:
-- Problem statement
-- Proposed solution
-- Implementation approach
-- Edge cases and risks
+**What happens:** The agent reads your research from `research/` and `progress.txt` to know what has been done, synthesizes it, and produces a structured specification.
 
 **You review (CRITICAL):** This is your main decision point. Read the spec carefully. Ask clarifying questions. Request changes. The spec becomes the contract for implementation.
 
-### Step 3: Break Into Features
+### Step 3: Break Into Features & Review Features 
 
 Decompose the spec into discrete, implementable tasks.
 
@@ -190,19 +186,18 @@ Decompose the spec into discrete, implementable tasks.
 - Dependencies between features
 - Acceptance criteria for each
 
-**You review:** Verify the breakdown makes sense. Reorder if needed. Remove features that are out of scope.
+**You review (CRITICAL):** Verify the breakdown makes sense. Reorder if needed. Remove features that are out of scope.
 
-### Step 4: Implement Features (One at a Time)
-
+### Step 4: Implement Features (One at a Time or via Claude Code Ralph Loop)
 Execute each feature from your list and compact to keep progress 
 
 ```bash
 # Implement the next feature
-/implement-feature
+/implement-feature feature-list.json
 ```
-**Optional:** Use [Ralph](.claude/.ralph/README.md) to run `/implement-feature` in a loop for fully autonomous feature implementation in Claude Code.
-
 ** Important NOTE**: at the end of the /implement-feature slash command you will notice that we commit the changes in a specific format. This is not hallucination and we recommend not changing this pattern. We commit and do so in this format so that the agent can more easily track the work it has done and search for recent commits more effectively, respectively. The prefixes we add to commit messages enable the model to identify changes. Removing the behavior to commit or changing the messages can result in undesired behvior and hallucations with lower feature quality or poor completion rates.
+
+**Optional for Claude Code users:** Use [Ralph](.claude/.ralph/README.md) to run `/implement-feature` in a loop for fully autonomous feature implementation in Claude Code.
 
 **What happens:** The agent:
 1. Reads `feature-list.json` for the next task
@@ -226,10 +221,32 @@ Execute each feature from your list and compact to keep progress
 /new
 
 # Then implement the next feature
-/implement-feature
+/implement-feature feature-list.json
 ```
 
-### Step 5: Create Pull Request
+### Step 6: Debugging Flow
+
+If something breaks during implementation that the agent did not catch, you can manually debug:
+
+```bash
+# Generate a debug report
+/create-debug-report "<context of what is broken>"
+
+```
+
+The agent analyzes logs, stack traces, and code. Then prompt your agent:
+
+> Use the debug report to add a new feature to feature-list.json that marks the bug as the highest priority to fix and sets its `passes` field to `false`.
+
+```bash
+# Then compact, reset context window, and run implement feature again:
+
+/compact
+/new
+/implement-feature feature-list.json
+```
+
+### Step 7: Create Pull Request
 
 Package all changes for review. Try to do this for each feature to keep commits clean and DO NOT commit directly to main.
 
@@ -249,19 +266,6 @@ Package all changes for review. Try to do this for each feature to keep commits 
 - Refactor code that doesn't meet your standards
 - Add missing tests or documentation
 - Merge when satisfied
-
-### Debugging Flow
-
-When something breaks during implementation:
-
-```bash
-# Generate a debug report
-/create-debug-report
-
-# The agent analyzes logs, stack traces, and code
-# Fix the issue, then commit
-/commit "fix: resolve authentication race condition"
-```
 
 ### Session Management
 

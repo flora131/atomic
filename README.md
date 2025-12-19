@@ -58,6 +58,15 @@ This repo provides three resources that power the flywheel:
 
 [bun](https://bun.sh/docs/installation) - JavaScript runtime for MCP servers (more efficient startup). If you prefer, you can use `npx` instead by adjusting the commands in `.mcp.json` and `.vscode/mcp.json`.
 
+### Sandboxed Environment for Claude Code
+
+The commands in this repo require Claude Code to run with permissions bypassed (`--dangerously-skip-permissions` or via `.claude/settings.json`). For a safer development environment, use our pre-configured devcontainer with network restrictions and security boundaries:
+
+```bash
+cp -r .devcontainer /path/to/your-project/
+```
+
+Open your project in VS Code and select "Reopen in Container" when prompted.
 
 ### Step 1: Populate Your Project Context
 

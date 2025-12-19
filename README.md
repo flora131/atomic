@@ -368,7 +368,7 @@ This approach highlights the best of SDLC and gets you 40-60% of the way there s
 
 ## How Atomic Differs from Spec-Kit
 
-[Spec-Kit](https://github.com/github/spec-kit) is GitHub's toolkit for "Spec-Driven Development" where specifications become executable artifacts. While both projects aim to improve AI-assisted development, they solve different problems:
+Spec Kit is GitHub's toolkit for "Spec-Driven Development" where specifications become executable artifacts. While both projects aim to improve AI-assisted development, they solve different problems:
 
 | Aspect | Spec-Kit | Atomic |
 |--------|----------|--------|

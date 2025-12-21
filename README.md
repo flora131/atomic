@@ -145,6 +145,15 @@ cp .mcp.json /path/to/your-project/
 cp -r .vscode/ /path/to/your-project/
 ```
 
+**Docker Alternative for Playwright:** If you're using the `.devcontainer` for a sandboxed environment, you can run Playwright via Docker instead of bunx. Update your MCP configuration:
+
+```json
+"playwright": {
+  "command": "docker",
+  "args": ["run", "-i", "--rm", "--init", "--pull=always", "--network=host", "mcr.microsoft.com/playwright/mcp"]
+}
+```
+
 **Important:** If you already have a `.claude/`, `.github/`, `.kiro/`, or `.opencode/` folder in your project, merge the contents carefully rather than overwriting. The `settings.json` files contain tool permissions that you may want to customize.
 
 ### Optional: Autonomous Execution (Ralph)

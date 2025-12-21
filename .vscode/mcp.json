@@ -6,7 +6,7 @@
     },
     "playwright": {
       "command": "bunx",
-      "args": ["@playwright/mcp@latest"]
+      "args": ["@playwright/mcp@latest", "--headless"]
     }
   }
 }

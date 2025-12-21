@@ -14,6 +14,32 @@ This project is named 'Atomic' for its approach of decomposing complex goals int
 
 We provide the *procedures* that agents use to work on your project based on software engineering best practices, and *specs* that persist as memory of decisions made and lessons learned.
 
+---
+
+## 📽️ Video Overview
+
+[![Atomic Video Overview](https://img.youtube.com/vi/Lq8-qzGfoy4/maxresdefault.jpg)](https://www.youtube.com/watch?v=Lq8-qzGfoy4)
+
+---
+
+## 📑 Table of Contents
+
+- [📽️ Video Overview](#️-video-overview)
+- [🧠 The Memory Gap](#the-memory-gap)
+- [🔄 The Flywheel](#the-flywheel)
+- [⚙️ How It Works](#how-it-works)
+- [⚡ 1 Minute Quick Start](#1-minute-quick-start)
+- [📋 Our Procedure - Follow Step-by-Step After Install](#our-procedure-follow-step-by-step-or-use-commands-and-sub-agents-in-repo-to-build-your-own)
+- [📈 The ROI](#the-roi)
+- [🖥️ Platform Reference](#platform-reference)
+- [📦 What's Included](#whats-included)
+- [🆚 How Atomic Differs from Spec Kit](#how-atomic-differs-from-spec-kit)
+- [🔧 Troubleshooting](#troubleshooting)
+- [📄 License](#license)
+- [🙏 Credits](#credits)
+
+---
+
 ## The Memory Gap
 
 This repo helps fill the episodic and procedural gaps.
@@ -38,11 +64,11 @@ Every feature you ship follows proven software engineering lifecycle best practi
 
 ## How It Works
 
-![Architecture](architecture.svg)
+[![Architecture](architecture.svg)](architecture.svg)
 
-This repo provides three primitives that power the flywheel:
+This repo provides three resources that power the flywheel:
 
-| Primitive    | Purpose                   | Examples                                                   |
+| Resources    | Purpose                   | Examples                                                   |
 | ------------ | ------------------------- | ---------------------------------------------------------- |
 | **Commands** | Orchestrate the agents    | `/research-codebase`, `/create-spec`, `/implement-feature` |
 | **Agents**   | Execute specialized tasks | `codebase-analyzer`, `codebase-locator`, `pattern-finder`  |
@@ -56,9 +82,19 @@ This repo provides three primitives that power the flywheel:
 
 ### Install the necessary dependencies
 
-[uv](https://docs.astral.sh/uv/getting-started/installation/#installing-uv) - Python package manager
-[bun](https://bun.com/docs/installation) - JavaScript runtime
+[bun](https://bun.sh/docs/installation) - JavaScript runtime for MCP servers (more efficient startup). If you prefer, you can use `npx` instead by adjusting the commands in `.mcp.json` and `.vscode/mcp.json`.
 
+[Docker](https://docs.docker.com/get-docker/) - Required for local MCP servers. Ensure Docker is installed and running.
+
+### Sandboxed Environment for Claude Code
+
+The commands in this repo require Claude Code to run with permissions bypassed (`--dangerously-skip-permissions` or via `.claude/settings.json`). For a safer development environment, use our pre-configured devcontainer with network restrictions and security boundaries:
+
+```bash
+cp -r .devcontainer /path/to/your-project/
+```
+
+Open your project in VS Code and select "Reopen in Container" when prompted.
 
 ### Step 1: Populate Your Project Context
 
@@ -75,27 +111,29 @@ cp AGENTS.md /path/to/your-project/
 Then open your project in your AI coding assistant and ask:
 
 ```
-> "Analyze this codebase and populate the CLAUDE.md (or AGENTS.md) with project-specific context"
+> "Analyze this project and populate the CLAUDE.md (or AGENTS.md) with project-specific context"
+
+NOTE: If you only want to populate CLAUDE.md with a subset of folders and not your entire repo, please add and specify to the prompt above.
 ```
 
 The AI will analyze your tech stack, patterns, and architecture to fill in the template.
 
 ### Step 2: Copy Your Platform's Agent Folder
 
-Copy the folder for your AI coding assistant to your project:
+Copy the folder for your AI coding assistant to your project's root directory (where your `package.json` or main config file lives):
 
 ```bash
 # For Claude Code
-cp -r .claude /path/to/your-project/
+cp -r .claude /path/to/your-project-root/
 
 # For GitHub Copilot
-cp -r .github /path/to/your-project/
+cp -r .github /path/to/your-project-root/
 
 # For Kiro
-cp -r .kiro /path/to/your-project/
+cp -r .kiro /path/to/your-project-root/
 
 # For OpenCode
-cp -r .opencode /path/to/your-project/
+cp -r .opencode /path/to/your-project-root/
 ```
 
 #### MCP Configuration
@@ -107,13 +145,24 @@ cp .mcp.json /path/to/your-project/
 cp -r .vscode/ /path/to/your-project/
 ```
 
+**Docker Alternative for Playwright:** If you're using the `.devcontainer` for a sandboxed environment, you can run Playwright via Docker instead of bunx. Update your MCP configuration:
+
+```json
+"playwright": {
+  "command": "docker",
+  "args": ["run", "-i", "--rm", "--init", "--pull=always", "--network=host", "mcr.microsoft.com/playwright/mcp"]
+}
+```
+
 **Important:** If you already have a `.claude/`, `.github/`, `.kiro/`, or `.opencode/` folder in your project, merge the contents carefully rather than overwriting. The `settings.json` files contain tool permissions that you may want to customize.
 
 ### Optional: Autonomous Execution (Ralph)
 
-Run Claude Code autonomously in continuous loops. After approving your spec and feature list, let Ralph work in the background or overnight while you focus on other tasks. The key is crisp, well-defined instructions coupled with human review. Learn more below!
+Run Claude Code autonomously in continuous loops. ONLY AFTER approving your spec and feature list, let Ralph work in the background or overnight while you focus on other tasks. The key is crisp, well-defined instructions coupled with human review. Learn more below!
 
 > **Note:** Currently only supported for Claude Code. Supports both Mac/Linux and Windows PowerShell.
+
+**Required:** [uv](https://docs.astral.sh/uv/getting-started/installation/#installing-uv) - Python package manager
 
 See [.claude/.ralph/README.md](.claude/.ralph/README.md) for setup instructions.
 
@@ -123,42 +172,42 @@ See [.claude/.ralph/README.md](.claude/.ralph/README.md) for setup instructions.
 
 Follow our automated procedure below, built on top of the Research, Plan, Implement workflow, to go from feature idea to merged PR. Each step is designed for human-in-the-loop review at critical decision points.
 
-### Step 1: Research the Codebase
+### Step 1: Research the Codebase & Review Research
 
 Before any implementation, build context about existing patterns and architecture.
 
 ```bash
-# Run the research command with your question
-/research-codebase "How does authentication work in this codebase?"
+# Run the research command with your prompt for both brownfield and greenfield projects
+
+  # With a description of what you're building
+  /research-codebase "I'm building a real-time collaboration tool with WebSocket support, document versioning, and role-based permissions. Research best practices and architecture patterns for these requirements."
+  # Or reference your PRD
+  /research-codebase "Research implementation approaches for the requirements outlined in docs/prd.md"
 ```
 
 **What happens:** The command dispatches `codebase-locator` and `codebase-analyzer` agents to explore your codebase. Results are saved to `research/` directory for reference.
 
-**You review:** Skim the research output. Confirm the agent understood the relevant parts of your codebase.
+**You review:** Review the research output. Confirm the agent understood the relevant parts of your codebase and overall requirements. Fix anything that may be missing.
 
 ```bash
 # compact the context and information into a progress.txt before continuing 
 /compact
 ```
 
-### Step 2: Create a Specification
+### Step 2: Create a Specification & Thoroughly Review Specification
 
 Generate an execution plan based on your research.
 
 ```bash
 # Create a spec referencing your research
-/create-spec
+/create-spec research/research.md
 ```
 
-**What happens:** The agent reads your research from `research/` and `progress.txt` to know what has been done, synthesizes it, and produces a structured specification with:
-- Problem statement
-- Proposed solution
-- Implementation approach
-- Edge cases and risks
+**What happens:** The agent reads your research from `research/` and `progress.txt` to know what has been done, synthesizes it, and produces a structured specification.
 
 **You review (CRITICAL):** This is your main decision point. Read the spec carefully. Ask clarifying questions. Request changes. The spec becomes the contract for implementation.
 
-### Step 3: Break Into Features
+### Step 3: Break Into Features & Review Features 
 
 Decompose the spec into discrete, implementable tasks.
 
@@ -172,16 +221,18 @@ Decompose the spec into discrete, implementable tasks.
 - Dependencies between features
 - Acceptance criteria for each
 
-**You review:** Verify the breakdown makes sense. Reorder if needed. Remove features that are out of scope.
+**You review (CRITICAL):** Verify the breakdown makes sense. Reorder if needed. Remove features that are out of scope.
 
-### Step 4: Implement Features (One at a Time)
-
+### Step 4: Implement Features (One at a Time or via Claude Code Ralph Loop)
 Execute each feature from your list and compact to keep progress 
 
 ```bash
 # Implement the next feature
-/implement-feature
+/implement-feature feature-list.json
 ```
+** Important NOTE**: at the end of the /implement-feature slash command you will notice that we commit the changes in a specific format. This is not hallucination and we recommend not changing this pattern. We commit and do so in this format so that the agent can more easily track the work it has done and search for recent commits more effectively, respectively. The prefixes we add to commit messages enable the model to identify changes. Removing the behavior to commit or changing the messages can result in undesired behvior and hallucations with lower feature quality or poor completion rates.
+
+**Optional for Claude Code users:** Use [Ralph](.claude/.ralph/README.md) to run `/implement-feature` in a loop for fully autonomous feature implementation in Claude Code.
 
 **What happens:** The agent:
 1. Reads `feature-list.json` for the next task
@@ -195,15 +246,42 @@ Execute each feature from your list and compact to keep progress
 - Check the diff: `git diff HEAD~1`
 - If issues, use `/compact` and `/create-debug-report` and fix before continuing
 
+
+### Step 5: Move to next feature
 ```bash
-# Compact between features to manage context
+# If continuing the same feature and exceeding token window for a hand off
 /compact
 
-# Repeat for each feature
-/implement-feature
+# If moving to the next feature, reset the context window
+/new
+
+# Then implement the next feature
+/implement-feature feature-list.json
 ```
 
-### Step 5: Create Pull Request
+### Step 6: Debugging Flow
+
+If something breaks during implementation that the agent did not catch, you can manually debug:
+
+```bash
+# Generate a debug report
+/create-debug-report "<context of what is broken>"
+
+```
+
+The agent analyzes logs, stack traces, and code. Then prompt your agent:
+
+> Use the debug report to add a new feature to feature-list.json that marks the bug as the highest priority to fix and sets its `passes` field to `false`.
+
+```bash
+# Then compact, reset context window, and run implement feature again:
+
+/compact
+/new
+/implement-feature feature-list.json
+```
+
+### Step 7: Create Pull Request
 
 Package all changes for review. Try to do this for each feature to keep commits clean and DO NOT commit directly to main.
 
@@ -223,19 +301,6 @@ Package all changes for review. Try to do this for each feature to keep commits 
 - Refactor code that doesn't meet your standards
 - Add missing tests or documentation
 - Merge when satisfied
-
-### Debugging Flow
-
-When something breaks during implementation:
-
-```bash
-# Generate a debug report
-/create-debug-report
-
-# The agent analyzes logs, stack traces, and code
-# Fix the issue, then commit
-/commit "fix: resolve authentication race condition"
-```
 
 ### Session Management
 
@@ -307,6 +372,47 @@ This approach highlights the best of SDLC and gets you 40-60% of the way there s
 ### 2 Skills
 - **prompt-engineer** - Prompt engineering best practices
 - **testing-anti-patterns** - Testing patterns to avoid
+
+---
+
+## How Atomic Differs from Spec-Kit
+
+Spec Kit is GitHub's toolkit for "Spec-Driven Development" where specifications become executable artifacts. While both projects aim to improve AI-assisted development, they solve different problems:
+
+| Aspect | Spec-Kit | Atomic |
+|--------|----------|--------|
+| **Primary Focus** | Greenfield projects - building new features from specifications | **Large existing codebases and greenfield** - understanding patterns before implementing |
+| **First Step** | `/speckit.constitution` - define project principles | `/research-codebase` - analyze existing architecture and patterns |
+| **Memory Model** | Per-feature specs in `.specify/specs/` | Flywheel of active, semantic, and procedural memory: `Research → Specs → Execution → Outcomes` with `progress.txt` tracking |
+| **Agent Architecture** | Single agent executes slash commands via shell scripts | **Specialized sub-agents**: `codebase-analyzer`, `codebase-locator`, `codebase-pattern-finder` |
+| **Human Review** | Implicit in workflow | **Explicit checkpoints** with "You review (CRITICAL)" markers |
+| **Debugging** | Not addressed | Dedicated `/create-debug-report` workflow |
+| **Autonomous Runs** | Not available | **Ralph** for overnight feature implementation |
+
+**When to choose Atomic:**
+- Working with an existing, large codebase where you need to discover patterns first and greenfield projects
+- Need session continuity, context management, and built-in memory
+- Want explicit human-in-the-loop checkpoints
+- Need debugging workflows when implementations fail
+- Want autonomous overnight execution (Ralph) for Claude Code
+
+---
+
+## Troubleshooting
+
+### Git Identity Error
+If you see an error like `Error: Bash command failed for pattern "!git config user.name":` when running slash commands, make sure you configure your git identity:
+
+```bash
+git config --global user.name "Your Name"
+git config --global user.email "your.email@example.com"
+```
+
+### Slash Commands Not Working or Permission Issues
+If slash commands aren't executing or you're encountering permission errors:
+
+- **Claude Code:** Ensure you have bypass permissions enabled. Run with `--dangerously-skip-permissions` flag or configure it in `.claude/settings.json`
+- **Other AI Agents:** Make sure you're running in **agent mode** (not assistant or chat mode) which grants the necessary tool execution permissions
 
 ---
 

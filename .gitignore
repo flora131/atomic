@@ -29,3 +29,4 @@ Temporary Items
 .augment/
 
 .claude/.ralph/claude_output.jsonl
+.opencode/.ralph/opencode_output.jsonl

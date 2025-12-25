@@ -1,5 +1,8 @@
 # ⚛️ Atomic: Automated Procedures and Memory for AI Coding Agents
 
+[![Run in Smithery](https://smithery.ai/badge/skills/flora131)](https://smithery.ai/skills?ns=flora131&utm_source=github&utm_medium=badge)
+
+
 <p align="center">
   <img src="atomic.png" alt="Atomic" width="200">
 </p>

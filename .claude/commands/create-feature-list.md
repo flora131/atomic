@@ -5,13 +5,13 @@ allowed-tools: Edit, Read, Write, Bash
 argument-hint: [spec-path]
 ---
 
-You are tasked with creating a detailed `feature-list.json` file and `progress.txt` for implementing features or refactors in a codebase based on a provided specification.
+You are tasked with creating a detailed `feature-list.json` file and `progress.txt` for implementing features or refactors in a codebase based on a provided specification located at **$ARGUMENTS**.
 
 # Tasks
 
 1. If a `progress.txt` file already exists in the repository root, remove it.
 2. Create an empty `progress.txt` file to log your development progress.
-3. Read the feature specification document located at **$ARGUMENTS** and follow the guidelines below to create the `feature-list.json` file.
+3. Read the feature specification document located at **$ARGUMENTS**, then follow the guidelines below to create the `feature-list.json` file.
 
 ## Create a `feature-list.json`
 

@@ -8,7 +8,7 @@ You are tasked with creating a detailed `feature-list.json` file and `progress.t
 
 # Tasks
 
-1. If a `progress.txt` file already exists in the repository root, remove it.
+1. If a `progress.txt` file already exists in the research directory, remove it.
 2. Create an empty `progress.txt` file to log your development progress.
 3. Read the feature specification document located at **$ARGUMENTS** and follow the guidelines below to create the `feature-list.json` file.
 

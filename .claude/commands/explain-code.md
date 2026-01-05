@@ -1,13 +1,18 @@
 ---
 description: Explain code functionality in detail.
 model: sonnet
-allowed-tools: Glob, Grep, NotebookRead, Read, ListMcpResourcesTool, ReadMcpResourceTool, mcp__deepwiki__ask_question, mcp__playwright__browser_close, mcp__playwright__browser_resize, mcp__playwright__browser_console_messages, mcp__playwright__browser_handle_dialog, mcp__playwright__browser_evaluate, mcp__playwright__browser_file_upload, mcp__playwright__browser_install, mcp__playwright__browser_press_key, mcp__playwright__browser_type, mcp__playwright__browser_navigate, mcp__playwright__browser_navigate_back, mcp__playwright__browser_navigate_forward, mcp__playwright__browser_network_requests, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_snapshot, mcp__playwright__browser_click, mcp__playwright__browser_drag, mcp__playwright__browser_hover, mcp__playwright__browser_select_option, mcp__playwright__browser_tab_list, mcp__playwright__browser_tab_new, mcp__playwright__browser_tab_select, mcp__playwright__browser_tab_close, mcp__playwright__browser_wait_for
+allowed-tools: Glob, Grep, NotebookRead, Read, ListMcpResourcesTool, ReadMcpResourceTool, mcp__deepwiki__ask_question, WebFetch, WebSearch
 argument-hint: [code-path]
 ---
 
 # Analyze and Explain Code Functionality
 
-Analyze and explain code functionality
+## Available Tools
+
+The following MCP tools are available and SHOULD be used when relevant:
+
+- **DeepWiki** (`ask_question`): Use to look up documentation for external libraries, frameworks, and GitHub repositories. Particularly useful for understanding third-party dependencies and their APIs.
+- **WebFetch/WebSearch**: Use to retrieve web content for additional context if information is not found in DeepWiki.
 
 ## Instructions
 
@@ -54,6 +59,7 @@ Follow this systematic approach to explain code: **$ARGUMENTS**
    - Describe library functions and their purposes
    - Explain API calls and their expected responses
    - Clarify configuration and setup code
+   - Use the DeepWiki MCP tool (`deepwiki_ask_question`) to look up documentation for external libraries when needed
 
 8. **Error Handling and Edge Cases**
    - Explain error handling mechanisms
@@ -199,3 +205,4 @@ Remember to:
 - Structure explanations logically from high-level to detailed
 - Include visual diagrams or flowcharts when helpful
 - Tailor the explanation level to the intended audience
+- Use DeepWiki to look up external library documentation when encountering unfamiliar dependencies

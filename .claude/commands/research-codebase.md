@@ -13,7 +13,7 @@ The user's research question/request is: **$ARGUMENTS**
 
 ## Steps to follow after receiving the research query:
 
-IMPORTANT: OPTIMIZE the user's research question request using your prompt-engineer skill and confirm that the your refined question captures the user's intent BEFORE proceeding.
+IMPORTANT: OPTIMIZE the user's research question request using your prompt-engineer skill and confirm that the your refined question captures the user's intent BEFORE proceeding using the `AskUserQuestion` tool.
 
 1. **Read any directly mentioned files first:**
    - If the user mentions specific files (tickets, docs, or other notes), read them FULLY first
@@ -50,7 +50,7 @@ IMPORTANT: OPTIMIZE the user's research question request using your prompt-engin
    **For online search:**
    - VERY IMPORTANT: In case you discover external libraries as dependencies, use the **codebase-online-researcher** agent for external documentation and resources
      - If you use DeepWiki tools, instruct the agent to return references to code snippets or documentation, PLEASE INCLUDE those references (e.g. source file names, line numbers, etc.)
-     - If you perform a web search using the playwright tool, instruct the agent to return LINKS with their findings, and please INCLUDE those links in the research document
+     - If you perform a web search using the WebFetch/WebSearch tools, instruct the agent to return LINKS with their findings, and please INCLUDE those links in the research document
      - Output directory: `research/docs/`
      - Examples:
        - If researching `Redis` locks usage, the agent might find relevant usage and create a document `research/docs/2024-01-15-redis-locks-usage.md` with internal links to Redis docs and code references

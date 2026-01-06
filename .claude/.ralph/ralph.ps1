@@ -10,7 +10,7 @@ Usage: ./.claude/.ralph/ralph.ps1 [-Help] [-MaxIterations <int>]
   -Help               Show this message
   -MaxIterations      Max iterations before force stop (0 = infinite, default: 0)
 
-The script monitors feature-list.json and iterates until all entries have "passes": true.
+The script monitors research/feature-list.json and iterates until all entries have "passes": true.
 If -MaxIterations > 0, the script will stop after that many iterations regardless of feature status.
 "@
 }
@@ -20,11 +20,11 @@ if ($Help) {
     exit 0
 }
 
-$FeatureListPath = "feature-list.json"
+$FeatureListPath = "research/feature-list.json"
 
-# Check if feature-list.json exists at root level
+# Check if feature-list.json exists in research folder
 if (-not (Test-Path $FeatureListPath -PathType Leaf)) {
-    Write-Host "ERROR: feature-list.json not found at repository root." -ForegroundColor Red
+    Write-Host "ERROR: feature-list.json not found in research folder." -ForegroundColor Red
     Write-Host ""
     Write-Host "Please run the /create-feature-list command first to generate the feature list." -ForegroundColor Yellow
     Write-Host ""
@@ -44,7 +44,7 @@ function Test-AllFeaturesPassing {
         $features = Get-Content $Path -Raw | ConvertFrom-Json
         
         if ($features.Count -eq 0) {
-            Write-Host "ERROR: feature-list.json is empty." -ForegroundColor Red
+            Write-Host "ERROR: research/feature-list.json is empty." -ForegroundColor Red
             return $false
         }
 
@@ -57,12 +57,12 @@ function Test-AllFeaturesPassing {
         return $failingFeatures -eq 0
     }
     catch {
-        Write-Host "ERROR: Failed to parse feature-list.json: $_" -ForegroundColor Red
+        Write-Host "ERROR: Failed to parse research/feature-list.json: $_" -ForegroundColor Red
         return $false
     }
 }
 
-Write-Host "Starting ralph - monitoring feature-list.json for completion..." -ForegroundColor Green
+Write-Host "Starting ralph - monitoring research/feature-list.json for completion..." -ForegroundColor Green
 if ($MaxIterations -gt 0) {
     Write-Host "Max iterations set to $MaxIterations" -ForegroundColor Yellow
 }

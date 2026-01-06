@@ -2,24 +2,24 @@
 
 Run AI agents in continuous loops until task completion - no manual intervention required.
 
-> **Note:** Currently only supported for Claude Code. For OpenCode users, see `.opencode/.ralph/README.md`.
+> **Note:** Currently only supported for OpenCode. For Claude Code users, see `.claude/.ralph/README.md`.
 
-**How it works:** Agent reads `.claude/.ralph/prompt.md`, executes tasks, iterates until done, manages its own context.
+**How it works:** Agent reads `.opencode/.ralph/prompt.md`, executes tasks, iterates until done, manages its own context.
 
 ## Platform Support
 
 Ralph supports both Mac/Linux (bash) and Windows (PowerShell):
 
-| Platform  | Scripts Location  | Usage                   |
-| --------- | ----------------- | ----------------------- |
-| Mac/Linux | `.claude/.ralph/` | `ralph.sh`, `sync.sh`   |
-| Windows   | `.claude/.ralph/` | `ralph.ps1`, `sync.ps1` |
+| Platform  | Scripts Location    | Usage                   |
+| --------- | ------------------- | ----------------------- |
+| Mac/Linux | `.opencode/.ralph/` | `ralph.sh`, `sync.sh`   |
+| Windows   | `.opencode/.ralph/` | `ralph.ps1`, `sync.ps1` |
 
 ## 1 Minute Quick Start
 
 ### Prerequisites: Have Your Feature List Ready
 
-**Ralph loops through your `feature-list.json` and implements features autonomously.** Before using Ralph, you must complete the research and planning phases to generate your feature list.
+**Ralph loops through your `research/feature-list.json` and implements features autonomously.** Before using Ralph, you must complete the research and planning phases to generate your feature list.
 
 If you don't have a `feature-list.json` yet, follow the [Procedure section in the main README](../../README.md#our-procedure-follow-step-by-step-or-use-commands-and-sub-agents-in-repo-to-build-your-own):
 
@@ -27,20 +27,20 @@ Once you have your approved spec and `feature-list.json`, continue below.
 
 ### Quick Start Steps
 
-1. **Update `.claude/.ralph/prompt.md`** with specific instructions after the `/implement-feature` slash command for what you want to implement. Keep it concise
+1. **Update `.opencode/.ralph/prompt.md`** with specific instructions after the `/implement-feature` slash command for what you want to implement. Keep it concise
 
 2. **Test one iteration:**
 
    **Mac/Linux:**
    ```bash
    cd /path/to/your-project
-   ./.claude/.ralph/sync.sh
+   ./.opencode/.ralph/sync.sh
    ```
 
    **Windows PowerShell:**
    ```powershell
    cd C:/path/to/your-project
-   ./.claude/.ralph/sync.ps1
+   ./.opencode/.ralph/sync.ps1
    ```
    Verifies the agent can read your prompt and execute successfully
 
@@ -48,12 +48,12 @@ Once you have your approved spec and `feature-list.json`, continue below.
 
    **Mac/Linux:**
    ```bash
-   ./.claude/.ralph/ralph.sh
+   ./.opencode/.ralph/ralph.sh
    ```
 
    **Windows PowerShell:**
    ```powershell
-   ./.claude/.ralph/ralph.ps1
+   ./.opencode/.ralph/ralph.ps1
    ```
    Agent loops, working until task completion
 
@@ -64,19 +64,19 @@ By default, Ralph runs indefinitely until the task is complete. You can limit th
 **Mac/Linux:**
 ```bash
 # Run exactly 10 iterations
-./.claude/.ralph/ralph.sh 10
+./.opencode/.ralph/ralph.sh -m 10
 
 # Run indefinitely (default)
-./.claude/.ralph/ralph.sh
+./.opencode/.ralph/ralph.sh
 ```
 
 **Windows PowerShell:**
 ```powershell
 # Run exactly 10 iterations
-./.claude/.ralph/ralph.ps1 -MaxIterations 10
+./.opencode/.ralph/ralph.ps1 -MaxIterations 10
 
 # Run indefinitely (default)
-./.claude/.ralph/ralph.ps1
+./.opencode/.ralph/ralph.ps1
 ```
 
 This is useful, depending on your use case, for:
@@ -100,4 +100,3 @@ Since Ralph runs continuously, it's best to run it in environments designed for 
 **Additional guidelines:**
 - One task per loop
 - Clear completion criteria
-

@@ -9,7 +9,7 @@ NC='\033[0m' # No Color
 
 print_usage() {
     cat <<'USAGE'
-Usage: ./.claude/.ralph/ralph.sh [-h|--help] [-m|--max-iterations <int>]
+Usage: ./.opencode/.ralph/ralph.sh [-h|--help] [-m|--max-iterations <int>]
 
   -h, --help              Show this message
   -m, --max-iterations    Max iterations before force stop (0 = infinite, default: 0)
@@ -104,7 +104,7 @@ while true; do
         echo "Iteration: $iteration"
     fi
 
-    ./.claude/.ralph/sync.sh
+    ./.opencode/.ralph/sync.sh
 
     if test_all_features_passing "$feature_list_path"; then
         echo -e "${GREEN}All features passing! Exiting loop.${NC}"

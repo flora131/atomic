@@ -4,16 +4,13 @@ agent: build
 model: anthropic/claude-sonnet-4-5
 ---
 
-# Analyze and Explain Code Functionality
-
-Analyze and explain code functionality
+# Analyze and explain code functionality
 
 ## Available Tools
 
 The following MCP tools are available and SHOULD be used when relevant:
 
 - **DeepWiki** (`deepwiki_ask_question`): Use to look up documentation for external libraries, frameworks, and GitHub repositories. Particularly useful for understanding third-party dependencies and their APIs.
-- **Playwright** (`playwright_*`): Use to interact with web applications if the code involves web UI components that need visual verification or testing context.
 
 ## Instructions
 
@@ -207,4 +204,3 @@ Remember to:
 - Include visual diagrams or flowcharts when helpful
 - Tailor the explanation level to the intended audience
 - Use DeepWiki to look up external library documentation when encountering unfamiliar dependencies
-- Use Playwright for visual context when explaining web UI code that would benefit from seeing the rendered output

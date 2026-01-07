@@ -50,7 +50,7 @@ The commit contains the following structural elements, to communicate intent to 
 
 1.  **fix:** a commit of the _type_ `fix` patches a bug in your codebase (this correlates with [`PATCH`](http://semver.org/#summary) in Semantic Versioning).
 2.  **feat:** a commit of the _type_ `feat` introduces a new feature to the codebase (this correlates with [`MINOR`](http://semver.org/#summary) in Semantic Versioning).
-3.  **BREAKING CHANGE:** a commit that has a footer `BREAKING CHANGE:`, or appends a `exclamation point` after the type/scope, introduces a breaking API change (correlating with [`MAJOR`](http://semver.org/#summary) in Semantic Versioning). A BREAKING CHANGE can be part of commits of any _type_.
+3.  **BREAKING CHANGE:** a commit that has a footer `BREAKING CHANGE:`, or appends a `'!'` after the type/scope, introduces a breaking API change (correlating with [`MAJOR`](http://semver.org/#summary) in Semantic Versioning). A BREAKING CHANGE can be part of commits of any _type_.
 4.  _types_ other than `fix:` and `feat:` are allowed, for example [@commitlint/config-conventional](https://github.com/conventional-changelog/commitlint/tree/master/%40commitlint/config-conventional) (based on the [Angular convention](https://github.com/angular/angular/blob/22b96b9/CONTRIBUTING.md#-commit-message-guidelines)) recommends `build:`, `chore:`, `ci:`, `docs:`, `style:`, `refactor:`, `perf:`, `test:`, and others.
 5.  _footers_ other than `BREAKING CHANGE: <description>` may be provided and follow a convention similar to [git trailer format](https://git-scm.com/docs/git-interpret-trailers).
 
@@ -66,22 +66,22 @@ feat: allow provided config object to extend other configs
 BREAKING CHANGE: `extends` key in config file is now used for extending other config files
 ```
 
-### Commit message with `exclamation point` to draw attention to breaking change
+### Commit message with `'!'` to draw attention to breaking change
 
 ```
-featexclamation point: send an email to the customer when a product is shipped
+feat'!': send an email to the customer when a product is shipped
 ```
 
-### Commit message with scope and `exclamation point` to draw attention to breaking change
+### Commit message with scope and `'!'` to draw attention to breaking change
 
 ```
-feat(api)exclamation point: send an email to the customer when a product is shipped
+feat(api)'!': send an email to the customer when a product is shipped
 ```
 
-### Commit message with both `exclamation point` and BREAKING CHANGE footer
+### Commit message with both `'!'` and BREAKING CHANGE footer
 
 ```
-choreexclamation point: drop support for Node 6
+chore'!': drop support for Node 6
 
 BREAKING CHANGE: use JavaScript features not available in Node 6.
 ```
@@ -117,7 +117,7 @@ Refs: #123
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in [RFC 2119](https://www.ietf.org/rfc/rfc2119.txt).
 
-1.  Commits MUST be prefixed with a type, which consists of a noun, `feat`, `fix`, etc., followed by the OPTIONAL scope, OPTIONAL `exclamation point`, and REQUIRED terminal colon and space.
+1.  Commits MUST be prefixed with a type, which consists of a noun, `feat`, `fix`, etc., followed by the OPTIONAL scope, OPTIONAL `'!'`, and REQUIRED terminal colon and space.
 2.  The type `feat` MUST be used when a commit adds a new feature to your application or library.
 3.  The type `fix` MUST be used when a commit represents a bug fix for your application.
 4.  A scope MAY be provided after a type. A scope MUST consist of a noun describing a section of the codebase surrounded by parenthesis, e.g., `fix(parser):`
@@ -129,7 +129,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 10. A footer's value MAY contain spaces and newlines, and parsing MUST terminate when the next valid footer token/separator pair is observed.
 11. Breaking changes MUST be indicated in the type/scope prefix of a commit, or as an entry in the footer.
 12. If included as a footer, a breaking change MUST consist of the uppercase text BREAKING CHANGE, followed by a colon, space, and description, e.g., _BREAKING CHANGE: environment variables now take precedence over config files_.
-13. If included in the type/scope prefix, breaking changes MUST be indicated by a `exclamation point` immediately before the `:`. If `exclamation point` is used, `BREAKING CHANGE:` MAY be omitted from the footer section, and the commit description SHALL be used to describe the breaking change.
+13. If included in the type/scope prefix, breaking changes MUST be indicated by a `'!'` immediately before the `:`. If `'!'` is used, `BREAKING CHANGE:` MAY be omitted from the footer section, and the commit description SHALL be used to describe the breaking change.
 14. Types other than `feat` and `fix` MAY be used in your commit messages, e.g., _docs: update ref docs._
 15. The units of information that make up Conventional Commits MUST NOT be treated as case sensitive by implementors, with the exception of BREAKING CHANGE which MUST be uppercase.
 16. BREAKING-CHANGE MUST be synonymous with BREAKING CHANGE, when used as a token in a footer.
@@ -170,7 +170,7 @@ Conventional Commits encourages us to make more of certain types of commits such
 
 ### How should I version my extensions to the Conventional Commits Specification, e.g. `@jameswomack/conventional-commit-spec`?
 
-We recommend using SemVer to release your own extensions to this specification (and encourage you to make these extensionsexclamation point)
+We recommend using SemVer to release your own extensions to this specification (and encourage you to make these extensions'!')
 
 ### What do I do if I accidentally use the wrong commit type?
 
@@ -184,7 +184,7 @@ In a worst case scenario, it's not the end of the world if a commit lands that d
 
 ### Do all my contributors need to use the Conventional Commits specification?
 
-Noexclamation point If you use a squash based workflow on Git lead maintainers can clean up the commit messages as they're merged—adding no workload to casual committers. A common workflow for this is to have your git system automatically squash commits from a pull request and present a form for the lead maintainer to enter the proper git commit message for the merge.
+No'!' If you use a squash based workflow on Git lead maintainers can clean up the commit messages as they're merged—adding no workload to casual committers. A common workflow for this is to have your git system automatically squash commits from a pull request and present a form for the lead maintainer to enter the proper git commit message for the merge.
 
 ### How does Conventional Commits handle revert commits?
 

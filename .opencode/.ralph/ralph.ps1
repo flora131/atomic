@@ -5,7 +5,7 @@ param(
 
 function Show-Usage {
     @"
-Usage: ./.claude/.ralph/ralph.ps1 [-Help] [-MaxIterations <int>]
+Usage: ./.opencode/.ralph/ralph.ps1 [-Help] [-MaxIterations <int>]
 
   -Help               Show this message
   -MaxIterations      Max iterations before force stop (0 = infinite, default: 0)
@@ -78,7 +78,7 @@ while ($true) {
         Write-Host "Iteration: $iteration"
     }
     
-    & ./.claude/.ralph/sync.ps1
+    & ./.opencode/.ralph/sync.ps1
     
     if (Test-AllFeaturesPassing -Path $FeatureListPath) {
         Write-Host "All features passing! Exiting loop." -ForegroundColor Green

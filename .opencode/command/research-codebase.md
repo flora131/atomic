@@ -49,7 +49,7 @@ IMPORTANT: OPTIMIZE the user's research question request using your prompt-engin
    **For online search:**
    - VERY IMPORTANT: In case you discover external libraries as dependencies, use the **codebase-online-researcher** agent for external documentation and resources
      - If you use DeepWiki tools, instruct the agent to return references to code snippets or documentation, PLEASE INCLUDE those references (e.g. source file names, line numbers, etc.)
-     - If you perform a web search using the playwright tool, instruct the agent to return LINKS with their findings, and please INCLUDE those links in the research document
+     - If you perform a web search using the webfetch tool, instruct the agent to return LINKS with their findings, and please INCLUDE those links in the research document
      - Output directory: `research/docs/`
      - Examples:
        - If researching `Redis` locks usage, the agent might find relevant usage and create a document `research/docs/2024-01-15-redis-locks-usage.md` with internal links to Redis docs and code references

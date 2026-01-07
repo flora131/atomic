@@ -3,10 +3,6 @@
     "deepwiki": {
       "type": "http",
       "url": "https://mcp.deepwiki.com/mcp"
-    },
-    "playwright": {
-      "command": "bunx",
-      "args": ["@playwright/mcp@latest", "--headless"]
     }
   }
 }

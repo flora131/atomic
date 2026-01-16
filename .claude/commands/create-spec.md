@@ -5,7 +5,7 @@ allowed-tools: Edit, Read, Write, Bash, Task
 argument-hint: [research-path]
 ---
 
-You are tasked with creating a spec for implementing a new feature or system change in the codebase by leveraging existing research in the **$ARGUMENTS** path. If no research path is specified, use the entire `research/` directory. Follow the template below to produce a comprehensive specification using the findings from RELEVANT research documents. Tip: It's good practice to use the `codebase-research-locator` and `codebase-research-analyzer` agents to help you find and analyze the research documents. It is also HIGHLY recommended to cite relevant research throughout the spec for additional context.
+You are tasked with creating a spec for implementing a new feature or system change in the codebase by leveraging existing research in the **$ARGUMENTS** path. If no research path is specified, use the entire `research/` directory. Follow the template below to produce a comprehensive specification in the `specs` folder using the findings from RELEVANT research documents. Tip: It's good practice to use the `codebase-research-locator` and `codebase-research-analyzer` agents to help you find and analyze the research documents. It is also HIGHLY recommended to cite relevant research throughout the spec for additional context.
 
 # [Project Name] Technical Design Document / RFC
 

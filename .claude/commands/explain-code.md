@@ -1,6 +1,6 @@
 ---
 description: Explain code functionality in detail.
-model: sonnet
+model: opus
 allowed-tools: Glob, Grep, NotebookRead, Read, ListMcpResourcesTool, ReadMcpResourceTool, mcp__deepwiki__ask_question, WebFetch, WebSearch
 argument-hint: [code-path]
 ---

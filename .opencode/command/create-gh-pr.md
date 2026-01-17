@@ -1,7 +1,7 @@
 ---
 description: Commit unstaged changes, push changes, submit a pull request.
 agent: build
-model: anthropic/claude-sonnet-4-5
+model: anthropic/claude-opus-4-5
 ---
 
 # Create Pull Request Command

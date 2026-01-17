@@ -42,6 +42,38 @@
           }
         }
       }
+    },
+    "openai": {
+      "models": {
+        "gpt-5.2-codex-high": {
+          "id": "gpt-5.2-codex",
+          "options": {
+            "reasoningEffort": "high"
+          }
+        },
+        "gpt-5.2-codex-xhigh": {
+          "id": "gpt-5.2-codex",
+          "options": {
+            "reasoningEffort": "xhigh"
+          }
+        }
+      }
+    },
+    "anthropic": {
+      "models": {
+        "claude-opus-4-5-high": {
+          "id": "claude-opus-4-5",
+          "options": {
+            "thinking": {
+              "type": "enabled",
+              "budgetTokens": 32000
+            },
+            "output_config": {
+              "effort": "high"
+            }
+          }
+        }
+      }
     }
   }
 }

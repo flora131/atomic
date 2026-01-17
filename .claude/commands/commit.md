@@ -1,6 +1,6 @@
 ---
 description: Create well-formatted commits with conventional commit format.
-model: sonnet
+model: opus
 allowed-tools: Bash(git add:*), Bash(git status:*), Bash(git commit:*), Bash(git diff:*), Bash(git log:*)
 argument-hint: [message] | --amend
 ---

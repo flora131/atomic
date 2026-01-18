@@ -1,5 +1,6 @@
 ---
 description: "Explain Ralph Wiggum technique and available commands"
+model: opus
 ---
 
 # Ralph Wiggum Plugin Help

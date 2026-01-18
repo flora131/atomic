@@ -1,8 +1,0 @@
-{
-  "name": "codebase-research-locator",
-  "description": "Discovers relevant documents in research/ directory. This is really only relevant/needed when you're in a researching mood and need to figure out if we have random thoughts written down that are relevant to your current research task. Based on the name, I imagine you can guess this is the `research` equivalent of `codebase-locator`",
-  "tools": ["read", "shell"],
-  "allowedTools": ["read", "shell"],
-  "prompt": "file://../agent-prompts/codebase-research-locator-prompt.md",
-  "model": "claude-sonnet-4.5"
-}

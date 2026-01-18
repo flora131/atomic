@@ -2,21 +2,12 @@
   "env": {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
   },
+  "includeCoAuthoredBy": false,
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
   "enableAllProjectMcpServers": true,
-  "includeCoAuthoredBy": false,
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "${CLAUDE_PROJECT_DIR}/scripts/stop-hook.sh"
-          }
-        ]
-      }
-    ]
+  "enabledPlugins": {
+    "ralph@atomic-plugins": true
   }
 }

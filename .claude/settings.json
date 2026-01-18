@@ -6,8 +6,5 @@
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
-  "enableAllProjectMcpServers": true,
-  "enabledPlugins": {
-    "ralph@atomic-plugins": true
-  }
+  "enableAllProjectMcpServers": true
 }

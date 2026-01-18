@@ -1,6 +1,6 @@
 ---
 description: Create a detailed `research/feature-list.json` and `research/progress.txt` for implementing features or refactors in a codebase from a spec.
-model: sonnet
+model: opus
 allowed-tools: Edit, Read, Write, Bash
 argument-hint: [spec-path]
 ---

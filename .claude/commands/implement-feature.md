@@ -1,6 +1,6 @@
 ---
 description: Implement a SINGLE feature from `research/feature-list.json` based on the provided execution plan.
-model: sonnet
+model: opus
 allowed-tools: Bash, Task, Edit, Glob, Grep, NotebookEdit, NotebookRead, Read, Write, SlashCommand
 ---
 

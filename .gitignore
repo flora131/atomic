@@ -25,7 +25,9 @@ Temporary Items
 # iCloud files
 *.icloud
 
-# Platform-specific folders not included in this repo
-.augment/
-
-.claude/.ralph/claude_output.jsonl
+node_modules
+package.json
+bun.lock
+.gitignore
+ralph-loop.local.json
+ralph-loop.local.md

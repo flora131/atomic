@@ -1,14 +1,23 @@
 ---
-agent: 'agent'
-model: 'Claude Sonnet 4.5'
-tools: ['githubRepo', 'search', 'search', 'fetch', 'agent', 'execute','playwright']
 description: Explain code functionality in detail.
+tools: ["search", "read", "web", "deepwiki/ask_question"]
+model: claude-opus-4-5
+mcp-servers:
+  deepwiki:
+    type: http
+    url: "https://mcp.deepwiki.com/mcp"
+    tools: ["ask_question"]
 argument-hint: [code-path]
 ---
 
 # Analyze and Explain Code Functionality
 
-Analyze and explain code functionality
+## Available Tools
+
+The following MCP tools are available and SHOULD be used when relevant:
+
+- **DeepWiki** (`ask_question`): Use to look up documentation for external libraries, frameworks, and GitHub repositories. Particularly useful for understanding third-party dependencies and their APIs.
+- **WebFetch/WebSearch**: Use to retrieve web content for additional context if information is not found in DeepWiki.
 
 ## Instructions
 
@@ -55,6 +64,7 @@ Follow this systematic approach to explain code: **$ARGUMENTS**
    - Describe library functions and their purposes
    - Explain API calls and their expected responses
    - Clarify configuration and setup code
+   - Use the DeepWiki MCP tool (`deepwiki_ask_question`) to look up documentation for external libraries when needed
 
 8. **Error Handling and Edge Cases**
    - Explain error handling mechanisms
@@ -200,3 +210,4 @@ Remember to:
 - Structure explanations logically from high-level to detailed
 - Include visual diagrams or flowcharts when helpful
 - Tailor the explanation level to the intended audience
+- Use DeepWiki to look up external library documentation when encountering unfamiliar dependencies

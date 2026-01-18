@@ -1,5 +1,6 @@
 ---
 description: "Start Ralph Wiggum loop in current session"
+model: opus
 argument-hint: "PROMPT [--max-iterations N] [--completion-promise TEXT]"
 allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/scripts/setup-ralph-loop.sh:*)", "Bash(powershell -ExecutionPolicy Bypass -File ${CLAUDE_PLUGIN_ROOT}/scripts/setup-ralph-loop.ps1:*)"]
 hide-from-slash-command-tool: "true"

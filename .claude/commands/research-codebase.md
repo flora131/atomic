@@ -171,6 +171,7 @@ research/
    - Continue updating the document and syncing
 
 ## Important notes:
+- Please DO NOT implement anything in this stage, just create the comprehensive research document
 - Always use parallel Task agents to maximize efficiency and minimize context usage
 - Always run fresh codebase research - never rely solely on existing research documents
 - The `research/` directory provides historical context to supplement live findings

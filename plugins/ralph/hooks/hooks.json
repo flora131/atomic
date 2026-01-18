@@ -1,0 +1,15 @@
+{
+  "description": "Ralph Wiggum plugin stop hook for self-referential loops",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [[ \"$(uname)\" == MINGW* || \"$(uname)\" == MSYS* || \"$(uname)\" == CYGWIN* ]]; then powershell -ExecutionPolicy Bypass -File \"${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.ps1\"; else \"${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.sh\"; fi"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "./.github/scripts/start-ralph-session.sh",
+        "powershell": "./.github/scripts/start-ralph-session.ps1",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "bash": "./.github/hooks/stop-hook.sh",
+        "powershell": "./.github/hooks/stop-hook.ps1",
+        "cwd": ".",
+        "timeoutSec": 30
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "bash": "./.github/scripts/log-ralph-prompt.sh",
+        "powershell": "./.github/scripts/log-ralph-prompt.ps1",
+        "cwd": ".",
+        "env": {
+          "RALPH_LOG_LEVEL": "INFO"
+        },
+        "timeoutSec": 5
+      }
+    ]
+  }
+}

@@ -1,12 +1,23 @@
 {
   "name": "atomic",
-  "module": "index.ts",
+  "version": "1.0.0",
+  "description": "Configuration management CLI for coding agents",
   "type": "module",
+  "bin": {
+    "atomic": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --compile --outfile atomic",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
   "private": true,
   "devDependencies": {
-    "@types/bun": "latest"
-  },
-  "peerDependencies": {
+    "@types/bun": "latest",
     "typescript": "^5"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.11.0"
   }
 }

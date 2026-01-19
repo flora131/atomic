@@ -9,7 +9,7 @@
       "Export AGENT_CONFIG for use in other modules",
       "Verify all agents have required fields and valid URLs"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -24,7 +24,7 @@
       "Export WSL_INSTALL_URL constant",
       "Write unit tests in tests/detect.test.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -37,7 +37,7 @@
       "Implement copyFile function using Bun.write and Bun.file",
       "Write integration tests in tests/copy.test.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -51,7 +51,7 @@
       "Implement side-by-side layout combining logo and spirit",
       "Test banner displays correctly in terminal"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -69,7 +69,7 @@
       "Show success note and outro message",
       "Handle cancellation gracefully at each step"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -82,7 +82,7 @@
       "Spawn agent process with Bun.spawn and inherit stdio",
       "Wait for agent process to exit"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -98,7 +98,7 @@
       "Handle unknown commands with error message",
       "Wrap main in try-catch for error handling"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -109,7 +109,7 @@
       "Parse JSON and extract version field",
       "Display version in --version output"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -123,7 +123,7 @@
       "Test all agents have exclude as array",
       "Test all agents have additional_files as array"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -136,7 +136,7 @@
       "Add reset code at end of colored sections",
       "Write unit tests in tests/html-to-ansi.test.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -149,7 +149,7 @@
       "Add @types/bun and typescript as devDependencies",
       "Test bun link for local global installation"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -161,7 +161,7 @@
       "Verify agent selection works",
       "Verify file copying works"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -172,7 +172,7 @@
       "Conditionally call displayBanner based on flag",
       "Update --help output to document the flag"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -182,6 +182,138 @@
       "Check for COLORTERM=truecolor or COLORTERM=24bit",
       "Implement fallback to uncolored logo when true color not supported",
       "Update displayBanner to use detection"
+    ],
+    "passes": true
+  },
+  {
+    "category": "bug",
+    "description": "Fix banner spirit not displaying - true color detection is too restrictive",
+    "steps": [
+      "Investigate why spirit portion of banner never displays",
+      "Update supportsTrueColor() in detect.ts to be less restrictive",
+      "Reference gemini-cli approach: default to showing colors, only disable when NO_COLOR env var is set",
+      "Add support for NO_COLOR environment variable (standard for disabling colors)",
+      "Remove overly restrictive COLORTERM check - most modern terminals support true color",
+      "Consider terminal width when deciding to show spirit (gemini-cli uses width-based selection)",
+      "Test banner displays both logo AND spirit side-by-side in common terminals"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Add NO_COLOR environment variable support per gemini-cli pattern",
+    "steps": [
+      "Add supportsColor() function in detect.ts that checks for NO_COLOR env var",
+      "When NO_COLOR is set (any value), disable all color output",
+      "Update displayBanner to check supportsColor() before showing colored spirit",
+      "This is a standard convention (see https://no-color.org/)"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Add responsive banner selection based on terminal width (gemini-cli pattern)",
+    "steps": [
+      "Create multiple logo sizes: longAsciiLogo, shortAsciiLogo, tinyAsciiLogo",
+      "Detect terminal width using process.stdout.columns",
+      "Select appropriate logo size based on available width",
+      "Only show spirit side-by-side if terminal is wide enough for both",
+      "Fall back to logo-only or tiny logo on narrow terminals"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Create src/generated/banner-assets.ts with pre-computed LOGO and SPIRIT constants",
+    "steps": [
+      "Create src/generated/ directory",
+      "Create src/generated/banner-assets.ts file",
+      "Pre-compute LOGO constant from src/assets/atomic-logo.txt (one-time conversion)",
+      "Pre-compute SPIRIT constant by converting src/assets/atomic-spirit.html to ANSI (one-time conversion)",
+      "Export LOGO and SPIRIT as string constants",
+      "Commit the generated file to the repo (it should not be regenerated at runtime)"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Refactor banner.ts to use pre-computed constants instead of runtime file I/O",
+    "steps": [
+      "Remove async loadLogo() function that reads from file",
+      "Remove async loadSpirit() function that reads and converts HTML",
+      "Import LOGO and SPIRIT from '../generated/banner-assets'",
+      "Change displayBanner() from async to synchronous function",
+      "Update combineSideBySide to use imported constants directly",
+      "Remove getAssetsDir() function (no longer needed)",
+      "Remove html-to-ansi import from banner.ts (only used for pre-computation)",
+      "Verify banner displays correctly with zero file I/O at runtime"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Fix agent selection hint to show install URL instead of folder name",
+    "steps": [
+      "Update init.ts agentOptions mapping",
+      "Change hint from `Configures ${AGENT_CONFIG[key].folder}` to `config.install_url.replace('https://', '')`",
+      "Verify hints display correctly in select prompt (e.g., 'docs.anthropic.com/en/docs/claude-code/setup')"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Add .DS_Store to exclusion list for all agents in config.ts",
+    "steps": [
+      "Add '.DS_Store' to claude-code exclude array",
+      "Add '.DS_Store' to opencode exclude array",
+      "Add '.DS_Store' to copilot-cli exclude array",
+      "Verify exclusions work correctly during copy operation"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Fix WSL detection to use Bun.which instead of spawnSync",
+    "steps": [
+      "Update isWslInstalled() in detect.ts",
+      "Change from Bun.spawnSync({ cmd: ['wsl', '--status'] }) to Bun.which('wsl') !== null",
+      "Keep the isWindows() check as prerequisite",
+      "Update corresponding unit test in tests/detect.test.ts"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Add active/inactive labels to overwrite confirm dialog in init.ts",
+    "steps": [
+      "Update the overwrite confirm prompt in init.ts",
+      "Add active: 'Yes, overwrite' option per spec",
+      "Add inactive: 'No, cancel' option per spec",
+      "Keep initialValue: false for safer default"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Change version to read from package.json at runtime instead of hardcoded constant",
+    "steps": [
+      "Update src/version.ts to read from package.json",
+      "Use Bun.file to read package.json synchronously or use import",
+      "Parse JSON and extract version field",
+      "Remove hardcoded VERSION constant",
+      "Alternatively, use import pkgJson from '../package.json' if Bun supports it",
+      "Verify --version displays correct version from package.json"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Update init.ts displayBanner call to be synchronous after banner refactor",
+    "steps": [
+      "Remove await from displayBanner() call in initCommand",
+      "Update displayBanner signature in banner.ts to return void instead of Promise<void>",
+      "Update displayLogoOnly signature similarly",
+      "Verify init command still displays banner correctly"
     ],
     "passes": false
   }

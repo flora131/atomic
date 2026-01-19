@@ -1,0 +1,50 @@
+{
+  "name": "@bastani/atomic",
+  "version": "1.0.1",
+  "description": "Configuration management CLI for coding agents",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flora131/atomic.git"
+  },
+  "keywords": [
+    "cli",
+    "config",
+    "coding-agents",
+    "claude",
+    "copilot",
+    "bun"
+  ],
+  "bin": {
+    "atomic": "src/index.ts"
+  },
+  "files": [
+    "src",
+    ".claude",
+    ".opencode",
+    ".github/agents",
+    ".github/hooks",
+    ".github/prompts",
+    ".github/scripts",
+    ".github/skills",
+    "CLAUDE.md",
+    "AGENTS.md"
+  ],
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --compile --outfile atomic",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --config=oxlint.json src",
+    "lint:fix": "oxlint --config=oxlint.json --fix src"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.6",
+    "oxlint": "^1.39.0",
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@clack/prompts": "^0.11.0"
+  }
+}

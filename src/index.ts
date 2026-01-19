@@ -78,7 +78,7 @@ async function main(): Promise<void> {
     }
 
     // Handle --agent
-    if (values.agent) {
+    if (typeof values.agent === "string") {
       const exitCode = await runAgentCommand(values.agent);
       process.exit(exitCode);
     }

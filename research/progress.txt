@@ -1,0 +1,23 @@
+CLI Auto-Initialize Agent Feature Implementation Progress
+=========================================================
+
+Completed Features (10/10):
+[x] Reorder command routing to check positional commands before --agent flag
+[x] Add preSelectedAgent option to InitOptions interface
+[x] Implement conditional agent selection skip in init command
+[x] Pass --agent flag to init command when 'init' subcommand is used
+[x] Add config folder existence check in runAgentCommand
+[x] Update help text to document new behaviors
+[x] Integration tests for argument parsing with init subcommand
+[x] Unit tests for initCommand with preSelectedAgent
+[x] Unit tests for runAgentCommand auto-init behavior
+
+Skipped (Already Exists):
+[x] Create isValidAgent type guard utility - Already exists in src/config.ts:62-64
+
+Build Status:
+- TypeScript: PASS
+- Lint: PASS
+- All Tests: 90/90 PASS
+
+Feature Implementation: COMPLETE

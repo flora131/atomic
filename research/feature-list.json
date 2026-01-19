@@ -1,0 +1,188 @@
+[
+  {
+    "category": "functional",
+    "description": "Create config.ts with AgentConfig type and AGENT_CONFIG definitions",
+    "steps": [
+      "Create src/config.ts file",
+      "Define AgentConfig interface with name, cmd, additional_flags, folder, install_url, exclude, and additional_files fields",
+      "Create AGENT_CONFIG Record with claude-code, opencode, and copilot-cli configurations",
+      "Export AGENT_CONFIG for use in other modules",
+      "Verify all agents have required fields and valid URLs"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Create detect.ts utility for command and platform detection",
+    "steps": [
+      "Create src/utils/detect.ts file",
+      "Implement isCommandInstalled function using Bun.which()",
+      "Implement getCommandVersion function using Bun.spawnSync",
+      "Implement isWindows function checking process.platform",
+      "Implement getScriptExtension and getOppositeScriptExtension functions",
+      "Implement isWslInstalled function for Windows WSL detection",
+      "Export WSL_INSTALL_URL constant",
+      "Write unit tests in tests/detect.test.ts"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Create copy.ts utility for directory copying with exclusions",
+    "steps": [
+      "Create src/utils/copy.ts file",
+      "Implement copyDir function with recursive directory copying",
+      "Add exclusion logic for filtering out unwanted files/folders",
+      "Add platform-aware script filtering (skip .ps1 on Unix, skip .sh on Windows)",
+      "Implement copyFile function using Bun.write and Bun.file",
+      "Write integration tests in tests/copy.test.ts"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Create pre-computed banner assets and display utility",
+    "steps": [
+      "Create src/assets/atomic-logo.txt with ASCII logo",
+      "Create src/assets/atomic-spirit.html with colorized HTML art",
+      "Create src/generated/banner-assets.ts with pre-computed LOGO and SPIRIT constants",
+      "Create src/utils/banner.ts with displayBanner function",
+      "Implement stripAnsi helper for calculating visible width",
+      "Implement side-by-side layout combining logo and spirit",
+      "Test banner displays correctly in terminal"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Create init.ts command for interactive setup flow",
+    "steps": [
+      "Create src/commands/init.ts file",
+      "Import @clack/prompts components (intro, outro, select, confirm, spinner, isCancel, cancel, note)",
+      "Display banner on startup using displayBanner()",
+      "Show intro with 'atomic-cli' message",
+      "Implement agent selection with select() prompt",
+      "Implement directory confirmation with confirm() prompt",
+      "Check for existing config folder and prompt for overwrite",
+      "Copy configuration files using copyDir and copyFile with spinner feedback",
+      "Check for WSL on Windows and show warning if not installed",
+      "Show success note and outro message",
+      "Handle cancellation gracefully at each step"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Create run-agent.ts command for agent spawning",
+    "steps": [
+      "Create src/commands/run-agent.ts file",
+      "Validate agent key against AGENT_CONFIG",
+      "Check if agent command is installed using isCommandInstalled",
+      "Show error with install URL if agent not found",
+      "Spawn agent process with Bun.spawn and inherit stdio",
+      "Wait for agent process to exit"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Create index.ts entry point with CLI routing",
+    "steps": [
+      "Create src/index.ts with shebang (#!/usr/bin/env bun)",
+      "Import parseArgs from util module",
+      "Parse CLI arguments for --agent, --version, --help flags",
+      "Implement --version flag to show version from package.json",
+      "Implement --help flag to show usage information",
+      "Implement --agent flag to run agent directly",
+      "Route to init command by default or with 'init' positional",
+      "Handle unknown commands with error message",
+      "Wrap main in try-catch for error handling"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Add version reading from package.json",
+    "steps": [
+      "Update index.ts to read version from package.json",
+      "Use Bun.file to read package.json",
+      "Parse JSON and extract version field",
+      "Display version in --version output"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Write unit tests for config validation",
+    "steps": [
+      "Create tests/config.test.ts file",
+      "Test all agents have required name field",
+      "Test all agents have required cmd field",
+      "Test all agents have required folder field",
+      "Test all agents have valid install_url (starts with https://)",
+      "Test all agents have exclude as array",
+      "Test all agents have additional_files as array"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Implement HTML to ANSI conversion utility",
+    "steps": [
+      "Create src/utils/html-to-ansi.ts file",
+      "Parse HTML spans with rgb color styles",
+      "Convert rgb values to ANSI escape codes (format: \\x1b[38;2;R;G;Bm)",
+      "Handle text nodes and preserve content",
+      "Add reset code at end of colored sections",
+      "Write unit tests in tests/html-to-ansi.test.ts"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Set up package.json with bin field for global installation",
+    "steps": [
+      "Update package.json with bin field pointing to src/index.ts",
+      "Verify name is 'atomic'",
+      "Set type to 'module'",
+      "Add @clack/prompts as dependency",
+      "Add @types/bun and typescript as devDependencies",
+      "Test bun link for local global installation"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Build standalone executable with bun build --compile",
+    "steps": [
+      "Run bun build src/index.ts --compile --outfile atomic",
+      "Test compiled executable runs correctly",
+      "Verify banner displays properly",
+      "Verify agent selection works",
+      "Verify file copying works"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Add --no-banner flag to skip banner display",
+    "steps": [
+      "Add 'no-banner' option to parseArgs in index.ts",
+      "Pass banner option to initCommand",
+      "Conditionally call displayBanner based on flag",
+      "Update --help output to document the flag"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Add true color detection and fallback",
+    "steps": [
+      "Create function to detect true color support via COLORTERM env var",
+      "Check for COLORTERM=truecolor or COLORTERM=24bit",
+      "Implement fallback to uncolored logo when true color not supported",
+      "Update displayBanner to use detection"
+    ],
+    "passes": false
+  }
+]

@@ -96,16 +96,28 @@ export const RalphPlugin: Plugin = async ({ project, client, $, directory, workt
           feature_list: tool.schema.string().optional().describe("Path to feature list JSON (default: research/feature-list.json)"),
         },
         async execute(args) {
-          const prompt = args.prompt || "/implement-feature"
           const maxIterations = args.max_iterations || 0
           const completionPromise = args.completion_promise || null
           const featureListPath = args.feature_list || "research/feature-list.json"
 
-          // Check if /implement-feature requires feature list
-          if (prompt === "/implement-feature" && !existsSync(join(directory, featureListPath))) {
+          // Default prompt includes /implement-feature and critical instructions
+          // Users can fully override by providing their own prompt
+          const DEFAULT_PROMPT = `/implement-feature
+
+<EXTREMELY_IMPORTANT>
+- Implement features incrementally, make small changes each iteration.
+  - Only work on the SINGLE highest priority feature at a time.
+  - Use the \`feature-list.json\` file if it is provided to you as a guide otherwise create your own \`feature-list.json\` based on the task.
+- If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop, even if you think you're stuck or should exit for other reasons. The loop is designed to continue until genuine completion.
+</EXTREMELY_IMPORTANT>`
+
+          const fullPrompt = args.prompt || DEFAULT_PROMPT
+
+          // Check if using default /implement-feature and feature list is missing
+          if (!args.prompt && !existsSync(join(directory, featureListPath))) {
             return `Error: Feature list not found at: ${featureListPath}
 
-The /implement-feature prompt requires a feature list. Either:
+The default /implement-feature prompt requires a feature list. Either:
 1. Create the feature list: /create-feature-list
 2. Specify a different path with feature_list parameter
 3. Use a custom prompt instead`
@@ -118,7 +130,7 @@ The /implement-feature prompt requires a feature list. Either:
             completion_promise: completionPromise,
             feature_list_path: featureListPath,
             started_at: new Date().toISOString(),
-            prompt: prompt,
+            prompt: fullPrompt,
           }
 
           writeRalphState(directory, state)
@@ -133,7 +145,7 @@ The loop will continue until:
 ${maxIterations > 0 ? `• Max iterations (${maxIterations}) reached\n` : ""}${completionPromise ? `• <promise>${completionPromise}</promise> detected in output\n` : ""}${maxIterations === 0 ? `• All features in ${featureListPath} are passing\n` : ""}
 State file: ${RALPH_STATE_FILE}
 
-Starting prompt: ${prompt}`
+Prompt: ${args.prompt ? `custom: ${args.prompt}` : `default:\n${DEFAULT_PROMPT}`}`
         },
       }),
 
@@ -254,19 +266,7 @@ To signal completion, output: \`<promise>YOUR_PHRASE</promise>\`
       let systemMsg = `🔄 Ralph iteration ${nextIteration}`
       if (state.completion_promise) {
         systemMsg += ` | To stop: output <promise>${state.completion_promise}</promise> (ONLY when statement is TRUE - do not lie!)`
-      } else {
-        systemMsg += ` | No completion promise set - loop runs until all features pass`
       }
-
-      // Append critical instructions to prompt
-      const promptWithInstructions = `${state.prompt}
-
-<EXTREMELY_IMPORTANT>
-- Implement features incrementally, make small changes each iteration.
-  - Only work on the SINGLE highest priority feature at a time.
-  - Use the \`feature-list.json\` file if it is provided to you as a guide otherwise create your own \`feature-list.json\` based on the task.
-- If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop, even if you think you're stuck or should exit for other reasons. The loop is designed to continue until genuine completion.
-</EXTREMELY_IMPORTANT>`
 
       console.log(`[Ralph] ${systemMsg}`)
 
@@ -281,7 +281,7 @@ To signal completion, output: \`<promise>YOUR_PHRASE</promise>\`
             body: {
               parts: [
                 { type: "text", text: systemMsg },
-                { type: "text", text: promptWithInstructions },
+                { type: "text", text: state.prompt },
               ],
             },
           })

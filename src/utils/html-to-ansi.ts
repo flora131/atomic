@@ -34,7 +34,18 @@ export function rgbToAnsiBg(r: number, g: number, b: number): string {
 }
 
 /**
+ * Check if a color is considered "black" (transparent)
+ * Colors very close to black are treated as transparent to allow
+ * the terminal background to show through.
+ */
+export function isBlack(r: number, g: number, b: number): boolean {
+  // Treat very dark colors (sum < 30) as black/transparent
+  return r + g + b < 30;
+}
+
+/**
  * Colorize text with RGB values using ANSI escape codes
+ * Black colors (0,0,0) are treated as transparent - no color codes applied
  */
 export function colorize(
   text: string,
@@ -42,6 +53,10 @@ export function colorize(
   g: number,
   b: number
 ): string {
+  // Treat black as transparent - just output the text without color codes
+  if (isBlack(r, g, b)) {
+    return text;
+  }
   return `${rgbToAnsi(r, g, b)}${text}${ANSI_RESET}`;
 }
 
@@ -52,26 +67,35 @@ export function colorize(
  * - <span style="color: rgb(R, G, B)">text</span>
  * - Plain text nodes
  * - <br> and <br/> tags as newlines
+ * - Full HTML documents (skips doctype, head, style, etc.)
  *
  * @param html The HTML string to convert
  * @returns Terminal-ready string with ANSI color codes
  */
 export function htmlToAnsi(html: string): string {
+  // Normalize HTML: join split closing tags like "</span\n      >"
+  // Some HTML formatters split closing tags across lines
+  html = html.replace(/<\/(\w+)\s*\n\s*>/g, "</$1>");
+
   let result = "";
   let pos = 0;
+  let skipContent = false;
 
   while (pos < html.length) {
     // Look for the next tag
     const tagStart = html.indexOf("<", pos);
 
     if (tagStart === -1) {
-      // No more tags, append remaining text
-      result += html.slice(pos);
+      // No more tags, append remaining text (if not skipping)
+      if (!skipContent) {
+        const text = html.slice(pos).trim();
+        if (text) result += text;
+      }
       break;
     }
 
-    // Append text before the tag
-    if (tagStart > pos) {
+    // Append text before the tag (if not skipping)
+    if (tagStart > pos && !skipContent) {
       result += html.slice(pos, tagStart);
     }
 
@@ -79,12 +103,38 @@ export function htmlToAnsi(html: string): string {
     const tagEnd = html.indexOf(">", tagStart);
     if (tagEnd === -1) {
       // Malformed HTML, append rest as text
-      result += html.slice(tagStart);
+      if (!skipContent) {
+        result += html.slice(tagStart);
+      }
       break;
     }
 
-    const tag = html.slice(tagStart + 1, tagEnd);
+    const tag = html.slice(tagStart + 1, tagEnd).toLowerCase();
     pos = tagEnd + 1;
+
+    // Handle doctype and comments
+    if (tag.startsWith("!")) {
+      // Skip doctype and comments
+      continue;
+    }
+
+    // Handle tags that should skip their content
+    if (
+      tag === "head" ||
+      tag === "style" ||
+      tag === "script" ||
+      tag === "title" ||
+      tag === "meta" ||
+      tag === "link"
+    ) {
+      // Find closing tag and skip everything in between
+      const closingTag = `</${tag.split(" ")[0]}>`;
+      const closePos = html.toLowerCase().indexOf(closingTag, pos);
+      if (closePos !== -1) {
+        pos = closePos + closingTag.length;
+      }
+      continue;
+    }
 
     // Handle different tag types
     if (tag.startsWith("br")) {
@@ -92,13 +142,14 @@ export function htmlToAnsi(html: string): string {
       result += "\n";
     } else if (tag.startsWith("span")) {
       // Extract style attribute
-      const styleMatch = tag.match(/style="([^"]*)"/);
+      const originalTag = html.slice(tagStart + 1, tagEnd);
+      const styleMatch = originalTag.match(/style="([^"]*)"/);
       const style = styleMatch ? styleMatch[1] : null;
       const rgb = parseRgb(style);
 
       // Find the closing </span>
       const closeTag = "</span>";
-      const closePos = html.indexOf(closeTag, pos);
+      const closePos = html.toLowerCase().indexOf(closeTag, pos);
 
       if (closePos === -1) {
         // Malformed HTML, skip
@@ -117,10 +168,20 @@ export function htmlToAnsi(html: string): string {
     } else if (tag.startsWith("/")) {
       // Closing tag without matching open, skip
       continue;
-    } else if (tag.startsWith("div") || tag.startsWith("pre")) {
+    } else if (
+      tag.startsWith("div") ||
+      tag.startsWith("pre") ||
+      tag.startsWith("html") ||
+      tag.startsWith("body")
+    ) {
       // Skip container tags, they don't affect output
       continue;
-    } else if (tag === "/div" || tag === "/pre") {
+    } else if (
+      tag === "/div" ||
+      tag === "/pre" ||
+      tag === "/html" ||
+      tag === "/body"
+    ) {
       // Closing container tags
       continue;
     }

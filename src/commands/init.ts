@@ -40,7 +40,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
   // Display banner
   if (showBanner) {
-    await displayBanner();
+    displayBanner();
     console.log(); // Add spacing after banner
   }
 
@@ -52,7 +52,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   const agentOptions = agentKeys.map((key) => ({
     value: key,
     label: AGENT_CONFIG[key].name,
-    hint: `Configures ${AGENT_CONFIG[key].folder}`,
+    hint: AGENT_CONFIG[key].install_url.replace("https://", ""),
   }));
 
   const selectedAgent = await select({
@@ -93,6 +93,8 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     const overwrite = await confirm({
       message: `${agent.folder} already exists. Overwrite?`,
       initialValue: false,
+      active: "Yes, overwrite",
+      inactive: "No, cancel",
     });
 
     if (isCancel(overwrite)) {

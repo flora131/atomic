@@ -1,36 +1,39 @@
 /**
  * Banner display utility for atomic CLI
+ *
+ * Uses pre-computed constants for zero file I/O at runtime.
+ * Implements responsive sizing based on terminal width.
  */
 
-import { join, dirname } from "path";
-import { htmlToAnsi, stripAnsi } from "./html-to-ansi";
+import { LOGO, SPIRIT } from "../generated/banner-assets";
+import { stripAnsi } from "./html-to-ansi";
 import { supportsTrueColor } from "./detect";
 
-/**
- * Get the path to assets directory
- * Works both in development and when compiled
- */
-function getAssetsDir(): string {
-  // When running with bun directly, import.meta.dir points to src/utils
-  // When compiled, assets are embedded
-  return join(dirname(import.meta.dir), "assets");
-}
+/** Short ASCII logo for narrower terminals */
+const SHORT_LOGO = `
+ █████╗ ████████╗ ██████╗ ███╗   ███╗██╗ ██████╗
+██╔══██╗   ██║   ██╔═══██╗████╗ ████║██║██╔════╝
+███████║   ██║   ██║   ██║██╔████╔██║██║██║
+██╔══██║   ██║   ██║   ██║██║╚██╔╝██║██║██║
+██║  ██║   ██║   ╚██████╔╝██║ ╚═╝ ██║██║╚██████╗
+╚═╝  ╚═╝   ╚═╝    ╚═════╝ ╚═╝     ╚═╝╚═╝ ╚═════╝
+`.trim();
+
+/** Tiny ASCII logo for very narrow terminals */
+const TINY_LOGO = "ATOMIC";
+
+/** Minimum width for full logo + spirit side-by-side */
+const FULL_BANNER_MIN_WIDTH = 180;
+/** Minimum width for logo only (full size) */
+const LOGO_MIN_WIDTH = 50;
+/** Minimum width for short logo */
+const SHORT_LOGO_MIN_WIDTH = 30;
 
 /**
- * Load the ASCII logo from file
+ * Get terminal width, with fallback for non-TTY environments
  */
-async function loadLogo(): Promise<string> {
-  const logoPath = join(getAssetsDir(), "atomic-logo.txt");
-  return await Bun.file(logoPath).text();
-}
-
-/**
- * Load and convert the spirit HTML to ANSI
- */
-async function loadSpirit(): Promise<string> {
-  const spiritPath = join(getAssetsDir(), "atomic-spirit.html");
-  const html = await Bun.file(spiritPath).text();
-  return htmlToAnsi(html);
+function getTerminalWidth(): number {
+  return process.stdout.columns || 80;
 }
 
 /**
@@ -70,29 +73,48 @@ function combineSideBySide(
 }
 
 /**
+ * Select appropriate logo based on terminal width
+ */
+function selectLogo(termWidth: number): string {
+  if (termWidth >= LOGO_MIN_WIDTH) {
+    return LOGO;
+  } else if (termWidth >= SHORT_LOGO_MIN_WIDTH) {
+    return SHORT_LOGO;
+  }
+  return TINY_LOGO;
+}
+
+/**
  * Display the atomic banner
  *
  * Shows the ASCII logo on the left and the colorized spirit on the right.
- * Falls back to logo-only if true color is not supported.
+ * Adapts to terminal width:
+ * - Wide terminals (>=180 cols): Logo + Spirit side-by-side
+ * - Normal terminals (>=50 cols): Logo only
+ * - Narrow terminals (>=30 cols): Short logo
+ * - Very narrow (<30 cols): Tiny logo
  *
- * @param showSpirit Whether to show the spirit alongside the logo
+ * Falls back to logo-only if true color is not supported or NO_COLOR is set.
+ *
+ * @param showSpirit Whether to show the spirit alongside the logo (if terminal is wide enough)
  */
-export async function displayBanner(showSpirit: boolean = true): Promise<void> {
-  const logo = await loadLogo();
+export function displayBanner(showSpirit: boolean = true): void {
+  const termWidth = getTerminalWidth();
+  const canShowSpirit =
+    showSpirit && supportsTrueColor() && termWidth >= FULL_BANNER_MIN_WIDTH;
 
-  if (showSpirit && supportsTrueColor()) {
-    const spirit = await loadSpirit();
-    console.log(combineSideBySide(logo, spirit));
+  if (canShowSpirit) {
+    console.log(combineSideBySide(LOGO, SPIRIT));
   } else {
-    // Just show the logo without colors
-    console.log(logo);
+    // Show logo only, selecting size based on terminal width
+    console.log(selectLogo(termWidth));
   }
 }
 
 /**
  * Display only the logo (no spirit)
  */
-export async function displayLogoOnly(): Promise<void> {
-  const logo = await loadLogo();
-  console.log(logo);
+export function displayLogoOnly(): void {
+  const termWidth = getTerminalWidth();
+  console.log(selectLogo(termWidth));
 }

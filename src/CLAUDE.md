@@ -24,15 +24,9 @@ Default to using Bun instead of Node.js.
 - Use `bunx <package> <command>` instead of `npx <package> <command>`
 - Bun automatically loads .env, so don't use dotenv.
 
-## APIs
+## Best Practices
 
-- `Bun.serve()` supports WebSockets, HTTPS, and routes. Don't use `express`.
-- `bun:sqlite` for SQLite. Don't use `better-sqlite3`.
-- `Bun.redis` for Redis. Don't use `ioredis`.
-- `Bun.sql` for Postgres. Don't use `pg` or `postgres.js`.
-- `WebSocket` is built-in. Don't use `ws`.
-- Prefer `Bun.file` over `node:fs`'s readFile/writeFile
-- Bun.$`ls` instead of execa.
+- Avoid ambiguous types like `any` and `unknown`. Use specific types instead.
 
 ## Testing
 
@@ -48,7 +42,10 @@ test("hello world", () => {
 
 ## Docs
 
-For more information, read the Bun API docs using the DeepWiki MCP `ask_question` tool with the repo: `oven-sh/bun`.
+For latest docs on dependencies, use the DeepWiki MCP `ask_question` tool with the repos:
+- bun: `oven-sh/bun`
+- @clack/prompts: `bombshell-dev/clack`
+- figlet: `patorjk/figlet.js`
 
 ## Tips
 

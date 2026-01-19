@@ -1,128 +1,109 @@
 [
   {
-    "category": "functional",
-    "description": "Reorder command routing to check positional commands before --agent flag",
+    "category": "refactor",
+    "description": "Add configNotFoundMessage option to InitOptions interface",
     "steps": [
-      "Open src/index.ts and locate entry point (lines 54-106)",
-      "Identify current routing order: --version, --help, --agent, positionals",
-      "Reorder to: --version, --help, positionals, --agent (only when no positional)",
-      "Ensure 'init' command is checked before standalone --agent handling",
-      "Verify backward compatibility with existing 'atomic' and 'atomic init' commands"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Add preSelectedAgent option to InitOptions interface",
-    "steps": [
-      "Open src/commands/init.ts and locate InitOptions interface (lines 24-26)",
-      "Add preSelectedAgent?: AgentKey property to InitOptions",
-      "Import AgentKey type if not already imported",
-      "Verify TypeScript compilation succeeds"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Implement conditional agent selection skip in init command",
-    "steps": [
-      "Open src/commands/init.ts and locate agent selection logic (lines 65-81)",
-      "Add conditional check for options.preSelectedAgent",
-      "If preSelectedAgent is provided, validate it with isValidAgent()",
-      "If invalid, call cancel() and exit with code 1",
-      "If valid, use preSelectedAgent directly and log info message",
-      "Skip the interactive select() prompt when preSelectedAgent is set",
-      "Preserve existing interactive flow when preSelectedAgent is not set"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Pass --agent flag to init command when 'init' subcommand is used",
-    "steps": [
-      "Open src/index.ts and locate positional command handling",
-      "In the 'init' case, pass values.agent as preSelectedAgent to initCommand()",
-      "Cast values.agent to AgentKey | undefined",
-      "Ensure showBanner option is still passed correctly"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Add config folder existence check in runAgentCommand",
-    "steps": [
-      "Open src/commands/run-agent.ts and locate runAgentCommand function (lines 24-57)",
-      "Import join from 'path'",
-      "Import pathExists from '../utils/copy'",
-      "Import initCommand from './init'",
-      "After agent key validation, construct config folder path using agent.folder",
-      "Check if config folder exists using pathExists()",
-      "If folder does not exist, call initCommand with preSelectedAgent and showBanner: false",
-      "Continue with existing agent spawn logic after init completes"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Update help text to document new behaviors",
-    "steps": [
-      "Open src/index.ts and locate help text output",
-      "Add 'atomic init --agent <name>' to usage examples",
-      "Add 'atomic init -a <name>' short form to examples",
-      "Document that 'atomic --agent <name>' now auto-initializes if needed",
-      "Show both --agent and -a forms in options section",
-      "Add examples section showing common use cases"
+      "Open src/commands/init.ts",
+      "Locate the InitOptions interface (lines 24-27)",
+      "Add configNotFoundMessage?: string property to the interface",
+      "Verify TypeScript compiles without errors"
     ],
     "passes": true
   },
   {
     "category": "refactor",
-    "description": "Create isValidAgent type guard utility if not exists",
+    "description": "Destructure configNotFoundMessage in initCommand function",
     "steps": [
-      "Check if isValidAgent() already exists in src/config.ts or related file",
-      "If not, create type guard function: (key: string) => key is AgentKey",
-      "Implement by checking if key exists in AGENT_CONFIG keys",
-      "Export the function for use in other modules"
+      "Open src/commands/init.ts",
+      "Locate the initCommand function (line 51+)",
+      "Update destructuring to include configNotFoundMessage from options",
+      "Verify TypeScript compiles without errors"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Unit tests for initCommand with preSelectedAgent",
+    "description": "Display configNotFoundMessage after intro text in initCommand",
     "steps": [
-      "Create or update tests/init.test.ts",
-      "Add test: initCommand uses preSelectedAgent when provided",
-      "Mock @clack/prompts to verify select() is NOT called",
-      "Add test: initCommand rejects invalid preSelectedAgent",
-      "Verify invalid agent causes exit with error"
+      "Open src/commands/init.ts",
+      "Locate the section after intro() and log.message() calls (around line 65)",
+      "Add conditional: if (configNotFoundMessage) { log.info(configNotFoundMessage); }",
+      "Ensure message displays before agent selection/configuring message",
+      "Verify TypeScript compiles without errors"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Remove log.info call from runAgentCommand before initCommand",
+    "steps": [
+      "Open src/commands/run-agent.ts",
+      "Locate the config check section (lines 42-50)",
+      "Remove the log.info() call on line 45 that displays '.claude not found'",
+      "Verify TypeScript compiles without errors"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Unit tests for runAgentCommand auto-init behavior",
+    "description": "Change showBanner to true in runAgentCommand auto-init flow",
     "steps": [
-      "Create or update tests/run-agent.test.ts",
-      "Add test: runAgentCommand calls initCommand when config folder missing",
-      "Mock pathExists to return false",
-      "Mock initCommand and verify it's called with correct args",
-      "Add test: runAgentCommand skips init when config folder exists",
-      "Mock pathExists to return true",
-      "Verify initCommand is NOT called"
+      "Open src/commands/run-agent.ts",
+      "Locate the initCommand call in the config-not-found block",
+      "Change showBanner: false to showBanner: true",
+      "Verify TypeScript compiles without errors"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Integration tests for argument parsing with init subcommand",
+    "description": "Pass configNotFoundMessage parameter to initCommand in runAgentCommand",
     "steps": [
-      "Create or update tests/routing.test.ts",
-      "Add test: parses 'init --agent claude-code' correctly",
-      "Add test: parses 'init -a claude-code' correctly (short form)",
-      "Add test: parses '--agent claude-code' without init",
-      "Add test: parses '-a claude-code' without init (short form)",
-      "Verify positionals and values are parsed as expected"
+      "Open src/commands/run-agent.ts",
+      "Locate the initCommand call in the config-not-found block",
+      "Add configNotFoundMessage: `${agent.folder} not found. Running setup...` parameter",
+      "Verify the message includes the agent folder name dynamically",
+      "Verify TypeScript compiles without errors"
     ],
     "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Verify display ordering for atomic -a [agent] with uninitialized config",
+    "steps": [
+      "Run pnpm build to compile the project",
+      "Navigate to a test directory without .claude folder",
+      "Run atomic -a claude-code",
+      "Verify banner displays first (if terminal >= 79x27)",
+      "Verify intro text displays second",
+      "Verify '.claude not found. Running setup...' displays after intro",
+      "Verify 'Configuring Claude Code...' displays after the not found message"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Verify display ordering for atomic init -a [agent]",
+    "steps": [
+      "Navigate to a test directory without .claude folder",
+      "Run atomic init -a claude-code",
+      "Verify banner displays first (if terminal >= 79x27)",
+      "Verify intro text displays second",
+      "Verify 'Configuring Claude Code...' displays (no 'not found' message)",
+      "Confirm no '.claude not found' message appears"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Verify atomic -a [agent] with existing config skips banner and intro",
+    "steps": [
+      "Navigate to a test directory with existing .claude folder",
+      "Run atomic -a claude-code",
+      "Verify NO banner displays",
+      "Verify NO intro displays",
+      "Verify agent spawns directly without setup messages"
+    ],
+    "passes": false
   }
 ]

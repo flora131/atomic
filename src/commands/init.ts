@@ -24,6 +24,7 @@ import { isWindows, isWslInstalled, WSL_INSTALL_URL } from "../utils/detect";
 interface InitOptions {
   showBanner?: boolean;
   preSelectedAgent?: AgentKey;
+  configNotFoundMessage?: string;
 }
 
 /**
@@ -49,7 +50,7 @@ function getConfigRoot(): string {
  * Run the interactive init command
  */
 export async function initCommand(options: InitOptions = {}): Promise<void> {
-  const { showBanner = true } = options;
+  const { showBanner = true, configNotFoundMessage } = options;
 
   // Display banner
   if (showBanner) {
@@ -62,6 +63,11 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   log.message(
     "Enable multi-hour autonomous coding sessions with the Ralph Wiggum\nMethod using research, plan, implement methodology."
   );
+
+  // Show config not found message if provided (after intro, before agent selection)
+  if (configNotFoundMessage) {
+    log.info(configNotFoundMessage);
+  }
 
   // Select agent
   let agentKey: AgentKey;

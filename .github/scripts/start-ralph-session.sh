@@ -2,11 +2,11 @@
 
 # Ralph Wiggum Session Start Hook
 # Detects active Ralph loops and logs session information
-# Reference: gh-copilot-cli-docs/configuration.md - Session start hook
+# Session start hook
 
 set -euo pipefail
 
-# Read hook input from stdin (JSON format per gh-copilot-cli-docs/configuration.md)
+# Read hook input from stdin
 INPUT=$(cat)
 
 # Parse input fields
@@ -47,7 +47,7 @@ if [[ -f "$RALPH_STATE_FILE" ]]; then
   COMPLETION_PROMISE=$(jq -r '.completionPromise // "null"' "$RALPH_STATE_FILE")
   PROMPT=$(jq -r '.prompt // ""' "$RALPH_STATE_FILE")
 
-  # Output status message (visible to agent per gh-copilot-cli-docs/about.md)
+  # Output status message (visible to agent)
   echo "Ralph loop active - Iteration $ITERATION" >&2
 
   if [[ "$MAX_ITERATIONS" -gt 0 ]]; then
@@ -74,5 +74,5 @@ if [[ -f "$RALPH_STATE_FILE" ]]; then
   fi
 fi
 
-# Output is ignored for sessionStart per gh-copilot-cli-docs/configuration.md
+# Output is ignored for sessionStart
 exit 0

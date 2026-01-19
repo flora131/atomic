@@ -1,10 +1,10 @@
 # Ralph Wiggum User Prompt Submitted Hook
 # Logs user prompts for debugging and audit
-# Reference: gh-copilot-cli-docs/configuration.md - User prompt submitted hook
+# User prompt submitted hook
 
 $ErrorActionPreference = "Stop"
 
-# Read hook input from stdin (JSON format per gh-copilot-cli-docs/configuration.md)
+# Read hook input from stdin
 $InputJson = [Console]::In.ReadToEnd()
 $HookInput = $InputJson | ConvertFrom-Json
 
@@ -48,5 +48,5 @@ if (Test-Path $RalphStateFile) {
     }
 }
 
-# Output is ignored for userPromptSubmitted per gh-copilot-cli-docs/configuration.md
+# Output is ignored for userPromptSubmitted
 exit 0

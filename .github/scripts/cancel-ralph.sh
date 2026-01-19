@@ -2,7 +2,6 @@
 
 # Cancel Ralph Loop Script
 # Removes state file, continue flag, and kills any spawned processes
-# Reference: gh-copilot-cli-docs/about.md
 
 set -euo pipefail
 

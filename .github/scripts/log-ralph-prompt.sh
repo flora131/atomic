@@ -2,11 +2,11 @@
 
 # Ralph Wiggum User Prompt Submitted Hook
 # Logs user prompts for debugging and audit
-# Reference: gh-copilot-cli-docs/configuration.md - User prompt submitted hook
+# User prompt submitted hook
 
 set -euo pipefail
 
-# Read hook input from stdin (JSON format per gh-copilot-cli-docs/configuration.md)
+# Read hook input from stdin
 INPUT=$(cat)
 
 # Parse input fields
@@ -51,5 +51,5 @@ if [[ -f "$RALPH_STATE_FILE" ]]; then
   fi
 fi
 
-# Output is ignored for userPromptSubmitted per gh-copilot-cli-docs/configuration.md
+# Output is ignored for userPromptSubmitted
 exit 0

@@ -2,7 +2,7 @@
 
 # Ralph Wiggum Session End Hook (Self-Restarting)
 # Tracks iterations, checks completion conditions, spawns next session automatically
-# Reference: gh-copilot-cli-docs/configuration.md - Session end hook
+# Session end hook
 #
 # This hook implements a self-restarting pattern: when the session ends,
 # it spawns a new detached gh copilot session to continue the loop.
@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-# Read hook input from stdin (JSON format per gh-copilot-cli-docs/configuration.md)
+# Read hook input from stdin
 INPUT=$(cat)
 
 # Parse input fields
@@ -201,5 +201,5 @@ LOG_ENTRY=$(jq -n \
 
 echo "$LOG_ENTRY" >> "$RALPH_LOG_DIR/ralph-sessions.jsonl"
 
-# Output is ignored for sessionEnd per gh-copilot-cli-docs/configuration.md
+# Output is ignored for sessionEnd
 exit 0

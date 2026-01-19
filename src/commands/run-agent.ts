@@ -2,8 +2,13 @@
  * Run agent command - Spawn and run a configured agent
  */
 
+import { join } from "path";
+import { log } from "@clack/prompts";
+
 import { AGENT_CONFIG, isValidAgent, type AgentKey } from "../config";
 import { isCommandInstalled } from "../utils/detect";
+import { pathExists } from "../utils/copy";
+import { initCommand } from "./init";
 
 /**
  * Sanitize user input for safe display in error messages
@@ -32,6 +37,17 @@ export async function runAgentCommand(agentKey: string): Promise<number> {
   }
 
   const agent = AGENT_CONFIG[agentKey as AgentKey];
+
+  // Check if config folder exists
+  const configFolder = join(process.cwd(), agent.folder);
+  if (!(await pathExists(configFolder))) {
+    // Config not found - run init with pre-selected agent
+    log.info(`${agent.folder} not found. Running setup...`);
+    await initCommand({
+      preSelectedAgent: agentKey as AgentKey,
+      showBanner: false, // Skip banner for cleaner auto-init experience
+    });
+  }
 
   // Check if command is installed
   if (!isCommandInstalled(agent.cmd)) {

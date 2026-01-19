@@ -19,7 +19,10 @@ export interface AgentConfig {
   additional_files: string[];
 }
 
-export const AGENT_CONFIG: Record<string, AgentConfig> = {
+const AGENT_KEYS = ["claude-code", "opencode", "copilot-cli"] as const;
+export type AgentKey = (typeof AGENT_KEYS)[number];
+
+export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
   "claude-code": {
     name: "Claude Code",
     cmd: "claude",
@@ -30,7 +33,7 @@ export const AGENT_CONFIG: Record<string, AgentConfig> = {
     additional_files: ["CLAUDE.md"],
   },
   opencode: {
-    name: "opencode",
+    name: "OpenCode",
     cmd: "opencode",
     additional_flags: [],
     folder: ".opencode",
@@ -50,8 +53,6 @@ export const AGENT_CONFIG: Record<string, AgentConfig> = {
   },
 };
 
-export type AgentKey = keyof typeof AGENT_CONFIG;
-
 export function isValidAgent(key: string): key is AgentKey {
   return key in AGENT_CONFIG;
 }
@@ -61,5 +62,5 @@ export function getAgentConfig(key: AgentKey): AgentConfig {
 }
 
 export function getAgentKeys(): AgentKey[] {
-  return Object.keys(AGENT_CONFIG) as AgentKey[];
+  return [...AGENT_KEYS];
 }

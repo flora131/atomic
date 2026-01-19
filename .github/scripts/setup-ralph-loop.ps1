@@ -36,7 +36,7 @@ DESCRIPTION:
   Use an external loop for full Ralph behavior:
     while (Test-Path .github/ralph-continue.flag) {
       `$Prompt = Get-Content .github/ralph-continue.flag
-      `$Prompt | gh copilot --allow-all-tools --allow-all-paths
+      `$Prompt | copilot --allow-all-tools --allow-all-paths
     }
 
 STOPPING:
@@ -149,7 +149,7 @@ For full Ralph loop behavior, use an external orchestrator:
 
   while (Test-Path .github/ralph-continue.flag) {
     `$Prompt = Get-Content .github/ralph-continue.flag
-    `$Prompt | gh copilot --allow-all-tools --allow-all-paths
+    `$Prompt | copilot --allow-all-tools --allow-all-paths
   }
 
 "@

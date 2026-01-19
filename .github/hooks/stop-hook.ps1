@@ -2,7 +2,7 @@
 # Tracks iterations, checks completion conditions, spawns next session automatically
 #
 # This hook implements a self-restarting pattern: when the session ends,
-# it spawns a new detached gh copilot session to continue the loop.
+# it spawns a new detached copilot-cli session to continue the loop.
 # No external orchestrator required!
 
 $ErrorActionPreference = "Stop"
@@ -151,6 +151,16 @@ if ($ShouldContinue) {
 
     Write-Host "Ralph loop: Iteration $Iteration complete. Spawning iteration $NextIteration..." -ForegroundColor Cyan
 
+    # Append critical instructions to prompt
+    $Prompt = "$Prompt
+
+<EXTREMELY_IMPORTANT>
+- Implement features incrementally, make small changes each iteration.
+  - Only work on the SINGLE highest priority feature at a time.
+  - Use the ``feature-list.json`` file if it is provided to you as a guide otherwise create your own ``feature-list.json`` based on the task.
+- If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop, even if you think you're stuck or should exit for other reasons. The loop is designed to continue until genuine completion.
+</EXTREMELY_IMPORTANT>"
+
     # Get current working directory for the spawned process
     $CurrentDir = (Get-Location).Path
 
@@ -160,14 +170,14 @@ if ($ShouldContinue) {
     # Build the command to spawn
     # - Start-Sleep: brief delay to let current session fully close
     # - Set-Location: ensure we're in the right directory
-    # - Pipe prompt to gh copilot
+    # - Pipe prompt to copilot-cli
     $SpawnCommand = @"
 Start-Sleep -Seconds 2
 Set-Location -Path '$CurrentDir'
-'$EscapedPrompt' | gh copilot --allow-all-tools --allow-all-paths
+'$EscapedPrompt' | copilot --allow-all-tools --allow-all-paths
 "@
 
-    # Spawn new gh copilot session in background (detached, hidden window)
+    # Spawn new copilot-cli session in background (detached, hidden window)
     # -WindowStyle Hidden: runs without visible window
     # -NoProfile: faster startup
     Start-Process powershell -ArgumentList @(

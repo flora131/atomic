@@ -19,12 +19,12 @@ function Stop-RalphProcesses {
     }
 
     # Kill any PowerShell processes that were spawned for Ralph loop
-    # Look for hidden PowerShell windows running gh copilot
+    # Look for hidden PowerShell windows running copilot-cli
     $psProcesses = Get-Process -Name "powershell", "pwsh" -ErrorAction SilentlyContinue |
         Where-Object {
             try {
                 $cmdLine = (Get-CimInstance Win32_Process -Filter "ProcessId = $($_.Id)" -ErrorAction SilentlyContinue).CommandLine
-                $cmdLine -and ($cmdLine -like "*gh copilot*" -or $cmdLine -like "*ralph*")
+                $cmdLine -and ($cmdLine -like "*copilot*" -or $cmdLine -like "*ralph*")
             } catch {
                 $false
             }

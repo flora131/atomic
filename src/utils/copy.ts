@@ -3,7 +3,7 @@
  */
 
 import { readdir, mkdir, stat, realpath } from "fs/promises";
-import { join, basename, extname, relative, resolve, sep } from "path";
+import { join, extname, relative, resolve, sep } from "path";
 import { getOppositeScriptExtension } from "./detect";
 
 /**

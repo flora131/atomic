@@ -1,18 +1,42 @@
 {
-  "name": "atomic",
+  "name": "@bastani/atomic",
   "version": "1.0.0",
   "description": "Configuration management CLI for coding agents",
   "type": "module",
-  "bin": {
-    "atomic": "./src/index.ts"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/lavaman131/atomic.git"
   },
+  "keywords": [
+    "cli",
+    "config",
+    "coding-agents",
+    "claude",
+    "copilot",
+    "bun"
+  ],
+  "bin": {
+    "atomic": "src/index.ts"
+  },
+  "files": [
+    "src",
+    ".claude",
+    ".opencode",
+    ".github/agents",
+    ".github/hooks",
+    ".github/prompts",
+    ".github/scripts",
+    ".github/skills",
+    "CLAUDE.md",
+    "AGENTS.md"
+  ],
   "scripts": {
     "dev": "bun run src/index.ts",
     "build": "bun build src/index.ts --compile --outfile atomic",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
-  "private": true,
   "devDependencies": {
     "@types/bun": "latest",
     "typescript": "^5"

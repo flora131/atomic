@@ -1,6 +1,4 @@
-# CLAUDE.md
-
-## [PROJECT_NAME]
+# [PROJECT_NAME]
 
 ## Overview
 [1-2 sentences describing the project purpose]
@@ -101,12 +99,12 @@ Read relevant docs before starting work on those areas.
 ---
 
 ### ❌ Don't: Auto-Generate with /init
-The `/init` command produces generic, bloated files. Your `CLAUDE.md` affects **every single artifact** Claude produces—it's the highest leverage point of the entire harness.
+The `/init` command produces generic, bloated files.
 
 ### ✅ Do: Craft It Manually
 Spend time thinking about each line. Ask yourself:
 - Is this universally applicable to ALL tasks?
-- Can Claude infer this from the codebase itself?
+- Can the agent infer this from the codebase itself?
 - Would a linter/formatter handle this better?
 - Can I point to a doc instead of inlining this?
 
@@ -114,14 +112,14 @@ Spend time thinking about each line. Ask yourself:
 
 ## Optimization Checklist
 
-Before finalizing your `CLAUDE.md`, verify:
+Before finalizing verify:
 
 - [ ] **Under 100 lines** (ideally under 60)
 - [ ] **Every instruction is universally applicable** to all tasks
 - [ ] **No code style rules** (use linters/formatters instead)
 - [ ] **No task-specific instructions** (use progressive disclosure)
 - [ ] **No code snippets** (use `file:line` pointers)
-- [ ] **Clear verification commands** that Claude can run
+- [ ] **Clear verification commands** that the agent can run
 - [ ] **Progressive disclosure table** pointing to detailed docs
 - [ ] **Minimal project structure** (just enough to navigate)
 

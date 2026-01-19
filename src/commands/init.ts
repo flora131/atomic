@@ -45,7 +45,11 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   }
 
   // Show intro
-  intro("atomic-cli");
+  intro("Atomic: Automated Procedures and Memory for AI Coding Agents");
+  console.log(
+    "  Enable multi-hour autonomous coding sessions with the Ralph Wiggum\n" +
+      "  Method using research, plan, implement methodology.\n"
+  );
 
   // Select agent
   const agentKeys = getAgentKeys();

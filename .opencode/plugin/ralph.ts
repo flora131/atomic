@@ -258,6 +258,16 @@ To signal completion, output: \`<promise>YOUR_PHRASE</promise>\`
         systemMsg += ` | No completion promise set - loop runs until all features pass`
       }
 
+      // Append critical instructions to prompt
+      const promptWithInstructions = `${state.prompt}
+
+<EXTREMELY_IMPORTANT>
+- Implement features incrementally, make small changes each iteration.
+  - Only work on the SINGLE highest priority feature at a time.
+  - Use the \`feature-list.json\` file if it is provided to you as a guide otherwise create your own \`feature-list.json\` based on the task.
+- If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop, even if you think you're stuck or should exit for other reasons. The loop is designed to continue until genuine completion.
+</EXTREMELY_IMPORTANT>`
+
       console.log(`[Ralph] ${systemMsg}`)
 
       // Send the same prompt back using the client
@@ -271,7 +281,7 @@ To signal completion, output: \`<promise>YOUR_PHRASE</promise>\`
             body: {
               parts: [
                 { type: "text", text: systemMsg },
-                { type: "text", text: state.prompt },
+                { type: "text", text: promptWithInstructions },
               ],
             },
           })

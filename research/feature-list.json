@@ -1,319 +1,194 @@
 [
   {
-    "category": "functional",
-    "description": "Create config.ts with AgentConfig type and AGENT_CONFIG definitions",
+    "category": "refactor",
+    "description": "Replace Quick Start section with CLI-driven setup instructions",
     "steps": [
-      "Create src/config.ts file",
-      "Define AgentConfig interface with name, cmd, additional_flags, folder, install_url, exclude, and additional_files fields",
-      "Create AGENT_CONFIG Record with claude-code, opencode, and copilot-cli configurations",
-      "Export AGENT_CONFIG for use in other modules",
-      "Verify all agents have required fields and valid URLs"
+      "Remove all manual cp commands from Quick Start (lines 81-167)",
+      "Add bunx @bastani/atomic as primary installation command",
+      "Add npx @bastani/atomic as fallback installation command",
+      "Add Prerequisites subsection with bun/Node.js 18+ requirement",
+      "Add links to AI agent installation docs (Claude Code, OpenCode, GitHub Copilot CLI)",
+      "Verify Quick Start is under 20 lines"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Create new Workflow section with CLI examples for all 5 steps",
+    "steps": [
+      "Replace 'Our Procedure' section (lines 171-325) with 'The Workflow'",
+      "Add step 1: Research with atomic --agent claude-code /research-codebase command",
+      "Add step 2: Create spec with atomic --agent claude-code /create-spec command",
+      "Add step 3: Create feature list with atomic --agent claude-code /create-feature-list command",
+      "Add step 4: Implement features with atomic --agent claude-code /implement-feature command",
+      "Add step 5: Create PR with atomic --agent claude-code /create-gh-pr command",
+      "Include 'You review' checkpoints after steps 1, 2, and 3",
+      "Reference /ralph-loop for autonomous mode in step 4"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Create detect.ts utility for command and platform detection",
+    "description": "Add Commands reference table with all 10 slash commands",
     "steps": [
-      "Create src/utils/detect.ts file",
-      "Implement isCommandInstalled function using Bun.which()",
-      "Implement getCommandVersion function using Bun.spawnSync",
-      "Implement isWindows function checking process.platform",
-      "Implement getScriptExtension and getOppositeScriptExtension functions",
-      "Implement isWslInstalled function for Windows WSL detection",
-      "Export WSL_INSTALL_URL constant",
-      "Write unit tests in tests/detect.test.ts"
+      "Create Commands section after The Workflow",
+      "Add table with columns: Command, Arguments, Description",
+      "Include /research-codebase with [question] argument",
+      "Include /create-spec with [research-path] argument",
+      "Include /create-feature-list with [spec-path] argument",
+      "Include /implement-feature with no arguments",
+      "Include /commit with [message] argument",
+      "Include /create-gh-pr with no arguments",
+      "Include /explain-code with [path] argument",
+      "Include /ralph-loop with [--max-iterations N] argument",
+      "Include /cancel-ralph with no arguments",
+      "Include /ralph-help with no arguments"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Create copy.ts utility for directory copying with exclusions",
+    "description": "Add Supported Agents table matching src/config.ts definitions",
     "steps": [
-      "Create src/utils/copy.ts file",
-      "Implement copyDir function with recursive directory copying",
-      "Add exclusion logic for filtering out unwanted files/folders",
-      "Add platform-aware script filtering (skip .ps1 on Unix, skip .sh on Windows)",
-      "Implement copyFile function using Bun.write and Bun.file",
-      "Write integration tests in tests/copy.test.ts"
+      "Create Supported Agents section after Commands",
+      "Add table with columns: Agent, CLI Command, Folder, Context File",
+      "Add Claude Code row: atomic --agent claude-code, .claude/, CLAUDE.md",
+      "Add OpenCode row: atomic --agent opencode, .opencode/, AGENTS.md",
+      "Add GitHub Copilot CLI row: atomic --agent copilot-cli, .github/, AGENTS.md",
+      "Verify agent names match AGENT_CONFIG keys in src/config.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Add Autonomous Execution (Ralph) section with image and full documentation",
+    "steps": [
+      "Create Autonomous Execution (Ralph) section after Supported Agents",
+      "Add Ralph Wiggum image (centered, 400px width)",
+      "Add link to Ralph Wiggum Method (ghuntley.com/ralph/)",
+      "Add 'How It Works' subsection with 4 numbered steps",
+      "Add Commands subsection with /ralph-loop, /cancel-ralph, /ralph-help",
+      "Add 'When to Use Ralph' subsection with Good for/Not good for lists",
+      "Add Prerequisites subsection mentioning uv requirement",
+      "Note platform support: Claude Code (Mac/Linux and Windows PowerShell)"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Simplify Header and Intro section to 2-3 sentences",
+    "steps": [
+      "Keep hero image (assets/atomic.png)",
+      "Keep title 'Atomic'",
+      "Reduce intro to: 'AI coding agents need context and procedures. Atomic provides both.'",
+      "Add two bullet points: Procedures and Memory",
+      "Remove any verbose explanations"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Keep and condense The Flywheel section",
+    "steps": [
+      "Keep The Flywheel section header",
+      "Include ASCII diagram: Research → Specs → Execution → Outcomes → Specs",
+      "Add single line: 'Every feature follows this cycle. Specs become memory for future sessions.'",
+      "Remove any verbose explanations"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Condense How It Works section with architecture diagram",
+    "steps": [
+      "Keep How It Works section header",
+      "Keep architecture diagram reference (assets/architecture.svg)",
+      "Add condensed table with Resource, Purpose, Examples columns",
+      "Include Commands, Agents, and Skills rows",
+      "Remove verbose explanations"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Condense What's Included section to summary line",
+    "steps": [
+      "Replace current What's Included section (lines 351-375)",
+      "Add summary: '7 Agents | 10 Commands | 2 Skills'",
+      "List agents: codebase-analyzer, codebase-locator, codebase-online-researcher, codebase-pattern-finder, codebase-research-analyzer, codebase-research-locator, debugger",
+      "List skills: prompt-engineer, testing-anti-patterns"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Condense Troubleshooting section to essential items",
+    "steps": [
+      "Replace current Troubleshooting section (lines 401-416)",
+      "Keep Git Identity Error with git config commands",
+      "Keep Permission Issues with note about --dangerously-skip-permissions",
+      "Remove any verbose explanations or edge cases"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Remove Table of Contents, Memory Gap, ROI, and Comparison sections",
+    "steps": [
+      "Remove Table of Contents (lines 25-40) - README too short to need it",
+      "Remove The Memory Gap section (lines 43-54) - conceptual background",
+      "Remove The ROI section (lines 328-337) - marketing copy",
+      "Remove How Atomic Differs from Spec Kit section (lines 378-398)"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Keep Video Overview and License/Credits sections",
+    "steps": [
+      "Keep Video Overview section as-is (lines 19-23)",
+      "Verify YouTube link works (youtube.com/watch?v=Lq8-qzGfoy4)",
+      "Keep License section with MIT",
+      "Keep Credits section with all attribution links",
+      "Verify all external links work"
     ],
     "passes": true
   },
   {
     "category": "ui",
-    "description": "Create pre-computed banner assets and display utility",
+    "description": "Verify README is under 200 lines total",
     "steps": [
-      "Create src/assets/atomic-logo.txt with ASCII logo",
-      "Create src/assets/atomic-spirit.html with colorized HTML art",
-      "Create src/generated/banner-assets.ts with pre-computed LOGO and SPIRIT constants",
-      "Create src/utils/banner.ts with displayBanner function",
-      "Implement stripAnsi helper for calculating visible width",
-      "Implement side-by-side layout combining logo and spirit",
-      "Test banner displays correctly in terminal"
+      "Count total lines in new README.md",
+      "Verify line count is approximately 180 lines",
+      "Verify reduction is approximately 58% from ~430 lines",
+      "Ensure no manual cp commands remain",
+      "Ensure all sections use consistent markdown formatting"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Create init.ts command for interactive setup flow",
+    "description": "Verify all links and references work correctly",
     "steps": [
-      "Create src/commands/init.ts file",
-      "Import @clack/prompts components (intro, outro, select, confirm, spinner, isCancel, cancel, note)",
-      "Display banner on startup using displayBanner()",
-      "Show intro with 'atomic-cli' message",
-      "Implement agent selection with select() prompt",
-      "Implement directory confirmation with confirm() prompt",
-      "Check for existing config folder and prompt for overwrite",
-      "Copy configuration files using copyDir and copyFile with spinner feedback",
-      "Check for WSL on Windows and show warning if not installed",
-      "Show success note and outro message",
-      "Handle cancellation gracefully at each step"
+      "Verify architecture diagram link (assets/architecture.svg) works",
+      "Verify hero image link (assets/atomic.png) works",
+      "Verify video link (YouTube) works",
+      "Verify Ralph Wiggum image URL works",
+      "Verify Ralph Wiggum Method link (ghuntley.com/ralph/) works",
+      "Verify all agent installation doc links work"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Create run-agent.ts command for agent spawning",
+    "description": "Test Quick Start CLI commands work correctly",
     "steps": [
-      "Create src/commands/run-agent.ts file",
-      "Validate agent key against AGENT_CONFIG",
-      "Check if agent command is installed using isCommandInstalled",
-      "Show error with install URL if agent not found",
-      "Spawn agent process with Bun.spawn and inherit stdio",
-      "Wait for agent process to exit"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Create index.ts entry point with CLI routing",
-    "steps": [
-      "Create src/index.ts with shebang (#!/usr/bin/env bun)",
-      "Import parseArgs from util module",
-      "Parse CLI arguments for --agent, --version, --help flags",
-      "Implement --version flag to show version from package.json",
-      "Implement --help flag to show usage information",
-      "Implement --agent flag to run agent directly",
-      "Route to init command by default or with 'init' positional",
-      "Handle unknown commands with error message",
-      "Wrap main in try-catch for error handling"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Add version reading from package.json",
-    "steps": [
-      "Update index.ts to read version from package.json",
-      "Use Bun.file to read package.json",
-      "Parse JSON and extract version field",
-      "Display version in --version output"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Write unit tests for config validation",
-    "steps": [
-      "Create tests/config.test.ts file",
-      "Test all agents have required name field",
-      "Test all agents have required cmd field",
-      "Test all agents have required folder field",
-      "Test all agents have valid install_url (starts with https://)",
-      "Test all agents have exclude as array",
-      "Test all agents have additional_files as array"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Implement HTML to ANSI conversion utility",
-    "steps": [
-      "Create src/utils/html-to-ansi.ts file",
-      "Parse HTML spans with rgb color styles",
-      "Convert rgb values to ANSI escape codes (format: \\x1b[38;2;R;G;Bm)",
-      "Handle text nodes and preserve content",
-      "Add reset code at end of colored sections",
-      "Write unit tests in tests/html-to-ansi.test.ts"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Set up package.json with bin field for global installation",
-    "steps": [
-      "Update package.json with bin field pointing to src/index.ts",
-      "Verify name is 'atomic'",
-      "Set type to 'module'",
-      "Add @clack/prompts as dependency",
-      "Add @types/bun and typescript as devDependencies",
-      "Test bun link for local global installation"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Build standalone executable with bun build --compile",
-    "steps": [
-      "Run bun build src/index.ts --compile --outfile atomic",
-      "Test compiled executable runs correctly",
-      "Verify banner displays properly",
-      "Verify agent selection works",
-      "Verify file copying works"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Add --no-banner flag to skip banner display",
-    "steps": [
-      "Add 'no-banner' option to parseArgs in index.ts",
-      "Pass banner option to initCommand",
-      "Conditionally call displayBanner based on flag",
-      "Update --help output to document the flag"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Add true color detection and fallback",
-    "steps": [
-      "Create function to detect true color support via COLORTERM env var",
-      "Check for COLORTERM=truecolor or COLORTERM=24bit",
-      "Implement fallback to uncolored logo when true color not supported",
-      "Update displayBanner to use detection"
-    ],
-    "passes": true
-  },
-  {
-    "category": "bug",
-    "description": "Fix banner spirit not displaying - true color detection is too restrictive",
-    "steps": [
-      "Investigate why spirit portion of banner never displays",
-      "Update supportsTrueColor() in detect.ts to be less restrictive",
-      "Reference gemini-cli approach: default to showing colors, only disable when NO_COLOR env var is set",
-      "Add support for NO_COLOR environment variable (standard for disabling colors)",
-      "Remove overly restrictive COLORTERM check - most modern terminals support true color",
-      "Consider terminal width when deciding to show spirit (gemini-cli uses width-based selection)",
-      "Test banner displays both logo AND spirit side-by-side in common terminals"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Add NO_COLOR environment variable support per gemini-cli pattern",
-    "steps": [
-      "Add supportsColor() function in detect.ts that checks for NO_COLOR env var",
-      "When NO_COLOR is set (any value), disable all color output",
-      "Update displayBanner to check supportsColor() before showing colored spirit",
-      "This is a standard convention (see https://no-color.org/)"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Add responsive banner selection based on terminal width (gemini-cli pattern)",
-    "steps": [
-      "Create multiple logo sizes: longAsciiLogo, shortAsciiLogo, tinyAsciiLogo",
-      "Detect terminal width using process.stdout.columns",
-      "Select appropriate logo size based on available width",
-      "Only show spirit side-by-side if terminal is wide enough for both",
-      "Fall back to logo-only or tiny logo on narrow terminals"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Create src/generated/banner-assets.ts with pre-computed LOGO and SPIRIT constants",
-    "steps": [
-      "Create src/generated/ directory",
-      "Create src/generated/banner-assets.ts file",
-      "Pre-compute LOGO constant from src/assets/atomic-logo.txt (one-time conversion)",
-      "Pre-compute SPIRIT constant by converting src/assets/atomic-spirit.html to ANSI (one-time conversion)",
-      "Export LOGO and SPIRIT as string constants",
-      "Commit the generated file to the repo (it should not be regenerated at runtime)"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Refactor banner.ts to use pre-computed constants instead of runtime file I/O",
-    "steps": [
-      "Remove async loadLogo() function that reads from file",
-      "Remove async loadSpirit() function that reads and converts HTML",
-      "Import LOGO and SPIRIT from '../generated/banner-assets'",
-      "Change displayBanner() from async to synchronous function",
-      "Update combineSideBySide to use imported constants directly",
-      "Remove getAssetsDir() function (no longer needed)",
-      "Remove html-to-ansi import from banner.ts (only used for pre-computation)",
-      "Verify banner displays correctly with zero file I/O at runtime"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Fix agent selection hint to show install URL instead of folder name",
-    "steps": [
-      "Update init.ts agentOptions mapping",
-      "Change hint from `Configures ${AGENT_CONFIG[key].folder}` to `config.install_url.replace('https://', '')`",
-      "Verify hints display correctly in select prompt (e.g., 'docs.anthropic.com/en/docs/claude-code/setup')"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Add .DS_Store to exclusion list for all agents in config.ts",
-    "steps": [
-      "Add '.DS_Store' to claude-code exclude array",
-      "Add '.DS_Store' to opencode exclude array",
-      "Add '.DS_Store' to copilot-cli exclude array",
-      "Verify exclusions work correctly during copy operation"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Fix WSL detection to use Bun.which instead of spawnSync",
-    "steps": [
-      "Update isWslInstalled() in detect.ts",
-      "Change from Bun.spawnSync({ cmd: ['wsl', '--status'] }) to Bun.which('wsl') !== null",
-      "Keep the isWindows() check as prerequisite",
-      "Update corresponding unit test in tests/detect.test.ts"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Add active/inactive labels to overwrite confirm dialog in init.ts",
-    "steps": [
-      "Update the overwrite confirm prompt in init.ts",
-      "Add active: 'Yes, overwrite' option per spec",
-      "Add inactive: 'No, cancel' option per spec",
-      "Keep initialValue: false for safer default"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Change version to read from package.json at runtime instead of hardcoded constant",
-    "steps": [
-      "Update src/version.ts to read from package.json",
-      "Use Bun.file to read package.json synchronously or use import",
-      "Parse JSON and extract version field",
-      "Remove hardcoded VERSION constant",
-      "Alternatively, use import pkgJson from '../package.json' if Bun supports it",
-      "Verify --version displays correct version from package.json"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Update init.ts displayBanner call to be synchronous after banner refactor",
-    "steps": [
-      "Remove await from displayBanner() call in initCommand",
-      "Update displayBanner signature in banner.ts to return void instead of Promise<void>",
-      "Update displayLogoOnly signature similarly",
-      "Verify init command still displays banner correctly"
+      "Run bunx @bastani/atomic in a fresh directory",
+      "Verify interactive agent selection appears",
+      "Select an agent and verify configuration is applied",
+      "Verify .claude/ or .opencode/ or .github/ folder is created",
+      "Verify context file (CLAUDE.md or AGENTS.md) is created",
+      "Verify .mcp.json is created for Claude Code"
     ],
     "passes": true
   }

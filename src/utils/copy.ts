@@ -2,8 +2,8 @@
  * Utilities for copying directories and files with exclusions
  */
 
-import { readdir, mkdir, stat } from "fs/promises";
-import { join, basename, extname } from "path";
+import { readdir, mkdir, stat, realpath } from "fs/promises";
+import { join, basename, extname, relative } from "path";
 import { getOppositeScriptExtension } from "./detect";
 
 interface CopyOptions {
@@ -19,6 +19,22 @@ interface CopyOptions {
 export async function copyFile(src: string, dest: string): Promise<void> {
   const srcFile = Bun.file(src);
   await Bun.write(dest, srcFile);
+}
+
+/**
+ * Copy a symlink by dereferencing it (copying the target content as a regular file)
+ * This ensures symlinks work on Windows without requiring special permissions
+ */
+async function copySymlinkAsFile(src: string, dest: string): Promise<void> {
+  // Resolve the symlink to get the actual file path
+  const resolvedPath = await realpath(src);
+  const stats = await stat(resolvedPath);
+
+  if (stats.isFile()) {
+    // Copy the target file content
+    await copyFile(resolvedPath, dest);
+  }
+  // If symlink points to a directory, we skip it (rare case, could be handled if needed)
 }
 
 /**
@@ -70,12 +86,15 @@ export async function copyDir(
   // Get the opposite script extension for filtering
   const oppositeExt = getOppositeScriptExtension();
 
+  // Process entries in parallel for better performance
+  const copyPromises: Promise<void>[] = [];
+
   for (const entry of entries) {
     const srcPath = join(src, entry.name);
     const destPath = join(dest, entry.name);
 
-    // Calculate relative path from root
-    const relativePath = srcPath.slice(root.length + 1);
+    // Calculate relative path from root using path.relative for cross-platform support
+    const relativePath = relative(root, srcPath);
 
     // Check if this path should be excluded
     if (shouldExclude(relativePath, entry.name, exclude)) {
@@ -88,12 +107,20 @@ export async function copyDir(
     }
 
     if (entry.isDirectory()) {
-      await copyDir(srcPath, destPath, options, root);
+      // Directories are processed recursively (which will parallelize their contents)
+      copyPromises.push(copyDir(srcPath, destPath, options, root));
     } else if (entry.isFile()) {
-      await copyFile(srcPath, destPath);
+      copyPromises.push(copyFile(srcPath, destPath));
+    } else if (entry.isSymbolicLink()) {
+      // Dereference symlinks: resolve target and copy as regular file
+      // This handles cases like AGENTS.md -> CLAUDE.md on Windows
+      copyPromises.push(copySymlinkAsFile(srcPath, destPath));
     }
-    // Skip symlinks and other special files
+    // Skip other special files (block devices, etc.)
   }
+
+  // Wait for all copy operations to complete
+  await Promise.all(copyPromises);
 }
 
 /**

@@ -111,6 +111,11 @@ export function supportsTrueColor(): boolean {
 
 /**
  * Check if the terminal supports 256 colors
+ *
+ * Note: This returns true when supportsTrueColor() returns true.
+ * Since supportsTrueColor() defaults to true for modern terminals,
+ * this function will also return true in most cases. This is intentional -
+ * most modern terminals support at least 256 colors.
  */
 export function supports256Color(): boolean {
   const term = process.env.TERM || "";

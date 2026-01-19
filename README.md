@@ -136,7 +136,7 @@ atomic --agent claude-code /create-gh-pr
 ## Autonomous Execution (Ralph)
 
 <p align="center">
-  <img src="https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Fstatic1.srcdn.com%2Fwordpress%2Fwp-content%2Fuploads%2F2020%2F04%2Fralph-wiggum-simpsons-featured-1710x900.jpg&f=1&nofb=1&ipt=ecf7c217c4b33bb1f7564b75742bf937c088be5119449639a24411350a275f94" alt="Ralph Wiggum" width="800">
+  <img src="https://external-content.duckduckgo.com/iu/?u=https%3A%2F%2Fstatic1.srcdn.com%2Fwordpress%2Fwp-content%2Fuploads%2F2020%2F04%2Fralph-wiggum-simpsons-featured-1710x900.jpg&f=1&nofb=1&ipt=ecf7c217c4b33bb1f7564b75742bf937c088be5119449639a24411350a275f94" alt="Ralph Wiggum" width="600">
 </p>
 
 The [Ralph Wiggum Method](https://ghuntley.com/ralph/) enables multi-hour autonomous coding sessions. After approving your spec and feature list, let Ralph work in the background while you focus on other tasks.

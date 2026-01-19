@@ -12,7 +12,8 @@ import {
   cancel,
   note,
 } from "@clack/prompts";
-import { join } from "path";
+import { join, dirname } from "path";
+import { rm } from "fs/promises";
 
 import { AGENT_CONFIG, type AgentKey, getAgentKeys } from "../config";
 import { displayBanner } from "../utils/banner";
@@ -24,12 +25,22 @@ interface InitOptions {
 }
 
 /**
- * Get the root directory where config folders are stored
- * This is the atomic repo root when running from source
+ * Get the root directory where config folders are stored.
+ * Works for both source running and npm-installed packages.
+ *
+ * Path resolution:
+ * - Source: src/commands/init.ts -> ../.. -> repo root
+ * - npm installed: node_modules/@bastani/atomic/src/commands/init.ts -> ../.. -> package root
+ *
+ * The package.json "files" array ensures config folders (.claude, .opencode, etc.)
+ * are shipped with the npm package, so this resolution works in both cases.
  */
 function getConfigRoot(): string {
-  // When running with bun directly, navigate up from src/commands
-  return join(import.meta.dir, "..", "..");
+  // import.meta.dir gives us the directory containing this file (src/commands)
+  // Navigate up two levels to reach the package/repo root
+  const root = join(import.meta.dir, "..", "..");
+
+  return root;
 }
 
 /**
@@ -119,6 +130,11 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   try {
     const configRoot = getConfigRoot();
     const sourceFolder = join(configRoot, agent.folder);
+
+    // Clear existing folder if overwriting to prevent stale files
+    if (folderExists) {
+      await rm(targetFolder, { recursive: true, force: true });
+    }
 
     // Copy the main config folder
     await copyDir(sourceFolder, targetFolder, {

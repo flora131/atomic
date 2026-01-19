@@ -26,7 +26,7 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
   "claude-code": {
     name: "Claude Code",
     cmd: "claude",
-    additional_flags: ["dangerously-skip-permissions"],
+    additional_flags: ["--dangerously-skip-permissions"],
     folder: ".claude",
     install_url: "https://docs.anthropic.com/en/docs/claude-code/setup",
     exclude: [".DS_Store"],
@@ -38,7 +38,13 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     additional_flags: [],
     folder: ".opencode",
     install_url: "https://opencode.ai",
-    exclude: ["node_modules", ".gitignore", "bun.lock", "package.json", ".DS_Store"],
+    exclude: [
+      "node_modules",
+      ".gitignore",
+      "bun.lock",
+      "package.json",
+      ".DS_Store",
+    ],
     additional_files: ["AGENTS.md"],
   },
   "copilot-cli": {

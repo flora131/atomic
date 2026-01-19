@@ -38,7 +38,7 @@ DESCRIPTION:
   Use an external loop for full Ralph behavior:
     while [ -f .github/ralph-continue.flag ]; do
       PROMPT=$(cat .github/ralph-continue.flag)
-      echo "$PROMPT" | gh copilot --allow-all-tools --allow-all-paths
+      echo "$PROMPT" | copilot --allow-all-tools --allow-all-paths
     done
 
   To signal completion, output: <promise>YOUR_PHRASE</promise>
@@ -162,7 +162,7 @@ For full Ralph loop behavior, use an external orchestrator:
 
   while [ -f .github/ralph-continue.flag ]; do
     PROMPT=\$(cat .github/ralph-continue.flag)
-    echo "\$PROMPT" | gh copilot --allow-all-tools --allow-all-paths
+    echo "\$PROMPT" | copilot --allow-all-tools --allow-all-paths
   done
 
 EOF

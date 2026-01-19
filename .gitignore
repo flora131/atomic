@@ -31,3 +31,5 @@ bun.lock
 .gitignore
 ralph-loop.local.json
 ralph-loop.local.md
+
+ralph-sessions.jsonl

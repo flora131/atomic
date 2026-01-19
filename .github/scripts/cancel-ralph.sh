@@ -15,8 +15,8 @@ if [[ ! -f "$RALPH_STATE_FILE" ]]; then
 
   # Still try to kill any orphaned processes
   echo "Checking for orphaned Ralph processes..."
-  if pkill -f "gh copilot" 2>/dev/null; then
-    echo "Killed orphaned gh copilot processes."
+  if pkill -f "copilot" 2>/dev/null; then
+    echo "Killed orphaned copilot-cli processes."
   else
     echo "No orphaned processes found."
   fi
@@ -39,13 +39,13 @@ rm -f "$RALPH_CONTINUE_FILE"
 
 # Kill any spawned Ralph processes
 # This catches:
-# - Any pending "sleep && gh copilot" spawns from the hook
-# - Any currently running gh copilot sessions from the loop
+# - Any pending "sleep && copilot-cli" spawns from the hook
+# - Any currently running copilot-cli sessions from the loop
 echo "Stopping spawned processes..."
-pkill -f "gh copilot" 2>/dev/null || true
+pkill -f "copilot" 2>/dev/null || true
 
 # Also kill any background sleep processes waiting to spawn
-pkill -f "sleep.*gh copilot" 2>/dev/null || true
+pkill -f "sleep.*copilot" 2>/dev/null || true
 
 echo "Cancelled Ralph loop (was at iteration $ITERATION)"
 echo ""

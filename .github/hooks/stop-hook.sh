@@ -5,7 +5,7 @@
 # Session end hook
 #
 # This hook implements a self-restarting pattern: when the session ends,
-# it spawns a new detached gh copilot session to continue the loop.
+# it spawns a new detached copilot-cli session to continue the loop.
 # No external orchestrator required!
 
 set -euo pipefail
@@ -152,20 +152,30 @@ if [[ "$SHOULD_CONTINUE" == "true" ]]; then
 
   echo "Ralph loop: Iteration $ITERATION complete. Spawning iteration $NEXT_ITERATION..." >&2
 
+  # Append critical instructions to prompt
+  PROMPT="$PROMPT
+
+<EXTREMELY_IMPORTANT>
+- Implement features incrementally, make small changes each iteration.
+  - Only work on the SINGLE highest priority feature at a time.
+  - Use the \`feature-list.json\` file if it is provided to you as a guide otherwise create your own \`feature-list.json\` based on the task.
+- If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop, even if you think you're stuck or should exit for other reasons. The loop is designed to continue until genuine completion.
+</EXTREMELY_IMPORTANT>"
+
   # Get current working directory for the spawned process
   CURRENT_DIR="$(pwd)"
 
   # Escape prompt for shell (replace single quotes)
   ESCAPED_PROMPT="${PROMPT//\'/\'\\\'\'}"
 
-  # Spawn new gh copilot session in background (detached, survives hook exit)
+  # Spawn new copilot-cli session in background (detached, survives hook exit)
   # - nohup: prevents SIGHUP when parent exits
   # - sleep 2: brief delay to let current session fully close
   # - Redirects to log file for debugging
   nohup bash -c "
     sleep 2
     cd '$CURRENT_DIR'
-    echo '$ESCAPED_PROMPT' | gh copilot --allow-all-tools --allow-all-paths
+    echo '$ESCAPED_PROMPT' | copilot --allow-all-tools --allow-all-paths
   " > "$RALPH_LOG_DIR/ralph-spawn-$NEXT_ITERATION.log" 2>&1 &
 
   echo "Ralph loop: Spawned background process for iteration $NEXT_ITERATION" >&2

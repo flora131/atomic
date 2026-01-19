@@ -4,10 +4,15 @@
   <img src="assets/atomic.png" alt="Atomic" width="800">
 </p>
 
-AI coding agents need context and proven procedures backed by software engineering best practices. Atomic provides both.
+AI coding agents are exceptionally powerful but have key gaps in principled software engineering, context, and memory. This makes them difficult to use in large codebases or generate higher quality code.
 
-- **Procedures**: Automated workflows for research → plan (spec) → implement
-- **Memory**: Specs/research persist as documentation for future sessions
+Engineers spend a lot of their time figuring out how to get tools to work for them rather than iterating on and shipping code with AI coding agents.
+
+This project is named 'Atomic' for its approach of decomposing complex goals into discrete, manageable steps. By following core Software Development Lifecycle (SDLC) principles, it creates a foundation for effectively steering AI coding agents. This approach enables engineers to transition from vibe coding to true AI-assisted development.
+
+This repo automates AI coding agents with an operating procedure and memory.
+
+We provide the procedures that agents use to work on your project based on software engineering best practices, and specs that persist as memory of decisions made and lessons learned.
 
 ---
 
@@ -115,6 +120,7 @@ atomic --agent claude-code /create-feature-list [spec-path]
 ```
 
 **What happens:** Creates `feature-list.json` and `progress.txt` with:
+
 - Ordered list of features
 - Dependencies between features
 - Acceptance criteria for each
@@ -130,6 +136,7 @@ atomic --agent claude-code /implement-feature
 ```
 
 **What happens:** The agent:
+
 1. Reads `feature-list.json` for the next highest priority unsolved task
 2. References the spec/research for context
 3. Generates a commit for the feature
@@ -286,6 +293,7 @@ The loop exits when **any** of these conditions are met:
 ## Troubleshooting
 
 **Git Identity Error:** Configure git identity:
+
 ```bash
 git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
@@ -310,6 +318,7 @@ git config --global user.email "you@example.com"
 | **Autonomous Runs**    | Not available                                                   | **Ralph** for overnight feature implementation                                                                              |
 
 **When to choose Atomic:**
+
 - Working with an existing, large codebase where you need to discover patterns first and greenfield projects
 - Need session continuity, context management, and built-in memory
 - Want explicit human-in-the-loop checkpoints

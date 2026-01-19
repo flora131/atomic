@@ -6,6 +6,8 @@
 
 set -euo pipefail
 
+echo "Ralph Wiggum plugin running..." >> ralph.log
+
 # Read hook input from stdin (advanced stop hook API)
 HOOK_INPUT=$(cat)
 

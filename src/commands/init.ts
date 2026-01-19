@@ -16,13 +16,14 @@ import {
 import { join } from "path";
 import { rm } from "fs/promises";
 
-import { AGENT_CONFIG, type AgentKey, getAgentKeys } from "../config";
+import { AGENT_CONFIG, type AgentKey, getAgentKeys, isValidAgent } from "../config";
 import { displayBanner } from "../utils/banner";
 import { copyDir, copyFile, pathExists } from "../utils/copy";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL } from "../utils/detect";
 
 interface InitOptions {
   showBanner?: boolean;
+  preSelectedAgent?: AgentKey;
 }
 
 /**
@@ -63,24 +64,37 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   );
 
   // Select agent
-  const agentKeys = getAgentKeys();
-  const agentOptions = agentKeys.map((key) => ({
-    value: key,
-    label: AGENT_CONFIG[key].name,
-    hint: AGENT_CONFIG[key].install_url.replace("https://", ""),
-  }));
+  let agentKey: AgentKey;
 
-  const selectedAgent = await select({
-    message: "Select a coding agent to configure:",
-    options: agentOptions,
-  });
+  if (options.preSelectedAgent) {
+    // Pre-selected agent - validate and skip selection prompt
+    if (!isValidAgent(options.preSelectedAgent)) {
+      cancel(`Unknown agent: ${options.preSelectedAgent}`);
+      process.exit(1);
+    }
+    agentKey = options.preSelectedAgent;
+    log.info(`Configuring ${AGENT_CONFIG[agentKey].name}...`);
+  } else {
+    // Interactive selection
+    const agentKeys = getAgentKeys();
+    const agentOptions = agentKeys.map((key) => ({
+      value: key,
+      label: AGENT_CONFIG[key].name,
+      hint: AGENT_CONFIG[key].install_url.replace("https://", ""),
+    }));
 
-  if (isCancel(selectedAgent)) {
-    cancel("Operation cancelled.");
-    process.exit(0);
+    const selectedAgent = await select({
+      message: "Select a coding agent to configure:",
+      options: agentOptions,
+    });
+
+    if (isCancel(selectedAgent)) {
+      cancel("Operation cancelled.");
+      process.exit(0);
+    }
+
+    agentKey = selectedAgent as AgentKey;
   }
-
-  const agentKey = selectedAgent as AgentKey;
   const agent = AGENT_CONFIG[agentKey];
   const targetDir = process.cwd();
 

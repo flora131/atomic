@@ -12,7 +12,7 @@ import {
   cancel,
   note,
 } from "@clack/prompts";
-import { join, dirname } from "path";
+import { join } from "path";
 import { rm } from "fs/promises";
 
 import { AGENT_CONFIG, type AgentKey, getAgentKeys } from "../config";

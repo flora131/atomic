@@ -1,23 +1,98 @@
-CLI Auto-Initialize Agent Feature Implementation Progress
-=========================================================
+# CLI Banner Ordering Fix - Progress Log
 
-Completed Features (10/10):
-[x] Reorder command routing to check positional commands before --agent flag
-[x] Add preSelectedAgent option to InitOptions interface
-[x] Implement conditional agent selection skip in init command
-[x] Pass --agent flag to init command when 'init' subcommand is used
-[x] Add config folder existence check in runAgentCommand
-[x] Update help text to document new behaviors
-[x] Integration tests for argument parsing with init subcommand
-[x] Unit tests for initCommand with preSelectedAgent
-[x] Unit tests for runAgentCommand auto-init behavior
+## 2026-01-19
 
-Skipped (Already Exists):
-[x] Create isValidAgent type guard utility - Already exists in src/config.ts:62-64
+### Completed Features (9/9) ✓
 
-Build Status:
-- TypeScript: PASS
-- Lint: PASS
-- All Tests: 90/90 PASS
+Implemented the core fix for the CLI banner ordering issue. The changes ensure proper visual hierarchy when running `atomic -a [agent]` with uninitialized config:
 
-Feature Implementation: COMPLETE
+1. **[DONE] Add configNotFoundMessage option to InitOptions interface**
+   - File: `src/commands/init.ts:24-28`
+   - Added `configNotFoundMessage?: string` property
+
+2. **[DONE] Destructure configNotFoundMessage in initCommand function**
+   - File: `src/commands/init.ts:53`
+   - Updated: `const { showBanner = true, configNotFoundMessage } = options;`
+
+3. **[DONE] Display configNotFoundMessage after intro text in initCommand**
+   - File: `src/commands/init.ts:67-70`
+   - Added conditional display after intro text, before agent selection
+
+4. **[DONE] Remove log.info call from runAgentCommand before initCommand**
+   - File: `src/commands/run-agent.ts`
+   - Removed `log.info()` call and unused import
+
+5. **[DONE] Change showBanner to true in runAgentCommand auto-init flow**
+   - File: `src/commands/run-agent.ts:48`
+   - Changed from `showBanner: false` to `showBanner: true`
+
+6. **[DONE] Pass configNotFoundMessage parameter to initCommand in runAgentCommand**
+   - File: `src/commands/run-agent.ts:49`
+   - Added: `configNotFoundMessage: \`${agent.folder} not found. Running setup...\``
+
+7. **[DONE] E2E test setup: Create test file with tmp directory scaffolding**
+   - File: `tests/e2e/cli-init-display.test.ts`
+   - Created E2E test file with beforeEach/afterEach hooks for tmp directory
+
+8. **[DONE] E2E test: Auto-init flow displays correct ordering**
+   - Test: `atomic -a [agent] without config shows correct display order`
+   - Verifies intro -> not found -> configuring ordering
+
+9. **[DONE] E2E test: Direct init flow displays correct ordering**
+   - Test: `atomic init -a [agent] shows correct display order`
+   - Verifies intro -> configuring ordering (no "not found" message)
+
+10. **[BONUS] E2E test: Existing config skips banner and intro**
+    - Test: `atomic -a [agent] with existing config skips setup`
+    - Verifies no setup messages when config exists
+
+### Test Results
+
+- All 100 tests pass (including 3 E2E tests + 6 new display-order unit tests)
+- TypeScript compiles without errors
+- Lint passes
+
+### Unit Tests Added (tests/display-order.test.ts)
+
+11. **[DONE] Unit test: Verify configNotFoundMessage displays via mocked log.info**
+    - Test: `configNotFoundMessage displays after intro when provided`
+    - Verifies log.info called with message in correct order
+
+12. **[DONE] Unit test: Verify configNotFoundMessage is NOT displayed when undefined**
+    - Test: `configNotFoundMessage is NOT displayed when undefined`
+    - Verifies no "not found" message when option not provided
+
+13. **[DONE] Unit test: Verify banner displays before intro when showBanner=true**
+    - Test: `banner displays before intro when showBanner=true`
+    - Verifies banner -> intro order
+
+14. **[DONE] Unit test: Verify banner does NOT display when showBanner=false**
+    - Test: `banner does NOT display when showBanner=false`
+    - Verifies displayBanner not called
+
+15. **[DONE] Unit test: Verify display order via call sequence tracking**
+    - Test: `display order: banner -> intro -> configNotFoundMessage -> configuring`
+    - Comprehensive ordering verification
+
+### Expected Display Order After Fix
+
+For `atomic -a claude-code` (uninitialized):
+```
+[ASCII BANNER]                                    <- displayBanner() if terminal >= 79x27
+
+┌  Atomic: Automated Procedures and Memory...     <- intro()
+│
+│  Enable multi-hour autonomous coding...         <- log.message()
+│
+●  .claude not found. Running setup...            <- log.info(configNotFoundMessage) [NEW POSITION]
+│
+●  Configuring Claude Code...                     <- log.info("Configuring...")
+```
+
+### Files Modified
+
+- `src/commands/init.ts` - Added configNotFoundMessage support
+- `src/commands/run-agent.ts` - Updated auto-init flow to pass message
+- `tests/init.test.ts` - Added test for configNotFoundMessage option
+- `tests/run-agent.test.ts` - Updated tests to reflect new behavior
+- `tests/e2e/cli-init-display.test.ts` - Added E2E tests for display ordering

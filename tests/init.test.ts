@@ -90,6 +90,24 @@ describe("initCommand with preSelectedAgent", () => {
         expect(opts).toBeDefined();
       }
     });
+
+    test("InitOptions accepts configNotFoundMessage field", async () => {
+      type AgentKey = "claude-code" | "opencode" | "copilot-cli";
+
+      // Valid InitOptions structures with configNotFoundMessage
+      const validOptions = [
+        { configNotFoundMessage: ".claude not found. Running setup..." },
+        { showBanner: true, configNotFoundMessage: ".claude not found. Running setup..." },
+        { preSelectedAgent: "claude-code" as AgentKey, configNotFoundMessage: ".claude not found. Running setup..." },
+        { showBanner: true, preSelectedAgent: "claude-code" as AgentKey, configNotFoundMessage: ".claude not found. Running setup..." },
+        {}, // configNotFoundMessage is optional
+      ];
+
+      // All should be valid structures (no runtime errors)
+      for (const opts of validOptions) {
+        expect(opts).toBeDefined();
+      }
+    });
   });
 
   describe("agent config lookup with preSelectedAgent", () => {

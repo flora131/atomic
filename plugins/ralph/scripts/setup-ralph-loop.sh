@@ -22,7 +22,7 @@ USAGE:
   /ralph-loop [PROMPT...] [OPTIONS]
 
 ARGUMENTS:
-  PROMPT...    Initial prompt to start the loop (default: /implement-feature)
+  PROMPT...    Initial prompt to start the loop (optional)
 
 OPTIONS:
   --max-iterations <n>           Maximum iterations before auto-stop (default: unlimited)
@@ -128,24 +128,37 @@ HELP_EOF
 done
 
 # Join all prompt parts with spaces
-PROMPT="${PROMPT_PARTS[*]}"
+USER_PROMPT="${PROMPT_PARTS[*]}"
 
-# Default to /implement-feature if no prompt provided
-if [[ -z "$PROMPT" ]]; then
-  PROMPT="/implement-feature"
-fi
+# Default prompt includes /implement-feature and critical instructions
+# Users can fully override by providing their own prompt
+DEFAULT_PROMPT="/implement-feature
 
-# If using /implement-feature, verify feature list exists
-if [[ "$PROMPT" == "/implement-feature" ]] && [[ ! -f "$FEATURE_LIST_PATH" ]]; then
-  echo "❌ Error: Feature list not found at: $FEATURE_LIST_PATH" >&2
-  echo "" >&2
-  echo "   The /implement-feature prompt requires a feature list to work." >&2
-  echo "" >&2
-  echo "   To fix this, either:" >&2
-  echo "     1. Create the feature list: /create-feature-list" >&2
-  echo "     2. Specify a different path: --feature-list <path>" >&2
-  echo "     3. Use a custom prompt instead" >&2
-  exit 1
+<EXTREMELY_IMPORTANT>
+- Implement features incrementally, make small changes each iteration.
+  - Only work on the SINGLE highest priority feature at a time.
+  - Use the \`feature-list.json\` file if it is provided to you as a guide otherwise create your own \`feature-list.json\` based on the task.
+- If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop, even if you think you're stuck or should exit for other reasons. The loop is designed to continue until genuine completion.
+</EXTREMELY_IMPORTANT>"
+
+# Use user prompt if provided, otherwise use default
+if [[ -n "$USER_PROMPT" ]]; then
+  FULL_PROMPT="$USER_PROMPT"
+else
+  FULL_PROMPT="$DEFAULT_PROMPT"
+
+  # Verify feature list exists when using default prompt
+  if [[ ! -f "$FEATURE_LIST_PATH" ]]; then
+    echo "❌ Error: Feature list not found at: $FEATURE_LIST_PATH" >&2
+    echo "" >&2
+    echo "   The default /implement-feature prompt requires a feature list to work." >&2
+    echo "" >&2
+    echo "   To fix this, either:" >&2
+    echo "     1. Create the feature list: /create-feature-list" >&2
+    echo "     2. Specify a different path: --feature-list <path>" >&2
+    echo "     3. Use a custom prompt instead" >&2
+    exit 1
+  fi
 fi
 
 # Create state file for stop hook (markdown with YAML frontmatter)
@@ -168,7 +181,7 @@ feature_list_path: $FEATURE_LIST_PATH
 started_at: "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ---
 
-$PROMPT
+$FULL_PROMPT
 EOF
 
 # Output setup message
@@ -191,10 +204,14 @@ To monitor: head -10 .claude/ralph-loop.local.md
 🔄
 EOF
 
-# Output the initial prompt if provided
-if [[ -n "$PROMPT" ]]; then
+# Output the initial prompt info
+if [[ -n "$USER_PROMPT" ]]; then
   echo ""
-  echo "$PROMPT"
+  echo "Custom prompt: $USER_PROMPT"
+else
+  echo ""
+  echo "Using default prompt:"
+  echo "$DEFAULT_PROMPT"
 fi
 
 # Display completion promise requirements if set

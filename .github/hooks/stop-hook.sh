@@ -152,15 +152,7 @@ if [[ "$SHOULD_CONTINUE" == "true" ]]; then
 
   echo "Ralph loop: Iteration $ITERATION complete. Spawning iteration $NEXT_ITERATION..." >&2
 
-  # Append critical instructions to prompt
-  PROMPT="$PROMPT
-
-<EXTREMELY_IMPORTANT>
-- Implement features incrementally, make small changes each iteration.
-  - Only work on the SINGLE highest priority feature at a time.
-  - Use the \`feature-list.json\` file if it is provided to you as a guide otherwise create your own \`feature-list.json\` based on the task.
-- If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop, even if you think you're stuck or should exit for other reasons. The loop is designed to continue until genuine completion.
-</EXTREMELY_IMPORTANT>"
+  # Note: PROMPT already contains the full prompt with <EXTREMELY_IMPORTANT> block from setup
 
   # Get current working directory for the spawned process
   CURRENT_DIR="$(pwd)"

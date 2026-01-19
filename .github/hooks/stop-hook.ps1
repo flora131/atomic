@@ -1,6 +1,5 @@
 # Ralph Wiggum Session End Hook (Self-Restarting)
 # Tracks iterations, checks completion conditions, spawns next session automatically
-# Reference: gh-copilot-cli-docs/configuration.md - Session end hook
 #
 # This hook implements a self-restarting pattern: when the session ends,
 # it spawns a new detached gh copilot session to continue the loop.
@@ -8,7 +7,7 @@
 
 $ErrorActionPreference = "Stop"
 
-# Read hook input from stdin (JSON format per gh-copilot-cli-docs/configuration.md)
+# Read hook input from stdin
 $InputJson = [Console]::In.ReadToEnd()
 $HookInput = $InputJson | ConvertFrom-Json
 
@@ -209,5 +208,5 @@ $LogEntry = @{
 
 Add-Content -Path "$RalphLogDir/ralph-sessions.jsonl" -Value $LogEntry
 
-# Output is ignored for sessionEnd per gh-copilot-cli-docs/configuration.md
+# Output is ignored for sessionEnd
 exit 0

@@ -18,12 +18,33 @@ We provide the procedures that agents use to work on your project based on softw
 
 ## Quick Start
 
+> **Note:** npm registry publishing is currently in progress. Use the [Development Installation](#development-installation) below until the package is available.
+
 ```bash
-# Using bun (recommended)
+# With installation (recommended)
+# Using bun
+bun add -g @bastani/atomic
+
+# Or using npm
+npm install -g @bastani/atomic
+
+# Without installation
+# Using bun
 bunx @bastani/atomic
 
 # Or using npx
 npx @bastani/atomic
+```
+
+### Development Installation
+
+```bash
+# Clone and install globally
+git clone https://github.com/flora131/atomic.git ~/.atomic
+cd ~/.atomic && bun install && bun link
+
+# Now run from any project
+atomic
 ```
 
 Select your agent. The CLI configures your project automatically.

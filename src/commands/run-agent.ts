@@ -3,7 +3,6 @@
  */
 
 import { join } from "path";
-import { log } from "@clack/prompts";
 
 import { AGENT_CONFIG, isValidAgent, type AgentKey } from "../config";
 import { isCommandInstalled } from "../utils/detect";
@@ -42,10 +41,11 @@ export async function runAgentCommand(agentKey: string): Promise<number> {
   const configFolder = join(process.cwd(), agent.folder);
   if (!(await pathExists(configFolder))) {
     // Config not found - run init with pre-selected agent
-    log.info(`${agent.folder} not found. Running setup...`);
+    // Banner and intro will display first, then the not found message
     await initCommand({
       preSelectedAgent: agentKey as AgentKey,
-      showBanner: false, // Skip banner for cleaner auto-init experience
+      showBanner: true,
+      configNotFoundMessage: `${agent.folder} not found. Running setup...`,
     });
   }
 

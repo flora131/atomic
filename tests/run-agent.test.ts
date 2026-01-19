@@ -92,7 +92,8 @@ describe("runAgentCommand auto-init behavior", () => {
      * if (!(await pathExists(configFolder))) {
      *   await initCommand({
      *     preSelectedAgent: agentKey as AgentKey,
-     *     showBanner: false,
+     *     showBanner: true,
+     *     configNotFoundMessage: `${agent.folder} not found. Running setup...`,
      *   });
      * }
      */
@@ -106,7 +107,7 @@ describe("runAgentCommand auto-init behavior", () => {
       const folderExists = false;
 
       let initCalled = false;
-      let initArgs: { preSelectedAgent?: string; showBanner?: boolean } | null =
+      let initArgs: { preSelectedAgent?: string; showBanner?: boolean; configNotFoundMessage?: string } | null =
         null;
 
       if (!folderExists) {
@@ -114,14 +115,16 @@ describe("runAgentCommand auto-init behavior", () => {
         initCalled = true;
         initArgs = {
           preSelectedAgent: agentKey,
-          showBanner: false,
+          showBanner: true,
+          configNotFoundMessage: `${agent.folder} not found. Running setup...`,
         };
       }
 
       expect(initCalled).toBe(true);
       expect(initArgs).toEqual({
         preSelectedAgent: "claude-code",
-        showBanner: false,
+        showBanner: true,
+        configNotFoundMessage: ".claude not found. Running setup...",
       });
     });
 
@@ -141,15 +144,18 @@ describe("runAgentCommand auto-init behavior", () => {
       expect(initCalled).toBe(false);
     });
 
-    test("init uses showBanner: false for cleaner auto-init experience", () => {
+    test("init uses showBanner: true with configNotFoundMessage for auto-init", () => {
       // Verify the expected behavior from the implementation
+      // Banner displays first, then intro, then configNotFoundMessage
       const expectedInitOptions = {
         preSelectedAgent: "opencode" as AgentKey,
-        showBanner: false, // Should always be false for auto-init
+        showBanner: true,
+        configNotFoundMessage: ".opencode not found. Running setup...",
       };
 
-      expect(expectedInitOptions.showBanner).toBe(false);
+      expect(expectedInitOptions.showBanner).toBe(true);
       expect(expectedInitOptions.preSelectedAgent).toBe("opencode");
+      expect(expectedInitOptions.configNotFoundMessage).toBe(".opencode not found. Running setup...");
     });
   });
 

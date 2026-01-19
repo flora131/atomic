@@ -1,127 +1,242 @@
 [
   {
-    "category": "functional",
-    "description": "Reorder command routing to check positional commands before --agent flag",
+    "category": "refactor",
+    "description": "Add configNotFoundMessage option to InitOptions interface",
     "steps": [
-      "Open src/index.ts and locate entry point (lines 54-106)",
-      "Identify current routing order: --version, --help, --agent, positionals",
-      "Reorder to: --version, --help, positionals, --agent (only when no positional)",
-      "Ensure 'init' command is checked before standalone --agent handling",
-      "Verify backward compatibility with existing 'atomic' and 'atomic init' commands"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Add preSelectedAgent option to InitOptions interface",
-    "steps": [
-      "Open src/commands/init.ts and locate InitOptions interface (lines 24-26)",
-      "Add preSelectedAgent?: AgentKey property to InitOptions",
-      "Import AgentKey type if not already imported",
-      "Verify TypeScript compilation succeeds"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Implement conditional agent selection skip in init command",
-    "steps": [
-      "Open src/commands/init.ts and locate agent selection logic (lines 65-81)",
-      "Add conditional check for options.preSelectedAgent",
-      "If preSelectedAgent is provided, validate it with isValidAgent()",
-      "If invalid, call cancel() and exit with code 1",
-      "If valid, use preSelectedAgent directly and log info message",
-      "Skip the interactive select() prompt when preSelectedAgent is set",
-      "Preserve existing interactive flow when preSelectedAgent is not set"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Pass --agent flag to init command when 'init' subcommand is used",
-    "steps": [
-      "Open src/index.ts and locate positional command handling",
-      "In the 'init' case, pass values.agent as preSelectedAgent to initCommand()",
-      "Cast values.agent to AgentKey | undefined",
-      "Ensure showBanner option is still passed correctly"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Add config folder existence check in runAgentCommand",
-    "steps": [
-      "Open src/commands/run-agent.ts and locate runAgentCommand function (lines 24-57)",
-      "Import join from 'path'",
-      "Import pathExists from '../utils/copy'",
-      "Import initCommand from './init'",
-      "After agent key validation, construct config folder path using agent.folder",
-      "Check if config folder exists using pathExists()",
-      "If folder does not exist, call initCommand with preSelectedAgent and showBanner: false",
-      "Continue with existing agent spawn logic after init completes"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Update help text to document new behaviors",
-    "steps": [
-      "Open src/index.ts and locate help text output",
-      "Add 'atomic init --agent <name>' to usage examples",
-      "Add 'atomic init -a <name>' short form to examples",
-      "Document that 'atomic --agent <name>' now auto-initializes if needed",
-      "Show both --agent and -a forms in options section",
-      "Add examples section showing common use cases"
+      "Open src/commands/init.ts",
+      "Locate the InitOptions interface (lines 24-27)",
+      "Add configNotFoundMessage?: string property to the interface",
+      "Verify TypeScript compiles without errors"
     ],
     "passes": true
   },
   {
     "category": "refactor",
-    "description": "Create isValidAgent type guard utility if not exists",
+    "description": "Destructure configNotFoundMessage in initCommand function",
     "steps": [
-      "Check if isValidAgent() already exists in src/config.ts or related file",
-      "If not, create type guard function: (key: string) => key is AgentKey",
-      "Implement by checking if key exists in AGENT_CONFIG keys",
-      "Export the function for use in other modules"
+      "Open src/commands/init.ts",
+      "Locate the initCommand function (line 51+)",
+      "Update destructuring to include configNotFoundMessage from options",
+      "Verify TypeScript compiles without errors"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Unit tests for initCommand with preSelectedAgent",
+    "description": "Display configNotFoundMessage after intro text in initCommand",
     "steps": [
-      "Create or update tests/init.test.ts",
-      "Add test: initCommand uses preSelectedAgent when provided",
-      "Mock @clack/prompts to verify select() is NOT called",
-      "Add test: initCommand rejects invalid preSelectedAgent",
-      "Verify invalid agent causes exit with error"
+      "Open src/commands/init.ts",
+      "Locate the section after intro() and log.message() calls (around line 65)",
+      "Add conditional: if (configNotFoundMessage) { log.info(configNotFoundMessage); }",
+      "Ensure message displays before agent selection/configuring message",
+      "Verify TypeScript compiles without errors"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Remove log.info call from runAgentCommand before initCommand",
+    "steps": [
+      "Open src/commands/run-agent.ts",
+      "Locate the config check section (lines 42-50)",
+      "Remove the log.info() call on line 45 that displays '.claude not found'",
+      "Verify TypeScript compiles without errors"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Unit tests for runAgentCommand auto-init behavior",
+    "description": "Change showBanner to true in runAgentCommand auto-init flow",
     "steps": [
-      "Create or update tests/run-agent.test.ts",
-      "Add test: runAgentCommand calls initCommand when config folder missing",
-      "Mock pathExists to return false",
-      "Mock initCommand and verify it's called with correct args",
-      "Add test: runAgentCommand skips init when config folder exists",
-      "Mock pathExists to return true",
-      "Verify initCommand is NOT called"
+      "Open src/commands/run-agent.ts",
+      "Locate the initCommand call in the config-not-found block",
+      "Change showBanner: false to showBanner: true",
+      "Verify TypeScript compiles without errors"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Integration tests for argument parsing with init subcommand",
+    "description": "Pass configNotFoundMessage parameter to initCommand in runAgentCommand",
     "steps": [
-      "Create or update tests/routing.test.ts",
-      "Add test: parses 'init --agent claude-code' correctly",
-      "Add test: parses 'init -a claude-code' correctly (short form)",
-      "Add test: parses '--agent claude-code' without init",
-      "Add test: parses '-a claude-code' without init (short form)",
-      "Verify positionals and values are parsed as expected"
+      "Open src/commands/run-agent.ts",
+      "Locate the initCommand call in the config-not-found block",
+      "Add configNotFoundMessage: `${agent.folder} not found. Running setup...` parameter",
+      "Verify the message includes the agent folder name dynamically",
+      "Verify TypeScript compiles without errors"
+    ],
+    "passes": true
+  },
+  {
+    "category": "test",
+    "description": "E2E test setup: Create test file with tmp directory scaffolding",
+    "steps": [
+      "Create a new test file at tests/e2e/cli-init-display.test.ts",
+      "Add imports for fs/promises, os, path, and child_process",
+      "Create a describe block for 'CLI Init Display Ordering'",
+      "Add beforeEach hook that creates a tmp directory using fs.mkdtemp(path.join(os.tmpdir(), 'atomic-test-'))",
+      "Add afterEach hook that removes the tmp directory using fs.rm(tmpDir, { recursive: true, force: true })",
+      "Verify TypeScript compiles without errors"
+    ],
+    "passes": true
+  },
+  {
+    "category": "test",
+    "description": "E2E test: Auto-init flow displays correct ordering",
+    "steps": [
+      "Open tests/e2e/cli-init-display.test.ts",
+      "Add test case: 'atomic -a [agent] without config shows correct display order'",
+      "Run CLI command in tmp dir using child_process.execSync or spawn",
+      "Capture stdout output",
+      "Assert banner appears first (if terminal size allows)",
+      "Assert intro text appears second",
+      "Assert '.claude not found. Running setup...' appears after intro",
+      "Assert 'Configuring Claude Code...' appears after the not found message",
+      "Run pnpm test to verify test passes"
+    ],
+    "passes": true
+  },
+  {
+    "category": "test",
+    "description": "E2E test: Direct init flow displays correct ordering",
+    "steps": [
+      "Open tests/e2e/cli-init-display.test.ts",
+      "Add test case: 'atomic init -a [agent] shows correct display order'",
+      "Run CLI command in tmp dir using child_process.execSync or spawn",
+      "Capture stdout output",
+      "Assert banner appears first (if terminal size allows)",
+      "Assert intro text appears second",
+      "Assert 'Configuring Claude Code...' appears (no 'not found' message)",
+      "Assert '.claude not found' message does NOT appear",
+      "Run pnpm test to verify test passes"
+    ],
+    "passes": true
+  },
+  {
+    "category": "test",
+    "description": "E2E test: Existing config skips banner and intro",
+    "steps": [
+      "Open tests/e2e/cli-init-display.test.ts",
+      "Add test case: 'atomic -a [agent] with existing config skips setup'",
+      "Create .claude folder in tmp dir before running CLI",
+      "Run CLI command in tmp dir using child_process.execSync or spawn",
+      "Capture stdout output",
+      "Assert NO banner displays in output",
+      "Assert NO intro displays in output",
+      "Assert agent spawns directly without setup messages",
+      "Run pnpm test to verify test passes"
+    ],
+    "passes": true
+  },
+  {
+    "category": "test",
+    "description": "Unit test: Verify configNotFoundMessage displays via mocked log.info",
+    "steps": [
+      "Open tests/init.test.ts",
+      "Create new describe block 'initCommand configNotFoundMessage display'",
+      "Mock @clack/prompts log.info using bun:test mock.module",
+      "Mock displayBanner, intro, confirm to prevent actual prompts",
+      "Call initCommand({ showBanner: false, preSelectedAgent: 'claude-code', configNotFoundMessage: 'test message' })",
+      "Assert log.info was called with 'test message' BEFORE 'Configuring Claude Code...'",
+      "Verify test passes with bun test tests/init.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "test",
+    "description": "Unit test: Verify configNotFoundMessage is NOT displayed when undefined",
+    "steps": [
+      "Open tests/init.test.ts",
+      "Add test case to 'initCommand configNotFoundMessage display' describe block",
+      "Mock @clack/prompts log.info",
+      "Call initCommand({ showBanner: false, preSelectedAgent: 'claude-code' }) without configNotFoundMessage",
+      "Assert log.info was NOT called with any 'not found' message",
+      "Assert log.info WAS called with 'Configuring Claude Code...'",
+      "Verify test passes with bun test tests/init.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "test",
+    "description": "Unit test: Verify banner displays before intro when showBanner=true",
+    "steps": [
+      "Open tests/init.test.ts",
+      "Add test case to verify display ordering",
+      "Mock displayBanner to record call order",
+      "Mock intro to record call order",
+      "Call initCommand({ showBanner: true, preSelectedAgent: 'claude-code' })",
+      "Assert displayBanner was called before intro",
+      "Verify test passes with bun test tests/init.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "test",
+    "description": "Unit test: Verify banner does NOT display when showBanner=false",
+    "steps": [
+      "Open tests/init.test.ts",
+      "Add test case to verify banner suppression",
+      "Mock displayBanner",
+      "Call initCommand({ showBanner: false, preSelectedAgent: 'claude-code' })",
+      "Assert displayBanner was NOT called",
+      "Verify test passes with bun test tests/init.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "test",
+    "description": "Unit test: Verify runAgentCommand passes correct options to initCommand",
+    "steps": [
+      "Open tests/run-agent.test.ts",
+      "Mock initCommand from ../src/commands/init",
+      "Mock pathExists to return false (config not found)",
+      "Mock isCommandInstalled to return false (skip spawn)",
+      "Call runAgentCommand('claude-code')",
+      "Assert initCommand was called with { preSelectedAgent: 'claude-code', showBanner: true, configNotFoundMessage: '.claude not found. Running setup...' }",
+      "Verify test passes with bun test tests/run-agent.test.ts"
+    ],
+    "passes": false
+  },
+  {
+    "category": "test",
+    "description": "E2E test: Banner displays when terminal is large enough (mock terminal size)",
+    "steps": [
+      "Open tests/e2e/cli-init-display.test.ts",
+      "Add test case for large terminal banner display",
+      "Set COLUMNS=80 and LINES=30 environment variables before spawn",
+      "Run atomic -a claude-code in tmp directory",
+      "Assert output contains ASCII banner characters (e.g., figlet output pattern)",
+      "Verify test passes with bun test tests/e2e/cli-init-display.test.ts"
+    ],
+    "passes": false
+  },
+  {
+    "category": "test",
+    "description": "E2E test: Banner does NOT display when terminal is small (< 79x27)",
+    "steps": [
+      "Open tests/e2e/cli-init-display.test.ts",
+      "Add test case for small terminal banner suppression",
+      "Set COLUMNS=60 and LINES=20 environment variables before spawn",
+      "Run atomic -a claude-code in tmp directory",
+      "Assert output does NOT contain ASCII banner figlet characters",
+      "Assert output DOES contain intro text 'Atomic:'",
+      "Verify test passes with bun test tests/e2e/cli-init-display.test.ts"
+    ],
+    "passes": false
+  },
+  {
+    "category": "test",
+    "description": "Unit test: Verify display order via call sequence tracking",
+    "steps": [
+      "Create tests/display-order.test.ts",
+      "Create call order tracker array",
+      "Mock displayBanner to push 'banner' to tracker",
+      "Mock intro to push 'intro' to tracker",
+      "Mock log.info to push messages to tracker",
+      "Mock confirm to return true, spinner to no-op",
+      "Call initCommand({ showBanner: true, preSelectedAgent: 'claude-code', configNotFoundMessage: '.claude not found' })",
+      "Assert tracker order is: ['banner', 'intro', '.claude not found', 'Configuring Claude Code...']",
+      "Verify test passes with bun test tests/display-order.test.ts"
     ],
     "passes": true
   }

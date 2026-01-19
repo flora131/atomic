@@ -6,8 +6,6 @@
 
 set -euo pipefail
 
-echo "Ralph Wiggum plugin running..." >> ralph.log
-
 # Read hook input from stdin (advanced stop hook API)
 HOOK_INPUT=$(cat)
 
@@ -209,18 +207,8 @@ mv "$TEMP_FILE" "$RALPH_STATE_FILE"
 if [[ "$COMPLETION_PROMISE" != "null" ]] && [[ -n "$COMPLETION_PROMISE" ]]; then
   SYSTEM_MSG="🔄 Ralph iteration $NEXT_ITERATION | To stop: output <promise>$COMPLETION_PROMISE</promise> (ONLY when statement is TRUE - do not lie to exit!)"
 else
-  SYSTEM_MSG="🔄 Ralph iteration $NEXT_ITERATION | No completion promise set - loop runs infinitely"
+  SYSTEM_MSG="🔄 Ralph iteration $NEXT_ITERATION"
 fi
-
-# Append critical instructions to prompt
-PROMPT_TEXT="$PROMPT_TEXT
-
-<EXTREMELY_IMPORTANT>
-- Implement features incrementally, make small changes each iteration.
-  - Only work on the SINGLE highest priority feature at a time.
-  - Use the \`feature-list.json\` file if it is provided to you as a guide otherwise create your own \`feature-list.json\` based on the task.
-- If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop, even if you think you're stuck or should exit for other reasons. The loop is designed to continue until genuine completion.
-</EXTREMELY_IMPORTANT>"
 
 # Output JSON to block the stop and feed prompt back
 # The "reason" field contains the prompt that will be sent back to Claude

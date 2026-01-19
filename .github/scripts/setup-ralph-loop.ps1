@@ -1,6 +1,5 @@
 # Ralph Loop Setup Script
 # Creates state file for Ralph loop with GitHub Copilot hooks
-# Reference: gh-copilot-cli-docs/about.md, gh-copilot-cli-docs/configuration.md
 
 $ErrorActionPreference = "Stop"
 

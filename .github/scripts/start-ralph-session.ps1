@@ -1,10 +1,9 @@
 # Ralph Wiggum Session Start Hook
 # Detects active Ralph loops and logs session information
-# Reference: gh-copilot-cli-docs/configuration.md - Session start hook
 
 $ErrorActionPreference = "Stop"
 
-# Read hook input from stdin (JSON format per gh-copilot-cli-docs/configuration.md)
+# Read hook input from stdin
 $InputJson = [Console]::In.ReadToEnd()
 $Input = $InputJson | ConvertFrom-Json
 
@@ -43,7 +42,7 @@ if (Test-Path $RalphStateFile) {
     $CompletionPromise = if ($State.completionPromise) { $State.completionPromise } else { "null" }
     $Prompt = if ($State.prompt) { $State.prompt } else { "" }
 
-    # Output status message (visible to agent per gh-copilot-cli-docs/about.md)
+    # Output status message (visible to agent)
     Write-Host "Ralph loop active - Iteration $Iteration" -ForegroundColor Cyan
 
     if ($MaxIterations -gt 0) {
@@ -70,5 +69,5 @@ if (Test-Path $RalphStateFile) {
     }
 }
 
-# Output is ignored for sessionStart per gh-copilot-cli-docs/configuration.md
+# Output is ignored for sessionStart
 exit 0

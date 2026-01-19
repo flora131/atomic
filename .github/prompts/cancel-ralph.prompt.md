@@ -17,4 +17,4 @@ if [[ "$(uname)" == MINGW* || "$(uname)" == MSYS* || "$(uname)" == CYGWIN* ]]; t
 This will:
 - Archive state to `.github/logs/`
 - Remove state files (`.github/ralph-loop.local.json`, `.github/ralph-continue.flag`)
-- Kill any spawned `gh copilot` processes
+- Kill any spawned `copilot-cli` processes

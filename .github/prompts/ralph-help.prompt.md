@@ -31,4 +31,3 @@ The Ralph Wiggum technique is an iterative AI loop that repeats the same prompt 
 ## Learn More
 
 - Original technique: https://ghuntley.com/ralph/
-- GitHub Copilot Hooks: [gh-copilot-cli-docs/](gh-copilot-cli-docs/)

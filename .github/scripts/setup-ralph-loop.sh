@@ -100,24 +100,37 @@ HELP_EOF
 done
 
 # Join all prompt parts with spaces
-PROMPT="${PROMPT_PARTS[*]:-}"
+USER_PROMPT="${PROMPT_PARTS[*]:-}"
 
-# Default to /implement-feature if no prompt provided
-if [[ -z "$PROMPT" ]]; then
-  PROMPT="/implement-feature"
-fi
+# Default prompt includes /implement-feature and critical instructions
+# Users can fully override by providing their own prompt
+DEFAULT_PROMPT="/implement-feature
 
-# If using /implement-feature, verify feature list exists
-if [[ "$PROMPT" == "/implement-feature" ]] && [[ ! -f "$FEATURE_LIST_PATH" ]]; then
-  echo "Error: Feature list not found at: $FEATURE_LIST_PATH" >&2
-  echo "" >&2
-  echo "   The /implement-feature prompt requires a feature list to work." >&2
-  echo "" >&2
-  echo "   To fix this, either:" >&2
-  echo "     1. Create the feature list: /create-feature-list" >&2
-  echo "     2. Specify a different path: --feature-list <path>" >&2
-  echo "     3. Use a custom prompt instead" >&2
-  exit 1
+<EXTREMELY_IMPORTANT>
+- Implement features incrementally, make small changes each iteration.
+  - Only work on the SINGLE highest priority feature at a time.
+  - Use the \`feature-list.json\` file if it is provided to you as a guide otherwise create your own \`feature-list.json\` based on the task.
+- If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop, even if you think you're stuck or should exit for other reasons. The loop is designed to continue until genuine completion.
+</EXTREMELY_IMPORTANT>"
+
+# Use user prompt if provided, otherwise use default
+if [[ -n "$USER_PROMPT" ]]; then
+  FULL_PROMPT="$USER_PROMPT"
+else
+  FULL_PROMPT="$DEFAULT_PROMPT"
+
+  # Verify feature list exists when using default prompt
+  if [[ ! -f "$FEATURE_LIST_PATH" ]]; then
+    echo "Error: Feature list not found at: $FEATURE_LIST_PATH" >&2
+    echo "" >&2
+    echo "   The default /implement-feature prompt requires a feature list to work." >&2
+    echo "" >&2
+    echo "   To fix this, either:" >&2
+    echo "     1. Create the feature list: /create-feature-list" >&2
+    echo "     2. Specify a different path: --feature-list <path>" >&2
+    echo "     3. Use a custom prompt instead" >&2
+    exit 1
+  fi
 fi
 
 # Create state file (JSON format for GitHub Copilot hooks)
@@ -130,7 +143,7 @@ jq -n \
   --argjson maxIter "$MAX_ITERATIONS" \
   --arg promise "$COMPLETION_PROMISE" \
   --arg featurePath "$FEATURE_LIST_PATH" \
-  --arg prompt "$PROMPT" \
+  --arg prompt "$FULL_PROMPT" \
   --arg startedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   '{
     active: $active,
@@ -143,7 +156,7 @@ jq -n \
   }' > .github/ralph-loop.local.json
 
 # Create continue flag for orchestrator
-echo "$PROMPT" > .github/ralph-continue.flag
+echo "$FULL_PROMPT" > .github/ralph-continue.flag
 
 # Output setup message
 cat <<EOF
@@ -167,10 +180,14 @@ For full Ralph loop behavior, use an external orchestrator:
 
 EOF
 
-# Output the initial prompt
-if [[ -n "$PROMPT" ]]; then
+# Output the initial prompt info
+if [[ -n "$USER_PROMPT" ]]; then
   echo ""
-  echo "$PROMPT"
+  echo "Custom prompt: $USER_PROMPT"
+else
+  echo ""
+  echo "Using default prompt:"
+  echo "$DEFAULT_PROMPT"
 fi
 
 # Display completion promise requirements if set

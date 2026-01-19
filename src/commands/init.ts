@@ -11,6 +11,7 @@ import {
   isCancel,
   cancel,
   note,
+  log,
 } from "@clack/prompts";
 import { join } from "path";
 import { rm } from "fs/promises";
@@ -57,9 +58,8 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
   // Show intro
   intro("Atomic: Automated Procedures and Memory for AI Coding Agents");
-  console.log(
-    "  Enable multi-hour autonomous coding sessions with the Ralph Wiggum\n" +
-      "  Method using research, plan, implement methodology.\n"
+  log.message(
+    "Enable multi-hour autonomous coding sessions with the Ralph Wiggum\nMethod using research, plan, implement methodology."
   );
 
   // Select agent

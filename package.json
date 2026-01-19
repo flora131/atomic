@@ -35,10 +35,13 @@
     "dev": "bun run src/index.ts",
     "build": "bun build src/index.ts --compile --outfile atomic",
     "test": "bun test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint --config=oxlint.json src",
+    "lint:fix": "oxlint --config=oxlint.json --fix src"
   },
   "devDependencies": {
     "@types/bun": "^1.3.6",
+    "oxlint": "^1.39.0",
     "typescript": "^5"
   },
   "dependencies": {

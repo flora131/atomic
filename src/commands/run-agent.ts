@@ -6,6 +6,16 @@ import { AGENT_CONFIG, isValidAgent, type AgentKey } from "../config";
 import { isCommandInstalled } from "../utils/detect";
 
 /**
+ * Sanitize user input for safe display in error messages
+ * Prevents log injection via ANSI escape sequences or control characters
+ */
+function sanitizeForDisplay(input: string): string {
+  // Remove ANSI escape sequences and control characters
+  // eslint-disable-next-line no-control-regex
+  return input.replace(/[\x00-\x1F\x7F]/g, "").slice(0, 50);
+}
+
+/**
  * Run a specific agent by key
  *
  * @param agentKey The agent key (e.g., "claude-code", "opencode", "copilot-cli")
@@ -15,7 +25,8 @@ export async function runAgentCommand(agentKey: string): Promise<number> {
   // Validate agent key
   if (!isValidAgent(agentKey)) {
     const validKeys = Object.keys(AGENT_CONFIG).join(", ");
-    console.error(`Error: Unknown agent '${agentKey}'`);
+    const sanitizedKey = sanitizeForDisplay(agentKey);
+    console.error(`Error: Unknown agent '${sanitizedKey}'`);
     console.error(`Valid agents: ${validKeys}`);
     return 1;
   }

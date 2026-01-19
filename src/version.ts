@@ -1,5 +1,6 @@
 /**
- * Version constant - automatically updated from package.json
- * This is the source of truth for the CLI version.
+ * Version - read from package.json
  */
-export const VERSION = "1.0.0";
+import packageJson from "../package.json";
+
+export const VERSION = packageJson.version;

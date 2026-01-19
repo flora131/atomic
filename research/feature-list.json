@@ -197,7 +197,7 @@
       "Consider terminal width when deciding to show spirit (gemini-cli uses width-based selection)",
       "Test banner displays both logo AND spirit side-by-side in common terminals"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -208,7 +208,7 @@
       "Update displayBanner to check supportsColor() before showing colored spirit",
       "This is a standard convention (see https://no-color.org/)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -220,7 +220,7 @@
       "Only show spirit side-by-side if terminal is wide enough for both",
       "Fall back to logo-only or tiny logo on narrow terminals"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -233,7 +233,7 @@
       "Export LOGO and SPIRIT as string constants",
       "Commit the generated file to the repo (it should not be regenerated at runtime)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -248,7 +248,7 @@
       "Remove html-to-ansi import from banner.ts (only used for pre-computation)",
       "Verify banner displays correctly with zero file I/O at runtime"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -258,7 +258,7 @@
       "Change hint from `Configures ${AGENT_CONFIG[key].folder}` to `config.install_url.replace('https://', '')`",
       "Verify hints display correctly in select prompt (e.g., 'docs.anthropic.com/en/docs/claude-code/setup')"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -269,7 +269,7 @@
       "Add '.DS_Store' to copilot-cli exclude array",
       "Verify exclusions work correctly during copy operation"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -280,7 +280,7 @@
       "Keep the isWindows() check as prerequisite",
       "Update corresponding unit test in tests/detect.test.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -291,7 +291,7 @@
       "Add inactive: 'No, cancel' option per spec",
       "Keep initialValue: false for safer default"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -304,7 +304,7 @@
       "Alternatively, use import pkgJson from '../package.json' if Bun supports it",
       "Verify --version displays correct version from package.json"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -315,6 +315,6 @@
       "Update displayLogoOnly signature similarly",
       "Verify init command still displays banner correctly"
     ],
-    "passes": false
+    "passes": true
   }
 ]

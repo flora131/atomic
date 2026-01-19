@@ -76,21 +76,37 @@ export function getOppositeScriptExtension(): string {
 export function isWslInstalled(): boolean {
   if (!isWindows()) return false;
 
-  const result = Bun.spawnSync({
-    cmd: ["wsl", "--status"],
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+  return Bun.which("wsl") !== null;
+}
 
-  return result.success;
+/**
+ * Check if colors are enabled (respects NO_COLOR standard)
+ * See: https://no-color.org/
+ */
+export function supportsColor(): boolean {
+  // NO_COLOR standard: if set (any value), disable colors
+  if (process.env.NO_COLOR !== undefined) {
+    return false;
+  }
+  return true;
 }
 
 /**
  * Check if the terminal supports true color (24-bit)
+ *
+ * Following gemini-cli pattern: default to true for modern terminals,
+ * only disable when NO_COLOR is set. Most terminals today support
+ * true color even without COLORTERM being explicitly set.
  */
 export function supportsTrueColor(): boolean {
-  const colorTerm = process.env.COLORTERM;
-  return colorTerm === "truecolor" || colorTerm === "24bit";
+  // Respect NO_COLOR standard first
+  if (!supportsColor()) {
+    return false;
+  }
+
+  // Default to true - most modern terminals support true color
+  // Only explicit indicators are used as hints, not requirements
+  return true;
 }
 
 /**

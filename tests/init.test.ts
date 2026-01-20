@@ -40,13 +40,13 @@ describe("initCommand with preSelectedAgent", () => {
 
   describe("preSelectedAgent validation", () => {
     test("valid preSelectedAgent skips select prompt", async () => {
-      // We test that isValidAgent('claude-code') returns true
+      // We test that isValidAgent('claude') returns true
       // and the agent info is retrievable
       const { isValidAgent, AGENT_CONFIG } = await import("../src/config");
 
-      expect(isValidAgent("claude-code")).toBe(true);
-      expect(AGENT_CONFIG["claude-code"].name).toBe("Claude Code");
-      expect(AGENT_CONFIG["claude-code"].folder).toBe(".claude");
+      expect(isValidAgent("claude")).toBe(true);
+      expect(AGENT_CONFIG["claude"].name).toBe("Claude Code");
+      expect(AGENT_CONFIG["claude"].folder).toBe(".claude");
     });
 
     test("invalid preSelectedAgent causes exit", async () => {
@@ -72,16 +72,16 @@ describe("initCommand with preSelectedAgent", () => {
       // This test verifies the TypeScript interface accepts the new field
       // by importing and checking the types at runtime
       const { AGENT_CONFIG } = await import("../src/config");
-      type AgentKey = "claude-code" | "opencode" | "copilot-cli";
+      type AgentKey = "claude" | "opencode" | "copilot";
 
       // Valid InitOptions structures
       const validOptions = [
         { showBanner: true },
         { showBanner: false },
-        { preSelectedAgent: "claude-code" as AgentKey },
+        { preSelectedAgent: "claude" as AgentKey },
         { preSelectedAgent: "opencode" as AgentKey },
-        { preSelectedAgent: "copilot-cli" as AgentKey },
-        { showBanner: false, preSelectedAgent: "claude-code" as AgentKey },
+        { preSelectedAgent: "copilot" as AgentKey },
+        { showBanner: false, preSelectedAgent: "claude" as AgentKey },
         {},
       ];
 
@@ -92,14 +92,14 @@ describe("initCommand with preSelectedAgent", () => {
     });
 
     test("InitOptions accepts configNotFoundMessage field", async () => {
-      type AgentKey = "claude-code" | "opencode" | "copilot-cli";
+      type AgentKey = "claude" | "opencode" | "copilot";
 
       // Valid InitOptions structures with configNotFoundMessage
       const validOptions = [
         { configNotFoundMessage: ".claude not found. Running setup..." },
         { showBanner: true, configNotFoundMessage: ".claude not found. Running setup..." },
-        { preSelectedAgent: "claude-code" as AgentKey, configNotFoundMessage: ".claude not found. Running setup..." },
-        { showBanner: true, preSelectedAgent: "claude-code" as AgentKey, configNotFoundMessage: ".claude not found. Running setup..." },
+        { preSelectedAgent: "claude" as AgentKey, configNotFoundMessage: ".claude not found. Running setup..." },
+        { showBanner: true, preSelectedAgent: "claude" as AgentKey, configNotFoundMessage: ".claude not found. Running setup..." },
         {}, // configNotFoundMessage is optional
       ];
 
@@ -110,16 +110,16 @@ describe("initCommand with preSelectedAgent", () => {
     });
 
     test("InitOptions accepts force field", async () => {
-      type AgentKey = "claude-code" | "opencode" | "copilot-cli";
+      type AgentKey = "claude" | "opencode" | "copilot";
 
       // Valid InitOptions structures with force
       const validOptions = [
         { force: true },
         { force: false },
         { showBanner: true, force: true },
-        { preSelectedAgent: "claude-code" as AgentKey, force: true },
-        { showBanner: true, preSelectedAgent: "claude-code" as AgentKey, force: true },
-        { showBanner: true, preSelectedAgent: "claude-code" as AgentKey, configNotFoundMessage: "msg", force: true },
+        { preSelectedAgent: "claude" as AgentKey, force: true },
+        { showBanner: true, preSelectedAgent: "claude" as AgentKey, force: true },
+        { showBanner: true, preSelectedAgent: "claude" as AgentKey, configNotFoundMessage: "msg", force: true },
         {}, // force is optional
       ];
 
@@ -131,10 +131,10 @@ describe("initCommand with preSelectedAgent", () => {
   });
 
   describe("agent config lookup with preSelectedAgent", () => {
-    test("can retrieve config for claude-code", async () => {
+    test("can retrieve config for claude", async () => {
       const { AGENT_CONFIG } = await import("../src/config");
 
-      const agent = AGENT_CONFIG["claude-code"];
+      const agent = AGENT_CONFIG["claude"];
       expect(agent.name).toBe("Claude Code");
       expect(agent.folder).toBe(".claude");
       expect(agent.cmd).toBe("claude");
@@ -149,10 +149,10 @@ describe("initCommand with preSelectedAgent", () => {
       expect(agent.cmd).toBe("opencode");
     });
 
-    test("can retrieve config for copilot-cli", async () => {
+    test("can retrieve config for copilot", async () => {
       const { AGENT_CONFIG } = await import("../src/config");
 
-      const agent = AGENT_CONFIG["copilot-cli"];
+      const agent = AGENT_CONFIG["copilot"];
       expect(agent.name).toBe("GitHub Copilot CLI");
       expect(agent.folder).toBe(".github");
       expect(agent.cmd).toBe("copilot");
@@ -171,10 +171,10 @@ describe("initCommand preSelectedAgent flow logic", () => {
 
   test("preSelectedAgent flow: valid agent should skip selection", () => {
     const { isValidAgent, AGENT_CONFIG } = require("../src/config");
-    type AgentKey = "claude-code" | "opencode" | "copilot-cli";
+    type AgentKey = "claude" | "opencode" | "copilot";
 
     // Simulate the logic in initCommand
-    const preSelectedAgent = "claude-code" as const;
+    const preSelectedAgent = "claude" as const;
 
     let agentKey: string;
     let shouldCallSelect = true;
@@ -193,7 +193,7 @@ describe("initCommand preSelectedAgent flow logic", () => {
     }
 
     expect(shouldCallSelect).toBe(false);
-    expect(agentKey).toBe("claude-code");
+    expect(agentKey).toBe("claude");
     expect(AGENT_CONFIG[agentKey as AgentKey].name).toBe("Claude Code");
   });
 

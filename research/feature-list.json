@@ -70,7 +70,7 @@
       "Replace all occurrences of 'copilot-cli' with 'copilot'",
       "Run bun test tests/init.test.ts to verify tests pass"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

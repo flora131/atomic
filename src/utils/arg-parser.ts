@@ -123,8 +123,13 @@ export function extractAgentArgs(args: string[]): string[] {
  * // => false (not init mode)
  */
 export function isInitWithSeparator(args: string[]): boolean {
-  const hasInit = args.includes("init");
-  const hasSeparator = args.includes("--");
+  // Only check for init before the -- separator, since init after
+  // the separator is an argument for the agent, not a command
+  const separatorIndex = args.indexOf("--");
+  const argsBeforeSeparator = separatorIndex === -1 ? args : args.slice(0, separatorIndex);
+
+  const hasInit = argsBeforeSeparator.includes("init");
+  const hasSeparator = separatorIndex !== -1;
   return hasInit && hasSeparator;
 }
 

@@ -7,9 +7,5 @@
     "no-unused-vars": "warn",
     "no-control-regex": "off"
   },
-  "ignorePatterns": [
-    "node_modules",
-    "dist",
-    "*.test.ts"
-  ]
+  "ignorePatterns": ["node_modules", "dist", "*.test.ts"]
 }

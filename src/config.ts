@@ -26,7 +26,7 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
   "claude-code": {
     name: "Claude Code",
     cmd: "claude",
-    additional_flags: ["--dangerously-skip-permissions"],
+    additional_flags: [],
     folder: ".claude",
     install_url: "https://docs.anthropic.com/en/docs/claude-code/setup",
     exclude: [".DS_Store"],

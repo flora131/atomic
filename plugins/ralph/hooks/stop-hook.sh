@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Ralph Wiggum Stop Hook
+# Ralph Loop Stop Hook
 # Prevents session exit when a ralph-loop is active
 # Feeds Claude's output back as input to continue the loop
 
@@ -68,8 +68,7 @@ test_all_features_passing() {
     # Parse JSON and count features
     local total_features passing_features failing_features
 
-    total_features=$(jq 'length' "$path" 2>/dev/null)
-    if [[ $? -ne 0 || -z "$total_features" ]]; then
+    if ! total_features=$(jq 'length' "$path" 2>/dev/null) || [[ -z "$total_features" ]]; then
         echo "ERROR: Failed to parse research/feature-list.json" >&2
         return 1
     fi
@@ -79,15 +78,14 @@ test_all_features_passing() {
         return 1
     fi
 
-    passing_features=$(jq '[.[] | select(.passes == true)] | length' "$path" 2>/dev/null)
-    if [[ $? -ne 0 ]]; then
-        echo "ERROR: Failed to parse research/feature-list.json: $?" >&2
+    if ! passing_features=$(jq '[.[] | select(.passes == true)] | length' "$path" 2>/dev/null); then
+        echo "ERROR: Failed to parse research/feature-list.json" >&2
         return 1
     fi
 
     failing_features=$((total_features - passing_features))
 
-    echo "Feature Progress: $passing_features / $total_features passing ($failing_features remaining)"
+    echo "Feature Progress: $passing_features / $total_features passing ($failing_features remaining)" >&2
 
     if [[ "$failing_features" -eq 0 ]]; then
         return 0
@@ -97,7 +95,7 @@ test_all_features_passing() {
 }
 
 if [[ "$MAX_ITERATIONS" -eq 0 ]] && test_all_features_passing "$FEATURE_LIST_PATH"; then
-    echo "✅ All features passing! Exiting loop."
+    echo "✅ All features passing! Exiting loop." >&2
     rm "$RALPH_STATE_FILE"
     exit 0
 fi
@@ -207,7 +205,7 @@ mv "$TEMP_FILE" "$RALPH_STATE_FILE"
 if [[ "$COMPLETION_PROMISE" != "null" ]] && [[ -n "$COMPLETION_PROMISE" ]]; then
   SYSTEM_MSG="🔄 Ralph iteration $NEXT_ITERATION | To stop: output <promise>$COMPLETION_PROMISE</promise> (ONLY when statement is TRUE - do not lie to exit!)"
 else
-  SYSTEM_MSG="🔄 Ralph iteration $NEXT_ITERATION"
+  SYSTEM_MSG="🔄 Ralph iteration $NEXT_ITERATION | No completion promise set - loop runs infinitely"
 fi
 
 # Output JSON to block the stop and feed prompt back

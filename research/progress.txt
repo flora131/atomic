@@ -1,19 +1,18 @@
-Feature implementation progress for init-config-merge-behavior spec
+# CLI Agent Rename Feature - Progress Log
 
-Completed:
-- [x] Add preserve_files and merge_files fields to AgentConfig interface (src/config.ts)
-- [x] Update AGENT_CONFIG with preserve_files and merge_files for each agent (src/config.ts)
-- [x] Create src/utils/merge.ts with mergeJsonFile function
-- [x] Add force option to InitOptions interface (src/commands/init.ts)
-- [x] Implement copyDirPreserving function for preserving folder copy
-- [x] Modify init command to skip preserved files if they exist
-- [x] Add --force/-f flag to argument parser (src/index.ts)
-- [x] Add hasForceFlag function to arg-parser.ts
-- [x] Update run-agent.ts to pass force option to initCommand
-- [x] Write unit tests for preserve_files, merge_files, and force flag
-- [x] All tests pass (168 tests)
-- [x] TypeScript type checking passes
-- [x] Lint passes
+## Iteration 1 - 2026-01-20
 
-Remaining (optional enhancements from spec):
-- [ ] Integration/E2E tests for actual file preservation behavior
+### Completed
+- Feature 1: "Rename agent keys in AGENT_KEYS and AGENT_CONFIG (source of truth)"
+  - Updated AGENT_KEYS from ['claude-code', 'opencode', 'copilot-cli'] to ['claude', 'opencode', 'copilot']
+  - Renamed 'claude-code' config key to 'claude' in AGENT_CONFIG
+  - Renamed 'copilot-cli' config key to 'copilot' in AGENT_CONFIG
+  - Verified AgentKey type is automatically updated to 'claude' | 'opencode' | 'copilot'
+  - Ran typecheck - type errors in test files confirm type propagation is working correctly
+
+### Status
+- Feature 1/14 completed
+- Next: Update help text examples in src/index.ts
+
+### Notes
+- Type errors in test files are expected - they reference old agent names and will be updated in subsequent features

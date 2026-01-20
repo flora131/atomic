@@ -22,6 +22,7 @@ import {
   isAgentRunMode,
   isInitWithSeparator,
 } from "./utils/arg-parser";
+import { COLORS } from "./utils/colors";
 import { VERSION } from "./version";
 
 /**
@@ -73,12 +74,7 @@ async function main(): Promise<void> {
       const agentName = extractAgentName(rawArgs) || "<agent>";
       const agentArgs = extractAgentArgs(rawArgs);
 
-      // ANSI codes for formatting
-      const bold = "\x1b[1m";
-      const dim = "\x1b[2m";
-      const reset = "\x1b[0m";
-      const green = "\x1b[32m";
-      const yellow = "\x1b[33m";
+      const { bold, dim, reset, green, yellow } = COLORS;
 
       console.error(`${yellow}Error: 'init' command does not support passing arguments to the agent.${reset}`);
       console.error("");
@@ -112,12 +108,7 @@ async function main(): Promise<void> {
       // but are missing the required `--` separator
       const suspiciousArgs = detectMissingSeparatorArgs(rawArgs);
       if (suspiciousArgs.length > 0) {
-        // ANSI codes for formatting
-        const bold = "\x1b[1m";
-        const dim = "\x1b[2m";
-        const reset = "\x1b[0m";
-        const green = "\x1b[32m";
-        const yellow = "\x1b[33m";
+        const { bold, dim, reset, green, yellow } = COLORS;
 
         console.error(`${yellow}Error: Missing '--' separator before agent arguments.${reset}`);
         console.error("");

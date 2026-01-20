@@ -138,7 +138,7 @@
       "Replace all CLI examples using 'copilot-cli' with 'copilot'",
       "Verify documentation examples are consistent"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

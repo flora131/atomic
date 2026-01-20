@@ -1,4 +1,4 @@
-import { test, expect, describe, mock, beforeEach, afterEach, spyOn } from "bun:test";
+import { test, expect, describe, mock, beforeEach, afterEach } from "bun:test";
 
 /**
  * Unit tests for CLI display ordering
@@ -8,7 +8,14 @@ import { test, expect, describe, mock, beforeEach, afterEach, spyOn } from "bun:
  * 2. Intro text
  * 3. configNotFoundMessage (when provided)
  * 4. "Configuring..." message
+ *
+ * Note: Tests use a cancel pattern to exit initCommand before file copying
+ * to avoid modifying the actual filesystem.
  */
+
+// Special symbol to indicate cancellation (mimics @clack/prompts behavior)
+const CANCEL_SYMBOL = Symbol("cancel");
+
 describe("initCommand display ordering", () => {
   // Track call order
   let callOrder: string[];
@@ -29,8 +36,8 @@ describe("initCommand display ordering", () => {
   });
 
   afterEach(() => {
-    process.stdout.columns = originalStdoutColumns;
-    process.stdout.rows = originalStdoutRows;
+    process.stdout.columns = originalStdoutColumns as number;
+    process.stdout.rows = originalStdoutRows as number;
     process.exit = originalProcessExit;
     mock.restore();
   });
@@ -40,7 +47,7 @@ describe("initCommand display ordering", () => {
       // Track log.info calls to verify message order
       const logInfoCalls: string[] = [];
 
-      // Mock @clack/prompts
+      // Mock @clack/prompts - confirm returns cancel to exit before file copying
       mock.module("@clack/prompts", () => ({
         intro: (msg: string) => {
           callOrder.push("intro");
@@ -55,13 +62,15 @@ describe("initCommand display ordering", () => {
           },
         },
         select: async () => "claude-code",
-        confirm: async () => true,
+        confirm: async () => CANCEL_SYMBOL, // Return cancel to exit before file operations
         spinner: () => ({
           start: () => {},
           stop: () => {},
         }),
-        isCancel: () => false,
-        cancel: () => {},
+        isCancel: (value: unknown) => value === CANCEL_SYMBOL,
+        cancel: () => {
+          callOrder.push("cancel");
+        },
         note: () => {},
         outro: () => {},
       }));
@@ -122,12 +131,12 @@ describe("initCommand display ordering", () => {
           },
         },
         select: async () => "claude-code",
-        confirm: async () => true,
+        confirm: async () => CANCEL_SYMBOL,
         spinner: () => ({
           start: () => {},
           stop: () => {},
         }),
-        isCancel: () => false,
+        isCancel: (value: unknown) => value === CANCEL_SYMBOL,
         cancel: () => {},
         note: () => {},
         outro: () => {},
@@ -176,12 +185,12 @@ describe("initCommand display ordering", () => {
           info: () => {},
         },
         select: async () => "claude-code",
-        confirm: async () => true,
+        confirm: async () => CANCEL_SYMBOL,
         spinner: () => ({
           start: () => {},
           stop: () => {},
         }),
-        isCancel: () => false,
+        isCancel: (value: unknown) => value === CANCEL_SYMBOL,
         cancel: () => {},
         note: () => {},
         outro: () => {},
@@ -218,12 +227,12 @@ describe("initCommand display ordering", () => {
           info: () => {},
         },
         select: async () => "claude-code",
-        confirm: async () => true,
+        confirm: async () => CANCEL_SYMBOL,
         spinner: () => ({
           start: () => {},
           stop: () => {},
         }),
-        isCancel: () => false,
+        isCancel: (value: unknown) => value === CANCEL_SYMBOL,
         cancel: () => {},
         note: () => {},
         outro: () => {},
@@ -259,12 +268,12 @@ describe("initCommand display ordering", () => {
           info: () => {},
         },
         select: async () => "claude-code",
-        confirm: async () => true,
+        confirm: async () => CANCEL_SYMBOL,
         spinner: () => ({
           start: () => {},
           stop: () => {},
         }),
-        isCancel: () => false,
+        isCancel: (value: unknown) => value === CANCEL_SYMBOL,
         cancel: () => {},
         note: () => {},
         outro: () => {},
@@ -311,12 +320,12 @@ describe("initCommand display ordering", () => {
           },
         },
         select: async () => "claude-code",
-        confirm: async () => true,
+        confirm: async () => CANCEL_SYMBOL,
         spinner: () => ({
           start: () => {},
           stop: () => {},
         }),
-        isCancel: () => false,
+        isCancel: (value: unknown) => value === CANCEL_SYMBOL,
         cancel: () => {},
         note: () => {},
         outro: () => {},

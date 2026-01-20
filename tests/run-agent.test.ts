@@ -44,9 +44,9 @@ describe("runAgentCommand", () => {
   test("lists valid agents in error message", async () => {
     await runAgentCommand("invalid");
     const allOutput = consoleErrorCalls.flat().join(" ");
-    expect(allOutput).toContain("claude-code");
+    expect(allOutput).toContain("claude");
     expect(allOutput).toContain("opencode");
-    expect(allOutput).toContain("copilot-cli");
+    expect(allOutput).toContain("copilot");
   });
 });
 
@@ -60,8 +60,8 @@ describe("runAgentCommand", () => {
  */
 describe("runAgentCommand auto-init behavior", () => {
   describe("config folder path construction", () => {
-    test("claude-code uses .claude folder", () => {
-      const agent = AGENT_CONFIG["claude-code"];
+    test("claude uses .claude folder", () => {
+      const agent = AGENT_CONFIG["claude"];
       const configFolder = join(process.cwd(), agent.folder);
 
       expect(agent.folder).toBe(".claude");
@@ -76,8 +76,8 @@ describe("runAgentCommand auto-init behavior", () => {
       expect(configFolder).toContain(".opencode");
     });
 
-    test("copilot-cli uses .github folder", () => {
-      const agent = AGENT_CONFIG["copilot-cli"];
+    test("copilot uses .github folder", () => {
+      const agent = AGENT_CONFIG["copilot"];
       const configFolder = join(process.cwd(), agent.folder);
 
       expect(agent.folder).toBe(".github");
@@ -100,7 +100,7 @@ describe("runAgentCommand auto-init behavior", () => {
 
     test("should trigger init when folder does not exist (logic check)", async () => {
       // Simulate the logic flow
-      const agentKey = "claude-code";
+      const agentKey = "claude";
       const agent = AGENT_CONFIG[agentKey];
 
       // Simulate pathExists returning false
@@ -122,7 +122,7 @@ describe("runAgentCommand auto-init behavior", () => {
 
       expect(initCalled).toBe(true);
       expect(initArgs).toEqual({
-        preSelectedAgent: "claude-code",
+        preSelectedAgent: "claude",
         showBanner: true,
         configNotFoundMessage: ".claude not found. Running setup...",
       });
@@ -130,7 +130,7 @@ describe("runAgentCommand auto-init behavior", () => {
 
     test("should skip init when folder exists (logic check)", async () => {
       // Simulate the logic flow
-      const agentKey = "claude-code";
+      const agentKey = "claude";
 
       // Simulate pathExists returning true
       const folderExists = true;
@@ -189,7 +189,7 @@ describe("runAgentCommand auto-init behavior", () => {
     });
 
     test("valid agent proceeds to folder check", () => {
-      const validKeys: AgentKey[] = ["claude-code", "opencode", "copilot-cli"];
+      const validKeys: AgentKey[] = ["claude", "opencode", "copilot"];
 
       for (const key of validKeys) {
         expect(isValidAgent(key)).toBe(true);

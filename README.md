@@ -116,13 +116,13 @@ Research → Plan (Spec) → Implement (Ralph) → (Debug) → PR
 
 ```bash
 # for claude-code
-atomic --agent claude -- /research-codebase "Describe your feature or question"
+atomic --agent claude-code -- /research-codebase "Describe your feature or question"
 
 # for opencode
 atomic --agent opencode -- /research-codebase "Describe your feature or question"
 
 # for copilot
-atomic --agent copilot -- --agent research-codebase "Describe your feature or question"
+atomic --agent copilot-cli -- --agent research-codebase "Describe your feature or question"
 ```
 
 ```bash
@@ -136,13 +136,13 @@ atomic --agent copilot -- --agent research-codebase "Describe your feature or qu
 
 ```bash
 # for claude-code
-atomic --agent claude -- /create-spec [research-path]
+atomic --agent claude-code -- /create-spec [research-path]
 
 # for opencode
 atomic --agent opencode -- /create-spec [research-path]
 
 # for copilot
-atomic --agent copilot -- --agent create-spec [research-path]
+atomic --agent copilot-cli -- --agent create-spec [research-path]
 ```
 
 ```bash
@@ -156,13 +156,13 @@ atomic --agent copilot -- --agent create-spec [research-path]
 
 ```bash
 # for claude-code
-atomic --agent claude -- /create-feature-list [spec-path]
+atomic --agent claude-code -- /create-feature-list [spec-path]
 
 # for opencode
 atomic --agent opencode -- /create-feature-list [spec-path]
 
 # for copilot
-atomic --agent copilot -- --agent create-feature-list [spec-path]
+atomic --agent copilot-cli -- --agent create-feature-list [spec-path]
 ```
 
 ```bash
@@ -182,13 +182,13 @@ atomic --agent copilot -- --agent create-feature-list [spec-path]
 
 ```bash
 # for claude-code
-atomic --agent claude -- /implement-feature
+atomic --agent claude-code -- /implement-feature
 
 # for opencode
 atomic --agent opencode -- /implement-feature
 
 # for copilot
-atomic --agent copilot -- --agent implement-feature
+atomic --agent copilot-cli -- --agent implement-feature
 ```
 
 ```bash
@@ -228,39 +228,39 @@ First, generate a debugging report:
 
 ```bash
 # for claude-code
-atomic --agent claude -- "Use the debugging agent to create a debugging report for [insert error message here]."
+atomic --agent claude-code -- "Use the debugging agent to create a debugging report for [insert error message here]."
 
 # for opencode
 atomic --agent opencode -- "Use the debugging agent to create a debugging report for [insert error message here]."
 
 # for copilot
-atomic --agent copilot -- "Use the debugging agent to create a debugging report for [insert error message here]."
+atomic --agent copilot-cli -- "Use the debugging agent to create a debugging report for [insert error message here]."
 ```
 
 Then, use the debugging report to guide your agent:
 
 ```bash
 # for claude-code
-atomic --agent claude -- "Follow the debugging report above to resolve the issue."
+atomic --agent claude-code -- "Follow the debugging report above to resolve the issue."
 
 # for opencode
 atomic --agent opencode -- "Follow the debugging report above to resolve the issue."
 
 # for copilot
-atomic --agent copilot -- "Follow the debugging report above to resolve the issue."
+atomic --agent copilot-cli -- "Follow the debugging report above to resolve the issue."
 ```
 
 ### 6. Create Pull Request
 
 ```bash
 # for claude-code
-atomic --agent claude -- /create-gh-pr
+atomic --agent claude-code -- /create-gh-pr
 
 # for opencode
 atomic --agent opencode -- /create-gh-pr
 
 # for copilot
-atomic --agent copilot -- --agent create-gh-pr
+atomic --agent copilot-cli -- --agent create-gh-pr
 ```
 
 ---
@@ -313,13 +313,13 @@ Domain knowledge applied during work. These are automatically invoked when relev
 
 | Agent              | CLI Command               | Folder       | Context File |
 | ------------------ | ------------------------- | ------------ | ------------ |
-| Claude Code        | `atomic --agent claude`   | `.claude/`   | `CLAUDE.md`  |
+| Claude Code        | `atomic --agent claude-code`   | `.claude/`   | `CLAUDE.md`  |
 | OpenCode           | `atomic --agent opencode` | `.opencode/` | `AGENTS.md`  |
-| GitHub Copilot CLI | `atomic --agent copilot`  | `.github/`   | `AGENTS.md`  |
+| GitHub Copilot CLI | `atomic --agent copilot-cli`  | `.github/`   | `AGENTS.md`  |
 
 > **Note:** Use `--` to separate atomic flags from agent arguments. Everything after `--` is passed directly to the agent:
 > ```bash
-> atomic --agent claude -- /research-codebase "question"
+> atomic --agent claude-code -- /research-codebase "question"
 > atomic -a opencode -- --resume
 > ```
 

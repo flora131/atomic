@@ -119,7 +119,7 @@ Research → Plan (Spec) → Implement (Ralph) → (Debug) → PR
 atomic --agent claude -- /research-codebase "Describe your feature or question"
 
 # for opencode
-atomic --agent opencode -- /research-codebase "Describe your feature or question"
+atomic --agent opencode -- run --command research-codebase "Describe your feature or question"
 
 # for copilot
 atomic --agent copilot -- --agent research-codebase -i "Describe your feature or question"
@@ -139,7 +139,7 @@ atomic --agent copilot -- --agent research-codebase -i "Describe your feature or
 atomic --agent claude -- /create-spec [research-path]
 
 # for opencode
-atomic --agent opencode -- /create-spec [research-path]
+atomic --agent opencode -- run --command create-spec [research-path]
 
 # for copilot
 atomic --agent copilot -- --agent create-spec -i [research-path]
@@ -159,7 +159,7 @@ atomic --agent copilot -- --agent create-spec -i [research-path]
 atomic --agent claude -- /create-feature-list [spec-path]
 
 # for opencode
-atomic --agent opencode -- /create-feature-list [spec-path]
+atomic --agent opencode -- run --command create-feature-list [spec-path]
 
 # for copilot
 atomic --agent copilot -- --agent create-feature-list -i [spec-path]
@@ -185,7 +185,7 @@ atomic --agent copilot -- --agent create-feature-list -i [spec-path]
 atomic --agent claude -- /implement-feature
 
 # for opencode
-atomic --agent opencode -- /implement-feature
+atomic --agent opencode -- run --command implement-feature
 
 # for copilot
 atomic --agent copilot -- --agent implement-feature -i "Create a implementation feature-list.json and progress.txt"
@@ -212,7 +212,7 @@ Or, use `/ralph:ralph-loop` for autonomous mode to enable multi-hour autonomous 
 atomic --agent claude -- /ralph:ralph-loop
 
 # for opencode
-atomic --agent opencode -- /ralph-loop
+atomic --agent opencode -- run --command ralph-loop
 
 # for copilot
 atomic --agent copilot -- --agent ralph-loop -i "Start implementing the feature..."
@@ -250,7 +250,7 @@ Then, use the debugging report to guide your agent in the CLI:
 atomic --agent claude -- /create-gh-pr
 
 # for opencode
-atomic --agent opencode -- /create-gh-pr
+atomic --agent opencode -- run --command create-gh-pr
 
 # for copilot
 atomic --agent copilot -- --agent create-gh-pr -i "Create a pull request for the current branch."

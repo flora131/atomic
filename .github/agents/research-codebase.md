@@ -103,9 +103,9 @@ research/
      ---
      date: !`date '+%Y-%m-%d %H:%M:%S %Z'`
      researcher: [Researcher name from thoughts status]
-     git_commit: !`git rev-parse HEAD`
-     branch: !`git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD`
-     repository: !`basename $(git rev-parse --show-toplevel)`
+     git_commit: !`git rev-parse --verify HEAD 2>/dev/null || echo "no-commits"`
+     branch: !`git branch --show-current 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unborn"`
+     repository: !`basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown-repo"`
      topic: "[User's Question/Topic]"
      tags: [research, codebase, relevant-component-names]
      status: complete

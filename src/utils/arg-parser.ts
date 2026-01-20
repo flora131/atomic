@@ -97,3 +97,112 @@ export function extractAgentArgs(args: string[]): string[] {
 
   return [];
 }
+
+/**
+ * Check if the init command is being used with a `--` separator.
+ * This is invalid because init doesn't support passing args to the agent.
+ *
+ * @param args - Raw CLI arguments
+ * @returns true if init is used with -- separator
+ *
+ * @example
+ * isInitWithSeparator(["init", "-a", "claude-code", "--", "/commit"])
+ * // => true (invalid usage)
+ *
+ * @example
+ * isInitWithSeparator(["init", "-a", "claude-code"])
+ * // => false (valid usage)
+ *
+ * @example
+ * isInitWithSeparator(["-a", "claude-code", "--", "/commit"])
+ * // => false (not init mode)
+ */
+export function isInitWithSeparator(args: string[]): boolean {
+  const hasInit = args.includes("init");
+  const hasSeparator = args.includes("--");
+  return hasInit && hasSeparator;
+}
+
+/**
+ * Detect arguments that look like they were intended for the agent
+ * but are missing the `--` separator.
+ *
+ * This helps provide a helpful error message when users forget the separator.
+ *
+ * @param args - Raw CLI arguments
+ * @returns Array of suspicious arguments that might be intended for the agent
+ *
+ * @example
+ * detectMissingSeparatorArgs(["-a", "claude-code", "/commit"])
+ * // => ["/commit"] (slash command without separator)
+ *
+ * @example
+ * detectMissingSeparatorArgs(["-a", "claude-code", "fix the bug"])
+ * // => ["fix the bug"] (prompt without separator)
+ *
+ * @example
+ * detectMissingSeparatorArgs(["-a", "claude-code", "--", "/commit"])
+ * // => [] (separator present, no issue)
+ */
+export function detectMissingSeparatorArgs(args: string[]): string[] {
+  const separatorIndex = args.indexOf("--");
+
+  // If separator exists, no problem
+  if (separatorIndex !== -1) {
+    return [];
+  }
+
+  const suspiciousArgs: string[] = [];
+  let foundAgentValue = false;
+  let skipNext = false;
+
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === undefined) continue;
+
+    // Skip the value after -a or --agent
+    if (skipNext) {
+      skipNext = false;
+      foundAgentValue = true;
+      continue;
+    }
+
+    // Track when we've passed the agent flag and its value
+    if (arg === "-a" || arg === "--agent") {
+      skipNext = true;
+      continue;
+    }
+
+    // Handle --agent=value or -a=value
+    if (arg.startsWith("--agent=") || arg.startsWith("-a=")) {
+      foundAgentValue = true;
+      continue;
+    }
+
+    // Skip known atomic flags
+    if (arg === "-v" || arg === "--version" || arg === "-h" || arg === "--help" || arg === "--no-banner") {
+      continue;
+    }
+
+    // After we've found the agent value, anything else is suspicious
+    if (foundAgentValue) {
+      // Slash commands are very likely agent arguments
+      if (arg.startsWith("/")) {
+        suspiciousArgs.push(arg);
+        continue;
+      }
+
+      // Flags that aren't atomic's own flags
+      if (arg.startsWith("-")) {
+        suspiciousArgs.push(arg);
+        continue;
+      }
+
+      // Any other positional argument after the agent name
+      // is likely a prompt or argument for the agent
+      suspiciousArgs.push(arg);
+    }
+  }
+
+  return suspiciousArgs;
+}

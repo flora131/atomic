@@ -15,7 +15,13 @@ import { parseArgs } from "util";
 import { initCommand } from "./commands/init";
 import { runAgentCommand } from "./commands/run-agent";
 import { AGENT_CONFIG, type AgentKey } from "./config";
-import { extractAgentArgs, extractAgentName, isAgentRunMode } from "./utils/arg-parser";
+import {
+  detectMissingSeparatorArgs,
+  extractAgentArgs,
+  extractAgentName,
+  isAgentRunMode,
+  isInitWithSeparator,
+} from "./utils/arg-parser";
 import { VERSION } from "./version";
 
 /**
@@ -61,6 +67,35 @@ async function main(): Promise<void> {
   try {
     const rawArgs = Bun.argv.slice(2);
 
+    // FAIL FAST: Check for invalid usage of init with -- separator
+    // init doesn't support passing args to the agent; use run mode instead
+    if (isInitWithSeparator(rawArgs)) {
+      const agentName = extractAgentName(rawArgs) || "<agent>";
+      const agentArgs = extractAgentArgs(rawArgs);
+
+      // ANSI codes for formatting
+      const bold = "\x1b[1m";
+      const dim = "\x1b[2m";
+      const reset = "\x1b[0m";
+      const green = "\x1b[32m";
+      const yellow = "\x1b[33m";
+
+      console.error(`${yellow}Error: 'init' command does not support passing arguments to the agent.${reset}`);
+      console.error("");
+      console.error(`${dim}The 'init' command only sets up configuration files.${reset}`);
+      console.error(`${dim}To setup and run the agent with arguments, omit 'init':${reset}`);
+      console.error("");
+      if (agentArgs.length > 0) {
+        const quotedArgs = agentArgs.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" ");
+        console.error(`  ${bold}${green}atomic --agent ${agentName} -- ${quotedArgs}${reset}`);
+      } else {
+        console.error(`  ${bold}${green}atomic --agent ${agentName}${reset}`);
+      }
+      console.error("");
+      console.error(`${dim}This will auto-setup if needed, then run the agent with your arguments.${reset}`);
+      process.exit(1);
+    }
+
     // PRIORITY: If in agent run mode, pass all args after agent name to the agent
     // This ensures flags like --help, -v, etc. go to the agent, not atomic
     if (isAgentRunMode(rawArgs)) {
@@ -72,6 +107,31 @@ async function main(): Promise<void> {
         console.error("\nUsage: atomic --agent <name> [-- args...]");
         process.exit(1);
       }
+
+      // FAIL FAST: Check for arguments that look like they should go to the agent
+      // but are missing the required `--` separator
+      const suspiciousArgs = detectMissingSeparatorArgs(rawArgs);
+      if (suspiciousArgs.length > 0) {
+        // ANSI codes for formatting
+        const bold = "\x1b[1m";
+        const dim = "\x1b[2m";
+        const reset = "\x1b[0m";
+        const green = "\x1b[32m";
+        const yellow = "\x1b[33m";
+
+        console.error(`${yellow}Error: Missing '--' separator before agent arguments.${reset}`);
+        console.error("");
+        console.error(`${dim}It looks like you meant to pass arguments to the agent:${reset}`);
+        console.error(`  ${suspiciousArgs.map((a) => `"${a}"`).join(" ")}`);
+        console.error("");
+        console.error("Try this instead:");
+        const quotedArgs = suspiciousArgs.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" ");
+        console.error(`  ${bold}${green}atomic --agent ${agentName} -- ${quotedArgs}${reset}`);
+        console.error("");
+        console.error(`${dim}The '--' separator is required to distinguish atomic flags from agent arguments.${reset}`);
+        process.exit(1);
+      }
+
       const agentArgs = extractAgentArgs(rawArgs);
       const exitCode = await runAgentCommand(agentName, agentArgs);
       process.exit(exitCode);

@@ -1,9 +1,11 @@
 import { test, expect, describe } from "bun:test";
 import { parseArgs } from "util";
 import {
+  detectMissingSeparatorArgs,
   extractAgentArgs,
   extractAgentName,
   isAgentRunMode,
+  isInitWithSeparator,
 } from "../src/utils/arg-parser";
 
 /**
@@ -303,6 +305,123 @@ describe("Agent argument passthrough", () => {
 
     test("returns empty string for -a= with no value", () => {
       expect(extractAgentName(["-a="])).toBe("");
+    });
+  });
+
+  describe("detectMissingSeparatorArgs", () => {
+    test("returns empty array when -- separator is present", () => {
+      expect(
+        detectMissingSeparatorArgs(["-a", "claude-code", "--", "/commit"])
+      ).toEqual([]);
+      expect(
+        detectMissingSeparatorArgs(["-a", "claude-code", "--", "--help"])
+      ).toEqual([]);
+      expect(
+        detectMissingSeparatorArgs(["--agent", "opencode", "--", "--resume"])
+      ).toEqual([]);
+    });
+
+    test("detects slash commands without separator", () => {
+      expect(
+        detectMissingSeparatorArgs(["-a", "claude-code", "/commit"])
+      ).toEqual(["/commit"]);
+      expect(
+        detectMissingSeparatorArgs(["-a", "claude-code", "/research-codebase"])
+      ).toEqual(["/research-codebase"]);
+    });
+
+    test("detects flags without separator", () => {
+      expect(
+        detectMissingSeparatorArgs(["-a", "claude-code", "--resume"])
+      ).toEqual(["--resume"]);
+      expect(
+        detectMissingSeparatorArgs(["--agent", "opencode", "-p"])
+      ).toEqual(["-p"]);
+    });
+
+    test("detects prompts without separator", () => {
+      expect(
+        detectMissingSeparatorArgs(["-a", "claude-code", "fix the bug"])
+      ).toEqual(["fix the bug"]);
+    });
+
+    test("detects multiple args without separator", () => {
+      expect(
+        detectMissingSeparatorArgs([
+          "-a",
+          "claude-code",
+          "/research-codebase",
+          "my question",
+        ])
+      ).toEqual(["/research-codebase", "my question"]);
+    });
+
+    test("returns empty array when no args after agent name", () => {
+      expect(detectMissingSeparatorArgs(["-a", "claude-code"])).toEqual([]);
+      expect(detectMissingSeparatorArgs(["--agent", "opencode"])).toEqual([]);
+      expect(detectMissingSeparatorArgs(["--agent=copilot-cli"])).toEqual([]);
+    });
+
+    test("ignores atomic's own flags", () => {
+      expect(
+        detectMissingSeparatorArgs(["-a", "claude-code", "--no-banner"])
+      ).toEqual([]);
+      expect(
+        detectMissingSeparatorArgs(["--no-banner", "-a", "claude-code"])
+      ).toEqual([]);
+    });
+
+    test("works with --agent=name syntax", () => {
+      expect(
+        detectMissingSeparatorArgs(["--agent=claude-code", "/commit"])
+      ).toEqual(["/commit"]);
+    });
+
+    test("works with -a=name syntax", () => {
+      expect(detectMissingSeparatorArgs(["-a=opencode", "--resume"])).toEqual([
+        "--resume",
+      ]);
+    });
+
+    test("returns empty when no agent flag present", () => {
+      expect(detectMissingSeparatorArgs(["--help"])).toEqual([]);
+      expect(detectMissingSeparatorArgs(["--version"])).toEqual([]);
+      expect(detectMissingSeparatorArgs([])).toEqual([]);
+    });
+  });
+
+  describe("isInitWithSeparator", () => {
+    test("returns true when init is used with -- separator", () => {
+      expect(
+        isInitWithSeparator(["init", "-a", "claude-code", "--", "/commit"])
+      ).toBe(true);
+      expect(
+        isInitWithSeparator(["init", "--agent", "opencode", "--", "--resume"])
+      ).toBe(true);
+      expect(
+        isInitWithSeparator(["init", "--", "some prompt"])
+      ).toBe(true);
+    });
+
+    test("returns false when init is used without -- separator", () => {
+      expect(isInitWithSeparator(["init"])).toBe(false);
+      expect(isInitWithSeparator(["init", "-a", "claude-code"])).toBe(false);
+      expect(isInitWithSeparator(["init", "--agent", "opencode"])).toBe(false);
+    });
+
+    test("returns false when -- is used without init (run mode)", () => {
+      expect(
+        isInitWithSeparator(["-a", "claude-code", "--", "/commit"])
+      ).toBe(false);
+      expect(
+        isInitWithSeparator(["--agent", "opencode", "--", "--resume"])
+      ).toBe(false);
+    });
+
+    test("returns false when neither init nor -- is present", () => {
+      expect(isInitWithSeparator([])).toBe(false);
+      expect(isInitWithSeparator(["--help"])).toBe(false);
+      expect(isInitWithSeparator(["-a", "claude-code"])).toBe(false);
     });
   });
 });

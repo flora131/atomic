@@ -1,4 +1,5 @@
 ---
+name: cancel-ralph
 description: Cancel active Ralph Wiggum loop
 tools: ["execute", "read"]
 model: claude-opus-4-5

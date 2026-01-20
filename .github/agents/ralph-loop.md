@@ -1,4 +1,5 @@
 ---
+name: ralph-loop
 description: Start Ralph Wiggum loop in current session
 tools: ["search", "execute", "edit", "read"]
 model: claude-opus-4-5

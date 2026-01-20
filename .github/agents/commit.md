@@ -1,8 +1,9 @@
 ---
+name: commit
 description: Create well-formatted commits with conventional commit format.
 tools: ["execute", "read", "search"]
 model: claude-opus-4-5
-argument-hint: [message] | --amend
+argument-hint: [message]
 ---
 
 # Smart Git Commit

@@ -185,6 +185,12 @@ describe("Agent argument passthrough", () => {
       expect(isAgentRunMode(["-a", "claude-code", "/commit"])).toBe(true);
       expect(isAgentRunMode(["-a", "claude-code", "--help"])).toBe(true);
     });
+
+    test("returns true when init appears after -- separator", () => {
+      // init after -- is an agent argument, not a command
+      expect(isAgentRunMode(["-a", "claude-code", "--", "init"])).toBe(true);
+      expect(isAgentRunMode(["--agent", "opencode", "--", "init", "something"])).toBe(true);
+    });
   });
 
   describe("extractAgentName", () => {
@@ -305,6 +311,12 @@ describe("Agent argument passthrough", () => {
 
     test("returns undefined for -a= with no value", () => {
       expect(extractAgentName(["-a="])).toBeUndefined();
+    });
+
+    test("returns undefined when next arg is the -- separator", () => {
+      // The separator should not be treated as an agent name
+      expect(extractAgentName(["-a", "--"])).toBeUndefined();
+      expect(extractAgentName(["--agent", "--", "/commit"])).toBeUndefined();
     });
   });
 

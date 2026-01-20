@@ -163,6 +163,6 @@
       "Run atomic --agent claude-code and verify it shows 'Unknown agent' error",
       "Run atomic --help and verify new agent names are displayed"
     ],
-    "passes": false
+    "passes": true
   }
 ]

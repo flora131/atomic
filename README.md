@@ -122,7 +122,7 @@ atomic --agent claude -- /research-codebase "Describe your feature or question"
 atomic --agent opencode -- /research-codebase "Describe your feature or question"
 
 # for copilot
-atomic --agent copilot -- --agent research-codebase "Describe your feature or question"
+atomic --agent copilot -- --agent research-codebase -i "Describe your feature or question"
 ```
 
 ```bash
@@ -142,7 +142,7 @@ atomic --agent claude -- /create-spec [research-path]
 atomic --agent opencode -- /create-spec [research-path]
 
 # for copilot
-atomic --agent copilot -- --agent create-spec [research-path]
+atomic --agent copilot -- --agent create-spec -i [research-path]
 ```
 
 ```bash
@@ -162,7 +162,7 @@ atomic --agent claude -- /create-feature-list [spec-path]
 atomic --agent opencode -- /create-feature-list [spec-path]
 
 # for copilot
-atomic --agent copilot -- --agent create-feature-list [spec-path]
+atomic --agent copilot -- --agent create-feature-list -i [spec-path]
 ```
 
 ```bash
@@ -188,7 +188,7 @@ atomic --agent claude -- /implement-feature
 atomic --agent opencode -- /implement-feature
 
 # for copilot
-atomic --agent copilot -- --agent implement-feature
+atomic --agent copilot -- --agent implement-feature -i "Create a implementation feature-list.json and progress.txt"
 ```
 
 ```bash
@@ -215,7 +215,7 @@ atomic --agent claude -- /ralph:ralph-loop
 atomic --agent opencode -- /ralph-loop
 
 # for copilot
-atomic --agent copilot -- --agent ralph-loop
+atomic --agent copilot -- --agent ralph-loop -i "Start implementing the feature..."
 ```
 
 ### 5. Debugging
@@ -234,20 +234,13 @@ atomic --agent claude -- "Use the debugging agent to create a debugging report f
 atomic --agent opencode -- "Use the debugging agent to create a debugging report for [insert error message here]."
 
 # for copilot
-atomic --agent copilot -- "Use the debugging agent to create a debugging report for [insert error message here]."
+atomic --agent copilot -- --agent debugger -i "Create a debugging report for [insert error message here]."
 ```
 
-Then, use the debugging report to guide your agent:
+Then, use the debugging report to guide your agent in the CLI:
 
-```bash
-# for claude-code
-atomic --agent claude -- "Follow the debugging report above to resolve the issue."
-
-# for opencode
-atomic --agent opencode -- "Follow the debugging report above to resolve the issue."
-
-# for copilot
-atomic --agent copilot -- "Follow the debugging report above to resolve the issue."
+```txt
+"Follow the debugging report above to resolve the issue."
 ```
 
 ### 6. Create Pull Request
@@ -260,7 +253,7 @@ atomic --agent claude -- /create-gh-pr
 atomic --agent opencode -- /create-gh-pr
 
 # for copilot
-atomic --agent copilot -- --agent create-gh-pr
+atomic --agent copilot -- --agent create-gh-pr -i "Create a pull request for the current branch."
 ```
 
 ---

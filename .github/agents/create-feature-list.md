@@ -1,4 +1,5 @@
 ---
+name: create-feature-list
 description: Create a detailed `research/feature-list.json` and `research/progress.txt` for implementing features or refactors in a codebase from a spec.
 tools: ["edit", "read", "execute"]
 model: claude-opus-4-5

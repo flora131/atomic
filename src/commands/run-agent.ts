@@ -48,9 +48,15 @@ function sanitizeForDisplay(input: string): string {
  * // Pass agent's own help flag
  * await runAgentCommand("claude-code", ["--help"]);
  */
+interface RunAgentOptions {
+  /** Force overwrite of preserved files during auto-init */
+  force?: boolean;
+}
+
 export async function runAgentCommand(
   agentKey: string,
-  agentArgs: string[] = []
+  agentArgs: string[] = [],
+  options: RunAgentOptions = {}
 ): Promise<number> {
   const isDebug = process.env.DEBUG === "1";
 
@@ -79,6 +85,7 @@ export async function runAgentCommand(
       preSelectedAgent: agentKey as AgentKey,
       showBanner: true,
       configNotFoundMessage: `${agent.folder} not found. Running setup...`,
+      force: options.force,
     });
   }
 

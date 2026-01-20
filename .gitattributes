@@ -58,6 +58,12 @@
 *.cmd      text eol=crlf
 *.ps1      text eol=crlf
 
+# Polyglot scripts (run on both Windows and Unix) need LF
+# These override the *.cmd rule above for specific cross-platform wrappers
+**/run.cmd text eol=lf
+.github/scripts/run.cmd text eol=lf
+plugins/**/run.cmd text eol=lf
+
 # Serialisation
 *.json     text
 *.toml     text

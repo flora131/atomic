@@ -4,6 +4,11 @@ argument-hint: "PROMPT [--max-iterations N] [--completion-promise TEXT]"
 allowed-tools: ["Bash(${CLAUDE_PLUGIN_ROOT}/run.cmd:*)"]
 hide-from-slash-command-tool: "true"
 model: opus
+hooks:
+    Stop:
+        - hooks:
+          - type: command
+            command: "${CLAUDE_PLUGIN_ROOT}/run.cmd hooks/stop-hook.sh"
 ---
 
 # Ralph Loop Command

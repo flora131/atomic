@@ -51,15 +51,18 @@ export function extractAgentName(args: string[]): string | undefined {
 
     // Handle -a <agent> or --agent <agent>
     if (arg === "-a" || arg === "--agent") {
-      return args[i + 1];
+      const value = args[i + 1];
+      return value || undefined;
     }
 
     // Handle --agent=<agent> or -a=<agent>
     if (arg.startsWith("--agent=")) {
-      return arg.slice(8);
+      const value = arg.slice(8);
+      return value || undefined;
     }
     if (arg.startsWith("-a=")) {
-      return arg.slice(3);
+      const value = arg.slice(3);
+      return value || undefined;
     }
   }
 

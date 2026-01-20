@@ -299,12 +299,12 @@ describe("Agent argument passthrough", () => {
       expect(extractAgentName(["--agent"])).toBeUndefined();
     });
 
-    test("returns empty string for --agent= with no value", () => {
-      expect(extractAgentName(["--agent="])).toBe("");
+    test("returns undefined for --agent= with no value", () => {
+      expect(extractAgentName(["--agent="])).toBeUndefined();
     });
 
-    test("returns empty string for -a= with no value", () => {
-      expect(extractAgentName(["-a="])).toBe("");
+    test("returns undefined for -a= with no value", () => {
+      expect(extractAgentName(["-a="])).toBeUndefined();
     });
   });
 

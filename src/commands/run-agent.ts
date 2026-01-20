@@ -23,9 +23,13 @@ function sanitizeForDisplay(input: string): string {
  * Run a specific agent by key
  *
  * @param agentKey The agent key (e.g., "claude-code", "opencode", "copilot-cli")
+ * @param agentArgs Additional arguments to pass to the agent
  * @returns Exit code from the agent process
  */
-export async function runAgentCommand(agentKey: string): Promise<number> {
+export async function runAgentCommand(
+  agentKey: string,
+  agentArgs: string[] = []
+): Promise<number> {
   // Validate agent key
   if (!isValidAgent(agentKey)) {
     const validKeys = Object.keys(AGENT_CONFIG).join(", ");
@@ -56,8 +60,8 @@ export async function runAgentCommand(agentKey: string): Promise<number> {
     return 1;
   }
 
-  // Build the command with flags
-  const cmd = [agent.cmd, ...agent.additional_flags];
+  // Build the command with flags and user-provided arguments
+  const cmd = [agent.cmd, ...agent.additional_flags, ...agentArgs];
 
   // Spawn the agent process
   const proc = Bun.spawn(cmd, {

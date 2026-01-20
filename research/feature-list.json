@@ -1,0 +1,131 @@
+[
+  {
+    "category": "functional",
+    "description": "Add preserve_files and merge_files fields to AgentConfig interface",
+    "steps": [
+      "Open src/config.ts",
+      "Add preserve_files field to AgentConfig interface (string array)",
+      "Add merge_files field to AgentConfig interface (string array)",
+      "Run typecheck to verify interface is valid"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Update AGENT_CONFIG with preserve_files and merge_files for each agent",
+    "steps": [
+      "In src/config.ts, add preserve_files: ['CLAUDE.md'] and merge_files: ['.mcp.json'] to claude-code config",
+      "Add preserve_files: ['AGENTS.md'] and merge_files: [] to opencode config",
+      "Add preserve_files: ['AGENTS.md'] and merge_files: [] to copilot-cli config",
+      "Run typecheck to verify config is valid"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Create merge utility for .mcp.json files",
+    "steps": [
+      "Create src/utils/merge.ts",
+      "Implement mergeJsonFile function that preserves user's MCP servers",
+      "Source values override destination for same keys",
+      "Preserve destination's other top-level keys"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Add force option to InitOptions interface",
+    "steps": [
+      "Open src/commands/init.ts",
+      "Add force?: boolean to InitOptions interface",
+      "Document that it bypasses all preservation/merge logic"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Implement preserving folder copy (copyDirPreserving)",
+    "steps": [
+      "Create copyDirPreserving function in init.ts",
+      "Only copy files that don't exist at destination (unless force is true)",
+      "Recursively handle directories",
+      "Skip files based on exclude list and opposite platform scripts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Modify init command to use preserving copy and merge logic",
+    "steps": [
+      "Replace folder deletion with copyDirPreserving",
+      "Update additional files loop to check preserve_files",
+      "If file is in preserve_files and exists, skip (silent)",
+      "If file is in merge_files and exists, call mergeJsonFile",
+      "If force flag is set, overwrite everything"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Add --force/-f flag to argument parser",
+    "steps": [
+      "Update parseArgs options in src/index.ts to include force flag",
+      "Add hasForceFlag function to src/utils/arg-parser.ts",
+      "Pass force option to initCommand calls",
+      "Update run-agent.ts to pass force option to initCommand"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Update help text with force flag",
+    "steps": [
+      "Add -f, --force option to help message",
+      "Document that it overwrites all files including CLAUDE.md/AGENTS.md"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Write unit tests for config changes",
+    "steps": [
+      "Add tests for preserve_files and merge_files arrays in config.test.ts",
+      "Verify claude-code preserves CLAUDE.md and merges .mcp.json",
+      "Verify opencode and copilot-cli preserve AGENTS.md"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Write unit tests for merge utility",
+    "steps": [
+      "Create tests/merge.test.ts",
+      "Test merging preserves destination MCP servers",
+      "Test source overrides destination for same keys",
+      "Test preserving destination top-level keys",
+      "Test output is properly formatted JSON"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Write unit tests for force flag parsing",
+    "steps": [
+      "Add tests for --force and -f flag parsing in routing.test.ts",
+      "Add tests for hasForceFlag function",
+      "Verify force flag after -- separator is not detected"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Run all tests and verify no regressions",
+    "steps": [
+      "Run bun test to execute all unit tests",
+      "Verify all 168 tests pass",
+      "Verify typecheck passes",
+      "Verify lint passes"
+    ],
+    "passes": true
+  }
+]

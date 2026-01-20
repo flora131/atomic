@@ -19,6 +19,7 @@ import {
   detectMissingSeparatorArgs,
   extractAgentArgs,
   extractAgentName,
+  hasForceFlag,
   isAgentRunMode,
   isInitWithSeparator,
 } from "./utils/arg-parser";
@@ -44,6 +45,7 @@ Usage:
 
 Options:
   -a, --agent <name>    Agent name: ${agents}
+  -f, --force           Overwrite all files including CLAUDE.md/AGENTS.md
   -v, --version         Show version number
   -h, --help            Show this help
   --no-banner           Skip ASCII banner display
@@ -133,7 +135,8 @@ async function main(): Promise<void> {
       }
 
       const agentArgs = extractAgentArgs(rawArgs);
-      const exitCode = await runAgentCommand(agentName, agentArgs);
+      const forceFlag = hasForceFlag(rawArgs);
+      const exitCode = await runAgentCommand(agentName, agentArgs, { force: forceFlag });
       process.exit(exitCode);
     }
 
@@ -141,6 +144,7 @@ async function main(): Promise<void> {
       args: rawArgs,
       options: {
         agent: { type: "string", short: "a" },
+        force: { type: "boolean", short: "f" },
         version: { type: "boolean", short: "v" },
         help: { type: "boolean", short: "h" },
         "no-banner": { type: "boolean" },
@@ -166,16 +170,20 @@ async function main(): Promise<void> {
 
     switch (command) {
       case "init":
-        // atomic init [--agent name] → init with optional pre-selection
+        // atomic init [--agent name] [--force] → init with optional pre-selection
         await initCommand({
           showBanner: !values["no-banner"],
           preSelectedAgent: values.agent as AgentKey | undefined,
+          force: values.force as boolean | undefined,
         });
         break;
 
       case undefined:
-        // atomic → full interactive init (unchanged behavior)
-        await initCommand({ showBanner: !values["no-banner"] });
+        // atomic [--force] → full interactive init (unchanged behavior)
+        await initCommand({
+          showBanner: !values["no-banner"],
+          force: values.force as boolean | undefined,
+        });
         break;
 
       default:

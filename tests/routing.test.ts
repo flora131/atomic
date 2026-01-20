@@ -4,6 +4,7 @@ import {
   detectMissingSeparatorArgs,
   extractAgentArgs,
   extractAgentName,
+  hasForceFlag,
   isAgentRunMode,
   isInitWithSeparator,
 } from "../src/utils/arg-parser";
@@ -19,6 +20,7 @@ describe("CLI routing argument parsing", () => {
       args,
       options: {
         agent: { type: "string", short: "a" },
+        force: { type: "boolean", short: "f" },
         version: { type: "boolean", short: "v" },
         help: { type: "boolean", short: "h" },
         "no-banner": { type: "boolean" },
@@ -145,6 +147,48 @@ describe("CLI routing argument parsing", () => {
     test("parses '-v' flag (short form)", () => {
       const { values } = parseCliArgs(["-v"]);
       expect(values.version).toBe(true);
+    });
+  });
+
+  describe("force flag", () => {
+    test("parses '--force' flag", () => {
+      const { values } = parseCliArgs(["--force"]);
+      expect(values.force).toBe(true);
+    });
+
+    test("parses '-f' flag (short form)", () => {
+      const { values } = parseCliArgs(["-f"]);
+      expect(values.force).toBe(true);
+    });
+
+    test("parses 'init --force' correctly", () => {
+      const { values, positionals } = parseCliArgs(["init", "--force"]);
+      expect(positionals[0]).toBe("init");
+      expect(values.force).toBe(true);
+    });
+
+    test("parses 'init -f' correctly (short form)", () => {
+      const { values, positionals } = parseCliArgs(["init", "-f"]);
+      expect(positionals[0]).toBe("init");
+      expect(values.force).toBe(true);
+    });
+
+    test("parses combined flags: init -a claude-code -f", () => {
+      const { values, positionals } = parseCliArgs([
+        "init",
+        "-a",
+        "claude-code",
+        "-f",
+      ]);
+      expect(positionals[0]).toBe("init");
+      expect(values.agent).toBe("claude-code");
+      expect(values.force).toBe(true);
+    });
+
+    test("parses combined flags: -a claude-code --force", () => {
+      const { values } = parseCliArgs(["-a", "claude-code", "--force"]);
+      expect(values.agent).toBe("claude-code");
+      expect(values.force).toBe(true);
     });
   });
 });
@@ -399,6 +443,38 @@ describe("Agent argument passthrough", () => {
       expect(detectMissingSeparatorArgs(["--help"])).toEqual([]);
       expect(detectMissingSeparatorArgs(["--version"])).toEqual([]);
       expect(detectMissingSeparatorArgs([])).toEqual([]);
+    });
+  });
+
+  describe("hasForceFlag", () => {
+    test("returns true for -f flag", () => {
+      expect(hasForceFlag(["-a", "claude-code", "-f"])).toBe(true);
+    });
+
+    test("returns true for --force flag", () => {
+      expect(hasForceFlag(["--agent", "opencode", "--force"])).toBe(true);
+    });
+
+    test("returns false when force flag appears after -- separator", () => {
+      expect(hasForceFlag(["-a", "claude-code", "--", "-f"])).toBe(false);
+      expect(hasForceFlag(["-a", "claude-code", "--", "--force"])).toBe(false);
+    });
+
+    test("returns false when no force flag present", () => {
+      expect(hasForceFlag(["-a", "claude-code"])).toBe(false);
+      expect(hasForceFlag(["--agent", "opencode"])).toBe(false);
+      expect(hasForceFlag([])).toBe(false);
+    });
+
+    test("works with init command", () => {
+      expect(hasForceFlag(["init", "-f"])).toBe(true);
+      expect(hasForceFlag(["init", "--force"])).toBe(true);
+      expect(hasForceFlag(["init", "-a", "claude-code", "-f"])).toBe(true);
+    });
+
+    test("returns true when force flag is before other flags", () => {
+      expect(hasForceFlag(["-f", "-a", "claude-code"])).toBe(true);
+      expect(hasForceFlag(["--force", "--agent", "opencode"])).toBe(true);
     });
   });
 

@@ -58,6 +58,39 @@ describe("AGENT_CONFIG", () => {
       expect(Array.isArray(config.additional_flags)).toBe(true);
     }
   });
+
+  test("all agents have preserve_files as array", () => {
+    for (const [key, config] of Object.entries(AGENT_CONFIG)) {
+      expect(config.preserve_files).toBeDefined();
+      expect(Array.isArray(config.preserve_files)).toBe(true);
+    }
+  });
+
+  test("all agents have merge_files as array", () => {
+    for (const [key, config] of Object.entries(AGENT_CONFIG)) {
+      expect(config.merge_files).toBeDefined();
+      expect(Array.isArray(config.merge_files)).toBe(true);
+    }
+  });
+
+  test("claude-code preserves CLAUDE.md and merges .mcp.json", () => {
+    const config = getAgentConfig("claude-code");
+    expect(config.preserve_files).toContain("CLAUDE.md");
+    expect(config.preserve_files).not.toContain(".mcp.json");
+    expect(config.merge_files).toContain(".mcp.json");
+  });
+
+  test("opencode preserves AGENTS.md", () => {
+    const config = getAgentConfig("opencode");
+    expect(config.preserve_files).toContain("AGENTS.md");
+    expect(config.merge_files).toHaveLength(0);
+  });
+
+  test("copilot-cli preserves AGENTS.md", () => {
+    const config = getAgentConfig("copilot-cli");
+    expect(config.preserve_files).toContain("AGENTS.md");
+    expect(config.merge_files).toHaveLength(0);
+  });
 });
 
 describe("isValidAgent", () => {

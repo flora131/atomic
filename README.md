@@ -115,7 +115,7 @@ Research → Plan (Spec) → Implement (Ralph) → (Debug) → PR
 ### 1. Research the Codebase
 
 ```bash
-atomic --agent claude-code /research-codebase "Describe your feature or question"
+atomic --agent claude-code -- /research-codebase "Describe your feature or question"
 # clear context window before next step
 /clear
 ```
@@ -125,7 +125,7 @@ atomic --agent claude-code /research-codebase "Describe your feature or question
 ### 2. Create a Specification
 
 ```bash
-atomic --agent claude-code /create-spec [research-path]
+atomic --agent claude-code -- /create-spec [research-path]
 # clear context window before next step
 /clear
 ```
@@ -135,7 +135,7 @@ atomic --agent claude-code /create-spec [research-path]
 ### 3. Break Into Features
 
 ```bash
-atomic --agent claude-code /create-feature-list [spec-path]
+atomic --agent claude-code -- /create-feature-list [spec-path]
 # clear context window before next step
 /clear
 ```
@@ -151,7 +151,7 @@ atomic --agent claude-code /create-feature-list [spec-path]
 ### 4. Implement Features
 
 ```bash
-atomic --agent claude-code /implement-feature
+atomic --agent claude-code -- /implement-feature
 # clear context window before next feature implementation
 /clear
 ```
@@ -168,7 +168,7 @@ Repeat until all features pass.
 Or, use `/ralph:ralph-loop` for autonomous mode to enable multi-hour autonomous coding sessions. More in [Ralph Section](#autonomous-execution-ralph):
 
 ```bash
-atomic --agent claude-code /ralph:ralph-loop
+atomic --agent claude-code -- /ralph:ralph-loop
 ```
 
 ### 5. Debugging
@@ -180,19 +180,19 @@ If something breaks during implementation that the agent did not catch, you can 
 First, generate a debugging report:
 
 ```bash
-atomic --agent claude-code "Use the debugging agent to create a debugging report for [insert error message here]."
+atomic --agent claude-code -- "Use the debugging agent to create a debugging report for [insert error message here]."
 ```
 
 Then, use the debugging report to guide your agent:
 
 ```bash
-atomic --agent claude-code "Follow the debugging report above to resolve the issue.
+atomic --agent claude-code -- "Follow the debugging report above to resolve the issue."
 ```
 
 ### 6. Create Pull Request
 
 ```bash
-atomic --agent claude-code /create-gh-pr
+atomic --agent claude-code -- /create-gh-pr
 ```
 
 ---
@@ -248,6 +248,12 @@ Domain knowledge applied during work. These are automatically invoked when relev
 | Claude Code        | `atomic --agent claude-code` | `.claude/`   | `CLAUDE.md`  |
 | OpenCode           | `atomic --agent opencode`    | `.opencode/` | `AGENTS.md`  |
 | GitHub Copilot CLI | `atomic --agent copilot-cli` | `.github/`   | `AGENTS.md`  |
+
+> **Note:** Use `--` to separate atomic flags from agent arguments. Everything after `--` is passed directly to the agent:
+> ```bash
+> atomic --agent claude-code -- /research-codebase "question"
+> atomic -a opencode -- --resume
+> ```
 
 ---
 

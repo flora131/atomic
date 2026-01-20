@@ -14,17 +14,20 @@ import {
   log,
 } from "@clack/prompts";
 import { join } from "path";
-import { rm } from "fs/promises";
+import { mkdir, readdir } from "fs/promises";
 
 import { AGENT_CONFIG, type AgentKey, getAgentKeys, isValidAgent } from "../config";
 import { displayBanner } from "../utils/banner";
-import { copyDir, copyFile, pathExists } from "../utils/copy";
-import { isWindows, isWslInstalled, WSL_INSTALL_URL } from "../utils/detect";
+import { copyFile, pathExists } from "../utils/copy";
+import { isWindows, isWslInstalled, WSL_INSTALL_URL, getOppositeScriptExtension } from "../utils/detect";
+import { mergeJsonFile } from "../utils/merge";
 
 interface InitOptions {
   showBanner?: boolean;
   preSelectedAgent?: AgentKey;
   configNotFoundMessage?: string;
+  /** Force overwrite of preserved files (bypass preservation/merge logic) */
+  force?: boolean;
 }
 
 /**
@@ -44,6 +47,53 @@ function getConfigRoot(): string {
   const root = join(import.meta.dir, "..", "..");
 
   return root;
+}
+
+interface CopyDirPreservingOptions {
+  /** Paths to exclude (base names) */
+  exclude?: string[];
+  /** Whether to force overwrite even if files exist */
+  force?: boolean;
+}
+
+/**
+ * Copy a directory while preserving existing files at the destination
+ * Only copies files that don't exist at the destination (unless force is true)
+ */
+async function copyDirPreserving(
+  src: string,
+  dest: string,
+  options: CopyDirPreservingOptions = {}
+): Promise<void> {
+  const { exclude = [], force = false } = options;
+
+  await mkdir(dest, { recursive: true });
+
+  const entries = await readdir(src, { withFileTypes: true });
+  const oppositeExt = getOppositeScriptExtension();
+
+  for (const entry of entries) {
+    const srcPath = join(src, entry.name);
+    const destPath = join(dest, entry.name);
+
+    // Skip excluded files/directories
+    if (exclude.includes(entry.name)) continue;
+
+    // Skip scripts for the opposite platform
+    if (entry.name.endsWith(oppositeExt)) continue;
+
+    if (entry.isDirectory()) {
+      await copyDirPreserving(srcPath, destPath, options);
+    } else {
+      const destExists = await pathExists(destPath);
+
+      // Only copy if destination doesn't exist OR force flag is set
+      if (!destExists || force) {
+        await copyFile(srcPath, destPath);
+      }
+      // Otherwise skip - preserve user's existing file
+    }
+  }
 }
 
 /**
@@ -124,20 +174,20 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   const targetFolder = join(targetDir, agent.folder);
   const folderExists = await pathExists(targetFolder);
 
-  if (folderExists) {
-    const overwrite = await confirm({
-      message: `${agent.folder} already exists. Overwrite?`,
-      initialValue: false,
-      active: "Yes, overwrite",
+  if (folderExists && !options.force) {
+    const update = await confirm({
+      message: `${agent.folder} already exists. Update config? (Custom files will be preserved)`,
+      initialValue: true,
+      active: "Yes, update",
       inactive: "No, cancel",
     });
 
-    if (isCancel(overwrite)) {
+    if (isCancel(update)) {
       cancel("Operation cancelled.");
       process.exit(0);
     }
 
-    if (!overwrite) {
+    if (!update) {
       cancel("Operation cancelled. Existing config preserved.");
       process.exit(0);
     }
@@ -151,25 +201,43 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     const configRoot = getConfigRoot();
     const sourceFolder = join(configRoot, agent.folder);
 
-    // Clear existing folder if overwriting to prevent stale files
-    if (folderExists) {
-      await rm(targetFolder, { recursive: true, force: true });
-    }
-
-    // Copy the main config folder
-    await copyDir(sourceFolder, targetFolder, {
+    // Use preserving copy - only overwrites if file doesn't exist (or force is true)
+    await copyDirPreserving(sourceFolder, targetFolder, {
       exclude: agent.exclude,
-      skipOppositeScripts: true,
+      force: options.force,
     });
 
-    // Copy additional files
+    // Copy additional files with preservation and merge logic
     for (const file of agent.additional_files) {
       const srcFile = join(configRoot, file);
       const destFile = join(targetDir, file);
 
-      if (await pathExists(srcFile)) {
+      if (!(await pathExists(srcFile))) continue;
+
+      const destExists = await pathExists(destFile);
+      const shouldPreserve = agent.preserve_files.includes(file);
+      const shouldMerge = agent.merge_files.includes(file);
+
+      // Force flag bypasses all preservation/merge logic
+      if (options.force) {
         await copyFile(srcFile, destFile);
+        continue;
       }
+
+      // Handle merge files (e.g., .mcp.json)
+      if (shouldMerge && destExists) {
+        await mergeJsonFile(srcFile, destFile);
+        continue;
+      }
+
+      // Handle preserve files (e.g., CLAUDE.md, AGENTS.md)
+      if (shouldPreserve && destExists) {
+        // Skip - preserve user's customization (silent operation)
+        continue;
+      }
+
+      // Default: copy the file
+      await copyFile(srcFile, destFile);
     }
 
     s.stop("Configuration files copied successfully!");

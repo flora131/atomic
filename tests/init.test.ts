@@ -108,6 +108,26 @@ describe("initCommand with preSelectedAgent", () => {
         expect(opts).toBeDefined();
       }
     });
+
+    test("InitOptions accepts force field", async () => {
+      type AgentKey = "claude-code" | "opencode" | "copilot-cli";
+
+      // Valid InitOptions structures with force
+      const validOptions = [
+        { force: true },
+        { force: false },
+        { showBanner: true, force: true },
+        { preSelectedAgent: "claude-code" as AgentKey, force: true },
+        { showBanner: true, preSelectedAgent: "claude-code" as AgentKey, force: true },
+        { showBanner: true, preSelectedAgent: "claude-code" as AgentKey, configNotFoundMessage: "msg", force: true },
+        {}, // force is optional
+      ];
+
+      // All should be valid structures (no runtime errors)
+      for (const opts of validOptions) {
+        expect(opts).toBeDefined();
+      }
+    });
   });
 
   describe("agent config lookup with preSelectedAgent", () => {

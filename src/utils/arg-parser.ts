@@ -72,6 +72,27 @@ export function extractAgentName(args: string[]): string | undefined {
 }
 
 /**
+ * Check if force flag is present in raw args (before -- separator)
+ *
+ * @param args - Raw CLI arguments
+ * @returns true if -f or --force is present before the separator
+ *
+ * @example
+ * hasForceFlag(["-a", "claude-code", "-f"])        // true
+ * hasForceFlag(["--agent", "opencode", "--force"]) // true
+ * hasForceFlag(["-a", "claude-code", "--", "-f"])  // false (-f is after separator)
+ * hasForceFlag(["-a", "claude-code"])               // false
+ */
+export function hasForceFlag(args: string[]): boolean {
+  // Only check for force before the -- separator, since -f after
+  // the separator is an argument for the agent, not atomic
+  const separatorIndex = args.indexOf("--");
+  const argsBeforeSeparator = separatorIndex === -1 ? args : args.slice(0, separatorIndex);
+
+  return argsBeforeSeparator.includes("-f") || argsBeforeSeparator.includes("--force");
+}
+
+/**
  * Extract agent arguments from raw args
  * Returns everything after the `--` separator
  *
@@ -190,7 +211,12 @@ export function detectMissingSeparatorArgs(args: string[]): string[] {
     }
 
     // Skip known atomic flags
-    if (arg === "-v" || arg === "--version" || arg === "-h" || arg === "--help" || arg === "--no-banner") {
+    if (
+      arg === "-v" || arg === "--version" ||
+      arg === "-h" || arg === "--help" ||
+      arg === "-f" || arg === "--force" ||
+      arg === "--no-banner"
+    ) {
       continue;
     }
 

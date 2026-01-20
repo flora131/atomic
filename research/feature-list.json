@@ -150,7 +150,7 @@
       "Run bun run lint to check for any linting issues",
       "Run bun run build to verify successful build"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

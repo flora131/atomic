@@ -175,3 +175,46 @@
 ### Status
 - Feature 13/14 completed
 - Next: Manual verification of CLI functionality
+
+## Iteration 14 - 2026-01-20
+
+### Completed
+- Feature 14: "Manual verification of CLI functionality"
+  - atomic --help: shows new agent names (claude, opencode, copilot) ✓
+  - atomic --agent claude-code: shows "Unknown agent 'claude-code'" error ✓
+  - atomic --agent copilot-cli: shows "Unknown agent 'copilot-cli'" error ✓
+  - atomic -a claude: recognizes agent and starts init process ✓
+  - atomic init -a claude: works correctly ✓
+  - atomic init -a copilot: works correctly ✓
+
+### Status
+- Feature 14/14 completed
+- ALL FEATURES COMPLETE
+
+## Summary
+
+The CLI agent rename feature has been fully implemented:
+
+1. Source code changes:
+   - AGENT_KEYS and AGENT_CONFIG updated (claude-code → claude, copilot-cli → copilot)
+   - Help text examples updated in src/index.ts
+   - JSDoc examples updated in src/commands/run-agent.ts and src/utils/arg-parser.ts
+
+2. Test updates (all 168 tests pass):
+   - tests/routing.test.ts (~60+ refs)
+   - tests/init.test.ts (~20 refs)
+   - tests/cli.test.ts (3 refs)
+   - tests/run-agent.test.ts (~15 refs)
+   - tests/config.test.ts (~10 refs)
+   - tests/display-order.test.ts (~12 refs)
+   - tests/e2e/cli-init-display.test.ts (~6 refs)
+
+3. Documentation updated:
+   - README.md (~14 refs)
+
+4. All verification passed:
+   - bun test: 168 tests pass
+   - bun run typecheck: clean
+   - bun run lint: clean
+   - bun run build: successful
+   - Manual CLI verification: all commands work correctly

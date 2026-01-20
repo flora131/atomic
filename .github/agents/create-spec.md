@@ -1,4 +1,5 @@
 ---
+name: create-spec
 description: Create a detailed execution plan for implementing features or refactors in a codebase by leveraging existing research in the specified `research` directory.
 tools: ["edit", "read", "execute", "search", "agent"]
 model: claude-opus-4-5
@@ -227,7 +228,7 @@ flowchart TB
 
 ### 8.3 Test Plan
 
-- **Unit Tests:** 
+- **Unit Tests:**
 - **Integration Tests:**
 - **End-to-End Tests:**
 

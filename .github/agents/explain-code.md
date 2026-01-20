@@ -1,4 +1,5 @@
 ---
+name: explain-code
 description: Explain code functionality in detail.
 tools: ["search", "read", "web", "deepwiki/ask_question"]
 model: claude-opus-4-5

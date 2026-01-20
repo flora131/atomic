@@ -97,7 +97,11 @@ export async function runAgentCommand(
   }
 
   // Build the command with flags and user-provided arguments
-  const cmd = [agent.cmd, ...agent.additional_flags, ...agentArgs];
+  // Replace "." with actual cwd for flags like --add-dir
+  const flags = agent.additional_flags.map((flag) =>
+    flag === "." ? process.cwd() : flag
+  );
+  const cmd = [agent.cmd, ...flags, ...agentArgs];
 
   if (isDebug) {
     console.error(`[atomic:debug] Spawning command: ${cmd.join(" ")}`);

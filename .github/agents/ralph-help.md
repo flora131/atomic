@@ -1,4 +1,5 @@
 ---
+name: ralph-help
 description: Explain Ralph Wiggum technique and available commands
 tools: ["read"]
 model: claude-opus-4-5

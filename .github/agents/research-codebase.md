@@ -1,4 +1,5 @@
 ---
+name: research-codebase
 description: Document codebase as-is with research directory for historical context
 tools: ["edit", "execute", "read", "search", "agent"]
 model: claude-opus-4-5

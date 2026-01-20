@@ -82,7 +82,7 @@ To signal completion, Claude must output a `<promise>` tag:
 <promise>TASK COMPLETE</promise>
 ```
 
-The stop hook looks for this specific tag. Without it (or `--max-iterations`), Ralph runs infinitely.
+The stop hook looks for this specific tag. Without it (or `--max-iterations`), Ralph runs indefinitely.
 
 ### Self-Reference Mechanism
 

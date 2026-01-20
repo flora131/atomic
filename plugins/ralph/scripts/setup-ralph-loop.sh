@@ -198,8 +198,8 @@ self-referential loop where you iteratively improve on the same task.
 
 To monitor: head -10 .claude/ralph-loop.local.md
 
-⚠️  WARNING: This loop cannot be stopped manually! It will run infinitely
-    unless you set --max-iterations or --completion-promise.
+⚠️  WARNING: This loop cannot be stopped manually! It will run indefinitely
+    unless you set --max-iterations or --completion-promise or --feature-list.
 
 🔄
 EOF

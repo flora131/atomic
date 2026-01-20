@@ -104,6 +104,15 @@ async function main(): Promise<void> {
         process.exit(1);
       }
 
+      // FAIL FAST: Validate agent name before checking for suspicious args
+      // This gives clearer error messages (e.g., "unknown agent" instead of "missing separator")
+      if (!(agentName in AGENT_CONFIG)) {
+        const validAgents = Object.keys(AGENT_CONFIG).join(", ");
+        console.error(`Error: Unknown agent '${agentName}'`);
+        console.error(`Valid agents: ${validAgents}`);
+        process.exit(1);
+      }
+
       // FAIL FAST: Check for arguments that look like they should go to the agent
       // but are missing the required `--` separator
       const suspiciousArgs = detectMissingSeparatorArgs(rawArgs);

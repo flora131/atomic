@@ -1,5 +1,10 @@
 import { test, expect, describe } from "bun:test";
 import { parseArgs } from "util";
+import {
+  extractAgentArgs,
+  extractAgentName,
+  isAgentRunMode,
+} from "../src/utils/arg-parser";
 
 /**
  * Integration tests for CLI argument parsing with init subcommand
@@ -147,63 +152,6 @@ describe("CLI routing argument parsing", () => {
  * These test the helper functions that enable passing arguments to agents
  */
 describe("Agent argument passthrough", () => {
-  // Helper functions copied from src/index.ts for testing
-  function isAgentRunMode(args: string[]): boolean {
-    let hasAgent = false;
-    let hasInit = false;
-
-    for (const arg of args) {
-      if (arg === "init") {
-        hasInit = true;
-      }
-      if (
-        arg === "-a" ||
-        arg === "--agent" ||
-        arg.startsWith("--agent=") ||
-        arg.startsWith("-a=")
-      ) {
-        hasAgent = true;
-      }
-    }
-
-    return hasAgent && !hasInit;
-  }
-
-  function extractAgentName(args: string[]): string | undefined {
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (arg === undefined) continue;
-
-      if (arg === "-a" || arg === "--agent") {
-        return args[i + 1];
-      }
-      if (arg.startsWith("--agent=")) {
-        return arg.slice(8);
-      }
-      if (arg.startsWith("-a=")) {
-        return arg.slice(3);
-      }
-    }
-
-    return undefined;
-  }
-
-  function extractAgentArgs(args: string[]): string[] {
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (arg === undefined) continue;
-
-      if (arg === "-a" || arg === "--agent") {
-        return args.slice(i + 2);
-      }
-      if (arg.startsWith("--agent=") || arg.startsWith("-a=")) {
-        return args.slice(i + 1);
-      }
-    }
-
-    return [];
-  }
-
   describe("isAgentRunMode", () => {
     test("returns true for -a with agent name", () => {
       expect(isAgentRunMode(["-a", "claude-code"])).toBe(true);
@@ -262,55 +210,99 @@ describe("Agent argument passthrough", () => {
   });
 
   describe("extractAgentArgs", () => {
-    test("extracts arguments after -a agent", () => {
-      expect(extractAgentArgs(["-a", "claude-code", "/commit"])).toEqual([
-        "/commit",
-      ]);
-      expect(
-        extractAgentArgs(["-a", "claude-code", "fix", "the", "bug"])
-      ).toEqual(["fix", "the", "bug"]);
-    });
-
-    test("extracts arguments after --agent agent", () => {
-      expect(extractAgentArgs(["--agent", "opencode", "--resume"])).toEqual([
-        "--resume",
-      ]);
-    });
-
-    test("extracts arguments after --agent=agent syntax", () => {
-      expect(extractAgentArgs(["--agent=claude-code", "/commit"])).toEqual([
-        "/commit",
-      ]);
-    });
-
-    test("extracts arguments after -a=agent syntax", () => {
-      expect(extractAgentArgs(["-a=opencode", "--resume"])).toEqual([
-        "--resume",
-      ]);
-    });
-
-    test("returns empty array when no args after agent", () => {
+    test("returns empty array when no -- separator present", () => {
       expect(extractAgentArgs(["-a", "claude-code"])).toEqual([]);
-    });
-
-    test("returns empty array when no agent flag present", () => {
+      expect(extractAgentArgs(["-a", "claude-code", "/commit"])).toEqual([]);
+      expect(extractAgentArgs(["--agent", "opencode", "--resume"])).toEqual([]);
       expect(extractAgentArgs(["--help"])).toEqual([]);
     });
 
-    test("preserves flags meant for the agent", () => {
-      expect(extractAgentArgs(["-a", "claude-code", "--help"])).toEqual([
+    test("extracts arguments after -- separator", () => {
+      expect(extractAgentArgs(["-a", "claude-code", "--", "/commit"])).toEqual([
+        "/commit",
+      ]);
+    });
+
+    test("extracts multiple arguments after -- separator", () => {
+      expect(
+        extractAgentArgs(["-a", "claude-code", "--", "fix", "the", "bug"])
+      ).toEqual(["fix", "the", "bug"]);
+    });
+
+    test("works with --agent flag and separator", () => {
+      expect(
+        extractAgentArgs(["--agent", "opencode", "--", "--resume"])
+      ).toEqual(["--resume"]);
+    });
+
+    test("works with --agent=name syntax and separator", () => {
+      expect(
+        extractAgentArgs(["--agent=claude-code", "--", "/commit"])
+      ).toEqual(["/commit"]);
+    });
+
+    test("works with -a=name syntax and separator", () => {
+      expect(extractAgentArgs(["-a=opencode", "--", "--resume"])).toEqual([
+        "--resume",
+      ]);
+    });
+
+    test("returns empty array when separator present but no args after", () => {
+      expect(extractAgentArgs(["-a", "claude-code", "--"])).toEqual([]);
+    });
+
+    test("preserves flags meant for the agent after separator", () => {
+      expect(extractAgentArgs(["-a", "claude-code", "--", "--help"])).toEqual([
         "--help",
       ]);
-      expect(extractAgentArgs(["-a", "claude-code", "-v"])).toEqual(["-v"]);
+      expect(extractAgentArgs(["-a", "claude-code", "--", "-v"])).toEqual([
+        "-v",
+      ]);
       expect(
-        extractAgentArgs(["-a", "opencode", "--no-banner", "--resume"])
+        extractAgentArgs(["-a", "opencode", "--", "--no-banner", "--resume"])
       ).toEqual(["--no-banner", "--resume"]);
     });
 
-    test("handles prompt strings with spaces", () => {
+    test("handles prompt strings with spaces after separator", () => {
       expect(
-        extractAgentArgs(["-a", "claude-code", "fix the bug in auth"])
+        extractAgentArgs(["-a", "claude-code", "--", "fix the bug in auth"])
       ).toEqual(["fix the bug in auth"]);
+    });
+
+    test("ignores args before separator", () => {
+      // Args before -- are ignored, only args after are passed to agent
+      expect(
+        extractAgentArgs(["-a", "claude-code", "ignored", "--", "--resume"])
+      ).toEqual(["--resume"]);
+    });
+
+    test("disambiguates atomic flags from agent flags", () => {
+      // -v after -- goes to agent, not interpreted as atomic's version flag
+      expect(extractAgentArgs(["-a", "claude-code", "--", "-v"])).toEqual([
+        "-v",
+      ]);
+      // --help after -- goes to agent
+      expect(extractAgentArgs(["-a", "claude-code", "--", "--help"])).toEqual([
+        "--help",
+      ]);
+    });
+  });
+
+  describe("extractAgentName edge cases", () => {
+    test("returns undefined when -a flag has no value", () => {
+      expect(extractAgentName(["-a"])).toBeUndefined();
+    });
+
+    test("returns undefined when --agent flag has no value", () => {
+      expect(extractAgentName(["--agent"])).toBeUndefined();
+    });
+
+    test("returns empty string for --agent= with no value", () => {
+      expect(extractAgentName(["--agent="])).toBe("");
+    });
+
+    test("returns empty string for -a= with no value", () => {
+      expect(extractAgentName(["-a="])).toBe("");
     });
   });
 });

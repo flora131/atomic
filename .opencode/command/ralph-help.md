@@ -93,7 +93,7 @@ To signal completion, the AI must output a `<promise>` tag:
 <promise>TASK COMPLETE</promise>
 ```
 
-The plugin looks for this specific tag. Without it (or `--max-iterations`), Ralph runs infinitely.
+The plugin looks for this specific tag. Without it (or `--max-iterations`), Ralph runs indefinitely.
 
 ### Self-Reference Mechanism
 

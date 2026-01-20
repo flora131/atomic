@@ -31,9 +31,9 @@ describe("CLI argument parsing", () => {
 
   test("AGENT_CONFIG has all expected agent keys", () => {
     const keys = Object.keys(AGENT_CONFIG);
-    expect(keys).toContain("claude-code");
+    expect(keys).toContain("claude");
     expect(keys).toContain("opencode");
-    expect(keys).toContain("copilot-cli");
+    expect(keys).toContain("copilot");
   });
 });
 

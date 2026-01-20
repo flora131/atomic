@@ -11,9 +11,9 @@
  * @returns true if in agent run mode
  *
  * @example
- * isAgentRunMode(["-a", "claude-code"])           // true
+ * isAgentRunMode(["-a", "claude"])                // true
  * isAgentRunMode(["--agent", "opencode", "--resume"]) // true
- * isAgentRunMode(["init", "-a", "claude-code"])   // false (init mode)
+ * isAgentRunMode(["init", "-a", "claude"])        // false (init mode)
  * isAgentRunMode(["--help"])                       // false (no agent)
  */
 export function isAgentRunMode(args: string[]): boolean {
@@ -37,7 +37,7 @@ export function isAgentRunMode(args: string[]): boolean {
  * @returns The agent name or undefined if not found
  *
  * @example
- * extractAgentName(["-a", "claude-code"])      // "claude-code"
+ * extractAgentName(["-a", "claude"])           // "claude"
  * extractAgentName(["--agent=opencode"])       // "opencode"
  * extractAgentName(["-a"])                      // undefined (missing value)
  * extractAgentName(["--help"])                  // undefined (no agent flag)
@@ -78,10 +78,10 @@ export function extractAgentName(args: string[]): string | undefined {
  * @returns true if -f or --force is present before the separator
  *
  * @example
- * hasForceFlag(["-a", "claude-code", "-f"])        // true
+ * hasForceFlag(["-a", "claude", "-f"])             // true
  * hasForceFlag(["--agent", "opencode", "--force"]) // true
- * hasForceFlag(["-a", "claude-code", "--", "-f"])  // false (-f is after separator)
- * hasForceFlag(["-a", "claude-code"])               // false
+ * hasForceFlag(["-a", "claude", "--", "-f"])       // false (-f is after separator)
+ * hasForceFlag(["-a", "claude"])                    // false
  */
 export function hasForceFlag(args: string[]): boolean {
   // Only check for force before the -- separator, since -f after
@@ -103,15 +103,15 @@ export function hasForceFlag(args: string[]): boolean {
  * @returns Array of arguments to pass to the agent (everything after --)
  *
  * @example
- * extractAgentArgs(["-a", "claude-code", "--", "/commit"])
+ * extractAgentArgs(["-a", "claude", "--", "/commit"])
  * // => ["/commit"]
  *
  * @example
- * extractAgentArgs(["-a", "claude-code", "--", "--help"])
+ * extractAgentArgs(["-a", "claude", "--", "--help"])
  * // => ["--help"] (help flag goes to agent, not atomic)
  *
  * @example
- * extractAgentArgs(["-a", "claude-code"])
+ * extractAgentArgs(["-a", "claude"])
  * // => [] (no separator, no args passed to agent)
  */
 export function extractAgentArgs(args: string[]): string[] {
@@ -132,15 +132,15 @@ export function extractAgentArgs(args: string[]): string[] {
  * @returns true if init is used with -- separator
  *
  * @example
- * isInitWithSeparator(["init", "-a", "claude-code", "--", "/commit"])
+ * isInitWithSeparator(["init", "-a", "claude", "--", "/commit"])
  * // => true (invalid usage)
  *
  * @example
- * isInitWithSeparator(["init", "-a", "claude-code"])
+ * isInitWithSeparator(["init", "-a", "claude"])
  * // => false (valid usage)
  *
  * @example
- * isInitWithSeparator(["-a", "claude-code", "--", "/commit"])
+ * isInitWithSeparator(["-a", "claude", "--", "/commit"])
  * // => false (not init mode)
  */
 export function isInitWithSeparator(args: string[]): boolean {
@@ -164,15 +164,15 @@ export function isInitWithSeparator(args: string[]): boolean {
  * @returns Array of suspicious arguments that might be intended for the agent
  *
  * @example
- * detectMissingSeparatorArgs(["-a", "claude-code", "/commit"])
+ * detectMissingSeparatorArgs(["-a", "claude", "/commit"])
  * // => ["/commit"] (slash command without separator)
  *
  * @example
- * detectMissingSeparatorArgs(["-a", "claude-code", "fix the bug"])
+ * detectMissingSeparatorArgs(["-a", "claude", "fix the bug"])
  * // => ["fix the bug"] (prompt without separator)
  *
  * @example
- * detectMissingSeparatorArgs(["-a", "claude-code", "--", "/commit"])
+ * detectMissingSeparatorArgs(["-a", "claude", "--", "/commit"])
  * // => [] (separator present, no issue)
  */
 export function detectMissingSeparatorArgs(args: string[]): string[] {

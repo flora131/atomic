@@ -81,7 +81,7 @@
       "Replace expect(keys).toContain('copilot-cli') with expect(keys).toContain('copilot')",
       "Run bun test tests/cli.test.ts to verify tests pass"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

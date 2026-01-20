@@ -127,8 +127,8 @@ HELP_EOF
   esac
 done
 
-# Join all prompt parts with spaces
-USER_PROMPT="${PROMPT_PARTS[*]}"
+# Join all prompt parts with spaces (use :- for bash 3.x compatibility with set -u)
+USER_PROMPT="${PROMPT_PARTS[*]:-}"
 
 # Default prompt includes /implement-feature and critical instructions
 # Users can fully override by providing their own prompt

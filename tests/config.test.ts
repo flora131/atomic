@@ -73,8 +73,8 @@ describe("AGENT_CONFIG", () => {
     }
   });
 
-  test("claude-code preserves CLAUDE.md and merges .mcp.json", () => {
-    const config = getAgentConfig("claude-code");
+  test("claude preserves CLAUDE.md and merges .mcp.json", () => {
+    const config = getAgentConfig("claude");
     expect(config.preserve_files).toContain("CLAUDE.md");
     expect(config.preserve_files).not.toContain(".mcp.json");
     expect(config.merge_files).toContain(".mcp.json");
@@ -86,8 +86,8 @@ describe("AGENT_CONFIG", () => {
     expect(config.merge_files).toHaveLength(0);
   });
 
-  test("copilot-cli preserves AGENTS.md", () => {
-    const config = getAgentConfig("copilot-cli");
+  test("copilot preserves AGENTS.md", () => {
+    const config = getAgentConfig("copilot");
     expect(config.preserve_files).toContain("AGENTS.md");
     expect(config.merge_files).toHaveLength(0);
   });
@@ -95,9 +95,9 @@ describe("AGENT_CONFIG", () => {
 
 describe("isValidAgent", () => {
   test("returns true for valid agent keys", () => {
-    expect(isValidAgent("claude-code")).toBe(true);
+    expect(isValidAgent("claude")).toBe(true);
     expect(isValidAgent("opencode")).toBe(true);
-    expect(isValidAgent("copilot-cli")).toBe(true);
+    expect(isValidAgent("copilot")).toBe(true);
   });
 
   test("returns false for invalid agent keys", () => {
@@ -109,7 +109,7 @@ describe("isValidAgent", () => {
 
 describe("getAgentConfig", () => {
   test("returns config for valid agent", () => {
-    const config = getAgentConfig("claude-code");
+    const config = getAgentConfig("claude");
     expect(config.name).toBe("Claude Code");
     expect(config.cmd).toBe("claude");
   });
@@ -118,9 +118,9 @@ describe("getAgentConfig", () => {
 describe("getAgentKeys", () => {
   test("returns all agent keys", () => {
     const keys = getAgentKeys();
-    expect(keys).toContain("claude-code");
+    expect(keys).toContain("claude");
     expect(keys).toContain("opencode");
-    expect(keys).toContain("copilot-cli");
+    expect(keys).toContain("copilot");
     expect(keys.length).toBe(3);
   });
 });

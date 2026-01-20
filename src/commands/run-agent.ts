@@ -28,17 +28,17 @@ function sanitizeForDisplay(input: string): string {
  * 3. Verifies the agent command is installed
  * 4. Spawns the agent process with provided arguments
  *
- * @param agentKey The agent key (e.g., "claude-code", "opencode", "copilot-cli")
+ * @param agentKey The agent key (e.g., "claude", "opencode", "copilot")
  * @param agentArgs Additional arguments to pass to the agent
  * @returns Exit code from the agent process
  *
  * @example
  * // Run Claude Code with no additional arguments
- * await runAgentCommand("claude-code");
+ * await runAgentCommand("claude");
  *
  * @example
  * // Run Claude Code with a prompt
- * await runAgentCommand("claude-code", ["fix the bug in auth"]);
+ * await runAgentCommand("claude", ["fix the bug in auth"]);
  *
  * @example
  * // Run OpenCode with flags
@@ -46,7 +46,7 @@ function sanitizeForDisplay(input: string): string {
  *
  * @example
  * // Pass agent's own help flag
- * await runAgentCommand("claude-code", ["--help"]);
+ * await runAgentCommand("claude", ["--help"]);
  */
 interface RunAgentOptions {
   /** Force overwrite of preserved files during auto-init */

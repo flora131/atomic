@@ -17,6 +17,10 @@ export interface AgentConfig {
   exclude: string[];
   /** Additional files to copy from repo root */
   additional_files: string[];
+  /** Files to skip if they already exist (e.g., CLAUDE.md, AGENTS.md) */
+  preserve_files: string[];
+  /** Files to merge instead of overwrite (e.g., .mcp.json) */
+  merge_files: string[];
 }
 
 const AGENT_KEYS = ["claude-code", "opencode", "copilot-cli"] as const;
@@ -31,6 +35,8 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     install_url: "https://docs.anthropic.com/en/docs/claude-code/setup",
     exclude: [".DS_Store"],
     additional_files: ["CLAUDE.md", ".mcp.json"],
+    preserve_files: ["CLAUDE.md"],
+    merge_files: [".mcp.json"],
   },
   opencode: {
     name: "OpenCode",
@@ -46,6 +52,8 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
       ".DS_Store",
     ],
     additional_files: ["AGENTS.md"],
+    preserve_files: ["AGENTS.md"],
+    merge_files: [],
   },
   "copilot-cli": {
     name: "GitHub Copilot CLI",
@@ -56,6 +64,8 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
       "https://github.com/github/copilot-cli?tab=readme-ov-file#installation",
     exclude: ["workflows", "dependabot.yml", ".DS_Store"],
     additional_files: ["AGENTS.md"],
+    preserve_files: ["AGENTS.md"],
+    merge_files: [],
   },
 };
 

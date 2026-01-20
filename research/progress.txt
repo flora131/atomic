@@ -1,0 +1,19 @@
+Feature implementation progress for init-config-merge-behavior spec
+
+Completed:
+- [x] Add preserve_files and merge_files fields to AgentConfig interface (src/config.ts)
+- [x] Update AGENT_CONFIG with preserve_files and merge_files for each agent (src/config.ts)
+- [x] Create src/utils/merge.ts with mergeJsonFile function
+- [x] Add force option to InitOptions interface (src/commands/init.ts)
+- [x] Implement copyDirPreserving function for preserving folder copy
+- [x] Modify init command to skip preserved files if they exist
+- [x] Add --force/-f flag to argument parser (src/index.ts)
+- [x] Add hasForceFlag function to arg-parser.ts
+- [x] Update run-agent.ts to pass force option to initCommand
+- [x] Write unit tests for preserve_files, merge_files, and force flag
+- [x] All tests pass (168 tests)
+- [x] TypeScript type checking passes
+- [x] Lint passes
+
+Remaining (optional enhancements from spec):
+- [ ] Integration/E2E tests for actual file preservation behavior

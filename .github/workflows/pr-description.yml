@@ -6,6 +6,7 @@ on:
 
 jobs:
   generate-description:
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -50,4 +51,4 @@ jobs:
             - Keep the title concise (under 72 characters) and the description informative
             - Use markdown formatting for readability
           claude_args: |
-            --allowedTools "Bash(git diff:*),Bash(git log:*),Bash(gh pr edit:*),Read,Glob,Grep"
+            --model claude-sonnet-4-5 --allowedTools "Bash(git diff:*),Bash(git log:*),Bash(gh pr edit:*),Read,Glob,Grep"

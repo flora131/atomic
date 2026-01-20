@@ -209,13 +209,13 @@ Or, use `/ralph:ralph-loop` for autonomous mode to enable multi-hour autonomous 
 
 ```bash
 # for claude-code
-atomic --agent claude -- /ralph:ralph-loop
+atomic --agent claude-code -- /ralph:ralph-loop
 
 # for opencode
-atomic --agent opencode -- /ralph-loop
+atomic --agent opencode -- /ralph:ralph-loop
 
-# for copilot
-atomic --agent copilot -- --agent ralph-loop
+# for copilot-cli
+atomic --agent copilot-cli -- /ralph:ralph-loop
 ```
 
 ### 5. Debugging

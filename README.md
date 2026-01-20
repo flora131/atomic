@@ -53,9 +53,9 @@ Select your agent. The CLI configures your project automatically.
 
 - [bun](https://bun.sh/docs/installation) or [node.js](https://nodejs.org/en/download/) installed
 - Coding agent installed:
-  - [Claude Code](https://docs.anthropic.com/en/docs/claude/setup)
+  - [Claude Code](https://code.claude.com/docs/en/quickstart)
   - [OpenCode](https://opencode.ai)
-  - [GitHub Copilot CLI](https://github.com/github/copilot)
+  - [GitHub Copilot CLI](https://github.com/features/copilot/cli)
 
 ---
 

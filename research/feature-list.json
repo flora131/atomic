@@ -47,7 +47,7 @@
       "Replace all instances of 'copilot-cli' with 'copilot' in examples",
       "Verify all JSDoc examples use new agent key names"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

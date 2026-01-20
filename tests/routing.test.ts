@@ -430,6 +430,12 @@ describe("Agent argument passthrough", () => {
       ).toBe(false);
     });
 
+    test("returns false when init appears only after -- separator", () => {
+      // init after -- is an agent argument, not a command
+      expect(isInitWithSeparator(["-a", "claude-code", "--", "init"])).toBe(false);
+      expect(isInitWithSeparator(["--agent", "opencode", "--", "init", "something"])).toBe(false);
+    });
+
     test("returns false when neither init nor -- is present", () => {
       expect(isInitWithSeparator([])).toBe(false);
       expect(isInitWithSeparator(["--help"])).toBe(false);

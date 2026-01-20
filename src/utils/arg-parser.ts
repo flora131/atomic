@@ -17,17 +17,15 @@
  * isAgentRunMode(["--help"])                       // false (no agent)
  */
 export function isAgentRunMode(args: string[]): boolean {
-  let hasAgent = false;
-  let hasInit = false;
+  // Only check for init before the -- separator, since init after
+  // the separator is an argument for the agent, not a command
+  const separatorIndex = args.indexOf("--");
+  const argsBeforeSeparator = separatorIndex === -1 ? args : args.slice(0, separatorIndex);
 
-  for (const arg of args) {
-    if (arg === "init") {
-      hasInit = true;
-    }
-    if (arg === "-a" || arg === "--agent" || arg.startsWith("--agent=") || arg.startsWith("-a=")) {
-      hasAgent = true;
-    }
-  }
+  const hasInit = argsBeforeSeparator.includes("init");
+  const hasAgent = argsBeforeSeparator.some(
+    (arg) => arg === "-a" || arg === "--agent" || arg.startsWith("--agent=") || arg.startsWith("-a=")
+  );
 
   return hasAgent && !hasInit;
 }
@@ -52,7 +50,11 @@ export function extractAgentName(args: string[]): string | undefined {
     // Handle -a <agent> or --agent <agent>
     if (arg === "-a" || arg === "--agent") {
       const value = args[i + 1];
-      return value || undefined;
+      // Don't treat the separator as an agent name
+      if (value && value !== "--") {
+        return value;
+      }
+      return undefined;
     }
 
     // Handle --agent=<agent> or -a=<agent>

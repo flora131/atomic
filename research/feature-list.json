@@ -35,7 +35,7 @@
       "Replace 'copilot-cli' with 'copilot' in @param description",
       "Update @example from runAgentCommand('claude-code') to runAgentCommand('claude')"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

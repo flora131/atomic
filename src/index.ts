@@ -55,11 +55,11 @@ Available agents: ${agents}
 
 Examples:
   atomic                                    # Start interactive setup
-  atomic init -a claude-code                # Setup Claude Code directly
-  atomic -a claude-code                     # Run Claude Code (setup if needed)
-  atomic -a claude-code -- "fix the bug"    # Run Claude Code with a prompt
+  atomic init -a claude                     # Setup Claude Code directly
+  atomic -a claude                          # Run Claude Code (setup if needed)
+  atomic -a claude -- "fix the bug"         # Run Claude Code with a prompt
   atomic -a opencode -- --resume            # Run OpenCode with --resume flag
-  atomic -a claude-code -- --help           # Show Claude Code's help (not atomic's)
+  atomic -a claude -- --help                # Show Claude Code's help (not atomic's)
 `);
 }
 

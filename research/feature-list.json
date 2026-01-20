@@ -23,7 +23,7 @@
       "Replace 'atomic -a claude-code -- \"fix the bug\"' with 'atomic -a claude -- \"fix the bug\"'",
       "Verify help text displays correctly with new agent names"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

@@ -61,7 +61,7 @@ describe("initCommand display ordering", () => {
             logInfoCalls.push(msg);
           },
         },
-        select: async () => "claude-code",
+        select: async () => "claude",
         confirm: async () => CANCEL_SYMBOL, // Return cancel to exit before file operations
         spinner: () => ({
           start: () => {},
@@ -88,7 +88,7 @@ describe("initCommand display ordering", () => {
       try {
         await initCommand({
           showBanner: false,
-          preSelectedAgent: "claude-code",
+          preSelectedAgent: "claude",
           configNotFoundMessage: ".claude not found. Running setup...",
         });
       } catch (e) {
@@ -130,7 +130,7 @@ describe("initCommand display ordering", () => {
             logInfoCalls.push(msg);
           },
         },
-        select: async () => "claude-code",
+        select: async () => "claude",
         confirm: async () => CANCEL_SYMBOL,
         spinner: () => ({
           start: () => {},
@@ -151,7 +151,7 @@ describe("initCommand display ordering", () => {
       try {
         await initCommand({
           showBanner: false,
-          preSelectedAgent: "claude-code",
+          preSelectedAgent: "claude",
           // configNotFoundMessage NOT provided
         });
       } catch (e) {
@@ -184,7 +184,7 @@ describe("initCommand display ordering", () => {
           message: () => {},
           info: () => {},
         },
-        select: async () => "claude-code",
+        select: async () => "claude",
         confirm: async () => CANCEL_SYMBOL,
         spinner: () => ({
           start: () => {},
@@ -208,7 +208,7 @@ describe("initCommand display ordering", () => {
       try {
         await initCommand({
           showBanner: true,
-          preSelectedAgent: "claude-code",
+          preSelectedAgent: "claude",
         });
       } catch (e) {
         // Expected
@@ -226,7 +226,7 @@ describe("initCommand display ordering", () => {
           message: () => {},
           info: () => {},
         },
-        select: async () => "claude-code",
+        select: async () => "claude",
         confirm: async () => CANCEL_SYMBOL,
         spinner: () => ({
           start: () => {},
@@ -249,7 +249,7 @@ describe("initCommand display ordering", () => {
       try {
         await initCommand({
           showBanner: false,
-          preSelectedAgent: "claude-code",
+          preSelectedAgent: "claude",
         });
       } catch (e) {
         // Expected
@@ -267,7 +267,7 @@ describe("initCommand display ordering", () => {
           message: () => {},
           info: () => {},
         },
-        select: async () => "claude-code",
+        select: async () => "claude",
         confirm: async () => CANCEL_SYMBOL,
         spinner: () => ({
           start: () => {},
@@ -290,7 +290,7 @@ describe("initCommand display ordering", () => {
       try {
         await initCommand({
           showBanner: true,
-          preSelectedAgent: "claude-code",
+          preSelectedAgent: "claude",
         });
       } catch (e) {
         // Expected
@@ -319,7 +319,7 @@ describe("initCommand display ordering", () => {
             callOrder.push(`log.info:${msg}`);
           },
         },
-        select: async () => "claude-code",
+        select: async () => "claude",
         confirm: async () => CANCEL_SYMBOL,
         spinner: () => ({
           start: () => {},
@@ -342,7 +342,7 @@ describe("initCommand display ordering", () => {
       try {
         await initCommand({
           showBanner: true,
-          preSelectedAgent: "claude-code",
+          preSelectedAgent: "claude",
           configNotFoundMessage: ".claude not found. Running setup...",
         });
       } catch (e) {

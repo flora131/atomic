@@ -23,11 +23,11 @@ export interface AgentConfig {
   merge_files: string[];
 }
 
-const AGENT_KEYS = ["claude-code", "opencode", "copilot-cli"] as const;
+const AGENT_KEYS = ["claude", "opencode", "copilot"] as const;
 export type AgentKey = (typeof AGENT_KEYS)[number];
 
 export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
-  "claude-code": {
+  claude: {
     name: "Claude Code",
     cmd: "claude",
     additional_flags: [],
@@ -55,7 +55,7 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     preserve_files: ["AGENTS.md"],
     merge_files: [],
   },
-  "copilot-cli": {
+  copilot: {
     name: "GitHub Copilot CLI",
     cmd: "copilot",
     additional_flags: ["--allow-all-tools", "--allow-all-paths"],

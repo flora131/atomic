@@ -174,11 +174,14 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   const targetFolder = join(targetDir, agent.folder);
   const folderExists = await pathExists(targetFolder);
 
-  if (folderExists && !options.force) {
+  // Track if we should force overwrite (either from CLI flag or user confirmation)
+  let shouldForce = options.force ?? false;
+
+  if (folderExists && !shouldForce) {
     const update = await confirm({
-      message: `${agent.folder} already exists. Update config? (Custom files will be preserved)`,
+      message: `${agent.folder} already exists. Overwrite config files?`,
       initialValue: true,
-      active: "Yes, update",
+      active: "Yes, overwrite",
       inactive: "No, cancel",
     });
 
@@ -191,6 +194,9 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       cancel("Operation cancelled. Existing config preserved.");
       process.exit(0);
     }
+
+    // User confirmed overwrite
+    shouldForce = true;
   }
 
   // Copy files with spinner
@@ -201,10 +207,10 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     const configRoot = getConfigRoot();
     const sourceFolder = join(configRoot, agent.folder);
 
-    // Use preserving copy - only overwrites if file doesn't exist (or force is true)
+    // Use preserving copy - overwrites if force is true or user confirmed
     await copyDirPreserving(sourceFolder, targetFolder, {
       exclude: agent.exclude,
-      force: options.force,
+      force: shouldForce,
     });
 
     // Copy additional files with preservation and merge logic
@@ -218,8 +224,8 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       const shouldPreserve = agent.preserve_files.includes(file);
       const shouldMerge = agent.merge_files.includes(file);
 
-      // Force flag bypasses all preservation/merge logic
-      if (options.force) {
+      // Force flag (or user-confirmed overwrite) bypasses all preservation/merge logic
+      if (shouldForce) {
         await copyFile(srcFile, destFile);
         continue;
       }

@@ -72,9 +72,9 @@ describe("CLI Init Display Ordering", () => {
     return output.indexOf(needle);
   }
 
-  test("atomic -a claude-code without config shows correct display order", async () => {
+  test("atomic -a claude without config shows correct display order", async () => {
     // Run atomic with agent flag in a directory without config
-    const { stdout, stderr } = await runAtomic(["-a", "claude-code"]);
+    const { stdout, stderr } = await runAtomic(["-a", "claude"]);
     const output = stdout + stderr;
 
     // Check for key elements in the output
@@ -92,9 +92,9 @@ describe("CLI Init Display Ordering", () => {
     expect(notFoundPos).toBeLessThan(configuringPos);
   }, 10000);
 
-  test("atomic init -a claude-code shows correct display order", async () => {
+  test("atomic init -a claude shows correct display order", async () => {
     // Run atomic init with agent flag
-    const { stdout, stderr } = await runAtomic(["init", "-a", "claude-code"]);
+    const { stdout, stderr } = await runAtomic(["init", "-a", "claude"]);
     const output = stdout + stderr;
 
     // Check for key elements in the output
@@ -113,12 +113,12 @@ describe("CLI Init Display Ordering", () => {
     expect(introPos).toBeLessThan(configuringPos);
   }, 10000);
 
-  test("atomic -a claude-code with existing config skips setup", async () => {
+  test("atomic -a claude with existing config skips setup", async () => {
     // Create .claude folder before running CLI
     await fs.mkdir(path.join(tmpDir, ".claude"));
 
     // Run atomic with agent flag
-    const { stdout, stderr } = await runAtomic(["-a", "claude-code"]);
+    const { stdout, stderr } = await runAtomic(["-a", "claude"]);
     const output = stdout + stderr;
 
     // Should NOT show intro banner or setup messages

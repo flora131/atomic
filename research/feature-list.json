@@ -1,131 +1,168 @@
 [
   {
-    "category": "functional",
-    "description": "Add preserve_files and merge_files fields to AgentConfig interface",
+    "category": "refactor",
+    "description": "Rename agent keys in AGENT_KEYS and AGENT_CONFIG (source of truth)",
     "steps": [
       "Open src/config.ts",
-      "Add preserve_files field to AgentConfig interface (string array)",
-      "Add merge_files field to AgentConfig interface (string array)",
-      "Run typecheck to verify interface is valid"
+      "Update AGENT_KEYS array from ['claude-code', 'opencode', 'copilot-cli'] to ['claude', 'opencode', 'copilot']",
+      "Rename 'claude-code' config object key to 'claude' in AGENT_CONFIG",
+      "Rename 'copilot-cli' config object key to 'copilot' in AGENT_CONFIG",
+      "Verify AgentKey type is automatically updated to 'claude' | 'opencode' | 'copilot'",
+      "Run bun run typecheck to verify type changes propagate correctly"
     ],
     "passes": true
   },
   {
-    "category": "functional",
-    "description": "Update AGENT_CONFIG with preserve_files and merge_files for each agent",
+    "category": "refactor",
+    "description": "Update help text examples in src/index.ts",
     "steps": [
-      "In src/config.ts, add preserve_files: ['CLAUDE.md'] and merge_files: ['.mcp.json'] to claude-code config",
-      "Add preserve_files: ['AGENTS.md'] and merge_files: [] to opencode config",
-      "Add preserve_files: ['AGENTS.md'] and merge_files: [] to copilot-cli config",
-      "Run typecheck to verify config is valid"
+      "Open src/index.ts",
+      "Find help text examples at lines 58-62",
+      "Replace 'atomic init -a claude-code' with 'atomic init -a claude'",
+      "Replace 'atomic -a claude-code' with 'atomic -a claude'",
+      "Replace 'atomic -a claude-code -- \"fix the bug\"' with 'atomic -a claude -- \"fix the bug\"'",
+      "Verify help text displays correctly with new agent names"
     ],
-    "passes": true
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update JSDoc examples in src/commands/run-agent.ts",
+    "steps": [
+      "Open src/commands/run-agent.ts",
+      "Find JSDoc examples at lines 31-49",
+      "Replace 'claude-code' with 'claude' in @param description",
+      "Replace 'copilot-cli' with 'copilot' in @param description",
+      "Update @example from runAgentCommand('claude-code') to runAgentCommand('claude')"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update JSDoc examples in src/utils/arg-parser.ts",
+    "steps": [
+      "Open src/utils/arg-parser.ts",
+      "Find JSDoc examples at lines 14-175 (14 locations)",
+      "Replace all instances of 'claude-code' with 'claude' in examples",
+      "Replace all instances of 'copilot-cli' with 'copilot' in examples",
+      "Verify all JSDoc examples use new agent key names"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update tests/routing.test.ts (~60+ references)",
+    "steps": [
+      "Open tests/routing.test.ts",
+      "Replace all occurrences of 'claude-code' with 'claude'",
+      "Replace all occurrences of 'copilot-cli' with 'copilot'",
+      "Run bun test tests/routing.test.ts to verify tests pass"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update tests/init.test.ts (~20 references + type definitions)",
+    "steps": [
+      "Open tests/init.test.ts",
+      "Update AgentKey type definition from 'claude-code' | 'opencode' | 'copilot-cli' to 'claude' | 'opencode' | 'copilot'",
+      "Replace all occurrences of 'claude-code' with 'claude'",
+      "Replace all occurrences of 'copilot-cli' with 'copilot'",
+      "Run bun test tests/init.test.ts to verify tests pass"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update tests/cli.test.ts (3 references)",
+    "steps": [
+      "Open tests/cli.test.ts",
+      "Replace expect(keys).toContain('claude-code') with expect(keys).toContain('claude')",
+      "Replace expect(keys).toContain('copilot-cli') with expect(keys).toContain('copilot')",
+      "Run bun test tests/cli.test.ts to verify tests pass"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update tests/run-agent.test.ts (~15 references)",
+    "steps": [
+      "Open tests/run-agent.test.ts",
+      "Replace all occurrences of 'claude-code' with 'claude'",
+      "Replace all occurrences of 'copilot-cli' with 'copilot'",
+      "Run bun test tests/run-agent.test.ts to verify tests pass"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update tests/config.test.ts (~10 references)",
+    "steps": [
+      "Open tests/config.test.ts",
+      "Replace all occurrences of 'claude-code' with 'claude'",
+      "Replace all occurrences of 'copilot-cli' with 'copilot'",
+      "Run bun test tests/config.test.ts to verify tests pass"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update tests/display-order.test.ts (~12 references)",
+    "steps": [
+      "Open tests/display-order.test.ts",
+      "Replace all occurrences of 'claude-code' with 'claude'",
+      "Replace all occurrences of 'copilot-cli' with 'copilot'",
+      "Run bun test tests/display-order.test.ts to verify tests pass"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update tests/e2e/cli-init-display.test.ts (~6 references)",
+    "steps": [
+      "Open tests/e2e/cli-init-display.test.ts",
+      "Replace all occurrences of 'claude-code' with 'claude'",
+      "Replace all occurrences of 'copilot-cli' with 'copilot'",
+      "Run bun test tests/e2e/cli-init-display.test.ts to verify tests pass"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update README.md documentation (~20 references)",
+    "steps": [
+      "Open README.md",
+      "Update agent table: replace 'atomic --agent claude-code' with 'atomic --agent claude'",
+      "Update agent table: replace 'atomic --agent copilot-cli' with 'atomic --agent copilot'",
+      "Replace all CLI examples using 'claude-code' with 'claude'",
+      "Replace all CLI examples using 'copilot-cli' with 'copilot'",
+      "Verify documentation examples are consistent"
+    ],
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Create merge utility for .mcp.json files",
+    "description": "Run all tests to verify rename is complete",
     "steps": [
-      "Create src/utils/merge.ts",
-      "Implement mergeJsonFile function that preserves user's MCP servers",
-      "Source values override destination for same keys",
-      "Preserve destination's other top-level keys"
+      "Run bun test to execute all test suites",
+      "Verify all tests pass",
+      "Run bun run typecheck to ensure type safety",
+      "Run bun run lint to check for any linting issues",
+      "Run bun run build to verify successful build"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Add force option to InitOptions interface",
+    "description": "Manual verification of CLI functionality",
     "steps": [
-      "Open src/commands/init.ts",
-      "Add force?: boolean to InitOptions interface",
-      "Document that it bypasses all preservation/merge logic"
+      "Run atomic --agent claude and verify it runs Claude Code",
+      "Run atomic --agent copilot and verify it runs GitHub Copilot CLI",
+      "Run atomic -a claude (short form) and verify it works",
+      "Run atomic init -a claude and verify it sets up Claude Code",
+      "Run atomic --agent claude-code and verify it shows 'Unknown agent' error",
+      "Run atomic --help and verify new agent names are displayed"
     ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Implement preserving folder copy (copyDirPreserving)",
-    "steps": [
-      "Create copyDirPreserving function in init.ts",
-      "Only copy files that don't exist at destination (unless force is true)",
-      "Recursively handle directories",
-      "Skip files based on exclude list and opposite platform scripts"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Modify init command to use preserving copy and merge logic",
-    "steps": [
-      "Replace folder deletion with copyDirPreserving",
-      "Update additional files loop to check preserve_files",
-      "If file is in preserve_files and exists, skip (silent)",
-      "If file is in merge_files and exists, call mergeJsonFile",
-      "If force flag is set, overwrite everything"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Add --force/-f flag to argument parser",
-    "steps": [
-      "Update parseArgs options in src/index.ts to include force flag",
-      "Add hasForceFlag function to src/utils/arg-parser.ts",
-      "Pass force option to initCommand calls",
-      "Update run-agent.ts to pass force option to initCommand"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Update help text with force flag",
-    "steps": [
-      "Add -f, --force option to help message",
-      "Document that it overwrites all files including CLAUDE.md/AGENTS.md"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Write unit tests for config changes",
-    "steps": [
-      "Add tests for preserve_files and merge_files arrays in config.test.ts",
-      "Verify claude-code preserves CLAUDE.md and merges .mcp.json",
-      "Verify opencode and copilot-cli preserve AGENTS.md"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Write unit tests for merge utility",
-    "steps": [
-      "Create tests/merge.test.ts",
-      "Test merging preserves destination MCP servers",
-      "Test source overrides destination for same keys",
-      "Test preserving destination top-level keys",
-      "Test output is properly formatted JSON"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Write unit tests for force flag parsing",
-    "steps": [
-      "Add tests for --force and -f flag parsing in routing.test.ts",
-      "Add tests for hasForceFlag function",
-      "Verify force flag after -- separator is not detected"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Run all tests and verify no regressions",
-    "steps": [
-      "Run bun test to execute all unit tests",
-      "Verify all 168 tests pass",
-      "Verify typecheck passes",
-      "Verify lint passes"
-    ],
-    "passes": true
+    "passes": false
   }
 ]

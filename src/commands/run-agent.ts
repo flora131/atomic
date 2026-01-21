@@ -51,6 +51,8 @@ function sanitizeForDisplay(input: string): string {
 interface RunAgentOptions {
   /** Force overwrite of preserved files during auto-init */
   force?: boolean;
+  /** Auto-confirm all prompts during auto-init */
+  yes?: boolean;
 }
 
 export async function runAgentCommand(
@@ -86,6 +88,7 @@ export async function runAgentCommand(
       showBanner: true,
       configNotFoundMessage: `${agent.folder} not found. Running setup...`,
       force: options.force,
+      yes: options.yes,
     });
   }
 

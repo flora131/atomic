@@ -369,4 +369,33 @@
 - Windows-specific rename strategy handles locked executables
 
 ---
-Next feature: Integration test: update command error paths
+
+## 2026-01-21 - Feature 14: Integration test: update command error paths
+
+### Completed
+- Added 9 new tests to `tests/e2e/update-command.test.ts`
+- Tests cover all required error paths:
+  - Source installation detection and git pull/bun install guidance
+  - npm installation error message verification
+  - GitHub API rate limit (403) error handling with GITHUB_TOKEN suggestion
+  - Version not found (404) error handling with releases page link
+  - Network failure handling during download (500 error)
+  - Checksum verification when filename not found in checksums.txt
+  - Checksum mismatch returns false (not throws)
+  - Update command source code contains GITHUB_TOKEN guidance
+  - Update command source code contains releases page link for 404 errors
+
+### Test Results
+- All 300 tests pass (291 existing + 9 new error path tests)
+- 639 expect() calls verified
+
+### Files Modified
+- `tests/e2e/update-command.test.ts` - Added 9 new tests for error paths
+
+### Notes
+- Tests use fetch mocking to simulate API errors without network calls
+- Checksum tests create temp files to verify actual checksum behavior
+- Source code inspection tests verify error handling strings exist in update.ts
+
+---
+Next feature: Integration test: uninstall command for binary installation

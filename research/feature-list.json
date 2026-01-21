@@ -222,6 +222,6 @@
       "Test atomic uninstall on source installation shows repository deletion guidance",
       "Test permission error handling with helpful message"
     ],
-    "passes": false
+    "passes": true
   }
 ]

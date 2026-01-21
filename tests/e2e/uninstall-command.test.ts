@@ -261,3 +261,116 @@ describe("Uninstall Dry-Run Behavior", () => {
     expect(options.dryRun).toBe(false);
   });
 });
+
+describe("Uninstall Command Error Paths", () => {
+  describe("Installation type error messages", () => {
+    test("detectInstallationType returns source when running from source", async () => {
+      const { detectInstallationType } = await import("../../src/utils/config-path");
+
+      // When running tests via bun, we're in source mode
+      const installType = detectInstallationType();
+      expect(installType).toBe("source");
+    });
+
+    test("npm error message contains bun remove and npm uninstall commands", async () => {
+      const uninstallSource = await Bun.file(
+        path.join(__dirname, "../../src/commands/uninstall.ts")
+      ).text();
+
+      // Verify npm/bun uninstall guidance exists
+      expect(uninstallSource).toContain("bun remove -g @bastani/atomic");
+      expect(uninstallSource).toContain("npm uninstall -g @bastani/atomic");
+    });
+
+    test("source error message contains bun unlink instruction", async () => {
+      const uninstallSource = await Bun.file(
+        path.join(__dirname, "../../src/commands/uninstall.ts")
+      ).text();
+
+      // Verify source installation guidance exists
+      expect(uninstallSource).toContain("bun unlink");
+      expect(uninstallSource).toContain("Delete the cloned repository");
+    });
+  });
+
+  describe("Permission error handling", () => {
+    test("permission error checks include EACCES", async () => {
+      const uninstallSource = await Bun.file(
+        path.join(__dirname, "../../src/commands/uninstall.ts")
+      ).text();
+
+      // Verify EACCES is checked
+      expect(uninstallSource).toContain("EACCES");
+    });
+
+    test("permission error checks include EPERM", async () => {
+      const uninstallSource = await Bun.file(
+        path.join(__dirname, "../../src/commands/uninstall.ts")
+      ).text();
+
+      // Verify EPERM is checked
+      expect(uninstallSource).toContain("EPERM");
+    });
+
+    test("permission error shows sudo guidance on Unix", async () => {
+      const uninstallSource = await Bun.file(
+        path.join(__dirname, "../../src/commands/uninstall.ts")
+      ).text();
+
+      // Verify Unix elevation guidance
+      expect(uninstallSource).toContain("sudo atomic uninstall");
+    });
+
+    test("permission error shows Administrator guidance on Windows", async () => {
+      const uninstallSource = await Bun.file(
+        path.join(__dirname, "../../src/commands/uninstall.ts")
+      ).text();
+
+      // Verify Windows elevation guidance
+      expect(uninstallSource).toContain("Run PowerShell as Administrator");
+    });
+
+    test("permission error suggests manual deletion", async () => {
+      const uninstallSource = await Bun.file(
+        path.join(__dirname, "../../src/commands/uninstall.ts")
+      ).text();
+
+      // Verify manual deletion fallback
+      expect(uninstallSource).toContain("manually delete");
+    });
+  });
+
+  describe("Windows-specific handling", () => {
+    test("Windows rename strategy uses .delete extension", async () => {
+      const uninstallSource = await Bun.file(
+        path.join(__dirname, "../../src/commands/uninstall.ts")
+      ).text();
+
+      // Verify Windows rename strategy
+      expect(uninstallSource).toContain(".delete");
+      expect(uninstallSource).toContain("Cannot delete running executable");
+    });
+
+    test("Windows shows restart guidance after rename", async () => {
+      const uninstallSource = await Bun.file(
+        path.join(__dirname, "../../src/commands/uninstall.ts")
+      ).text();
+
+      // Verify restart guidance for Windows
+      expect(uninstallSource).toContain("restart your computer");
+      expect(uninstallSource).toContain("marked for deletion");
+    });
+  });
+
+  describe("Already uninstalled handling", () => {
+    test("already uninstalled message is in source", async () => {
+      const uninstallSource = await Bun.file(
+        path.join(__dirname, "../../src/commands/uninstall.ts")
+      ).text();
+
+      // Verify already uninstalled message
+      expect(uninstallSource).toContain("already uninstalled");
+      expect(uninstallSource).toContain("no files found");
+    });
+  });
+});

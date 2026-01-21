@@ -1,6 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import {
   isCommandInstalled,
+  getCommandPath,
   getCommandVersion,
   isWindows,
   isMacOS,
@@ -19,6 +20,33 @@ describe("isCommandInstalled", () => {
 
   test("returns false for non-existent command", () => {
     expect(isCommandInstalled("nonexistent-command-12345")).toBe(false);
+  });
+});
+
+describe("getCommandPath", () => {
+  test("returns path for installed command (bun)", () => {
+    const path = getCommandPath("bun");
+    expect(path).not.toBeNull();
+    expect(typeof path).toBe("string");
+    // Path should be absolute (starts with / on Unix or drive letter on Windows)
+    expect(path!.length).toBeGreaterThan(0);
+  });
+
+  test("returns null for non-existent command", () => {
+    const path = getCommandPath("nonexistent-command-12345");
+    expect(path).toBeNull();
+  });
+
+  test("is consistent with isCommandInstalled", () => {
+    // If isCommandInstalled returns true, getCommandPath should return a path
+    const bunInstalled = isCommandInstalled("bun");
+    const bunPath = getCommandPath("bun");
+    expect(bunInstalled).toBe(bunPath !== null);
+
+    // If isCommandInstalled returns false, getCommandPath should return null
+    const fakeInstalled = isCommandInstalled("nonexistent-command-12345");
+    const fakePath = getCommandPath("nonexistent-command-12345");
+    expect(fakeInstalled).toBe(fakePath !== null);
   });
 });
 

@@ -14,6 +14,8 @@
 import { parseArgs } from "util";
 import { initCommand } from "./commands/init";
 import { runAgentCommand } from "./commands/run-agent";
+import { updateCommand } from "./commands/update";
+import { uninstallCommand } from "./commands/uninstall";
 import { AGENT_CONFIG, type AgentKey } from "./config";
 import {
   detectMissingSeparatorArgs,
@@ -24,6 +26,7 @@ import {
   isAgentRunMode,
   isInitWithSeparator,
 } from "./utils/arg-parser";
+import { cleanupWindowsLeftoverFiles } from "./utils/cleanup";
 import { COLORS } from "./utils/colors";
 import { VERSION } from "./version";
 
@@ -36,32 +39,45 @@ function showHelp(): void {
   console.log(`
 atomic - Configuration management for coding agents
 
-Usage:
+USAGE:
   atomic                             Interactive setup (same as 'atomic init')
   atomic init                        Interactive setup with agent selection
   atomic init --agent <name>         Setup specific agent (skip selection)
   atomic --agent <name> [-- args...] Run agent with arguments (auto-setup if needed)
+  atomic update                      Self-update to latest version (binary installs only)
+  atomic uninstall                   Remove atomic installation (binary installs only)
   atomic --version                   Show version
   atomic --help                      Show this help
 
-Options:
+COMMANDS:
+  init        Setup configuration files for a coding agent
+  update      Self-update atomic to the latest version (binary installs)
+  uninstall   Remove atomic installation (binary installs)
+
+GENERAL OPTIONS:
   -a, --agent <name>    Agent name: ${agents}
-  -f, --force           Overwrite config files (CLAUDE.md/AGENTS.md preserved)
+  -f, --force           Overwrite all config files including CLAUDE.md/AGENTS.md
   -y, --yes             Auto-confirm all prompts (non-interactive mode)
   -v, --version         Show version number
   -h, --help            Show this help
   --no-banner           Skip ASCII banner display
   --                    Separator: args after this go to the agent
 
+UNINSTALL OPTIONS:
+  --dry-run             Preview what would be removed without removing
+  --keep-config         Keep configuration data, only remove binary
+
 Available agents: ${agents}
 
-Examples:
+EXAMPLES:
   atomic                                    # Start interactive setup
   atomic init -a claude                     # Setup Claude Code directly
   atomic -a claude                          # Run Claude Code (setup if needed)
   atomic -a claude -- "fix the bug"         # Run Claude Code with a prompt
-  atomic -a opencode -- --resume            # Run OpenCode with --resume flag
-  atomic -a claude -- --help                # Show Claude Code's help (not atomic's)
+  atomic update                             # Update to latest version
+  atomic uninstall                          # Uninstall atomic
+  atomic uninstall --dry-run                # Preview uninstall without removing
+  atomic uninstall --keep-config            # Uninstall but keep config files
 `);
 }
 
@@ -69,6 +85,10 @@ Examples:
  * Main entry point
  */
 async function main(): Promise<void> {
+  // Clean up leftover Windows files from previous uninstall/update operations
+  // This is a no-op on non-Windows platforms
+  await cleanupWindowsLeftoverFiles();
+
   try {
     const rawArgs = Bun.argv.slice(2);
 
@@ -152,6 +172,9 @@ async function main(): Promise<void> {
         version: { type: "boolean", short: "v" },
         help: { type: "boolean", short: "h" },
         "no-banner": { type: "boolean" },
+        // Uninstall command options
+        "keep-config": { type: "boolean" },
+        "dry-run": { type: "boolean" },
       },
       strict: false,
       allowPositionals: true,
@@ -180,6 +203,20 @@ async function main(): Promise<void> {
           preSelectedAgent: values.agent as AgentKey | undefined,
           force: values.force as boolean | undefined,
           yes: values.yes as boolean | undefined,
+        });
+        break;
+
+      case "update":
+        // atomic update - upgrade to latest version
+        await updateCommand();
+        break;
+
+      case "uninstall":
+        // atomic uninstall [--dry-run] [--yes] [--keep-config]
+        await uninstallCommand({
+          dryRun: values["dry-run"] as boolean | undefined,
+          yes: values.yes as boolean | undefined,
+          keepConfig: values["keep-config"] as boolean | undefined,
         });
         break;
 

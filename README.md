@@ -444,33 +444,65 @@ The loop exits when **any** of these conditions are met:
 
 ---
 
-## Troubleshooting
+## Updating Atomic
 
-**Git Identity Error:** Configure git identity:
+### Native installation (Recommended)
+
+If you installed Atomic using the native install script, you can update using the built-in command:
 
 ```bash
-git config --global user.name "Your Name"
-git config --global user.email "you@example.com"
+# Update to the latest version
+atomic update
 ```
 
-**Windows Command Resolution:** If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic uses `Bun.which()` to resolve command paths, which handles Windows `.cmd`, `.exe`, and `.bat` extensions automatically.
+### npm/bun installation
 
-**File Preservation:** When re-running `atomic init`, your custom `CLAUDE.md` and `AGENTS.md` files are preserved by default. Use `--force` to overwrite config folder files (note: `--force` still preserves `CLAUDE.md`/`AGENTS.md` to protect your customizations).
+Use your package manager to update:
+
+```bash
+# Using bun
+bun upgrade @bastani/atomic
+
+# Using npm
+npm update -g @bastani/atomic
+```
 
 ---
 
-### Uninstall Atomic
+## Uninstalling Atomic
 
-If you need to uninstall Atomic, follow the instructions for your installation method.
+### Native installation (CLI command)
 
-#### Native installation
+If you installed Atomic using the native install script, you can uninstall using the built-in command:
 
-Remove the Atomic binary:
+```bash
+# Preview what will be removed (no changes made)
+atomic uninstall --dry-run
+
+# Uninstall Atomic
+atomic uninstall
+
+# Keep configuration data, only remove binary
+atomic uninstall --keep-config
+
+# Skip confirmation prompt
+atomic uninstall --yes  # or -y
+```
+
+The uninstall command will:
+- Remove the Atomic binary from `~/.local/bin/atomic` (or your custom install directory)
+- Remove configuration data from `~/.local/share/atomic` (unless `--keep-config` is used)
+- Display instructions for removing the PATH entry from your shell configuration
+
+### Native installation (manual)
+
+If the CLI command is not available, you can manually remove the files:
 
 **macOS, Linux:**
 
 ```bash
 rm -f ~/.local/bin/atomic
+rm -rf ~/.local/share/atomic
 ```
 
 If you installed to a custom directory, remove the binary from that location instead.
@@ -478,10 +510,11 @@ If you installed to a custom directory, remove the binary from that location ins
 **Windows PowerShell:**
 
 ```powershell
-Remove-Item "$env:LOCALAPPDATA\Programs\atomic\atomic.exe" -Force
+Remove-Item "$env:USERPROFILE\.local\bin\atomic.exe" -Force
+Remove-Item "$env:LOCALAPPDATA\atomic" -Recurse -Force
 ```
 
-#### npm/bun installation
+### npm/bun installation
 
 ```bash
 # Using bun
@@ -491,7 +524,7 @@ bun remove -g @bastani/atomic
 npm uninstall -g @bastani/atomic
 ```
 
-#### Clean up configuration files (optional)
+### Clean up configuration files (optional)
 
 > **Warning:** Removing configuration files will delete all your project-specific settings, skills, and agents configured by Atomic.
 
@@ -524,6 +557,22 @@ Remove-Item -Path "AGENTS.md" -Force
 # For GitHub Copilot
 Remove-Item -Path ".github\copilot-instructions.md" -Force
 ```
+
+---
+
+## Troubleshooting
+
+**Git Identity Error:** Configure git identity:
+
+```bash
+git config --global user.name "Your Name"
+git config --global user.email "you@example.com"
+```
+
+**Windows Command Resolution:** If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic uses `Bun.which()` to resolve command paths, which handles Windows `.cmd`, `.exe`, and `.bat` extensions automatically.
+
+**File Preservation:** When re-running `atomic init`, your custom `CLAUDE.md` and `AGENTS.md` files are preserved by default. Use `--force` to overwrite all files including `CLAUDE.md`/`AGENTS.md`.
+
 ---
 
 ## FAQ

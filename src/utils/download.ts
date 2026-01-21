@@ -25,6 +25,13 @@ export interface ReleaseInfo {
   body: string;
 }
 
+/** GitHub API release response structure */
+interface GitHubReleaseResponse {
+  tag_name: string;
+  published_at: string;
+  body: string | null;
+}
+
 /**
  * Fetch the latest release info from GitHub API.
  *
@@ -57,7 +64,7 @@ export async function getLatestRelease(): Promise<ReleaseInfo> {
     throw new Error(`Failed to fetch release info: ${response.status} ${response.statusText}`);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as GitHubReleaseResponse;
   return {
     version: data.tag_name.replace(/^v/, ""),
     tagName: data.tag_name,
@@ -100,7 +107,7 @@ export async function getReleaseByVersion(version: string): Promise<ReleaseInfo>
     throw new Error(`Failed to fetch release info: ${response.status} ${response.statusText}`);
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as GitHubReleaseResponse;
   return {
     version: data.tag_name.replace(/^v/, ""),
     tagName: data.tag_name,
@@ -187,8 +194,11 @@ export function parseChecksums(checksumsTxt: string): Map<string, string> {
     // Format: "<hash>  <filename>" (two spaces between)
     const match = line.match(/^([a-fA-F0-9]{64})\s{2}(.+)$/);
     if (match) {
-      const [, hash, filename] = match;
-      checksums.set(filename, hash.toLowerCase());
+      const hash = match[1];
+      const filename = match[2];
+      if (hash && filename) {
+        checksums.set(filename, hash.toLowerCase());
+      }
     }
   }
 

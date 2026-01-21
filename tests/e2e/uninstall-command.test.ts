@@ -235,18 +235,21 @@ describe("Uninstall Command Error Messages", () => {
 
 describe("Uninstall Dry-Run Behavior", () => {
   test("dry-run option interface is correctly typed", async () => {
-    const { UninstallOptions } = await import("../../src/commands/uninstall");
+    const uninstallModule = await import("../../src/commands/uninstall");
 
-    // Create options object with dry-run
-    const options = {
+    // Verify the module exports the uninstallCommand function
+    expect(typeof uninstallModule.uninstallCommand).toBe("function");
+
+    // Create options object with dry-run that matches UninstallOptions interface
+    const options: Parameters<typeof uninstallModule.uninstallCommand>[0] = {
       dryRun: true,
       yes: false,
       keepConfig: false,
     };
 
-    expect(options.dryRun).toBe(true);
-    expect(options.yes).toBe(false);
-    expect(options.keepConfig).toBe(false);
+    expect(options?.dryRun).toBe(true);
+    expect(options?.yes).toBe(false);
+    expect(options?.keepConfig).toBe(false);
   });
 
   test("keep-config option interface is correctly typed", async () => {

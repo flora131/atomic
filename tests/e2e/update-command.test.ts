@@ -216,8 +216,8 @@ describe("Update Command Error Paths", () => {
 
       // Mock fetch to simulate rate limit
       const originalFetch = globalThis.fetch;
-      globalThis.fetch = async () =>
-        new Response(null, { status: 403, statusText: "Forbidden" });
+      globalThis.fetch = (async () =>
+        new Response(null, { status: 403, statusText: "Forbidden" })) as unknown as typeof fetch;
 
       try {
         await expect(getLatestRelease()).rejects.toThrow("rate limit");
@@ -231,8 +231,8 @@ describe("Update Command Error Paths", () => {
 
       // Mock fetch to simulate version not found
       const originalFetch = globalThis.fetch;
-      globalThis.fetch = async () =>
-        new Response(null, { status: 404, statusText: "Not Found" });
+      globalThis.fetch = (async () =>
+        new Response(null, { status: 404, statusText: "Not Found" })) as unknown as typeof fetch;
 
       try {
         await expect(getReleaseByVersion("v99.99.99")).rejects.toThrow("not found");
@@ -246,8 +246,8 @@ describe("Update Command Error Paths", () => {
 
       // Mock fetch to simulate network failure
       const originalFetch = globalThis.fetch;
-      globalThis.fetch = async () =>
-        new Response(null, { status: 500, statusText: "Internal Server Error" });
+      globalThis.fetch = (async () =>
+        new Response(null, { status: 500, statusText: "Internal Server Error" })) as unknown as typeof fetch;
 
       try {
         await expect(downloadFile("https://example.com/file", "/tmp/test")).rejects.toThrow(

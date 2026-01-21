@@ -16,71 +16,6 @@ We provide the procedures that agents use to work on your project based on softw
 
 ---
 
-## Quick Start
-
-### One-Line Install (Recommended)
-
-**Linux/macOS:**
-```bash
-curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
-```
-
-**Windows (PowerShell):**
-```powershell
-irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
-```
-
-**Install a specific version:**
-```bash
-# Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- v1.0.0
-
-# Windows PowerShell
-iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Version v1.0.0"
-```
-
-**Custom install directory:**
-```bash
-# Linux/macOS
-ATOMIC_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
-
-# Windows PowerShell
-$env:ATOMIC_INSTALL_DIR = "C:\tools"; irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
-```
-
-### Alternative Methods
-
-**npm/bun (requires Node.js/Bun):**
-```bash
-# Using bun
-bun add -g @bastani/atomic
-
-# Or using npm
-npm install -g @bastani/atomic
-
-# Without installation
-bunx @bastani/atomic
-# or
-npx @bastani/atomic
-```
-
-Select your agent. The CLI configures your project automatically.
-
-### Prerequisites
-
-- Coding agent installed:
-  - [Claude Code](https://code.claude.com/docs/en/quickstart)
-  - [OpenCode](https://opencode.ai)
-  - [GitHub Copilot CLI](https://github.com/features/copilot/cli)
-
----
-
-## Video Overview
-
-[![Atomic Video Overview](https://img.youtube.com/vi/Lq8-qzGfoy4/maxresdefault.jpg)](https://www.youtube.com/watch?v=Lq8-qzGfoy4)
-
----
-
 ## Key Principle
 
 **You own the decisions. Agents own the execution.**
@@ -89,6 +24,12 @@ Select your agent. The CLI configures your project automatically.
 - Review code after each feature (quality gate)
 - The 40-60% rule: agents get you most of the way, you provide the polish
 - Play around with the agents and use them as your swiss army knife
+
+---
+
+## Video Overview
+
+[![Atomic Video Overview](https://img.youtube.com/vi/Lq8-qzGfoy4/maxresdefault.jpg)](https://www.youtube.com/watch?v=Lq8-qzGfoy4)
 
 ---
 
@@ -101,6 +42,101 @@ Select your agent. The CLI configures your project automatically.
 - **Overnight autonomous execution** (Ralph) means waking up to completed features ready for review
 
 This approach highlights the best of SDLC and gets you 40-60% of the way there so you can review, refactor, and continue in a flow state.
+
+---
+
+## Set up Atomic
+
+> Install Atomic and start using it with your preferred AI coding agent.
+
+### System requirements
+
+* **Operating Systems**: macOS, Linux, or Windows (with PowerShell)
+* **Hardware**: Minimal requirements
+* **Network**: Internet connection required for installation
+* **Coding agent installed** (at least one):
+  * [Claude Code](https://code.claude.com/docs/en/quickstart)
+  * [OpenCode](https://opencode.ai)
+  * [GitHub Copilot CLI](https://github.com/features/copilot/cli)
+
+#### Additional dependencies
+
+* **Node.js 18+ or Bun**: Only required for [npm/bun installation](#npmbun-installation)
+
+### Installation
+
+To install Atomic, use one of the following methods:
+
+#### Native install (Recommended)
+
+**macOS, Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
+```
+
+**Windows PowerShell:**
+
+```powershell
+irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
+```
+
+#### npm/bun installation
+
+```bash
+# Using bun
+bun add -g @bastani/atomic
+
+# Using npm
+npm install -g @bastani/atomic
+```
+
+**Without installation (one-time use):**
+
+```bash
+bunx @bastani/atomic
+# or
+npx @bastani/atomic
+```
+
+### Getting started
+
+After installation, navigate to your project and run Atomic with your preferred agent:
+
+```bash
+cd your-awesome-project
+atomic --agent claude
+```
+
+Select your agent. The CLI configures your project automatically.
+
+### Install a specific version
+
+**macOS, Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- v1.0.0
+```
+
+**Windows PowerShell:**
+
+```powershell
+iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Version v1.0.0"
+```
+
+### Custom install directory
+
+**macOS, Linux:**
+
+```bash
+ATOMIC_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
+```
+
+**Windows PowerShell:**
+
+```powershell
+$env:ATOMIC_INSTALL_DIR = "C:\tools"; irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
+```
 
 ---
 
@@ -421,6 +457,73 @@ git config --global user.email "you@example.com"
 
 **File Preservation:** When re-running `atomic init`, your custom `CLAUDE.md` and `AGENTS.md` files are preserved by default. Use `--force` to overwrite config folder files (note: `--force` still preserves `CLAUDE.md`/`AGENTS.md` to protect your customizations).
 
+---
+
+### Uninstall Atomic
+
+If you need to uninstall Atomic, follow the instructions for your installation method.
+
+#### Native installation
+
+Remove the Atomic binary:
+
+**macOS, Linux:**
+
+```bash
+rm -f ~/.local/bin/atomic
+```
+
+If you installed to a custom directory, remove the binary from that location instead.
+
+**Windows PowerShell:**
+
+```powershell
+Remove-Item "$env:LOCALAPPDATA\Programs\atomic\atomic.exe" -Force
+```
+
+#### npm/bun installation
+
+```bash
+# Using bun
+bun remove -g @bastani/atomic
+
+# Using npm
+npm uninstall -g @bastani/atomic
+```
+
+#### Clean up configuration files (optional)
+
+> **Warning:** Removing configuration files will delete all your project-specific settings, skills, and agents configured by Atomic.
+
+To remove Atomic configuration files from a project:
+
+**macOS, Linux:**
+
+```bash
+# For Claude Code
+rm -rf .claude/ CLAUDE.md
+
+# For OpenCode
+rm -rf .opencode/ AGENTS.md
+
+# For GitHub Copilot
+rm -f .github/copilot-instructions.md
+```
+
+**Windows PowerShell:**
+
+```powershell
+# For Claude Code
+Remove-Item -Path ".claude" -Recurse -Force
+Remove-Item -Path "CLAUDE.md" -Force
+
+# For OpenCode
+Remove-Item -Path ".opencode" -Recurse -Force
+Remove-Item -Path "AGENTS.md" -Force
+
+# For GitHub Copilot
+Remove-Item -Path ".github\copilot-instructions.md" -Force
+```
 ---
 
 ## FAQ

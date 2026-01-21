@@ -135,7 +135,7 @@
       "Test verifyChecksum() with missing filename in checksums.txt",
       "Test parsing of checksums.txt format (hash + two spaces + filename)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

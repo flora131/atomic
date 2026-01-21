@@ -260,4 +260,25 @@
 - Feature marked as complete since all requirements are satisfied
 
 ---
-Next feature: Write unit tests for checksum verification
+
+## 2026-01-21 - Feature 9: Write unit tests for checksum verification
+
+### Completed
+- Verified tests already exist in `tests/download.test.ts`
+- Tests cover all required functionality:
+  - `verifyChecksum()` with valid checksum (line 210-216)
+  - `verifyChecksum()` with invalid checksum (line 219-225)
+  - `verifyChecksum()` with missing filename throws error (line 227-233)
+  - `parseChecksums()` parsing of checksums.txt format (lines 135-187)
+  - Case-insensitive hash comparison (line 235-242)
+
+### Test Results
+- All 27 download tests pass
+- 34 expect() calls verified
+
+### Notes
+- Tests were already implemented during Feature 2 (Download utilities implementation)
+- Feature marked as complete since all requirements are satisfied
+
+---
+Next feature: Write unit tests for platform detection helpers

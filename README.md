@@ -401,6 +401,10 @@ git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
 ```
 
+**Windows Command Resolution:** If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic uses `Bun.which()` to resolve command paths, which handles Windows `.cmd`, `.exe`, and `.bat` extensions automatically.
+
+**File Preservation:** When re-running `atomic init`, your custom `CLAUDE.md` and `AGENTS.md` files are preserved by default. Use `--force` to overwrite config folder files (note: `--force` still preserves `CLAUDE.md`/`AGENTS.md` to protect your customizations).
+
 ---
 
 ## FAQ

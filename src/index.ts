@@ -45,7 +45,7 @@ Usage:
 
 Options:
   -a, --agent <name>    Agent name: ${agents}
-  -f, --force           Overwrite all files including CLAUDE.md/AGENTS.md
+  -f, --force           Overwrite config files (CLAUDE.md/AGENTS.md preserved)
   -v, --version         Show version number
   -h, --help            Show this help
   --no-banner           Skip ASCII banner display

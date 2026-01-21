@@ -176,4 +176,37 @@
 - Help text update will be done in the next feature
 
 ---
-Next feature: Update CLI help text with new commands and options
+
+## 2026-01-21 - Feature 6: CLI Help Text Update
+
+### Completed
+- Updated `showHelp()` function in `src/index.ts` with comprehensive help text
+- Added USAGE section with update and uninstall commands
+- Added COMMANDS section listing: init, update, uninstall
+- Renamed Options to GENERAL OPTIONS for clarity
+- Added UPDATE OPTIONS section:
+  - `--check` - Check for updates without installing
+  - `--target-version <v>` - Update to a specific version
+- Added UNINSTALL OPTIONS section:
+  - `--dry-run` - Preview what would be removed
+  - `--keep-config` - Keep configuration data
+- Added usage EXAMPLES for:
+  - `atomic update`
+  - `atomic update --check`
+  - `atomic update --target-version v0.2.0`
+  - `atomic uninstall`
+  - `atomic uninstall --dry-run`
+  - `atomic uninstall --keep-config`
+
+### Files Modified
+- `src/index.ts` - Updated showHelp() function
+
+### Test Results
+- All 281 tests pass (no new tests needed - help text only)
+
+### Notes
+- Help text now documents all update and uninstall functionality
+- Notes that update/uninstall are for binary installs only
+
+---
+Next feature: Update README.md documentation for update and uninstall commands

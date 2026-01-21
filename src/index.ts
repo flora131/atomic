@@ -38,15 +38,22 @@ function showHelp(): void {
   console.log(`
 atomic - Configuration management for coding agents
 
-Usage:
+USAGE:
   atomic                             Interactive setup (same as 'atomic init')
   atomic init                        Interactive setup with agent selection
   atomic init --agent <name>         Setup specific agent (skip selection)
   atomic --agent <name> [-- args...] Run agent with arguments (auto-setup if needed)
+  atomic update                      Self-update to latest version (binary installs only)
+  atomic uninstall                   Remove atomic installation (binary installs only)
   atomic --version                   Show version
   atomic --help                      Show this help
 
-Options:
+COMMANDS:
+  init        Setup configuration files for a coding agent
+  update      Self-update atomic to the latest version (binary installs)
+  uninstall   Remove atomic installation (binary installs)
+
+GENERAL OPTIONS:
   -a, --agent <name>    Agent name: ${agents}
   -f, --force           Overwrite config files (CLAUDE.md/AGENTS.md preserved)
   -y, --yes             Auto-confirm all prompts (non-interactive mode)
@@ -55,15 +62,27 @@ Options:
   --no-banner           Skip ASCII banner display
   --                    Separator: args after this go to the agent
 
+UPDATE OPTIONS:
+  --check               Check for updates without installing
+  --target-version <v>  Update to a specific version (e.g., v0.2.0)
+
+UNINSTALL OPTIONS:
+  --dry-run             Preview what would be removed without removing
+  --keep-config         Keep configuration data, only remove binary
+
 Available agents: ${agents}
 
-Examples:
+EXAMPLES:
   atomic                                    # Start interactive setup
   atomic init -a claude                     # Setup Claude Code directly
   atomic -a claude                          # Run Claude Code (setup if needed)
   atomic -a claude -- "fix the bug"         # Run Claude Code with a prompt
-  atomic -a opencode -- --resume            # Run OpenCode with --resume flag
-  atomic -a claude -- --help                # Show Claude Code's help (not atomic's)
+  atomic update                             # Update to latest version
+  atomic update --check                     # Check for available updates
+  atomic update --target-version v0.2.0     # Update to specific version
+  atomic uninstall                          # Uninstall atomic
+  atomic uninstall --dry-run                # Preview uninstall without removing
+  atomic uninstall --keep-config            # Uninstall but keep config files
 `);
 }
 

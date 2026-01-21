@@ -96,7 +96,7 @@
       "Add UNINSTALL OPTIONS section with --keep-config and --dry-run",
       "Add usage examples for update and uninstall commands"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

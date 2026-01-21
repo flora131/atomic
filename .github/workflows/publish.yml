@@ -3,6 +3,12 @@ name: Publish
 on:
   release:
     types: [created]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g., v0.1.0)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -50,9 +56,6 @@ jobs:
           # Windows x64
           bun build src/index.ts --compile --minify --target=bun-windows-x64 --outfile dist/atomic-windows-x64.exe
 
-          # Windows arm64
-          bun build src/index.ts --compile --minify --target=bun-windows-arm64 --outfile dist/atomic-windows-arm64.exe
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -97,7 +100,6 @@ jobs:
             dist/atomic-darwin-x64
             dist/atomic-darwin-arm64
             dist/atomic-windows-x64.exe
-            dist/atomic-windows-arm64.exe
             dist/checksums.txt
 
   # publish-npm:

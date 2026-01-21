@@ -19,6 +19,7 @@ import { mkdir, readdir } from "fs/promises";
 import { AGENT_CONFIG, type AgentKey, getAgentKeys, isValidAgent } from "../config";
 import { displayBanner } from "../utils/banner";
 import { copyFile, pathExists, isFileEmpty } from "../utils/copy";
+import { getConfigRoot } from "../utils/config-path";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL, getOppositeScriptExtension } from "../utils/detect";
 import { mergeJsonFile } from "../utils/merge";
 
@@ -32,24 +33,7 @@ interface InitOptions {
   yes?: boolean;
 }
 
-/**
- * Get the root directory where config folders are stored.
- * Works for both source running and npm-installed packages.
- *
- * Path resolution:
- * - Source: src/commands/init.ts -> ../.. -> repo root
- * - npm installed: node_modules/@bastani/atomic/src/commands/init.ts -> ../.. -> package root
- *
- * The package.json "files" array ensures config folders (.claude, .opencode, etc.)
- * are shipped with the npm package, so this resolution works in both cases.
- */
-function getConfigRoot(): string {
-  // import.meta.dir gives us the directory containing this file (src/commands)
-  // Navigate up two levels to reach the package/repo root
-  const root = join(import.meta.dir, "..", "..");
 
-  return root;
-}
 
 interface CopyDirPreservingOptions {
   /** Paths to exclude (base names) */

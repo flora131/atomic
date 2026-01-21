@@ -237,4 +237,27 @@
 - Clear distinction between native binary installation and npm/bun installation methods
 
 ---
-Next feature: Write unit tests for version comparison logic (already implemented in tests/update.test.ts)
+
+## 2026-01-21 - Feature 8: Write unit tests for version comparison logic
+
+### Completed
+- Verified tests already exist in `tests/update.test.ts` (17 tests total)
+- Tests cover all required functionality:
+  - Major version differences (2 tests)
+  - Minor version differences (2 tests)
+  - Patch version differences (2 tests)
+  - Equal versions (1 test)
+  - v prefix handling (3 tests)
+  - Edge cases including leading zeros, 0.x versions, precedence (5 tests)
+  - Export verification (2 tests)
+
+### Test Results
+- All 17 tests pass
+- 34 expect() calls verified
+
+### Notes
+- Tests were already implemented during Feature 3 (Update command implementation)
+- Feature marked as complete since all requirements are satisfied
+
+---
+Next feature: Write unit tests for checksum verification

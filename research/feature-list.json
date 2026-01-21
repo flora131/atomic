@@ -123,7 +123,7 @@
       "Test isNewerVersion() with equal versions",
       "Test isNewerVersion() with v prefix handling"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

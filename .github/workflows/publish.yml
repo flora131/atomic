@@ -56,6 +56,33 @@ jobs:
           # Windows x64
           bun build src/index.ts --compile --minify --target=bun-windows-x64 --outfile dist/atomic-windows-x64.exe
 
+      - name: Create config archives
+        run: |
+          # Create a staging directory for config files
+          mkdir -p config-staging
+
+          # Copy config directories (same as package.json "files" for binary distribution)
+          cp -r .claude config-staging/
+          cp -r .opencode config-staging/
+          mkdir -p config-staging/.github
+          cp -r .github/agents config-staging/.github/
+          cp -r .github/hooks config-staging/.github/
+          cp -r .github/prompts config-staging/.github/ 2>/dev/null || true
+          cp -r .github/scripts config-staging/.github/
+          cp -r .github/skills config-staging/.github/
+          cp CLAUDE.md config-staging/
+          cp AGENTS.md config-staging/
+          cp .mcp.json config-staging/ 2>/dev/null || true
+
+          # Remove node_modules from .opencode if present
+          rm -rf config-staging/.opencode/node_modules
+
+          # Create tarball for Unix systems (preserves permissions)
+          tar -czvf dist/atomic-config.tar.gz -C config-staging .
+
+          # Create zip for Windows
+          cd config-staging && zip -r ../dist/atomic-config.zip . && cd ..
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
         with:
@@ -100,6 +127,8 @@ jobs:
             dist/atomic-darwin-x64
             dist/atomic-darwin-arm64
             dist/atomic-windows-x64.exe
+            dist/atomic-config.tar.gz
+            dist/atomic-config.zip
             dist/checksums.txt
 
   # publish-npm:

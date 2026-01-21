@@ -161,7 +161,7 @@
       "Verify config files were extracted to data directory",
       "Verify atomic --version shows new version"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

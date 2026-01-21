@@ -18,7 +18,7 @@ import { mkdir, readdir } from "fs/promises";
 
 import { AGENT_CONFIG, type AgentKey, getAgentKeys, isValidAgent } from "../config";
 import { displayBanner } from "../utils/banner";
-import { copyFile, pathExists } from "../utils/copy";
+import { copyFile, pathExists, isFileEmpty } from "../utils/copy";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL, getOppositeScriptExtension } from "../utils/detect";
 import { mergeJsonFile } from "../utils/merge";
 
@@ -28,6 +28,8 @@ interface InitOptions {
   configNotFoundMessage?: string;
   /** Force overwrite of preserved files (bypass preservation/merge logic) */
   force?: boolean;
+  /** Auto-confirm all prompts (non-interactive mode for CI/testing) */
+  yes?: boolean;
 }
 
 /**
@@ -52,20 +54,19 @@ function getConfigRoot(): string {
 interface CopyDirPreservingOptions {
   /** Paths to exclude (base names) */
   exclude?: string[];
-  /** Whether to force overwrite even if files exist */
-  force?: boolean;
 }
 
 /**
- * Copy a directory while preserving existing files at the destination
- * Only copies files that don't exist at the destination (unless force is true)
+ * Copy a directory, always overwriting template files.
+ * User's custom files that are not in the template are preserved (not deleted).
+ * This ensures template files are always up-to-date while keeping user additions.
  */
 async function copyDirPreserving(
   src: string,
   dest: string,
   options: CopyDirPreservingOptions = {}
 ): Promise<void> {
-  const { exclude = [], force = false } = options;
+  const { exclude = [] } = options;
 
   await mkdir(dest, { recursive: true });
 
@@ -85,13 +86,9 @@ async function copyDirPreserving(
     if (entry.isDirectory()) {
       await copyDirPreserving(srcPath, destPath, options);
     } else {
-      const destExists = await pathExists(destPath);
-
-      // Only copy if destination doesn't exist OR force flag is set
-      if (!destExists || force) {
-        await copyFile(srcPath, destPath);
-      }
-      // Otherwise skip - preserve user's existing file
+      // Always copy template files (overwrites existing)
+      // User's custom files not in template are preserved (not deleted)
+      await copyFile(srcPath, destPath);
     }
   }
 }
@@ -154,20 +151,26 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   const agent = AGENT_CONFIG[agentKey];
   const targetDir = process.cwd();
 
+  // Auto-confirm mode for CI/testing
+  const autoConfirm = options.yes ?? false;
+
   // Confirm directory
-  const confirmDir = await confirm({
-    message: `Install ${agent.name} config files to ${targetDir}?`,
-    initialValue: true,
-  });
+  let confirmDir: boolean | symbol = true;
+  if (!autoConfirm) {
+    confirmDir = await confirm({
+      message: `Install ${agent.name} config files to ${targetDir}?`,
+      initialValue: true,
+    });
 
-  if (isCancel(confirmDir)) {
-    cancel("Operation cancelled.");
-    process.exit(0);
-  }
+    if (isCancel(confirmDir)) {
+      cancel("Operation cancelled.");
+      process.exit(0);
+    }
 
-  if (!confirmDir) {
-    cancel("Operation cancelled.");
-    process.exit(0);
+    if (!confirmDir) {
+      cancel("Operation cancelled.");
+      process.exit(0);
+    }
   }
 
   // Check if folder already exists
@@ -177,7 +180,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   // Track if we should force overwrite (either from CLI flag or user confirmation)
   let shouldForce = options.force ?? false;
 
-  if (folderExists && !shouldForce) {
+  if (folderExists && !shouldForce && !autoConfirm) {
     const update = await confirm({
       message: `${agent.folder} already exists. Update config files? (CLAUDE.md/AGENTS.md will be preserved)`,
       initialValue: true,
@@ -195,9 +198,15 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       process.exit(0);
     }
 
-    // User confirmed overwrite
-    shouldForce = true;
+    // User confirmed update (but NOT force - preserved files stay preserved)
+    // Note: The shouldForce flag specifically controls whether to bypass preservation.
+    // Interactive confirmation to update does NOT set shouldForce to true.
+    // Only the --force flag sets shouldForce to true.
   }
+  // Note: When autoConfirm is true and folder exists, we proceed with the update
+  // but do NOT set shouldForce to true. This preserves the correct behavior where
+  // --yes auto-confirms prompts but preserved files (CLAUDE.md/AGENTS.md) are still
+  // protected unless --force is also provided.
 
   // Copy files with spinner
   const s = spinner();
@@ -207,10 +216,10 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     const configRoot = getConfigRoot();
     const sourceFolder = join(configRoot, agent.folder);
 
-    // Use preserving copy - overwrites if force is true or user confirmed
+    // Copy template folder - always overwrites template files
+    // User's custom files not in template are preserved (not deleted)
     await copyDirPreserving(sourceFolder, targetFolder, {
       exclude: agent.exclude,
-      force: shouldForce,
     });
 
     // Copy additional files with preservation and merge logic
@@ -224,12 +233,22 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       const shouldPreserve = agent.preserve_files.includes(file);
       const shouldMerge = agent.merge_files.includes(file);
 
-      // IMPORTANT: Preserved files (CLAUDE.md, AGENTS.md) are NEVER overwritten,
-      // even with --force flag. This protects user customizations intentionally.
-      if (shouldPreserve && destExists) {
-        if (process.env.DEBUG === "1") {
-          console.log(`[DEBUG] Preserving user file: ${file}`);
+      // Preserved files (CLAUDE.md, AGENTS.md) are only overwritten if:
+      // 1. --force flag is set, OR
+      // 2. The file is empty (0 bytes or whitespace-only)
+      if (shouldPreserve && destExists && !shouldForce) {
+        const isEmpty = await isFileEmpty(destFile);
+        if (!isEmpty) {
+          if (process.env.DEBUG === "1") {
+            console.log(`[DEBUG] Preserving non-empty user file: ${file}`);
+          }
+          continue;
         }
+        // File is empty - allow overwrite
+        if (process.env.DEBUG === "1") {
+          console.log(`[DEBUG] Overwriting empty preserved file: ${file}`);
+        }
+        await copyFile(srcFile, destFile);
         continue;
       }
 
@@ -239,7 +258,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
         continue;
       }
 
-      // Force flag (or user-confirmed overwrite) bypasses normal existence checks
+      // Force flag bypasses normal existence checks
       if (shouldForce) {
         await copyFile(srcFile, destFile);
         continue;

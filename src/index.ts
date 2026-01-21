@@ -20,6 +20,7 @@ import {
   extractAgentArgs,
   extractAgentName,
   hasForceFlag,
+  hasYesFlag,
   isAgentRunMode,
   isInitWithSeparator,
 } from "./utils/arg-parser";
@@ -46,6 +47,7 @@ Usage:
 Options:
   -a, --agent <name>    Agent name: ${agents}
   -f, --force           Overwrite config files (CLAUDE.md/AGENTS.md preserved)
+  -y, --yes             Auto-confirm all prompts (non-interactive mode)
   -v, --version         Show version number
   -h, --help            Show this help
   --no-banner           Skip ASCII banner display
@@ -136,7 +138,8 @@ async function main(): Promise<void> {
 
       const agentArgs = extractAgentArgs(rawArgs);
       const forceFlag = hasForceFlag(rawArgs);
-      const exitCode = await runAgentCommand(agentName, agentArgs, { force: forceFlag });
+      const yesFlag = hasYesFlag(rawArgs);
+      const exitCode = await runAgentCommand(agentName, agentArgs, { force: forceFlag, yes: yesFlag });
       process.exit(exitCode);
     }
 
@@ -145,6 +148,7 @@ async function main(): Promise<void> {
       options: {
         agent: { type: "string", short: "a" },
         force: { type: "boolean", short: "f" },
+        yes: { type: "boolean", short: "y" },
         version: { type: "boolean", short: "v" },
         help: { type: "boolean", short: "h" },
         "no-banner": { type: "boolean" },
@@ -170,19 +174,21 @@ async function main(): Promise<void> {
 
     switch (command) {
       case "init":
-        // atomic init [--agent name] [--force] → init with optional pre-selection
+        // atomic init [--agent name] [--force] [--yes] → init with optional pre-selection
         await initCommand({
           showBanner: !values["no-banner"],
           preSelectedAgent: values.agent as AgentKey | undefined,
           force: values.force as boolean | undefined,
+          yes: values.yes as boolean | undefined,
         });
         break;
 
       case undefined:
-        // atomic [--force] → full interactive init (unchanged behavior)
+        // atomic [--force] [--yes] → full interactive init (unchanged behavior)
         await initCommand({
           showBanner: !values["no-banner"],
           force: values.force as boolean | undefined,
+          yes: values.yes as boolean | undefined,
         });
         break;
 

@@ -93,6 +93,27 @@ export function hasForceFlag(args: string[]): boolean {
 }
 
 /**
+ * Check if yes flag is present in raw args (before -- separator)
+ *
+ * @param args - Raw CLI arguments
+ * @returns true if -y or --yes is present before the separator
+ *
+ * @example
+ * hasYesFlag(["-a", "claude", "-y"])             // true
+ * hasYesFlag(["--agent", "opencode", "--yes"])   // true
+ * hasYesFlag(["-a", "claude", "--", "-y"])       // false (-y is after separator)
+ * hasYesFlag(["-a", "claude"])                    // false
+ */
+export function hasYesFlag(args: string[]): boolean {
+  // Only check for yes before the -- separator, since -y after
+  // the separator is an argument for the agent, not atomic
+  const separatorIndex = args.indexOf("--");
+  const argsBeforeSeparator = separatorIndex === -1 ? args : args.slice(0, separatorIndex);
+
+  return argsBeforeSeparator.includes("-y") || argsBeforeSeparator.includes("--yes");
+}
+
+/**
  * Extract agent arguments from raw args
  * Returns everything after the `--` separator
  *
@@ -215,6 +236,7 @@ export function detectMissingSeparatorArgs(args: string[]): string[] {
       arg === "-v" || arg === "--version" ||
       arg === "-h" || arg === "--help" ||
       arg === "-f" || arg === "--force" ||
+      arg === "-y" || arg === "--yes" ||
       arg === "--no-banner"
     ) {
       continue;

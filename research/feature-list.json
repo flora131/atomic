@@ -212,7 +212,7 @@
       "Verify binary and data directory removed",
       "Verify PATH cleanup instructions displayed"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

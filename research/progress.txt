@@ -1,0 +1,26 @@
+# Progress Log - Update/Uninstall Commands Implementation
+
+## 2026-01-21 - Feature 1: getBinaryInstallDir() and getBinaryPath() helpers
+
+### Completed
+- Added `getBinaryInstallDir()` function to `src/utils/config-path.ts`
+  - Returns `~/.local/bin` on Unix, `%USERPROFILE%\.local\bin` on Windows
+  - Supports `ATOMIC_INSTALL_DIR` environment variable override
+- Added `getBinaryPath()` function to `src/utils/config-path.ts`
+  - Returns full path to binary: `<install_dir>/atomic` (Unix) or `<install_dir>/atomic.exe` (Windows)
+- Created comprehensive unit tests in `tests/config-path.test.ts`
+  - 15 new tests covering all functions in config-path.ts
+  - Tests for platform detection, environment variable handling, path construction
+  - All 227 tests pass (212 existing + 15 new)
+
+### Files Modified
+- `src/utils/config-path.ts` - Added two new exported functions
+- `tests/config-path.test.ts` - New test file
+
+### Notes
+- Functions follow the same patterns as existing `getBinaryDataDir()` function
+- Platform detection reuses existing `isWindows()` from detect.ts
+- Ready for use by update and uninstall commands
+
+---
+Next feature: Create src/utils/download.ts with GitHub release and download utilities

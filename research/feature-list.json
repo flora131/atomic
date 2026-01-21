@@ -1,0 +1,227 @@
+[
+  {
+    "category": "functional",
+    "description": "Add getBinaryInstallDir() and getBinaryPath() helper functions to config-path.ts",
+    "steps": [
+      "Open src/utils/config-path.ts",
+      "Add getBinaryInstallDir() function that returns binary installation directory",
+      "Handle ATOMIC_INSTALL_DIR environment variable override",
+      "Add getBinaryPath() function that returns full path to atomic binary",
+      "Handle Windows vs Unix path differences (atomic.exe vs atomic)",
+      "Verify functions work with existing detectInstallationType()"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Create src/utils/download.ts with GitHub release and download utilities",
+    "steps": [
+      "Create new file src/utils/download.ts",
+      "Define ReleaseInfo interface for GitHub release data",
+      "Implement getLatestRelease() to fetch latest release from GitHub API",
+      "Handle GITHUB_TOKEN for rate limit mitigation",
+      "Implement downloadFile() with progress callback support",
+      "Implement verifyChecksum() using Bun.CryptoHasher for SHA256 verification",
+      "Add getBinaryFilename() for platform-specific binary names (linux-x64, darwin-arm64, windows-x64)",
+      "Add getConfigArchiveFilename() for platform-specific config archives (.tar.gz vs .zip)",
+      "Add getDownloadUrl() to build GitHub release asset URLs"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Implement atomic update command for binary installations",
+    "steps": [
+      "Create src/commands/update.ts",
+      "Check installation type and show helpful error for npm/source installs",
+      "Fetch current version and compare with latest GitHub release",
+      "Implement isNewerVersion() for semver comparison",
+      "Show 'Already up to date' message when no update available",
+      "Implement --check flag to only check for updates without installing",
+      "Implement --yes/-y flag to skip confirmation prompt",
+      "Implement --target-version flag to install specific version",
+      "Download binary to temp directory with progress indicator",
+      "Download config archive to temp directory",
+      "Download and parse checksums.txt",
+      "Verify SHA256 checksums for binary and config archive",
+      "Implement replaceBinaryUnix() using atomic rename",
+      "Implement replaceBinaryWindows() using rename strategy for locked executables",
+      "Extract config archive to data directory using tar (Unix) or PowerShell (Windows)",
+      "Verify installation by running --version on new binary",
+      "Clean up temp directory on success or failure",
+      "Handle network failures with retry guidance",
+      "Handle GitHub API rate limiting with GITHUB_TOKEN suggestion"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Implement atomic uninstall command for binary installations",
+    "steps": [
+      "Create src/commands/uninstall.ts",
+      "Check installation type and show helpful error for npm/source installs",
+      "Display list of files/directories that will be removed",
+      "Implement --dry-run flag to preview without removing",
+      "Implement --yes/-y flag to skip confirmation prompt",
+      "Implement --keep-config flag to preserve data directory",
+      "Remove data directory (~/.local/share/atomic or %LOCALAPPDATA%\\atomic)",
+      "Implement Unix binary self-deletion using unlink()",
+      "Implement Windows binary self-deletion using rename to .delete strategy",
+      "Generate and display PATH cleanup instructions for bash/zsh/fish/PowerShell",
+      "Handle permission errors gracefully with helpful messages"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Integrate update and uninstall commands into CLI entry point",
+    "steps": [
+      "Open src/index.ts",
+      "Add imports for updateCommand and uninstallCommand",
+      "Add new parseArgs options: check, keep-config, dry-run, target-version",
+      "Add 'update' case to command switch statement",
+      "Add 'uninstall' case to command switch statement",
+      "Pass appropriate options to each command handler"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Update CLI help text with new commands and options",
+    "steps": [
+      "Open src/index.ts showHelp() function",
+      "Add 'update' command to COMMANDS section",
+      "Add 'uninstall' command to COMMANDS section",
+      "Add UPDATE OPTIONS section with --check and --target-version",
+      "Add UNINSTALL OPTIONS section with --keep-config and --dry-run",
+      "Add usage examples for update and uninstall commands"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update README.md documentation for update and uninstall commands",
+    "steps": [
+      "Open README.md",
+      "Add 'Updating Atomic' section documenting atomic update command",
+      "Document --check flag for checking available updates",
+      "Document --target-version flag for specific version installation",
+      "Update existing 'Uninstalling Atomic' section to include CLI command",
+      "Document --keep-config and --dry-run flags",
+      "Add note about npm/bun installations using package manager commands"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Write unit tests for version comparison logic",
+    "steps": [
+      "Create or update test file for update command",
+      "Test isNewerVersion() with major version differences",
+      "Test isNewerVersion() with minor version differences",
+      "Test isNewerVersion() with patch version differences",
+      "Test isNewerVersion() with equal versions",
+      "Test isNewerVersion() with v prefix handling"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Write unit tests for checksum verification",
+    "steps": [
+      "Create or update test file for download utilities",
+      "Test verifyChecksum() with valid checksum",
+      "Test verifyChecksum() with invalid checksum",
+      "Test verifyChecksum() with missing filename in checksums.txt",
+      "Test parsing of checksums.txt format (hash + two spaces + filename)"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Write unit tests for platform detection helpers",
+    "steps": [
+      "Create or update test file for download utilities",
+      "Test getBinaryFilename() returns correct names for linux-x64",
+      "Test getBinaryFilename() returns correct names for darwin-arm64",
+      "Test getBinaryFilename() returns correct names for windows-x64",
+      "Test getConfigArchiveFilename() returns .tar.gz for Unix",
+      "Test getConfigArchiveFilename() returns .zip for Windows"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Integration test: update command for binary installation on Linux",
+    "steps": [
+      "Build binary installation of atomic",
+      "Run atomic update --check and verify output",
+      "Run atomic update --yes to perform update",
+      "Verify binary was replaced successfully",
+      "Verify config files were extracted to data directory",
+      "Verify atomic --version shows new version"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Integration test: update command for binary installation on macOS",
+    "steps": [
+      "Build binary installation of atomic on macOS",
+      "Run atomic update --check and verify output",
+      "Run atomic update --yes to perform update",
+      "Verify binary was replaced successfully",
+      "Verify config files were extracted to data directory",
+      "Verify atomic --version shows new version"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Integration test: update command for binary installation on Windows",
+    "steps": [
+      "Build binary installation of atomic on Windows",
+      "Run atomic update --check and verify output",
+      "Run atomic update --yes to perform update",
+      "Verify rename strategy works for locked executable",
+      "Verify .old file cleanup behavior",
+      "Verify atomic --version shows new version"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Integration test: update command error paths",
+    "steps": [
+      "Test atomic update on npm installation shows package manager guidance",
+      "Test atomic update on source installation shows git pull guidance",
+      "Test network failure handling during download",
+      "Test checksum mismatch error handling",
+      "Test GitHub API rate limit error message"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Integration test: uninstall command for binary installation",
+    "steps": [
+      "Build binary installation of atomic",
+      "Run atomic uninstall --dry-run and verify preview output",
+      "Run atomic uninstall --keep-config --yes and verify only binary removed",
+      "Reinstall and run atomic uninstall --yes",
+      "Verify binary and data directory removed",
+      "Verify PATH cleanup instructions displayed"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Integration test: uninstall command error paths",
+    "steps": [
+      "Test atomic uninstall on npm installation shows package manager guidance",
+      "Test atomic uninstall on source installation shows repository deletion guidance",
+      "Test permission error handling with helpful message"
+    ],
+    "passes": false
+  }
+]

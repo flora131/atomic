@@ -23,4 +23,43 @@
 - Ready for use by update and uninstall commands
 
 ---
-Next feature: Create src/utils/download.ts with GitHub release and download utilities
+
+## 2026-01-21 - Feature 2: Download utilities (src/utils/download.ts)
+
+### Completed
+- Created `src/utils/download.ts` with GitHub release and download utilities
+- Implemented `ReleaseInfo` interface for GitHub release data
+- Implemented `getLatestRelease()` to fetch latest release from GitHub API
+  - Handles GITHUB_TOKEN environment variable for rate limit mitigation
+  - Provides clear error messages for 403 (rate limit) and 404 (not found)
+- Implemented `getReleaseByVersion()` to fetch a specific version's release info
+- Implemented `downloadFile()` with progress callback support
+  - Streams data in chunks to track download progress
+  - Uses Bun.write for efficient file writing
+- Implemented `parseChecksums()` to parse checksums.txt format
+- Implemented `verifyChecksum()` using Bun.CryptoHasher for SHA256 verification
+- Implemented `getBinaryFilename()` for platform-specific binary names
+  - Supports linux-x64, linux-arm64, darwin-x64, darwin-arm64, windows-x64
+- Implemented `getConfigArchiveFilename()` for platform-specific config archives
+  - Returns .tar.gz for Unix, .zip for Windows
+- Implemented `getDownloadUrl()` and `getChecksumsUrl()` to build GitHub release asset URLs
+
+### Files Created
+- `src/utils/download.ts` - New download utilities module
+- `tests/download.test.ts` - Comprehensive unit tests (27 tests)
+
+### Test Results
+- All 254 tests pass (227 existing + 27 new download tests)
+- Tests cover:
+  - Platform detection (getBinaryFilename, getConfigArchiveFilename)
+  - URL construction (getDownloadUrl, getChecksumsUrl)
+  - Checksum parsing and verification
+  - Edge cases (empty content, malformed lines, case sensitivity)
+
+### Notes
+- Network-dependent functions (getLatestRelease, downloadFile) are not tested with real network calls in unit tests
+- These would be covered by integration tests
+- Module exports all necessary types and functions for use by update command
+
+---
+Next feature: Implement atomic update command for binary installations

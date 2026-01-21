@@ -26,7 +26,7 @@
       "Add getConfigArchiveFilename() for platform-specific config archives (.tar.gz vs .zip)",
       "Add getDownloadUrl() to build GitHub release asset URLs"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

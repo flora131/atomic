@@ -62,4 +62,49 @@
 - Module exports all necessary types and functions for use by update command
 
 ---
-Next feature: Implement atomic update command for binary installations
+
+## 2026-01-21 - Feature 3: Update command (src/commands/update.ts)
+
+### Completed
+- Created `src/commands/update.ts` with full update command implementation
+- Implemented `isNewerVersion()` for semver comparison with proper major/minor/patch handling
+- Added installation type detection with helpful error messages:
+  - npm/bun installs: Shows package manager update commands
+  - Source installs: Shows git pull instructions
+  - Binary installs: Proceeds with self-update
+- Implemented `--check` flag to check for updates without installing
+- Implemented `--yes` flag to skip confirmation prompt
+- Implemented `--target-version` flag to install specific versions
+- Implemented download with progress indicator using downloadFile()
+- Implemented checksum verification for binary and config archive
+- Implemented `replaceBinaryUnix()` using atomic rename with chmod 755
+- Implemented `replaceBinaryWindows()` using rename strategy for locked executables
+- Implemented `extractConfig()` using tar (Unix) or PowerShell Expand-Archive (Windows)
+- Added installation verification by running --version on new binary
+- Added temp directory cleanup on success or failure
+- Added helpful error messages for:
+  - GitHub API rate limiting (suggests GITHUB_TOKEN)
+  - Version not found (links to releases page)
+  - Network failures
+
+### Files Created
+- `src/commands/update.ts` - Update command implementation
+- `tests/update.test.ts` - Unit tests for isNewerVersion() (17 tests)
+
+### Test Results
+- All 271 tests pass (254 existing + 17 new update tests)
+- Tests cover:
+  - Major version differences
+  - Minor version differences
+  - Patch version differences
+  - Equal versions
+  - 'v' prefix handling
+  - Edge cases (leading zeros, 0.x versions, precedence)
+
+### Notes
+- The update command is fully implemented but not yet integrated into CLI entry point
+- Integration will be done in a separate feature (CLI integration)
+- Uses all the utilities created in previous features (download.ts, config-path.ts)
+
+---
+Next feature: Implement atomic uninstall command for binary installations

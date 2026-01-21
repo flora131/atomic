@@ -52,7 +52,7 @@
       "Handle network failures with retry guidance",
       "Handle GitHub API rate limiting with GITHUB_TOKEN suggestion"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

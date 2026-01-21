@@ -5,7 +5,7 @@
 import { join } from "path";
 
 import { AGENT_CONFIG, isValidAgent, type AgentKey } from "../config";
-import { isCommandInstalled } from "../utils/detect";
+import { getCommandPath } from "../utils/detect";
 import { pathExists } from "../utils/copy";
 import { initCommand } from "./init";
 
@@ -89,11 +89,16 @@ export async function runAgentCommand(
     });
   }
 
-  // Check if command is installed
-  if (!isCommandInstalled(agent.cmd)) {
+  // Resolve the command path (handles Windows .cmd/.exe extensions)
+  const cmdPath = getCommandPath(agent.cmd);
+  if (!cmdPath) {
     console.error(`Error: ${agent.name} is not installed.`);
     console.error(`Install it from: ${agent.install_url}`);
     return 1;
+  }
+
+  if (isDebug) {
+    console.error(`[atomic:debug] Resolved command path: ${cmdPath}`);
   }
 
   // Build the command with flags and user-provided arguments
@@ -101,7 +106,7 @@ export async function runAgentCommand(
   const flags = agent.additional_flags.map((flag) =>
     flag === "." ? process.cwd() : flag
   );
-  const cmd = [agent.cmd, ...flags, ...agentArgs];
+  const cmd = [cmdPath, ...flags, ...agentArgs];
 
   if (isDebug) {
     console.error(`[atomic:debug] Spawning command: ${cmd.join(" ")}`);

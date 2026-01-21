@@ -179,9 +179,9 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
   if (folderExists && !shouldForce) {
     const update = await confirm({
-      message: `${agent.folder} already exists. Overwrite config files?`,
+      message: `${agent.folder} already exists. Update config files? (CLAUDE.md/AGENTS.md will be preserved)`,
       initialValue: true,
-      active: "Yes, overwrite",
+      active: "Yes, update",
       inactive: "No, cancel",
     });
 
@@ -224,9 +224,12 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       const shouldPreserve = agent.preserve_files.includes(file);
       const shouldMerge = agent.merge_files.includes(file);
 
-      // Force flag (or user-confirmed overwrite) bypasses all preservation/merge logic
-      if (shouldForce) {
-        await copyFile(srcFile, destFile);
+      // IMPORTANT: Preserved files (CLAUDE.md, AGENTS.md) are NEVER overwritten,
+      // even with --force flag. This protects user customizations intentionally.
+      if (shouldPreserve && destExists) {
+        if (process.env.DEBUG === "1") {
+          console.log(`[DEBUG] Preserving user file: ${file}`);
+        }
         continue;
       }
 
@@ -236,14 +239,16 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
         continue;
       }
 
-      // Handle preserve files (e.g., CLAUDE.md, AGENTS.md)
-      if (shouldPreserve && destExists) {
-        // Skip - preserve user's customization (silent operation)
+      // Force flag (or user-confirmed overwrite) bypasses normal existence checks
+      if (shouldForce) {
+        await copyFile(srcFile, destFile);
         continue;
       }
 
-      // Default: copy the file
-      await copyFile(srcFile, destFile);
+      // Default: only copy if destination doesn't exist
+      if (!destExists) {
+        await copyFile(srcFile, destFile);
+      }
     }
 
     s.stop("Configuration files copied successfully!");

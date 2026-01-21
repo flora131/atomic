@@ -107,4 +107,45 @@
 - Uses all the utilities created in previous features (download.ts, config-path.ts)
 
 ---
-Next feature: Implement atomic uninstall command for binary installations
+
+## 2026-01-21 - Feature 4: Uninstall command (src/commands/uninstall.ts)
+
+### Completed
+- Created `src/commands/uninstall.ts` with full uninstall command implementation
+- Added installation type detection with helpful error messages:
+  - npm/bun installs: Shows package manager uninstall commands
+  - Source installs: Shows manual removal instructions
+  - Binary installs: Proceeds with self-uninstall
+- Implemented `--dry-run` flag to preview files that would be removed
+- Implemented `--yes` flag to skip confirmation prompt
+- Implemented `--keep-config` flag to preserve data directory
+- Displays list of files/directories before removal
+- Removes data directory (~/.local/share/atomic or %LOCALAPPDATA%\atomic)
+- Implements Unix binary self-deletion using unlink()
+- Implements Windows binary self-deletion using rename to .delete strategy
+- Generates and displays PATH cleanup instructions for:
+  - Bash (~/.bashrc, ~/.bash_profile)
+  - Zsh (~/.zshrc)
+  - Fish (~/.config/fish/config.fish)
+  - PowerShell ($PROFILE)
+  - Windows Environment Variables GUI
+- Handles permission errors gracefully with platform-specific guidance
+
+### Files Created
+- `src/commands/uninstall.ts` - Uninstall command implementation
+- `tests/uninstall.test.ts` - Unit tests (10 tests)
+
+### Test Results
+- All 281 tests pass (271 existing + 10 new uninstall tests)
+- Tests cover:
+  - getPathCleanupInstructions() output
+  - Platform-specific shell instructions
+  - Module exports
+
+### Notes
+- The uninstall command is fully implemented but not yet integrated into CLI entry point
+- Integration will be done in the next feature (CLI integration)
+- On Windows, running executable cannot be deleted, so it's renamed to .delete
+
+---
+Next feature: Integrate update and uninstall commands into CLI entry point

@@ -1,7 +1,7 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { mkdir, rm, writeFile, readdir } from "fs/promises";
-import { copyFile, copyDir, pathExists, isDirectory, normalizePath } from "../src/utils/copy";
+import { copyFile, copyDir, pathExists, isDirectory, normalizePath, isFileEmpty } from "../src/utils/copy";
 
 const TEST_DIR = join(import.meta.dir, ".test-copy-temp");
 const SRC_DIR = join(TEST_DIR, "src");
@@ -218,5 +218,44 @@ describe("cross-platform path exclusion matching", () => {
     expect(await pathExists(join(DEST_DIR, "node_modules"))).toBe(false);
     expect(await pathExists(join(DEST_DIR, "dist"))).toBe(false);
     expect(await pathExists(join(DEST_DIR, ".gitignore"))).toBe(false);
+  });
+});
+
+describe("isFileEmpty", () => {
+  test("returns true for 0-byte file", async () => {
+    const filePath = join(SRC_DIR, "empty.txt");
+    await writeFile(filePath, "");
+    expect(await isFileEmpty(filePath)).toBe(true);
+  });
+
+  test("returns true for whitespace-only file", async () => {
+    const filePath = join(SRC_DIR, "whitespace.txt");
+    await writeFile(filePath, "   \n\t\n   ");
+    expect(await isFileEmpty(filePath)).toBe(true);
+  });
+
+  test("returns false for file with content", async () => {
+    const filePath = join(SRC_DIR, "content.txt");
+    await writeFile(filePath, "Hello, World!");
+    expect(await isFileEmpty(filePath)).toBe(false);
+  });
+
+  test("returns false for file with minimal content (single char)", async () => {
+    const filePath = join(SRC_DIR, "minimal.txt");
+    await writeFile(filePath, "x");
+    expect(await isFileEmpty(filePath)).toBe(false);
+  });
+
+  test("returns true for non-existent file", async () => {
+    const filePath = join(SRC_DIR, "nonexistent.txt");
+    expect(await isFileEmpty(filePath)).toBe(true);
+  });
+
+  test("returns false for large file with content", async () => {
+    const filePath = join(SRC_DIR, "large.txt");
+    // Create a file larger than 1KB
+    const largeContent = "x".repeat(2000);
+    await writeFile(filePath, largeContent);
+    expect(await isFileEmpty(filePath)).toBe(false);
   });
 });

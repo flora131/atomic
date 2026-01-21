@@ -281,4 +281,25 @@
 - Feature marked as complete since all requirements are satisfied
 
 ---
-Next feature: Write unit tests for platform detection helpers
+
+## 2026-01-21 - Feature 10: Write unit tests for platform detection helpers
+
+### Completed
+- Verified tests already exist in `tests/download.test.ts`
+- Tests cover all required functionality:
+  - `getBinaryFilename()` returns correct names with platform identifier (lines 35-46)
+  - `getBinaryFilename()` returns correct names with architecture identifier (lines 48-57)
+  - `getBinaryFilename()` has .exe extension only on Windows (lines 59-67)
+  - `getBinaryFilename()` follows expected format pattern (lines 69-74)
+  - `getConfigArchiveFilename()` returns .tar.gz on Unix, .zip on Windows (lines 89-97)
+
+### Test Results
+- All 27 download tests pass
+- 34 expect() calls verified
+
+### Notes
+- Tests were already implemented during Feature 2 (Download utilities implementation)
+- Feature marked as complete since all requirements are satisfied
+
+---
+Next feature: Integration tests for update/uninstall commands (platform-specific, require CI environment)

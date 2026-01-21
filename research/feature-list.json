@@ -148,7 +148,7 @@
       "Test getConfigArchiveFilename() returns .tar.gz for Unix",
       "Test getConfigArchiveFilename() returns .zip for Windows"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

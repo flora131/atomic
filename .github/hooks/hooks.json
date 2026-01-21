@@ -18,18 +18,6 @@
         "cwd": ".",
         "timeoutSec": 30
       }
-    ],
-    "userPromptSubmitted": [
-      {
-        "type": "command",
-        "bash": "./.github/scripts/log-ralph-prompt.sh",
-        "powershell": "./.github/scripts/log-ralph-prompt.ps1",
-        "cwd": ".",
-        "env": {
-          "RALPH_LOG_LEVEL": "INFO"
-        },
-        "timeoutSec": 5
-      }
     ]
   }
 }

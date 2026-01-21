@@ -18,10 +18,40 @@ We provide the procedures that agents use to work on your project based on softw
 
 ## Quick Start
 
-> **Note:** npm registry publishing is currently in progress. Use the [Development Installation](#development-installation) below until the package is available.
+### One-Line Install (Recommended)
 
+**Linux/macOS:**
 ```bash
-# With installation (recommended)
+curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+```powershell
+irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
+```
+
+**Install a specific version:**
+```bash
+# Linux/macOS
+curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- v1.0.0
+
+# Windows PowerShell
+iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Version v1.0.0"
+```
+
+**Custom install directory:**
+```bash
+# Linux/macOS
+ATOMIC_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
+
+# Windows PowerShell
+$env:ATOMIC_INSTALL_DIR = "C:\tools"; irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
+```
+
+### Alternative Methods
+
+**npm/bun (requires Node.js/Bun):**
+```bash
 # Using bun
 bun add -g @bastani/atomic
 
@@ -29,29 +59,15 @@ bun add -g @bastani/atomic
 npm install -g @bastani/atomic
 
 # Without installation
-# Using bun
 bunx @bastani/atomic
-
-# Or using npx
+# or
 npx @bastani/atomic
-```
-
-### Development Installation
-
-```bash
-# Clone and install globally
-git clone https://github.com/flora131/atomic.git ~/.atomic
-cd ~/.atomic && bun install && bun link
-
-# Now run from any project
-atomic
 ```
 
 Select your agent. The CLI configures your project automatically.
 
 ### Prerequisites
 
-- [bun](https://bun.sh/docs/installation) or [node.js](https://nodejs.org/en/download/) installed
 - Coding agent installed:
   - [Claude Code](https://code.claude.com/docs/en/quickstart)
   - [OpenCode](https://opencode.ai)

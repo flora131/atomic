@@ -14,6 +14,8 @@
 import { parseArgs } from "util";
 import { initCommand } from "./commands/init";
 import { runAgentCommand } from "./commands/run-agent";
+import { updateCommand } from "./commands/update";
+import { uninstallCommand } from "./commands/uninstall";
 import { AGENT_CONFIG, type AgentKey } from "./config";
 import {
   detectMissingSeparatorArgs,
@@ -152,6 +154,12 @@ async function main(): Promise<void> {
         version: { type: "boolean", short: "v" },
         help: { type: "boolean", short: "h" },
         "no-banner": { type: "boolean" },
+        // Update command options
+        check: { type: "boolean" },
+        "target-version": { type: "string" },
+        // Uninstall command options
+        "keep-config": { type: "boolean" },
+        "dry-run": { type: "boolean" },
       },
       strict: false,
       allowPositionals: true,
@@ -180,6 +188,24 @@ async function main(): Promise<void> {
           preSelectedAgent: values.agent as AgentKey | undefined,
           force: values.force as boolean | undefined,
           yes: values.yes as boolean | undefined,
+        });
+        break;
+
+      case "update":
+        // atomic update [--check] [--yes] [--target-version <version>]
+        await updateCommand({
+          check: values.check as boolean | undefined,
+          yes: values.yes as boolean | undefined,
+          targetVersion: values["target-version"] as string | undefined,
+        });
+        break;
+
+      case "uninstall":
+        // atomic uninstall [--dry-run] [--yes] [--keep-config]
+        await uninstallCommand({
+          dryRun: values["dry-run"] as boolean | undefined,
+          yes: values.yes as boolean | undefined,
+          keepConfig: values["keep-config"] as boolean | undefined,
         });
         break;
 

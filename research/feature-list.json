@@ -83,7 +83,7 @@
       "Add 'uninstall' case to command switch statement",
       "Pass appropriate options to each command handler"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

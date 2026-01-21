@@ -148,4 +148,32 @@
 - On Windows, running executable cannot be deleted, so it's renamed to .delete
 
 ---
-Next feature: Integrate update and uninstall commands into CLI entry point
+
+## 2026-01-21 - Feature 5: CLI Integration for update and uninstall commands
+
+### Completed
+- Added imports for `updateCommand` and `uninstallCommand` in `src/index.ts`
+- Added new parseArgs options:
+  - `check` (boolean) - for update --check flag
+  - `target-version` (string) - for update --target-version flag
+  - `keep-config` (boolean) - for uninstall --keep-config flag
+  - `dry-run` (boolean) - for uninstall --dry-run flag
+- Added `update` case to command switch statement
+  - Passes check, yes, and targetVersion options
+- Added `uninstall` case to command switch statement
+  - Passes dryRun, yes, and keepConfig options
+
+### Files Modified
+- `src/index.ts` - Added imports and command handlers
+
+### Test Results
+- All 281 tests pass (no new tests needed - integration only)
+
+### Notes
+- Commands are now accessible via:
+  - `atomic update [--check] [--yes] [--target-version <version>]`
+  - `atomic uninstall [--dry-run] [--yes] [--keep-config]`
+- Help text update will be done in the next feature
+
+---
+Next feature: Update CLI help text with new commands and options

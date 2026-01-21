@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Atomic CLI Installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
 # Usage with version: curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- v1.0.0

@@ -209,4 +209,32 @@
 - Notes that update/uninstall are for binary installs only
 
 ---
-Next feature: Update README.md documentation for update and uninstall commands
+
+## 2026-01-21 - Feature 7: Update README.md documentation for update and uninstall commands
+
+### Completed
+- Added "Updating Atomic" section with comprehensive CLI command documentation
+  - Documents `atomic update` command for binary installations
+  - Documents `--check` flag for checking available updates
+  - Documents `--target-version` flag for specific version installation
+  - Documents `--yes` flag for skipping confirmation
+  - Includes npm/bun update commands for package manager installations
+- Rewrote "Uninstalling Atomic" section with CLI command as primary method
+  - Documents `atomic uninstall` command for binary installations
+  - Documents `--dry-run` flag for preview mode
+  - Documents `--keep-config` flag for preserving configuration data
+  - Documents `--yes` flag for skipping confirmation
+  - Explains what the uninstall command removes (binary, data directory)
+  - Mentions PATH cleanup instructions are displayed
+  - Moved manual removal instructions to secondary option
+  - Includes npm/bun uninstall commands for package manager installations
+
+### Files Modified
+- `README.md` - Added "Updating Atomic" section and rewrote "Uninstalling Atomic" section
+
+### Notes
+- README now documents all update and uninstall CLI functionality
+- Clear distinction between native binary installation and npm/bun installation methods
+
+---
+Next feature: Write unit tests for version comparison logic (already implemented in tests/update.test.ts)

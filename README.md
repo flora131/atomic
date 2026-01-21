@@ -459,18 +459,74 @@ git config --global user.email "you@example.com"
 
 ---
 
-### Uninstall Atomic
+### Updating Atomic
 
-If you need to uninstall Atomic, follow the instructions for your installation method.
+#### Native installation (Recommended)
 
-#### Native installation
+If you installed Atomic using the native install script, you can update using the built-in command:
 
-Remove the Atomic binary:
+```bash
+# Check for available updates
+atomic update --check
+
+# Update to the latest version
+atomic update
+
+# Update to a specific version
+atomic update --target-version v0.2.0
+
+# Skip confirmation prompt
+atomic update --yes
+```
+
+#### npm/bun installation
+
+Use your package manager to update:
+
+```bash
+# Using bun
+bun upgrade @bastani/atomic
+
+# Using npm
+npm update -g @bastani/atomic
+```
+
+---
+
+### Uninstalling Atomic
+
+#### Native installation (CLI command)
+
+If you installed Atomic using the native install script, you can uninstall using the built-in command:
+
+```bash
+# Preview what will be removed (no changes made)
+atomic uninstall --dry-run
+
+# Uninstall Atomic
+atomic uninstall
+
+# Keep configuration data, only remove binary
+atomic uninstall --keep-config
+
+# Skip confirmation prompt
+atomic uninstall --yes
+```
+
+The uninstall command will:
+- Remove the Atomic binary from `~/.local/bin/atomic` (or your custom install directory)
+- Remove configuration data from `~/.local/share/atomic` (unless `--keep-config` is used)
+- Display instructions for removing the PATH entry from your shell configuration
+
+#### Native installation (manual)
+
+If the CLI command is not available, you can manually remove the files:
 
 **macOS, Linux:**
 
 ```bash
 rm -f ~/.local/bin/atomic
+rm -rf ~/.local/share/atomic
 ```
 
 If you installed to a custom directory, remove the binary from that location instead.
@@ -478,7 +534,8 @@ If you installed to a custom directory, remove the binary from that location ins
 **Windows PowerShell:**
 
 ```powershell
-Remove-Item "$env:LOCALAPPDATA\Programs\atomic\atomic.exe" -Force
+Remove-Item "$env:USERPROFILE\.local\bin\atomic.exe" -Force
+Remove-Item "$env:LOCALAPPDATA\atomic" -Recurse -Force
 ```
 
 #### npm/bun installation
@@ -524,6 +581,7 @@ Remove-Item -Path "AGENTS.md" -Force
 # For GitHub Copilot
 Remove-Item -Path ".github\copilot-instructions.md" -Force
 ```
+
 ---
 
 ## FAQ

@@ -110,7 +110,7 @@
       "Document --keep-config and --dry-run flags",
       "Add note about npm/bun installations using package manager commands"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

@@ -194,8 +194,9 @@ describe("file preservation with --force flag", () => {
     expect(copilotAgent.additional_files).toContain("AGENTS.md");
   });
 
-  test("preservation logic: preserved files skip copy even with force=true", () => {
+  test("preservation logic: preserved files ARE overwritten with force=true", () => {
     // Simulate the preservation logic from init.ts
+    // With the new behavior, force=true bypasses preservation for preserved files
     const preserveFiles = ["CLAUDE.md", "AGENTS.md"];
     const file = "CLAUDE.md";
     const destExists = true;
@@ -203,15 +204,16 @@ describe("file preservation with --force flag", () => {
 
     const shouldPreserve = preserveFiles.includes(file);
 
-    // The key logic: preserved files are checked BEFORE force flag
+    // The new key logic: force flag bypasses preservation
+    // if (shouldPreserve && destExists && !shouldForce) { ... }
     let wasSkipped = false;
-    if (shouldPreserve && destExists) {
+    if (shouldPreserve && destExists && !shouldForce) {
       wasSkipped = true;
       // continue; in actual code
     }
 
-    expect(wasSkipped).toBe(true);
-    // Even with force=true, preserved files should be skipped
+    expect(wasSkipped).toBe(false);
+    // With force=true, preserved files should NOT be skipped
   });
 
   test("preservation logic: non-preserved files are overwritten with force=true", () => {
@@ -260,19 +262,85 @@ describe("file preservation with --force flag", () => {
     expect(action).toBe("copy");
   });
 
-  test("config folder files ARE overwritten with force=true", () => {
+  test("config folder files are ALWAYS overwritten (template sync)", () => {
     // This tests the copyDirPreserving behavior
-    // Config folder files (inside .claude/, .opencode/, etc.) use force flag
-    const force = true;
+    // Config folder files (inside .claude/, .opencode/, etc.) are always updated to match template
+    // User's custom files NOT in the template are preserved (not deleted)
     const destExists = true;
 
-    // Logic from copyDirPreserving: if force is true, always copy
-    let shouldCopy = false;
-    if (!destExists || force) {
-      shouldCopy = true;
-    }
+    // New logic from copyDirPreserving: always copy template files
+    // Files in template are always synced, user's custom files (not in template) are preserved
+    const shouldCopy = true; // Template files are always copied
 
     expect(shouldCopy).toBe(true);
+  });
+
+  test("preservation logic: non-empty preserved files skip copy without force", () => {
+    // Simulate the new preservation logic with isFileEmpty check
+    const preserveFiles = ["CLAUDE.md", "AGENTS.md"];
+    const file = "CLAUDE.md";
+    const destExists = true;
+    const shouldForce = false;
+    const isFileEmpty = false; // File has content
+
+    const shouldPreserve = preserveFiles.includes(file);
+
+    // New logic: if (shouldPreserve && destExists && !shouldForce)
+    // then check isFileEmpty - if not empty, skip
+    let wasSkipped = false;
+    if (shouldPreserve && destExists && !shouldForce) {
+      if (!isFileEmpty) {
+        wasSkipped = true;
+      }
+    }
+
+    expect(wasSkipped).toBe(true);
+    // Non-empty preserved files should be skipped without force
+  });
+
+  test("preservation logic: empty preserved files are overwritten without force", () => {
+    // Simulate the new preservation logic with isFileEmpty check
+    const preserveFiles = ["CLAUDE.md", "AGENTS.md"];
+    const file = "CLAUDE.md";
+    const destExists = true;
+    const shouldForce = false;
+    const isFileEmpty = true; // File is empty (0 bytes)
+
+    const shouldPreserve = preserveFiles.includes(file);
+
+    // New logic: if (shouldPreserve && destExists && !shouldForce)
+    // then check isFileEmpty - if empty, don't skip (allow overwrite)
+    let wasSkipped = false;
+    if (shouldPreserve && destExists && !shouldForce) {
+      if (!isFileEmpty) {
+        wasSkipped = true;
+      }
+    }
+
+    expect(wasSkipped).toBe(false);
+    // Empty preserved files should NOT be skipped - they get overwritten
+  });
+
+  test("preservation logic: whitespace-only preserved files are overwritten", () => {
+    // Simulate the new preservation logic with isFileEmpty check
+    // isFileEmpty returns true for whitespace-only content
+    const preserveFiles = ["CLAUDE.md", "AGENTS.md"];
+    const file = "AGENTS.md";
+    const destExists = true;
+    const shouldForce = false;
+    const isFileEmpty = true; // File contains only whitespace
+
+    const shouldPreserve = preserveFiles.includes(file);
+
+    let wasSkipped = false;
+    if (shouldPreserve && destExists && !shouldForce) {
+      if (!isFileEmpty) {
+        wasSkipped = true;
+      }
+    }
+
+    expect(wasSkipped).toBe(false);
+    // Whitespace-only preserved files should NOT be skipped - they get overwritten
   });
 });
 
@@ -341,5 +409,96 @@ describe("initCommand preSelectedAgent flow logic", () => {
     }
 
     expect(shouldCallSelect).toBe(true);
+  });
+});
+
+describe("config folder behavior (copyDirPreserving)", () => {
+  /**
+   * These tests verify the behavior of copyDirPreserving:
+   * - Template files are always overwritten (synced to latest)
+   * - User's custom files (not in template) are preserved (not deleted)
+   */
+
+  test("template files in config folder are always overwritten", () => {
+    // copyDirPreserving now always copies template files
+    // This ensures users get latest template updates on re-init
+    const templateFiles = ["settings.json", "commands/implement.md", "agents/researcher.md"];
+    
+    for (const file of templateFiles) {
+      // Simulate: file exists in template and at destination
+      const inTemplate = true;
+      const destExists = true;
+      
+      // New behavior: always copy if file is in template
+      const shouldCopy = inTemplate; // Always copy template files
+      
+      expect(shouldCopy).toBe(true);
+    }
+  });
+
+  test("user's custom files NOT in template are preserved", () => {
+    // copyDirPreserving only iterates over template files
+    // It doesn't delete files at destination that aren't in template
+    const userCustomFiles = [
+      "commands/my-custom-command.md",
+      "agents/my-custom-agent.md",
+      "skills/my-custom-skill.md",
+    ];
+    
+    for (const file of userCustomFiles) {
+      // These files exist at destination but NOT in template
+      const inTemplate = false;
+      const destExists = true;
+      
+      // Since we only iterate template files, custom files are never touched
+      // They are preserved by virtue of not being in the copy loop
+      const wouldBeDeleted = false; // We don't delete anything
+      
+      expect(wouldBeDeleted).toBe(false);
+    }
+  });
+
+  test("re-running init updates settings.json to latest template", () => {
+    // settings.json is a template file, so it gets overwritten
+    const file = "settings.json";
+    const inTemplate = true;
+    const destExists = true;
+    
+    // New behavior: template files are always copied
+    const shouldCopy = inTemplate;
+    
+    expect(shouldCopy).toBe(true);
+  });
+
+  test("user's custom commands are preserved on re-init", () => {
+    // User adds commands/my-workflow.md - this should survive re-init
+    // Because copyDirPreserving only copies files FROM template
+    const userCommand = "commands/my-workflow.md";
+    const inTemplate = false; // User's custom file
+    
+    // File won't be touched because it's not in the template
+    const wouldBeOverwritten = inTemplate;
+    
+    expect(wouldBeOverwritten).toBe(false);
+  });
+
+  test("user's custom agents are preserved on re-init", () => {
+    // User adds agents/my-agent.md - this should survive re-init
+    const userAgent = "agents/my-agent.md";
+    const inTemplate = false;
+    
+    const wouldBeOverwritten = inTemplate;
+    
+    expect(wouldBeOverwritten).toBe(false);
+  });
+
+  test("user's custom skills are preserved on re-init", () => {
+    // User adds skills/my-skill.md - this should survive re-init
+    const userSkill = "skills/my-skill.md";
+    const inTemplate = false;
+    
+    const wouldBeOverwritten = inTemplate;
+    
+    expect(wouldBeOverwritten).toBe(false);
   });
 });

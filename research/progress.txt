@@ -1,0 +1,55 @@
+# Ralph Loop Progress
+
+## 2026-01-20 - Integration Tests for --force Flag
+
+### Implemented Features
+All 5 remaining features from feature-list.json are now complete:
+
+1. **Integration test: --force flag overwrites existing CLAUDE.md** - DONE
+2. **Integration test: --force flag overwrites existing AGENTS.md** - DONE
+3. **Integration test: empty file detection during init** - DONE
+4. **Integration test: non-empty files are preserved without --force** - DONE
+5. **Integration test: auto-init with force flag** - DONE
+
+### Changes Made
+
+#### New Files
+- `tests/e2e/force-flag.test.ts` - 10 new integration tests covering:
+  - `--force` flag overwrites CLAUDE.md with template
+  - `-f` shorthand flag works the same
+  - `--force` flag overwrites AGENTS.md for opencode
+  - `-f` flag overwrites AGENTS.md for copilot
+  - Empty (0-byte) files are overwritten without --force
+  - Whitespace-only files are overwritten without --force
+  - Non-empty preserved files are preserved without --force
+  - Auto-init with `-f` flag works correctly
+
+#### Modified Files
+1. **src/commands/init.ts**
+   - Added `yes` option to InitOptions interface for non-interactive mode
+   - Updated confirm prompts to skip when `yes: true`
+   - Fixed bug where empty preserved files weren't being overwritten
+   - Fixed bug where interactive confirmation set `shouldForce = true`
+
+2. **src/index.ts**
+   - Added `-y/--yes` flag to CLI options
+   - Imported `hasYesFlag` from arg-parser
+   - Pass `yes` flag to `runAgentCommand`
+
+3. **src/commands/run-agent.ts**
+   - Added `yes` option to RunAgentOptions interface
+   - Pass `yes` option to `initCommand` during auto-init
+
+4. **src/utils/arg-parser.ts**
+   - Added `hasYesFlag()` function to extract `-y/--yes` flag
+   - Updated `detectMissingSeparatorArgs()` to recognize `-y/--yes` as atomic flags
+
+### Test Results
+- All 212 tests pass
+- New tests in force-flag.test.ts: 10 pass, 0 fail
+
+### Notes
+- Added `--yes/-y` flag as a standard CLI pattern for non-interactive mode
+- This enables CI/CD testing without TTY simulation
+- The `--yes` flag auto-confirms prompts but does NOT force overwrite preserved files
+- Only `--force/-f` flag bypasses preservation of CLAUDE.md/AGENTS.md

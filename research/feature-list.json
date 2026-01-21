@@ -1,0 +1,175 @@
+[
+  {
+    "category": "functional",
+    "description": "Add isFileEmpty() utility function to src/utils/copy.ts",
+    "steps": [
+      "Open src/utils/copy.ts",
+      "Add isFileEmpty() async function that checks if a file is empty or whitespace-only",
+      "Handle 0-byte files as empty",
+      "Handle whitespace-only content (for files under 1KB) as empty",
+      "Handle errors by returning true (treat as empty to allow overwrite)",
+      "Export the function from the module"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Modify preservation logic to respect --force flag for CLAUDE.md/AGENTS.md",
+    "steps": [
+      "Open src/commands/init.ts",
+      "Navigate to lines 227-234 (preservation logic)",
+      "Add !shouldForce condition to the if statement",
+      "Add isEmpty check using isFileEmpty() for non-force mode",
+      "Update continue logic to only skip non-empty files without force",
+      "Import isFileEmpty from ../utils/copy"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Empty preserved files should be overwritten without --force flag",
+    "steps": [
+      "Ensure isFileEmpty() is called when shouldPreserve && destExists && !shouldForce",
+      "If file is empty (0 bytes or whitespace-only), allow overwrite",
+      "If file has content, preserve it (skip copy)",
+      "Add debug logging to distinguish empty vs non-empty preservation"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Modify copyDirPreserving to always overwrite template files",
+    "steps": [
+      "Open src/commands/init.ts",
+      "Navigate to lines 63-97 (copyDirPreserving function)",
+      "Remove the !destExists || force condition check",
+      "Always copy template files (user's custom files not in template are preserved)",
+      "Remove or simplify the force parameter since it's no longer needed for this function"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Update debug logging for preservation logic",
+    "steps": [
+      "Update debug message for preserved files to say 'Preserving non-empty user file'",
+      "Add new debug message for empty files: 'Overwriting empty preserved file'",
+      "Ensure DEBUG=1 environment variable triggers the logs"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Update import statement in src/commands/init.ts",
+    "steps": [
+      "Locate the import statement for copy utilities",
+      "Add isFileEmpty to the import list",
+      "Verify import works correctly"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Unit tests for isFileEmpty() function",
+    "steps": [
+      "Open tests/copy.test.ts",
+      "Add describe block for isFileEmpty tests",
+      "Add test: returns true for 0-byte file",
+      "Add test: returns true for whitespace-only file",
+      "Add test: returns false for file with content",
+      "Add test: returns false for file with minimal content (single char)",
+      "Add test: returns true for non-existent file"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Update existing force+preserve test in tests/init.test.ts",
+    "steps": [
+      "Navigate to lines 197-215 in tests/init.test.ts",
+      "Update test to expect wasSkipped to be false (force should override)",
+      "Update test name to reflect new behavior: 'preserved files ARE overwritten with force=true'",
+      "Update logic to include !shouldForce in the condition"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Add new preservation logic tests in tests/init.test.ts",
+    "steps": [
+      "Add test: non-empty preserved files skip copy without force",
+      "Add test: empty preserved files are overwritten without force",
+      "Add test: whitespace-only preserved files are overwritten",
+      "Create temp files with appropriate content for each test"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Add config folder behavior tests in tests/init.test.ts",
+    "steps": [
+      "Add test: atomic init always overwrites template files in .claude/ folder",
+      "Add test: atomic init preserves user's custom files in .claude/commands/",
+      "Add test: atomic init preserves user's custom files in .claude/agents/",
+      "Add test: atomic init preserves user's custom files in .claude/skills/",
+      "Add test: re-running atomic init updates .claude/settings.json to latest template"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Integration test: --force flag overwrites existing CLAUDE.md",
+    "steps": [
+      "Create a test that initializes with existing CLAUDE.md",
+      "Run atomic init --force",
+      "Verify CLAUDE.md is overwritten with template content",
+      "Repeat test with -f shorthand flag"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Integration test: --force flag overwrites existing AGENTS.md",
+    "steps": [
+      "Create a test that initializes with existing AGENTS.md",
+      "Run atomic init --force",
+      "Verify AGENTS.md is overwritten with template content",
+      "Repeat test with -f shorthand flag"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Integration test: empty file detection during init",
+    "steps": [
+      "Create test with 0-byte CLAUDE.md",
+      "Run atomic init (no force)",
+      "Verify CLAUDE.md is overwritten",
+      "Create test with whitespace-only AGENTS.md",
+      "Run atomic init (no force)",
+      "Verify AGENTS.md is overwritten"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Integration test: non-empty files are preserved without --force",
+    "steps": [
+      "Create test with CLAUDE.md containing user content",
+      "Run atomic init (no force)",
+      "Verify CLAUDE.md content is preserved",
+      "Verify user content is not overwritten"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Integration test: auto-init with force flag",
+    "steps": [
+      "Test atomic -a claude-code -f with existing CLAUDE.md",
+      "Verify auto-init respects force flag",
+      "Verify CLAUDE.md is overwritten"
+    ],
+    "passes": true
+  }
+]

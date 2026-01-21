@@ -2,7 +2,7 @@
  * Utilities for copying directories and files with exclusions
  */
 
-import { readdir, mkdir, stat, realpath } from "fs/promises";
+import { readdir, mkdir, stat, realpath, readFile } from "fs/promises";
 import { join, extname, relative, resolve, sep } from "path";
 import { getOppositeScriptExtension } from "./detect";
 
@@ -206,5 +206,39 @@ export async function isDirectory(path: string): Promise<boolean> {
     return stats.isDirectory();
   } catch {
     return false;
+  }
+}
+
+/**
+ * Check if a file is empty or contains only whitespace.
+ * 
+ * A file is considered empty if:
+ * - It does not exist (returns true to allow overwrite)
+ * - It has 0 bytes
+ * - It contains only whitespace characters (for files under 1KB)
+ * 
+ * @param path - The path to the file to check
+ * @returns true if the file is empty or whitespace-only, false otherwise
+ */
+export async function isFileEmpty(path: string): Promise<boolean> {
+  try {
+    const stats = await stat(path);
+    
+    // 0-byte files are empty
+    if (stats.size === 0) {
+      return true;
+    }
+    
+    // For small files (under 1KB), check if content is whitespace-only
+    if (stats.size < 1024) {
+      const content = await readFile(path, "utf-8");
+      return content.trim().length === 0;
+    }
+    
+    // Large files with content are not empty
+    return false;
+  } catch {
+    // If file doesn't exist or can't be read, treat as empty (allow overwrite)
+    return true;
   }
 }

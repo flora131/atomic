@@ -14,6 +14,7 @@ $ErrorActionPreference = 'Stop'
 $GithubRepo = "flora131/atomic"
 $BinaryName = "atomic"
 $BinDir = if ($env:ATOMIC_INSTALL_DIR) { $env:ATOMIC_INSTALL_DIR } elseif ($InstallDir) { $InstallDir } else { "${Home}\.local\bin" }
+$DataDir = if ($env:LOCALAPPDATA) { "${env:LOCALAPPDATA}\atomic" } else { "${Home}\AppData\Local\atomic" }
 
 # Colors for output
 $C_RESET = [char]27 + "[0m"
@@ -41,9 +42,11 @@ switch ($Arch) {
 
 Write-Info "Detected architecture: $Arch"
 Write-Info "Installing to: $BinDir"
+Write-Info "Config directory: $DataDir"
 
-# Create install directory
+# Create install directories
 $null = New-Item -ItemType Directory -Force -Path $BinDir
+$null = New-Item -ItemType Directory -Force -Path $DataDir
 
 # Get version
 if ($Version -eq "latest") {
@@ -61,6 +64,7 @@ Write-Info "Installing version: $Version"
 # Setup URLs
 $BaseUrl = "https://github.com/${GithubRepo}/releases/download/${Version}"
 $DownloadUrl = "${BaseUrl}/${BinaryName}-${Target}"
+$ConfigUrl = "${BaseUrl}/${BinaryName}-config.zip"
 $ChecksumsUrl = "${BaseUrl}/checksums.txt"
 $BinaryPath = "${BinDir}\${BinaryName}.exe"
 
@@ -68,6 +72,7 @@ $BinaryPath = "${BinDir}\${BinaryName}.exe"
 $TempDir = Join-Path $env:TEMP "atomic-install-$(Get-Random)"
 $null = New-Item -ItemType Directory -Force -Path $TempDir
 $TempBinary = "${TempDir}\${BinaryName}-${Target}"
+$TempConfig = "${TempDir}\${BinaryName}-config.zip"
 $TempChecksums = "${TempDir}\checksums.txt"
 
 try {
@@ -81,12 +86,21 @@ try {
         Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempBinary -UseBasicParsing
     }
 
+    # Download config files
+    Write-Info "Downloading config files..."
+    if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+        curl.exe "-#SfLo" $TempConfig $ConfigUrl
+        if ($LASTEXITCODE -ne 0) { throw "curl.exe failed to download config files with exit code $LASTEXITCODE" }
+    } else {
+        Invoke-WebRequest -Uri $ConfigUrl -OutFile $TempConfig -UseBasicParsing
+    }
+
     # Download checksums
     Write-Info "Downloading checksums..."
     Invoke-WebRequest -Uri $ChecksumsUrl -OutFile $TempChecksums -UseBasicParsing
 
-    # Verify checksum
-    Write-Info "Verifying checksum..."
+    # Verify binary checksum
+    Write-Info "Verifying binary checksum..."
     $ExpectedLine = Get-Content $TempChecksums | Where-Object { $_ -match $Target }
     if (-not $ExpectedLine) {
         throw "Could not find checksum for $Target in checksums.txt"
@@ -100,10 +114,31 @@ try {
         Write-Err "Actual:   $ActualHash"
         exit 1
     }
-    Write-Info "Checksum verified successfully"
+    Write-Info "Binary checksum verified successfully"
+
+    # Verify config checksum
+    Write-Info "Verifying config checksum..."
+    $ConfigExpectedLine = Get-Content $TempChecksums | Where-Object { $_ -match "config\.zip" }
+    if (-not $ConfigExpectedLine) {
+        throw "Could not find checksum for config.zip in checksums.txt"
+    }
+    $ConfigExpectedHash = ($ConfigExpectedLine -split '\s+')[0].ToLower()
+    $ConfigActualHash = (Get-FileHash -Path $TempConfig -Algorithm SHA256).Hash.ToLower()
+
+    if ($ConfigActualHash -ne $ConfigExpectedHash) {
+        Write-Err "Config checksum verification failed!"
+        Write-Err "Expected: $ConfigExpectedHash"
+        Write-Err "Actual:   $ConfigActualHash"
+        exit 1
+    }
+    Write-Info "Config checksum verified successfully"
 
     # Install binary
     Move-Item -Force $TempBinary $BinaryPath
+
+    # Extract config files to data directory
+    Write-Info "Installing config files to ${DataDir}..."
+    Expand-Archive -Path $TempConfig -DestinationPath $DataDir -Force
 
     # Verify installation
     $VersionOutput = & $BinaryPath --version 2>&1
@@ -112,6 +147,7 @@ try {
     }
 
     Write-Success "Installed ${BinaryName} ${Version} to ${BinaryPath}"
+    Write-Success "Config files installed to ${DataDir}"
 
     # Update PATH
     if (-not $NoPathUpdate) {

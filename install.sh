@@ -9,6 +9,7 @@ set -euo pipefail
 GITHUB_REPO="flora131/atomic"
 BINARY_NAME="atomic"
 BIN_DIR="${ATOMIC_INSTALL_DIR:-$HOME/.local/bin}"
+DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/atomic"
 
 # Colors
 RED='\033[0;31m'
@@ -146,10 +147,11 @@ get_latest_version() {
 # Main installation
 main() {
     local version="${1:-}"
-    local platform download_url checksums_url tmp_dir
+    local platform download_url checksums_url config_url tmp_dir
 
     # Check dependencies
     command -v curl >/dev/null || error "curl is required to install ${BINARY_NAME}"
+    command -v tar >/dev/null || error "tar is required to install ${BINARY_NAME}"
 
     # Detect platform
     platform=$(detect_platform)
@@ -163,12 +165,14 @@ main() {
 
     # Setup directories
     mkdir -p "$BIN_DIR"
+    mkdir -p "$DATA_DIR"
     tmp_dir=$(mktemp -d)
     trap "rm -rf $tmp_dir" EXIT
 
     # Download URLs
     local base_url="https://github.com/${GITHUB_REPO}/releases/download/${version}"
     download_url="${base_url}/${BINARY_NAME}-${platform}"
+    config_url="${base_url}/${BINARY_NAME}-config.tar.gz"
     checksums_url="${base_url}/checksums.txt"
 
     # Download binary
@@ -176,23 +180,34 @@ main() {
     curl --fail --location --progress-bar --output "${tmp_dir}/${BINARY_NAME}-${platform}" "$download_url" ||
         error "Failed to download binary from ${download_url}"
 
+    # Download config files
+    info "Downloading config files..."
+    curl --fail --location --progress-bar --output "${tmp_dir}/${BINARY_NAME}-config.tar.gz" "$config_url" ||
+        error "Failed to download config files from ${config_url}"
+
     # Download checksums
     info "Downloading checksums..."
     curl -fsSL --output "${tmp_dir}/checksums.txt" "$checksums_url" ||
         error "Failed to download checksums from ${checksums_url}"
 
-    # Verify checksum
+    # Verify checksums
     verify_checksum "${tmp_dir}/${BINARY_NAME}-${platform}" "${tmp_dir}/checksums.txt"
+    verify_checksum "${tmp_dir}/${BINARY_NAME}-config.tar.gz" "${tmp_dir}/checksums.txt"
 
     # Install binary
     mv "${tmp_dir}/${BINARY_NAME}-${platform}" "${BIN_DIR}/${BINARY_NAME}"
     chmod +x "${BIN_DIR}/${BINARY_NAME}"
+
+    # Extract config files to data directory
+    info "Installing config files to ${DATA_DIR}..."
+    tar -xzf "${tmp_dir}/${BINARY_NAME}-config.tar.gz" -C "$DATA_DIR"
 
     # Verify installation
     "${BIN_DIR}/${BINARY_NAME}" --version >/dev/null 2>&1 ||
         error "Installation verification failed"
 
     success "Installed ${BINARY_NAME} ${version} to ${BIN_DIR}/${BINARY_NAME}"
+    success "Config files installed to ${DATA_DIR}"
 
     # Update PATH in shell config
     if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then

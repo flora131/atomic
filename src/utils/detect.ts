@@ -13,6 +13,21 @@ export function isCommandInstalled(cmd: string): boolean {
 }
 
 /**
+ * Get the resolved absolute path to a command executable.
+ *
+ * On Windows, this properly resolves .cmd, .bat, .exe and other executable
+ * extensions through Bun.which(), which handles the PATHEXT environment
+ * variable. This is essential for spawning commands correctly on Windows
+ * where 'opencode' might actually be 'opencode.cmd'.
+ *
+ * @param cmd - The command name to resolve (e.g., 'opencode', 'claude')
+ * @returns The absolute path to the command, or null if not found
+ */
+export function getCommandPath(cmd: string): string | null {
+  return Bun.which(cmd);
+}
+
+/**
  * Get the version string of a command
  * Returns null if command is not installed or version check fails
  */

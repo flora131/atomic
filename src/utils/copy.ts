@@ -7,6 +7,18 @@ import { join, extname, relative, resolve, sep } from "path";
 import { getOppositeScriptExtension } from "./detect";
 
 /**
+ * Normalize a path for cross-platform comparison.
+ * Converts Windows backslashes to forward slashes so that exclusion
+ * patterns work consistently on both Windows and Unix systems.
+ *
+ * @param p - The path to normalize
+ * @returns The path with all backslashes converted to forward slashes
+ */
+export function normalizePath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
+/**
  * Check if a target path is safe (doesn't escape the base directory)
  * Protects against path traversal attacks
  */
@@ -61,7 +73,9 @@ async function copySymlinkAsFile(src: string, dest: string): Promise<void> {
 }
 
 /**
- * Check if a path should be excluded based on exclusion rules
+ * Check if a path should be excluded based on exclusion rules.
+ * Uses normalized paths (forward slashes) to ensure consistent matching
+ * on both Windows and Unix systems.
  */
 function shouldExclude(
   relativePath: string,
@@ -73,9 +87,17 @@ function shouldExclude(
     return true;
   }
 
+  // Normalize the relative path for cross-platform comparison
+  // This ensures Windows backslash paths match forward-slash exclusion patterns
+  const normalizedPath = normalizePath(relativePath);
+
   // Check if the relative path starts with any exclusion
   for (const ex of exclude) {
-    if (relativePath === ex || relativePath.startsWith(`${ex}/`)) {
+    const normalizedExclusion = normalizePath(ex);
+    if (
+      normalizedPath === normalizedExclusion ||
+      normalizedPath.startsWith(`${normalizedExclusion}/`)
+    ) {
       return true;
     }
   }

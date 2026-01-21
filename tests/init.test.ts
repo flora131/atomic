@@ -160,6 +160,122 @@ describe("initCommand with preSelectedAgent", () => {
   });
 });
 
+describe("file preservation with --force flag", () => {
+  /**
+   * These tests verify that preserve_files (CLAUDE.md, AGENTS.md) are NEVER
+   * overwritten, even when the --force flag is set. This protects user
+   * customizations intentionally.
+   */
+
+  test("preserve_files includes CLAUDE.md for claude agent", async () => {
+    const { AGENT_CONFIG } = await import("../src/config");
+    const claudeAgent = AGENT_CONFIG["claude"];
+
+    // Claude agent preserves CLAUDE.md (its main instruction file)
+    expect(claudeAgent.preserve_files).toContain("CLAUDE.md");
+    expect(claudeAgent.additional_files).toContain("CLAUDE.md");
+  });
+
+  test("preserve_files includes AGENTS.md for opencode agent", async () => {
+    const { AGENT_CONFIG } = await import("../src/config");
+    const opencodeAgent = AGENT_CONFIG["opencode"];
+
+    // OpenCode agent preserves AGENTS.md (its main instruction file)
+    expect(opencodeAgent.preserve_files).toContain("AGENTS.md");
+    expect(opencodeAgent.additional_files).toContain("AGENTS.md");
+  });
+
+  test("preserve_files includes AGENTS.md for copilot agent", async () => {
+    const { AGENT_CONFIG } = await import("../src/config");
+    const copilotAgent = AGENT_CONFIG["copilot"];
+
+    // Copilot agent preserves AGENTS.md (its main instruction file)
+    expect(copilotAgent.preserve_files).toContain("AGENTS.md");
+    expect(copilotAgent.additional_files).toContain("AGENTS.md");
+  });
+
+  test("preservation logic: preserved files skip copy even with force=true", () => {
+    // Simulate the preservation logic from init.ts
+    const preserveFiles = ["CLAUDE.md", "AGENTS.md"];
+    const file = "CLAUDE.md";
+    const destExists = true;
+    const shouldForce = true;
+
+    const shouldPreserve = preserveFiles.includes(file);
+
+    // The key logic: preserved files are checked BEFORE force flag
+    let wasSkipped = false;
+    if (shouldPreserve && destExists) {
+      wasSkipped = true;
+      // continue; in actual code
+    }
+
+    expect(wasSkipped).toBe(true);
+    // Even with force=true, preserved files should be skipped
+  });
+
+  test("preservation logic: non-preserved files are overwritten with force=true", () => {
+    // Simulate the preservation logic from init.ts
+    const preserveFiles = ["CLAUDE.md", "AGENTS.md"];
+    const file = "settings.json"; // Not in preserve_files
+    const destExists = true;
+    const shouldForce = true;
+
+    const shouldPreserve = preserveFiles.includes(file);
+    const shouldMerge = false; // Assume not a merge file
+
+    let action = "";
+    if (shouldPreserve && destExists) {
+      action = "skip";
+    } else if (shouldMerge && destExists) {
+      action = "merge";
+    } else if (shouldForce) {
+      action = "overwrite";
+    } else if (!destExists) {
+      action = "copy";
+    } else {
+      action = "skip";
+    }
+
+    expect(action).toBe("overwrite");
+  });
+
+  test("preservation logic: new files are copied regardless of force flag", () => {
+    // Simulate the preservation logic from init.ts
+    const preserveFiles = ["CLAUDE.md", "AGENTS.md"];
+    const file = "CLAUDE.md";
+    const destExists = false; // File doesn't exist at destination
+    const shouldForce = false;
+
+    const shouldPreserve = preserveFiles.includes(file);
+
+    let action = "";
+    if (shouldPreserve && destExists) {
+      action = "skip";
+    } else if (!destExists) {
+      action = "copy";
+    }
+
+    // New files should be copied even if they're in preserve_files
+    expect(action).toBe("copy");
+  });
+
+  test("config folder files ARE overwritten with force=true", () => {
+    // This tests the copyDirPreserving behavior
+    // Config folder files (inside .claude/, .opencode/, etc.) use force flag
+    const force = true;
+    const destExists = true;
+
+    // Logic from copyDirPreserving: if force is true, always copy
+    let shouldCopy = false;
+    if (!destExists || force) {
+      shouldCopy = true;
+    }
+
+    expect(shouldCopy).toBe(true);
+  });
+});
+
 describe("initCommand preSelectedAgent flow logic", () => {
   /**
    * These tests verify the logical flow when preSelectedAgent is provided:

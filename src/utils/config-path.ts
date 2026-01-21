@@ -112,3 +112,42 @@ export function configDataDirExists(): boolean {
 
   return existsSync(getBinaryDataDir());
 }
+
+/**
+ * Get the directory where the binary is installed.
+ *
+ * Default locations:
+ * - Unix: ~/.local/bin
+ * - Windows: %USERPROFILE%\.local\bin
+ *
+ * Can be overridden via ATOMIC_INSTALL_DIR environment variable.
+ *
+ * @returns The path to the binary installation directory
+ */
+export function getBinaryInstallDir(): string {
+  // Allow override via environment variable
+  if (process.env.ATOMIC_INSTALL_DIR) {
+    return process.env.ATOMIC_INSTALL_DIR;
+  }
+
+  if (isWindows()) {
+    return join(process.env.USERPROFILE || "", ".local", "bin");
+  }
+
+  return join(process.env.HOME || "", ".local", "bin");
+}
+
+/**
+ * Get the full path to the atomic binary executable.
+ *
+ * Returns platform-specific binary path:
+ * - Unix: ~/.local/bin/atomic
+ * - Windows: %USERPROFILE%\.local\bin\atomic.exe
+ *
+ * @returns The full path to the atomic binary
+ */
+export function getBinaryPath(): string {
+  const dir = getBinaryInstallDir();
+  const binaryName = isWindows() ? "atomic.exe" : "atomic";
+  return join(dir, binaryName);
+}

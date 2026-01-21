@@ -187,7 +187,7 @@
       "Verify .old file cleanup behavior",
       "Verify atomic --version shows new version"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

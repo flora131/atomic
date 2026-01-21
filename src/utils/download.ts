@@ -10,6 +10,17 @@
 
 import { isWindows } from "./detect";
 
+/**
+ * Error thrown when a file's checksum does not match the expected value.
+ * Indicates the file may be corrupted or tampered with.
+ */
+export class ChecksumMismatchError extends Error {
+  constructor(filename: string) {
+    super(`Checksum verification failed for ${filename}`);
+    this.name = "ChecksumMismatchError";
+  }
+}
+
 /** GitHub repository for atomic */
 export const GITHUB_REPO = "flora131/atomic";
 

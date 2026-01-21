@@ -4,6 +4,7 @@ import { tmpdir } from "os";
 import { mkdir, rm, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import {
+  ChecksumMismatchError,
   GITHUB_REPO,
   getBinaryFilename,
   getConfigArchiveFilename,
@@ -13,6 +14,28 @@ import {
   verifyChecksum,
 } from "../src/utils/download";
 import { isWindows } from "../src/utils/detect";
+
+describe("ChecksumMismatchError", () => {
+  test("is an instance of Error", () => {
+    const error = new ChecksumMismatchError("test-file.txt");
+    expect(error).toBeInstanceOf(Error);
+  });
+
+  test("has correct name property", () => {
+    const error = new ChecksumMismatchError("test-file.txt");
+    expect(error.name).toBe("ChecksumMismatchError");
+  });
+
+  test("includes filename in message", () => {
+    const error = new ChecksumMismatchError("atomic-linux-x64");
+    expect(error.message).toContain("atomic-linux-x64");
+  });
+
+  test("has expected message format", () => {
+    const error = new ChecksumMismatchError("test-file");
+    expect(error.message).toBe("Checksum verification failed for test-file");
+  });
+});
 
 describe("GITHUB_REPO constant", () => {
   test("is set to flora131/atomic", () => {

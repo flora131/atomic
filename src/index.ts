@@ -26,6 +26,7 @@ import {
   isAgentRunMode,
   isInitWithSeparator,
 } from "./utils/arg-parser";
+import { cleanupWindowsLeftoverFiles } from "./utils/cleanup";
 import { COLORS } from "./utils/colors";
 import { VERSION } from "./version";
 
@@ -55,16 +56,12 @@ COMMANDS:
 
 GENERAL OPTIONS:
   -a, --agent <name>    Agent name: ${agents}
-  -f, --force           Overwrite config files (CLAUDE.md/AGENTS.md preserved)
+  -f, --force           Overwrite all config files including CLAUDE.md/AGENTS.md
   -y, --yes             Auto-confirm all prompts (non-interactive mode)
   -v, --version         Show version number
   -h, --help            Show this help
   --no-banner           Skip ASCII banner display
   --                    Separator: args after this go to the agent
-
-UPDATE OPTIONS:
-  --check               Check for updates without installing
-  --target-version <v>  Update to a specific version (e.g., v0.2.0)
 
 UNINSTALL OPTIONS:
   --dry-run             Preview what would be removed without removing
@@ -78,8 +75,6 @@ EXAMPLES:
   atomic -a claude                          # Run Claude Code (setup if needed)
   atomic -a claude -- "fix the bug"         # Run Claude Code with a prompt
   atomic update                             # Update to latest version
-  atomic update --check                     # Check for available updates
-  atomic update --target-version v0.2.0     # Update to specific version
   atomic uninstall                          # Uninstall atomic
   atomic uninstall --dry-run                # Preview uninstall without removing
   atomic uninstall --keep-config            # Uninstall but keep config files
@@ -90,6 +85,10 @@ EXAMPLES:
  * Main entry point
  */
 async function main(): Promise<void> {
+  // Clean up leftover Windows files from previous uninstall/update operations
+  // This is a no-op on non-Windows platforms
+  await cleanupWindowsLeftoverFiles();
+
   try {
     const rawArgs = Bun.argv.slice(2);
 
@@ -173,9 +172,6 @@ async function main(): Promise<void> {
         version: { type: "boolean", short: "v" },
         help: { type: "boolean", short: "h" },
         "no-banner": { type: "boolean" },
-        // Update command options
-        check: { type: "boolean" },
-        "target-version": { type: "string" },
         // Uninstall command options
         "keep-config": { type: "boolean" },
         "dry-run": { type: "boolean" },
@@ -211,12 +207,8 @@ async function main(): Promise<void> {
         break;
 
       case "update":
-        // atomic update [--check] [--yes] [--target-version <version>]
-        await updateCommand({
-          check: values.check as boolean | undefined,
-          yes: values.yes as boolean | undefined,
-          targetVersion: values["target-version"] as string | undefined,
-        });
+        // atomic update - upgrade to latest version
+        await updateCommand();
         break;
 
       case "uninstall":

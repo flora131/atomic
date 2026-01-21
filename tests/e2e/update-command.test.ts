@@ -8,9 +8,8 @@ import { spawn } from "child_process";
  * E2E tests for the update command
  *
  * These tests verify:
- * 1. update --check works and shows version info
- * 2. update command detects installation type correctly
- * 3. Error messages are helpful for non-binary installations
+ * 1. update command detects installation type correctly
+ * 2. Error messages are helpful for non-binary installations
  *
  * Note: Full binary update integration tests require a CI environment
  * with actual binary builds and GitHub releases.
@@ -83,17 +82,6 @@ describe("Update Command E2E", () => {
       expect(output).toContain("bun install");
       expect(exitCode).toBe(1);
     }, 15000);
-
-    test("shows helpful message with --check for source installations", async () => {
-      const { stdout, stderr, exitCode } = await runAtomic(["update", "--check"], {
-        timeout: 10000,
-      });
-      const output = stdout + stderr;
-
-      // Should still show source installation message
-      expect(output).toContain("git pull");
-      expect(exitCode).toBe(1);
-    }, 15000);
   });
 
   describe("Help text", () => {
@@ -101,16 +89,6 @@ describe("Update Command E2E", () => {
       const { stdout, stderr } = await runAtomic(["--help"], { timeout: 5000 });
       const output = stdout + stderr;
 
-      expect(output).toContain("update");
-      expect(output).toContain("--check");
-      expect(output).toContain("--target-version");
-    }, 10000);
-
-    test("update is in COMMANDS section", async () => {
-      const { stdout, stderr } = await runAtomic(["--help"], { timeout: 5000 });
-      const output = stdout + stderr;
-
-      // Verify update command is listed under commands
       expect(output).toContain("update");
       expect(output).toContain("Self-update");
     }, 10000);
@@ -128,33 +106,6 @@ describe("Update Command E2E", () => {
       // which means the command was recognized
       expect(output).toContain("development mode");
     }, 15000);
-
-    test("update --yes is recognized", async () => {
-      const { stdout, stderr } = await runAtomic(["update", "--yes"], { timeout: 10000 });
-      const output = stdout + stderr;
-
-      expect(output).not.toContain("Unknown command");
-      expect(output).not.toContain("unrecognized option");
-    }, 15000);
-
-    test("update -y shorthand is recognized", async () => {
-      const { stdout, stderr } = await runAtomic(["update", "-y"], { timeout: 10000 });
-      const output = stdout + stderr;
-
-      expect(output).not.toContain("Unknown command");
-      expect(output).not.toContain("unrecognized option");
-    }, 15000);
-
-    test("update --target-version accepts version argument", async () => {
-      const { stdout, stderr } = await runAtomic(["update", "--target-version", "v0.1.0"], {
-        timeout: 10000,
-      });
-      const output = stdout + stderr;
-
-      expect(output).not.toContain("Unknown command");
-      // Command should be recognized even if it fails due to source installation
-      expect(output).toContain("development mode");
-    }, 15000);
   });
 });
 
@@ -167,7 +118,7 @@ describe("Update Command Unit Integration", () => {
     expect(isNewerVersion("1.0.0", "1.0.0")).toBe(false);
   });
 
-  test("UpdateOptions interface is usable", async () => {
+  test("updateCommand is exported", async () => {
     const { updateCommand } = await import("../../src/commands/update");
 
     // Verify the function exists and is callable

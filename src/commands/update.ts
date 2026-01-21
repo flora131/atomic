@@ -1,15 +1,10 @@
 /**
  * Update command - Self-update for binary installations
  *
- * Supports:
- * - Checking for updates with --check flag
- * - Auto-confirmation with --yes flag
- * - Installing specific versions with --target-version flag
- * - Atomic binary replacement on Unix
- * - Rename strategy for locked executables on Windows
+ * Upgrades to the latest available version automatically.
  */
 
-import { confirm, spinner, log, note, isCancel, cancel } from "@clack/prompts";
+import { spinner, log } from "@clack/prompts";
 import { join } from "path";
 import { tmpdir } from "os";
 import { mkdir, rm, rename, chmod } from "fs/promises";
@@ -23,26 +18,15 @@ import {
 import { isWindows } from "../utils/detect";
 import { VERSION } from "../version";
 import {
+  ChecksumMismatchError,
   getLatestRelease,
-  getReleaseByVersion,
   downloadFile,
   verifyChecksum,
   getBinaryFilename,
   getConfigArchiveFilename,
   getDownloadUrl,
   getChecksumsUrl,
-  type ReleaseInfo,
 } from "../utils/download";
-
-/** Options for the update command */
-export interface UpdateOptions {
-  /** Skip confirmation prompt */
-  yes?: boolean;
-  /** Only check for updates, don't install */
-  check?: boolean;
-  /** Update to specific version (e.g., "v0.2.0" or "0.2.0") */
-  targetVersion?: string;
-}
 
 /**
  * Compare two semver version strings.
@@ -164,10 +148,9 @@ async function extractConfig(archivePath: string, dataDir: string): Promise<void
 
 /**
  * Main update command handler.
- *
- * @param options - Update options
+ * Upgrades to the latest available version automatically.
  */
-export async function updateCommand(options: UpdateOptions = {}): Promise<void> {
+export async function updateCommand(): Promise<void> {
   const installType = detectInstallationType();
 
   // Check if update is supported for this installation type
@@ -196,57 +179,18 @@ export async function updateCommand(options: UpdateOptions = {}): Promise<void> 
   try {
     s.start("Checking for updates...");
 
-    let targetVersion: string;
-    let releaseInfo: ReleaseInfo;
-
-    if (options.targetVersion) {
-      // Fetch specific version
-      releaseInfo = await getReleaseByVersion(options.targetVersion);
-      targetVersion = releaseInfo.tagName;
-    } else {
-      // Fetch latest version
-      releaseInfo = await getLatestRelease();
-      targetVersion = releaseInfo.tagName;
-    }
-
+    const releaseInfo = await getLatestRelease();
+    const targetVersion = releaseInfo.tagName;
     const targetVersionNum = targetVersion.replace(/^v/, "");
     s.stop(`Current version: v${VERSION}`);
 
-    // Compare versions
+    // Check if already on latest
     if (!isNewerVersion(targetVersionNum, VERSION)) {
-      if (targetVersionNum === VERSION) {
-        log.success("You're already running the latest version!");
-      } else {
-        log.warn(`Version ${targetVersion} is older than current version v${VERSION}`);
-        log.info("Use --target-version with a newer version number to update.");
-      }
+      log.success("You're already running the latest version!");
       return;
     }
 
-    log.info(`New version available: ${targetVersion}`);
-
-    // If --check flag, just report and exit
-    if (options.check) {
-      if (releaseInfo.body) {
-        note(releaseInfo.body, "Release Notes");
-      }
-      log.info("");
-      log.info("Run 'atomic update' to install this version.");
-      return;
-    }
-
-    // Confirm update unless --yes flag
-    if (!options.yes) {
-      const shouldUpdate = await confirm({
-        message: `Update to ${targetVersion}?`,
-        initialValue: true,
-      });
-
-      if (isCancel(shouldUpdate) || !shouldUpdate) {
-        cancel("Update cancelled.");
-        return;
-      }
-    }
+    log.info(`Updating to ${targetVersion}...`);
 
     // Create temp directory for downloads
     const tempDir = join(tmpdir(), `atomic-update-${Date.now()}`);
@@ -278,12 +222,12 @@ export async function updateCommand(options: UpdateOptions = {}): Promise<void> 
 
       const binaryValid = await verifyChecksum(binaryPath, checksumsTxt, binaryFilename);
       if (!binaryValid) {
-        throw new Error(`Checksum verification failed for ${binaryFilename}`);
+        throw new ChecksumMismatchError(binaryFilename);
       }
 
       const configValid = await verifyChecksum(configPath, checksumsTxt, configFilename);
       if (!configValid) {
-        throw new Error(`Checksum verification failed for ${configFilename}`);
+        throw new ChecksumMismatchError(configFilename);
       }
       s.stop("Checksums verified");
 

@@ -98,15 +98,4 @@ describe("update command exports", () => {
     const { updateCommand } = await import("../src/commands/update");
     expect(typeof updateCommand).toBe("function");
   });
-
-  test("UpdateOptions interface is usable", async () => {
-    const { updateCommand } = await import("../src/commands/update");
-    // This just verifies the type is exported and usable
-    const options = {
-      yes: true,
-      check: false,
-      targetVersion: "v1.0.0",
-    };
-    expect(options.yes).toBe(true);
-  });
 });

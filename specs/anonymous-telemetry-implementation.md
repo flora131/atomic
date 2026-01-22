@@ -103,7 +103,7 @@ flowchart TB
     subgraph Hooks["Agent Session Hooks"]
         direction TB
         ClaudeHook[".claude/hooks/<br>telemetry-stop.sh"]:::hook
-        CopilotHook[".github/hooks/<br>telemetry-end.sh"]:::hook
+        CopilotHook[".github/hooks/<br>prompt-hook.sh + stop-hook.sh"]:::hook
         OpenCodePlugin[".opencode/plugin/<br>telemetry.ts"]:::hook
     end
 
@@ -129,7 +129,7 @@ flowchart TB
     RunAgent -->|"Spawn Agent"| OpenCodePlugin
 
     ClaudeHook -->|"Parse Transcript"| EventsLog
-    CopilotHook -->|"Parse Session"| EventsLog
+    CopilotHook -->|"Accumulate Prompts"| EventsLog
     OpenCodePlugin -->|"Parse Messages"| EventsLog
 
     Upload -->|"Read & Clear"| EventsLog
@@ -287,8 +287,8 @@ interface CliCommandEvent {
   eventType: 'cli_command';
   timestamp: string;
   agentType: 'claude' | 'opencode' | 'copilot';
-  commands: string[];        // e.g., ["/research-codebase"]
-  commandCount: number;
+  commands: string[];        // e.g., ["/research-codebase"] (includes duplicates for frequency)
+  commandCount: number;      // Total count including repeated commands
   platform: 'darwin' | 'linux' | 'win32';
   atomicVersion: string;
   source: 'cli';
@@ -323,7 +323,8 @@ function extractCommandsFromArgs(args: string[]): string[] {
       }
     }
   }
-  return [...new Set(commands)]; // Deduplicate
+  // Return all occurrences (no deduplication) to track actual usage frequency
+  return commands;
 }
 ```
 
@@ -342,8 +343,8 @@ interface AgentSessionEvent {
   timestamp: string;         // Session end time
   sessionStartedAt: string;  // Session start time
   agentType: 'claude' | 'opencode' | 'copilot';
-  commands: string[];        // Commands extracted from transcript
-  commandCount: number;
+  commands: string[];        // Commands extracted (includes duplicates for usage frequency)
+  commandCount: number;      // Total count including repeated commands
   platform: 'darwin' | 'linux' | 'win32';
   atomicVersion: string;
   source: 'session_hook';
@@ -355,8 +356,37 @@ interface AgentSessionEvent {
 | Platform | Hook Type | Transcript Access | Implementation |
 |----------|-----------|-------------------|----------------|
 | Claude Code | `Stop` shell hook | `transcript_path` via stdin JSON | `.claude/hooks/telemetry-stop.sh` |
-| Copilot CLI | `sessionEnd` shell hook | Limited (session metadata only) | `.github/hooks/telemetry-end.sh` |
+| Copilot CLI | `userPromptSubmitted` + `sessionEnd` hooks | Full prompt access via accumulated tracking | `.github/hooks/prompt-hook.sh` + `.github/hooks/stop-hook.sh` |
 | OpenCode | TypeScript plugin | `client.session.messages()` SDK | `.opencode/plugin/telemetry.ts` |
+
+**Copilot CLI Implementation Detail:**
+
+GitHub Copilot Coding Agent's `sessionEnd` hook only receives metadata (`timestamp`, `cwd`, `reason`), not the transcript. However, it provides a `userPromptSubmitted` hook that fires for every user prompt with the full prompt text:
+
+```json
+{
+  "timestamp": 1704614500000,
+  "cwd": "/path/to/project",
+  "prompt": "Fix the authentication bug"  // Full prompt text available!
+}
+```
+
+We use a **three-hook accumulation strategy**:
+
+1. **`sessionStart`** (`.github/scripts/start-ralph-session.sh`):
+   - Clear temp file from previous session
+   - Store session start timestamp
+   - Extract commands from `initialPrompt` if present
+
+2. **`userPromptSubmitted`** (`.github/hooks/prompt-hook.sh`):
+   - Extract Atomic commands from each `prompt`
+   - Append to temp file (`.github/telemetry-session-commands.tmp`)
+
+3. **`sessionEnd`** (`.github/hooks/stop-hook.sh`):
+   - Read accumulated commands from temp file (preserving all occurrences for usage frequency)
+   - Write `agent_session` event with full command list
+   - Clean up temp files
+   - Spawn upload process
 
 **Hook Upload Responsibility:** Session hooks are responsible for both:
 1. Writing `agent_session` events to `telemetry-events.jsonl`
@@ -674,11 +704,16 @@ Not applicable - this is a new feature with no existing telemetry data.
 
 - [ ] **Retention Policy:** How long should local telemetry logs be retained before auto-deletion? (Recommendation: 30 days)
 
-- [ ] **Copilot CLI Transcript Access:** Can we access Copilot CLI session transcripts for command extraction? (Requires investigation)
+- [x] **Copilot CLI Transcript Access:** ~~Can we access Copilot CLI session transcripts for command extraction?~~ **RESOLVED:** While `sessionEnd` hook only receives metadata, the `userPromptSubmitted` hook fires for every user prompt and includes the full prompt text. We use a three-hook accumulation strategy:
+  1. `sessionStart`: Initialize temp file, capture `initialPrompt` commands
+  2. `userPromptSubmitted`: Extract commands from each prompt, append to temp file
+  3. `sessionEnd`: Read accumulated commands, write telemetry event, clean up
+
+  This provides full command tracking for Copilot CLI sessions. See Section 5.3.3 for implementation details.
 
 - [ ] **Backend Selection:** Grafana Cloud vs Azure Monitor vs self-hosted? (Recommendation: Grafana Cloud for free tier and OTEL native support)
 
-- [ ] **Deduplication:** Same command tracked via CLI and session hook - how to handle? (Recommendation: Keep both, differentiate by `source` field)
+- [x] **Deduplication:** ~~Same command tracked via CLI and session hook - how to handle?~~ **RESOLVED:** We preserve ALL command occurrences (no deduplication) to track actual usage frequency. For example, if a user runs `/commit` three times in a session, the `commands` array will contain `["/commit", "/commit", "/commit"]` with `commandCount: 3`. Events from different sources (CLI vs session hook) are naturally differentiated by the `source` field.
 
 ## 10. Implementation Checklist
 
@@ -706,13 +741,18 @@ Not applicable - this is a new feature with no existing telemetry data.
 - [ ] Write unit tests for slash command extraction
 
 ### Phase 4: Agent Session Tracking (Hooks)
-- [ ] Create `.claude/hooks/telemetry-stop.sh` for Claude Code
-- [ ] Create `.github/hooks/telemetry-end.sh` for Copilot CLI
-- [ ] Create `.opencode/plugin/telemetry.ts` for OpenCode
-- [ ] Register hooks in respective configuration files
-- [ ] Log `agent_session` events to `telemetry-events.jsonl`
-- [ ] Add spawned upload trigger to each hook (call `atomic --upload-telemetry`)
-- [ ] Write integration tests for each platform
+- [x] Create `.claude/hooks/telemetry-stop.sh` for Claude Code (parses `transcript_path`)
+- [x] Create `.claude/hooks/hooks.json` to register Claude Code Stop hook
+- [x] Create `.github/hooks/prompt-hook.sh` for Copilot CLI `userPromptSubmitted` hook
+- [x] Update `.github/scripts/start-ralph-session.sh` to initialize telemetry temp files
+- [x] Update `.github/hooks/stop-hook.sh` to read accumulated commands at session end
+- [x] Update `.github/hooks/hooks.json` to register `userPromptSubmitted` hook
+- [x] Create `.opencode/plugin/telemetry.ts` for OpenCode (tracks session events)
+- [x] Create `bin/telemetry-helper.sh` with shared functions for shell hooks
+- [x] Log `agent_session` events to `telemetry-events.jsonl`
+- [x] Add spawned upload trigger to each hook (call `atomic --upload-telemetry`)
+- [x] Write unit tests for session telemetry (`telemetry-session.test.ts`)
+- [x] Write integration tests for hook functionality (`telemetry-hook-integration.test.ts`)
 
 ### Phase 5: User Consent
 - [ ] Create `src/utils/telemetry/telemetry-consent.ts`
@@ -741,8 +781,17 @@ Not applicable - this is a new feature with no existing telemetry data.
 | `src/commands/run-agent.ts` | 58-129 | Agent execution for CLI tracking |
 | `src/commands/init.ts` | N/A | Consent prompt integration point |
 | `src/utils/config-path.ts` | 54-64 | `getBinaryDataDir()` for storage path |
+| `src/utils/telemetry/types.ts` | 88-118 | `AgentSessionEvent` interface definition |
+| `src/utils/telemetry/telemetry-session.ts` | 1-172 | Session tracking utilities |
+| `src/utils/telemetry/telemetry-session.test.ts` | N/A | Unit tests for session tracking |
+| `src/utils/telemetry/telemetry-hook-integration.test.ts` | N/A | Integration tests for hooks |
+| `bin/telemetry-helper.sh` | N/A | Shared shell functions for hooks |
+| `.claude/hooks/telemetry-stop.sh` | N/A | Claude Code Stop hook |
+| `.claude/hooks/hooks.json` | N/A | Claude Code hook registration |
+| `.github/hooks/prompt-hook.sh` | N/A | Copilot CLI `userPromptSubmitted` hook |
+| `.github/hooks/stop-hook.sh` | 210-258 | Copilot CLI `sessionEnd` telemetry section |
+| `.github/scripts/start-ralph-session.sh` | 85-112 | Copilot CLI `sessionStart` telemetry init |
+| `.github/hooks/hooks.json` | N/A | Copilot CLI hook registration (includes `userPromptSubmitted`) |
+| `.opencode/plugin/telemetry.ts` | N/A | OpenCode session tracking plugin |
 | `install.sh` | 11-12 | DATA_DIR definition |
 | `install.ps1` | 16-17 | Windows DATA_DIR definition |
-| `.claude/hooks/hooks.json` | N/A | Claude Code hook registration |
-| `.github/hooks/hooks.json` | N/A | Copilot CLI hook registration |
-| `.opencode/opencode.json` | N/A | OpenCode plugin registration |

@@ -13,8 +13,15 @@ import { existsSync, mkdirSync, appendFileSync } from "fs";
 import { join } from "path";
 import { getBinaryDataDir } from "../config-path";
 import { isTelemetryEnabledSync, getOrCreateTelemetryState } from "./telemetry";
-import type { AtomicCommandEvent, AtomicCommandType, AgentType } from "./types";
+import type {
+  AtomicCommandEvent,
+  AtomicCommandType,
+  AgentType,
+  CliCommandEvent,
+  TelemetryEvent,
+} from "./types";
 import { VERSION } from "../../version";
+import { ATOMIC_COMMANDS } from "./constants";
 
 /**
  * Get the path to the telemetry events JSONL file.
@@ -57,13 +64,45 @@ function createBaseEvent(): BaseEventFields {
 }
 
 /**
+ * Extract Atomic slash commands from CLI arguments.
+ * Used to identify which commands were passed to the agent.
+ *
+ * @param args - The CLI arguments array (e.g., ['/research-codebase', 'src/'])
+ * @returns Array of unique slash commands found in args
+ *
+ * @example
+ * extractCommandsFromArgs(['/research-codebase', 'src/'])
+ * // Returns: ['/research-codebase']
+ *
+ * @example
+ * extractCommandsFromArgs(['/commit', '/create-gh-pr'])
+ * // Returns: ['/commit', '/create-gh-pr']
+ */
+export function extractCommandsFromArgs(args: string[]): string[] {
+  const foundCommands: string[] = [];
+
+  for (const arg of args) {
+    for (const cmd of ATOMIC_COMMANDS) {
+      // Exact match or prefix match (command followed by space and args)
+      if (arg === cmd || arg.startsWith(cmd + " ")) {
+        foundCommands.push(cmd);
+        break; // Only match one command per arg
+      }
+    }
+  }
+
+  // Return deduplicated array
+  return [...new Set(foundCommands)];
+}
+
+/**
  * Append an event to the telemetry events JSONL file.
  * Uses atomic append-only writes for concurrent safety.
  * Fails silently to ensure telemetry never breaks CLI operation.
  *
  * @param event - The event object to append
  */
-function appendEvent(event: AtomicCommandEvent): void {
+function appendEvent(event: TelemetryEvent): void {
   try {
     const dataDir = getBinaryDataDir();
 
@@ -123,6 +162,52 @@ export function trackAtomicCommand(
     command,
     agentType,
     success,
+  };
+
+  // Write to JSONL buffer
+  appendEvent(event);
+}
+
+/**
+ * Track CLI invocation with slash commands.
+ *
+ * This function should be called before spawning the agent process when
+ * CLI args contain slash commands. It logs a CliCommandEvent to the local
+ * telemetry buffer if telemetry is enabled and commands are found.
+ *
+ * @param agentType - The agent type being invoked ('claude', 'opencode', 'copilot')
+ * @param args - The CLI arguments passed to the agent
+ *
+ * @example
+ * // Track CLI invocation with research command
+ * trackCliInvocation('claude', ['/research-codebase', 'src/']);
+ *
+ * @example
+ * // Track CLI invocation with multiple commands
+ * trackCliInvocation('claude', ['/commit', '-m', 'fix bug']);
+ */
+export function trackCliInvocation(agentType: AgentType, args: string[]): void {
+  // Return early (no-op) if telemetry is disabled
+  if (!isTelemetryEnabledSync()) {
+    return;
+  }
+
+  // Extract slash commands from args
+  const commands = extractCommandsFromArgs(args);
+
+  // Don't log events with no commands
+  if (commands.length === 0) {
+    return;
+  }
+
+  // Create the event using the factory pattern
+  const baseFields = createBaseEvent();
+  const event: CliCommandEvent = {
+    ...baseFields,
+    eventType: "cli_command",
+    agentType,
+    commands,
+    commandCount: commands.length,
   };
 
   // Write to JSONL buffer

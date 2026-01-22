@@ -13,6 +13,8 @@ export type {
   AtomicCommandType,
   AgentType,
   AtomicCommandEvent,
+  CliCommandEvent,
+  TelemetryEvent,
 } from "./types";
 
 // Constants
@@ -28,4 +30,9 @@ export {
 } from "./telemetry";
 
 // CLI telemetry tracking
-export { trackAtomicCommand, getEventsFilePath } from "./telemetry-cli";
+export {
+  trackAtomicCommand,
+  trackCliInvocation,
+  extractCommandsFromArgs,
+  getEventsFilePath,
+} from "./telemetry-cli";

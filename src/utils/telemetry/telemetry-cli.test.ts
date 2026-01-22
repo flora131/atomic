@@ -14,9 +14,19 @@ import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
-import { trackAtomicCommand, getEventsFilePath } from "./telemetry-cli";
+import {
+  trackAtomicCommand,
+  trackCliInvocation,
+  extractCommandsFromArgs,
+  getEventsFilePath,
+} from "./telemetry-cli";
 import { writeTelemetryState, getTelemetryFilePath } from "./telemetry";
-import type { TelemetryState, AtomicCommandEvent } from "./types";
+import type {
+  TelemetryState,
+  AtomicCommandEvent,
+  CliCommandEvent,
+  TelemetryEvent,
+} from "./types";
 
 // Use a temp directory for tests to avoid polluting real config
 const TEST_DATA_DIR = join(tmpdir(), "atomic-telemetry-cli-test-" + Date.now());
@@ -38,7 +48,7 @@ function createEnabledState(): TelemetryState {
 }
 
 // Helper to read events from JSONL file
-function readEvents(): AtomicCommandEvent[] {
+function readEvents(): TelemetryEvent[] {
   const eventsPath = getEventsFilePath();
   if (!existsSync(eventsPath)) {
     return [];
@@ -47,7 +57,21 @@ function readEvents(): AtomicCommandEvent[] {
   return content
     .split("\n")
     .filter((line) => line.trim())
-    .map((line) => JSON.parse(line) as AtomicCommandEvent);
+    .map((line) => JSON.parse(line) as TelemetryEvent);
+}
+
+// Helper to read only AtomicCommandEvents
+function readAtomicEvents(): AtomicCommandEvent[] {
+  return readEvents().filter(
+    (e): e is AtomicCommandEvent => e.eventType === "atomic_command"
+  );
+}
+
+// Helper to read only CliCommandEvents
+function readCliEvents(): CliCommandEvent[] {
+  return readEvents().filter(
+    (e): e is CliCommandEvent => e.eventType === "cli_command"
+  );
 }
 
 describe("getEventsFilePath", () => {
@@ -339,6 +363,223 @@ describe("trackAtomicCommand", () => {
     // Should not throw
     expect(() => {
       trackAtomicCommand("init", "claude", true);
+    }).not.toThrow();
+  });
+});
+
+describe("extractCommandsFromArgs", () => {
+  test("extracts exact command match", () => {
+    const result = extractCommandsFromArgs(["/research-codebase"]);
+    expect(result).toEqual(["/research-codebase"]);
+  });
+
+  test("extracts command with args (prefix match)", () => {
+    const result = extractCommandsFromArgs(["/research-codebase src/"]);
+    expect(result).toEqual(["/research-codebase"]);
+  });
+
+  test("extracts multiple different commands", () => {
+    const result = extractCommandsFromArgs(["/research-codebase", "/commit"]);
+    expect(result).toEqual(["/research-codebase", "/commit"]);
+  });
+
+  test("returns empty array for no commands", () => {
+    const result = extractCommandsFromArgs(["src/", "--verbose"]);
+    expect(result).toEqual([]);
+  });
+
+  test("deduplicates repeated commands", () => {
+    const result = extractCommandsFromArgs(["/commit", "/commit"]);
+    expect(result).toEqual(["/commit"]);
+  });
+
+  test("filters out invalid commands in mixed input", () => {
+    const result = extractCommandsFromArgs(["/commit", "--help", "/unknown"]);
+    expect(result).toEqual(["/commit"]);
+  });
+
+  test("extracts namespaced commands", () => {
+    const result = extractCommandsFromArgs(["/ralph:ralph-loop"]);
+    expect(result).toEqual(["/ralph:ralph-loop"]);
+  });
+
+  test("extracts multiple namespaced commands", () => {
+    const result = extractCommandsFromArgs([
+      "/ralph:ralph-loop",
+      "/ralph:cancel-ralph",
+    ]);
+    expect(result).toEqual(["/ralph:ralph-loop", "/ralph:cancel-ralph"]);
+  });
+
+  test("handles empty args array", () => {
+    const result = extractCommandsFromArgs([]);
+    expect(result).toEqual([]);
+  });
+
+  test("ignores partial command matches", () => {
+    // /research-codebase-extra should not match /research-codebase
+    const result = extractCommandsFromArgs(["/research-codebase-extra"]);
+    expect(result).toEqual([]);
+  });
+
+  test("extracts command followed by space and args", () => {
+    const result = extractCommandsFromArgs(["/commit -m fix bug"]);
+    expect(result).toEqual(["/commit"]);
+  });
+});
+
+describe("trackCliInvocation", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    if (existsSync(TEST_DATA_DIR)) {
+      rmSync(TEST_DATA_DIR, { recursive: true });
+    }
+    mkdirSync(TEST_DATA_DIR, { recursive: true });
+    // Reset env vars
+    delete process.env.ATOMIC_TELEMETRY;
+    delete process.env.DO_NOT_TRACK;
+  });
+
+  afterEach(() => {
+    if (existsSync(TEST_DATA_DIR)) {
+      rmSync(TEST_DATA_DIR, { recursive: true });
+    }
+    // Restore env
+    process.env = { ...originalEnv };
+  });
+
+  test("does not write when telemetry is disabled", () => {
+    process.env.ATOMIC_TELEMETRY = "0";
+    writeTelemetryState(createEnabledState());
+
+    trackCliInvocation("claude", ["/research-codebase"]);
+
+    const events = readCliEvents();
+    expect(events).toHaveLength(0);
+  });
+
+  test("does not write when args contain no commands", () => {
+    writeTelemetryState(createEnabledState());
+
+    trackCliInvocation("claude", ["src/", "--help"]);
+
+    const events = readCliEvents();
+    expect(events).toHaveLength(0);
+  });
+
+  test("writes CliCommandEvent when args contain commands", () => {
+    writeTelemetryState(createEnabledState());
+
+    trackCliInvocation("claude", ["/research-codebase", "src/"]);
+
+    const events = readCliEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.eventType).toBe("cli_command");
+  });
+
+  test("event contains correct commandCount", () => {
+    writeTelemetryState(createEnabledState());
+
+    trackCliInvocation("claude", ["/research-codebase", "/commit"]);
+
+    const events = readCliEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.commands).toEqual(["/research-codebase", "/commit"]);
+    expect(events[0]?.commandCount).toBe(2);
+  });
+
+  test("eventType is cli_command not atomic_command", () => {
+    writeTelemetryState(createEnabledState());
+
+    trackCliInvocation("claude", ["/commit"]);
+
+    const events = readCliEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.eventType).toBe("cli_command");
+
+    // Should not create atomic_command event
+    const atomicEvents = readAtomicEvents();
+    expect(atomicEvents).toHaveLength(0);
+  });
+
+  test("event contains correct agentType", () => {
+    writeTelemetryState(createEnabledState());
+
+    trackCliInvocation("opencode", ["/commit"]);
+
+    const events = readCliEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.agentType).toBe("opencode");
+  });
+
+  test("event contains source as cli", () => {
+    writeTelemetryState(createEnabledState());
+
+    trackCliInvocation("claude", ["/commit"]);
+
+    const events = readCliEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.source).toBe("cli");
+  });
+
+  test("event contains platform", () => {
+    writeTelemetryState(createEnabledState());
+
+    trackCliInvocation("claude", ["/commit"]);
+
+    const events = readCliEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.platform).toBe(process.platform);
+  });
+
+  test("event has unique eventId", () => {
+    writeTelemetryState(createEnabledState());
+
+    trackCliInvocation("claude", ["/commit"]);
+    trackCliInvocation("claude", ["/research-codebase"]);
+
+    const events = readCliEvents();
+    expect(events).toHaveLength(2);
+    expect(events[0]?.eventId).not.toBe(events[1]?.eventId);
+  });
+
+  test("event uses anonymousId from state", () => {
+    const state = createEnabledState();
+    state.anonymousId = "custom-cli-test-id";
+    writeTelemetryState(state);
+
+    trackCliInvocation("claude", ["/commit"]);
+
+    const events = readCliEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]?.anonymousId).toBe("custom-cli-test-id");
+  });
+
+  test("works with all agent types", () => {
+    writeTelemetryState(createEnabledState());
+
+    trackCliInvocation("claude", ["/commit"]);
+    trackCliInvocation("opencode", ["/commit"]);
+    trackCliInvocation("copilot", ["/commit"]);
+
+    const events = readCliEvents();
+    expect(events).toHaveLength(3);
+    expect(events[0]?.agentType).toBe("claude");
+    expect(events[1]?.agentType).toBe("opencode");
+    expect(events[2]?.agentType).toBe("copilot");
+  });
+
+  test("does not throw on write errors (fail-safe)", () => {
+    writeTelemetryState(createEnabledState());
+
+    // Make the events file a directory to cause a write error
+    const eventsPath = getEventsFilePath();
+    mkdirSync(eventsPath, { recursive: true });
+
+    // Should not throw
+    expect(() => {
+      trackCliInvocation("claude", ["/commit"]);
     }).not.toThrow();
   });
 });

@@ -1,0 +1,48 @@
+# Phase 3: Slash Command CLI Tracking - Implementation Progress
+
+## Overview
+This phase implements tracking of slash commands passed via CLI invocation
+(e.g., `atomic -a claude -- /research-codebase src/`).
+
+## Status: COMPLETE
+
+## Completed Features
+- [x] Define CliCommandEvent type in types.ts
+- [x] Implement extractCommandsFromArgs utility function
+- [x] Update appendEvent to support CliCommandEvent (TelemetryEvent union type)
+- [x] Implement trackCliInvocation function in telemetry-cli.ts
+- [x] Create TelemetryEvent union type for extensibility
+- [x] Export new functions from telemetry/index.ts
+- [x] Integrate trackCliInvocation into run-agent.ts before Bun.spawn()
+- [x] Write unit tests for extractCommandsFromArgs (11 tests)
+- [x] Write unit tests for trackCliInvocation (13 tests)
+- [x] Write integration tests for full CLI invocation flow (9 tests)
+- [x] Run full test suite and verify no regressions (439 tests pass)
+- [x] Linting passes (0 errors)
+- [x] TypeScript compilation passes (non-test files)
+
+## Implementation Summary
+
+### New Types (src/utils/telemetry/types.ts)
+- `CliCommandEvent` interface for tracking slash commands in CLI args
+- `TelemetryEvent` union type for extensibility (AtomicCommandEvent | CliCommandEvent)
+
+### New Functions (src/utils/telemetry/telemetry-cli.ts)
+- `extractCommandsFromArgs(args: string[]): string[]` - extracts slash commands from CLI args
+- `trackCliInvocation(agentType: AgentType, args: string[]): void` - tracks CLI invocations with slash commands
+
+### Integration (src/commands/run-agent.ts)
+- Added `trackCliInvocation` call before `Bun.spawn()` to capture slash commands passed via CLI
+
+### New Exports (src/utils/telemetry/index.ts)
+- `CliCommandEvent` type
+- `TelemetryEvent` type
+- `trackCliInvocation` function
+- `extractCommandsFromArgs` function
+
+## Notes
+- Phase 1 (Foundation) and Phase 2 (CLI Command Tracking) were already complete
+- All 439 tests pass
+- Lint passes with 0 errors
+- TypeScript compilation passes for production code
+- Test files have pre-existing TypeScript warnings (not related to this phase)

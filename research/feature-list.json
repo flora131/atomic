@@ -1,136 +1,158 @@
 [
   {
     "category": "functional",
-    "description": "Create telemetry-cli.ts module with trackAtomicCommand function",
+    "description": "Define CliCommandEvent type in types.ts following existing AtomicCommandEvent pattern",
     "steps": [
-      "Create src/utils/telemetry/telemetry-cli.ts file",
-      "Define AtomicCommandEvent interface matching spec Section 5.3.1 schema",
-      "Implement trackAtomicCommand(command, agentType, success) function",
-      "Function should check isTelemetryEnabled() before writing",
-      "Generate unique eventId using crypto.randomUUID()",
-      "Get anonymousId from getOrCreateTelemetryState()",
-      "Capture platform from process.platform",
-      "Capture atomicVersion from VERSION constant",
-      "Return early (no-op) if telemetry is disabled",
-      "Export trackAtomicCommand from telemetry/index.ts"
+      "Open src/utils/telemetry/types.ts",
+      "Add CliCommandEvent interface with fields: anonymousId, eventId, eventType ('cli_command'), timestamp, agentType, commands (string[]), commandCount (number), platform, atomicVersion, source ('cli')",
+      "Add JSDoc comments referencing Spec Section 5.3.2",
+      "Ensure interface follows existing naming conventions and patterns",
+      "Verify TypeScript compilation passes with bun build"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Implement JSONL event buffering to telemetry-events.jsonl",
+    "description": "Implement extractCommandsFromArgs utility function with Single Responsibility",
     "steps": [
-      "Add getEventsFilePath() function returning ~/.local/share/atomic/telemetry-events.jsonl",
-      "Create appendEvent(event) function for atomic append-only writes",
-      "Use fs.appendFileSync to write JSON + newline to JSONL file",
-      "Ensure data directory exists before writing (use getBinaryDataDir helper)",
-      "Handle write failures silently (fail-safe, non-blocking)",
-      "Add unit tests for JSONL append with multiple concurrent writes"
+      "Open src/utils/telemetry/telemetry-cli.ts",
+      "Import ATOMIC_COMMANDS from ./constants",
+      "Create extractCommandsFromArgs(args: string[]): string[] function",
+      "Iterate through args and check if each arg matches or starts with a known command",
+      "Use exact match (arg === cmd) or prefix match (arg.startsWith(cmd + ' ')) as per spec",
+      "Return deduplicated array using Set spread pattern",
+      "Add JSDoc comments explaining the extraction logic",
+      "Keep function pure with no side effects (functional core pattern)"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Integrate trackAtomicCommand into init command",
+    "description": "Update appendEvent to support CliCommandEvent type using union type",
     "steps": [
-      "Import trackAtomicCommand in src/commands/init.ts",
-      "Call trackAtomicCommand('init', agentKey, true) after successful completion (line ~257)",
-      "Call trackAtomicCommand('init', agentKey, false) in catch block for failures",
-      "Track agentType as the selected agent key (claude, opencode, copilot)",
-      "Ensure tracking happens before process.exit calls",
-      "Add integration test for init command telemetry event"
+      "Open src/utils/telemetry/telemetry-cli.ts",
+      "Import CliCommandEvent type from ./types",
+      "Update appendEvent function signature to accept AtomicCommandEvent | CliCommandEvent",
+      "Verify function body works with both event types (JSON.stringify is polymorphic)",
+      "Keep implementation DRY - avoid duplicating append logic"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Integrate trackAtomicCommand into update command",
+    "description": "Implement trackCliInvocation function following Open/Closed principle",
     "steps": [
-      "Read src/commands/update.ts to understand command structure",
-      "Import trackAtomicCommand in src/commands/update.ts",
-      "Call trackAtomicCommand('update', null, true) on successful update",
-      "Call trackAtomicCommand('update', null, false) on update failure",
-      "agentType should be null since update is not agent-specific",
-      "Add integration test for update command telemetry event"
+      "Open src/utils/telemetry/telemetry-cli.ts",
+      "Create trackCliInvocation(agentType: AgentType, args: string[]): void function",
+      "Check telemetry enabled via isTelemetryEnabledSync() - early return pattern",
+      "Extract commands using extractCommandsFromArgs(args)",
+      "Return early if no commands found (don't log empty events)",
+      "Create CliCommandEvent using createBaseEvent() factory pattern",
+      "Spread baseFields and add cli_command specific fields",
+      "Call appendEvent with the constructed event",
+      "Add JSDoc comments with @example usage blocks",
+      "Maintain fail-safe pattern - telemetry should never break CLI"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Integrate trackAtomicCommand into uninstall command",
+    "description": "Export new functions from telemetry/index.ts following Interface Segregation",
     "steps": [
-      "Read src/commands/uninstall.ts to understand command structure",
-      "Import trackAtomicCommand in src/commands/uninstall.ts",
-      "Call trackAtomicCommand('uninstall', null, true) on successful uninstall",
-      "Call trackAtomicCommand('uninstall', null, false) on uninstall failure",
-      "agentType should be null since uninstall is not agent-specific",
-      "Add integration test for uninstall command telemetry event"
+      "Open src/utils/telemetry/index.ts",
+      "Add CliCommandEvent to the exported types",
+      "Add trackCliInvocation to the CLI telemetry tracking exports",
+      "Keep exports organized in logical groups (types, constants, core, cli)",
+      "Ensure public API surface is minimal and intentional"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Track run command in run-agent.ts with agent type",
+    "description": "Integrate trackCliInvocation into run-agent.ts before Bun.spawn",
     "steps": [
-      "Import trackAtomicCommand in src/commands/run-agent.ts",
-      "Call trackAtomicCommand('run', agentKey, true) before Bun.spawn (line ~119)",
-      "Track agentType as the validated agent key",
-      "Do not track exit code as success/failure (agent exit codes are agent-specific)",
-      "success should always be true if we reach the spawn point",
-      "Add integration test for run command telemetry event"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Add event type definitions for all telemetry events",
-    "steps": [
-      "Add AtomicCommandEvent interface to src/utils/telemetry/types.ts",
-      "Define command union type: 'init' | 'update' | 'uninstall' | 'run'",
-      "Define agentType union type: 'claude' | 'opencode' | 'copilot' | null",
-      "Include eventId, eventType, timestamp, success, platform, atomicVersion, source fields",
-      "Export new types from telemetry/index.ts",
-      "Ensure types match spec Section 5.3.1 exactly"
+      "Open src/commands/run-agent.ts",
+      "Import trackCliInvocation from ../utils/telemetry",
+      "Before the Bun.spawn call (line 124), add trackCliInvocation call",
+      "Pass agentKey (cast to AgentType) and agentArgs to trackCliInvocation",
+      "Place tracking after all validation but before process spawn",
+      "Maintain existing trackAtomicCommand call for 'run' command",
+      "Document why both tracking calls exist (different event types)"
     ],
     "passes": true
   },
   {
     "category": "refactor",
-    "description": "Create shared event factory following Factory pattern",
+    "description": "Create union type TelemetryEvent for extensibility",
     "steps": [
-      "Create createBaseEvent() function in telemetry-cli.ts",
-      "Factory generates common fields: anonymousId, eventId, timestamp, platform, atomicVersion, source",
-      "Use composition to build specific event types on top of base",
-      "Reduces duplication across trackAtomicCommand and future trackCliInvocation",
-      "Follow Open/Closed principle - base is closed for modification, open for extension"
+      "Open src/utils/telemetry/types.ts",
+      "Add TelemetryEvent type alias: AtomicCommandEvent | CliCommandEvent",
+      "Export TelemetryEvent from types.ts",
+      "Export TelemetryEvent from index.ts",
+      "This prepares for Phase 4 AgentSessionEvent addition (anticipate change)"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Write comprehensive unit tests for telemetry-cli module",
+    "description": "Write unit tests for extractCommandsFromArgs edge cases",
     "steps": [
-      "Create src/utils/telemetry/telemetry-cli.test.ts",
-      "Test trackAtomicCommand writes correct event structure to JSONL",
-      "Test trackAtomicCommand respects isTelemetryEnabled() check",
-      "Test JSONL file is created if it doesn't exist",
-      "Test multiple events append correctly (newline delimited)",
-      "Test event fields match expected schema",
-      "Mock file system to avoid polluting actual telemetry file"
+      "Open or create src/utils/telemetry/telemetry-cli.test.ts",
+      "Test exact command match: ['/research-codebase'] returns ['/research-codebase']",
+      "Test command with args: ['/research-codebase src/'] returns ['/research-codebase']",
+      "Test multiple commands: ['/research-codebase', '/commit'] returns both",
+      "Test no commands: ['src/', '--verbose'] returns []",
+      "Test deduplication: ['/commit', '/commit'] returns ['/commit']",
+      "Test mixed valid/invalid: ['/commit', '--help', '/unknown'] returns ['/commit']",
+      "Test namespaced commands: ['/ralph:ralph-loop'] returns ['/ralph:ralph-loop']",
+      "Run tests with bun test src/utils/telemetry/telemetry-cli.test.ts"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Write integration tests for command tracking end-to-end",
+    "description": "Write unit tests for trackCliInvocation behavior",
     "steps": [
-      "Create src/utils/telemetry/telemetry-integration.test.ts",
-      "Test init command produces atomic_command event in JSONL",
-      "Test update command produces atomic_command event",
-      "Test run command produces atomic_command event with agentType",
-      "Test opt-out via ATOMIC_TELEMETRY=0 prevents event writing",
-      "Test opt-out via DO_NOT_TRACK=1 prevents event writing",
-      "Use temporary directory for test isolation"
+      "Continue in src/utils/telemetry/telemetry-cli.test.ts",
+      "Mock isTelemetryEnabledSync to control test behavior",
+      "Test: when telemetry disabled, no event is written",
+      "Test: when args contain no commands, no event is written",
+      "Test: when args contain commands, CliCommandEvent is written to JSONL",
+      "Test: event contains correct commandCount matching commands array length",
+      "Test: eventType is 'cli_command' not 'atomic_command'",
+      "Use temp directory for events file to avoid polluting real telemetry",
+      "Run tests with bun test src/utils/telemetry/telemetry-cli.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Write integration test for full CLI invocation tracking flow",
+    "steps": [
+      "Open or create src/utils/telemetry/telemetry-integration.test.ts",
+      "Create test: 'tracks slash commands from CLI invocation'",
+      "Enable telemetry in test setup (mock state)",
+      "Call trackCliInvocation('claude', ['/research-codebase', 'src/'])",
+      "Read telemetry-events.jsonl and parse the event",
+      "Verify event structure matches CliCommandEvent interface",
+      "Verify commands array is ['/research-codebase']",
+      "Verify agentType is 'claude'",
+      "Verify source is 'cli'",
+      "Clean up temp files in afterEach",
+      "Run tests with bun test src/utils/telemetry/"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Run full test suite and verify no regressions",
+    "steps": [
+      "Run bun test to execute all tests",
+      "Verify existing Phase 1 and Phase 2 tests still pass",
+      "Verify new Phase 3 tests pass",
+      "Run bun run lint to check for linting issues",
+      "Run bun run typecheck to verify TypeScript compilation",
+      "Fix any failures before marking phase complete"
     ],
     "passes": true
   }

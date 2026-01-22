@@ -183,13 +183,13 @@ describe("Command tracking events", () => {
 
     trackAtomicCommand("init", "claude", true);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     expect(events).toHaveLength(1);
-    expect(events[0].eventType).toBe("atomic_command");
-    expect(events[0].command).toBe("init");
-    expect(events[0].agentType).toBe("claude");
-    expect(events[0].success).toBe(true);
-    expect(events[0].source).toBe("cli");
+    expect(events[0]?.eventType).toBe("atomic_command");
+    expect(events[0]?.command).toBe("init");
+    expect(events[0]?.agentType).toBe("claude");
+    expect(events[0]?.success).toBe(true);
+    expect(events[0]?.source).toBe("cli");
   });
 
   test("update command produces atomic_command event without agentType", async () => {
@@ -197,12 +197,12 @@ describe("Command tracking events", () => {
 
     trackAtomicCommand("update", null, true);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     expect(events).toHaveLength(1);
-    expect(events[0].eventType).toBe("atomic_command");
-    expect(events[0].command).toBe("update");
-    expect(events[0].agentType).toBeNull();
-    expect(events[0].success).toBe(true);
+    expect(events[0]?.eventType).toBe("atomic_command");
+    expect(events[0]?.command).toBe("update");
+    expect(events[0]?.agentType).toBeNull();
+    expect(events[0]?.success).toBe(true);
   });
 
   test("uninstall command produces atomic_command event without agentType", async () => {
@@ -210,11 +210,11 @@ describe("Command tracking events", () => {
 
     trackAtomicCommand("uninstall", null, true);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     expect(events).toHaveLength(1);
-    expect(events[0].eventType).toBe("atomic_command");
-    expect(events[0].command).toBe("uninstall");
-    expect(events[0].agentType).toBeNull();
+    expect(events[0]?.eventType).toBe("atomic_command");
+    expect(events[0]?.command).toBe("uninstall");
+    expect(events[0]?.agentType).toBeNull();
   });
 
   test("run command produces atomic_command event with agentType", async () => {
@@ -222,12 +222,12 @@ describe("Command tracking events", () => {
 
     trackAtomicCommand("run", "opencode", true);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     expect(events).toHaveLength(1);
-    expect(events[0].eventType).toBe("atomic_command");
-    expect(events[0].command).toBe("run");
-    expect(events[0].agentType).toBe("opencode");
-    expect(events[0].success).toBe(true);
+    expect(events[0]?.eventType).toBe("atomic_command");
+    expect(events[0]?.command).toBe("run");
+    expect(events[0]?.agentType).toBe("opencode");
+    expect(events[0]?.success).toBe(true);
   });
 
   test("run command works with all agent types", async () => {
@@ -237,11 +237,11 @@ describe("Command tracking events", () => {
     trackAtomicCommand("run", "opencode", true);
     trackAtomicCommand("run", "copilot", true);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     expect(events).toHaveLength(3);
-    expect(events[0].agentType).toBe("claude");
-    expect(events[1].agentType).toBe("opencode");
-    expect(events[2].agentType).toBe("copilot");
+    expect(events[0]?.agentType).toBe("claude");
+    expect(events[1]?.agentType).toBe("opencode");
+    expect(events[2]?.agentType).toBe("copilot");
   });
 
   test("failed command is tracked with success=false", async () => {
@@ -249,9 +249,9 @@ describe("Command tracking events", () => {
 
     trackAtomicCommand("init", "claude", false);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     expect(events).toHaveLength(1);
-    expect(events[0].success).toBe(false);
+    expect(events[0]?.success).toBe(false);
   });
 
   test("multiple command sequence produces correct events", async () => {
@@ -264,14 +264,14 @@ describe("Command tracking events", () => {
     trackAtomicCommand("update", null, true);
     trackAtomicCommand("run", "claude", true);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     expect(events).toHaveLength(5);
 
-    expect(events[0].command).toBe("init");
-    expect(events[1].command).toBe("run");
-    expect(events[2].command).toBe("run");
-    expect(events[3].command).toBe("update");
-    expect(events[4].command).toBe("run");
+    expect(events[0]?.command).toBe("init");
+    expect(events[1]?.command).toBe("run");
+    expect(events[2]?.command).toBe("run");
+    expect(events[3]?.command).toBe("update");
+    expect(events[4]?.command).toBe("run");
   });
 
   test("events contain required metadata", async () => {
@@ -279,10 +279,10 @@ describe("Command tracking events", () => {
 
     trackAtomicCommand("init", "claude", true);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     expect(events).toHaveLength(1);
 
-    const event = events[0];
+    const event = events[0]!;
 
     // Required metadata
     expect(event.anonymousId).toBe("integration-test-uuid");
@@ -344,7 +344,7 @@ describe("Event isolation", () => {
     trackAtomicCommand("init", "claude", true);
     trackAtomicCommand("init", "claude", true);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     const eventIds = events.map((e) => e.eventId);
     const uniqueIds = new Set(eventIds);
 
@@ -358,7 +358,7 @@ describe("Event isolation", () => {
     trackAtomicCommand("run", "claude", true);
     trackAtomicCommand("update", null, true);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     const anonymousIds = events.map((e) => e.anonymousId);
     const uniqueIds = new Set(anonymousIds);
 

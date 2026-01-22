@@ -73,11 +73,12 @@ is_telemetry_enabled() {
     return 1
   fi
 
-  # Check enabled field in state file
-  local enabled
+  # Check enabled and consentGiven fields in state file
+  local enabled consent_given
   enabled=$(jq -r '.enabled // false' "$state_file" 2>/dev/null)
+  consent_given=$(jq -r '.consentGiven // false' "$state_file" 2>/dev/null)
 
-  if [[ "$enabled" == "true" ]]; then
+  if [[ "$enabled" == "true" ]] && [[ "$consent_given" == "true" ]]; then
     return 0
   else
     return 1

@@ -86,7 +86,39 @@ export interface CliCommandEvent {
 }
 
 /**
- * Union type for all telemetry events.
- * Allows for extensibility when adding new event types (e.g., AgentSessionEvent in Phase 4).
+ * Event logged when an agent session ends.
+ * Tracked via agent-specific hooks (Claude Code Stop hook, Copilot CLI sessionEnd, OpenCode plugin).
+ * Reference: Spec Section 5.3.3
  */
-export type TelemetryEvent = AtomicCommandEvent | CliCommandEvent;
+export interface AgentSessionEvent {
+  /** Anonymous UUID v4 for user correlation, rotated monthly */
+  anonymousId: string;
+  /** Unique UUID v4 for this specific event */
+  eventId: string;
+  /** Unique UUID v4 for this specific session (same as eventId for session events) */
+  sessionId: string;
+  /** Event type discriminator */
+  eventType: "agent_session";
+  /** ISO 8601 timestamp when session ended */
+  timestamp: string;
+  /** ISO 8601 timestamp when session started (if available) */
+  sessionStartedAt: string | null;
+  /** The agent type that was running */
+  agentType: AgentType;
+  /** Array of Atomic slash commands used during the session */
+  commands: string[];
+  /** Number of commands (for quick aggregation) */
+  commandCount: number;
+  /** Operating system platform */
+  platform: NodeJS.Platform;
+  /** Atomic CLI version */
+  atomicVersion: string;
+  /** Source of the event (always 'session_hook' for session events) */
+  source: "session_hook";
+}
+
+/**
+ * Union type for all telemetry events.
+ * Extensible to support additional event types.
+ */
+export type TelemetryEvent = AtomicCommandEvent | CliCommandEvent | AgentSessionEvent;

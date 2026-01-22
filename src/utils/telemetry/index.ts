@@ -14,6 +14,7 @@ export type {
   AgentType,
   AtomicCommandEvent,
   CliCommandEvent,
+  AgentSessionEvent,
   TelemetryEvent,
 } from "./types";
 
@@ -36,3 +37,10 @@ export {
   extractCommandsFromArgs,
   getEventsFilePath,
 } from "./telemetry-cli";
+
+// Session telemetry tracking (for agent hooks)
+export {
+  trackAgentSession,
+  extractCommandsFromTranscript,
+  createSessionEvent,
+} from "./telemetry-session";

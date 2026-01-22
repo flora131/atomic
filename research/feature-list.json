@@ -1,226 +1,248 @@
 [
   {
     "category": "functional",
-    "description": "Add getBinaryInstallDir() and getBinaryPath() helper functions to config-path.ts",
+    "description": "Create TelemetryState interface and schema for telemetry.json persistence",
     "steps": [
-      "Open src/utils/config-path.ts",
-      "Add getBinaryInstallDir() function that returns binary installation directory",
-      "Handle ATOMIC_INSTALL_DIR environment variable override",
-      "Add getBinaryPath() function that returns full path to atomic binary",
-      "Handle Windows vs Unix path differences (atomic.exe vs atomic)",
-      "Verify functions work with existing detectInstallationType()"
+      "Create src/utils/telemetry/ directory structure",
+      "Create src/utils/telemetry/types.ts with TelemetryState interface",
+      "Define enabled: boolean field for master toggle",
+      "Define consentGiven: boolean field for explicit user consent tracking",
+      "Define anonymousId: string field for UUID v4 storage",
+      "Define createdAt: string field for ISO 8601 timestamp",
+      "Define rotatedAt: string field for last ID rotation timestamp",
+      "Export TelemetryState type from types.ts",
+      "Verify interface matches spec schema in Section 5.1"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Create src/utils/download.ts with GitHub release and download utilities",
+    "description": "Implement anonymous ID generation with crypto.randomUUID()",
     "steps": [
-      "Create new file src/utils/download.ts",
-      "Define ReleaseInfo interface for GitHub release data",
-      "Implement getLatestRelease() to fetch latest release from GitHub API",
-      "Handle GITHUB_TOKEN for rate limit mitigation",
-      "Implement downloadFile() with progress callback support",
-      "Implement verifyChecksum() using Bun.CryptoHasher for SHA256 verification",
-      "Add getBinaryFilename() for platform-specific binary names (linux-x64, darwin-arm64, windows-x64)",
-      "Add getConfigArchiveFilename() for platform-specific config archives (.tar.gz vs .zip)",
-      "Add getDownloadUrl() to build GitHub release asset URLs"
+      "Create src/utils/telemetry/telemetry.ts core module",
+      "Import crypto.randomUUID for cryptographically secure UUID generation",
+      "Implement generateAnonymousId(): string function using crypto.randomUUID()",
+      "Write unit test verifying UUID v4 format (8-4-4-4-12 hex pattern)",
+      "Write unit test verifying each call generates unique IDs",
+      "Ensure no external dependencies for ID generation (use Node/Bun built-in)"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Implement atomic update command for binary installations",
+    "description": "Implement telemetry state persistence to ~/.local/share/atomic/telemetry.json",
     "steps": [
-      "Create src/commands/update.ts",
-      "Check installation type and show helpful error for npm/source installs",
-      "Fetch current version and compare with latest GitHub release",
-      "Implement isNewerVersion() for semver comparison",
-      "Show 'Already up to date' message when no update available",
-      "Implement --check flag to only check for updates without installing",
-      "Implement --yes/-y flag to skip confirmation prompt",
-      "Implement --target-version flag to install specific version",
-      "Download binary to temp directory with progress indicator",
-      "Download config archive to temp directory",
-      "Download and parse checksums.txt",
-      "Verify SHA256 checksums for binary and config archive",
-      "Implement replaceBinaryUnix() using atomic rename",
-      "Implement replaceBinaryWindows() using rename strategy for locked executables",
-      "Extract config archive to data directory using tar (Unix) or PowerShell (Windows)",
-      "Verify installation by running --version on new binary",
-      "Clean up temp directory on success or failure",
-      "Handle network failures with retry guidance",
-      "Handle GitHub API rate limiting with GITHUB_TOKEN suggestion"
+      "Import getBinaryDataDir from src/utils/config-path.ts",
+      "Implement getTelemetryFilePath(): string returning path to telemetry.json",
+      "Implement readTelemetryState(): TelemetryState | null with safe file reading",
+      "Handle case where file doesn't exist (return null)",
+      "Handle case where file is corrupted JSON (return null, log warning)",
+      "Implement writeTelemetryState(state: TelemetryState): void with atomic write",
+      "Use Bun.write() for efficient file writing",
+      "Ensure directory exists before writing (mkdir -p equivalent)",
+      "Write unit test for read/write round-trip",
+      "Write unit test for handling missing file gracefully",
+      "Write unit test for handling corrupted JSON gracefully"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Implement atomic uninstall command for binary installations",
+    "description": "Implement monthly anonymous ID rotation for enhanced privacy",
     "steps": [
-      "Create src/commands/uninstall.ts",
-      "Check installation type and show helpful error for npm/source installs",
-      "Display list of files/directories that will be removed",
-      "Implement --dry-run flag to preview without removing",
-      "Implement --yes/-y flag to skip confirmation prompt",
-      "Implement --keep-config flag to preserve data directory",
-      "Remove data directory (~/.local/share/atomic or %LOCALAPPDATA%\\atomic)",
-      "Implement Unix binary self-deletion using unlink()",
-      "Implement Windows binary self-deletion using rename to .delete strategy",
-      "Generate and display PATH cleanup instructions for bash/zsh/fish/PowerShell",
-      "Handle permission errors gracefully with helpful messages"
+      "Implement shouldRotateId(state: TelemetryState): boolean function",
+      "Check if current month differs from rotatedAt month",
+      "Implement rotateAnonymousId(state: TelemetryState): TelemetryState function",
+      "Generate new UUID when rotation needed",
+      "Update rotatedAt timestamp to current ISO 8601",
+      "Preserve other state fields (enabled, consentGiven, createdAt)",
+      "Write unit test verifying rotation triggers on month boundary",
+      "Write unit test verifying no rotation within same month",
+      "Write unit test verifying new ID differs from old ID"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Integrate update and uninstall commands into CLI entry point",
+    "description": "Add ci-info package dependency for CI environment detection",
     "steps": [
-      "Open src/index.ts",
-      "Add imports for updateCommand and uninstallCommand",
-      "Add new parseArgs options: check, keep-config, dry-run, target-version",
-      "Add 'update' case to command switch statement",
-      "Add 'uninstall' case to command switch statement",
-      "Pass appropriate options to each command handler"
+      "Run bun add ci-info to add dependency",
+      "Verify ci-info appears in package.json dependencies",
+      "Run bun install to ensure lockfile is updated",
+      "Create test file to verify ci-info import works correctly",
+      "Verify ci.isCI property is accessible"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Update CLI help text with new commands and options",
+    "description": "Implement isTelemetryEnabled() with priority-based opt-out checking",
     "steps": [
-      "Open src/index.ts showHelp() function",
-      "Add 'update' command to COMMANDS section",
-      "Add 'uninstall' command to COMMANDS section",
-      "Add UPDATE OPTIONS section with --check and --target-version",
-      "Add UNINSTALL OPTIONS section with --keep-config and --dry-run",
-      "Add usage examples for update and uninstall commands"
+      "Import ci from ci-info package",
+      "Implement isTelemetryEnabled(): boolean function",
+      "Priority 1 (Highest): Check ci.isCI - return false if in CI environment",
+      "Priority 2: Check ATOMIC_TELEMETRY env var - return false if '0' or 'false'",
+      "Priority 3: Check DO_NOT_TRACK env var - return false if '1'",
+      "Priority 4: Read telemetry.json state",
+      "Return state.enabled && state.consentGiven if state exists",
+      "Return false if state doesn't exist (no consent given yet)",
+      "Write unit test for CI detection (mock ci.isCI)",
+      "Write unit test for ATOMIC_TELEMETRY=0 opt-out",
+      "Write unit test for ATOMIC_TELEMETRY=false opt-out",
+      "Write unit test for DO_NOT_TRACK=1 opt-out",
+      "Write unit test for config file opt-out (enabled: false)",
+      "Write unit test for missing consent (consentGiven: false)",
+      "Write unit test for enabled telemetry when all conditions pass"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Implement initializeTelemetryState() for first-run state creation",
+    "steps": [
+      "Implement initializeTelemetryState(): TelemetryState function",
+      "Generate new anonymous ID using generateAnonymousId()",
+      "Set enabled to false by default (requires explicit consent)",
+      "Set consentGiven to false (must be explicitly granted)",
+      "Set createdAt to current ISO 8601 timestamp",
+      "Set rotatedAt to current ISO 8601 timestamp",
+      "Write unit test verifying all fields populated correctly",
+      "Write unit test verifying enabled defaults to false",
+      "Write unit test verifying consentGiven defaults to false"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Implement getOrCreateTelemetryState() for lazy initialization",
+    "steps": [
+      "Implement getOrCreateTelemetryState(): TelemetryState function",
+      "Attempt to read existing state with readTelemetryState()",
+      "If state exists, check for monthly rotation with shouldRotateId()",
+      "If rotation needed, rotate ID and persist updated state",
+      "If no state exists, initialize new state with initializeTelemetryState()",
+      "Persist new state with writeTelemetryState()",
+      "Return the final state",
+      "Write unit test for existing state retrieval",
+      "Write unit test for new state creation when file missing",
+      "Write unit test for ID rotation on existing state"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Define ATOMIC_COMMANDS constant for command extraction",
+    "steps": [
+      "Create src/utils/telemetry/constants.ts file",
+      "Define ATOMIC_COMMANDS as readonly string array",
+      "Include /research-codebase command",
+      "Include /create-spec command",
+      "Include /create-feature-list command",
+      "Include /implement-feature command",
+      "Include /commit command",
+      "Include /create-gh-pr command",
+      "Include /explain-code command",
+      "Include /ralph-loop and /ralph:ralph-loop commands",
+      "Include /cancel-ralph and /ralph:cancel-ralph commands",
+      "Include /ralph-help and /ralph:help commands",
+      "Export ATOMIC_COMMANDS constant",
+      "Write unit test verifying all documented commands are present",
+      "Ensure list matches spec Section 5.3.2"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Implement setTelemetryEnabled() for programmatic opt-in/opt-out",
+    "steps": [
+      "Implement setTelemetryEnabled(enabled: boolean): void function",
+      "Read existing state with getOrCreateTelemetryState()",
+      "Update enabled field to new value",
+      "If enabling (true), also set consentGiven to true",
+      "Persist updated state with writeTelemetryState()",
+      "Write unit test for enabling telemetry",
+      "Write unit test for disabling telemetry",
+      "Write unit test verifying consentGiven set to true when enabling"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Create telemetry module index.ts with clean public API exports",
+    "steps": [
+      "Create src/utils/telemetry/index.ts file",
+      "Export TelemetryState type from types.ts",
+      "Export ATOMIC_COMMANDS constant from constants.ts",
+      "Export isTelemetryEnabled function from telemetry.ts",
+      "Export getOrCreateTelemetryState function from telemetry.ts",
+      "Export setTelemetryEnabled function from telemetry.ts",
+      "Export getTelemetryFilePath function from telemetry.ts",
+      "Do NOT export internal functions (generateAnonymousId, shouldRotateId, etc.)",
+      "Apply Interface Segregation Principle - only expose needed functionality",
+      "Write integration test importing from index.ts"
     ],
     "passes": true
   },
   {
     "category": "refactor",
-    "description": "Update README.md documentation for update and uninstall commands",
+    "description": "Ensure getBinaryDataDir() handles all platforms correctly for telemetry storage",
     "steps": [
-      "Open README.md",
-      "Add 'Updating Atomic' section documenting atomic update command",
-      "Document --check flag for checking available updates",
-      "Document --target-version flag for specific version installation",
-      "Update existing 'Uninstalling Atomic' section to include CLI command",
-      "Document --keep-config and --dry-run flags",
-      "Add note about npm/bun installations using package manager commands"
+      "Review existing getBinaryDataDir() in src/utils/config-path.ts",
+      "Verify Windows path uses LOCALAPPDATA correctly",
+      "Verify Unix path uses XDG_DATA_HOME with ~/.local/share fallback",
+      "Verify function handles missing HOME/USERPROFILE env vars",
+      "Write unit test for Windows path resolution",
+      "Write unit test for Unix path resolution with XDG_DATA_HOME",
+      "Write unit test for Unix path resolution without XDG_DATA_HOME"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Write unit tests for version comparison logic",
+    "description": "Add type declarations for ci-info package",
     "steps": [
-      "Create or update test file for update command",
-      "Test isNewerVersion() with major version differences",
-      "Test isNewerVersion() with minor version differences",
-      "Test isNewerVersion() with patch version differences",
-      "Test isNewerVersion() with equal versions",
-      "Test isNewerVersion() with v prefix handling"
+      "Check if @types/ci-info package exists",
+      "If exists, run bun add -d @types/ci-info",
+      "If not, create src/types/ci-info.d.ts declaration file",
+      "Declare isCI boolean export",
+      "Verify TypeScript compilation passes with ci-info import",
+      "Run bun run typecheck to validate"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Write unit tests for checksum verification",
+    "description": "Write comprehensive unit test suite for telemetry core module",
     "steps": [
-      "Create or update test file for download utilities",
-      "Test verifyChecksum() with valid checksum",
-      "Test verifyChecksum() with invalid checksum",
-      "Test verifyChecksum() with missing filename in checksums.txt",
-      "Test parsing of checksums.txt format (hash + two spaces + filename)"
+      "Create src/utils/telemetry/telemetry.test.ts file",
+      "Import test utilities from bun:test",
+      "Test generateAnonymousId produces valid UUID v4",
+      "Test readTelemetryState returns null for missing file",
+      "Test readTelemetryState returns null for invalid JSON",
+      "Test writeTelemetryState creates file with correct content",
+      "Test shouldRotateId returns true on month boundary",
+      "Test shouldRotateId returns false within same month",
+      "Test isTelemetryEnabled respects CI detection",
+      "Test isTelemetryEnabled respects env var opt-out",
+      "Test isTelemetryEnabled respects config file",
+      "Test getOrCreateTelemetryState initializes new state",
+      "Test getOrCreateTelemetryState rotates expired ID",
+      "Test setTelemetryEnabled persists state correctly",
+      "Use temp directories for file operations to avoid polluting real config",
+      "Run bun test to verify all tests pass"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Write unit tests for platform detection helpers",
+    "description": "Verify install scripts already create data directory",
     "steps": [
-      "Create or update test file for download utilities",
-      "Test getBinaryFilename() returns correct names for linux-x64",
-      "Test getBinaryFilename() returns correct names for darwin-arm64",
-      "Test getBinaryFilename() returns correct names for windows-x64",
-      "Test getConfigArchiveFilename() returns .tar.gz for Unix",
-      "Test getConfigArchiveFilename() returns .zip for Windows"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Integration test: update command for binary installation on Linux",
-    "steps": [
-      "Build binary installation of atomic",
-      "Run atomic update --check and verify output",
-      "Run atomic update --yes to perform update",
-      "Verify binary was replaced successfully",
-      "Verify config files were extracted to data directory",
-      "Verify atomic --version shows new version"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Integration test: update command for binary installation on macOS",
-    "steps": [
-      "Build binary installation of atomic on macOS",
-      "Run atomic update --check and verify output",
-      "Run atomic update --yes to perform update",
-      "Verify binary was replaced successfully",
-      "Verify config files were extracted to data directory",
-      "Verify atomic --version shows new version"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Integration test: update command for binary installation on Windows",
-    "steps": [
-      "Build binary installation of atomic on Windows",
-      "Run atomic update --check and verify output",
-      "Run atomic update --yes to perform update",
-      "Verify rename strategy works for locked executable",
-      "Verify .old file cleanup behavior",
-      "Verify atomic --version shows new version"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Integration test: update command error paths",
-    "steps": [
-      "Test atomic update on npm installation shows package manager guidance",
-      "Test atomic update on source installation shows git pull guidance",
-      "Test network failure handling during download",
-      "Test checksum mismatch error handling",
-      "Test GitHub API rate limit error message"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Integration test: uninstall command for binary installation",
-    "steps": [
-      "Build binary installation of atomic",
-      "Run atomic uninstall --dry-run and verify preview output",
-      "Run atomic uninstall --keep-config --yes and verify only binary removed",
-      "Reinstall and run atomic uninstall --yes",
-      "Verify binary and data directory removed",
-      "Verify PATH cleanup instructions displayed"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Integration test: uninstall command error paths",
-    "steps": [
-      "Test atomic uninstall on npm installation shows package manager guidance",
-      "Test atomic uninstall on source installation shows repository deletion guidance",
-      "Test permission error handling with helpful message"
+      "Review install.sh line 12: DATA_DIR definition",
+      "Verify mkdir -p $DATA_DIR is called at line 168",
+      "Review install.ps1 line 17: $DataDir definition",
+      "Verify New-Item -ItemType Directory at line 49",
+      "Confirm data directory creation happens before config extraction",
+      "No code changes needed - document verification complete"
     ],
     "passes": true
   }

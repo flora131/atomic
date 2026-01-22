@@ -180,11 +180,11 @@ describe("trackAtomicCommand", () => {
     trackAtomicCommand("update", null, true);
     trackAtomicCommand("uninstall", null, false);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     expect(events).toHaveLength(3);
-    expect(events[0].command).toBe("init");
-    expect(events[1].command).toBe("update");
-    expect(events[2].command).toBe("uninstall");
+    expect(events[0]?.command).toBe("init");
+    expect(events[1]?.command).toBe("update");
+    expect(events[2]?.command).toBe("uninstall");
   });
 
   test("event has correct structure matching AtomicCommandEvent schema", () => {
@@ -192,10 +192,10 @@ describe("trackAtomicCommand", () => {
 
     trackAtomicCommand("init", "claude", true);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     expect(events).toHaveLength(1);
 
-    const event = events[0];
+    const event = events[0]!;
 
     // Check all required fields exist
     expect(event.anonymousId).toBeDefined();
@@ -215,10 +215,10 @@ describe("trackAtomicCommand", () => {
 
     trackAtomicCommand("init", "claude", true);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     const uuidV4Regex =
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    expect(events[0].eventId).toMatch(uuidV4Regex);
+    expect(events[0]?.eventId).toMatch(uuidV4Regex);
   });
 
   test("timestamp is valid ISO 8601 format", () => {
@@ -226,8 +226,8 @@ describe("trackAtomicCommand", () => {
 
     trackAtomicCommand("init", "claude", true);
 
-    const events = readEvents();
-    const timestamp = events[0].timestamp;
+    const events = readAtomicEvents();
+    const timestamp = events[0]!.timestamp;
     expect(timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/);
     expect(new Date(timestamp).toISOString()).toBe(timestamp);
   });
@@ -239,8 +239,8 @@ describe("trackAtomicCommand", () => {
 
     trackAtomicCommand("init", "claude", true);
 
-    const events = readEvents();
-    expect(events[0].anonymousId).toBe("custom-anon-id-123");
+    const events = readAtomicEvents();
+    expect(events[0]?.anonymousId).toBe("custom-anon-id-123");
   });
 
   test("each event has unique eventId", () => {
@@ -250,7 +250,7 @@ describe("trackAtomicCommand", () => {
     trackAtomicCommand("update", null, true);
     trackAtomicCommand("run", "opencode", true);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     const eventIds = events.map((e) => e.eventId);
     const uniqueIds = new Set(eventIds);
     expect(uniqueIds.size).toBe(3);
@@ -261,10 +261,10 @@ describe("trackAtomicCommand", () => {
 
     trackAtomicCommand("init", "claude", true);
 
-    const events = readEvents();
-    expect(events[0].command).toBe("init");
-    expect(events[0].agentType).toBe("claude");
-    expect(events[0].success).toBe(true);
+    const events = readAtomicEvents();
+    expect(events[0]?.command).toBe("init");
+    expect(events[0]?.agentType).toBe("claude");
+    expect(events[0]?.success).toBe(true);
   });
 
   test("tracks update command without agent type", () => {
@@ -272,10 +272,10 @@ describe("trackAtomicCommand", () => {
 
     trackAtomicCommand("update", null, true);
 
-    const events = readEvents();
-    expect(events[0].command).toBe("update");
-    expect(events[0].agentType).toBeNull();
-    expect(events[0].success).toBe(true);
+    const events = readAtomicEvents();
+    expect(events[0]?.command).toBe("update");
+    expect(events[0]?.agentType).toBeNull();
+    expect(events[0]?.success).toBe(true);
   });
 
   test("tracks uninstall command without agent type", () => {
@@ -283,9 +283,9 @@ describe("trackAtomicCommand", () => {
 
     trackAtomicCommand("uninstall", null, true);
 
-    const events = readEvents();
-    expect(events[0].command).toBe("uninstall");
-    expect(events[0].agentType).toBeNull();
+    const events = readAtomicEvents();
+    expect(events[0]?.command).toBe("uninstall");
+    expect(events[0]?.agentType).toBeNull();
   });
 
   test("tracks run command with different agent types", () => {
@@ -295,10 +295,10 @@ describe("trackAtomicCommand", () => {
     trackAtomicCommand("run", "opencode", true);
     trackAtomicCommand("run", "copilot", true);
 
-    const events = readEvents();
-    expect(events[0].agentType).toBe("claude");
-    expect(events[1].agentType).toBe("opencode");
-    expect(events[2].agentType).toBe("copilot");
+    const events = readAtomicEvents();
+    expect(events[0]?.agentType).toBe("claude");
+    expect(events[1]?.agentType).toBe("opencode");
+    expect(events[2]?.agentType).toBe("copilot");
   });
 
   test("tracks failed command with success=false", () => {
@@ -306,8 +306,8 @@ describe("trackAtomicCommand", () => {
 
     trackAtomicCommand("init", "claude", false);
 
-    const events = readEvents();
-    expect(events[0].success).toBe(false);
+    const events = readAtomicEvents();
+    expect(events[0]?.success).toBe(false);
   });
 
   test("success defaults to true when not specified", () => {
@@ -316,8 +316,8 @@ describe("trackAtomicCommand", () => {
     // Call without success parameter (relying on default)
     trackAtomicCommand("init", "claude");
 
-    const events = readEvents();
-    expect(events[0].success).toBe(true);
+    const events = readAtomicEvents();
+    expect(events[0]?.success).toBe(true);
   });
 
   test("platform matches process.platform", () => {
@@ -325,8 +325,8 @@ describe("trackAtomicCommand", () => {
 
     trackAtomicCommand("init", "claude", true);
 
-    const events = readEvents();
-    expect(events[0].platform).toBe(process.platform);
+    const events = readAtomicEvents();
+    expect(events[0]?.platform).toBe(process.platform);
   });
 
   test("concurrent writes append correctly", async () => {
@@ -343,7 +343,7 @@ describe("trackAtomicCommand", () => {
     }
     await Promise.all(promises);
 
-    const events = readEvents();
+    const events = readAtomicEvents();
     expect(events).toHaveLength(10);
 
     // All events should be valid

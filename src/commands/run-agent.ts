@@ -8,7 +8,11 @@ import { AGENT_CONFIG, isValidAgent, type AgentKey } from "../config";
 import { getCommandPath } from "../utils/detect";
 import { pathExists } from "../utils/copy";
 import { initCommand } from "./init";
-import { trackAtomicCommand, type AgentType } from "../utils/telemetry";
+import {
+  trackAtomicCommand,
+  trackCliInvocation,
+  type AgentType,
+} from "../utils/telemetry";
 
 /**
  * Sanitize user input for safe display in error messages
@@ -119,6 +123,10 @@ export async function runAgentCommand(
   // Track run command before spawning agent
   // success is always true if we reach this point (agent exit codes are agent-specific)
   trackAtomicCommand("run", agentKey as AgentType, true);
+
+  // Track slash commands in CLI args (separate event type for skill usage analytics)
+  // This complements trackAtomicCommand - both track different aspects of CLI usage
+  trackCliInvocation(agentKey as AgentType, agentArgs);
 
   // Spawn the agent process
   const proc = Bun.spawn(cmd, {

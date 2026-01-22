@@ -1,48 +1,39 @@
-# Phase 3: Slash Command CLI Tracking - Implementation Progress
+# Phase 5: User Consent - Implementation Progress
 
 ## Overview
-This phase implements tracking of slash commands passed via CLI invocation
-(e.g., `atomic -a claude -- /research-codebase src/`).
+This phase implements the user consent flow for telemetry, allowing users to explicitly
+opt-in or opt-out of anonymous telemetry collection. The consent prompt is shown during
+`atomic init` first-run and a config command allows changing the setting at any time.
 
-## Status: COMPLETE
+## Status: COMPLETE (12/12 features passing)
 
-## Completed Features
-- [x] Define CliCommandEvent type in types.ts
-- [x] Implement extractCommandsFromArgs utility function
-- [x] Update appendEvent to support CliCommandEvent (TelemetryEvent union type)
-- [x] Implement trackCliInvocation function in telemetry-cli.ts
-- [x] Create TelemetryEvent union type for extensibility
-- [x] Export new functions from telemetry/index.ts
-- [x] Integrate trackCliInvocation into run-agent.ts before Bun.spawn()
-- [x] Write unit tests for extractCommandsFromArgs (11 tests)
-- [x] Write unit tests for trackCliInvocation (13 tests)
-- [x] Write integration tests for full CLI invocation flow (9 tests)
-- [x] Run full test suite and verify no regressions (439 tests pass)
-- [x] Linting passes (0 errors)
-- [x] TypeScript compilation passes (non-test files)
+## Design Principles
+- Single Responsibility: telemetry-consent.ts handles only consent logic
+- Open/Closed: Extends existing telemetry module without modifying core functions
+- Interface Segregation: Consent prompts only import what they need
+- Dependency Inversion: Console UI depends on abstractions (@clack/prompts)
+- Strategy Pattern: Consent checking delegated to telemetry.ts functions
+- Fail-Safe: CLI continues normally if consent check fails
 
-## Implementation Summary
+## Implementation Notes
+- Consent prompt uses @clack/prompts (consistent with existing init.ts UX)
+- First-run detection: telemetry.json does not exist
+- Config command: `atomic config set telemetry <true|false>`
+- README.md documentation: Clear disclosure of what is/isn't collected
+- Tests mock @clack/prompts for deterministic behavior
 
-### New Types (src/utils/telemetry/types.ts)
-- `CliCommandEvent` interface for tracking slash commands in CLI args
-- `TelemetryEvent` union type for extensibility (AtomicCommandEvent | CliCommandEvent)
+## Files Created/Modified
+- src/utils/telemetry/telemetry-consent.ts (NEW)
+- src/utils/telemetry/telemetry-consent.test.ts (NEW)
+- src/utils/telemetry/index.ts (MODIFIED - added exports)
+- src/commands/config.ts (NEW)
+- src/commands/config.test.ts (NEW)
+- src/commands/init.ts (MODIFIED - added consent call)
+- src/index.ts (MODIFIED - added config command)
+- README.md (MODIFIED - added telemetry section)
+- research/feature-list.json (MODIFIED - all features passing)
 
-### New Functions (src/utils/telemetry/telemetry-cli.ts)
-- `extractCommandsFromArgs(args: string[]): string[]` - extracts slash commands from CLI args
-- `trackCliInvocation(agentType: AgentType, args: string[]): void` - tracks CLI invocations with slash commands
-
-### Integration (src/commands/run-agent.ts)
-- Added `trackCliInvocation` call before `Bun.spawn()` to capture slash commands passed via CLI
-
-### New Exports (src/utils/telemetry/index.ts)
-- `CliCommandEvent` type
-- `TelemetryEvent` type
-- `trackCliInvocation` function
-- `extractCommandsFromArgs` function
-
-## Notes
-- Phase 1 (Foundation) and Phase 2 (CLI Command Tracking) were already complete
-- All 439 tests pass
-- Lint passes with 0 errors
-- TypeScript compilation passes for production code
-- Test files have pre-existing TypeScript warnings (not related to this phase)
+## Verification
+- All 513 tests pass (bun test)
+- No lint errors (bun run lint)
+- TypeScript compiles cleanly (bun run typecheck)

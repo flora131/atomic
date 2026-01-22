@@ -20,6 +20,11 @@ mock.module("../config-path", () => ({
   getBinaryDataDir: () => TEST_DATA_DIR,
 }));
 
+// Mock ci-info to prevent CI detection from disabling telemetry in tests
+mock.module("ci-info", () => ({
+  isCI: false,
+}));
+
 // Track mock calls and return values
 let confirmReturnValue: boolean | symbol = true;
 let isCancelReturnValue = false;

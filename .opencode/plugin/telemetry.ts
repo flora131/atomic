@@ -48,7 +48,10 @@ interface AgentSessionEvent {
 
 interface TelemetryState {
   enabled: boolean
+  consentGiven: boolean
   anonymousId: string
+  createdAt: string
+  rotatedAt: string
 }
 
 /**
@@ -93,7 +96,7 @@ function isTelemetryEnabled(): boolean {
 
   try {
     const state: TelemetryState = JSON.parse(readFileSync(statePath, "utf-8"))
-    return state.enabled === true
+    return state.enabled === true && state.consentGiven === true
   } catch {
     return false
   }

@@ -1,7 +1,6 @@
 ---
 description: Start a Ralph Wiggum loop for iterative development
-agent: build
-model: anthropic/claude-opus-4-5
+agent: ralph
 ---
 
 # Ralph Loop Command

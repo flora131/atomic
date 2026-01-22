@@ -10,6 +10,10 @@
 
 set -euo pipefail
 
+# Get script directory and project root for relative imports
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 # Read hook input from stdin
 INPUT=$(cat)
 
@@ -202,6 +206,54 @@ LOG_ENTRY=$(jq -n \
   }')
 
 echo "$LOG_ENTRY" >> "$RALPH_LOG_DIR/ralph-sessions.jsonl"
+
+# ============================================================================
+# TELEMETRY TRACKING
+# ============================================================================
+# Track agent session telemetry (Atomic slash commands used)
+# Commands are accumulated during the session via userPromptSubmitted hook
+# and read from temp file here at session end.
+
+TELEMETRY_HELPER="$PROJECT_ROOT/bin/telemetry-helper.sh"
+COMMANDS_TEMP_FILE=".github/telemetry-session-commands.tmp"
+SESSION_START_FILE=".github/telemetry-session-start.tmp"
+
+# Source telemetry helper if available
+if [[ -f "$TELEMETRY_HELPER" ]]; then
+  # shellcheck source=../../bin/telemetry-helper.sh
+  source "$TELEMETRY_HELPER"
+
+  if is_telemetry_enabled; then
+    # Read accumulated commands from temp file (populated by userPromptSubmitted hook)
+    # Keep all occurrences to track actual usage frequency (no deduplication)
+    ACCUMULATED_COMMANDS=""
+    if [[ -f "$COMMANDS_TEMP_FILE" ]]; then
+      # Read all commands and convert to comma-separated (preserving duplicates for usage tracking)
+      ACCUMULATED_COMMANDS=$(cat "$COMMANDS_TEMP_FILE" | tr '\n' ',' | sed 's/,$//')
+    fi
+
+    # Read session start timestamp if available
+    SESSION_STARTED_AT=""
+    if [[ -f "$SESSION_START_FILE" ]]; then
+      # Convert Unix timestamp (ms) to ISO 8601
+      START_TS=$(cat "$SESSION_START_FILE")
+      if [[ -n "$START_TS" ]]; then
+        # Convert milliseconds to seconds and format as ISO 8601
+        START_SECS=$((START_TS / 1000))
+        SESSION_STARTED_AT=$(date -u -r "$START_SECS" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo "")
+      fi
+    fi
+
+    # Write telemetry event with accumulated commands
+    write_session_event "copilot" "$ACCUMULATED_COMMANDS" "$SESSION_STARTED_AT"
+
+    # Clean up temp files
+    rm -f "$COMMANDS_TEMP_FILE" "$SESSION_START_FILE"
+
+    # Spawn background upload
+    spawn_upload_process
+  fi
+fi
 
 # Output is ignored for sessionEnd
 exit 0

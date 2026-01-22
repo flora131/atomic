@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "hooks": {
+    "Stop": [
+      {
+        "type": "command",
+        "bash": "./.claude/hooks/telemetry-stop.sh",
+        "cwd": ".",
+        "timeoutSec": 30
+      }
+    ]
+  }
+}

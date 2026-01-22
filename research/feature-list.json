@@ -1,145 +1,174 @@
 [
   {
     "category": "functional",
-    "description": "Define CliCommandEvent type in types.ts following existing AtomicCommandEvent pattern",
+    "description": "Create telemetry-consent.ts module with consent prompt function",
     "steps": [
-      "Open src/utils/telemetry/types.ts",
-      "Add CliCommandEvent interface with fields: anonymousId, eventId, eventType ('cli_command'), timestamp, agentType, commands (string[]), commandCount (number), platform, atomicVersion, source ('cli')",
-      "Add JSDoc comments referencing Spec Section 5.3.2",
-      "Ensure interface follows existing naming conventions and patterns",
-      "Verify TypeScript compilation passes with bun build"
+      "Create new file src/utils/telemetry/telemetry-consent.ts",
+      "Import @clack/prompts: confirm, note, log",
+      "Import telemetry state functions from ./telemetry",
+      "Create promptTelemetryConsent(): Promise<boolean> async function",
+      "Display informational note showing what IS collected (command names, agent type, success status)",
+      "Display informational note showing what is NEVER collected (prompts, file paths, IP addresses)",
+      "Display opt-out hint: 'You can opt out anytime with: ATOMIC_TELEMETRY=0'",
+      "Use confirm() with message 'Help improve Atomic by enabling anonymous telemetry?'",
+      "Set initialValue: true for better UX (opt-in default suggestion)",
+      "Handle isCancel() gracefully - return false if user cancels",
+      "Return boolean result of user's choice",
+      "Add JSDoc documentation with @returns and @example"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Implement extractCommandsFromArgs utility function with Single Responsibility",
+    "description": "Create isFirstRun() helper to detect first-time telemetry setup",
     "steps": [
-      "Open src/utils/telemetry/telemetry-cli.ts",
-      "Import ATOMIC_COMMANDS from ./constants",
-      "Create extractCommandsFromArgs(args: string[]): string[] function",
-      "Iterate through args and check if each arg matches or starts with a known command",
-      "Use exact match (arg === cmd) or prefix match (arg.startsWith(cmd + ' ')) as per spec",
-      "Return deduplicated array using Set spread pattern",
-      "Add JSDoc comments explaining the extraction logic",
-      "Keep function pure with no side effects (functional core pattern)"
+      "Add isFirstRun(): boolean function to telemetry-consent.ts",
+      "Use readTelemetryState() from telemetry.ts to check if state exists",
+      "Return true if state is null (no telemetry.json file exists)",
+      "Return false if state exists (user has already been through consent flow)",
+      "This follows Single Responsibility - consent module handles consent detection",
+      "Add JSDoc documentation explaining first-run semantics"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Update appendEvent to support CliCommandEvent type using union type",
+    "description": "Create handleTelemetryConsent() orchestrator function",
     "steps": [
-      "Open src/utils/telemetry/telemetry-cli.ts",
-      "Import CliCommandEvent type from ./types",
-      "Update appendEvent function signature to accept AtomicCommandEvent | CliCommandEvent",
-      "Verify function body works with both event types (JSON.stringify is polymorphic)",
-      "Keep implementation DRY - avoid duplicating append logic"
+      "Add handleTelemetryConsent(): Promise<void> async function to telemetry-consent.ts",
+      "Check isFirstRun() - if false, return early (already handled)",
+      "Call promptTelemetryConsent() to show prompt and get user decision",
+      "Call setTelemetryEnabled(result) to persist the user's choice",
+      "If user consents (true), enable telemetry and mark consent given",
+      "If user declines (false), disable telemetry but still create state file",
+      "This prevents re-prompting on subsequent runs (state file exists)",
+      "Add JSDoc documentation with side effects noted"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Implement trackCliInvocation function following Open/Closed principle",
-    "steps": [
-      "Open src/utils/telemetry/telemetry-cli.ts",
-      "Create trackCliInvocation(agentType: AgentType, args: string[]): void function",
-      "Check telemetry enabled via isTelemetryEnabledSync() - early return pattern",
-      "Extract commands using extractCommandsFromArgs(args)",
-      "Return early if no commands found (don't log empty events)",
-      "Create CliCommandEvent using createBaseEvent() factory pattern",
-      "Spread baseFields and add cli_command specific fields",
-      "Call appendEvent with the constructed event",
-      "Add JSDoc comments with @example usage blocks",
-      "Maintain fail-safe pattern - telemetry should never break CLI"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Export new functions from telemetry/index.ts following Interface Segregation",
+    "description": "Export consent functions from telemetry/index.ts",
     "steps": [
       "Open src/utils/telemetry/index.ts",
-      "Add CliCommandEvent to the exported types",
-      "Add trackCliInvocation to the CLI telemetry tracking exports",
-      "Keep exports organized in logical groups (types, constants, core, cli)",
-      "Ensure public API surface is minimal and intentional"
+      "Add new export block for consent functions",
+      "Export: promptTelemetryConsent, handleTelemetryConsent, isFirstRun",
+      "Keep exports organized with descriptive comment '// Consent flow'",
+      "Verify module can be imported correctly with bun run typecheck",
+      "Follow existing export pattern used for other telemetry modules"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Integrate trackCliInvocation into run-agent.ts before Bun.spawn",
+    "description": "Integrate consent prompt into init command first-run flow",
     "steps": [
-      "Open src/commands/run-agent.ts",
-      "Import trackCliInvocation from ../utils/telemetry",
-      "Before the Bun.spawn call (line 124), add trackCliInvocation call",
-      "Pass agentKey (cast to AgentType) and agentArgs to trackCliInvocation",
-      "Place tracking after all validation but before process spawn",
-      "Maintain existing trackAtomicCommand call for 'run' command",
-      "Document why both tracking calls exist (different event types)"
-    ],
-    "passes": true
-  },
-  {
-    "category": "refactor",
-    "description": "Create union type TelemetryEvent for extensibility",
-    "steps": [
-      "Open src/utils/telemetry/types.ts",
-      "Add TelemetryEvent type alias: AtomicCommandEvent | CliCommandEvent",
-      "Export TelemetryEvent from types.ts",
-      "Export TelemetryEvent from index.ts",
-      "This prepares for Phase 4 AgentSessionEvent addition (anticipate change)"
+      "Open src/commands/init.ts",
+      "Note: Both 'atomic' (no command) and 'atomic init' call initCommand() - see src/index.ts:223-229",
+      "Import handleTelemetryConsent from utils/telemetry",
+      "Add consent prompt AFTER agent selection but BEFORE file copying",
+      "This placement ensures user sees consent after making their first meaningful choice",
+      "Call await handleTelemetryConsent() - it handles first-run check internally",
+      "handleTelemetryConsent() checks if telemetry.json exists - if yes, skips prompt (not first run)",
+      "Do NOT prompt in autoConfirm (--yes) mode - respect non-interactive intent",
+      "In --yes mode, keep telemetry disabled (no implicit consent)",
+      "Ensure consent prompt doesn't block if it fails (fail-safe behavior)",
+      "This covers all first-use entry points: 'atomic', 'atomic init', 'atomic init --agent <name>'"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Write unit tests for extractCommandsFromArgs edge cases",
+    "description": "Implement 'atomic config set telemetry' command",
     "steps": [
-      "Open or create src/utils/telemetry/telemetry-cli.test.ts",
-      "Test exact command match: ['/research-codebase'] returns ['/research-codebase']",
-      "Test command with args: ['/research-codebase src/'] returns ['/research-codebase']",
-      "Test multiple commands: ['/research-codebase', '/commit'] returns both",
-      "Test no commands: ['src/', '--verbose'] returns []",
-      "Test deduplication: ['/commit', '/commit'] returns ['/commit']",
-      "Test mixed valid/invalid: ['/commit', '--help', '/unknown'] returns ['/commit']",
-      "Test namespaced commands: ['/ralph:ralph-loop'] returns ['/ralph:ralph-loop']",
-      "Run tests with bun test src/utils/telemetry/telemetry-cli.test.ts"
+      "Create new file src/commands/config.ts",
+      "Export configCommand(subcommand: string, key: string, value: string) function",
+      "Validate subcommand is 'set' (only supported operation for now)",
+      "Validate key is 'telemetry' (only supported config key for now)",
+      "Validate value is 'true' or 'false' (strict boolean strings)",
+      "Call setTelemetryEnabled(value === 'true') from telemetry module",
+      "Display confirmation message: 'Telemetry has been {enabled|disabled}'",
+      "Handle invalid inputs with clear error messages",
+      "Add JSDoc documentation for command usage"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Write unit tests for trackCliInvocation behavior",
+    "description": "Wire config command into CLI entry point",
     "steps": [
-      "Continue in src/utils/telemetry/telemetry-cli.test.ts",
-      "Mock isTelemetryEnabledSync to control test behavior",
-      "Test: when telemetry disabled, no event is written",
-      "Test: when args contain no commands, no event is written",
-      "Test: when args contain commands, CliCommandEvent is written to JSONL",
-      "Test: event contains correct commandCount matching commands array length",
-      "Test: eventType is 'cli_command' not 'atomic_command'",
-      "Use temp directory for events file to avoid polluting real telemetry",
-      "Run tests with bun test src/utils/telemetry/telemetry-cli.test.ts"
+      "Open src/index.ts",
+      "Import configCommand from ./commands/config",
+      "Add 'config' case to switch statement around line 198",
+      "Parse subcommand as positionals[1] (e.g., 'set')",
+      "Parse key as positionals[2] (e.g., 'telemetry')",
+      "Parse value as positionals[3] (e.g., 'true' or 'false')",
+      "Call await configCommand(subcommand, key, value)",
+      "Update showHelp() to include config command usage",
+      "Add 'atomic config set telemetry <true|false>' to USAGE section"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Write integration test for full CLI invocation tracking flow",
+    "description": "Update README.md with telemetry documentation",
     "steps": [
-      "Open or create src/utils/telemetry/telemetry-integration.test.ts",
-      "Create test: 'tracks slash commands from CLI invocation'",
-      "Enable telemetry in test setup (mock state)",
-      "Call trackCliInvocation('claude', ['/research-codebase', 'src/'])",
-      "Read telemetry-events.jsonl and parse the event",
-      "Verify event structure matches CliCommandEvent interface",
-      "Verify commands array is ['/research-codebase']",
-      "Verify agentType is 'claude'",
-      "Verify source is 'cli'",
-      "Clean up temp files in afterEach",
-      "Run tests with bun test src/utils/telemetry/"
+      "Open README.md in project root",
+      "Add new section '## Telemetry' after installation section",
+      "Document what IS collected: command names, agent type, success/failure status",
+      "Document what is NEVER collected: prompts, file paths, code, IP addresses",
+      "Document opt-out methods: ATOMIC_TELEMETRY=0, DO_NOT_TRACK=1, 'atomic config set telemetry false'",
+      "Document that telemetry is auto-disabled in CI environments",
+      "Document monthly ID rotation for enhanced privacy",
+      "Keep documentation concise and user-friendly",
+      "Reference spec Section 5.6 for UI copy consistency"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Write unit tests for promptTelemetryConsent function",
+    "steps": [
+      "Create src/utils/telemetry/telemetry-consent.test.ts",
+      "Import Bun's mock utilities for @clack/prompts",
+      "Test: when user confirms, function returns true",
+      "Test: when user declines, function returns false",
+      "Test: when user cancels (Ctrl+C), function returns false",
+      "Mock confirm() from @clack/prompts to control test behavior",
+      "Verify note() and log() are called with expected content",
+      "Clean up mocks in afterEach to prevent test pollution",
+      "Run tests with bun test src/utils/telemetry/telemetry-consent.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Write unit tests for handleTelemetryConsent orchestrator",
+    "steps": [
+      "Continue in src/utils/telemetry/telemetry-consent.test.ts",
+      "Mock readTelemetryState to control first-run detection",
+      "Test: when NOT first run, no prompt is shown (early return)",
+      "Test: when first run and user consents, telemetry enabled and state saved",
+      "Test: when first run and user declines, telemetry disabled but state saved",
+      "Verify setTelemetryEnabled is called with correct argument",
+      "Use temp directory for state file to avoid polluting real config",
+      "Verify state file exists after decline (prevents re-prompting)"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Write unit tests for config command",
+    "steps": [
+      "Create src/commands/config.test.ts",
+      "Test: 'atomic config set telemetry true' enables telemetry",
+      "Test: 'atomic config set telemetry false' disables telemetry",
+      "Test: invalid subcommand shows error message",
+      "Test: invalid key shows error message",
+      "Test: invalid value (not true/false) shows error message",
+      "Mock setTelemetryEnabled to verify correct calls",
+      "Use temp directory for state file isolation",
+      "Run tests with bun test src/commands/config.test.ts"
     ],
     "passes": true
   },
@@ -148,10 +177,13 @@
     "description": "Run full test suite and verify no regressions",
     "steps": [
       "Run bun test to execute all tests",
-      "Verify existing Phase 1 and Phase 2 tests still pass",
-      "Verify new Phase 3 tests pass",
+      "Verify existing Phase 1-4 tests still pass",
+      "Verify new Phase 5 consent tests pass",
       "Run bun run lint to check for linting issues",
       "Run bun run typecheck to verify TypeScript compilation",
+      "Test manual invocation: atomic init shows consent prompt on fresh install",
+      "Test manual invocation: atomic config set telemetry true/false works",
+      "Verify README.md telemetry section renders correctly",
       "Fix any failures before marking phase complete"
     ],
     "passes": true

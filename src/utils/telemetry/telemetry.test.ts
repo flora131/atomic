@@ -37,6 +37,12 @@ mock.module("../config-path", () => ({
   getBinaryDataDir: () => TEST_DATA_DIR,
 }));
 
+// Mock ci-info to prevent CI detection from disabling telemetry in tests
+// CI detection is tested separately in telemetry-ci-detection.test.ts
+mock.module("ci-info", () => ({
+  isCI: false,
+}));
+
 describe("generateAnonymousId", () => {
   test("produces valid UUID v4 format", () => {
     const id = generateAnonymousId();

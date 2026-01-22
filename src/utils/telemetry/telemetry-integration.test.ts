@@ -40,6 +40,11 @@ mock.module("../config-path", () => ({
   getBinaryInstallDir: () => join(TEST_DATA_DIR, "bin"),
 }));
 
+// Mock ci-info to prevent CI detection from disabling telemetry in tests
+mock.module("ci-info", () => ({
+  isCI: false,
+}));
+
 // Helper to create enabled telemetry state
 function createEnabledState(): TelemetryState {
   return {

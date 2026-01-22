@@ -1,248 +1,136 @@
 [
   {
     "category": "functional",
-    "description": "Create TelemetryState interface and schema for telemetry.json persistence",
+    "description": "Create telemetry-cli.ts module with trackAtomicCommand function",
     "steps": [
-      "Create src/utils/telemetry/ directory structure",
-      "Create src/utils/telemetry/types.ts with TelemetryState interface",
-      "Define enabled: boolean field for master toggle",
-      "Define consentGiven: boolean field for explicit user consent tracking",
-      "Define anonymousId: string field for UUID v4 storage",
-      "Define createdAt: string field for ISO 8601 timestamp",
-      "Define rotatedAt: string field for last ID rotation timestamp",
-      "Export TelemetryState type from types.ts",
-      "Verify interface matches spec schema in Section 5.1"
+      "Create src/utils/telemetry/telemetry-cli.ts file",
+      "Define AtomicCommandEvent interface matching spec Section 5.3.1 schema",
+      "Implement trackAtomicCommand(command, agentType, success) function",
+      "Function should check isTelemetryEnabled() before writing",
+      "Generate unique eventId using crypto.randomUUID()",
+      "Get anonymousId from getOrCreateTelemetryState()",
+      "Capture platform from process.platform",
+      "Capture atomicVersion from VERSION constant",
+      "Return early (no-op) if telemetry is disabled",
+      "Export trackAtomicCommand from telemetry/index.ts"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Implement anonymous ID generation with crypto.randomUUID()",
+    "description": "Implement JSONL event buffering to telemetry-events.jsonl",
     "steps": [
-      "Create src/utils/telemetry/telemetry.ts core module",
-      "Import crypto.randomUUID for cryptographically secure UUID generation",
-      "Implement generateAnonymousId(): string function using crypto.randomUUID()",
-      "Write unit test verifying UUID v4 format (8-4-4-4-12 hex pattern)",
-      "Write unit test verifying each call generates unique IDs",
-      "Ensure no external dependencies for ID generation (use Node/Bun built-in)"
+      "Add getEventsFilePath() function returning ~/.local/share/atomic/telemetry-events.jsonl",
+      "Create appendEvent(event) function for atomic append-only writes",
+      "Use fs.appendFileSync to write JSON + newline to JSONL file",
+      "Ensure data directory exists before writing (use getBinaryDataDir helper)",
+      "Handle write failures silently (fail-safe, non-blocking)",
+      "Add unit tests for JSONL append with multiple concurrent writes"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Implement telemetry state persistence to ~/.local/share/atomic/telemetry.json",
+    "description": "Integrate trackAtomicCommand into init command",
     "steps": [
-      "Import getBinaryDataDir from src/utils/config-path.ts",
-      "Implement getTelemetryFilePath(): string returning path to telemetry.json",
-      "Implement readTelemetryState(): TelemetryState | null with safe file reading",
-      "Handle case where file doesn't exist (return null)",
-      "Handle case where file is corrupted JSON (return null, log warning)",
-      "Implement writeTelemetryState(state: TelemetryState): void with atomic write",
-      "Use Bun.write() for efficient file writing",
-      "Ensure directory exists before writing (mkdir -p equivalent)",
-      "Write unit test for read/write round-trip",
-      "Write unit test for handling missing file gracefully",
-      "Write unit test for handling corrupted JSON gracefully"
+      "Import trackAtomicCommand in src/commands/init.ts",
+      "Call trackAtomicCommand('init', agentKey, true) after successful completion (line ~257)",
+      "Call trackAtomicCommand('init', agentKey, false) in catch block for failures",
+      "Track agentType as the selected agent key (claude, opencode, copilot)",
+      "Ensure tracking happens before process.exit calls",
+      "Add integration test for init command telemetry event"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Implement monthly anonymous ID rotation for enhanced privacy",
+    "description": "Integrate trackAtomicCommand into update command",
     "steps": [
-      "Implement shouldRotateId(state: TelemetryState): boolean function",
-      "Check if current month differs from rotatedAt month",
-      "Implement rotateAnonymousId(state: TelemetryState): TelemetryState function",
-      "Generate new UUID when rotation needed",
-      "Update rotatedAt timestamp to current ISO 8601",
-      "Preserve other state fields (enabled, consentGiven, createdAt)",
-      "Write unit test verifying rotation triggers on month boundary",
-      "Write unit test verifying no rotation within same month",
-      "Write unit test verifying new ID differs from old ID"
+      "Read src/commands/update.ts to understand command structure",
+      "Import trackAtomicCommand in src/commands/update.ts",
+      "Call trackAtomicCommand('update', null, true) on successful update",
+      "Call trackAtomicCommand('update', null, false) on update failure",
+      "agentType should be null since update is not agent-specific",
+      "Add integration test for update command telemetry event"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Add ci-info package dependency for CI environment detection",
+    "description": "Integrate trackAtomicCommand into uninstall command",
     "steps": [
-      "Run bun add ci-info to add dependency",
-      "Verify ci-info appears in package.json dependencies",
-      "Run bun install to ensure lockfile is updated",
-      "Create test file to verify ci-info import works correctly",
-      "Verify ci.isCI property is accessible"
+      "Read src/commands/uninstall.ts to understand command structure",
+      "Import trackAtomicCommand in src/commands/uninstall.ts",
+      "Call trackAtomicCommand('uninstall', null, true) on successful uninstall",
+      "Call trackAtomicCommand('uninstall', null, false) on uninstall failure",
+      "agentType should be null since uninstall is not agent-specific",
+      "Add integration test for uninstall command telemetry event"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Implement isTelemetryEnabled() with priority-based opt-out checking",
+    "description": "Track run command in run-agent.ts with agent type",
     "steps": [
-      "Import ci from ci-info package",
-      "Implement isTelemetryEnabled(): boolean function",
-      "Priority 1 (Highest): Check ci.isCI - return false if in CI environment",
-      "Priority 2: Check ATOMIC_TELEMETRY env var - return false if '0' or 'false'",
-      "Priority 3: Check DO_NOT_TRACK env var - return false if '1'",
-      "Priority 4: Read telemetry.json state",
-      "Return state.enabled && state.consentGiven if state exists",
-      "Return false if state doesn't exist (no consent given yet)",
-      "Write unit test for CI detection (mock ci.isCI)",
-      "Write unit test for ATOMIC_TELEMETRY=0 opt-out",
-      "Write unit test for ATOMIC_TELEMETRY=false opt-out",
-      "Write unit test for DO_NOT_TRACK=1 opt-out",
-      "Write unit test for config file opt-out (enabled: false)",
-      "Write unit test for missing consent (consentGiven: false)",
-      "Write unit test for enabled telemetry when all conditions pass"
+      "Import trackAtomicCommand in src/commands/run-agent.ts",
+      "Call trackAtomicCommand('run', agentKey, true) before Bun.spawn (line ~119)",
+      "Track agentType as the validated agent key",
+      "Do not track exit code as success/failure (agent exit codes are agent-specific)",
+      "success should always be true if we reach the spawn point",
+      "Add integration test for run command telemetry event"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Implement initializeTelemetryState() for first-run state creation",
+    "description": "Add event type definitions for all telemetry events",
     "steps": [
-      "Implement initializeTelemetryState(): TelemetryState function",
-      "Generate new anonymous ID using generateAnonymousId()",
-      "Set enabled to false by default (requires explicit consent)",
-      "Set consentGiven to false (must be explicitly granted)",
-      "Set createdAt to current ISO 8601 timestamp",
-      "Set rotatedAt to current ISO 8601 timestamp",
-      "Write unit test verifying all fields populated correctly",
-      "Write unit test verifying enabled defaults to false",
-      "Write unit test verifying consentGiven defaults to false"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Implement getOrCreateTelemetryState() for lazy initialization",
-    "steps": [
-      "Implement getOrCreateTelemetryState(): TelemetryState function",
-      "Attempt to read existing state with readTelemetryState()",
-      "If state exists, check for monthly rotation with shouldRotateId()",
-      "If rotation needed, rotate ID and persist updated state",
-      "If no state exists, initialize new state with initializeTelemetryState()",
-      "Persist new state with writeTelemetryState()",
-      "Return the final state",
-      "Write unit test for existing state retrieval",
-      "Write unit test for new state creation when file missing",
-      "Write unit test for ID rotation on existing state"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Define ATOMIC_COMMANDS constant for command extraction",
-    "steps": [
-      "Create src/utils/telemetry/constants.ts file",
-      "Define ATOMIC_COMMANDS as readonly string array",
-      "Include /research-codebase command",
-      "Include /create-spec command",
-      "Include /create-feature-list command",
-      "Include /implement-feature command",
-      "Include /commit command",
-      "Include /create-gh-pr command",
-      "Include /explain-code command",
-      "Include /ralph-loop and /ralph:ralph-loop commands",
-      "Include /cancel-ralph and /ralph:cancel-ralph commands",
-      "Include /ralph-help and /ralph:help commands",
-      "Export ATOMIC_COMMANDS constant",
-      "Write unit test verifying all documented commands are present",
-      "Ensure list matches spec Section 5.3.2"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Implement setTelemetryEnabled() for programmatic opt-in/opt-out",
-    "steps": [
-      "Implement setTelemetryEnabled(enabled: boolean): void function",
-      "Read existing state with getOrCreateTelemetryState()",
-      "Update enabled field to new value",
-      "If enabling (true), also set consentGiven to true",
-      "Persist updated state with writeTelemetryState()",
-      "Write unit test for enabling telemetry",
-      "Write unit test for disabling telemetry",
-      "Write unit test verifying consentGiven set to true when enabling"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Create telemetry module index.ts with clean public API exports",
-    "steps": [
-      "Create src/utils/telemetry/index.ts file",
-      "Export TelemetryState type from types.ts",
-      "Export ATOMIC_COMMANDS constant from constants.ts",
-      "Export isTelemetryEnabled function from telemetry.ts",
-      "Export getOrCreateTelemetryState function from telemetry.ts",
-      "Export setTelemetryEnabled function from telemetry.ts",
-      "Export getTelemetryFilePath function from telemetry.ts",
-      "Do NOT export internal functions (generateAnonymousId, shouldRotateId, etc.)",
-      "Apply Interface Segregation Principle - only expose needed functionality",
-      "Write integration test importing from index.ts"
+      "Add AtomicCommandEvent interface to src/utils/telemetry/types.ts",
+      "Define command union type: 'init' | 'update' | 'uninstall' | 'run'",
+      "Define agentType union type: 'claude' | 'opencode' | 'copilot' | null",
+      "Include eventId, eventType, timestamp, success, platform, atomicVersion, source fields",
+      "Export new types from telemetry/index.ts",
+      "Ensure types match spec Section 5.3.1 exactly"
     ],
     "passes": true
   },
   {
     "category": "refactor",
-    "description": "Ensure getBinaryDataDir() handles all platforms correctly for telemetry storage",
+    "description": "Create shared event factory following Factory pattern",
     "steps": [
-      "Review existing getBinaryDataDir() in src/utils/config-path.ts",
-      "Verify Windows path uses LOCALAPPDATA correctly",
-      "Verify Unix path uses XDG_DATA_HOME with ~/.local/share fallback",
-      "Verify function handles missing HOME/USERPROFILE env vars",
-      "Write unit test for Windows path resolution",
-      "Write unit test for Unix path resolution with XDG_DATA_HOME",
-      "Write unit test for Unix path resolution without XDG_DATA_HOME"
+      "Create createBaseEvent() function in telemetry-cli.ts",
+      "Factory generates common fields: anonymousId, eventId, timestamp, platform, atomicVersion, source",
+      "Use composition to build specific event types on top of base",
+      "Reduces duplication across trackAtomicCommand and future trackCliInvocation",
+      "Follow Open/Closed principle - base is closed for modification, open for extension"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Add type declarations for ci-info package",
+    "description": "Write comprehensive unit tests for telemetry-cli module",
     "steps": [
-      "Check if @types/ci-info package exists",
-      "If exists, run bun add -d @types/ci-info",
-      "If not, create src/types/ci-info.d.ts declaration file",
-      "Declare isCI boolean export",
-      "Verify TypeScript compilation passes with ci-info import",
-      "Run bun run typecheck to validate"
+      "Create src/utils/telemetry/telemetry-cli.test.ts",
+      "Test trackAtomicCommand writes correct event structure to JSONL",
+      "Test trackAtomicCommand respects isTelemetryEnabled() check",
+      "Test JSONL file is created if it doesn't exist",
+      "Test multiple events append correctly (newline delimited)",
+      "Test event fields match expected schema",
+      "Mock file system to avoid polluting actual telemetry file"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Write comprehensive unit test suite for telemetry core module",
+    "description": "Write integration tests for command tracking end-to-end",
     "steps": [
-      "Create src/utils/telemetry/telemetry.test.ts file",
-      "Import test utilities from bun:test",
-      "Test generateAnonymousId produces valid UUID v4",
-      "Test readTelemetryState returns null for missing file",
-      "Test readTelemetryState returns null for invalid JSON",
-      "Test writeTelemetryState creates file with correct content",
-      "Test shouldRotateId returns true on month boundary",
-      "Test shouldRotateId returns false within same month",
-      "Test isTelemetryEnabled respects CI detection",
-      "Test isTelemetryEnabled respects env var opt-out",
-      "Test isTelemetryEnabled respects config file",
-      "Test getOrCreateTelemetryState initializes new state",
-      "Test getOrCreateTelemetryState rotates expired ID",
-      "Test setTelemetryEnabled persists state correctly",
-      "Use temp directories for file operations to avoid polluting real config",
-      "Run bun test to verify all tests pass"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Verify install scripts already create data directory",
-    "steps": [
-      "Review install.sh line 12: DATA_DIR definition",
-      "Verify mkdir -p $DATA_DIR is called at line 168",
-      "Review install.ps1 line 17: $DataDir definition",
-      "Verify New-Item -ItemType Directory at line 49",
-      "Confirm data directory creation happens before config extraction",
-      "No code changes needed - document verification complete"
+      "Create src/utils/telemetry/telemetry-integration.test.ts",
+      "Test init command produces atomic_command event in JSONL",
+      "Test update command produces atomic_command event",
+      "Test run command produces atomic_command event with agentType",
+      "Test opt-out via ATOMIC_TELEMETRY=0 prevents event writing",
+      "Test opt-out via DO_NOT_TRACK=1 prevents event writing",
+      "Use temporary directory for test isolation"
     ],
     "passes": true
   }

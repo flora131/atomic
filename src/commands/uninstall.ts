@@ -21,6 +21,7 @@ import {
   getBinaryInstallDir,
 } from "../utils/config-path";
 import { isWindows } from "../utils/detect";
+import { trackAtomicCommand } from "../utils/telemetry";
 
 /** Options for the uninstall command */
 export interface UninstallOptions {
@@ -183,12 +184,18 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
       }
     }
 
+    // Track successful uninstall command
+    trackAtomicCommand("uninstall", null, true);
+
     log.success("");
     log.success("Atomic has been uninstalled.");
 
     // Show PATH cleanup instructions
     note(getPathCleanupInstructions(), "PATH Cleanup (Manual)");
   } catch (error) {
+    // Track failed uninstall command
+    trackAtomicCommand("uninstall", null, false);
+
     const message = error instanceof Error ? error.message : String(error);
     log.error(`Uninstall failed: ${message}`);
 

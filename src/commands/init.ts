@@ -22,6 +22,7 @@ import { copyFile, pathExists, isFileEmpty } from "../utils/copy";
 import { getConfigRoot } from "../utils/config-path";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL, getOppositeScriptExtension } from "../utils/detect";
 import { mergeJsonFile } from "../utils/merge";
+import { trackAtomicCommand, type AgentType } from "../utils/telemetry";
 
 interface InitOptions {
   showBanner?: boolean;
@@ -255,7 +256,13 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     }
 
     s.stop("Configuration files copied successfully!");
+
+    // Track successful init command
+    trackAtomicCommand("init", agentKey as AgentType, true);
   } catch (error) {
+    // Track failed init command before exiting
+    trackAtomicCommand("init", agentKey as AgentType, false);
+
     s.stop("Failed to copy configuration files");
     console.error(
       error instanceof Error ? error.message : "Unknown error occurred"

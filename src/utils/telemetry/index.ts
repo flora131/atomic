@@ -8,7 +8,12 @@
  */
 
 // Types
-export type { TelemetryState } from "./types";
+export type {
+  TelemetryState,
+  AtomicCommandType,
+  AgentType,
+  AtomicCommandEvent,
+} from "./types";
 
 // Constants
 export { ATOMIC_COMMANDS, type AtomicCommand } from "./constants";
@@ -21,3 +26,6 @@ export {
   setTelemetryEnabled,
   getTelemetryFilePath,
 } from "./telemetry";
+
+// CLI telemetry tracking
+export { trackAtomicCommand, getEventsFilePath } from "./telemetry-cli";

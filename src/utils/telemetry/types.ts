@@ -19,3 +19,41 @@ export interface TelemetryState {
   /** ISO 8601 timestamp of last ID rotation */
   rotatedAt: string;
 }
+
+/**
+ * Atomic CLI command types that are tracked
+ * Reference: Spec Section 5.3.1
+ */
+export type AtomicCommandType = "init" | "update" | "uninstall" | "run";
+
+/**
+ * Agent types supported by Atomic
+ */
+export type AgentType = "claude" | "opencode" | "copilot";
+
+/**
+ * Event logged when an Atomic CLI command is executed.
+ * Reference: Spec Section 5.3.1
+ */
+export interface AtomicCommandEvent {
+  /** Anonymous UUID v4 for user correlation, rotated monthly */
+  anonymousId: string;
+  /** Unique UUID v4 for this specific event */
+  eventId: string;
+  /** Event type discriminator */
+  eventType: "atomic_command";
+  /** ISO 8601 timestamp when event occurred */
+  timestamp: string;
+  /** The Atomic CLI command that was executed */
+  command: AtomicCommandType;
+  /** The agent type selected (null for agent-agnostic commands) */
+  agentType: AgentType | null;
+  /** Whether the command succeeded */
+  success: boolean;
+  /** Operating system platform */
+  platform: NodeJS.Platform;
+  /** Atomic CLI version */
+  atomicVersion: string;
+  /** Source of the event (always 'cli' for CLI commands) */
+  source: "cli";
+}

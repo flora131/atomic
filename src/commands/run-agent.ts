@@ -8,6 +8,7 @@ import { AGENT_CONFIG, isValidAgent, type AgentKey } from "../config";
 import { getCommandPath } from "../utils/detect";
 import { pathExists } from "../utils/copy";
 import { initCommand } from "./init";
+import { trackAtomicCommand, type AgentType } from "../utils/telemetry";
 
 /**
  * Sanitize user input for safe display in error messages
@@ -114,6 +115,10 @@ export async function runAgentCommand(
   if (isDebug) {
     console.error(`[atomic:debug] Spawning command: ${cmd.join(" ")}`);
   }
+
+  // Track run command before spawning agent
+  // success is always true if we reach this point (agent exit codes are agent-specific)
+  trackAtomicCommand("run", agentKey as AgentType, true);
 
   // Spawn the agent process
   const proc = Bun.spawn(cmd, {

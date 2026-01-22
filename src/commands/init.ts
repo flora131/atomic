@@ -22,7 +22,7 @@ import { copyFile, pathExists, isFileEmpty } from "../utils/copy";
 import { getConfigRoot } from "../utils/config-path";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL, getOppositeScriptExtension } from "../utils/detect";
 import { mergeJsonFile } from "../utils/merge";
-import { trackAtomicCommand, type AgentType } from "../utils/telemetry";
+import { trackAtomicCommand, handleTelemetryConsent, type AgentType } from "../utils/telemetry";
 
 interface InitOptions {
   showBanner?: boolean;
@@ -138,6 +138,16 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
   // Auto-confirm mode for CI/testing
   const autoConfirm = options.yes ?? false;
+
+  // Telemetry consent prompt (only on first run)
+  // Skip in autoConfirm mode - respect non-interactive intent (no implicit consent)
+  if (!autoConfirm) {
+    try {
+      await handleTelemetryConsent();
+    } catch {
+      // Fail-safe: consent prompt failure shouldn't block CLI operation
+    }
+  }
 
   // Confirm directory
   let confirmDir: boolean | symbol = true;

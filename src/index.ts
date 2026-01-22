@@ -12,6 +12,7 @@
  */
 
 import { parseArgs } from "util";
+import { configCommand } from "./commands/config";
 import { initCommand } from "./commands/init";
 import { runAgentCommand } from "./commands/run-agent";
 import { updateCommand } from "./commands/update";
@@ -44,6 +45,7 @@ USAGE:
   atomic init                        Interactive setup with agent selection
   atomic init --agent <name>         Setup specific agent (skip selection)
   atomic --agent <name> [-- args...] Run agent with arguments (auto-setup if needed)
+  atomic config set telemetry <true|false>  Enable/disable telemetry
   atomic update                      Self-update to latest version (binary installs only)
   atomic uninstall                   Remove atomic installation (binary installs only)
   atomic --version                   Show version
@@ -51,6 +53,7 @@ USAGE:
 
 COMMANDS:
   init        Setup configuration files for a coding agent
+  config      Manage configuration (e.g., telemetry settings)
   update      Self-update atomic to the latest version (binary installs)
   uninstall   Remove atomic installation (binary installs)
 
@@ -218,6 +221,11 @@ async function main(): Promise<void> {
           yes: values.yes as boolean | undefined,
           keepConfig: values["keep-config"] as boolean | undefined,
         });
+        break;
+
+      case "config":
+        // atomic config set <key> <value>
+        await configCommand(positionals[1], positionals[2], positionals[3]);
         break;
 
       case undefined:

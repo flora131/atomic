@@ -560,6 +560,51 @@ Remove-Item -Path ".github\copilot-instructions.md" -Force
 
 ---
 
+## Telemetry
+
+Atomic collects anonymous usage telemetry to help improve the product. All data is anonymous and privacy-respecting.
+
+### What We Collect
+
+- Command names (init, help, config, etc.)
+- Agent type (claude, opencode, copilot)
+- Success/failure status
+
+### What We NEVER Collect
+
+- Your prompts or queries
+- File paths or code content
+- IP addresses or location data
+- Personal identifiable information
+
+### Privacy Features
+
+- **Anonymous ID rotation**: Your anonymous ID is automatically rotated monthly for enhanced privacy
+- **CI auto-disable**: Telemetry is automatically disabled in CI environments
+- **First-run consent**: You're prompted to opt-in during your first use of `atomic init`
+
+### Opt-Out Methods
+
+You can disable telemetry at any time using any of these methods:
+
+```bash
+# Using the config command
+atomic config set telemetry false
+
+# Using environment variables
+export ATOMIC_TELEMETRY=0
+# or
+export DO_NOT_TRACK=1
+```
+
+To re-enable telemetry:
+
+```bash
+atomic config set telemetry true
+```
+
+---
+
 ## Troubleshooting
 
 **Git Identity Error:** Configure git identity:

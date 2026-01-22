@@ -44,3 +44,10 @@ export {
   extractCommandsFromTranscript,
   createSessionEvent,
 } from "./telemetry-session";
+
+// Consent flow
+export {
+  isFirstRun,
+  promptTelemetryConsent,
+  handleTelemetryConsent,
+} from "./telemetry-consent";

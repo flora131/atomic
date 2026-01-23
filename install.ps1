@@ -136,8 +136,10 @@ try {
     # Install binary
     Move-Item -Force $TempBinary $BinaryPath
 
-    # Extract config files to data directory
+    # Extract config files to data directory (clean install)
     Write-Info "Installing config files to ${DataDir}..."
+    if (Test-Path $DataDir) { Remove-Item -Recurse -Force $DataDir }
+    $null = New-Item -ItemType Directory -Force -Path $DataDir
     Expand-Archive -Path $TempConfig -DestinationPath $DataDir -Force
 
     # Verify installation

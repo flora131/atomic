@@ -37,7 +37,6 @@ interface AgentSessionEvent {
   sessionId: string
   eventType: "agent_session"
   timestamp: string
-  sessionStartedAt: string | null
   agentType: AgentType
   commands: string[]
   commandCount: number
@@ -153,8 +152,7 @@ function extractCommands(text: string): string[] {
  */
 function writeSessionEvent(
   agentType: AgentType,
-  commands: string[],
-  sessionStartedAt: string | null
+  commands: string[]
 ): void {
   if (!isTelemetryEnabled()) return
   if (commands.length === 0) return
@@ -170,7 +168,6 @@ function writeSessionEvent(
     sessionId: eventId,
     eventType: "agent_session",
     timestamp: new Date().toISOString(),
-    sessionStartedAt,
     agentType,
     commands,
     commandCount: commands.length,
@@ -215,9 +212,8 @@ function spawnUpload(): void {
   }
 }
 
-// Track session start time and accumulated commands
+// Track accumulated commands during session
 // Using array (not Set) to preserve duplicates for usage frequency tracking
-let sessionStartTime: string | null = null
 let sessionCommands: string[] = []
 
 export default {
@@ -232,7 +228,6 @@ export default {
     event: async ({ event }) => {
       // Track session start
       if (event.type === "session.start" || event.type === "session.created") {
-        sessionStartTime = new Date().toISOString()
         sessionCommands = []
         return
       }
@@ -251,11 +246,10 @@ export default {
       // Track session end
       if (event.type === "session.end" || event.type === "session.closed") {
         if (sessionCommands.length > 0) {
-          writeSessionEvent("opencode", sessionCommands, sessionStartTime)
+          writeSessionEvent("opencode", sessionCommands)
           spawnUpload()
         }
         // Reset for next session
-        sessionStartTime = null
         sessionCommands = []
         return
       }

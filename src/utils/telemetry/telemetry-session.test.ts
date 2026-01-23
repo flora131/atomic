@@ -243,17 +243,6 @@ describe("createSessionEvent", () => {
     expect(event.anonymousId).toBe("session-test-uuid");
   });
 
-  test("sets sessionStartedAt to null when not provided", () => {
-    const event = createSessionEvent("claude", ["/commit"]);
-    expect(event.sessionStartedAt).toBeNull();
-  });
-
-  test("sets sessionStartedAt when provided", () => {
-    const startTime = "2026-01-15T10:30:00Z";
-    const event = createSessionEvent("claude", ["/commit"], startTime);
-    expect(event.sessionStartedAt).toBe(startTime);
-  });
-
   test("handles empty commands array", () => {
     const event = createSessionEvent("claude", []);
     expect(event.commands).toEqual([]);
@@ -362,17 +351,6 @@ describe("trackAgentSession", () => {
     const events = readSessionEvents();
     expect(events).toHaveLength(1);
     expect(events[0]?.agentType).toBe("opencode");
-  });
-
-  test("event contains sessionStartedAt when provided", () => {
-    writeTelemetryStateToTest(createEnabledState());
-
-    const startTime = "2026-01-15T10:30:00Z";
-    trackAgentSession("claude", ["/commit"], startTime);
-
-    const events = readSessionEvents();
-    expect(events).toHaveLength(1);
-    expect(events[0]?.sessionStartedAt).toBe(startTime);
   });
 
   test("event has source as session_hook", () => {

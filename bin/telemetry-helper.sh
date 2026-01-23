@@ -160,13 +160,11 @@ get_platform() {
 # Arguments:
 #   $1 - agentType: "claude", "opencode", or "copilot"
 #   $2 - commands: comma-separated list of commands (e.g., "/commit,/create-gh-pr")
-#   $3 - sessionStartedAt: ISO 8601 timestamp (optional, can be empty)
 #
 # Returns: 0 on success, 1 on failure
 write_session_event() {
   local agent_type="$1"
   local commands_str="$2"
-  local session_started_at="${3:-}"
 
   # Early return if telemetry disabled
   if ! is_telemetry_enabled; then
@@ -201,14 +199,6 @@ write_session_event() {
   local command_count
   command_count=$(echo "$commands_json" | jq 'length')
 
-  # Handle null/empty sessionStartedAt
-  local session_started_json
-  if [[ -n "$session_started_at" ]]; then
-    session_started_json="\"$session_started_at\""
-  else
-    session_started_json="null"
-  fi
-
   # Build event JSON
   local event_json
   event_json=$(jq -n \
@@ -217,7 +207,6 @@ write_session_event() {
     --arg sessionId "$session_id" \
     --arg eventType "agent_session" \
     --arg timestamp "$timestamp" \
-    --argjson sessionStartedAt "$session_started_json" \
     --arg agentType "$agent_type" \
     --argjson commands "$commands_json" \
     --argjson commandCount "$command_count" \
@@ -230,7 +219,6 @@ write_session_event() {
       sessionId: $sessionId,
       eventType: $eventType,
       timestamp: $timestamp,
-      sessionStartedAt: $sessionStartedAt,
       agentType: $agentType,
       commands: $commands,
       commandCount: $commandCount,

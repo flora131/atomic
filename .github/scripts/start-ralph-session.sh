@@ -12,7 +12,6 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Telemetry temp file for accumulating commands during session
 COMMANDS_TEMP_FILE=".github/telemetry-session-commands.tmp"
-SESSION_START_FILE=".github/telemetry-session-start.tmp"
 
 # Read hook input from stdin
 INPUT=$(cat)
@@ -90,9 +89,6 @@ fi
 
 # Clear previous session's temp file (start fresh)
 rm -f "$COMMANDS_TEMP_FILE"
-
-# Store session start timestamp for telemetry
-echo "$TIMESTAMP" > "$SESSION_START_FILE"
 
 # Source telemetry helper if available
 TELEMETRY_HELPER="$PROJECT_ROOT/bin/telemetry-helper.sh"

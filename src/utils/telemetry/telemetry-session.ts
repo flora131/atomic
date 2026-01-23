@@ -65,21 +65,15 @@ export function extractCommandsFromTranscript(transcript: string): string[] {
  *
  * @param agentType - The agent type ('claude', 'opencode', 'copilot')
  * @param commands - Array of slash commands used during the session
- * @param sessionStartedAt - Optional ISO 8601 timestamp when session started
  * @returns A fully-formed AgentSessionEvent object
  *
  * @example
  * const event = createSessionEvent('claude', ['/commit', '/create-gh-pr']);
  * // Returns AgentSessionEvent with generated sessionId, timestamp, etc.
- *
- * @example
- * const event = createSessionEvent('opencode', ['/research-codebase'], '2024-01-15T10:30:00Z');
- * // Returns AgentSessionEvent with provided sessionStartedAt
  */
 export function createSessionEvent(
   agentType: AgentType,
-  commands: string[],
-  sessionStartedAt?: string
+  commands: string[]
 ): AgentSessionEvent {
   const state = getOrCreateTelemetryState();
   const sessionId = crypto.randomUUID();
@@ -90,7 +84,6 @@ export function createSessionEvent(
     sessionId,
     eventType: "agent_session",
     timestamp: new Date().toISOString(),
-    sessionStartedAt: sessionStartedAt ?? null,
     agentType,
     commands,
     commandCount: commands.length,
@@ -137,11 +130,10 @@ function appendEvent(event: TelemetryEvent): void {
  *
  * @param agentType - The agent type ('claude', 'opencode', 'copilot')
  * @param input - Either a transcript string to extract commands from, or an array of commands
- * @param sessionStartedAt - Optional ISO 8601 timestamp when session started
  *
  * @example
  * // Track session with transcript (Claude Code hook)
- * trackAgentSession('claude', transcriptContent, '2024-01-15T10:30:00Z');
+ * trackAgentSession('claude', transcriptContent);
  *
  * @example
  * // Track session with commands array (when transcript unavailable)
@@ -153,8 +145,7 @@ function appendEvent(event: TelemetryEvent): void {
  */
 export function trackAgentSession(
   agentType: AgentType,
-  input: string | string[],
-  sessionStartedAt?: string
+  input: string | string[]
 ): void {
   // Return early (no-op) if telemetry is disabled
   if (!isTelemetryEnabledSync()) {
@@ -170,6 +161,6 @@ export function trackAgentSession(
   }
 
   // Create and write the event
-  const event = createSessionEvent(agentType, commands, sessionStartedAt);
+  const event = createSessionEvent(agentType, commands);
   appendEvent(event);
 }

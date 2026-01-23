@@ -45,6 +45,6 @@
       "Verify the stale file no longer exists in the data directory",
       "Repeat verification for install.sh and install.ps1 re-install paths"
     ],
-    "passes": false
+    "passes": true
   }
 ]

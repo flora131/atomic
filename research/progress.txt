@@ -53,3 +53,22 @@
 **Test results:** All 352 tests pass (4 in install-ps1-clean-dir.test.ts)
 
 **Next feature:** Verify no stale artifacts remain after update or re-install across all three code paths
+
+## 2026-01-23: Clean Data Directory on Update - Feature 4 Complete (ALL FEATURES DONE)
+
+### Feature: Verify no stale artifacts remain after update or re-install across all three code paths
+
+**Changes made:**
+1. `tests/clean-install-verification.test.ts` - Created comprehensive cross-path verification test with 8 tests:
+   - TypeScript path: stale files from previous version are removed after rm + extractConfig
+   - TypeScript path: deeply nested stale files are removed
+   - install.sh path: stale files are removed by rm -rf + mkdir -p + tar sequence
+   - install.sh path: hidden files (dotfiles) in stale directory are removed
+   - install.ps1 path: stale files are removed by simulated Remove-Item + New-Item + extract
+   - install.ps1 path: first install works when directory does not exist (Test-Path guard)
+   - Consistency: all paths produce identical directory contents after clean install
+   - Source code: all three code paths contain the clean install pattern
+
+**Test results:** All 360 tests pass across 22 files
+
+**All features in research/feature-list.json are now complete (passes: true)**

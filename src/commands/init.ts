@@ -139,16 +139,6 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   // Auto-confirm mode for CI/testing
   const autoConfirm = options.yes ?? false;
 
-  // Telemetry consent prompt (only on first run)
-  // Skip in autoConfirm mode - respect non-interactive intent (no implicit consent)
-  if (!autoConfirm) {
-    try {
-      await handleTelemetryConsent();
-    } catch {
-      // Fail-safe: consent prompt failure shouldn't block CLI operation
-    }
-  }
-
   // Confirm directory
   let confirmDir: boolean | symbol = true;
   if (!autoConfirm) {
@@ -165,6 +155,16 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     if (!confirmDir) {
       cancel("Operation cancelled.");
       process.exit(0);
+    }
+  }
+
+  // Telemetry consent prompt (only on first run)
+  // Skip in autoConfirm mode - respect non-interactive intent (no implicit consent)
+  if (!autoConfirm) {
+    try {
+      await handleTelemetryConsent();
+    } catch {
+      // Fail-safe: consent prompt failure shouldn't block CLI operation
     }
   }
 

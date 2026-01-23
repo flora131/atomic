@@ -51,17 +51,17 @@ This approach highlights the best of SDLC and gets you 40-60% of the way there s
 
 ### System requirements
 
-* **Operating Systems**: macOS, Linux, or Windows (with PowerShell)
-* **Hardware**: Minimal requirements
-* **Network**: Internet connection required for installation
-* **Coding agent installed** (at least one):
-  * [Claude Code](https://code.claude.com/docs/en/quickstart)
-  * [OpenCode](https://opencode.ai)
-  * [GitHub Copilot CLI](https://github.com/features/copilot/cli)
+- **Operating Systems**: macOS, Linux, or Windows (with PowerShell)
+- **Hardware**: Minimal requirements
+- **Network**: Internet connection required for installation
+- **Coding agent installed** (at least one):
+  - [Claude Code](https://code.claude.com/docs/en/quickstart)
+  - [OpenCode](https://opencode.ai)
+  - [GitHub Copilot CLI](https://github.com/features/copilot/cli)
 
 #### Additional dependencies
 
-* **Node.js 18+ or Bun**: Only required for [npm/bun installation](#npmbun-installation)
+- **Bun**: Only required for [bun installation](#bun-installation)
 
 ### Installation
 
@@ -81,22 +81,17 @@ curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | b
 irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 ```
 
-#### npm/bun installation
+#### bun installation
 
 ```bash
 # Using bun
 bun add -g @bastani/atomic
-
-# Using npm
-npm install -g @bastani/atomic
 ```
 
 **Without installation (one-time use):**
 
 ```bash
 bunx @bastani/atomic
-# or
-npx @bastani/atomic
 ```
 
 ### Getting started
@@ -377,6 +372,7 @@ Domain knowledge applied during work. These are automatically invoked when relev
 | GitHub Copilot CLI | `atomic --agent copilot`  | `.github/`   | `AGENTS.md`  |
 
 > **Note:** Use `--` to separate atomic flags from agent arguments. Everything after `--` is passed directly to the agent:
+>
 > ```bash
 > atomic --agent claude -- /research-codebase "question"
 > atomic -a opencode
@@ -455,16 +451,13 @@ If you installed Atomic using the native install script, you can update using th
 atomic update
 ```
 
-### npm/bun installation
+### bun installation
 
 Use your package manager to update:
 
 ```bash
 # Using bun
 bun upgrade @bastani/atomic
-
-# Using npm
-npm update -g @bastani/atomic
 ```
 
 ---
@@ -490,6 +483,7 @@ atomic uninstall --yes  # or -y
 ```
 
 The uninstall command will:
+
 - Remove the Atomic binary from `~/.local/bin/atomic` (or your custom install directory)
 - Remove configuration data from `~/.local/share/atomic` (unless `--keep-config` is used)
 - Display instructions for removing the PATH entry from your shell configuration
@@ -514,14 +508,11 @@ Remove-Item "$env:USERPROFILE\.local\bin\atomic.exe" -Force
 Remove-Item "$env:LOCALAPPDATA\atomic" -Recurse -Force
 ```
 
-### npm/bun installation
+### bun installation
 
 ```bash
 # Using bun
 bun remove -g @bastani/atomic
-
-# Using npm
-npm uninstall -g @bastani/atomic
 ```
 
 ### Clean up configuration files (optional)

@@ -101,8 +101,6 @@ export interface AgentSessionEvent {
   eventType: "agent_session";
   /** ISO 8601 timestamp when session ended */
   timestamp: string;
-  /** ISO 8601 timestamp when session started (if available) */
-  sessionStartedAt: string | null;
   /** The agent type that was running */
   agentType: AgentType;
   /** Array of Atomic slash commands used during the session */

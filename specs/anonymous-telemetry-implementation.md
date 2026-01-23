@@ -340,8 +340,7 @@ interface AgentSessionEvent {
   anonymousId: string;
   sessionId: string;         // UUID per session
   eventType: 'agent_session';
-  timestamp: string;         // Session end time
-  sessionStartedAt: string;  // Session start time
+  timestamp: string;         // ISO 8601 timestamp when session ended
   agentType: 'claude' | 'opencode' | 'copilot';
   commands: string[];        // Commands extracted (includes duplicates for usage frequency)
   commandCount: number;      // Total count including repeated commands
@@ -375,7 +374,6 @@ We use a **three-hook accumulation strategy**:
 
 1. **`sessionStart`** (`.github/scripts/start-ralph-session.sh`):
    - Clear temp file from previous session
-   - Store session start timestamp
    - Extract commands from `initialPrompt` if present
 
 2. **`userPromptSubmitted`** (`.github/hooks/prompt-hook.sh`):
@@ -406,7 +404,7 @@ This is critical because users who run agents directly (e.g., `claude` instead o
 ```jsonl
 {"anonymousId":"a1b2c3d4-...","eventId":"evt-1111-...","eventType":"atomic_command","timestamp":"2026-01-21T10:00:00Z","command":"init","agentType":"claude","success":true,"platform":"darwin","atomicVersion":"0.1.0","source":"cli"}
 {"anonymousId":"a1b2c3d4-...","eventId":"evt-2222-...","eventType":"cli_command","timestamp":"2026-01-21T10:05:00Z","agentType":"claude","commands":["/research-codebase"],"commandCount":1,"platform":"darwin","atomicVersion":"0.1.0","source":"cli"}
-{"anonymousId":"a1b2c3d4-...","sessionId":"sess-3333-...","eventType":"agent_session","sessionStartedAt":"2026-01-21T10:05:00Z","timestamp":"2026-01-21T10:30:00Z","agentType":"claude","commands":["/create-spec","/commit"],"commandCount":2,"platform":"darwin","atomicVersion":"0.1.0","source":"session_hook"}
+{"anonymousId":"a1b2c3d4-...","sessionId":"sess-3333-...","eventType":"agent_session","timestamp":"2026-01-21T10:30:00Z","agentType":"claude","commands":["/create-spec","/commit"],"commandCount":2,"platform":"darwin","atomicVersion":"0.1.0","source":"session_hook"}
 ```
 
 **Benefits:**
@@ -626,7 +624,6 @@ async function promptTelemetryConsent(): Promise<boolean> {
 - **Metrics to Track:**
   - `atomic_command_count` by command type, agent type, success status
   - `slash_command_count` by command name, agent type
-  - `session_duration_seconds` histogram
   - `upload_success_rate` percentage
 
 - **Dashboards (Backend):**

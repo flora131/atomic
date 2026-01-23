@@ -10,6 +10,11 @@
 
 set -euo pipefail
 
+# Early exit if jq is not available
+if ! command -v jq &>/dev/null; then
+  exit 0  # Fail silently without jq
+fi
+
 # Get script directory for relative imports
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"

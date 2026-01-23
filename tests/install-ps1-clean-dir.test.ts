@@ -20,7 +20,7 @@ describe("install.ps1 clean data directory", () => {
     );
 
     expect(extractionSection).not.toBeNull();
-    const section = extractionSection![1];
+    const section = extractionSection![1]!;
 
     // Verify Remove-Item is present
     const removeItemIndex = section.indexOf("Remove-Item -Recurse -Force $DataDir");

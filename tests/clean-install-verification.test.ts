@@ -303,7 +303,7 @@ describe("cross-path stale artifact verification", () => {
         /# Extract config files to data directory.*?\n([\s\S]*?)# Verify installation/
       );
       expect(extractionMatch).not.toBeNull();
-      const shSection = extractionMatch![1];
+      const shSection = extractionMatch![1]!;
       const shRmIndex = shSection.indexOf('rm -rf "$DATA_DIR"');
       const shMkdirIndex = shSection.indexOf('mkdir -p "$DATA_DIR"');
       const shTarIndex = shSection.indexOf("tar -xzf");
@@ -319,7 +319,7 @@ describe("cross-path stale artifact verification", () => {
         /# Extract config files to data directory.*?\r?\n([\s\S]*?)# Verify installation/
       );
       expect(ps1ExtractionMatch).not.toBeNull();
-      const psSection = ps1ExtractionMatch![1];
+      const psSection = ps1ExtractionMatch![1]!;
       const psRemoveIndex = psSection.indexOf("Remove-Item -Recurse -Force $DataDir");
       const psNewItemIndex = psSection.indexOf("New-Item -ItemType Directory -Force -Path $DataDir");
       const psExpandIndex = psSection.indexOf("Expand-Archive");

@@ -131,7 +131,7 @@ describe("install.sh clean data directory", () => {
     );
 
     expect(extractionSection).not.toBeNull();
-    const section = extractionSection![1];
+    const section = extractionSection![1]!;
 
     // Verify the correct order: rm before mkdir before tar
     const rmIndex = section.indexOf('rm -rf "$DATA_DIR"');

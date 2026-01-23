@@ -33,7 +33,7 @@
       "Add '$null = New-Item -ItemType Directory -Force -Path $DataDir' after Remove-Item and before Expand-Archive",
       "Update the comment to indicate clean install behavior"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

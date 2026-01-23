@@ -34,3 +34,22 @@
 **Test results:** All 348 tests pass (5 in install-sh-clean-dir.test.ts)
 
 **Next feature:** Add Remove-Item and New-Item to install.ps1 before Expand-Archive
+
+## 2026-01-23: Clean Data Directory on Update - Feature 3 Complete
+
+### Feature: Add Remove-Item and New-Item to install.ps1 before Expand-Archive
+
+**Changes made:**
+1. `install.ps1:139-143` - Updated extraction section to:
+   - Changed comment to "clean install"
+   - Added `if (Test-Path $DataDir) { Remove-Item -Recurse -Force $DataDir }` before Expand-Archive
+   - Added `$null = New-Item -ItemType Directory -Force -Path $DataDir` after Remove-Item
+2. `tests/install-ps1-clean-dir.test.ts` - Created new test file with 4 tests:
+   - `install.ps1 contains Remove-Item before Expand-Archive`
+   - `install.ps1 guards Remove-Item with Test-Path check`
+   - `install.ps1 uses $null assignment for New-Item to suppress output`
+   - `install.ps1 comment indicates clean install behavior`
+
+**Test results:** All 352 tests pass (4 in install-ps1-clean-dir.test.ts)
+
+**Next feature:** Verify no stale artifacts remain after update or re-install across all three code paths

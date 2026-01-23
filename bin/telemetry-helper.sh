@@ -206,7 +206,7 @@ write_session_event() {
 
   # Build event JSON
   local event_json
-  event_json=$(jq -n \
+  event_json=$(jq -nc \
     --arg anonymousId "$anonymous_id" \
     --arg eventId "$event_id" \
     --arg sessionId "$session_id" \

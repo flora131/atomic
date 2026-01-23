@@ -198,8 +198,10 @@ main() {
     mv "${tmp_dir}/${BINARY_NAME}-${platform}" "${BIN_DIR}/${BINARY_NAME}"
     chmod +x "${BIN_DIR}/${BINARY_NAME}"
 
-    # Extract config files to data directory
+    # Extract config files to data directory (clean install)
     info "Installing config files to ${DATA_DIR}..."
+    rm -rf "$DATA_DIR"
+    mkdir -p "$DATA_DIR"
     tar -xzf "${tmp_dir}/${BINARY_NAME}-config.tar.gz" -C "$DATA_DIR"
 
     # Verify installation

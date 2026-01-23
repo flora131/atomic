@@ -14,3 +14,23 @@
 **Test results:** All 343 tests pass (20 in update.test.ts: 16 existing + 4 new)
 
 **Next feature:** Add rm -rf and mkdir -p to install.sh before tar extraction
+
+## 2026-01-23: Clean Data Directory on Update - Feature 2 Complete
+
+### Feature: Add rm -rf and mkdir -p to install.sh before tar extraction
+
+**Changes made:**
+1. `install.sh:201-205` - Updated extraction section to:
+   - Changed comment to "clean install"
+   - Added `rm -rf "$DATA_DIR"` before tar extraction
+   - Added `mkdir -p "$DATA_DIR"` after rm and before tar
+2. `tests/install-sh-clean-dir.test.ts` - Created new test file with 5 tests:
+   - `rm -rf and mkdir -p before tar removes stale files`
+   - `tar without rm leaves stale files in place`
+   - `rm -rf on non-existent directory succeeds`
+   - `mkdir -p recreates directory after rm -rf`
+   - `install.sh contains the rm -rf and mkdir -p commands before tar`
+
+**Test results:** All 348 tests pass (5 in install-sh-clean-dir.test.ts)
+
+**Next feature:** Add Remove-Item and New-Item to install.ps1 before Expand-Archive

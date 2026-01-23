@@ -21,7 +21,7 @@
       "Add 'mkdir -p \"$DATA_DIR\"' after the rm and before the tar command",
       "Update the comment to indicate clean install behavior"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

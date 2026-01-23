@@ -11,6 +11,11 @@
 #
 # Reference: Spec Section 5.3.3
 
+# Early exit if jq is not available
+if ! command -v jq &>/dev/null; then
+  exit 0  # Fail silently without jq
+fi
+
 # Atomic commands to track (must match constants.ts)
 ATOMIC_COMMANDS=(
   "/research-codebase"

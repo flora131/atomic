@@ -93,7 +93,7 @@
       "Add test for handling missing optional arguments",
       "Add test for completionPromise undefined vs string value"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

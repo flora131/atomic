@@ -99,7 +99,7 @@
       "Test round-trip parsing and writing consistency",
       "Test edge cases: special characters, multiline prompts, null values"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

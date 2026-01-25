@@ -6,5 +6,16 @@
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
-  "enableAllProjectMcpServers": true
+  "enableAllProjectMcpServers": true,
+  "extraKnownMarketplaces": {
+    "atomic-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "flora131/atomic"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "ralph@atomic-plugins": true
+  }
 }

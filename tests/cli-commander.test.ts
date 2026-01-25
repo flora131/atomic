@@ -530,3 +530,98 @@ describe("Ralph setup integration tests", () => {
     expect(result.stdout).toContain("Custom prompt: Custom task");
   });
 });
+
+/**
+ * Error message verification tests
+ * Ensures all error messages are preserved after refactor
+ */
+describe("Ralph setup error messages", () => {
+  const { spawn } = require("child_process");
+
+  test("non-claude agent shows correct error message", async () => {
+    const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
+      const proc = spawn("bun", ["run", "src/cli.ts", "ralph", "setup", "-a", "other"], {
+        cwd: process.cwd(),
+      });
+      
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+      
+      proc.on("close", (code: number) => {
+        resolve({ stdout, stderr, code: code ?? 1 });
+      });
+    });
+    
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Ralph loop currently only supports 'claude' agent");
+    expect(result.stderr).toContain("You provided: other");
+  });
+
+  test("missing required -a/--agent option shows error", async () => {
+    const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
+      const proc = spawn("bun", ["run", "src/cli.ts", "ralph", "setup"], {
+        cwd: process.cwd(),
+      });
+      
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+      
+      proc.on("close", (code: number) => {
+        resolve({ stdout, stderr, code: code ?? 1 });
+      });
+    });
+    
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("required option");
+    expect(result.stderr).toContain("-a, --agent");
+  });
+
+  test("invalid --max-iterations value shows descriptive error", async () => {
+    const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
+      const proc = spawn("bun", ["run", "src/cli.ts", "ralph", "setup", "-a", "claude", "--max-iterations", "abc"], {
+        cwd: process.cwd(),
+      });
+      
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+      
+      proc.on("close", (code: number) => {
+        resolve({ stdout, stderr, code: code ?? 1 });
+      });
+    });
+    
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("--max-iterations must be a positive integer or 0");
+    expect(result.stderr).toContain("abc");
+  });
+
+  test("missing feature list with default prompt shows helpful error", async () => {
+    const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
+      const proc = spawn("bun", ["run", "src/cli.ts", "ralph", "setup", "-a", "claude", "--feature-list", "does-not-exist.json"], {
+        cwd: process.cwd(),
+      });
+      
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+      
+      proc.on("close", (code: number) => {
+        resolve({ stdout, stderr, code: code ?? 1 });
+      });
+    });
+    
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Feature list not found at: does-not-exist.json");
+    expect(result.stderr).toContain("To fix this, either:");
+    expect(result.stderr).toContain("Create the feature list");
+    expect(result.stderr).toContain("Specify a different path");
+    expect(result.stderr).toContain("Use a custom prompt instead");
+  });
+});

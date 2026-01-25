@@ -245,3 +245,61 @@ Created `tests/ralph/ralph-loop-cli.test.ts` with comprehensive unit tests for C
 
 ### Next Steps:
 - Implement integration tests for full Ralph loop lifecycle (Feature 9)
+
+## 2026-01-24: Feature 9 Complete - Integration tests for Ralph loop lifecycle
+
+Created `tests/ralph/ralph-loop-integration.test.ts` with comprehensive integration tests for the full Ralph loop lifecycle.
+
+### Implementation Details:
+- Created 31 integration tests across 8 test categories
+- Tests actual script execution with real state files
+- Covers complete workflow from setup to cancellation
+
+### Test Categories:
+1. **Loop setup with ralph-loop.ts** (6 tests)
+   - State file creation with correct format
+   - Continue flag creation
+   - max_iterations, completion_promise, feature_list_path settings
+   - started_at timestamp validation
+2. **Session start hook increments iteration** (4 tests)
+   - Resume and startup sources increment
+   - Manual source does not increment
+   - Session start event logging
+3. **Stop hook updates state file** (2 tests)
+   - Session end event logging
+   - Graceful handling of missing state file
+4. **Cancel operation archives and cleans up** (5 tests)
+   - State file removal
+   - Continue flag removal
+   - Archive file creation with state data
+   - Graceful handling when no active loop
+5. **Max iterations limit** (3 tests)
+   - State file tracks iteration count
+   - Iteration increments on each session
+   - Unlimited iterations when max_iterations is 0
+6. **Completion promise handling** (3 tests)
+   - State file stores completion promise
+   - Null when not specified
+   - Special characters support
+7. **Cross-platform compatibility** (3 tests)
+   - CRLF line ending handling
+   - Bun runtime shebang verification
+   - UTF-8 encoding support
+8. **Full lifecycle workflow** (2 tests)
+   - Setup -> multiple cycles -> cancel
+   - Session log accumulation
+9. **Error handling** (3 tests)
+   - Malformed JSON input
+   - Empty input
+   - Missing log directory
+
+### Testing:
+- All 31 integration tests pass
+- All 146 Ralph tests pass
+- All 606 project tests pass
+
+### Files Created:
+- `tests/ralph/ralph-loop-integration.test.ts` - Integration tests for Ralph loop lifecycle
+
+### Next Steps:
+- Update documentation to reflect TypeScript conversion (Feature 10)

@@ -61,7 +61,7 @@
       "Test 'atomic config set telemetry false' sets configuration",
       "Test 'atomic config --help' shows available subcommands"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

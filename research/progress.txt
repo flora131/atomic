@@ -141,3 +141,34 @@ Feature 4: Add new run command to replace legacy --agent flag pattern
 
 ### Next Feature:
 Feature 5: Migrate config command with set subcommand
+
+---
+
+## 2026-01-25: Feature 5 - Migrate config command with set subcommand
+
+### Completed Steps:
+1. Added config parent command to src/cli.ts:
+   - Registered as "config" with description "Manage atomic configuration"
+   - Uses Commander.js nested command pattern
+
+2. Added 'set' subcommand with <key> and <value> arguments:
+   - Takes required <key> argument (e.g., telemetry)
+   - Takes required <value> argument (e.g., true, false)
+   - Shows helpful argument descriptions in help output
+
+3. Wired up to existing configCommand handler:
+   - Imported configCommand from src/commands/config.ts
+   - Passes "set" as subcommand, key, and value to handler
+   - Existing handler handles validation and execution
+
+4. Verified functionality:
+   - `atomic config --help` shows set subcommand
+   - `atomic config set --help` shows key and value arguments
+   - Types compile correctly with `bun run typecheck`
+   - All 624 tests pass
+
+### Files Modified:
+- `src/cli.ts` - Added config command with set subcommand
+
+### Next Feature:
+Feature 6: Migrate update command

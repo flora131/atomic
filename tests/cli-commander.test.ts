@@ -597,7 +597,7 @@ describe("Ralph setup error messages", () => {
     });
     
     expect(result.code).toBe(1);
-    expect(result.stderr).toContain("--max-iterations must be a positive integer or 0");
+    expect(result.stderr).toContain("Must be a positive integer or 0");
     expect(result.stderr).toContain("abc");
   });
 

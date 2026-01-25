@@ -2,7 +2,7 @@
  * Config path resolution for different installation types
  *
  * Supports three installation modes:
- * 1. Source/Development: Running from source with `bun run src/index.ts`
+ * 1. Source/Development: Running from source with `bun run src/cli.ts`
  * 2. npm/bun installed: Installed via `npm install -g @bastani/atomic`
  * 3. Binary executable: Installed via install.sh/install.ps1
  *

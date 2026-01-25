@@ -26,12 +26,9 @@ const ATOMIC_COMMANDS = [
   "/commit",
   "/create-gh-pr",
   "/explain-code",
-  "/ralph-loop",
   "/ralph:ralph-loop",
-  "/cancel-ralph",
   "/ralph:cancel-ralph",
-  "/ralph-help",
-  "/ralph:help",
+  "/ralph:ralph-help",
 ];
 
 // Get the telemetry data directory
@@ -277,7 +274,7 @@ async function spawnUploadProcess(): Promise<void> {
     // Check if atomic command exists
     await $`command -v atomic`.quiet();
     // Spawn in background
-    $`nohup atomic --upload-telemetry > /dev/null 2>&1 &`.quiet().nothrow();
+    $`nohup atomic upload-telemetry > /dev/null 2>&1 &`.quiet().nothrow();
   } catch {
     // atomic not available, skip
   }

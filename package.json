@@ -17,7 +17,7 @@
     "bun"
   ],
   "bin": {
-    "atomic": "src/index.ts"
+    "atomic": "src/cli.ts"
   },
   "files": [
     "src",
@@ -32,8 +32,8 @@
     "AGENTS.md"
   ],
   "scripts": {
-    "dev": "bun run src/index.ts",
-    "build": "bun build src/index.ts --compile --outfile atomic",
+    "dev": "bun run src/cli.ts",
+    "build": "bun build src/cli.ts --compile --outfile atomic",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --config=oxlint.json src",
@@ -46,11 +46,13 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.19",
     "@azure/monitor-opentelemetry": "^1.15.1",
     "@clack/prompts": "^0.11.0",
+    "@commander-js/extra-typings": "^14.0.0",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/api-logs": "^0.52.1",
     "ci-info": "^4.3.1",
-    "@anthropic-ai/claude-agent-sdk": "^0.2.19"
+    "commander": "^14.0.2"
   }
 }

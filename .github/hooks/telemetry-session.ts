@@ -18,12 +18,9 @@ const ATOMIC_COMMANDS = [
   "/commit",
   "/create-gh-pr",
   "/explain-code",
-  "/ralph-loop",
   "/ralph:ralph-loop",
-  "/cancel-ralph",
   "/ralph:cancel-ralph",
-  "/ralph-help",
-  "/ralph:help",
+  "/ralph:ralph-help",
 ];
 
 // Temp file for accumulating commands during session

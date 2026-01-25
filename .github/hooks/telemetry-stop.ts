@@ -217,7 +217,7 @@ async function writeSessionEvent(commands: string[]): Promise<boolean> {
 function spawnUploadProcess(): void {
   try {
     const isWindows = process.platform === "win32";
-    const child = spawn(isWindows ? "atomic.exe" : "atomic", ["--upload-telemetry"], {
+    const child = spawn(isWindows ? "atomic.exe" : "atomic", ["upload-telemetry"], {
       detached: true,
       stdio: "ignore",
       shell: isWindows,

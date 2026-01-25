@@ -1,0 +1,123 @@
+[
+  {
+    "category": "refactor",
+    "description": "Add RalphSetupOptions interface to src/commands/ralph.ts",
+    "steps": [
+      "Open src/commands/ralph.ts",
+      "Create and export RalphSetupOptions interface with typed properties",
+      "Include prompt (string[]), maxIterations (optional number), completionPromise (optional string), featureList (optional string)",
+      "Add JSDoc comments for each property",
+      "Verify interface compiles without errors"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Refactor ralphSetup() to accept options object instead of args array",
+    "steps": [
+      "Change ralphSetup() signature from (args: string[]) to (options: RalphSetupOptions)",
+      "Destructure options with defaults: maxIterations = 0, featureList = 'research/feature-list.json'",
+      "Update completionPromise to use undefined instead of 'null' string sentinel",
+      "Join prompt array to create userPrompt string",
+      "Update YAML output logic for completionPromise to handle undefined",
+      "Verify all existing functionality is preserved"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Remove manual argument parsing loop from ralph.ts (lines 452-534)",
+    "steps": [
+      "Locate the manual parsing loop in ralphSetup()",
+      "Remove the while loop that parses --max-iterations, --completion-promise, --feature-list",
+      "Remove the promptParts array and manual argument collection",
+      "Verify that all parsing is now handled by the options object destructuring",
+      "Ensure error handling remains intact"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Update CLI action handler in src/cli.ts to pass options directly",
+    "steps": [
+      "Open src/cli.ts and locate ralph setup action handler (lines 205-234)",
+      "Remove the args array construction logic",
+      "Replace ralphSetup(args) call with ralphSetup({ prompt, maxIterations, completionPromise, featureList })",
+      "Pass Commander.js parsed values directly as options object properties",
+      "Verify agent validation (claude-only check) remains in place"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Remove -h/--help handling from ralphSetup() function",
+    "steps": [
+      "Locate the if statement handling -h and --help in ralphSetup() (lines 463-465)",
+      "Remove the manual help handling code",
+      "Verify Commander.js automatically handles --help for the ralph setup subcommand",
+      "Test that 'atomic ralph setup --help' still displays help"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Remove or convert SETUP_HELP_TEXT constant",
+    "steps": [
+      "Locate SETUP_HELP_TEXT constant in src/commands/ralph.ts",
+      "Evaluate if custom help text is needed beyond Commander.js auto-generated help",
+      "If examples are needed, convert to Commander.js .addHelpText('after', examples) format",
+      "Remove SETUP_HELP_TEXT if not needed",
+      "Verify help output is adequate"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Investigate and potentially remove unused ralphCommand() function",
+    "steps": [
+      "Locate ralphCommand() function in src/commands/ralph.ts (lines 677-698)",
+      "Search codebase for any usages of ralphCommand()",
+      "If no usages found, remove the function",
+      "If usages exist, document them and decide if refactor is needed",
+      "Update any imports if function is removed"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Update unit tests for new RalphSetupOptions interface",
+    "steps": [
+      "Open tests/cli-commander.test.ts",
+      "Update ralph setup tests to use options object instead of args array",
+      "Add test for default values (maxIterations=0, featureList='research/feature-list.json')",
+      "Add test for handling missing optional arguments",
+      "Add test for completionPromise undefined vs string value"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Run integration tests for all ralph setup command combinations",
+    "steps": [
+      "Test basic setup: atomic ralph setup -a claude",
+      "Test with prompt: atomic ralph setup -a claude 'implement X'",
+      "Test with max-iterations: atomic ralph setup -a claude --max-iterations 10",
+      "Test with completion-promise: atomic ralph setup -a claude --completion-promise 'DONE'",
+      "Test with feature-list: atomic ralph setup -a claude --feature-list custom.json",
+      "Test all options combined"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Verify all error messages are preserved after refactor",
+    "steps": [
+      "Test error for non-claude agent: atomic ralph setup -a other",
+      "Test error for missing feature list with default prompt",
+      "Compare error messages with pre-refactor output",
+      "Ensure user-facing messages are identical",
+      "Document any intentional message improvements"
+    ],
+    "passes": true
+  }
+]

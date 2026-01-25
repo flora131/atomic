@@ -163,18 +163,15 @@ describe("extractCommandsFromTranscript", () => {
   });
 
 
-  test("extracts all variations of ralph commands from user", () => {
+  test("extracts all ralph commands from user", () => {
     const transcript = createMessage(
       "user",
-      "/ralph-loop /ralph:ralph-loop /cancel-ralph /ralph:cancel-ralph /ralph-help /ralph:help"
+      "/ralph:ralph-loop /ralph:cancel-ralph /ralph:ralph-help"
     );
     const result = extractCommandsFromTranscript(transcript);
-    expect(result).toContain("/ralph-loop");
     expect(result).toContain("/ralph:ralph-loop");
-    expect(result).toContain("/cancel-ralph");
     expect(result).toContain("/ralph:cancel-ralph");
-    expect(result).toContain("/ralph-help");
-    expect(result).toContain("/ralph:help");
+    expect(result).toContain("/ralph:ralph-help");
   });
 
   test("does not extract partial matches", () => {

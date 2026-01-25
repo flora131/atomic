@@ -274,3 +274,43 @@ Feature 8: Migrate ralph command with setup and stop subcommands
 
 ### Next Feature:
 Feature 9: Add main entry point with telemetry and error handling
+
+---
+
+## 2026-01-25: Feature 9 - Add main entry point with telemetry and error handling
+
+### Completed Steps:
+1. Added spawnTelemetryUpload function:
+   - Prevents recursive spawns via ATOMIC_TELEMETRY_UPLOAD env var check
+   - Checks if telemetry is enabled via isTelemetryEnabledSync()
+   - Spawns detached background process for fire-and-forget telemetry upload
+   - Uses child.unref() to allow parent to exit without waiting
+
+2. Added main async function:
+   - Calls cleanupWindowsLeftoverFiles() before any parsing (no-op on non-Windows)
+   - Handles --upload-telemetry flag before Commander.js parsing
+   - Calls program.parseAsync() to execute the CLI
+   - Spawns telemetry upload after successful execution
+
+3. Added error handling:
+   - Catches errors from parseAsync() and command execution
+   - Shows colored error output using COLORS.yellow
+   - Spawns telemetry upload even on error (for failure tracking)
+   - Exits with code 1 on error
+
+4. Added required imports:
+   - spawn from "child_process" for background process
+   - cleanupWindowsLeftoverFiles from "./utils/cleanup"
+   - isTelemetryEnabledSync from "./utils/telemetry"
+   - handleTelemetryUpload from "./utils/telemetry/telemetry-upload"
+
+5. Verified functionality:
+   - Types compile correctly with `bun run typecheck`
+   - All 624 tests pass
+   - Help output shows all commands correctly
+
+### Files Modified:
+- `src/cli.ts` - Added main entry point with telemetry and error handling (lines 258-323)
+
+### Next Feature:
+Feature 10: Update package.json bin entry to new CLI

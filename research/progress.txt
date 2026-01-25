@@ -374,3 +374,24 @@ Feature 11: Update tests for new run command syntax
 
 ### Next Feature:
 Feature 12: Update Ralph plugin files for new CLI syntax
+
+---
+
+## 2026-01-25: Feature 12 - Update Ralph plugin files for new CLI syntax
+
+### Completed Steps:
+1. Updated `plugins/ralph/commands/ralph-loop.md`:
+   - Changed allowed-tools from `Bash(atomic -a claude ralph*)` to `Bash(atomic ralph*)`
+   - Changed command from `atomic -a claude ralph setup $ARGUMENTS` to `atomic ralph setup -a claude $ARGUMENTS`
+
+2. Updated `plugins/ralph/hooks/hooks.json`:
+   - Changed command from `atomic -a claude ralph stop` to `atomic ralph stop -a claude`
+
+3. Verified all 655 tests pass
+
+### Files Modified:
+- `plugins/ralph/commands/ralph-loop.md` - Updated CLI syntax for ralph setup
+- `plugins/ralph/hooks/hooks.json` - Updated CLI syntax for ralph stop
+
+### Next Feature:
+Feature 13: Update README.md with new CLI syntax

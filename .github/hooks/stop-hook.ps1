@@ -225,7 +225,7 @@ function Get-CopilotAgents {
                                 $agentFile = ".github\agents\$agentName.md"
 
                                 if (Test-Path $agentFile) {
-                                    $foundAgents += $agentName
+                                    $foundAgents += "/$agentName"
                                 }
                             }
                         }
@@ -240,7 +240,7 @@ function Get-CopilotAgents {
                         $agentFile = ".github\agents\$agentName.md"
 
                         if (Test-Path $agentFile) {
-                            $foundAgents += $agentName
+                            $foundAgents += "/$agentName"
                         }
                     }
                 }
@@ -283,7 +283,7 @@ function Get-CopilotAgents {
                                 # Match header (case-sensitive exact match)
                                 if ($agentHeader -ceq $headerLine) {
                                     $agentName = [System.IO.Path]::GetFileNameWithoutExtension($agentFile.Name)
-                                    $foundAgents += $agentName
+                                    $foundAgents += "/$agentName"
                                     break
                                 }
                             }

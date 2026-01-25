@@ -233,7 +233,7 @@ detect_copilot_agents() {
 
       for agent_name in $agent_types; do
         if [[ -n "$agent_name" ]] && [[ -f ".github/agents/${agent_name}.md" ]]; then
-          found_agents+=("$agent_name")
+          found_agents+=("/$agent_name")
         fi
       done
     fi
@@ -245,7 +245,7 @@ detect_copilot_agents() {
       tool_agent_name=$(echo "$line" | jq -r '.data.toolTelemetry.properties.agent_name // empty' 2>/dev/null)
 
       if [[ -n "$tool_agent_name" ]] && [[ -f ".github/agents/${tool_agent_name}.md" ]]; then
-        found_agents+=("$tool_agent_name")
+        found_agents+=("/$tool_agent_name")
       fi
     fi
 

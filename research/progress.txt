@@ -77,3 +77,29 @@ All 15 tests pass.
 
 ### Next Steps:
 - Update stop-hook.ts to read new YAML frontmatter state file format (Feature 4)
+
+## 2026-01-24: Feature 4 Complete - stop-hook.ts YAML frontmatter update
+
+Updated `.github/hooks/stop-hook.ts` to read and write the new YAML frontmatter state file format.
+
+### Implementation Details:
+- Changed state file path from `.github/ralph-loop.local.json` to `.github/ralph-loop.local.md`
+- Added `parseRalphState()` function using regex pattern from `.opencode/plugin/ralph.ts`
+- Added `writeRalphState()` function to write YAML frontmatter format
+- Updated archive file format from `.json` to `.md` with YAML frontmatter
+- Removed unused `checkCompletionPromise()` function (handled by OpenCode plugin)
+- Removed unused `RalphState` interface (replaced by `ParsedRalphState`)
+- Replaced `renameSync` import with `readFileSync`
+
+### Testing:
+- Verified state file parsing works with YAML frontmatter format
+- Verified iteration increment updates state correctly
+- Verified max iterations completion archives state and cleans up
+- Verified archive file uses YAML frontmatter format with completion metadata
+- All 488 existing tests still pass
+
+### Files Modified:
+- `.github/hooks/stop-hook.ts` - Updated to use YAML frontmatter format
+
+### Next Steps:
+- Update hooks.json to reference new TypeScript sessionStart script (Feature 5)

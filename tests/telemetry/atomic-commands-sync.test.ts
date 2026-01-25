@@ -8,7 +8,7 @@ import { ATOMIC_COMMANDS } from "../../src/utils/telemetry/constants";
  * 1. src/utils/telemetry/constants.ts (source of truth)
  * 2. .opencode/plugin/telemetry.ts (OpenCode plugin - inlined)
  * 3. .claude/hooks/telemetry-stop.ts (Claude Code hook - inlined)
- * 4. .github/hooks/stop-hook.ts (Copilot hook - inlined)
+ * 4. .github/hooks/telemetry-session.ts (Copilot hook - inlined)
  *
  * These tests prevent accidental desynchronization when updating command lists.
  */
@@ -54,7 +54,7 @@ test("ATOMIC_COMMANDS is synchronized across all TypeScript locations", () => {
   const claudeCommands = extractTypeScriptCommands(claudeFilePath);
 
   // Extract from Copilot hook
-  const copilotFilePath = join(projectRoot, ".github/hooks/stop-hook.ts");
+  const copilotFilePath = join(projectRoot, ".github/hooks/telemetry-session.ts");
   const copilotCommands = extractTypeScriptCommands(copilotFilePath);
 
   // Verify all match the source of truth

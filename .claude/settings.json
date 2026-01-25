@@ -17,5 +17,18 @@
   },
   "enabledPlugins": {
     "ralph@atomic-plugins": true
+  },
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "./.claude/hooks/telemetry-stop.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
   }
 }

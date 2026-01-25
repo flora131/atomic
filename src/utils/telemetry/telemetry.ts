@@ -14,6 +14,7 @@ import { join } from "path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
 import { getBinaryDataDir } from "../config-path";
 import type { TelemetryState } from "./types";
+import { handleTelemetryError } from "./telemetry-errors";
 
 // Dynamically import ci-info to handle case where it's not installed yet
 let ciInfo: { isCI: boolean } | null = null;
@@ -74,13 +75,13 @@ export function readTelemetryState(): TelemetryState | null {
       typeof state.createdAt !== "string" ||
       typeof state.rotatedAt !== "string"
     ) {
-      console.warn("Telemetry state file is corrupted, ignoring");
+      handleTelemetryError(new Error("Corrupted telemetry state"), "readTelemetryState:corrupted");
       return null;
     }
 
     return state;
   } catch {
-    console.warn("Failed to read telemetry state, ignoring");
+    handleTelemetryError(new Error("Failed to read telemetry state"), "readTelemetryState");
     return null;
   }
 }

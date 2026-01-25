@@ -1,7 +1,11 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import { existsSync, mkdirSync, appendFileSync, readFileSync } from "fs"
-import { join, dirname } from "path"
-import { spawn } from "child_process"
+import { existsSync, readFileSync } from "fs"
+import { join } from "path"
+import { spawn, execSync } from "child_process"
+import { getBinaryDataDir } from "../../src/utils/config-path"
+import { appendEvent } from "../../src/utils/telemetry/telemetry-file-io"
+import { createSessionEvent } from "../../src/utils/telemetry/telemetry-session"
+import { handleTelemetryError } from "../../src/utils/telemetry/telemetry-errors"
 
 /**
  * Telemetry Plugin for OpenCode
@@ -9,7 +13,21 @@ import { spawn } from "child_process"
  * Tracks Atomic slash commands used during OpenCode sessions.
  * Writes agent_session events to the telemetry buffer file when sessions end.
  *
+ * Detection Strategy:
+ * 1. Primary: command.execute.before hook - receives command name directly
+ * 2. Fallback: chat.message hook - detects commands in agent responses
+ *
+ * OpenCode Hooks Used:
+ * - command.execute.before: Intercept slash commands before expansion
+ * - chat.message: Process expanded message content (fallback detection)
+ *
+ * OpenCode Event Types Used:
+ * - session.created: New session initialized
+ * - session.status: Session execution status (idle/busy/retry)
+ * - session.deleted: Session removed
+ *
  * Reference: Spec Section 5.3.3
+ * OpenCode Docs: https://opencode.ai/docs/plugins/
  */
 
 // Atomic commands to track (must match constants.ts)
@@ -53,32 +71,14 @@ interface TelemetryState {
   rotatedAt: string
 }
 
-/**
- * Get the telemetry data directory
- * Follows same logic as config-path.ts getBinaryDataDir()
- */
-function getTelemetryDataDir(): string {
-  if (process.platform === "win32") {
-    const localAppData =
-      process.env.LOCALAPPDATA || join(process.env.USERPROFILE || "", "AppData", "Local")
-    return join(localAppData, "atomic")
-  }
-  const xdgDataHome = process.env.XDG_DATA_HOME || join(process.env.HOME || "", ".local", "share")
-  return join(xdgDataHome, "atomic")
-}
-
-/**
- * Get path to telemetry-events.jsonl
- */
-function getEventsFilePath(): string {
-  return join(getTelemetryDataDir(), "telemetry-events.jsonl")
-}
+// getTelemetryDataDir moved to src/utils/config-path.ts (getBinaryDataDir)
+// getEventsFilePath moved to src/utils/telemetry/telemetry-file-io.ts
 
 /**
  * Get path to telemetry.json state file
  */
 function getTelemetryStatePath(): string {
-  return join(getTelemetryDataDir(), "telemetry.json")
+  return join(getBinaryDataDir(), "telemetry.json")
 }
 
 /**
@@ -117,10 +117,23 @@ function getAnonymousId(): string | null {
 }
 
 /**
- * Get Atomic version
+ * Get Atomic version.
+ *
+ * TODO(Phase N): Replace "unknown" with actual version from package.json
+ * Requires robust path resolution across installation types (npm/bun/binary).
+ * Not dead code - actively used but stubbed for now.
  */
 function getAtomicVersion(): string {
-  return "unknown" // Plugin doesn't have easy access to atomic version
+  return "unknown"
+}
+
+/**
+ * Normalize command name to match ATOMIC_COMMANDS format.
+ * Handles both "command-name" and "/command-name" formats.
+ */
+function normalizeCommandName(commandName: string): string | null {
+  const withSlash = commandName.startsWith("/") ? commandName : `/${commandName}`
+  return ATOMIC_COMMANDS.includes(withSlash as any) ? withSlash : null
 }
 
 /**
@@ -149,43 +162,22 @@ function extractCommands(text: string): string[] {
 
 /**
  * Write session event to telemetry file
+ * Uses shared createSessionEvent and appendEvent from telemetry modules
  */
-function writeSessionEvent(
-  agentType: AgentType,
-  commands: string[]
-): void {
-  if (!isTelemetryEnabled()) return
-  if (commands.length === 0) return
-
-  const anonymousId = getAnonymousId()
-  if (!anonymousId) return
-
-  const eventId = crypto.randomUUID()
-
-  const event: AgentSessionEvent = {
-    anonymousId,
-    eventId,
-    sessionId: eventId,
-    eventType: "agent_session",
-    timestamp: new Date().toISOString(),
-    agentType,
-    commands,
-    commandCount: commands.length,
-    platform: process.platform,
-    atomicVersion: getAtomicVersion(),
-    source: "session_hook",
-  }
-
-  const eventsPath = getEventsFilePath()
-  const eventsDir = dirname(eventsPath)
-
+function writeSessionEvent(agentType: AgentType, commands: string[]): void {
   try {
-    if (!existsSync(eventsDir)) {
-      mkdirSync(eventsDir, { recursive: true })
+    if (!isTelemetryEnabled()) {
+      return
     }
-    appendFileSync(eventsPath, JSON.stringify(event) + "\n", "utf-8")
-  } catch {
-    // Fail silently - telemetry should never break plugin
+    if (commands.length === 0) {
+      return
+    }
+
+    // createSessionEvent handles anonymous ID internally via getOrCreateTelemetryState
+    const event = createSessionEvent(agentType, commands)
+    appendEvent(event, agentType)
+  } catch (error) {
+    handleTelemetryError(error, "opencode:writeSessionEvent")
   }
 }
 
@@ -194,13 +186,44 @@ function writeSessionEvent(
  */
 function spawnUpload(): void {
   try {
-    // Find atomic binary
-    const atomicPath =
-      process.platform === "win32"
-        ? join(process.env.USERPROFILE || "", ".local", "bin", "atomic.exe")
-        : join(process.env.HOME || "", ".local", "bin", "atomic")
+    let atomicPath: string | null = null
 
-    if (existsSync(atomicPath)) {
+    // Method 1: Check for bun installation (preferred for bun installs)
+    // Bun installations are typically at ~/.bun/bin/atomic and are script files
+    const bunPath =
+      process.platform === "win32"
+        ? join(process.env.USERPROFILE || "", ".bun", "bin", "atomic.exe")
+        : join(process.env.HOME || "", ".bun", "bin", "atomic")
+
+    if (existsSync(bunPath)) {
+      atomicPath = bunPath
+    }
+
+    // Method 2: Try to find atomic in PATH (works for both bun and native if in PATH)
+    if (!atomicPath) {
+      try {
+        const whichCommand = process.platform === "win32" ? "where atomic" : "which atomic"
+        const result = execSync(whichCommand, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] })
+        atomicPath = result.trim().split("\n")[0]
+      } catch {
+        // Not in PATH
+      }
+    }
+
+    // Method 3: Fall back to hardcoded native installation path
+    if (!atomicPath) {
+      const nativePath =
+        process.platform === "win32"
+          ? join(process.env.USERPROFILE || "", ".local", "bin", "atomic.exe")
+          : join(process.env.HOME || "", ".local", "bin", "atomic")
+
+      if (existsSync(nativePath)) {
+        atomicPath = nativePath
+      }
+    }
+
+    // Spawn upload process if we found a binary
+    if (atomicPath) {
       const child = spawn(atomicPath, ["--upload-telemetry"], {
         detached: true,
         stdio: "ignore",
@@ -216,50 +239,70 @@ function spawnUpload(): void {
 // Using array (not Set) to preserve duplicates for usage frequency tracking
 let sessionCommands: string[] = []
 
-export default {
-  name: "telemetry",
-  version: "1.0.0",
-  description: "Tracks Atomic slash command usage for anonymous telemetry",
+export const TelemetryPlugin: Plugin = async ({ directory, client }) => {
 
-  create: ({ directory, client }) => ({
+  return {
+    /**
+     * HOOK: command.execute.before
+     * Primary detection method - intercepts slash commands before expansion
+     * Receives the command name directly (e.g., "research-codebase")
+     */
+    "command.execute.before": async (input, output) => {
+      const commandName = normalizeCommandName(input.command)
+
+      if (commandName) {
+        sessionCommands.push(commandName)
+      }
+    },
+
+    /**
+     * HOOK: chat.message
+     * Fallback detection for commands mentioned in agent responses
+     * E.g., when an agent says "I'll use /commit to save your changes"
+     */
+    "chat.message": async (input, output) => {
+      for (const part of output.parts) {
+        if (part.type === "text" && typeof part.text === "string") {
+          // Check if message contains slash commands mentioned in text (agent responses)
+          const commands = extractCommands(part.text)
+          if (commands.length > 0) {
+            sessionCommands.push(...commands)
+          }
+        }
+      }
+    },
+
     /**
      * Handle events for telemetry tracking
      */
     event: async ({ event }) => {
       // Track session start
-      if (event.type === "session.start" || event.type === "session.created") {
+      if (event.type === "session.created") {
         sessionCommands = []
         return
       }
 
-      // Track commands from messages
-      if (event.type === "message.created" || event.type === "message.updated") {
-        const content = event.properties?.content
-        if (typeof content === "string") {
-          const commands = extractCommands(content)
-          // Append all commands (including duplicates) for usage frequency tracking
-          sessionCommands.push(...commands)
+      // Track session end via status idle (preferred method)
+      if (event.type === "session.status") {
+        const status = event.properties?.status
+        if (status?.type === "idle" && sessionCommands.length > 0) {
+          writeSessionEvent("opencode", sessionCommands)
+          spawnUpload()
+          // Reset for next interaction (but don't clear - session may continue)
+          sessionCommands = []
         }
         return
       }
 
-      // Track session end
-      if (event.type === "session.end" || event.type === "session.closed") {
+      // Also handle explicit session deletion as cleanup
+      if (event.type === "session.deleted") {
         if (sessionCommands.length > 0) {
           writeSessionEvent("opencode", sessionCommands)
           spawnUpload()
         }
-        // Reset for next session
         sessionCommands = []
         return
       }
-
-      // Also check for idle status as session end indicator
-      if (event.type === "session.status" && event.properties?.status?.type === "idle") {
-        // Don't end the session on idle - wait for explicit session end
-        // But we can extract commands from any accumulated messages
-        return
-      }
     },
-  }),
-} satisfies Plugin
+  }
+}

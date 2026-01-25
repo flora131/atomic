@@ -9,28 +9,22 @@
  * Reference: Spec Section 5.3.1
  */
 
-import { existsSync, mkdirSync, appendFileSync } from "fs";
-import { join } from "path";
-import { getBinaryDataDir } from "../config-path";
 import { isTelemetryEnabledSync, getOrCreateTelemetryState } from "./telemetry";
 import type {
   AtomicCommandEvent,
   AtomicCommandType,
   AgentType,
   CliCommandEvent,
-  TelemetryEvent,
 } from "./types";
 import { VERSION } from "../../version";
 import { ATOMIC_COMMANDS } from "./constants";
+import { appendEvent, getEventsFilePath } from "./telemetry-file-io";
+import { handleTelemetryError } from "./telemetry-errors";
 
-/**
- * Get the path to the telemetry events JSONL file.
- *
- * @returns Absolute path to telemetry-events.jsonl in the data directory
- */
-export function getEventsFilePath(): string {
-  return join(getBinaryDataDir(), "telemetry-events.jsonl");
-}
+// Re-export for backward compatibility
+export { getEventsFilePath } from "./telemetry-file-io";
+
+// getEventsFilePath moved to telemetry-file-io.ts and re-exported above
 
 /**
  * Base event fields that are common to all telemetry events.
@@ -95,31 +89,7 @@ export function extractCommandsFromArgs(args: string[]): string[] {
   return [...new Set(foundCommands)];
 }
 
-/**
- * Append an event to the telemetry events JSONL file.
- * Uses atomic append-only writes for concurrent safety.
- * Fails silently to ensure telemetry never breaks CLI operation.
- *
- * @param event - The event object to append
- */
-function appendEvent(event: TelemetryEvent): void {
-  try {
-    const dataDir = getBinaryDataDir();
-
-    // Ensure data directory exists before writing
-    if (!existsSync(dataDir)) {
-      mkdirSync(dataDir, { recursive: true });
-    }
-
-    const eventsPath = getEventsFilePath();
-    const line = JSON.stringify(event) + "\n";
-
-    // Atomic append-only write
-    appendFileSync(eventsPath, line, "utf-8");
-  } catch {
-    // Fail silently - telemetry should never break the CLI
-  }
-}
+// appendEvent moved to telemetry-file-io.ts to avoid duplication
 
 /**
  * Track an Atomic CLI command execution.
@@ -165,7 +135,7 @@ export function trackAtomicCommand(
   };
 
   // Write to JSONL buffer
-  appendEvent(event);
+  appendEvent(event, agentType);
 }
 
 /**
@@ -211,5 +181,5 @@ export function trackCliInvocation(agentType: AgentType, args: string[]): void {
   };
 
   // Write to JSONL buffer
-  appendEvent(event);
+  appendEvent(event, agentType);
 }

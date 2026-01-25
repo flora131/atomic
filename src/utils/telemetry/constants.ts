@@ -10,6 +10,12 @@
 /**
  * List of all Atomic slash commands that are tracked.
  * Includes both short and fully-qualified (namespace:command) forms.
+ *
+ * IMPORTANT: This list is duplicated in:
+ * - bin/telemetry-helper.sh (ATOMIC_COMMANDS array)
+ * - .opencode/plugin/telemetry.ts (ATOMIC_COMMANDS const)
+ *
+ * Tests in atomic-commands-sync.test.ts verify synchronization.
  */
 export const ATOMIC_COMMANDS = [
   "/research-codebase",

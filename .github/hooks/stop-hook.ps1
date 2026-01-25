@@ -36,6 +36,55 @@ $LogEntry = @{
 
 Add-Content -Path "$RalphLogDir/ralph-sessions.jsonl" -Value $LogEntry
 
+# ============================================================================
+# TELEMETRY TRACKING
+# ============================================================================
+# Track agent session telemetry by detecting custom agents from events.jsonl
+# Agents are detected from Copilot's session state directory.
+# IMPORTANT: This runs BEFORE Ralph loop check to ensure telemetry is captured
+# for all sessions, not just Ralph loop sessions.
+
+# Skip telemetry if not PowerShell 7+
+$SKIP_TELEMETRY = $PSVersionTable.PSVersion.Major -lt 7
+
+if (-not $SKIP_TELEMETRY) {
+    try {
+        # Get script directory and project root for relative imports
+        $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+        $ProjectRoot = Split-Path -Parent (Split-Path -Parent $ScriptDir)
+
+        # Source telemetry helper functions
+        $TelemetryHelper = Join-Path $ProjectRoot "bin\telemetry-helper.ps1"
+
+        if (Test-Path $TelemetryHelper) {
+            . $TelemetryHelper
+
+            if (Test-TelemetryEnabled) {
+                # Detect agents from Copilot session events.jsonl
+                $DetectedAgents = Get-CopilotAgents
+
+                if ($DetectedAgents -and $DetectedAgents.Count -gt 0) {
+                    # Write telemetry event with detected agents
+                    Write-SessionEvent -AgentType "copilot" -Commands $DetectedAgents
+
+                    # Spawn upload process
+                    Start-TelemetryUpload
+                }
+            }
+        }
+    } catch {
+        # Silent failure - telemetry must never break Copilot CLI
+        # Debug logging available via ATOMIC_TELEMETRY_DEBUG=1
+        if ($env:ATOMIC_TELEMETRY_DEBUG -eq '1') {
+            Write-Error "[Telemetry] Failed during session tracking: $_"
+        }
+    }
+}
+
+# ============================================================================
+# RALPH LOOP LOGIC
+# ============================================================================
+
 # Check if Ralph loop is active
 if (-not (Test-Path $RalphStateFile)) {
     # No active loop - clean exit
@@ -106,6 +155,154 @@ function Test-CompletionPromise {
     }
 
     return $false
+}
+
+# Function to detect Copilot agents from session events.jsonl
+function Get-CopilotAgents {
+    <#
+    .SYNOPSIS
+        Detects custom agent invocations from Copilot CLI session events
+
+    .DESCRIPTION
+        Parses the most recent Copilot session's events.jsonl file to detect
+        which custom agents were invoked during the session.
+        Uses three detection methods for comprehensive coverage.
+
+    .OUTPUTS
+        System.String[] - Array of detected agent names
+    #>
+
+    # Copilot session state directory
+    $copilotStateDir = Join-Path $env:USERPROFILE ".copilot\session-state"
+
+    # Early exit if Copilot state directory doesn't exist
+    if (-not (Test-Path $copilotStateDir)) {
+        return @()
+    }
+
+    # Find the most recent session directory
+    try {
+        $latestSession = Get-ChildItem -Path $copilotStateDir -Directory -ErrorAction Stop |
+                         Sort-Object LastWriteTime -Descending |
+                         Select-Object -First 1
+    } catch {
+        return @()
+    }
+
+    if (-not $latestSession) {
+        return @()
+    }
+
+    $eventsFile = Join-Path $latestSession.FullName "events.jsonl"
+
+    if (-not (Test-Path $eventsFile)) {
+        return @()
+    }
+
+    $foundAgents = @()
+
+    # Parse events.jsonl line by line
+    try {
+        $lines = Get-Content -Path $eventsFile -ErrorAction Stop
+
+        foreach ($line in $lines) {
+            if ([string]::IsNullOrWhiteSpace($line)) {
+                continue
+            }
+
+            try {
+                $event = $line | ConvertFrom-Json -ErrorAction Stop
+                $eventType = $event.type
+
+                # Method 1: Check assistant.message for task tool calls with agent_type
+                # This handles natural language invocations like "use explain-code to..."
+                if ($eventType -eq 'assistant.message') {
+                    $toolRequests = $event.data.toolRequests
+                    if ($toolRequests) {
+                        foreach ($toolRequest in $toolRequests) {
+                            if ($toolRequest.name -eq 'task' -and $toolRequest.arguments.agent_type) {
+                                $agentName = $toolRequest.arguments.agent_type
+                                $agentFile = ".github\agents\$agentName.md"
+
+                                if (Test-Path $agentFile) {
+                                    $foundAgents += $agentName
+                                }
+                            }
+                        }
+                    }
+                }
+
+                # Method 2: Check tool.execution_complete for agent_name in telemetry
+                # This is a fallback that captures agents from tool telemetry
+                if ($eventType -eq 'tool.execution_complete') {
+                    $agentName = $event.data.toolTelemetry.properties.agent_name
+                    if ($agentName) {
+                        $agentFile = ".github\agents\$agentName.md"
+
+                        if (Test-Path $agentFile) {
+                            $foundAgents += $agentName
+                        }
+                    }
+                }
+
+                # Method 3: Check user.message transformedContent for agent instructions
+                # This handles dropdown selections and direct CLI usage (copilot --agent=X)
+                if ($eventType -eq 'user.message') {
+                    $transformed = $event.data.transformedContent
+
+                    if ($transformed -and $transformed -like '*<agent_instructions>*') {
+                        # Extract the header line (first line after <agent_instructions>)
+                        $lines = $transformed -split "`n"
+                        $instructionsIndex = -1
+
+                        for ($i = 0; $i -lt $lines.Count; $i++) {
+                            if ($lines[$i] -match '<agent_instructions>') {
+                                $instructionsIndex = $i
+                                break
+                            }
+                        }
+
+                        if ($instructionsIndex -ge 0 -and ($instructionsIndex + 1) -lt $lines.Count) {
+                            $headerLine = $lines[$instructionsIndex + 1] -replace '^#\s*', ''
+
+                            # Match against all agent file headers
+                            $agentFiles = Get-ChildItem -Path ".github\agents\*.md" -ErrorAction SilentlyContinue
+
+                            foreach ($agentFile in $agentFiles) {
+                                # Extract header from agent file (first line starting with #, skip front matter)
+                                $content = Get-Content -Path $agentFile.FullName -ErrorAction SilentlyContinue
+                                $agentHeader = $null
+
+                                foreach ($contentLine in $content) {
+                                    if ($contentLine -match '^#\s+(.+)$') {
+                                        $agentHeader = $Matches[1]
+                                        break
+                                    }
+                                }
+
+                                # Match header (case-sensitive exact match)
+                                if ($agentHeader -ceq $headerLine) {
+                                    $agentName = [System.IO.Path]::GetFileNameWithoutExtension($agentFile.Name)
+                                    $foundAgents += $agentName
+                                    break
+                                }
+                            }
+                        }
+                    }
+                }
+
+            } catch {
+                # Skip malformed JSON lines
+                continue
+            }
+        }
+    } catch {
+        # Silent failure on file read errors
+        return @()
+    }
+
+    # Return unique agents (preserving duplicates for frequency tracking)
+    return $foundAgents
 }
 
 # Check completion conditions

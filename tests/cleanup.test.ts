@@ -45,7 +45,8 @@ describe("tryRemoveFile", () => {
 
   test("handles errors gracefully", async () => {
     // Try to remove a file in a non-existent directory
-    const badPath = join("/nonexistent-dir-12345", "file.txt");
+    // Use a path that works on both Windows and Unix
+    const badPath = join(tmpdir(), "nonexistent-dir-12345-" + Date.now(), "file.txt");
 
     // Should not throw and should return true (file doesn't exist)
     const result = await tryRemoveFile(badPath);

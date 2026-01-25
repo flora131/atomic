@@ -55,12 +55,9 @@ $Prompt = if ($State.prompt) { $State.prompt } else { "" }
 $LastOutputFile = if ($State.lastOutputFile) { $State.lastOutputFile } else { "" }
 
 # Function to check if all features are passing
+# Note: Caller must verify file exists before calling this function
 function Test-AllFeaturesPassing {
     param([string]$Path)
-
-    if (-not (Test-Path $Path)) {
-        return $false
-    }
 
     try {
         $Features = Get-Content $Path -Raw | ConvertFrom-Json
@@ -119,8 +116,8 @@ if ($MaxIterations -gt 0 -and $Iteration -ge $MaxIterations) {
     Write-Host "Ralph loop: Max iterations ($MaxIterations) reached." -ForegroundColor Yellow
 }
 
-# Check 2: All features passing (only in unlimited mode)
-if ($ShouldContinue -and $MaxIterations -eq 0) {
+# Check 2: All features passing (only in unlimited mode when feature file exists)
+if ($ShouldContinue -and $MaxIterations -eq 0 -and (Test-Path $FeatureListPath)) {
     if (Test-AllFeaturesPassing -Path $FeatureListPath) {
         $ShouldContinue = $false
         $StopReason = "all_features_passing"

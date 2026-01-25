@@ -201,7 +201,8 @@ describe("Update Command Error Paths", () => {
         new Response(null, { status: 500, statusText: "Internal Server Error" })) as unknown as typeof fetch;
 
       try {
-        await expect(downloadFile("https://example.com/file", "/tmp/test")).rejects.toThrow(
+        const tmpDownloadPath = path.join(os.tmpdir(), `test-download-${Date.now()}`);
+        await expect(downloadFile("https://example.com/file", tmpDownloadPath)).rejects.toThrow(
           "Download failed"
         );
       } finally {
@@ -214,8 +215,8 @@ describe("Update Command Error Paths", () => {
     test("verifyChecksum throws when filename not found in checksums", async () => {
       const { verifyChecksum } = await import("../../src/utils/download");
 
-      // Create a temp file to verify
-      const tmpPath = `/tmp/test-checksum-${Date.now()}.txt`;
+      // Create a temp file to verify (using os.tmpdir() for cross-platform compatibility)
+      const tmpPath = path.join(os.tmpdir(), `test-checksum-${Date.now()}.txt`);
       await Bun.write(tmpPath, "test content");
 
       const checksumsTxt = "abc123  other-file.txt\ndef456  another-file.txt";
@@ -232,8 +233,8 @@ describe("Update Command Error Paths", () => {
     test("verifyChecksum returns false on checksum mismatch", async () => {
       const { verifyChecksum } = await import("../../src/utils/download");
 
-      // Create a temp file to verify
-      const tmpPath = `/tmp/test-checksum-mismatch-${Date.now()}.txt`;
+      // Create a temp file to verify (using os.tmpdir() for cross-platform compatibility)
+      const tmpPath = path.join(os.tmpdir(), `test-checksum-mismatch-${Date.now()}.txt`);
       await Bun.write(tmpPath, "test content");
 
       // Provide a wrong checksum for this filename

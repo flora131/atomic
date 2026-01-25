@@ -82,12 +82,9 @@ const ATOMIC_COMMANDS = [
   "/commit",
   "/create-gh-pr",
   "/explain-code",
-  "/ralph-loop",
   "/ralph:ralph-loop",
-  "/cancel-ralph",
   "/ralph:cancel-ralph",
-  "/ralph-help",
-  "/ralph:help",
+  "/ralph:ralph-help",
 ] as const
 
 // Plugin version - used when CLI version is not available
@@ -335,7 +332,7 @@ function spawnUpload(): void {
 
     // Spawn upload process if we found a binary
     if (atomicPath) {
-      const child = spawn(atomicPath, ["--upload-telemetry"], {
+      const child = spawn(atomicPath, ["upload-telemetry"], {
         detached: true,
         stdio: "ignore",
       })

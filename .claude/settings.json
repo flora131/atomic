@@ -24,7 +24,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bun run ${CLAUDE_PROJECT_DIR}/.claude/hooks/telemetry-stop.ts",
+            "command": "bun run \"${CLAUDE_PROJECT_DIR}/.claude/hooks/telemetry-stop.ts\"",
             "timeout": 30
           }
         ]

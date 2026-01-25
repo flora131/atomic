@@ -6,7 +6,17 @@
         "hooks": [
           {
             "type": "command",
-            "command": "atomic -a claude ralph stop"
+            "command": "atomic ralph stop -a claude"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "rm -f \"${CLAUDE_PROJECT_DIR}/.claude/ralph-loop.local.md\""
           }
         ]
       }

@@ -16,7 +16,7 @@ import { spawn } from "child_process";
  */
 describe("Update Command E2E", () => {
   let tmpDir: string;
-  const atomicPath = path.join(__dirname, "../../src/index.ts");
+  const atomicPath = path.join(__dirname, "../../src/cli.ts");
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "atomic-update-test-"));

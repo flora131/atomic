@@ -112,3 +112,26 @@
 - `research/feature-list.json` (marked feature as passing)
 
 **Working State:** All 38 tests passing, codebase stable
+
+### 2026-01-25 - Iteration 6
+
+**Feature Completed:** Run integration tests for all ralph setup command combinations
+
+**Summary:**
+- Added 6 integration tests using child_process to spawn actual CLI commands
+- Tests cover all command combinations:
+  1. Basic setup with -a claude (creates state file)
+  2. --max-iterations option
+  3. --completion-promise option
+  4. Custom prompt arguments
+  5. --feature-list with non-existent file (error handling)
+  6. All options combined
+- Also ran manual integration tests to verify all combinations work
+- Total tests increased from 38 to 44
+- TypeScript compiles without errors
+
+**Files Modified:**
+- `tests/cli-commander.test.ts` (added integration tests)
+- `research/feature-list.json` (marked feature as passing)
+
+**Working State:** All 44 tests passing, codebase stable

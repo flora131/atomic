@@ -106,7 +106,7 @@
       "Test with feature-list: atomic ralph setup -a claude --feature-list custom.json",
       "Test all options combined"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

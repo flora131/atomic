@@ -46,7 +46,6 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.19",
-    "@clack/prompts": "^0.11.0",
-    "bun": "^1.3.6"
+    "@clack/prompts": "^0.11.0"
   }
 }

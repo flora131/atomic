@@ -4,6 +4,7 @@ import { existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { extractConfig } from "../src/commands/update";
+import { isWindows } from "../src/utils/detect";
 
 /**
  * Cross-path verification tests for clean data directory behavior.
@@ -16,8 +17,11 @@ import { extractConfig } from "../src/commands/update";
  *
  * For paths 2 and 3, we simulate the shell commands since the full
  * scripts require network access and GitHub releases.
+ *
+ * NOTE: These tests are skipped on Windows because they require bash and tar
+ * commands that are not natively available on Windows.
  */
-describe("cross-path stale artifact verification", () => {
+describe.skipIf(isWindows())("cross-path stale artifact verification", () => {
   let testDir: string;
   let dataDir: string;
   let archivePath: string;

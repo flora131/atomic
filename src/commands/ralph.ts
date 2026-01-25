@@ -1,14 +1,43 @@
 #!/usr/bin/env bun
+/**
+ * Ralph CLI commands for atomic
+ *
+ * Usage:
+ *   atomic -a claude ralph setup [OPTIONS]   Initialize Ralph loop
+ *   atomic -a claude ralph stop              Stop hook handler (called by hooks)
+ */
 
-// Ralph Loop Setup Script
-// Creates state file for in-session Ralph loop
+import { mkdir, unlink, readFile, writeFile, stat } from "node:fs/promises";
+import type {
+  HookJSONOutput,
+  StopHookInput,
+} from "@anthropic-ai/claude-agent-sdk";
 
-import { mkdir } from "node:fs/promises";
+// ============================================================================
+// Types
+// ============================================================================
 
-const HELP_TEXT = `Ralph Loop - Interactive self-referential development loop
+interface TranscriptMessage {
+  role: string;
+  message: {
+    content: Array<{ type: string; text?: string }>;
+  };
+}
+
+interface FeatureItem {
+  passes?: boolean;
+}
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+const RALPH_STATE_FILE = ".claude/ralph-loop.local.md";
+
+const SETUP_HELP_TEXT = `Ralph Loop - Interactive self-referential development loop
 
 USAGE:
-  /ralph-loop [PROMPT...] [OPTIONS]
+  atomic -a claude ralph setup [PROMPT...] [OPTIONS]
 
 ARGUMENTS:
   PROMPT...    Initial prompt to start the loop (optional)
@@ -31,10 +60,10 @@ DESCRIPTION:
   - Learning how Ralph works
 
 EXAMPLES:
-  /ralph-loop                       (uses /implement-feature, runs until all features pass)
-  /ralph-loop --max-iterations 20   (uses /implement-feature with iteration limit)
-  /ralph-loop Build a todo API --completion-promise 'DONE' --max-iterations 20
-  /ralph-loop Refactor cache layer  (custom prompt, runs forever)
+  atomic -a claude ralph setup                       (uses /implement-feature, runs until all features pass)
+  atomic -a claude ralph setup --max-iterations 20   (uses /implement-feature with iteration limit)
+  atomic -a claude ralph setup Build a todo API --completion-promise 'DONE' --max-iterations 20
+  atomic -a claude ralph setup Refactor cache layer  (custom prompt, runs forever)
 
 STOPPING:
   Loop exits when any of these conditions are met:
@@ -128,9 +157,299 @@ Use the "Gang of Four" patterns as a shared vocabulary to solve recurring proble
     - Tip: this can be useful to revert bad code changes and recover working states of the codebase
 - Note: you are competing with another coding agent that also implements features. The one who does a better job implementing features will be promoted. Focus on quality, correctness, and thorough testing. The agent who breaks the rules for implementation will be fired.`;
 
-async function main() {
-  // Parse arguments
-  const args = process.argv.slice(2);
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+/**
+ * Read stdin asynchronously
+ */
+async function readStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf-8");
+}
+
+/**
+ * Parse markdown frontmatter (YAML between ---) and extract values
+ */
+function parseFrontmatter(content: string): Record<string, string> {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!match || !match[1]) return {};
+
+  const frontmatter: Record<string, string> = {};
+  const lines = match[1].split(/\r?\n/);
+  for (const line of lines) {
+    const colonIndex = line.indexOf(":");
+    if (colonIndex > 0) {
+      const key = line.slice(0, colonIndex).trim();
+      let value = line.slice(colonIndex + 1).trim();
+      if (value.startsWith('"') && value.endsWith('"')) {
+        value = value.slice(1, -1);
+      }
+      frontmatter[key] = value;
+    }
+  }
+  return frontmatter;
+}
+
+/**
+ * Extract prompt text (everything after the closing ---)
+ */
+function extractPromptText(content: string): string {
+  const lines = content.split(/\r?\n/);
+  let dashCount = 0;
+  const promptLines: string[] = [];
+
+  for (const line of lines) {
+    if (line === "---") {
+      dashCount++;
+      continue;
+    }
+    if (dashCount >= 2) {
+      promptLines.push(line);
+    }
+  }
+
+  return promptLines.join("\n");
+}
+
+/**
+ * Check if all features are passing
+ */
+async function testAllFeaturesPassing(
+  featureListPath: string,
+): Promise<boolean> {
+  try {
+    const content = await readFile(featureListPath, "utf-8");
+    const features: FeatureItem[] = JSON.parse(content);
+
+    const totalFeatures = features.length;
+    if (totalFeatures === 0) {
+      console.error("ERROR: research/feature-list.json is empty.");
+      return false;
+    }
+
+    const passingFeatures = features.filter((f) => f.passes === true).length;
+    const failingFeatures = totalFeatures - passingFeatures;
+
+    console.error(
+      `Feature Progress: ${passingFeatures} / ${totalFeatures} passing (${failingFeatures} remaining)`,
+    );
+
+    return failingFeatures === 0;
+  } catch {
+    console.error("ERROR: Failed to parse research/feature-list.json");
+    return false;
+  }
+}
+
+/**
+ * Extract text from <promise> tags
+ */
+function extractPromiseText(text: string): string {
+  const match = text.match(/<promise>([\s\S]*?)<\/promise>/);
+  if (!match || !match[1]) return "";
+  return match[1].trim().replace(/\s+/g, " ");
+}
+
+/**
+ * Check if a file exists
+ */
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ============================================================================
+// Stop Command
+// ============================================================================
+
+/**
+ * Handle the stop hook - called when Claude tries to exit
+ */
+export async function ralphStop(): Promise<number> {
+  // Step 1: Read stdin
+  const hookInputRaw = await readStdin();
+  let hookInput: StopHookInput;
+  try {
+    hookInput = JSON.parse(hookInputRaw);
+  } catch {
+    return 0;
+  }
+
+  // Step 2: Check if ralph-loop is active
+  if (!(await fileExists(RALPH_STATE_FILE))) {
+    return 0;
+  }
+
+  // Step 3: Read and parse state file
+  const stateContent = await readFile(RALPH_STATE_FILE, "utf-8");
+  const frontmatter = parseFrontmatter(stateContent);
+
+  const iterationStr = frontmatter["iteration"] || "";
+  const maxIterationsStr = frontmatter["max_iterations"] || "";
+  const completionPromise = frontmatter["completion_promise"] || "";
+  const featureListPath =
+    frontmatter["feature_list_path"] || "research/feature-list.json";
+
+  // Step 4: Validate numeric fields
+  if (!/^\d+$/.test(iterationStr)) {
+    console.error("⚠️  Ralph loop: State file corrupted");
+    console.error(
+      `   Problem: 'iteration' field is not a valid number (got: '${iterationStr}')`,
+    );
+    await unlink(RALPH_STATE_FILE);
+    return 0;
+  }
+
+  if (!/^\d+$/.test(maxIterationsStr)) {
+    console.error("⚠️  Ralph loop: State file corrupted");
+    console.error(
+      `   Problem: 'max_iterations' field is not a valid number (got: '${maxIterationsStr}')`,
+    );
+    await unlink(RALPH_STATE_FILE);
+    return 0;
+  }
+
+  const iteration = parseInt(iterationStr, 10);
+  const maxIterations = parseInt(maxIterationsStr, 10);
+
+  // Step 5: Check if max iterations reached
+  if (maxIterations > 0 && iteration >= maxIterations) {
+    console.error(`🛑 Ralph loop: Max iterations (${maxIterations}) reached.`);
+    await unlink(RALPH_STATE_FILE);
+    return 0;
+  }
+
+  // Step 6: Check if all features are passing (only when max_iterations = 0, i.e., infinite mode)
+  const featureFileExists = await fileExists(featureListPath);
+  if (
+    maxIterations === 0 &&
+    featureFileExists &&
+    (await testAllFeaturesPassing(featureListPath))
+  ) {
+    console.error("✅ All features passing! Exiting loop.");
+    await unlink(RALPH_STATE_FILE);
+    return 0;
+  }
+
+  // Step 7: Get transcript path and read last assistant message
+  const transcriptPath = hookInput.transcript_path;
+
+  if (!(await fileExists(transcriptPath))) {
+    console.error("⚠️  Ralph loop: Transcript file not found");
+    console.error(`   Expected: ${transcriptPath}`);
+    await unlink(RALPH_STATE_FILE);
+    return 0;
+  }
+
+  const transcriptContent = await readFile(transcriptPath, "utf-8");
+  const lines = transcriptContent
+    .split(/\r?\n/)
+    .filter((line: string) => line.trim());
+
+  // Find all assistant messages by searching for the substring
+  const assistantLines = lines.filter((line: string) => {
+    return line.includes('"role":"assistant"');
+  });
+
+  if (assistantLines.length === 0) {
+    console.error("⚠️  Ralph loop: No assistant messages found in transcript");
+    await unlink(RALPH_STATE_FILE);
+    return 0;
+  }
+
+  // Extract last assistant message
+  const lastLine = assistantLines[assistantLines.length - 1]!;
+  let lastOutput = "";
+
+  try {
+    const parsed: TranscriptMessage = JSON.parse(lastLine);
+    const textContents = parsed.message.content
+      .filter((c) => c.type === "text" && c.text)
+      .map((c) => c.text!);
+    lastOutput = textContents.join("\n");
+  } catch {
+    console.error("⚠️  Ralph loop: Failed to parse assistant message JSON");
+    await unlink(RALPH_STATE_FILE);
+    return 0;
+  }
+
+  if (!lastOutput) {
+    console.error(
+      "⚠️  Ralph loop: Assistant message contained no text content",
+    );
+    await unlink(RALPH_STATE_FILE);
+    return 0;
+  }
+
+  // Step 8: Check for completion promise (only if set)
+  if (completionPromise && completionPromise !== "null") {
+    const promiseText = extractPromiseText(lastOutput);
+
+    if (promiseText && promiseText === completionPromise) {
+      console.error(
+        `✅ Ralph loop: Detected <promise>${completionPromise}</promise>`,
+      );
+      await unlink(RALPH_STATE_FILE);
+      return 0;
+    }
+  }
+
+  // Step 9: Not complete - continue loop with SAME PROMPT
+  const nextIteration = iteration + 1;
+
+  // Extract prompt (everything after the closing ---)
+  const promptText = extractPromptText(stateContent);
+
+  if (!promptText) {
+    console.error("⚠️  Ralph loop: State file corrupted or incomplete");
+    console.error("   Problem: No prompt text found");
+    await unlink(RALPH_STATE_FILE);
+    return 0;
+  }
+
+  // Step 10: Update iteration in frontmatter
+  const updatedContent = stateContent.replace(
+    /^iteration: .*/m,
+    `iteration: ${nextIteration}`,
+  );
+  await writeFile(RALPH_STATE_FILE, updatedContent);
+
+  // Step 11: Build system message with iteration count and completion promise info
+  let systemMsg: string;
+  if (completionPromise && completionPromise !== "null") {
+    systemMsg = `🔄 Ralph iteration ${nextIteration} | To stop: output <promise>${completionPromise}</promise> (ONLY when statement is TRUE - do not lie to exit!)`;
+  } else {
+    systemMsg = `🔄 Ralph iteration ${nextIteration} | No completion promise set - loop runs indefinitely`;
+  }
+
+  // Output JSON to block the stop and feed prompt back
+  const output: HookJSONOutput = {
+    decision: "block",
+    reason: promptText,
+    systemMessage: systemMsg,
+  };
+
+  console.log(JSON.stringify(output));
+  return 0;
+}
+
+// ============================================================================
+// Setup Command
+// ============================================================================
+
+/**
+ * Setup the Ralph loop
+ */
+export async function ralphSetup(args: string[]): Promise<number> {
   const promptParts: string[] = [];
   let maxIterations = 0;
   let completionPromise = "null";
@@ -142,8 +461,8 @@ async function main() {
     const arg = args[i]!;
 
     if (arg === "-h" || arg === "--help") {
-      console.log(HELP_TEXT);
-      process.exit(0);
+      console.log(SETUP_HELP_TEXT);
+      return 0;
     } else if (arg === "--max-iterations") {
       const nextArg = args[i + 1];
       if (!nextArg) {
@@ -155,11 +474,11 @@ async function main() {
         console.error("     --max-iterations 0  (unlimited)");
         console.error("");
         console.error("   You provided: --max-iterations (with no number)");
-        process.exit(1);
+        return 1;
       }
       if (!/^\d+$/.test(nextArg)) {
         console.error(
-          `❌ Error: --max-iterations must be a positive integer or 0, got: ${nextArg}`
+          `❌ Error: --max-iterations must be a positive integer or 0, got: ${nextArg}`,
         );
         console.error("");
         console.error("   Valid examples:");
@@ -167,15 +486,19 @@ async function main() {
         console.error("     --max-iterations 50");
         console.error("     --max-iterations 0  (unlimited)");
         console.error("");
-        console.error("   Invalid: decimals (10.5), negative numbers (-5), text");
-        process.exit(1);
+        console.error(
+          "   Invalid: decimals (10.5), negative numbers (-5), text",
+        );
+        return 1;
       }
       maxIterations = parseInt(nextArg, 10);
       i += 2;
     } else if (arg === "--completion-promise") {
       const nextArg = args[i + 1];
       if (!nextArg) {
-        console.error("❌ Error: --completion-promise requires a text argument");
+        console.error(
+          "❌ Error: --completion-promise requires a text argument",
+        );
         console.error("");
         console.error("   Valid examples:");
         console.error("     --completion-promise 'DONE'");
@@ -185,7 +508,7 @@ async function main() {
         console.error("   You provided: --completion-promise (with no text)");
         console.error("");
         console.error("   Note: Multi-word promises must be quoted!");
-        process.exit(1);
+        return 1;
       }
       completionPromise = nextArg;
       i += 2;
@@ -199,7 +522,7 @@ async function main() {
         console.error("     --feature-list features.json");
         console.error("");
         console.error("   You provided: --feature-list (with no path)");
-        process.exit(1);
+        return 1;
       }
       featureListPath = nextArg;
       i += 2;
@@ -221,19 +544,19 @@ async function main() {
     fullPrompt = DEFAULT_PROMPT;
 
     // Verify feature list exists when using default prompt
-    const featureListExists = await Bun.file(featureListPath).exists();
+    const featureListExists = await fileExists(featureListPath);
     if (!featureListExists) {
       console.error(`❌ Error: Feature list not found at: ${featureListPath}`);
       console.error("");
       console.error(
-        "   The default /implement-feature prompt requires a feature list to work."
+        "   The default /implement-feature prompt requires a feature list to work.",
       );
       console.error("");
       console.error("   To fix this, either:");
       console.error("     1. Create the feature list: /create-feature-list");
       console.error("     2. Specify a different path: --feature-list <path>");
       console.error("     3. Use a custom prompt instead");
-      process.exit(1);
+      return 1;
     }
   }
 
@@ -263,7 +586,7 @@ started_at: "${startedAt}"
 ${fullPrompt}
 `;
 
-  await Bun.write(".claude/ralph-loop.local.md", stateFileContent);
+  await writeFile(RALPH_STATE_FILE, stateFileContent);
 
   // Output setup message
   const maxIterationsDisplay =
@@ -328,6 +651,48 @@ To monitor: head -10 .claude/ralph-loop.local.md
     console.log("  true naturally. Do not force it by lying.");
     console.log("═══════════════════════════════════════════════════════════");
   }
+
+  return 0;
 }
 
-main();
+// ============================================================================
+// Main Entry Point
+// ============================================================================
+
+const RALPH_HELP = `Ralph - Self-referential development loop for Claude Code
+
+USAGE:
+  atomic -a claude ralph <command> [OPTIONS]
+
+COMMANDS:
+  setup    Initialize and start a Ralph loop
+  stop     Stop hook handler (called automatically by hooks)
+
+Run 'atomic -a claude ralph setup --help' for setup options.
+`;
+
+/**
+ * Main entry point for ralph commands
+ */
+export async function ralphCommand(args: string[]): Promise<number> {
+  const subcommand = args[0];
+
+  switch (subcommand) {
+    case "setup":
+      return ralphSetup(args.slice(1));
+
+    case "stop":
+      return ralphStop();
+
+    case "-h":
+    case "--help":
+    case undefined:
+      console.log(RALPH_HELP);
+      return 0;
+
+    default:
+      console.error(`Unknown ralph subcommand: ${subcommand}`);
+      console.error("Run 'atomic -a claude ralph --help' for usage.");
+      return 1;
+  }
+}

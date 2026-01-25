@@ -110,9 +110,9 @@ function createAgentSessionEvent(
   };
 }
 
-// Helper to get events file path
-function getTestEventsPath(): string {
-  return join(TEST_DATA_DIR, "telemetry-events.jsonl");
+// Helper to get events file path (uses agent-specific pattern)
+function getTestEventsPath(agentType: string = "claude"): string {
+  return join(TEST_DATA_DIR, `telemetry-events-${agentType}.jsonl`);
 }
 
 // Helper to write events to JSONL

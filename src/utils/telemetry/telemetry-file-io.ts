@@ -39,7 +39,13 @@ export function appendEvent(event: TelemetryEvent, agentType?: AgentType | null)
     const eventsPath = getEventsFilePath(agentType);
     const line = JSON.stringify(event) + "\n";
 
-    // Atomic append-only write
+    // appendFileSync relies on OS-level O_APPEND atomicity for concurrent safety.
+    // This is sufficient for our use case without explicit file locking because:
+    // - Low frequency: Events are infrequent (1 per command/session, minutes apart)
+    // - Small writes: Events are ~300-500 bytes (well under PIPE_BUF of 4KB)
+    // - File isolation: Different agent types write to separate files
+    // - Local filesystem: POSIX guarantees prevent data clobbering on local filesystems
+    // File locking would add overhead without meaningful benefit given these constraints.
     appendFileSync(eventsPath, line, "utf-8");
   } catch {
     // Fail silently - telemetry should never break the application

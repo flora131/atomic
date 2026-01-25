@@ -10,9 +10,6 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Telemetry temp file for accumulating commands during session
-COMMANDS_TEMP_FILE=".github/telemetry-session-commands.tmp"
-
 # Read hook input from stdin
 INPUT=$(cat)
 
@@ -78,29 +75,6 @@ if [[ -f "$RALPH_STATE_FILE" ]]; then
     mv "${RALPH_STATE_FILE}.tmp" "$RALPH_STATE_FILE"
 
     echo "Ralph loop continuing at iteration $NEW_ITERATION" >&2
-  fi
-fi
-
-# ============================================================================
-# TELEMETRY INITIALIZATION
-# ============================================================================
-# Initialize telemetry tracking for this session
-# Clear temp files and capture any commands from initialPrompt
-
-# Clear previous session's temp file (start fresh)
-rm -f "$COMMANDS_TEMP_FILE"
-
-# Source telemetry helper if available
-TELEMETRY_HELPER="$PROJECT_ROOT/bin/telemetry-helper.sh"
-if [[ -f "$TELEMETRY_HELPER" ]] && [[ -n "$INITIAL_PROMPT" ]]; then
-  source "$TELEMETRY_HELPER"
-
-  # Extract commands from initial prompt
-  COMMANDS=$(extract_commands "$INITIAL_PROMPT")
-
-  # Write to temp file if commands found
-  if [[ -n "$COMMANDS" ]]; then
-    echo "$COMMANDS" | tr ',' '\n' > "$COMMANDS_TEMP_FILE"
   fi
 fi
 

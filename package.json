@@ -45,6 +45,7 @@
     "typescript": "^5"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.19",
     "@clack/prompts": "^0.11.0"
   }
 }

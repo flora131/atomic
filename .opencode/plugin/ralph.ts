@@ -200,6 +200,7 @@ function deleteRalphState(directory: string): boolean {
 
 /**
  * Check if all features in feature-list.json are passing
+ * Note: Caller must verify file exists before calling this function
  * Returns { allPassing: boolean, total: number, passing: number, failing: number }
  */
 function checkAllFeaturesPassing(
@@ -207,10 +208,6 @@ function checkAllFeaturesPassing(
   featureListPath: string
 ): { allPassing: boolean; total: number; passing: number; failing: number } | null {
   const fullPath = join(directory, featureListPath)
-
-  if (!existsSync(fullPath)) {
-    return null
-  }
 
   try {
     const content = readFileSync(fullPath, "utf-8")
@@ -321,9 +318,13 @@ export const RalphPlugin: Plugin = async ({ directory, client, $ }) => {
         return
       }
 
-      // Check if all features are passing (only when max_iterations = 0, i.e., infinite mode)
-      const featureStatus = checkAllFeaturesPassing(directory, state.featureListPath)
-      if (state.maxIterations === 0 && featureStatus?.allPassing) {
+      // Check if all features are passing (only when max_iterations = 0, i.e., infinite mode and feature file exists)
+      const featureFilePath = join(directory, state.featureListPath)
+      const featureFileExists = existsSync(featureFilePath)
+      const featureStatus = featureFileExists
+        ? checkAllFeaturesPassing(directory, state.featureListPath)
+        : null
+      if (state.maxIterations === 0 && featureFileExists && featureStatus?.allPassing) {
         deleteRalphState(directory)
         await client.app.log({
           body: {

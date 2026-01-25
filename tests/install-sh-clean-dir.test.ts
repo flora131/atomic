@@ -3,6 +3,7 @@ import { mkdir, rm, writeFile } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { isWindows } from "../src/utils/detect";
 
 /**
  * Tests for install.sh clean data directory behavior.
@@ -12,8 +13,11 @@ import { tmpdir } from "os";
  *
  * We test the shell commands (rm -rf, mkdir -p, tar -xzf) in isolation
  * since the full install.sh requires network access and a GitHub release.
+ *
+ * NOTE: These tests are skipped on Windows because they require bash and tar
+ * commands that are not natively available on Windows.
  */
-describe("install.sh clean data directory", () => {
+describe.skipIf(isWindows())("install.sh clean data directory", () => {
   let testDir: string;
   let dataDir: string;
   let archivePath: string;

@@ -58,7 +58,7 @@
       "Test stop hook with new state file format",
       "Verify session logging still works correctly"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

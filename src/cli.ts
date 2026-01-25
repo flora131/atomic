@@ -9,7 +9,7 @@
  *   atomic init                     Interactive setup with agent selection
  *   atomic init -a <agent>          Setup specific agent (skip selection)
  *   atomic run <agent>              Run agent without arguments
- *   atomic run <agent> -- [args...] Run agent with arguments (-- required)
+ *   atomic run <agent> [args...]    Run agent with arguments
  *   atomic config set <key> <value> Set configuration value
  *   atomic update                   Self-update to latest version
  *   atomic uninstall                Remove atomic installation
@@ -54,7 +54,6 @@ export function createProgram() {
     .option("-f, --force", "Overwrite all config files including CLAUDE.md/AGENTS.md")
     .option("-y, --yes", "Auto-confirm all prompts (non-interactive mode)")
     .option("--no-banner", "Skip ASCII banner display")
-    .option("--upload-telemetry", "Upload telemetry events (internal use)")
 
     // Configure error output with colors
     .configureOutput({
@@ -73,15 +72,6 @@ export function createProgram() {
 
     // Enable positional options for subcommands that use passThroughOptions
     .enablePositionalOptions();
-
-  // Hide the --upload-telemetry option from help output
-  // It's an internal flag used for spawning background telemetry uploads
-  const uploadTelemetryOption = program.options.find(
-    (opt) => opt.long === "--upload-telemetry"
-  );
-  if (uploadTelemetryOption) {
-    uploadTelemetryOption.hidden = true;
-  }
 
   // Build agent choices string for help text
   const agentChoices = Object.keys(AGENT_CONFIG).join(", ");
@@ -107,21 +97,21 @@ export function createProgram() {
 
   // Add run command to execute a specific agent
   // This replaces the legacy `atomic --agent <name>` pattern with `atomic run <agent>`
-  // The -- separator is REQUIRED to disambiguate atomic options from agent arguments
+  // passThroughOptions() allows arguments after <agent> to pass through without requiring --
   program
     .command("run")
-    .description("Run a coding agent (use -- to pass arguments to the agent)")
+    .description("Run a coding agent")
     .argument("<agent>", `Agent to run (${agentChoices})`)
-    .argument("[args...]", "Arguments to pass to the agent (after --)")
-    .passThroughOptions() // Enable -- separator for passing args to agent
+    .argument("[args...]", "Arguments to pass to the agent")
+    .passThroughOptions() // Options after <agent> are passed through to the agent
     .addHelpText(
       "after",
       `
 Examples:
-  $ atomic run claude                         Run Claude Code interactively
-  $ atomic run claude -- /commit "fix bug"    Run with a slash command
-  $ atomic run claude -- --help               Show agent's help
-  $ atomic run opencode -- /research-codebase Research the codebase`
+  $ atomic run claude                      Run Claude Code interactively
+  $ atomic run claude /commit "fix bug"    Run with a slash command
+  $ atomic run claude --help               Show agent's help
+  $ atomic run opencode /research-codebase Research the codebase`
     )
     .action(async (agent: string, args: string[]) => {
       const globalOpts = program.opts();
@@ -130,15 +120,6 @@ Examples:
       if (!isValidAgent(agent)) {
         console.error(`${COLORS.red}Error: Unknown agent '${agent}'${COLORS.reset}`);
         console.error(`Valid agents: ${agentChoices}`);
-        console.error("\n(Run 'atomic run --help' for usage information)");
-        process.exit(1);
-      }
-
-      // Require -- separator when passing arguments to the agent
-      // This ensures clear disambiguation between atomic options and agent arguments
-      if (args.length > 0 && !process.argv.includes("--")) {
-        console.error(`${COLORS.red}Error: Use '--' to separate atomic options from agent arguments${COLORS.reset}`);
-        console.error(`\nExample: atomic run ${agent} -- ${args.join(" ")}`);
         console.error("\n(Run 'atomic run --help' for usage information)");
         process.exit(1);
       }
@@ -230,26 +211,13 @@ Examples:
         process.exit(1);
       }
 
-      // Build args array for ralphSetup to parse
-      const args: string[] = [];
-      
-      // Add prompt parts
-      if (promptParts.length > 0) {
-        args.push(...promptParts);
-      }
-      
-      // Add options
-      if (localOpts.maxIterations !== undefined) {
-        args.push("--max-iterations", String(localOpts.maxIterations));
-      }
-      if (localOpts.completionPromise) {
-        args.push("--completion-promise", localOpts.completionPromise);
-      }
-      if (localOpts.featureList && localOpts.featureList !== "research/feature-list.json") {
-        args.push("--feature-list", localOpts.featureList);
-      }
-
-      const exitCode = await ralphSetup(args);
+      // Pass options directly to ralphSetup (Commander.js handles all parsing)
+      const exitCode = await ralphSetup({
+        prompt: promptParts,
+        maxIterations: localOpts.maxIterations,
+        completionPromise: localOpts.completionPromise,
+        featureList: localOpts.featureList,
+      });
       process.exit(exitCode);
     });
 
@@ -269,6 +237,14 @@ Examples:
 
       const exitCode = await ralphStop();
       process.exit(exitCode);
+    });
+
+  // Add hidden command for internal telemetry upload (used by background process)
+  program
+    .command("upload-telemetry", { hidden: true })
+    .description("Upload telemetry events (internal use)")
+    .action(async () => {
+      await handleTelemetryUpload();
     });
 
   return program;
@@ -299,7 +275,7 @@ function spawnTelemetryUpload(): void {
     const scriptPath = process.argv[1] ?? "atomic";
 
     // Spawn detached process that outlives parent
-    const child = spawn(process.execPath, [scriptPath, "--upload-telemetry"], {
+    const child = spawn(process.execPath, [scriptPath, "upload-telemetry"], {
       detached: true,
       stdio: "ignore",
       env: { ...process.env, ATOMIC_TELEMETRY_UPLOAD: "1" },
@@ -328,16 +304,8 @@ async function main(): Promise<void> {
   await cleanupWindowsLeftoverFiles();
 
   try {
-    const globalOpts = program.opts();
-
-    // Handle --upload-telemetry (hidden, internal use only)
-    // Check raw args since we need to handle this before parseAsync
-    if (process.argv.includes("--upload-telemetry")) {
-      await handleTelemetryUpload();
-      return;
-    }
-
     // Parse and execute the command
+    // Commander.js handles all argument parsing including the hidden upload-telemetry command
     await program.parseAsync();
 
     // Spawn telemetry upload after successful command execution

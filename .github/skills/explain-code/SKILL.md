@@ -1,14 +1,6 @@
 ---
 name: explain-code
 description: Explain code functionality in detail.
-tools: ["search", "read", "web", "deepwiki/ask_question"]
-model: claude-opus-4-5
-mcp-servers:
-  deepwiki:
-    type: http
-    url: "https://mcp.deepwiki.com/mcp"
-    tools: ["ask_question"]
-argument-hint: [code-path]
 ---
 
 # Analyze and Explain Code Functionality

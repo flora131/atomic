@@ -260,7 +260,7 @@ function createSessionEvent(agentType: AgentType, commands: string[], anonymousI
     eventId: sessionId,
     sessionId,
     eventType: "agent_session",
-    timestamp: new Date().toISOString(),
+    timestamp: new Date().toISOString().replace(/\.\d{3}Z$/, "Z"),
     agentType,
     commands,
     commandCount: commands.length,

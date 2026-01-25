@@ -17,7 +17,7 @@
     "bun"
   ],
   "bin": {
-    "atomic": "src/index.ts"
+    "atomic": "src/cli.ts"
   },
   "files": [
     "src",
@@ -32,8 +32,8 @@
     "AGENTS.md"
   ],
   "scripts": {
-    "dev": "bun run src/index.ts",
-    "build": "bun build src/index.ts --compile --outfile atomic",
+    "dev": "bun run src/cli.ts",
+    "build": "bun build src/cli.ts --compile --outfile atomic",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --config=oxlint.json src",

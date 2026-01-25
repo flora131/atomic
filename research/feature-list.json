@@ -142,6 +142,6 @@
       "Document Bun runtime requirement",
       "Add migration notes for users with existing JSON state files"
     ],
-    "passes": false
+    "passes": true
   }
 ]

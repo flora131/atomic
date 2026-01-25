@@ -39,7 +39,7 @@ export const TELEMETRY_UPLOAD_CONFIG = {
 } as const;
 
 /**
- * Hardcoded Azure Application Insights connection string
+ * Default Azure Application Insights connection string
  *
  * This is safe to commit to the public repository because:
  * - Azure App Insights connection strings are write-only (ingestion only, no read access)
@@ -47,10 +47,22 @@ export const TELEMETRY_UPLOAD_CONFIG = {
  * - Connection string only allows sending telemetry data, not querying or viewing it
  * - Access to view data requires Azure Portal authentication with separate credentials
  *
+ * Can be overridden via APPLICATIONINSIGHTS_CONNECTION_STRING env var for:
+ * - Testing against different environments
+ * - Key rotation without code changes
+ *
  * Reference: specs/phase-6-telemetry-upload-backend.md Section 5.2
  */
-const APPLICATIONINSIGHTS_CONNECTION_STRING =
+const DEFAULT_CONNECTION_STRING =
   "InstrumentationKey=a37b0072-f282-44a4-9c9f-3b8517ab3984;IngestionEndpoint=https://westus2-2.in.applicationinsights.azure.com/;LiveEndpoint=https://westus2.livediagnostics.monitor.azure.com/;ApplicationId=6d2a02dd-79ff-4f0e-a593-57fb8a1673da";
+
+/**
+ * Get the Application Insights connection string.
+ * Checks for environment variable override first, falls back to default.
+ */
+function getConnectionString(): string {
+  return process.env.APPLICATIONINSIGHTS_CONNECTION_STRING || DEFAULT_CONNECTION_STRING;
+}
 
 /**
  * Result type for upload operations
@@ -387,8 +399,8 @@ export async function handleTelemetryUpload(): Promise<UploadResult> {
       };
     }
 
-    // Initialize OpenTelemetry SDK with hardcoded connection string
-    initializeOpenTelemetry(APPLICATIONINSIGHTS_CONNECTION_STRING);
+    // Initialize OpenTelemetry SDK with connection string (env var override or default)
+    initializeOpenTelemetry(getConnectionString());
 
     // Split into batches and emit
     const batches = splitIntoBatches(validEvents);

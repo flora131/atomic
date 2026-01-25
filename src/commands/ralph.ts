@@ -483,93 +483,20 @@ export async function ralphStop(): Promise<number> {
 
 /**
  * Setup the Ralph loop
+ *
+ * @param options - Configuration options for the Ralph loop
  */
-export async function ralphSetup(args: string[]): Promise<number> {
-  const promptParts: string[] = [];
-  let maxIterations = 0;
-  let completionPromise = "null";
-  let featureListPath = "research/feature-list.json";
-
-  // Parse options and positional arguments
-  let i = 0;
-  while (i < args.length) {
-    const arg = args[i]!;
-
-    if (arg === "-h" || arg === "--help") {
-      console.log(SETUP_HELP_TEXT);
-      return 0;
-    } else if (arg === "--max-iterations") {
-      const nextArg = args[i + 1];
-      if (!nextArg) {
-        console.error("❌ Error: --max-iterations requires a number argument");
-        console.error("");
-        console.error("   Valid examples:");
-        console.error("     --max-iterations 10");
-        console.error("     --max-iterations 50");
-        console.error("     --max-iterations 0  (unlimited)");
-        console.error("");
-        console.error("   You provided: --max-iterations (with no number)");
-        return 1;
-      }
-      if (!/^\d+$/.test(nextArg)) {
-        console.error(
-          `❌ Error: --max-iterations must be a positive integer or 0, got: ${nextArg}`,
-        );
-        console.error("");
-        console.error("   Valid examples:");
-        console.error("     --max-iterations 10");
-        console.error("     --max-iterations 50");
-        console.error("     --max-iterations 0  (unlimited)");
-        console.error("");
-        console.error(
-          "   Invalid: decimals (10.5), negative numbers (-5), text",
-        );
-        return 1;
-      }
-      maxIterations = parseInt(nextArg, 10);
-      i += 2;
-    } else if (arg === "--completion-promise") {
-      const nextArg = args[i + 1];
-      if (!nextArg) {
-        console.error(
-          "❌ Error: --completion-promise requires a text argument",
-        );
-        console.error("");
-        console.error("   Valid examples:");
-        console.error("     --completion-promise 'DONE'");
-        console.error("     --completion-promise 'TASK COMPLETE'");
-        console.error("     --completion-promise 'All tests passing'");
-        console.error("");
-        console.error("   You provided: --completion-promise (with no text)");
-        console.error("");
-        console.error("   Note: Multi-word promises must be quoted!");
-        return 1;
-      }
-      completionPromise = nextArg;
-      i += 2;
-    } else if (arg === "--feature-list") {
-      const nextArg = args[i + 1];
-      if (!nextArg) {
-        console.error("❌ Error: --feature-list requires a path argument");
-        console.error("");
-        console.error("   Valid examples:");
-        console.error("     --feature-list research/feature-list.json");
-        console.error("     --feature-list features.json");
-        console.error("");
-        console.error("   You provided: --feature-list (with no path)");
-        return 1;
-      }
-      featureListPath = nextArg;
-      i += 2;
-    } else {
-      // Non-option argument - collect all as prompt parts
-      promptParts.push(arg);
-      i++;
-    }
-  }
+export async function ralphSetup(options: RalphSetupOptions): Promise<number> {
+  // Destructure options with defaults
+  const {
+    prompt,
+    maxIterations = 0,
+    completionPromise,
+    featureList: featureListPath = "research/feature-list.json",
+  } = options;
 
   // Join all prompt parts with spaces
-  const userPrompt = promptParts.join(" ");
+  const userPrompt = prompt.join(" ");
 
   // Use user prompt if provided, otherwise use default
   let fullPrompt: string;
@@ -598,9 +525,9 @@ export async function ralphSetup(args: string[]): Promise<number> {
   // Create state file for stop hook (markdown with YAML frontmatter)
   await mkdir(".claude", { recursive: true });
 
-  // Quote completion promise for YAML if it contains special chars or is not null
+  // Quote completion promise for YAML if it contains special chars or is defined
   let completionPromiseYaml: string;
-  if (completionPromise && completionPromise !== "null") {
+  if (completionPromise !== undefined) {
     completionPromiseYaml = `"${completionPromise}"`;
   } else {
     completionPromiseYaml = "null";
@@ -627,7 +554,7 @@ ${fullPrompt}
   const maxIterationsDisplay =
     maxIterations > 0 ? String(maxIterations) : "unlimited";
   let completionPromiseDisplay: string;
-  if (completionPromise !== "null") {
+  if (completionPromise !== undefined) {
     completionPromiseDisplay = `${completionPromise} (ONLY output when TRUE - do not lie!)`;
   } else {
     completionPromiseDisplay = "none (runs forever)";
@@ -661,7 +588,7 @@ To monitor: head -10 .claude/ralph-loop.local.md
   }
 
   // Display completion promise requirements if set
-  if (completionPromise !== "null") {
+  if (completionPromise !== undefined) {
     console.log("");
     console.log("═══════════════════════════════════════════════════════════");
     console.log("CRITICAL - Ralph Loop Completion Promise");
@@ -708,13 +635,17 @@ Run 'atomic -a claude ralph setup --help' for setup options.
 
 /**
  * Main entry point for ralph commands
+ *
+ * @deprecated This function is no longer used - Commander.js handles routing.
+ * Kept for potential backward compatibility but should be removed.
  */
 export async function ralphCommand(args: string[]): Promise<number> {
   const subcommand = args[0];
 
   switch (subcommand) {
     case "setup":
-      return ralphSetup(args.slice(1));
+      // Parse remaining args as prompt (legacy behavior)
+      return ralphSetup({ prompt: args.slice(1) });
 
     case "stop":
       return ralphStop();

@@ -165,7 +165,7 @@
       "Update all command examples throughout document",
       "Add migration note for users upgrading from previous versions"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

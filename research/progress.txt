@@ -395,3 +395,36 @@ Feature 12: Update Ralph plugin files for new CLI syntax
 
 ### Next Feature:
 Feature 13: Update README.md with new CLI syntax
+
+---
+
+## 2026-01-25: Feature 13 - Update README.md with new CLI syntax
+
+### Completed Steps:
+1. Updated Quick Start section:
+   - Changed `atomic --agent claude` to `atomic run claude`
+
+2. Updated all workflow examples (9 sections):
+   - Research the Codebase: `atomic run claude -- "/research-codebase ..."`
+   - Create a Specification: `atomic run claude -- "/create-spec ..."`
+   - Break Into Features: `atomic run claude -- "/create-feature-list ..."`
+   - Implement Features: `atomic run claude -- "/implement-feature"`
+   - Ralph Loop: `atomic run claude -- "/ralph:ralph-loop"`
+   - Debugging: `atomic run claude -- "Use the debugging agent..."`
+   - Create Pull Request: `atomic run claude -- "/create-gh-pr"`
+
+3. Updated Supported Coding Agents table:
+   - Claude Code: `atomic run claude`
+   - OpenCode: `atomic run opencode`
+   - GitHub Copilot CLI: `atomic run copilot`
+
+4. Updated separator documentation:
+   - Changed example from `atomic --agent claude --` to `atomic run claude --`
+
+5. All 655 tests pass
+
+### Files Modified:
+- `README.md` - Updated all CLI command examples to new syntax
+
+### Next Feature:
+Feature 14: Delete legacy files and clean up imports

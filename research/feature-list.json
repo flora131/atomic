@@ -141,7 +141,7 @@
       "Test agent name validation",
       "Run full test suite with 'bun test'"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

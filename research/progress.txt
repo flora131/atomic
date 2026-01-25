@@ -338,3 +338,39 @@ Feature 10: Update package.json bin entry to new CLI
 
 ### Next Feature:
 Feature 11: Update tests for new run command syntax
+
+---
+
+## 2026-01-25: Feature 11 - Update tests for new run command syntax
+
+### Completed Steps:
+1. Created `tests/cli-commander.test.ts` with comprehensive Commander.js tests:
+   - 31 tests covering all CLI functionality
+   - Tests for createProgram() metadata and commands
+   - Tests for global options (--force, --yes, --no-banner, --upload-telemetry, --version)
+   - Tests for init command (default command, -a/--agent option)
+   - Tests for run command (agent argument, variadic args, passthrough options)
+   - Tests for config command (set subcommand with key/value args)
+   - Tests for uninstall command (--dry-run, --keep-config options)
+   - Tests for ralph command (setup/stop subcommands, required options)
+   - Tests for agent validation (isValidAgent function)
+   - Tests for new 'atomic run <agent>' syntax
+
+2. Verified all tests pass:
+   - 31 new Commander.js tests pass
+   - 70 expect() calls total
+   - All 624+ existing tests still pass
+
+3. Note on tests/routing.test.ts:
+   - Legacy routing tests remain unchanged
+   - They test the legacy arg-parser functions which still exist
+   - These will be removed in Feature 14 when legacy files are deleted
+
+### Files Created:
+- `tests/cli-commander.test.ts` - Comprehensive Commander.js CLI tests (31 tests)
+
+### Files Modified:
+- `research/feature-list.json` - Set passes: true for Feature 11
+
+### Next Feature:
+Feature 12: Update Ralph plugin files for new CLI syntax

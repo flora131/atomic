@@ -1,9 +1,6 @@
 ---
 name: create-feature-list
 description: Create a detailed `research/feature-list.json` and `research/progress.txt` for implementing features or refactors in a codebase from a spec.
-tools: ["edit", "read", "execute"]
-model: claude-opus-4-5
-argument-hint: [spec-path]
 ---
 
 You are tasked with creating a detailed `research/feature-list.json` file and `research/progress.txt` for implementing features or refactors in a codebase based on a provided specification located at **$ARGUMENTS**.

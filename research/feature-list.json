@@ -81,7 +81,7 @@
       "If usages exist, document them and decide if refactor is needed",
       "Update any imports if function is removed"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

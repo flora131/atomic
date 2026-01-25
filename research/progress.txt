@@ -428,3 +428,48 @@ Feature 13: Update README.md with new CLI syntax
 
 ### Next Feature:
 Feature 14: Delete legacy files and clean up imports
+
+---
+
+## 2026-01-25: Feature 14 - Delete legacy files and clean up imports
+
+### Completed Steps:
+1. Deleted legacy files:
+   - `src/index.ts` - Replaced by `src/cli.ts`
+   - `src/utils/arg-parser.ts` - All 6 functions replaced by Commander.js
+   - `tests/routing.test.ts` - Tested legacy arg-parser functions
+
+2. Updated e2e test files to use new CLI entry point:
+   - `tests/e2e/update-command.test.ts` - Changed atomicPath to src/cli.ts
+   - `tests/e2e/uninstall-command.test.ts` - Changed atomicPath to src/cli.ts
+   - `tests/e2e/force-flag.test.ts` - Changed atomicPath to src/cli.ts
+   - `tests/e2e/cli-init-display.test.ts` - Changed atomicPath to src/cli.ts
+
+3. Updated e2e test syntax for Commander.js:
+   - Fixed global options placement (--yes, --no-banner, --force before subcommand)
+   - Updated cli-init-display.test.ts for new run command syntax
+   - Updated force-flag.test.ts for --agent option syntax
+   - Fixed uninstall help text test to check subcommand help for options
+
+4. Updated comment in src/utils/config-path.ts:
+   - Changed reference from src/index.ts to src/cli.ts
+
+5. Verification:
+   - `bun run typecheck` - Passes (no broken imports)
+   - `bun run lint` - Minor warnings only
+   - `bun test` - All 585 tests pass
+
+### Files Deleted:
+- `src/index.ts` - Legacy CLI entry point
+- `src/utils/arg-parser.ts` - Legacy argument parsing functions
+- `tests/routing.test.ts` - Legacy arg-parser tests
+
+### Files Modified:
+- `tests/e2e/update-command.test.ts` - Updated CLI path
+- `tests/e2e/uninstall-command.test.ts` - Updated CLI path and help test
+- `tests/e2e/force-flag.test.ts` - Updated CLI path and syntax
+- `tests/e2e/cli-init-display.test.ts` - Updated CLI path and syntax
+- `src/utils/config-path.ts` - Updated comment
+
+### Next Feature:
+Feature 15: Verify all CLI commands work end-to-end

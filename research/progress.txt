@@ -303,3 +303,39 @@ Created `tests/ralph/ralph-loop-integration.test.ts` with comprehensive integrat
 
 ### Next Steps:
 - Update documentation to reflect TypeScript conversion (Feature 10)
+
+## 2026-01-25: Feature 10 Complete - Documentation updates
+
+Updated documentation to reflect TypeScript conversion.
+
+### Changes Made:
+- Updated `.opencode/command/cancel-ralph.md`:
+  - Documented YAML frontmatter state file format
+  - Removed jq dependency (uses grep-based parsing instead)
+  - Added archiving behavior documentation
+- Updated `research/docs/2026-01-19-slash-commands.md`:
+  - Changed state file references from `.local.json` to `.local.md`
+  - Added migration note for legacy JSON state files
+
+### Documentation Already Up-to-Date:
+- README.md: Already documents Bun runtime requirement and Ralph commands
+- `.github/agents/ralph-loop.md`: Already references TypeScript scripts
+- `.github/agents/cancel-ralph.md`: Already references TypeScript scripts
+
+### Migration Notes:
+- Legacy `.local.json` state files are no longer used
+- All Ralph state files now use YAML frontmatter markdown format (`.local.md`)
+- No jq dependency required - scripts use TypeScript/Bun
+
+### All Features Complete:
+All 10 features from the TypeScript conversion spec have been implemented:
+1. ✅ ralph-loop.ts - TypeScript script to replace setup-ralph-loop.sh
+2. ✅ start-ralph-session.ts - TypeScript session start hook
+3. ✅ cancel-ralph.ts - TypeScript cancel script
+4. ✅ stop-hook.ts YAML update - Updated to use YAML frontmatter format
+5. ✅ hooks.json update - References new TypeScript sessionStart script
+6. ✅ Obsolete shell scripts deleted
+7. ✅ YAML frontmatter unit tests (46 tests)
+8. ✅ CLI argument parsing unit tests (41 tests)
+9. ✅ Integration tests for Ralph loop lifecycle (31 tests)
+10. ✅ Documentation updates

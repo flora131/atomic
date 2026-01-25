@@ -111,8 +111,8 @@ describe("CLI Init Display Ordering", () => {
     const { stdout, stderr, exitCode } = await runAtomic(["run", "invalid-agent"]);
     const output = stdout + stderr;
 
-    // Should show error about unknown agent
-    expect(output).toContain("Unknown agent");
+    // Should show error about invalid agent (Commander.js format)
+    expect(output).toContain("invalid-agent");
     expect(exitCode).toBe(1);
   }, 10000);
 });

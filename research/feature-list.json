@@ -45,7 +45,7 @@
       "Print cancellation summary to stdout",
       "Test full cancellation workflow"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

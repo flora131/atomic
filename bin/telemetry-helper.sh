@@ -17,11 +17,9 @@
 # When modifying telemetry logic, update both locations:
 #   - TypeScript source of truth: src/utils/telemetry/
 #   - Bash implementation: bin/telemetry-helper.sh
-
-# Early exit if jq is not available
-if ! command -v jq &>/dev/null; then
-  exit 0  # Fail silently without jq
-fi
+#
+# NOTE: jq dependency is checked in individual functions rather than at top-level
+# to allow scripts that source this file to continue executing even if jq is unavailable.
 
 # Atomic commands to track
 # Source of truth: src/utils/telemetry/constants.ts
@@ -74,6 +72,11 @@ get_telemetry_state_path() {
 # Keep synchronized when changing opt-out logic
 # Returns 0 (true) if enabled, 1 (false) if disabled
 is_telemetry_enabled() {
+  # Return false if jq is not available
+  if ! command -v jq &>/dev/null; then
+    return 1
+  fi
+
   # Check environment variables first (quick exit)
   if [[ "${ATOMIC_TELEMETRY:-}" == "0" ]]; then
     return 1
@@ -106,6 +109,11 @@ is_telemetry_enabled() {
 
 # Get anonymous ID from telemetry state
 get_anonymous_id() {
+  # Return empty if jq is not available
+  if ! command -v jq &>/dev/null; then
+    return
+  fi
+
   local state_file
   state_file="$(get_telemetry_state_path)"
 
@@ -132,6 +140,11 @@ get_atomic_version() {
 # Usage: extract_commands "transcript JSONL content"
 # Output: comma-separated list of found commands
 extract_commands() {
+  # Return empty if jq is not available
+  if ! command -v jq &>/dev/null; then
+    return
+  fi
+
   local transcript="$1"
   local found_commands=()
 
@@ -193,6 +206,11 @@ extract_commands() {
 #
 # Returns: comma-separated list of detected agent names (preserving duplicates)
 detect_copilot_agents() {
+  # Return empty if jq is not available
+  if ! command -v jq &>/dev/null; then
+    return
+  fi
+
   local copilot_state_dir="$HOME/.copilot/session-state"
 
   # Early exit if Copilot state directory doesn't exist
@@ -294,6 +312,11 @@ get_platform() {
 #
 # Returns: 0 on success, 1 on failure
 write_session_event() {
+  # Fail silently if jq is not available
+  if ! command -v jq &>/dev/null; then
+    return 0
+  fi
+
   local agent_type="$1"
   local commands_str="$2"
 

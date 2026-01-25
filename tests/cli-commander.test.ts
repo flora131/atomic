@@ -386,3 +386,147 @@ describe("New run command syntax", () => {
     });
   });
 });
+
+/**
+ * Integration tests for ralph setup command combinations
+ * Tests actual command execution with various option combinations
+ */
+describe("Ralph setup integration tests", () => {
+  const { spawn } = require("child_process");
+  const fs = require("fs");
+  const path = require("path");
+  
+  const STATE_FILE = ".claude/ralph-loop.local.md";
+  
+  // Clean up state file before each test
+  beforeEach(() => {
+    try {
+      fs.unlinkSync(STATE_FILE);
+    } catch {
+      // File may not exist
+    }
+  });
+
+  test("ralph setup with -a claude creates state file", async () => {
+    // Run the command and capture output
+    const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
+      const proc = spawn("bun", ["run", "src/cli.ts", "ralph", "setup", "-a", "claude"], {
+        cwd: process.cwd(),
+      });
+      
+      let stdout = "";
+      let stderr = "";
+      
+      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+      
+      proc.on("close", (code: number) => {
+        resolve({ stdout, stderr, code: code ?? 0 });
+      });
+    });
+    
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Ralph loop activated");
+    expect(result.stdout).toContain("Max iterations: unlimited");
+    expect(fs.existsSync(STATE_FILE)).toBe(true);
+  });
+
+  test("ralph setup with --max-iterations shows correct value", async () => {
+    const result = await new Promise<{ stdout: string; code: number }>((resolve) => {
+      const proc = spawn("bun", ["run", "src/cli.ts", "ralph", "setup", "-a", "claude", "--max-iterations", "15"], {
+        cwd: process.cwd(),
+      });
+      
+      let stdout = "";
+      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      
+      proc.on("close", (code: number) => {
+        resolve({ stdout, code: code ?? 0 });
+      });
+    });
+    
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Max iterations: 15");
+  });
+
+  test("ralph setup with --completion-promise shows promise value", async () => {
+    const result = await new Promise<{ stdout: string; code: number }>((resolve) => {
+      const proc = spawn("bun", ["run", "src/cli.ts", "ralph", "setup", "-a", "claude", "--completion-promise", "TASK_DONE"], {
+        cwd: process.cwd(),
+      });
+      
+      let stdout = "";
+      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      
+      proc.on("close", (code: number) => {
+        resolve({ stdout, code: code ?? 0 });
+      });
+    });
+    
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Completion promise: TASK_DONE");
+  });
+
+  test("ralph setup with custom prompt shows prompt", async () => {
+    const result = await new Promise<{ stdout: string; code: number }>((resolve) => {
+      const proc = spawn("bun", ["run", "src/cli.ts", "ralph", "setup", "-a", "claude", "Build", "a", "REST", "API"], {
+        cwd: process.cwd(),
+      });
+      
+      let stdout = "";
+      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      
+      proc.on("close", (code: number) => {
+        resolve({ stdout, code: code ?? 0 });
+      });
+    });
+    
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Custom prompt: Build a REST API");
+  });
+
+  test("ralph setup with --feature-list (non-existent) shows error", async () => {
+    const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
+      const proc = spawn("bun", ["run", "src/cli.ts", "ralph", "setup", "-a", "claude", "--feature-list", "nonexistent.json"], {
+        cwd: process.cwd(),
+      });
+      
+      let stdout = "";
+      let stderr = "";
+      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
+      
+      proc.on("close", (code: number) => {
+        resolve({ stdout, stderr, code: code ?? 1 });
+      });
+    });
+    
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain("Feature list not found");
+  });
+
+  test("ralph setup with all options combined works correctly", async () => {
+    const result = await new Promise<{ stdout: string; code: number }>((resolve) => {
+      const proc = spawn("bun", [
+        "run", "src/cli.ts", "ralph", "setup", "-a", "claude",
+        "Custom", "task",
+        "--max-iterations", "25",
+        "--completion-promise", "ALL_TESTS_PASS"
+      ], {
+        cwd: process.cwd(),
+      });
+      
+      let stdout = "";
+      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
+      
+      proc.on("close", (code: number) => {
+        resolve({ stdout, code: code ?? 0 });
+      });
+    });
+    
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain("Max iterations: 25");
+    expect(result.stdout).toContain("Completion promise: ALL_TESTS_PASS");
+    expect(result.stdout).toContain("Custom prompt: Custom task");
+  });
+});

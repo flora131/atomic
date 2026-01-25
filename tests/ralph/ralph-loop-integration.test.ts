@@ -27,7 +27,7 @@ const SESSIONS_LOG = ".github/logs/ralph-sessions.jsonl";
 const RALPH_LOOP_SCRIPT = ".github/scripts/ralph-loop.ts";
 const START_SESSION_SCRIPT = ".github/scripts/start-ralph-session.ts";
 const CANCEL_SCRIPT = ".github/scripts/cancel-ralph.ts";
-const STOP_HOOK_SCRIPT = ".github/hooks/stop-hook.ts";
+const STOP_HOOK_SCRIPT = ".github/hooks/ralph-stop.ts";
 
 // Test directory for temporary files
 const TEST_DIR = ".github-integration-test";

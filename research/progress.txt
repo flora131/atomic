@@ -1,0 +1,341 @@
+# Progress Log
+
+## 2026-01-25: Feature 1 Complete - ralph-loop.ts
+
+Created `.github/scripts/ralph-loop.ts` to replace `setup-ralph-loop.sh`.
+
+### Implementation Details:
+- Implemented CLI argument parsing for --max-iterations, --completion-promise, --feature-list, --help
+- Added validation for feature list existence when using default prompt
+- Implemented YAML frontmatter state file creation at `.github/ralph-loop.local.md`
+- Write continue flag file at `.github/ralph-continue.flag`
+- Added comprehensive help text and setup summary output
+
+### Testing:
+- Verified --help flag works correctly
+- Tested --max-iterations with valid and invalid values
+- Tested --completion-promise with string value
+- Tested missing feature list error handling
+- Verified custom prompt mode works
+- Verified YAML frontmatter format matches spec from .opencode/plugin/ralph.ts
+
+### Next Steps:
+- Implement start-ralph-session.ts (Feature 2)
+
+## 2026-01-24: Feature 2 Complete - start-ralph-session.ts
+
+Created `.github/scripts/start-ralph-session.ts` to replace `start-ralph-session.sh`.
+
+### Implementation Details:
+- Implemented stdin JSON parsing following stop-hook.ts pattern
+- Created JSONL logging for session start events in `.github/logs/ralph-sessions.jsonl`
+- Implemented YAML frontmatter parsing for Ralph state file (`.github/ralph-loop.local.md`)
+- Added iteration status output to stderr when Ralph loop is active
+- Implemented iteration increment on resume/startup source types
+- Proper cross-platform line ending normalization (CRLF -> LF)
+
+### Testing:
+Created comprehensive test suite in `tests/ralph/start-ralph-session.test.ts`:
+- Session logging tests (JSONL format, empty input, invalid JSON, missing fields)
+- Ralph loop detection tests (active loop, unlimited iterations, no active loop)
+- Iteration increment tests (resume, startup, manual sources)
+- YAML frontmatter parsing tests (all fields, Windows line endings, inactive loop)
+
+All 13 tests pass.
+
+### Files Created:
+- `.github/scripts/start-ralph-session.ts` - TypeScript session start hook
+- `tests/ralph/start-ralph-session.test.ts` - Unit tests
+
+### Next Steps:
+- Implement cancel-ralph.ts (Feature 3)
+
+## 2026-01-24: Feature 3 Complete - cancel-ralph.ts
+
+Created `.github/scripts/cancel-ralph.ts` to replace `cancel-ralph.sh`.
+
+### Implementation Details:
+- Graceful handling when no Ralph loop is active
+- YAML frontmatter parsing for state file (`.github/ralph-loop.local.md`)
+- State archiving with cancellation metadata (cancelled_at, stop_reason)
+- Cleanup of state file and continue flag
+- Process termination using pkill via Bun.$
+- Informative cancellation summary output
+
+### Testing:
+Created comprehensive test suite in `tests/ralph/cancel-ralph.test.ts`:
+- No active loop tests (missing state file, exit code)
+- Active loop cancellation tests (iteration count, timestamps, prompts)
+- File cleanup tests (state file, continue flag deletion)
+- State archiving tests (metadata, prompt preservation, directory creation)
+
+All 15 tests pass.
+
+### Files Created:
+- `.github/scripts/cancel-ralph.ts` - TypeScript cancel script
+- `tests/ralph/cancel-ralph.test.ts` - Unit tests
+
+### Next Steps:
+- Update stop-hook.ts to read new YAML frontmatter state file format (Feature 4)
+
+## 2026-01-24: Feature 4 Complete - stop-hook.ts YAML frontmatter update
+
+Updated `.github/hooks/stop-hook.ts` to read and write the new YAML frontmatter state file format.
+
+### Implementation Details:
+- Changed state file path from `.github/ralph-loop.local.json` to `.github/ralph-loop.local.md`
+- Added `parseRalphState()` function using regex pattern from `.opencode/plugin/ralph.ts`
+- Added `writeRalphState()` function to write YAML frontmatter format
+- Updated archive file format from `.json` to `.md` with YAML frontmatter
+- Removed unused `checkCompletionPromise()` function (handled by OpenCode plugin)
+- Removed unused `RalphState` interface (replaced by `ParsedRalphState`)
+- Replaced `renameSync` import with `readFileSync`
+
+### Testing:
+- Verified state file parsing works with YAML frontmatter format
+- Verified iteration increment updates state correctly
+- Verified max iterations completion archives state and cleans up
+- Verified archive file uses YAML frontmatter format with completion metadata
+- All 488 existing tests still pass
+
+### Files Modified:
+- `.github/hooks/stop-hook.ts` - Updated to use YAML frontmatter format
+
+### Next Steps:
+- Update hooks.json to reference new TypeScript sessionStart script (Feature 5)
+
+## 2026-01-24: Feature 5 Complete - hooks.json update
+
+Updated `.github/hooks/hooks.json` to reference the new TypeScript sessionStart script.
+
+### Implementation Details:
+- Changed sessionStart bash command from `./.github/scripts/start-ralph-session.sh` to `bun run ./.github/scripts/start-ralph-session.ts`
+- Changed sessionStart powershell command from `./.github/scripts/start-ralph-session.ps1` to `bun run ./.github/scripts/start-ralph-session.ts`
+- Verified sessionEnd hook already uses TypeScript (no change needed)
+- Verified JSON syntax is valid
+
+### Testing:
+- Confirmed hooks.json is valid JSON
+- Tested start-ralph-session.ts script invocation
+- Verified session logging works correctly
+
+### Files Modified:
+- `.github/hooks/hooks.json`
+
+### Next Steps:
+- Delete obsolete shell scripts after successful TypeScript conversion (Feature 6)
+
+## 2026-01-24: Feature 6 Complete - Delete obsolete shell scripts
+
+Deleted obsolete shell scripts and updated references to use TypeScript versions.
+
+### Deleted Files:
+- `.github/scripts/cancel-ralph.sh`
+- `.github/scripts/setup-ralph-loop.sh`
+- `.github/scripts/start-ralph-session.sh`
+- `.github/scripts/log-ralph-prompt.sh`
+
+### Updated References:
+- `.github/agents/cancel-ralph.md` - Updated to use `bun run ./.github/scripts/cancel-ralph.ts`
+- `.github/agents/ralph-loop.md` - Updated to use `bun run ./.github/scripts/ralph-loop.ts`
+- `.github/agents/ralph-loop.md` - Updated monitoring commands for YAML frontmatter format
+- `.opencode/plugin/ralph.ts` - Updated comment reference
+
+### Verification:
+- All TypeScript scripts tested and working
+- All 488 tests pass
+- No old .local.json state files found
+
+### Remaining Files in .github/scripts/:
+- `cancel-ralph.ts`
+- `ralph-loop.ts`
+- `start-ralph-session.ts`
+- `run.cmd` (utility script)
+
+### Next Steps:
+- Implement unit tests for YAML frontmatter parsing and writing (Feature 7)
+
+## 2026-01-24: Feature 7 Complete - YAML frontmatter unit tests
+
+Created `tests/ralph/yaml-frontmatter.test.ts` with comprehensive unit tests for YAML frontmatter parsing and writing.
+
+### Implementation Details:
+- Created standalone test file with 46 tests across 6 test categories
+- Tests mirror the parseRalphState and writeRalphState implementations from source files
+- Comprehensive coverage of parsing, writing, and round-trip scenarios
+
+### Test Categories:
+1. **Parsing valid YAML frontmatter** (5 tests)
+   - All fields, active: false, iteration: 1, max_iterations: 0
+2. **Missing optional fields** (4 tests)
+   - Default feature_list_path, missing iteration/max_iterations, auto-generated started_at
+3. **Empty or malformed frontmatter** (6 tests)
+   - Missing file, empty file, no delimiters, incomplete frontmatter, minimal valid
+4. **Completion promise variations** (4 tests)
+   - null, quoted strings, spaces, single quotes
+5. **Cross-platform compatibility** (3 tests)
+   - Windows CRLF, mixed line endings, trailing whitespace
+6. **Special characters in prompts** (4 tests)
+   - Markdown formatting, YAML characters, unicode, multiline
+7. **Writing tests** (9 tests)
+   - All field combinations, multiline, markdown, special chars, unicode
+8. **Round-trip consistency** (5 tests)
+   - Write-parse preservation, null values, multiline, multiple cycles, unicode
+9. **Edge cases** (6 tests)
+   - Empty prompt, large iterations, very long prompt, paths with spaces, YAML-like content, --- in prompt
+
+### Testing:
+- All 46 tests pass
+- All 74 Ralph tests pass (including start-ralph-session and cancel-ralph tests)
+- All 534 project tests pass
+
+### Files Created:
+- `tests/ralph/yaml-frontmatter.test.ts` - Comprehensive YAML frontmatter unit tests
+
+### Next Steps:
+- Implement unit tests for CLI argument parsing in ralph-loop.ts (Feature 8)
+
+## 2026-01-24: Feature 8 Complete - CLI argument parsing unit tests
+
+Created `tests/ralph/ralph-loop-cli.test.ts` with comprehensive unit tests for CLI argument parsing in ralph-loop.ts.
+
+### Implementation Details:
+- Created 41 tests across 9 test categories
+- Tests invoke actual script with various argument combinations
+- Verifies both stdout output and state file content
+
+### Test Categories:
+1. **Help flags** (3 tests)
+   - -h and --help show help and exit with 0
+   - Help takes precedence over other arguments
+2. **Default values** (6 tests)
+   - Default prompt, unlimited iterations, null completion_promise
+   - Default feature list path, initial iteration=1, active=true
+3. **--max-iterations** (6 tests)
+   - Valid positive integer, 0 for unlimited, large integers
+   - Error on missing value, non-integer, negative values
+   - Float truncation behavior (3.14 -> 3)
+4. **--completion-promise** (5 tests)
+   - Simple string, string with spaces, special characters
+   - Error on missing value, critical warning display
+5. **--feature-list** (4 tests)
+   - Custom path acceptance, error on missing value
+   - Default prompt fails when feature list missing
+   - Custom prompt succeeds without feature list
+6. **Positional arguments for prompt** (5 tests)
+   - Single word, multi-word, interspersed with options
+   - Empty prompt uses default
+7. **State file creation** (5 tests)
+   - Creates ralph-loop.local.md and ralph-continue.flag
+   - Continue flag contains prompt
+   - Valid YAML frontmatter structure
+8. **Output messages** (5 tests)
+   - Activation message, state file paths
+   - Orchestrator instructions, custom/default prompt display
+9. **Combined options** (2 tests)
+   - All options together, options in different order
+
+### Testing:
+- All 41 CLI tests pass
+- All 115 Ralph tests pass
+- All 575 project tests pass
+
+### Files Created:
+- `tests/ralph/ralph-loop-cli.test.ts` - CLI argument parsing unit tests
+
+### Next Steps:
+- Implement integration tests for full Ralph loop lifecycle (Feature 9)
+
+## 2026-01-24: Feature 9 Complete - Integration tests for Ralph loop lifecycle
+
+Created `tests/ralph/ralph-loop-integration.test.ts` with comprehensive integration tests for the full Ralph loop lifecycle.
+
+### Implementation Details:
+- Created 31 integration tests across 8 test categories
+- Tests actual script execution with real state files
+- Covers complete workflow from setup to cancellation
+
+### Test Categories:
+1. **Loop setup with ralph-loop.ts** (6 tests)
+   - State file creation with correct format
+   - Continue flag creation
+   - max_iterations, completion_promise, feature_list_path settings
+   - started_at timestamp validation
+2. **Session start hook increments iteration** (4 tests)
+   - Resume and startup sources increment
+   - Manual source does not increment
+   - Session start event logging
+3. **Stop hook updates state file** (2 tests)
+   - Session end event logging
+   - Graceful handling of missing state file
+4. **Cancel operation archives and cleans up** (5 tests)
+   - State file removal
+   - Continue flag removal
+   - Archive file creation with state data
+   - Graceful handling when no active loop
+5. **Max iterations limit** (3 tests)
+   - State file tracks iteration count
+   - Iteration increments on each session
+   - Unlimited iterations when max_iterations is 0
+6. **Completion promise handling** (3 tests)
+   - State file stores completion promise
+   - Null when not specified
+   - Special characters support
+7. **Cross-platform compatibility** (3 tests)
+   - CRLF line ending handling
+   - Bun runtime shebang verification
+   - UTF-8 encoding support
+8. **Full lifecycle workflow** (2 tests)
+   - Setup -> multiple cycles -> cancel
+   - Session log accumulation
+9. **Error handling** (3 tests)
+   - Malformed JSON input
+   - Empty input
+   - Missing log directory
+
+### Testing:
+- All 31 integration tests pass
+- All 146 Ralph tests pass
+- All 606 project tests pass
+
+### Files Created:
+- `tests/ralph/ralph-loop-integration.test.ts` - Integration tests for Ralph loop lifecycle
+
+### Next Steps:
+- Update documentation to reflect TypeScript conversion (Feature 10)
+
+## 2026-01-25: Feature 10 Complete - Documentation updates
+
+Updated documentation to reflect TypeScript conversion.
+
+### Changes Made:
+- Updated `.opencode/command/cancel-ralph.md`:
+  - Documented YAML frontmatter state file format
+  - Removed jq dependency (uses grep-based parsing instead)
+  - Added archiving behavior documentation
+- Updated `research/docs/2026-01-19-slash-commands.md`:
+  - Changed state file references from `.local.json` to `.local.md`
+  - Added migration note for legacy JSON state files
+
+### Documentation Already Up-to-Date:
+- README.md: Already documents Bun runtime requirement and Ralph commands
+- `.github/agents/ralph-loop.md`: Already references TypeScript scripts
+- `.github/agents/cancel-ralph.md`: Already references TypeScript scripts
+
+### Migration Notes:
+- Legacy `.local.json` state files are no longer used
+- All Ralph state files now use YAML frontmatter markdown format (`.local.md`)
+- No jq dependency required - scripts use TypeScript/Bun
+
+### All Features Complete:
+All 10 features from the TypeScript conversion spec have been implemented:
+1. ✅ ralph-loop.ts - TypeScript script to replace setup-ralph-loop.sh
+2. ✅ start-ralph-session.ts - TypeScript session start hook
+3. ✅ cancel-ralph.ts - TypeScript cancel script
+4. ✅ stop-hook.ts YAML update - Updated to use YAML frontmatter format
+5. ✅ hooks.json update - References new TypeScript sessionStart script
+6. ✅ Obsolete shell scripts deleted
+7. ✅ YAML frontmatter unit tests (46 tests)
+8. ✅ CLI argument parsing unit tests (41 tests)
+9. ✅ Integration tests for Ralph loop lifecycle (31 tests)
+10. ✅ Documentation updates

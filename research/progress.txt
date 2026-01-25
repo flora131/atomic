@@ -172,3 +172,32 @@ Feature 5: Migrate config command with set subcommand
 
 ### Next Feature:
 Feature 6: Migrate update command
+
+---
+
+## 2026-01-25: Feature 6 - Migrate update command
+
+### Completed Steps:
+1. Added update command to src/cli.ts:
+   - Registered as "update" with description "Self-update to the latest version (binary installs only)"
+   - Simple command with no additional options (uses existing updateCommand handler)
+
+2. Wired up to existing updateCommand handler:
+   - Imported updateCommand from src/commands/update.ts
+   - Handler manages all update logic including:
+     - Installation type detection (binary vs npm vs source)
+     - Version comparison
+     - Binary download and checksum verification
+     - Binary replacement (with Windows-specific handling)
+     - Config archive extraction
+
+3. Verified functionality:
+   - `atomic update --help` shows correct description
+   - Types compile correctly with `bun run typecheck`
+   - All 624 tests pass
+
+### Files Modified:
+- `src/cli.ts` - Added update command (lines 145-150)
+
+### Next Feature:
+Feature 7: Migrate uninstall command with --dry-run and --keep-config options

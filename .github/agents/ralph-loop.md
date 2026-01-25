@@ -18,7 +18,7 @@ $ARGUMENTS
 Execute the setup script to initialize the Ralph loop:
 
 ```!
-if [[ "$(uname)" == MINGW* || "$(uname)" == MSYS* || "$(uname)" == CYGWIN* ]]; then powershell -ExecutionPolicy Bypass -File ./.github/scripts/setup-ralph-loop.ps1 $ARGUMENTS; else ./.github/scripts/setup-ralph-loop.sh $ARGUMENTS; fi
+bun run ./.github/scripts/ralph-loop.ts $ARGUMENTS
 ```
 
 ### Parameters
@@ -47,16 +47,12 @@ CRITICAL: Only output the promise when the statement is completely and unequivoc
 ## Manual Cancellation
 
 ```bash
-# macOS/Linux
-./.github/scripts/cancel-ralph.sh
-
-# Windows
-powershell -ExecutionPolicy Bypass -File ./.github/scripts/cancel-ralph.ps1
+bun run ./.github/scripts/cancel-ralph.ts
 ```
 
 ## Monitoring
 
 ```bash
-cat .github/ralph-loop.local.json | jq .      # Check full state
+head -20 .github/ralph-loop.local.md          # Check state (YAML frontmatter)
 cat .github/logs/ralph-sessions.jsonl | jq -s . # View session history
 ```

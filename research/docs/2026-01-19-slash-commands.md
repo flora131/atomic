@@ -429,10 +429,12 @@ hide-from-slash-command-tool: "true"
 - `<promise>YOUR_PHRASE</promise>` detected in output (must match `--completion-promise`)
 - All features in `--feature-list` are passing (unlimited mode)
 
-**State Files:**
+**State Files (YAML frontmatter format):**
 - Claude: `.claude/ralph-loop.local.md`
-- GitHub: `.github/ralph-loop.local.json`
-- OpenCode: `.opencode/ralph-loop.local.json`
+- GitHub: `.github/ralph-loop.local.md`
+- OpenCode: `.opencode/ralph-loop.local.md`
+
+> **Migration Note:** Legacy `.local.json` state files are no longer used. All Ralph state files now use YAML frontmatter markdown format (`.local.md`).
 
 ---
 

@@ -208,7 +208,7 @@ describe("cancel-ralph.ts", () => {
       const archiveMatch = stdout.match(/State archived to: (.+\.md)/);
       expect(archiveMatch).not.toBeNull();
 
-      const archiveFile = archiveMatch![1];
+      const archiveFile = archiveMatch![1]!;
       const archiveContent = readFileSync(archiveFile, "utf-8");
 
       expect(archiveContent).toContain("active: false");
@@ -223,7 +223,7 @@ describe("cancel-ralph.ts", () => {
       const { stdout } = await runCancelRalph();
 
       const archiveMatch = stdout.match(/State archived to: (.+\.md)/);
-      const archiveFile = archiveMatch![1];
+      const archiveFile = archiveMatch![1]!;
       const archiveContent = readFileSync(archiveFile, "utf-8");
 
       expect(archiveContent).toContain("Original prompt content");

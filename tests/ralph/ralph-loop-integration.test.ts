@@ -52,8 +52,19 @@ async function runScript(
   return { stdout, stderr, exitCode };
 }
 
+// Parsed state interface for type safety
+interface ParsedState {
+  active: boolean;
+  iteration: number;
+  maxIterations: number;
+  completionPromise: string | null;
+  featureListPath: string;
+  startedAt: string | null;
+  prompt: string;
+}
+
 // Helper to parse YAML frontmatter from state file
-function parseStateFile(path: string): Record<string, unknown> | null {
+function parseStateFile(path: string): ParsedState | null {
   if (!existsSync(path)) return null;
 
   const content = readFileSync(path, "utf-8").replace(/\r\n/g, "\n");
@@ -61,10 +72,11 @@ function parseStateFile(path: string): Record<string, unknown> | null {
   if (!frontmatterMatch) return null;
 
   const [, frontmatter, prompt] = frontmatterMatch;
+  if (!frontmatter) return null;
 
   const getValue = (key: string): string | null => {
     const match = frontmatter.match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
-    if (!match) return null;
+    if (!match?.[1]) return null;
     return match[1].replace(/^["'](.*)["']$/, "$1");
   };
 
@@ -75,7 +87,7 @@ function parseStateFile(path: string): Record<string, unknown> | null {
     completionPromise: getValue("completion_promise") === "null" ? null : getValue("completion_promise"),
     featureListPath: getValue("feature_list_path") || "research/feature-list.json",
     startedAt: getValue("started_at"),
-    prompt: prompt.trim(),
+    prompt: (prompt ?? "").trim(),
   };
 }
 

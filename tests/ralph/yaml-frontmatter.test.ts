@@ -52,11 +52,12 @@ function parseRalphState(filePath: string): RalphState | null {
     }
 
     const [, frontmatter, prompt] = frontmatterMatch;
+    if (!frontmatter) return null;
 
     // Parse frontmatter values
     const getValue = (key: string): string | null => {
       const match = frontmatter.match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
-      if (!match) return null;
+      if (!match?.[1]) return null;
       // Remove surrounding quotes if present
       return match[1].replace(/^["'](.*)["']$/, "$1");
     };
@@ -76,7 +77,7 @@ function parseRalphState(filePath: string): RalphState | null {
         completionPromise === "null" || !completionPromise ? null : completionPromise,
       featureListPath,
       startedAt,
-      prompt: prompt.trim(),
+      prompt: (prompt ?? "").trim(),
     };
   } catch {
     return null;

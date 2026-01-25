@@ -202,6 +202,21 @@ Examples:
     .option("--max-iterations <n>", "Maximum iterations before auto-stop (default: unlimited)", parseIterations)
     .option("--completion-promise <text>", "Promise phrase to signal completion")
     .option("--feature-list <path>", "Path to feature list JSON", "research/feature-list.json")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ atomic ralph setup -a claude                       Use default prompt, run until all features pass
+  $ atomic ralph setup -a claude --max-iterations 20   Limit to 20 iterations
+  $ atomic ralph setup -a claude Build a todo API --completion-promise 'DONE' --max-iterations 20
+  $ atomic ralph setup -a claude Refactor cache layer  Custom prompt, runs forever
+
+Stopping:
+  Loop exits when any condition is met:
+  - --max-iterations limit reached
+  - --completion-promise detected in output (as <promise>TEXT</promise>)
+  - All features in --feature-list are passing (when max_iterations = 0)`
+    )
     .action(async (promptParts: string[], localOpts) => {
       // Validate agent is 'claude' (only supported agent for ralph)
       if (localOpts.agent !== "claude") {

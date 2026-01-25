@@ -71,3 +71,37 @@ Feature 2: Create new Commander.js entry point with program setup
 
 ### Next Feature:
 Feature 3: Migrate init command with isDefault and local -a option
+
+---
+
+## 2026-01-25: Feature 3 - Migrate init command with isDefault and local -a option
+
+### Completed Steps:
+1. Added init command to src/cli.ts with `{ isDefault: true }`:
+   - When no command is provided, init runs automatically
+   - Registered with Commander.js command registry
+
+2. Added local -a/--agent option:
+   - Pre-select agent to skip interactive selection prompt
+   - Shows available agents in help text: (claude, opencode, copilot)
+
+3. Wired up to existing initCommand handler:
+   - Imported initCommand from src/commands/init.ts
+   - Passed all required options to handler
+
+4. Passed globalOpts and local options to handler:
+   - `showBanner`: Uses `globalOpts.banner !== false` (respects --no-banner)
+   - `preSelectedAgent`: Uses local `localOpts.agent`
+   - `force`: Uses `globalOpts.force`
+   - `yes`: Uses `globalOpts.yes`
+
+5. Verified functionality:
+   - Types compile correctly with `bun run typecheck`
+   - Help output shows init command with -a option
+   - All 624 tests pass
+
+### Files Modified:
+- `src/cli.ts` - Added init command with isDefault and -a option
+
+### Next Feature:
+Feature 4: Add new run command to replace legacy --agent flag pattern

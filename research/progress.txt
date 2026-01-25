@@ -194,3 +194,54 @@ Created `tests/ralph/yaml-frontmatter.test.ts` with comprehensive unit tests for
 
 ### Next Steps:
 - Implement unit tests for CLI argument parsing in ralph-loop.ts (Feature 8)
+
+## 2026-01-24: Feature 8 Complete - CLI argument parsing unit tests
+
+Created `tests/ralph/ralph-loop-cli.test.ts` with comprehensive unit tests for CLI argument parsing in ralph-loop.ts.
+
+### Implementation Details:
+- Created 41 tests across 9 test categories
+- Tests invoke actual script with various argument combinations
+- Verifies both stdout output and state file content
+
+### Test Categories:
+1. **Help flags** (3 tests)
+   - -h and --help show help and exit with 0
+   - Help takes precedence over other arguments
+2. **Default values** (6 tests)
+   - Default prompt, unlimited iterations, null completion_promise
+   - Default feature list path, initial iteration=1, active=true
+3. **--max-iterations** (6 tests)
+   - Valid positive integer, 0 for unlimited, large integers
+   - Error on missing value, non-integer, negative values
+   - Float truncation behavior (3.14 -> 3)
+4. **--completion-promise** (5 tests)
+   - Simple string, string with spaces, special characters
+   - Error on missing value, critical warning display
+5. **--feature-list** (4 tests)
+   - Custom path acceptance, error on missing value
+   - Default prompt fails when feature list missing
+   - Custom prompt succeeds without feature list
+6. **Positional arguments for prompt** (5 tests)
+   - Single word, multi-word, interspersed with options
+   - Empty prompt uses default
+7. **State file creation** (5 tests)
+   - Creates ralph-loop.local.md and ralph-continue.flag
+   - Continue flag contains prompt
+   - Valid YAML frontmatter structure
+8. **Output messages** (5 tests)
+   - Activation message, state file paths
+   - Orchestrator instructions, custom/default prompt display
+9. **Combined options** (2 tests)
+   - All options together, options in different order
+
+### Testing:
+- All 41 CLI tests pass
+- All 115 Ralph tests pass
+- All 575 project tests pass
+
+### Files Created:
+- `tests/ralph/ralph-loop-cli.test.ts` - CLI argument parsing unit tests
+
+### Next Steps:
+- Implement integration tests for full Ralph loop lifecycle (Feature 9)

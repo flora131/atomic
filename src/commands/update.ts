@@ -27,6 +27,7 @@ import {
   getDownloadUrl,
   getChecksumsUrl,
 } from "../utils/download";
+import { trackAtomicCommand } from "../utils/telemetry";
 
 /**
  * Compare two semver version strings.
@@ -262,6 +263,9 @@ export async function updateCommand(): Promise<void> {
       }
       s.stop("Installation verified");
 
+      // Track successful update command
+      trackAtomicCommand("update", null, true);
+
       log.success(`Successfully updated to ${targetVersion}!`);
       log.info("");
       log.info("Run 'atomic --help' to see what's new.");
@@ -270,6 +274,9 @@ export async function updateCommand(): Promise<void> {
       await rm(tempDir, { recursive: true, force: true });
     }
   } catch (error) {
+    // Track failed update command
+    trackAtomicCommand("update", null, false);
+
     s.stop("Update failed");
     const message = error instanceof Error ? error.message : String(error);
     log.error(`Update failed: ${message}`);

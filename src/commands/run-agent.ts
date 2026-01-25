@@ -8,6 +8,11 @@ import { AGENT_CONFIG, isValidAgent, type AgentKey } from "../config";
 import { getCommandPath } from "../utils/detect";
 import { pathExists } from "../utils/copy";
 import { initCommand } from "./init";
+import {
+  trackAtomicCommand,
+  trackCliInvocation,
+  type AgentType,
+} from "../utils/telemetry";
 
 /**
  * Sanitize user input for safe display in error messages
@@ -113,6 +118,25 @@ export async function runAgentCommand(
 
   if (isDebug) {
     console.error(`[atomic:debug] Spawning command: ${cmd.join(" ")}`);
+  }
+
+  // Track run command before spawning agent
+  // success is always true if we reach this point (agent exit codes are agent-specific)
+  trackAtomicCommand("run", agentKey as AgentType, true);
+
+  // Track slash commands in CLI args (separate event type for skill usage analytics)
+  // This complements trackAtomicCommand - both track different aspects of CLI usage
+  trackCliInvocation(agentKey as AgentType, agentArgs);
+
+  // For copilot, also track nested --agent flags
+  // Example: atomic --agent copilot -- --agent research-codebase
+  if (agentKey === "copilot") {
+    const agentFlagIndex = agentArgs.indexOf("--agent");
+    if (agentFlagIndex !== -1 && agentArgs[agentFlagIndex + 1]) {
+      const nestedAgent = agentArgs[agentFlagIndex + 1];
+      // Track as slash command format for consistency
+      trackCliInvocation("copilot", [`/${nestedAgent}`]);
+    }
   }
 
   // Spawn the agent process

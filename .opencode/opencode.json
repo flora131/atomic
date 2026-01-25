@@ -1,5 +1,8 @@
 {
   "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "./plugin/telemetry.ts"
+  ],
   "mcp": {
     "deepwiki": {
       "type": "remote",

@@ -1,0 +1,35 @@
+## 2026-01-25: Feature 1 - Install Commander.js dependencies and create type definitions
+
+### Completed Steps:
+1. Installed Commander.js dependencies:
+   - `commander@14.0.2`
+   - `@commander-js/extra-typings@14.0.0`
+
+2. Created `src/types/cli.ts` with the following type definitions:
+   - `GlobalOptions` - shared options for all commands (force, yes, noBanner, uploadTelemetry)
+   - `InitOptions` - options for init command (agent pre-selection)
+   - `UninstallOptions` - options for uninstall command (dryRun, keepConfig)
+   - `RalphSetupOptions` - options for ralph setup (agent, maxIterations, completionPromise, featureList)
+   - `RalphStopOptions` - options for ralph stop (agent)
+   - `CommandOptions<T>` - utility type for combining command-specific options with GlobalOptions
+
+3. Verified types compile correctly with `bun run typecheck`
+
+4. Created comprehensive tests in `tests/types/cli.test.ts`:
+   - 18 tests covering all type definitions
+   - Tests verify type instantiation with valid values
+   - Tests verify integration with existing AgentKey type
+   - Tests verify CommandOptions composition pattern
+
+5. All tests pass (624 tests across 34 files)
+
+### Files Created:
+- `src/types/cli.ts` - CLI option type definitions
+- `tests/types/cli.test.ts` - Type definition tests
+
+### Files Modified:
+- `package.json` - Added commander and @commander-js/extra-typings dependencies
+- `bun.lock` - Updated lockfile
+
+### Next Feature:
+Feature 2: Create new Commander.js entry point with program setup

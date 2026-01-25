@@ -1,0 +1,205 @@
+[
+  {
+    "category": "refactor",
+    "description": "Install Commander.js dependencies and create type definitions",
+    "steps": [
+      "Run 'bun add commander @commander-js/extra-typings' to install dependencies",
+      "Create src/types/cli.ts with GlobalOptions, InitOptions, UninstallOptions, and RalphSetupOptions interfaces",
+      "Verify types compile correctly with 'bun run typecheck'"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Create new Commander.js entry point with program setup",
+    "steps": [
+      "Create src/cli.ts with Commander.js program setup",
+      "Add program metadata (name, description, version)",
+      "Configure error output with COLORS for user-friendly messages",
+      "Add global options: -f/--force, -y/--yes, --no-banner, --upload-telemetry (hidden)",
+      "Verify program compiles and shows help with 'bun src/cli.ts --help'"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Migrate init command with isDefault and local -a option",
+    "steps": [
+      "Add init command to src/cli.ts with { isDefault: true }",
+      "Add local -a/--agent option for pre-selecting agent during setup",
+      "Wire up to existing initCommand handler from src/commands/init.ts",
+      "Pass globalOpts (banner, force, yes) and local options to handler",
+      "Test 'atomic init' runs interactive setup",
+      "Test 'atomic init -a claude' pre-selects Claude agent",
+      "Test 'atomic' (no command) runs init as default"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Add new run command to replace legacy --agent flag pattern",
+    "steps": [
+      "Add run command with <agent> argument and [args...] variadic argument",
+      "Enable .passThroughOptions() and .allowUnknownOption() for -- separator handling",
+      "Validate agent name against AGENT_CONFIG using isValidAgent()",
+      "Show error with valid agents list if unknown agent provided",
+      "Wire up to existing runAgentCommand handler",
+      "Test 'atomic run claude' runs Claude agent",
+      "Test 'atomic run claude /commit' passes args to agent",
+      "Test 'atomic run claude -- --help' passes --help to agent (not atomic)",
+      "Test 'atomic run unknown' shows error with valid agents"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Migrate config command with set subcommand",
+    "steps": [
+      "Add config parent command to src/cli.ts",
+      "Add 'set' subcommand with <key> and <value> arguments",
+      "Wire up to existing configCommand handler from src/commands/config.ts",
+      "Test 'atomic config set telemetry false' sets configuration",
+      "Test 'atomic config --help' shows available subcommands"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Migrate update command",
+    "steps": [
+      "Add update command to src/cli.ts",
+      "Wire up to existing updateCommand handler from src/commands/update.ts",
+      "Test 'atomic update' runs self-update"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Migrate uninstall command with --dry-run and --keep-config options",
+    "steps": [
+      "Add uninstall command to src/cli.ts",
+      "Add --dry-run option for preview mode",
+      "Add --keep-config option to preserve configuration",
+      "Wire up to existing uninstallCommand handler",
+      "Pass globalOpts.yes and local options to handler",
+      "Test 'atomic uninstall --dry-run' shows what would be removed",
+      "Test 'atomic uninstall --keep-config' removes binary but keeps config"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Migrate ralph command with setup and stop subcommands",
+    "steps": [
+      "Add ralph parent command to src/cli.ts",
+      "Add parseIterations helper for --max-iterations validation",
+      "Add 'setup' subcommand with -a/--agent required option",
+      "Add [prompt...] variadic argument to setup subcommand",
+      "Add --max-iterations, --completion-promise, --feature-list options",
+      "Validate agent is 'claude' (only supported agent)",
+      "Wire up to existing ralphSetup handler",
+      "Add 'stop' subcommand with -a/--agent required option",
+      "Validate agent is 'claude' in stop subcommand",
+      "Wire up to existing ralphStop handler",
+      "Test 'atomic ralph setup -a claude \"test prompt\"' starts loop",
+      "Test 'atomic ralph stop -a claude' stops loop",
+      "Test 'atomic ralph setup \"test\"' shows error (missing agent)"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Add main entry point with telemetry and error handling",
+    "steps": [
+      "Add spawnTelemetryUpload function to spawn background telemetry process",
+      "Add main async function to run program.parseAsync()",
+      "Handle errors with colored output and telemetry spawn",
+      "Call cleanupWindowsLeftoverFiles() before parsing",
+      "Export program for testing",
+      "Test CLI handles errors gracefully with colored output"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update package.json bin entry to new CLI",
+    "steps": [
+      "Update package.json bin entry from src/index.ts to src/cli.ts",
+      "Verify 'atomic --help' works after update",
+      "Verify 'atomic --version' shows correct version"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update tests for new run command syntax",
+    "steps": [
+      "Update tests/routing.test.ts to use 'atomic run <agent>' syntax",
+      "Add new Commander.js specific unit tests in tests/cli-commander.test.ts",
+      "Test init command parsing with agent option",
+      "Test run command with passthrough args",
+      "Test agent name validation",
+      "Run full test suite with 'bun test'"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update Ralph plugin files for new CLI syntax",
+    "steps": [
+      "Update plugins/ralph/commands/ralph-loop.md: change 'atomic -a claude ralph setup' to 'atomic ralph setup -a claude'",
+      "Update allowed-tools from 'Bash(atomic -a claude ralph*)' to 'Bash(atomic ralph*)'",
+      "Update plugins/ralph/hooks/hooks.json: change 'atomic -a claude ralph stop' to 'atomic ralph stop -a claude'",
+      "Verify ralph loop skill works with new syntax"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Update README.md with new CLI syntax",
+    "steps": [
+      "Update Quick Start section: 'atomic -a claude' to 'atomic run claude'",
+      "Update Running Agents section with new run command documentation",
+      "Document -- separator usage for passing flags to agent",
+      "Update Ralph Loop section: 'atomic -a claude ralph setup' to 'atomic ralph setup -a claude'",
+      "Update all command examples throughout document",
+      "Add migration note for users upgrading from previous versions"
+    ],
+    "passes": false
+  },
+  {
+    "category": "refactor",
+    "description": "Delete legacy files and clean up imports",
+    "steps": [
+      "Delete src/index.ts (replaced by src/cli.ts)",
+      "Delete src/utils/arg-parser.ts (all 6 functions replaced by Commander.js)",
+      "Update any imports that referenced deleted files",
+      "Run 'bun run typecheck' to verify no broken imports",
+      "Run 'bun run lint' to check for issues",
+      "Run 'bun test' to verify all tests pass"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Verify all CLI commands work end-to-end",
+    "steps": [
+      "Test 'atomic' runs init (default command)",
+      "Test 'atomic init' runs init explicitly",
+      "Test 'atomic init -a claude' runs init with pre-selected agent",
+      "Test 'atomic run claude' runs Claude agent",
+      "Test 'atomic run claude /commit \"msg\"' passes args to Claude",
+      "Test 'atomic run claude -- --help' passes --help to Claude",
+      "Test 'atomic config set telemetry false' sets config",
+      "Test 'atomic update' runs self-update",
+      "Test 'atomic uninstall --dry-run' previews uninstall",
+      "Test 'atomic ralph setup -a claude \"prompt\"' starts Ralph loop",
+      "Test 'atomic ralph stop -a claude' stops Ralph loop",
+      "Test 'atomic --version' shows version",
+      "Test 'atomic --help' shows help",
+      "Test 'atomic foo' (unknown command) shows error with help hint",
+      "Test on Windows, macOS, and Linux if possible"
+    ],
+    "passes": false
+  }
+]

@@ -26,6 +26,7 @@ import { initCommand } from "./commands/init";
 import { runAgentCommand } from "./commands/run-agent";
 import { configCommand } from "./commands/config";
 import { updateCommand } from "./commands/update";
+import { uninstallCommand } from "./commands/uninstall";
 
 /**
  * Create and configure the main CLI program
@@ -147,6 +148,22 @@ export function createProgram() {
     .description("Self-update to the latest version (binary installs only)")
     .action(async () => {
       await updateCommand();
+    });
+
+  // Add uninstall command for removing binary installations
+  program
+    .command("uninstall")
+    .description("Remove atomic installation (binary installs only)")
+    .option("--dry-run", "Show what would be removed without removing")
+    .option("--keep-config", "Keep configuration data, only remove binary")
+    .action(async (localOpts) => {
+      const globalOpts = program.opts();
+
+      await uninstallCommand({
+        yes: globalOpts.yes,
+        dryRun: localOpts.dryRun,
+        keepConfig: localOpts.keepConfig,
+      });
     });
 
   return program;

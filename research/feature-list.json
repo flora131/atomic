@@ -85,7 +85,7 @@
       "Test 'atomic uninstall --dry-run' shows what would be removed",
       "Test 'atomic uninstall --keep-config' removes binary but keeps config"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

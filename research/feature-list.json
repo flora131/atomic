@@ -129,7 +129,7 @@
       "Test completion promise detection ends loop",
       "Verify cross-platform compatibility with Bun runtime"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

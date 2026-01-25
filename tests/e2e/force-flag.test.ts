@@ -16,7 +16,7 @@ import { spawn } from "child_process";
  */
 describe("--force flag integration tests", () => {
   let tmpDir: string;
-  const atomicPath = path.join(__dirname, "../../src/index.ts");
+  const atomicPath = path.join(__dirname, "../../src/cli.ts");
 
   beforeEach(async () => {
     // Create a temporary directory for each test
@@ -39,8 +39,20 @@ describe("--force flag integration tests", () => {
     const { timeout = 10000 } = options;
 
     return new Promise((resolve) => {
-      // Add --yes flag to auto-confirm prompts and --no-banner to reduce output
-      const fullArgs = [...args, "--yes", "--no-banner"];
+      // Global options must come BEFORE the subcommand in Commander.js
+      // Extract global options (-f, --force) from args and place them at the start
+      const globalOptions = ["--yes", "--no-banner"];
+      const filteredArgs: string[] = [];
+      
+      for (const arg of args) {
+        if (arg === "-f" || arg === "--force") {
+          globalOptions.push(arg);
+        } else {
+          filteredArgs.push(arg);
+        }
+      }
+      
+      const fullArgs = [...globalOptions, ...filteredArgs];
       
       const proc = spawn("bun", ["run", atomicPath, ...fullArgs], {
         cwd: tmpDir,
@@ -91,7 +103,7 @@ describe("--force flag integration tests", () => {
       expect(initialContent).toContain("Do not overwrite me");
 
       // Run atomic init with --force flag
-      await runAtomic(["init", "-a", "claude", "--force"]);
+      await runAtomic(["init", "--agent", "claude", "--force"]);
 
       // Verify CLAUDE.md was overwritten with template content
       const finalContent = await fs.readFile(claudeMdPath, "utf-8");
@@ -115,7 +127,7 @@ describe("--force flag integration tests", () => {
       expect(initialContent).toContain("User's Custom Content");
 
       // Run atomic init with -f shorthand flag
-      await runAtomic(["init", "-a", "claude", "-f"]);
+      await runAtomic(["init", "--agent", "claude", "-f"]);
 
       // Verify CLAUDE.md was overwritten
       const finalContent = await fs.readFile(claudeMdPath, "utf-8");
@@ -134,7 +146,7 @@ describe("--force flag integration tests", () => {
       const initialContent = await fs.readFile(claudeMdPath, "utf-8");
 
       // Run atomic init without --force (user confirms update)
-      await runAtomic(["init", "-a", "claude"]);
+      await runAtomic(["init", "--agent", "claude"]);
 
       // CLAUDE.md should be preserved (user content intact)
       const finalContent = await fs.readFile(claudeMdPath, "utf-8");
@@ -157,7 +169,7 @@ describe("--force flag integration tests", () => {
       expect(initialContent).toContain("My OpenCode Instructions");
 
       // Run atomic init with --force flag for opencode
-      await runAtomic(["init", "-a", "opencode", "--force"]);
+      await runAtomic(["init", "--agent", "opencode", "--force"]);
 
       // Verify AGENTS.md was overwritten with template content
       const finalContent = await fs.readFile(agentsMdPath, "utf-8");
@@ -179,7 +191,7 @@ describe("--force flag integration tests", () => {
       expect(initialContent).toContain("Custom Copilot Config");
 
       // Run atomic init with -f for copilot
-      await runAtomic(["init", "-a", "copilot", "-f"]);
+      await runAtomic(["init", "--agent", "copilot", "-f"]);
 
       // Verify AGENTS.md was overwritten
       const finalContent = await fs.readFile(agentsMdPath, "utf-8");
@@ -202,7 +214,7 @@ describe("--force flag integration tests", () => {
       expect(stats.size).toBe(0);
 
       // Run atomic init without --force
-      await runAtomic(["init", "-a", "claude"]);
+      await runAtomic(["init", "--agent", "claude"]);
 
       // CLAUDE.md should be overwritten (was empty)
       const finalContent = await fs.readFile(claudeMdPath, "utf-8");
@@ -223,7 +235,7 @@ describe("--force flag integration tests", () => {
       expect(initialContent.trim()).toBe("");
 
       // Run atomic init without --force
-      await runAtomic(["init", "-a", "opencode"]);
+      await runAtomic(["init", "--agent", "opencode"]);
 
       // AGENTS.md should be overwritten (was whitespace-only)
       const finalContent = await fs.readFile(agentsMdPath, "utf-8");
@@ -244,7 +256,7 @@ describe("--force flag integration tests", () => {
       const initialContent = await fs.readFile(claudeMdPath, "utf-8");
 
       // Run atomic init without --force
-      await runAtomic(["init", "-a", "claude"]);
+      await runAtomic(["init", "--agent", "claude"]);
 
       // CLAUDE.md should be preserved
       const finalContent = await fs.readFile(claudeMdPath, "utf-8");
@@ -253,8 +265,8 @@ describe("--force flag integration tests", () => {
     }, 15000);
   });
 
-  describe("auto-init with force flag", () => {
-    test("atomic -a claude -f with existing config overwrites CLAUDE.md", async () => {
+  describe("init with force flag combinations", () => {
+    test("atomic init --agent claude -f with existing config overwrites CLAUDE.md", async () => {
       // Create .claude folder and CLAUDE.md with content
       const claudeFolder = path.join(tmpDir, ".claude");
       const claudeMdPath = path.join(tmpDir, "CLAUDE.md");
@@ -265,37 +277,26 @@ describe("--force flag integration tests", () => {
       const initialContent = await fs.readFile(claudeMdPath, "utf-8");
       expect(initialContent).toContain("Original Config");
 
-      // Run atomic with auto-init and force flag
-      // Note: This will try to spawn the agent, so it will error, but init should happen first
-      const { stdout, stderr } = await runAtomic(["-a", "claude", "-f"], { timeout: 10000 });
-      const output = stdout + stderr;
+      // Run atomic init with force flag
+      await runAtomic(["init", "--agent", "claude", "-f"], { timeout: 10000 });
 
-      // The init should have run (either successfully or errored after)
-      // Check if CLAUDE.md was updated
-      const fileExists = await fs.stat(claudeMdPath).then(() => true).catch(() => false);
-      expect(fileExists).toBe(true);
-
-      // If file exists, check content
+      // CLAUDE.md should be overwritten because -f was passed
       const finalContent = await fs.readFile(claudeMdPath, "utf-8");
-
-      // With -f flag AND existing .claude folder, the agent spawns directly
-      // without re-running init, so content should be preserved
-      // This tests that the force flag is correctly passed to auto-init when needed
-      // If .claude folder exists, no init is run, content stays the same
-      expect(finalContent).toContain("Original Config");
+      expect(finalContent).toContain("[PROJECT_NAME]");
+      expect(finalContent).not.toContain("Original Config");
     }, 15000);
 
-    test("atomic -a claude -f without existing config runs init with force", async () => {
-      // No .claude folder - this should trigger auto-init
+    test("atomic init --agent claude -f without existing config creates CLAUDE.md", async () => {
+      // No .claude folder - this should create config with force
       const claudeMdPath = path.join(tmpDir, "CLAUDE.md");
 
-      // Pre-create a CLAUDE.md to test force behavior during auto-init
+      // Pre-create a CLAUDE.md to test force behavior
       await fs.writeFile(claudeMdPath, "# Pre-existing CLAUDE.md\n\nShould be overwritten with -f.");
 
-      // Run atomic with auto-init and force flag (no .claude folder)
-      await runAtomic(["-a", "claude", "-f"], { timeout: 10000 });
+      // Run atomic init with force flag
+      await runAtomic(["init", "--agent", "claude", "-f"], { timeout: 10000 });
 
-      // CLAUDE.md should be overwritten because -f was passed during auto-init
+      // CLAUDE.md should be overwritten because -f was passed
       const finalContent = await fs.readFile(claudeMdPath, "utf-8");
       expect(finalContent).toContain("[PROJECT_NAME]");
       expect(finalContent).not.toContain("Pre-existing CLAUDE.md");

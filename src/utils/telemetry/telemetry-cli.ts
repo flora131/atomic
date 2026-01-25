@@ -19,7 +19,6 @@ import type {
 import { VERSION } from "../../version";
 import { ATOMIC_COMMANDS } from "./constants";
 import { appendEvent, getEventsFilePath } from "./telemetry-file-io";
-import { handleTelemetryError } from "./telemetry-errors";
 
 // Re-export for backward compatibility
 export { getEventsFilePath } from "./telemetry-file-io";

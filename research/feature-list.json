@@ -49,7 +49,7 @@
       "Test 'atomic run claude -- --help' passes --help to agent (not atomic)",
       "Test 'atomic run unknown' shows error with valid agents"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

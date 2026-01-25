@@ -21,8 +21,9 @@
 import { Command } from "@commander-js/extra-typings";
 import { VERSION } from "./version";
 import { COLORS } from "./utils/colors";
-import { AGENT_CONFIG, type AgentKey } from "./config";
+import { AGENT_CONFIG, isValidAgent, type AgentKey } from "./config";
 import { initCommand } from "./commands/init";
+import { runAgentCommand } from "./commands/run-agent";
 
 /**
  * Create and configure the main CLI program
@@ -59,7 +60,10 @@ export function createProgram() {
     })
 
     // Show help hint on unknown commands
-    .showHelpAfterError("(Run 'atomic --help' for usage information)");
+    .showHelpAfterError("(Run 'atomic --help' for usage information)")
+
+    // Enable positional options for subcommands that use passThroughOptions
+    .enablePositionalOptions();
 
   // Hide the --upload-telemetry option from help output
   // It's an internal flag used for spawning background telemetry uploads
@@ -90,6 +94,34 @@ export function createProgram() {
         force: globalOpts.force,
         yes: globalOpts.yes,
       });
+    });
+
+  // Add run command to execute a specific agent
+  // This replaces the legacy `atomic --agent <name>` pattern with `atomic run <agent>`
+  program
+    .command("run")
+    .description("Run a coding agent")
+    .argument("<agent>", `Agent to run (${agentChoices})`)
+    .argument("[args...]", "Arguments to pass to the agent")
+    .passThroughOptions() // Allow unknown options after -- to pass to agent
+    .allowUnknownOption() // Don't error on unknown options (they go to agent)
+    .action(async (agent: string, args: string[]) => {
+      const globalOpts = program.opts();
+
+      // Validate agent name
+      if (!isValidAgent(agent)) {
+        console.error(`${COLORS.yellow}Error: Unknown agent '${agent}'${COLORS.reset}`);
+        console.error(`Valid agents: ${agentChoices}`);
+        console.error("\n(Run 'atomic run --help' for usage information)");
+        process.exit(1);
+      }
+
+      const exitCode = await runAgentCommand(agent, args, {
+        force: globalOpts.force,
+        yes: globalOpts.yes,
+      });
+
+      process.exit(exitCode);
     });
 
   return program;

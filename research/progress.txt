@@ -105,3 +105,39 @@ Feature 3: Migrate init command with isDefault and local -a option
 
 ### Next Feature:
 Feature 4: Add new run command to replace legacy --agent flag pattern
+
+---
+
+## 2026-01-25: Feature 4 - Add new run command to replace legacy --agent flag pattern
+
+### Completed Steps:
+1. Added run command with `<agent>` argument and `[args...]` variadic argument:
+   - Replaces the legacy `atomic --agent <name>` pattern
+   - New syntax: `atomic run <agent> [args...]`
+
+2. Enabled passThroughOptions and allowUnknownOption:
+   - Added `.enablePositionalOptions()` on parent program
+   - Added `.passThroughOptions()` on run command
+   - Added `.allowUnknownOption()` on run command
+   - This allows `--` separator to pass flags to the agent
+
+3. Validated agent name against AGENT_CONFIG:
+   - Uses `isValidAgent()` to check agent name
+   - Shows colored error with valid agents list on invalid input
+
+4. Wired up to existing runAgentCommand handler:
+   - Imported runAgentCommand from src/commands/run-agent.ts
+   - Passes agent, args, force, and yes options to handler
+   - Exits with the agent's exit code
+
+5. Verified functionality:
+   - Help output shows run command with agent argument
+   - Invalid agent shows helpful error with valid agents list
+   - Types compile correctly with `bun run typecheck`
+   - All 624 tests pass
+
+### Files Modified:
+- `src/cli.ts` - Added run command with passThroughOptions
+
+### Next Feature:
+Feature 5: Migrate config command with set subcommand

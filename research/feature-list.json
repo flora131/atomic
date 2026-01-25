@@ -34,7 +34,7 @@
       "Verify that all parsing is now handled by the options object destructuring",
       "Ensure error handling remains intact"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",
@@ -46,7 +46,7 @@
       "Pass Commander.js parsed values directly as options object properties",
       "Verify agent validation (claude-only check) remains in place"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",
@@ -57,7 +57,7 @@
       "Verify Commander.js automatically handles --help for the ralph setup subcommand",
       "Test that 'atomic ralph setup --help' still displays help"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",
@@ -69,7 +69,7 @@
       "Remove SETUP_HELP_TEXT if not needed",
       "Verify help output is adequate"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

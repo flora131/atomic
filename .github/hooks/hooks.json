@@ -4,8 +4,8 @@
     "sessionStart": [
       {
         "type": "command",
-        "bash": "./.github/scripts/start-ralph-session.sh",
-        "powershell": "./.github/scripts/start-ralph-session.ps1",
+        "bash": "bun run ./.github/scripts/start-ralph-session.ts",
+        "powershell": "bun run ./.github/scripts/start-ralph-session.ts",
         "cwd": ".",
         "timeoutSec": 10
       }
@@ -13,8 +13,8 @@
     "sessionEnd": [
       {
         "type": "command",
-        "bash": "./.github/hooks/stop-hook.sh",
-        "powershell": "./.github/hooks/stop-hook.ps1",
+        "bash": "bun run ./.github/hooks/stop-hook.ts",
+        "powershell": "bun run ./.github/hooks/stop-hook.ts",
         "cwd": ".",
         "timeoutSec": 30
       }

@@ -1,6 +1,9 @@
 name: Publish
 
 on:
+  push:
+    branches:
+      - "release/**"
   release:
     types: [published]
   workflow_dispatch:
@@ -42,19 +45,19 @@ jobs:
           mkdir -p dist
 
           # Linux x64
-          bun build src/index.ts --compile --minify --target=bun-linux-x64 --outfile dist/atomic-linux-x64
+          bun build src/cli.ts --compile --minify --target=bun-linux-x64 --outfile dist/atomic-linux-x64
 
           # Linux arm64
-          bun build src/index.ts --compile --minify --target=bun-linux-arm64 --outfile dist/atomic-linux-arm64
+          bun build src/cli.ts --compile --minify --target=bun-linux-arm64 --outfile dist/atomic-linux-arm64
 
           # macOS x64
-          bun build src/index.ts --compile --minify --target=bun-darwin-x64 --outfile dist/atomic-darwin-x64
+          bun build src/cli.ts --compile --minify --target=bun-darwin-x64 --outfile dist/atomic-darwin-x64
 
           # macOS arm64 (Apple Silicon)
-          bun build src/index.ts --compile --minify --target=bun-darwin-arm64 --outfile dist/atomic-darwin-arm64
+          bun build src/cli.ts --compile --minify --target=bun-darwin-arm64 --outfile dist/atomic-darwin-arm64
 
           # Windows x64
-          bun build src/index.ts --compile --minify --target=bun-windows-x64 --outfile dist/atomic-windows-x64.exe
+          bun build src/cli.ts --compile --minify --target=bun-windows-x64 --outfile dist/atomic-windows-x64.exe
 
       - name: Create config archives
         run: |

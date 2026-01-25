@@ -9,13 +9,11 @@
  * Reference: Spec Section 5.3.3
  */
 
-import { readFileSync } from "fs";
 import { isTelemetryEnabledSync, getOrCreateTelemetryState } from "./telemetry";
 import type { AgentSessionEvent, AgentType } from "./types";
 import { VERSION } from "../../version";
 import { ATOMIC_COMMANDS } from "./constants";
 import { appendEvent } from "./telemetry-file-io";
-import { handleTelemetryError } from "./telemetry-errors";
 
 /**
  * Message structure from Claude Code transcript JSONL format.

@@ -573,48 +573,4 @@ To monitor: head -10 .claude/ralph-loop.local.md
   return 0;
 }
 
-// ============================================================================
-// Main Entry Point
-// ============================================================================
 
-const RALPH_HELP = `Ralph - Self-referential development loop for Claude Code
-
-USAGE:
-  atomic -a claude ralph <command> [OPTIONS]
-
-COMMANDS:
-  setup    Initialize and start a Ralph loop
-  stop     Stop hook handler (called automatically by hooks)
-
-Run 'atomic -a claude ralph setup --help' for setup options.
-`;
-
-/**
- * Main entry point for ralph commands
- *
- * @deprecated This function is no longer used - Commander.js handles routing.
- * Kept for potential backward compatibility but should be removed.
- */
-export async function ralphCommand(args: string[]): Promise<number> {
-  const subcommand = args[0];
-
-  switch (subcommand) {
-    case "setup":
-      // Parse remaining args as prompt (legacy behavior)
-      return ralphSetup({ prompt: args.slice(1) });
-
-    case "stop":
-      return ralphStop();
-
-    case "-h":
-    case "--help":
-    case undefined:
-      console.log(RALPH_HELP);
-      return 0;
-
-    default:
-      console.error(`Unknown ralph subcommand: ${subcommand}`);
-      console.error("Run 'atomic -a claude ralph --help' for usage.");
-      return 1;
-  }
-}

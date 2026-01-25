@@ -71,3 +71,22 @@
 - `research/feature-list.json` (marked features as passing)
 
 **Working State:** All tests passing, codebase stable
+
+### 2026-01-25 - Iteration 4
+
+**Feature Completed:** Investigate and potentially remove unused ralphCommand() function
+
+**Summary:**
+- Searched codebase for usages of `ralphCommand()` - found only the definition
+- Confirmed it was exported but never imported anywhere
+- Removed `ralphCommand()` function (23 lines) from src/commands/ralph.ts
+- Removed `RALPH_HELP` constant (11 lines) that was only used by ralphCommand()
+- Total code removed: 46 lines of unused legacy code
+- TypeScript compiles without errors
+- All 31 tests pass
+
+**Files Modified:**
+- `src/commands/ralph.ts` (removed ralphCommand() and RALPH_HELP)
+- `research/feature-list.json` (marked feature as passing)
+
+**Working State:** All tests passing, codebase stable

@@ -128,6 +128,17 @@ export async function runAgentCommand(
   // This complements trackAtomicCommand - both track different aspects of CLI usage
   trackCliInvocation(agentKey as AgentType, agentArgs);
 
+  // For copilot, also track nested --agent flags
+  // Example: atomic --agent copilot -- --agent research-codebase
+  if (agentKey === "copilot") {
+    const agentFlagIndex = agentArgs.indexOf("--agent");
+    if (agentFlagIndex !== -1 && agentArgs[agentFlagIndex + 1]) {
+      const nestedAgent = agentArgs[agentFlagIndex + 1];
+      // Track as slash command format for consistency
+      trackCliInvocation("copilot", [`/${nestedAgent}`]);
+    }
+  }
+
   // Spawn the agent process
   const proc = Bun.spawn(cmd, {
     stdin: "inherit",

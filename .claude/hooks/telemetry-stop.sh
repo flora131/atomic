@@ -51,7 +51,8 @@ COMMANDS=$(extract_commands "$TRANSCRIPT")
 if [[ -n "$COMMANDS" ]]; then
   write_session_event "claude" "$COMMANDS" "$SESSION_STARTED_AT"
 
-  # Spawn background upload
+  # Spawn upload process
+  # Atomic file operations prevent duplicate uploads even if multiple processes spawn
   spawn_upload_process
 fi
 

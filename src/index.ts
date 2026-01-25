@@ -12,6 +12,7 @@
  */
 
 import { parseArgs } from "util";
+import { spawn } from "child_process";
 import { configCommand } from "./commands/config";
 import { initCommand } from "./commands/init";
 import { runAgentCommand } from "./commands/run-agent";
@@ -29,7 +30,45 @@ import {
 } from "./utils/arg-parser";
 import { cleanupWindowsLeftoverFiles } from "./utils/cleanup";
 import { COLORS } from "./utils/colors";
+import { isTelemetryEnabledSync } from "./utils/telemetry";
 import { VERSION } from "./version";
+
+/**
+ * Spawn a detached background process to upload telemetry events.
+ * Uses fire-and-forget pattern - parent process exits immediately.
+ *
+ * Reference: specs/phase-6-telemetry-upload-backend.md Section 5.5
+ */
+function spawnTelemetryUpload(): void {
+  // Prevent recursive spawns - if this is already an upload process, don't spawn another
+  if (process.env.ATOMIC_TELEMETRY_UPLOAD === "1") {
+    return;
+  }
+
+  // Check if telemetry is enabled (sync check to avoid blocking)
+  if (!isTelemetryEnabledSync()) {
+    return;
+  }
+
+  try {
+    // Get the script path, with fallback for edge cases
+    const scriptPath = process.argv[1] ?? "atomic";
+
+    // Spawn detached process that outlives parent
+    const child = spawn(process.execPath, [scriptPath, "--upload-telemetry"], {
+      detached: true,
+      stdio: "ignore",
+      env: { ...process.env, ATOMIC_TELEMETRY_UPLOAD: "1" },
+    });
+
+    // Allow parent to exit without waiting for child
+    if (child.unref) {
+      child.unref();
+    }
+  } catch {
+    // Fail silently - telemetry upload should never break the CLI
+  }
+}
 
 /**
  * Show help message
@@ -116,6 +155,7 @@ async function main(): Promise<void> {
       }
       console.error("");
       console.error(`${dim}This will auto-setup if needed, then run the agent with your arguments.${reset}`);
+      spawnTelemetryUpload();
       process.exit(1);
     }
 
@@ -128,6 +168,7 @@ async function main(): Promise<void> {
         console.error("Error: --agent/-a flag requires an agent name");
         console.error(`Valid agents: ${Object.keys(AGENT_CONFIG).join(", ")}`);
         console.error("\nUsage: atomic --agent <name> [-- args...]");
+        spawnTelemetryUpload();
         process.exit(1);
       }
 
@@ -137,6 +178,7 @@ async function main(): Promise<void> {
         const validAgents = Object.keys(AGENT_CONFIG).join(", ");
         console.error(`Error: Unknown agent '${agentName}'`);
         console.error(`Valid agents: ${validAgents}`);
+        spawnTelemetryUpload();
         process.exit(1);
       }
 
@@ -156,6 +198,7 @@ async function main(): Promise<void> {
         console.error(`  ${bold}${green}atomic --agent ${agentName} -- ${quotedArgs}${reset}`);
         console.error("");
         console.error(`${dim}The '--' separator is required to distinguish atomic flags from agent arguments.${reset}`);
+        spawnTelemetryUpload();
         process.exit(1);
       }
 
@@ -163,6 +206,10 @@ async function main(): Promise<void> {
       const forceFlag = hasForceFlag(rawArgs);
       const yesFlag = hasYesFlag(rawArgs);
       const exitCode = await runAgentCommand(agentName, agentArgs, { force: forceFlag, yes: yesFlag });
+
+      // Spawn telemetry upload before exit
+      spawnTelemetryUpload();
+
       process.exit(exitCode);
     }
 
@@ -178,20 +225,31 @@ async function main(): Promise<void> {
         // Uninstall command options
         "keep-config": { type: "boolean" },
         "dry-run": { type: "boolean" },
+        // Hidden flags (not shown in help)
+        "upload-telemetry": { type: "boolean" },
       },
       strict: false,
       allowPositionals: true,
     });
 
+    // Handle --upload-telemetry (hidden, internal use only)
+    if (values["upload-telemetry"]) {
+      const { handleTelemetryUpload } = await import("./utils/telemetry/telemetry-upload");
+      await handleTelemetryUpload();
+      return;
+    }
+
     // Handle --version
     if (values.version) {
       console.log(`atomic v${VERSION}`);
+      spawnTelemetryUpload();
       return;
     }
 
     // Handle --help
     if (values.help) {
       showHelp();
+      spawnTelemetryUpload();
       return;
     }
 
@@ -240,10 +298,15 @@ async function main(): Promise<void> {
       default:
         console.error(`Unknown command: ${command}`);
         console.error("Run 'atomic --help' for usage information.");
+        spawnTelemetryUpload();
         process.exit(1);
     }
+
+    // Spawn telemetry upload after successful command execution
+    spawnTelemetryUpload();
   } catch (error) {
     console.error("Error:", error instanceof Error ? error.message : error);
+    spawnTelemetryUpload();
     process.exit(1);
   }
 }

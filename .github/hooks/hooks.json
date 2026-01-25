@@ -10,14 +10,6 @@
         "timeoutSec": 10
       }
     ],
-    "userPromptSubmitted": [
-      {
-        "type": "command",
-        "bash": "./.github/hooks/prompt-hook.sh",
-        "cwd": ".",
-        "timeoutSec": 5
-      }
-    ],
     "sessionEnd": [
       {
         "type": "command",

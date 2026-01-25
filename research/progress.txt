@@ -201,3 +201,34 @@ Feature 6: Migrate update command
 
 ### Next Feature:
 Feature 7: Migrate uninstall command with --dry-run and --keep-config options
+
+---
+
+## 2026-01-25: Feature 7 - Migrate uninstall command with --dry-run and --keep-config options
+
+### Completed Steps:
+1. Added uninstall command to src/cli.ts:
+   - Registered as "uninstall" with description "Remove atomic installation (binary installs only)"
+   - Added `--dry-run` option for preview mode (shows what would be removed)
+   - Added `--keep-config` option to preserve configuration data
+
+2. Wired up to existing uninstallCommand handler:
+   - Imported uninstallCommand from src/commands/uninstall.ts
+   - Passes globalOpts.yes and local options (dryRun, keepConfig) to handler
+   - Existing handler manages:
+     - Installation type detection (binary vs npm vs source)
+     - Confirmation prompts (unless --yes)
+     - Windows-specific rename strategy for locked executables
+     - Unix self-deletion via unlink()
+     - PATH cleanup instructions
+
+3. Verified functionality:
+   - `atomic uninstall --help` shows --dry-run and --keep-config options
+   - Types compile correctly with `bun run typecheck`
+   - All 624 tests pass
+
+### Files Modified:
+- `src/cli.ts` - Added uninstall command with options (lines 154-167)
+
+### Next Feature:
+Feature 8: Migrate ralph command with setup and stop subcommands

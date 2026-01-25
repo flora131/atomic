@@ -73,7 +73,8 @@ describe("getBinaryInstallDir", () => {
   });
 
   test("respects ATOMIC_INSTALL_DIR environment variable", () => {
-    const customDir = "/custom/install/dir";
+    // Use platform-appropriate path format
+    const customDir = isWindows() ? "C:\\custom\\install\\dir" : "/custom/install/dir";
     process.env.ATOMIC_INSTALL_DIR = customDir;
     const dir = getBinaryInstallDir();
     expect(dir).toBe(customDir);
@@ -137,7 +138,8 @@ describe("getBinaryPath", () => {
   });
 
   test("respects ATOMIC_INSTALL_DIR for full path", () => {
-    const customDir = "/custom/install/dir";
+    // Use platform-appropriate path format
+    const customDir = isWindows() ? "C:\\custom\\install\\dir" : "/custom/install/dir";
     process.env.ATOMIC_INSTALL_DIR = customDir;
     const path = getBinaryPath();
 

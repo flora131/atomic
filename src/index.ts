@@ -15,6 +15,7 @@ import { parseArgs } from "util";
 import { spawn } from "child_process";
 import { configCommand } from "./commands/config";
 import { initCommand } from "./commands/init";
+import { ralphCommand } from "./commands/ralph";
 import { runAgentCommand } from "./commands/run-agent";
 import { updateCommand } from "./commands/update";
 import { uninstallCommand } from "./commands/uninstall";
@@ -180,6 +181,42 @@ async function main(): Promise<void> {
         console.error(`Valid agents: ${validAgents}`);
         spawnTelemetryUpload();
         process.exit(1);
+      }
+
+      // SPECIAL CASE: Handle "atomic -a claude ralph <subcommand>" as a built-in command
+      // This allows ralph setup/stop commands to be run directly via atomic CLI
+      if (agentName === "claude") {
+        // Check for ralph command (either as positional arg after agent or after --)
+        const separatorIndex = rawArgs.indexOf("--");
+        const argsAfterAgent = separatorIndex !== -1 ? rawArgs.slice(separatorIndex + 1) : [];
+
+        // Also check for ralph as a positional arg (without -- separator)
+        // Find the index after the agent value
+        let ralphIndex = -1;
+        for (let i = 0; i < rawArgs.length; i++) {
+          const arg = rawArgs[i];
+          if ((arg === "-a" || arg === "--agent") && rawArgs[i + 1] === "claude") {
+            // Check if "ralph" comes right after "claude"
+            if (rawArgs[i + 2] === "ralph") {
+              ralphIndex = i + 2;
+              break;
+            }
+          }
+        }
+
+        if (ralphIndex !== -1) {
+          // Route to ralph command with remaining args
+          const ralphArgs = rawArgs.slice(ralphIndex + 1);
+          const exitCode = await ralphCommand(ralphArgs);
+          process.exit(exitCode);
+        }
+
+        // Also handle when ralph is first arg after -- separator
+        if (argsAfterAgent[0] === "ralph") {
+          const ralphArgs = argsAfterAgent.slice(1);
+          const exitCode = await ralphCommand(ralphArgs);
+          process.exit(exitCode);
+        }
       }
 
       // FAIL FAST: Check for arguments that look like they should go to the agent

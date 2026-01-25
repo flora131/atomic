@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}/run.cmd\" hooks/stop-hook.sh"
+            "command": "atomic -a claude ralph stop"
           }
         ]
       }

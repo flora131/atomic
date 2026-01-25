@@ -90,13 +90,9 @@ PROMPT=$(echo "$STATE" | jq -r '.prompt // ""')
 LAST_OUTPUT_FILE=$(echo "$STATE" | jq -r '.lastOutputFile // ""')
 
 # Function to check if all features are passing
+# Note: Caller must verify file exists before calling this function
 check_features_passing() {
   local path="$1"
-
-  if [[ ! -f "$path" ]]; then
-    return 1
-  fi
-
   local total_features passing_features failing_features
 
   total_features=$(jq 'length' "$path" 2>/dev/null)
@@ -152,8 +148,8 @@ if [[ $MAX_ITERATIONS -gt 0 ]] && [[ $ITERATION -ge $MAX_ITERATIONS ]]; then
   echo "Ralph loop: Max iterations ($MAX_ITERATIONS) reached." >&2
 fi
 
-# Check 2: All features passing (only in unlimited mode)
-if [[ "$SHOULD_CONTINUE" == "true" ]] && [[ "$MAX_ITERATIONS" -eq 0 ]]; then
+# Check 2: All features passing (only in unlimited mode when feature file exists)
+if [[ "$SHOULD_CONTINUE" == "true" ]] && [[ "$MAX_ITERATIONS" -eq 0 ]] && [[ -f "$FEATURE_LIST_PATH" ]]; then
   if check_features_passing "$FEATURE_LIST_PATH"; then
     SHOULD_CONTINUE=false
     STOP_REASON="all_features_passing"

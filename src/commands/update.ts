@@ -114,7 +114,7 @@ async function replaceBinaryWindows(newBinaryPath: string, targetPath: string): 
  * @param archivePath - Path to the downloaded archive
  * @param dataDir - Path to the data directory where configs should be extracted
  */
-async function extractConfig(archivePath: string, dataDir: string): Promise<void> {
+export async function extractConfig(archivePath: string, dataDir: string): Promise<void> {
   // Ensure data directory exists
   await mkdir(dataDir, { recursive: true });
 
@@ -243,9 +243,10 @@ export async function updateCommand(): Promise<void> {
       }
       s.stop("Binary installed");
 
-      // Update config files
+      // Update config files (clean install - remove stale artifacts)
       s.start("Updating config files...");
       const dataDir = getBinaryDataDir();
+      await rm(dataDir, { recursive: true, force: true });
       await extractConfig(configPath, dataDir);
       s.stop("Config files updated");
 

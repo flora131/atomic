@@ -18,6 +18,7 @@
  *   atomic --help                   Show help
  */
 
+import { spawn } from "child_process";
 import { Command } from "@commander-js/extra-typings";
 import { VERSION } from "./version";
 import { COLORS } from "./utils/colors";
@@ -28,6 +29,9 @@ import { configCommand } from "./commands/config";
 import { updateCommand } from "./commands/update";
 import { uninstallCommand } from "./commands/uninstall";
 import { ralphSetup, ralphStop } from "./commands/ralph";
+import { cleanupWindowsLeftoverFiles } from "./utils/cleanup";
+import { isTelemetryEnabledSync } from "./utils/telemetry";
+import { handleTelemetryUpload } from "./utils/telemetry/telemetry-upload";
 
 /**
  * Create and configure the main CLI program
@@ -253,3 +257,83 @@ export function createProgram() {
 
 // Create the program instance for use by main() and tests
 export const program = createProgram();
+
+/**
+ * Spawn a detached background process to upload telemetry events.
+ * Uses fire-and-forget pattern - parent process exits immediately.
+ *
+ * Reference: specs/phase-6-telemetry-upload-backend.md Section 5.5
+ */
+function spawnTelemetryUpload(): void {
+  // Prevent recursive spawns - if this is already an upload process, don't spawn another
+  if (process.env.ATOMIC_TELEMETRY_UPLOAD === "1") {
+    return;
+  }
+
+  // Check if telemetry is enabled (sync check to avoid blocking)
+  if (!isTelemetryEnabledSync()) {
+    return;
+  }
+
+  try {
+    // Get the script path, with fallback for edge cases
+    const scriptPath = process.argv[1] ?? "atomic";
+
+    // Spawn detached process that outlives parent
+    const child = spawn(process.execPath, [scriptPath, "--upload-telemetry"], {
+      detached: true,
+      stdio: "ignore",
+      env: { ...process.env, ATOMIC_TELEMETRY_UPLOAD: "1" },
+    });
+
+    // Allow parent to exit without waiting for child
+    if (child.unref) {
+      child.unref();
+    }
+  } catch {
+    // Fail silently - telemetry upload should never break the CLI
+  }
+}
+
+/**
+ * Main entry point for the CLI
+ *
+ * Handles:
+ * - Windows leftover file cleanup
+ * - Telemetry upload spawning
+ * - Error handling with colored output
+ */
+async function main(): Promise<void> {
+  // Clean up leftover Windows files from previous uninstall/update operations
+  // This is a no-op on non-Windows platforms
+  await cleanupWindowsLeftoverFiles();
+
+  try {
+    const globalOpts = program.opts();
+
+    // Handle --upload-telemetry (hidden, internal use only)
+    // Check raw args since we need to handle this before parseAsync
+    if (process.argv.includes("--upload-telemetry")) {
+      await handleTelemetryUpload();
+      return;
+    }
+
+    // Parse and execute the command
+    await program.parseAsync();
+
+    // Spawn telemetry upload after successful command execution
+    spawnTelemetryUpload();
+  } catch (error) {
+    // Handle errors with colored output
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`${COLORS.yellow}Error: ${message}${COLORS.reset}`);
+
+    // Spawn telemetry upload even on error
+    spawnTelemetryUpload();
+
+    process.exit(1);
+  }
+}
+
+// Run the CLI
+main();

@@ -118,7 +118,7 @@
       "Export program for testing",
       "Test CLI handles errors gracefully with colored output"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

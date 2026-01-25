@@ -140,8 +140,7 @@ export function filterStaleEvents(events: TelemetryEvent[]): {
 
 /**
  * Find all telemetry event files in the data directory.
- * Looks for both agent-specific files (telemetry-events-{agent}.jsonl)
- * and legacy files (telemetry-events.jsonl) for backwards compatibility.
+ * Looks for agent-specific files matching telemetry-events-{agent}.jsonl pattern.
  *
  * @returns Array of absolute paths to event files
  */
@@ -160,14 +159,6 @@ export function findAllEventFiles(): string[] {
     for (const file of files) {
       // Match telemetry-events-{agent}.jsonl pattern
       if (file.startsWith("telemetry-events-") && file.endsWith(".jsonl")) {
-        eventFiles.push(join(dataDir, file));
-      }
-
-      // TODO(Phase 2 - Feb 22, 2025): Remove legacy file support after 30-day grace period
-      // Legacy file handling added for backwards compatibility with pre-agent-specific installs.
-      // Safe to remove after 2025-02-22 (30 days from agent-specific file introduction).
-      // Also include legacy telemetry-events.jsonl for backwards compatibility
-      if (file === "telemetry-events.jsonl") {
         eventFiles.push(join(dataDir, file));
       }
     }

@@ -1,190 +1,297 @@
 [
   {
-    "category": "functional",
-    "description": "Create telemetry-consent.ts module with consent prompt function",
+    "category": "refactor",
+    "description": "Remove userPromptSubmitted hook configuration from hooks.json",
     "steps": [
-      "Create new file src/utils/telemetry/telemetry-consent.ts",
-      "Import @clack/prompts: confirm, note, log",
-      "Import telemetry state functions from ./telemetry",
-      "Create promptTelemetryConsent(): Promise<boolean> async function",
-      "Display informational note showing what IS collected (command names, agent type, success status)",
-      "Display informational note showing what is NEVER collected (prompts, file paths, IP addresses)",
-      "Display opt-out hint: 'You can opt out anytime with: ATOMIC_TELEMETRY=0'",
-      "Use confirm() with message 'Help improve Atomic by enabling anonymous telemetry?'",
-      "Set initialValue: true for better UX (opt-in default suggestion)",
-      "Handle isCancel() gracefully - return false if user cancels",
-      "Return boolean result of user's choice",
-      "Add JSDoc documentation with @returns and @example"
+      "Open .github/hooks/hooks.json",
+      "Locate the 'userPromptSubmitted' hook block (lines 13-19)",
+      "Remove the entire userPromptSubmitted section including its contents",
+      "Verify JSON syntax remains valid after removal",
+      "Test that hooks.json loads correctly without the removed block"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Delete the prompt-hook.sh file that is no longer needed",
+    "steps": [
+      "Verify .github/hooks/prompt-hook.sh exists",
+      "Delete the file .github/hooks/prompt-hook.sh",
+      "Verify the file has been removed from the filesystem",
+      "Check that no other files reference prompt-hook.sh"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Create isFirstRun() helper to detect first-time telemetry setup",
+    "description": "Add AGENT_INSTRUCTION_HEADERS mapping to telemetry-helper.sh",
     "steps": [
-      "Add isFirstRun(): boolean function to telemetry-consent.ts",
-      "Use readTelemetryState() from telemetry.ts to check if state exists",
-      "Return true if state is null (no telemetry.json file exists)",
-      "Return false if state exists (user has already been through consent flow)",
-      "This follows Single Responsibility - consent module handles consent detection",
-      "Add JSDoc documentation explaining first-run semantics"
+      "Open bin/telemetry-helper.sh",
+      "Add a Bash associative array AGENT_INSTRUCTION_HEADERS after extract_commands() function (around line 165)",
+      "Map instruction header texts to agent filenames (without .md extension)",
+      "Include mappings for agents with H1 headers: explain-code, commit, create-gh-pr, research-codebase, cancel-ralph, ralph-help, ralph-loop",
+      "Include mappings for agents without H1 headers using first content line: create-spec, create-feature-list, implement-feature",
+      "Verify all 10 primary agent mappings are included"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Create handleTelemetryConsent() orchestrator function",
+    "description": "Implement detect_copilot_agents() function in telemetry-helper.sh",
     "steps": [
-      "Add handleTelemetryConsent(): Promise<void> async function to telemetry-consent.ts",
-      "Check isFirstRun() - if false, return early (already handled)",
-      "Call promptTelemetryConsent() to show prompt and get user decision",
-      "Call setTelemetryEnabled(result) to persist the user's choice",
-      "If user consents (true), enable telemetry and mark consent given",
-      "If user declines (false), disable telemetry but still create state file",
-      "This prevents re-prompting on subsequent runs (state file exists)",
-      "Add JSDoc documentation with side effects noted"
+      "Open bin/telemetry-helper.sh",
+      "Add detect_copilot_agents() function after the AGENT_INSTRUCTION_HEADERS mapping",
+      "Implement early exit if ~/.copilot/session-state directory doesn't exist",
+      "Find the most recent session directory using ls -td and head -1",
+      "Return early if no session directory or events.jsonl found",
+      "Initialize an array to store found agents"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Export consent functions from telemetry/index.ts",
+    "description": "Implement Method 1: Parse user.message events for agent_instructions",
     "steps": [
-      "Open src/utils/telemetry/index.ts",
-      "Add new export block for consent functions",
-      "Export: promptTelemetryConsent, handleTelemetryConsent, isFirstRun",
-      "Keep exports organized with descriptive comment '// Consent flow'",
-      "Verify module can be imported correctly with bun run typecheck",
-      "Follow existing export pattern used for other telemetry modules"
+      "In detect_copilot_agents(), add logic to parse events.jsonl line by line",
+      "Check if event type is 'user.message'",
+      "Extract transformedContent from .data.transformedContent using jq",
+      "Check if transformedContent contains '<agent_instructions>'",
+      "Match against AGENT_INSTRUCTION_HEADERS using a loop",
+      "If agent file exists in .github/agents/, add to found_agents array",
+      "Break after first match (only one agent per user.message)"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Integrate consent prompt into init command first-run flow",
+    "description": "Implement Method 2: Parse assistant.message events for task tool calls",
     "steps": [
-      "Open src/commands/init.ts",
-      "Note: Both 'atomic' (no command) and 'atomic init' call initCommand() - see src/index.ts:223-229",
-      "Import handleTelemetryConsent from utils/telemetry",
-      "Add consent prompt AFTER agent selection but BEFORE file copying",
-      "This placement ensures user sees consent after making their first meaningful choice",
-      "Call await handleTelemetryConsent() - it handles first-run check internally",
-      "handleTelemetryConsent() checks if telemetry.json exists - if yes, skips prompt (not first run)",
-      "Do NOT prompt in autoConfirm (--yes) mode - respect non-interactive intent",
-      "In --yes mode, keep telemetry disabled (no implicit consent)",
-      "Ensure consent prompt doesn't block if it fails (fail-safe behavior)",
-      "This covers all first-use entry points: 'atomic', 'atomic init', 'atomic init --agent <name>'"
+      "In detect_copilot_agents(), check if event type is 'assistant.message'",
+      "Extract agent_type from task tool calls using jq path: .data.toolRequests[]? | select(.name == \"task\") | .arguments.agent_type",
+      "For each extracted agent_type, check if .github/agents/<agent_type>.md exists",
+      "If agent file exists, add to found_agents array"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Implement 'atomic config set telemetry' command",
+    "description": "Implement Method 3: Parse tool.execution_complete events for agent telemetry",
     "steps": [
-      "Create new file src/commands/config.ts",
-      "Export configCommand(subcommand: string, key: string, value: string) function",
-      "Validate subcommand is 'set' (only supported operation for now)",
-      "Validate key is 'telemetry' (only supported config key for now)",
-      "Validate value is 'true' or 'false' (strict boolean strings)",
-      "Call setTelemetryEnabled(value === 'true') from telemetry module",
-      "Display confirmation message: 'Telemetry has been {enabled|disabled}'",
-      "Handle invalid inputs with clear error messages",
-      "Add JSDoc documentation for command usage"
+      "In detect_copilot_agents(), check if event type is 'tool.execution_complete'",
+      "Extract agent_name from .data.toolTelemetry.properties.agent_name using jq",
+      "If agent file exists in .github/agents/, add to found_agents array",
+      "This serves as fallback detection from tool telemetry"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Wire config command into CLI entry point",
+    "description": "Return comma-separated agent list from detect_copilot_agents()",
     "steps": [
-      "Open src/index.ts",
-      "Import configCommand from ./commands/config",
-      "Add 'config' case to switch statement around line 198",
-      "Parse subcommand as positionals[1] (e.g., 'set')",
-      "Parse key as positionals[2] (e.g., 'telemetry')",
-      "Parse value as positionals[3] (e.g., 'true' or 'false')",
-      "Call await configCommand(subcommand, key, value)",
-      "Update showHelp() to include config command usage",
-      "Add 'atomic config set telemetry <true|false>' to USAGE section"
+      "After parsing all events, check if found_agents array has elements",
+      "Convert array to comma-separated string using printf and tr",
+      "Remove trailing comma using sed",
+      "Return empty string if no agents found (Null Object Pattern)",
+      "Preserve duplicates in output for frequency tracking"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Update stop-hook.sh telemetry section to use detect_copilot_agents()",
+    "steps": [
+      "Open .github/hooks/stop-hook.sh",
+      "Locate the telemetry section (lines 210-244)",
+      "Remove COMMANDS_TEMP_FILE variable declaration",
+      "Remove temp file reading logic (cat, tr, sed pipeline)",
+      "Remove temp file cleanup (rm -f)",
+      "Replace with call to detect_copilot_agents()",
+      "Update write_session_event() call to use DETECTED_AGENTS variable",
+      "Update comments to reflect new agent detection approach"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Update README.md with telemetry documentation",
+    "description": "Unit test: detect_copilot_agents returns empty when no session directory exists",
     "steps": [
-      "Open README.md in project root",
-      "Add new section '## Telemetry' after installation section",
-      "Document what IS collected: command names, agent type, success/failure status",
-      "Document what is NEVER collected: prompts, file paths, code, IP addresses",
-      "Document opt-out methods: ATOMIC_TELEMETRY=0, DO_NOT_TRACK=1, 'atomic config set telemetry false'",
-      "Document that telemetry is auto-disabled in CI environments",
-      "Document monthly ID rotation for enhanced privacy",
-      "Keep documentation concise and user-friendly",
-      "Reference spec Section 5.6 for UI copy consistency"
+      "Create a test that temporarily renames or mocks ~/.copilot/session-state",
+      "Call detect_copilot_agents()",
+      "Verify function returns empty string",
+      "Restore original state"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Write unit tests for promptTelemetryConsent function",
+    "description": "Unit test: detect_copilot_agents returns empty when events.jsonl is missing",
     "steps": [
-      "Create src/utils/telemetry/telemetry-consent.test.ts",
-      "Import Bun's mock utilities for @clack/prompts",
-      "Test: when user confirms, function returns true",
-      "Test: when user declines, function returns false",
-      "Test: when user cancels (Ctrl+C), function returns false",
-      "Mock confirm() from @clack/prompts to control test behavior",
-      "Verify note() and log() are called with expected content",
-      "Clean up mocks in afterEach to prevent test pollution",
-      "Run tests with bun test src/utils/telemetry/telemetry-consent.test.ts"
+      "Create a mock session directory without events.jsonl",
+      "Call detect_copilot_agents()",
+      "Verify function returns empty string",
+      "Clean up mock directory"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Write unit tests for handleTelemetryConsent orchestrator",
+    "description": "Unit test: detect_copilot_agents extracts agent from agent_instructions correctly",
     "steps": [
-      "Continue in src/utils/telemetry/telemetry-consent.test.ts",
-      "Mock readTelemetryState to control first-run detection",
-      "Test: when NOT first run, no prompt is shown (early return)",
-      "Test: when first run and user consents, telemetry enabled and state saved",
-      "Test: when first run and user declines, telemetry disabled but state saved",
-      "Verify setTelemetryEnabled is called with correct argument",
-      "Use temp directory for state file to avoid polluting real config",
-      "Verify state file exists after decline (prevents re-prompting)"
+      "Create a mock events.jsonl with user.message containing <agent_instructions>",
+      "Include instruction header text that matches AGENT_INSTRUCTION_HEADERS",
+      "Create corresponding .github/agents/<agent>.md file if needed",
+      "Call detect_copilot_agents()",
+      "Verify correct agent name is returned"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Write unit tests for config command",
+    "description": "Unit test: detect_copilot_agents extracts agent_type from task tool calls",
     "steps": [
-      "Create src/commands/config.test.ts",
-      "Test: 'atomic config set telemetry true' enables telemetry",
-      "Test: 'atomic config set telemetry false' disables telemetry",
-      "Test: invalid subcommand shows error message",
-      "Test: invalid key shows error message",
-      "Test: invalid value (not true/false) shows error message",
-      "Mock setTelemetryEnabled to verify correct calls",
-      "Use temp directory for state file isolation",
-      "Run tests with bun test src/commands/config.test.ts"
+      "Create a mock events.jsonl with assistant.message containing task tool call",
+      "Include agent_type in .data.toolRequests[].arguments",
+      "Create corresponding .github/agents/<agent>.md file if needed",
+      "Call detect_copilot_agents()",
+      "Verify correct agent name is returned"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Run full test suite and verify no regressions",
+    "description": "Unit test: detect_copilot_agents filters to only existing agent files",
     "steps": [
-      "Run bun test to execute all tests",
-      "Verify existing Phase 1-4 tests still pass",
-      "Verify new Phase 5 consent tests pass",
-      "Run bun run lint to check for linting issues",
-      "Run bun run typecheck to verify TypeScript compilation",
-      "Test manual invocation: atomic init shows consent prompt on fresh install",
-      "Test manual invocation: atomic config set telemetry true/false works",
-      "Verify README.md telemetry section renders correctly",
-      "Fix any failures before marking phase complete"
+      "Create a mock events.jsonl with agent references to non-existent agent files",
+      "Call detect_copilot_agents()",
+      "Verify function returns empty string (non-existent agents filtered out)",
+      "Add a valid .github/agents/<agent>.md file and test again",
+      "Verify only existing agents are returned"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Unit test: detect_copilot_agents preserves duplicates for frequency tracking",
+    "steps": [
+      "Create a mock events.jsonl with multiple invocations of the same agent",
+      "Call detect_copilot_agents()",
+      "Verify all occurrences are in output (e.g., 'explain-code,explain-code,commit')",
+      "Confirm duplicates are not deduplicated"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Integration test: End-to-end with mock events.jsonl file",
+    "steps": [
+      "Create a comprehensive mock events.jsonl with mixed event types",
+      "Include user.message with agent_instructions",
+      "Include assistant.message with task tool calls",
+      "Include tool.execution_complete with agent telemetry",
+      "Set up required .github/agents/*.md files",
+      "Call detect_copilot_agents()",
+      "Verify all detected agents are returned in correct order"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Integration test: Verify hooks.json loads correctly after modification",
+    "steps": [
+      "Run jq validation on modified .github/hooks/hooks.json",
+      "Verify JSON is syntactically valid",
+      "Verify sessionStart and sessionEnd hooks are still present",
+      "Verify userPromptSubmitted hook is absent"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Manual test: Invoke agent via dropdown and verify detection",
+    "steps": [
+      "Start a GitHub Copilot session",
+      "Select an agent from the dropdown menu (e.g., explain-code)",
+      "Submit a prompt using the selected agent",
+      "End the session",
+      "Check telemetry-events.jsonl for the agent_session event",
+      "Verify the commands array contains 'explain-code'"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Manual test: Invoke agent via CLI --agent flag and verify detection",
+    "steps": [
+      "Run: copilot --agent=explain-code --prompt 'Explain this code'",
+      "Wait for session to complete",
+      "Check telemetry-events.jsonl for the agent_session event",
+      "Verify the commands array contains 'explain-code'"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Manual test: Invoke agent via natural language and verify detection",
+    "steps": [
+      "Start a GitHub Copilot session",
+      "Type a prompt like 'use explain-code to analyze the main function'",
+      "Wait for assistant response with task tool call",
+      "End the session",
+      "Check telemetry-events.jsonl for the agent_session event",
+      "Verify the commands array contains 'explain-code'"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Manual test: Verify no telemetry written when telemetry disabled",
+    "steps": [
+      "Disable telemetry in settings",
+      "Start a GitHub Copilot session",
+      "Invoke one or more agents",
+      "End the session",
+      "Verify no new events were written to telemetry-events.jsonl",
+      "Re-enable telemetry after test"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Verify unchanged files: Claude Code telemetry unaffected",
+    "steps": [
+      "Verify .claude/hooks/telemetry-stop.sh has not been modified",
+      "Run Claude Code session and verify telemetry still works correctly",
+      "Check telemetry-events.jsonl for claude agent_session events"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Verify unchanged files: OpenCode telemetry unaffected",
+    "steps": [
+      "Verify .opencode/plugin/telemetry.ts has not been modified",
+      "Run OpenCode session and verify telemetry still works correctly",
+      "Check telemetry-events.jsonl for opencode agent_session events"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Verify unchanged files: TypeScript telemetry code unaffected",
+    "steps": [
+      "Verify src/utils/telemetry/*.ts files have not been modified",
+      "Run existing telemetry tests: pnpm test telemetry",
+      "Verify all tests pass"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Verify unchanged files: Agent definition files unaffected",
+    "steps": [
+      "Verify .github/agents/*.md files have not been modified",
+      "Check git status for any changes to agent files",
+      "Confirm agent files are read-only for this refactoring"
     ],
     "passes": true
   }

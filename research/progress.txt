@@ -103,3 +103,24 @@ Updated `.github/hooks/stop-hook.ts` to read and write the new YAML frontmatter 
 
 ### Next Steps:
 - Update hooks.json to reference new TypeScript sessionStart script (Feature 5)
+
+## 2026-01-24: Feature 5 Complete - hooks.json update
+
+Updated `.github/hooks/hooks.json` to reference the new TypeScript sessionStart script.
+
+### Implementation Details:
+- Changed sessionStart bash command from `./.github/scripts/start-ralph-session.sh` to `bun run ./.github/scripts/start-ralph-session.ts`
+- Changed sessionStart powershell command from `./.github/scripts/start-ralph-session.ps1` to `bun run ./.github/scripts/start-ralph-session.ts`
+- Verified sessionEnd hook already uses TypeScript (no change needed)
+- Verified JSON syntax is valid
+
+### Testing:
+- Confirmed hooks.json is valid JSON
+- Tested start-ralph-session.ts script invocation
+- Verified session logging works correctly
+
+### Files Modified:
+- `.github/hooks/hooks.json`
+
+### Next Steps:
+- Delete obsolete shell scripts after successful TypeScript conversion (Feature 6)

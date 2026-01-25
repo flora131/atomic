@@ -70,7 +70,7 @@
       "Verify sessionEnd hook already uses TypeScript (no change needed)",
       "Test hooks.json syntax validity"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

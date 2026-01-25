@@ -128,7 +128,7 @@
       "Verify 'atomic --help' works after update",
       "Verify 'atomic --version' shows correct version"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

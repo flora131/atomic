@@ -314,3 +314,27 @@ Feature 9: Add main entry point with telemetry and error handling
 
 ### Next Feature:
 Feature 10: Update package.json bin entry to new CLI
+
+---
+
+## 2026-01-25: Feature 10 - Update package.json bin entry to new CLI
+
+### Completed Steps:
+1. Updated package.json bin entry:
+   - Changed from `"atomic": "src/index.ts"` to `"atomic": "src/cli.ts"`
+   - This makes the new Commander.js CLI the official entry point
+
+2. Updated package.json scripts:
+   - Changed `dev` from `"bun run src/index.ts"` to `"bun run src/cli.ts"`
+   - Changed `build` from `"bun build src/index.ts --compile --outfile atomic"` to `"bun build src/cli.ts --compile --outfile atomic"`
+
+3. Verified functionality:
+   - `bun run src/cli.ts --help` shows all commands correctly
+   - `bun run src/cli.ts --version` shows "0.2.0"
+   - All 624 tests pass
+
+### Files Modified:
+- `package.json` - Updated bin and scripts entries to use src/cli.ts
+
+### Next Feature:
+Feature 11: Update tests for new run command syntax

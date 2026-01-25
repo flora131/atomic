@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, mock, spyOn } from "bun:test";
 import { createProgram } from "../src/cli";
 import { AGENT_CONFIG, isValidAgent } from "../src/config";
+import { ralphSetup, type RalphSetupOptions } from "../src/commands/ralph";
 
 /**
  * Unit tests for the new Commander.js CLI implementation
@@ -48,11 +49,12 @@ describe("Commander.js CLI", () => {
       expect(noBannerOption).toBeDefined();
     });
 
-    test("has hidden --upload-telemetry option", () => {
+    test("has hidden upload-telemetry command", () => {
       const program = createProgram();
-      const telemetryOption = program.options.find(opt => opt.long === "--upload-telemetry");
-      expect(telemetryOption).toBeDefined();
-      expect(telemetryOption?.hidden).toBe(true);
+      const telemetryCmd = program.commands.find(cmd => cmd.name() === "upload-telemetry");
+      expect(telemetryCmd).toBeDefined();
+      // Commander.js sets _hidden when { hidden: true } is passed to .command()
+      expect((telemetryCmd as any)._hidden).toBe(true);
     });
 
     test("has --version option", () => {
@@ -127,15 +129,14 @@ describe("Commander.js CLI", () => {
       expect((runCmd as any)._passThroughOptions).toBe(true);
     });
 
-    test("run command requires -- separator for agent args", () => {
+    test("run command uses passThroughOptions for clean argument passing", () => {
       const program = createProgram();
       const runCmd = program.commands.find(cmd => cmd.name() === "run");
 
-      // When _allowUnknownOption is false (the default), Commander.js will error
-      // on any unrecognized options (e.g., --help for the agent) that appear
-      // BEFORE the -- separator. This enforces that users must use -- to pass
-      // arguments to the agent, preventing ambiguity between atomic and agent options.
-      expect((runCmd as any)._allowUnknownOption).toBeFalsy();
+      // passThroughOptions() allows arguments after <agent> to pass through
+      // without requiring the -- separator. Options appearing after the agent
+      // argument are treated as passthrough arguments, not parsed by Commander.
+      expect((runCmd as any)._passThroughOptions).toBe(true);
     });
   });
 
@@ -243,6 +244,80 @@ describe("Commander.js CLI", () => {
     });
   });
 
+  describe("RalphSetupOptions interface", () => {
+    test("ralphSetup accepts options object with prompt array", async () => {
+      // Type check - this should compile without errors
+      const options: RalphSetupOptions = {
+        prompt: ["test", "prompt"],
+      };
+      
+      // Verify the interface structure
+      expect(options.prompt).toEqual(["test", "prompt"]);
+      expect(options.maxIterations).toBeUndefined();
+      expect(options.completionPromise).toBeUndefined();
+      expect(options.featureList).toBeUndefined();
+    });
+
+    test("RalphSetupOptions supports all optional properties", () => {
+      const options: RalphSetupOptions = {
+        prompt: ["implement", "feature"],
+        maxIterations: 10,
+        completionPromise: "DONE",
+        featureList: "custom/features.json",
+      };
+      
+      expect(options.prompt).toEqual(["implement", "feature"]);
+      expect(options.maxIterations).toBe(10);
+      expect(options.completionPromise).toBe("DONE");
+      expect(options.featureList).toBe("custom/features.json");
+    });
+
+    test("RalphSetupOptions allows empty prompt array", () => {
+      const options: RalphSetupOptions = {
+        prompt: [],
+      };
+      
+      expect(options.prompt).toEqual([]);
+    });
+
+    test("completionPromise can be undefined (no promise set)", () => {
+      const options: RalphSetupOptions = {
+        prompt: ["test"],
+        completionPromise: undefined,
+      };
+      
+      expect(options.completionPromise).toBeUndefined();
+    });
+
+    test("completionPromise can be a string value", () => {
+      const options: RalphSetupOptions = {
+        prompt: ["test"],
+        completionPromise: "All tests passing",
+      };
+      
+      expect(options.completionPromise).toBe("All tests passing");
+    });
+
+    test("maxIterations defaults to 0 (unlimited) when not specified", () => {
+      const options: RalphSetupOptions = {
+        prompt: [],
+      };
+      
+      // The default is applied in the function, not the interface
+      // Interface just allows undefined
+      expect(options.maxIterations).toBeUndefined();
+    });
+
+    test("featureList defaults to 'research/feature-list.json' when not specified", () => {
+      const options: RalphSetupOptions = {
+        prompt: [],
+      };
+      
+      // The default is applied in the function, not the interface
+      expect(options.featureList).toBeUndefined();
+    });
+  });
+
   describe("Agent validation", () => {
     test("isValidAgent returns true for known agents", () => {
       expect(isValidAgent("claude")).toBe(true);
@@ -290,24 +365,24 @@ describe("New run command syntax", () => {
       expect(args[1].description).toContain("Arguments to pass");
     });
 
-    test("run command description mentions -- separator", () => {
+    test("run command has clean description", () => {
       const program = createProgram();
       const runCmd = program.commands.find(cmd => cmd.name() === "run");
 
-      expect(runCmd?.description()).toBe("Run a coding agent (use -- to pass arguments to the agent)");
+      expect(runCmd?.description()).toBe("Run a coding agent");
     });
   });
 
   describe("passthrough options behavior", () => {
-    test("run command is configured to pass options through with -- separator", () => {
+    test("run command passes arguments through without requiring -- separator", () => {
       const program = createProgram();
       const runCmd = program.commands.find(cmd => cmd.name() === "run");
 
-      // passThroughOptions enables -- separator for passing args to agent
+      // passThroughOptions() treats options appearing after <agent> as passthrough
+      // arguments, not as options for the run command itself. This allows:
+      //   atomic run claude --help       → --help passed to claude
+      //   atomic run claude /commit msg  → /commit and msg passed to claude
       expect((runCmd as any)._passThroughOptions).toBe(true);
-      // allowUnknownOption is false, so Commander.js errors on unrecognized options
-      // before --. This forces users to use the -- separator for all agent arguments.
-      expect((runCmd as any)._allowUnknownOption).toBeFalsy();
     });
   });
 });

@@ -4,6 +4,7 @@ import { mkdir, rm, writeFile, readdir } from "fs/promises";
 import { existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { isWindows } from "../src/utils/detect";
 
 describe("isNewerVersion", () => {
   describe("major version differences", () => {
@@ -104,7 +105,11 @@ describe("update command exports", () => {
   });
 });
 
-describe("clean data directory on update", () => {
+/**
+ * NOTE: These tests are skipped on Windows because they require the tar command
+ * which is not natively available on Windows.
+ */
+describe.skipIf(isWindows())("clean data directory on update", () => {
   let testDir: string;
   let dataDir: string;
   let archivePath: string;

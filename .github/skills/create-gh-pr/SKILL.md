@@ -1,9 +1,6 @@
 ---
 name: create-gh-pr
 description: Commit unstaged changes, push changes, submit a pull request.
-tools: ["execute", "search", "read", "agent"]
-model: claude-opus-4-5
-argument-hint: [code-path]
 ---
 
 # Create Pull Request Command

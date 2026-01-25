@@ -200,6 +200,6 @@
       "Test 'atomic foo' (unknown command) shows error with help hint",
       "Test on Windows, macOS, and Linux if possible"
     ],
-    "passes": false
+    "passes": true
   }
 ]

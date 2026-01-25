@@ -1,0 +1,23 @@
+# Progress Log
+
+## 2026-01-25: Feature 1 Complete - ralph-loop.ts
+
+Created `.github/scripts/ralph-loop.ts` to replace `setup-ralph-loop.sh`.
+
+### Implementation Details:
+- Implemented CLI argument parsing for --max-iterations, --completion-promise, --feature-list, --help
+- Added validation for feature list existence when using default prompt
+- Implemented YAML frontmatter state file creation at `.github/ralph-loop.local.md`
+- Write continue flag file at `.github/ralph-continue.flag`
+- Added comprehensive help text and setup summary output
+
+### Testing:
+- Verified --help flag works correctly
+- Tested --max-iterations with valid and invalid values
+- Tested --completion-promise with string value
+- Tested missing feature list error handling
+- Verified custom prompt mode works
+- Verified YAML frontmatter format matches spec from .opencode/plugin/ralph.ts
+
+### Next Steps:
+- Implement start-ralph-session.ts (Feature 2)

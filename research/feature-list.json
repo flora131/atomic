@@ -33,7 +33,7 @@
       "Test 'atomic init -a claude' pre-selects Claude agent",
       "Test 'atomic' (no command) runs init as default"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

@@ -21,6 +21,8 @@
 import { Command } from "@commander-js/extra-typings";
 import { VERSION } from "./version";
 import { COLORS } from "./utils/colors";
+import { AGENT_CONFIG, type AgentKey } from "./config";
+import { initCommand } from "./commands/init";
 
 /**
  * Create and configure the main CLI program
@@ -67,6 +69,28 @@ export function createProgram() {
   if (uploadTelemetryOption) {
     uploadTelemetryOption.hidden = true;
   }
+
+  // Build agent choices string for help text
+  const agentChoices = Object.keys(AGENT_CONFIG).join(", ");
+
+  // Add init command (default command when no subcommand is provided)
+  program
+    .command("init", { isDefault: true })
+    .description("Interactive setup with agent selection")
+    .option(
+      "-a, --agent <name>",
+      `Pre-select agent to configure (${agentChoices})`
+    )
+    .action(async (localOpts) => {
+      const globalOpts = program.opts();
+
+      await initCommand({
+        showBanner: globalOpts.banner !== false,
+        preSelectedAgent: localOpts.agent as AgentKey | undefined,
+        force: globalOpts.force,
+        yes: globalOpts.yes,
+      });
+    });
 
   return program;
 }

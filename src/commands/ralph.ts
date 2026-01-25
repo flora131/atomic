@@ -28,6 +28,41 @@ interface FeatureItem {
   passes?: boolean;
 }
 
+/**
+ * Options for the ralphSetup() function
+ *
+ * This interface provides type-safe options for configuring the Ralph loop,
+ * replacing the previous args array parsing approach.
+ */
+export interface RalphSetupOptions {
+  /**
+   * Initial prompt parts to start the loop.
+   * Multiple parts will be joined with spaces.
+   * If empty/undefined, uses the default /implement-feature prompt.
+   */
+  prompt: string[];
+
+  /**
+   * Maximum iterations before auto-stop.
+   * Default: 0 (unlimited iterations)
+   */
+  maxIterations?: number;
+
+  /**
+   * Promise phrase that signals loop completion.
+   * Agent must output <promise>TEXT</promise> to exit.
+   * Default: undefined (no completion promise set)
+   */
+  completionPromise?: string;
+
+  /**
+   * Path to feature list JSON file.
+   * Used by default prompt to track feature implementation progress.
+   * Default: 'research/feature-list.json'
+   */
+  featureList?: string;
+}
+
 // ============================================================================
 // Constants
 // ============================================================================

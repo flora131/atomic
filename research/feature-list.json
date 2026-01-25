@@ -71,7 +71,7 @@
       "Wire up to existing updateCommand handler from src/commands/update.ts",
       "Test 'atomic update' runs self-update"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

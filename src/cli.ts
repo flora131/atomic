@@ -25,6 +25,7 @@ import { AGENT_CONFIG, isValidAgent, type AgentKey } from "./config";
 import { initCommand } from "./commands/init";
 import { runAgentCommand } from "./commands/run-agent";
 import { configCommand } from "./commands/config";
+import { updateCommand } from "./commands/update";
 
 /**
  * Create and configure the main CLI program
@@ -138,6 +139,14 @@ export function createProgram() {
     .argument("<value>", "Value to set (e.g., true, false)")
     .action(async (key: string, value: string) => {
       await configCommand("set", key, value);
+    });
+
+  // Add update command for self-updating binary installations
+  program
+    .command("update")
+    .description("Self-update to the latest version (binary installs only)")
+    .action(async () => {
+      await updateCommand();
     });
 
   return program;

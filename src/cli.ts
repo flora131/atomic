@@ -20,10 +20,10 @@
  */
 
 import { spawn } from "child_process";
-import { Command } from "@commander-js/extra-typings";
+import { Command, Argument, InvalidArgumentError } from "@commander-js/extra-typings";
 import { VERSION } from "./version";
 import { COLORS } from "./utils/colors";
-import { AGENT_CONFIG, isValidAgent, type AgentKey } from "./config";
+import { AGENT_CONFIG, type AgentKey } from "./config";
 import { initCommand } from "./commands/init";
 import { runAgentCommand } from "./commands/run-agent";
 import { configCommand } from "./commands/config";
@@ -101,7 +101,11 @@ export function createProgram() {
   program
     .command("run")
     .description("Run a coding agent")
-    .argument("<agent>", `Agent to run (${agentChoices})`)
+    .addArgument(
+      new Argument("<agent>", "Agent to run").choices(
+        Object.keys(AGENT_CONFIG) as AgentKey[]
+      )
+    )
     .argument("[args...]", "Arguments to pass to the agent")
     .passThroughOptions() // Options after <agent> are passed through to the agent
     .addHelpText(
@@ -113,16 +117,8 @@ Examples:
   $ atomic run claude --help               Show agent's help
   $ atomic run opencode /research-codebase Research the codebase`
     )
-    .action(async (agent: string, args: string[]) => {
+    .action(async (agent: AgentKey, args: string[]) => {
       const globalOpts = program.opts();
-
-      // Validate agent name
-      if (!isValidAgent(agent)) {
-        console.error(`${COLORS.red}Error: Unknown agent '${agent}'${COLORS.reset}`);
-        console.error(`Valid agents: ${agentChoices}`);
-        console.error("\n(Run 'atomic run --help' for usage information)");
-        process.exit(1);
-      }
 
       const exitCode = await runAgentCommand(agent, args, {
         force: globalOpts.force,
@@ -178,17 +174,11 @@ Examples:
 
   /**
    * Parse and validate --max-iterations argument
-   * Returns the parsed integer or exits with error if invalid
+   * Throws InvalidArgumentError for Commander.js error handling
    */
   function parseIterations(value: string): number {
     if (!/^\d+$/.test(value)) {
-      console.error(`${COLORS.red}Error: --max-iterations must be a positive integer or 0, got: ${value}${COLORS.reset}`);
-      console.error("");
-      console.error("   Valid examples:");
-      console.error("     --max-iterations 10");
-      console.error("     --max-iterations 50");
-      console.error("     --max-iterations 0  (unlimited)");
-      process.exit(1);
+      throw new InvalidArgumentError("Must be a positive integer or 0");
     }
     return parseInt(value, 10);
   }

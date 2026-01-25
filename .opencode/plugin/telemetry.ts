@@ -1,11 +1,7 @@
 import type { Plugin } from "@opencode-ai/plugin"
-import { existsSync, readFileSync } from "fs"
+import { existsSync, readFileSync, mkdirSync, appendFileSync } from "fs"
 import { join } from "path"
 import { spawn, execSync } from "child_process"
-import { getBinaryDataDir } from "../../src/utils/config-path"
-import { appendEvent } from "../../src/utils/telemetry/telemetry-file-io"
-import { createSessionEvent } from "../../src/utils/telemetry/telemetry-session"
-import { handleTelemetryError } from "../../src/utils/telemetry/telemetry-errors"
 
 /**
  * Telemetry Plugin for OpenCode
@@ -28,9 +24,56 @@ import { handleTelemetryError } from "../../src/utils/telemetry/telemetry-errors
  *
  * Reference: Spec Section 5.3.3
  * OpenCode Docs: https://opencode.ai/docs/plugins/
+ *
+ * NOTE: This plugin is self-contained with all dependencies inlined.
+ * This is necessary because the plugin runs separately from the Atomic CLI binary.
  */
 
-// Atomic commands to track (must match constants.ts)
+// ============================================================================
+// Inlined Types (from src/utils/telemetry/types.ts)
+// ============================================================================
+
+/** Agent types supported by Atomic */
+type AgentType = "claude" | "opencode" | "copilot"
+
+/** Persistent telemetry state stored in telemetry.json */
+interface TelemetryState {
+  enabled: boolean
+  consentGiven: boolean
+  anonymousId: string
+  createdAt: string
+  rotatedAt: string
+}
+
+/** Event logged when an agent session ends */
+interface AgentSessionEvent {
+  anonymousId: string
+  eventId: string
+  sessionId: string
+  eventType: "agent_session"
+  timestamp: string
+  agentType: AgentType
+  commands: string[]
+  commandCount: number
+  platform: NodeJS.Platform
+  atomicVersion: string
+  source: "session_hook"
+}
+
+// ============================================================================
+// Inlined Constants (from src/utils/telemetry/constants.ts)
+// ============================================================================
+
+/**
+ * List of all Atomic slash commands that are tracked.
+ * Includes both short and fully-qualified (namespace:command) forms.
+ *
+ * IMPORTANT: This list is duplicated in:
+ * - src/utils/telemetry/constants.ts (source of truth)
+ * - bin/telemetry-helper.sh (ATOMIC_COMMANDS array)
+ *
+ * Tests in atomic-commands-sync.test.ts verify synchronization.
+ */
 const ATOMIC_COMMANDS = [
   "/research-codebase",
   "/create-spec",
@@ -47,32 +90,89 @@ const ATOMIC_COMMANDS = [
   "/ralph:help",
 ] as const
 
-type AgentType = "claude" | "opencode" | "copilot"
+// Plugin version - used when CLI version is not available
+const PLUGIN_VERSION = "opencode-plugin"
 
-interface AgentSessionEvent {
-  anonymousId: string
-  eventId: string
-  sessionId: string
-  eventType: "agent_session"
-  timestamp: string
-  agentType: AgentType
-  commands: string[]
-  commandCount: number
-  platform: NodeJS.Platform
-  atomicVersion: string
-  source: "session_hook"
+// ============================================================================
+// Inlined Utilities (from src/utils/config-path.ts, src/utils/detect.ts)
+// ============================================================================
+
+/** Check if running on Windows */
+function isWindows(): boolean {
+  return process.platform === "win32"
 }
 
-interface TelemetryState {
-  enabled: boolean
-  consentGiven: boolean
-  anonymousId: string
-  createdAt: string
-  rotatedAt: string
+/**
+ * Get the data directory for Atomic installations.
+ * Follows XDG Base Directory spec on Unix, uses LOCALAPPDATA on Windows.
+ * - Unix: $XDG_DATA_HOME/atomic or ~/.local/share/atomic
+ * - Windows: %LOCALAPPDATA%\atomic
+ */
+function getBinaryDataDir(): string {
+  if (isWindows()) {
+    const localAppData = process.env.LOCALAPPDATA || join(process.env.USERPROFILE || "", "AppData", "Local")
+    return join(localAppData, "atomic")
+  }
+  const xdgDataHome = process.env.XDG_DATA_HOME || join(process.env.HOME || "", ".local", "share")
+  return join(xdgDataHome, "atomic")
 }
 
-// getTelemetryDataDir moved to src/utils/config-path.ts (getBinaryDataDir)
-// getEventsFilePath moved to src/utils/telemetry/telemetry-file-io.ts
+// ============================================================================
+// Inlined Error Handling (from src/utils/telemetry/telemetry-errors.ts)
+// ============================================================================
+
+const DEBUG_MODE = process.env.ATOMIC_TELEMETRY_DEBUG === "1"
+
+/**
+ * Handle telemetry errors with consistent silent-by-default behavior.
+ * Enables debug logging when ATOMIC_TELEMETRY_DEBUG=1 is set.
+ */
+function handleTelemetryError(error: unknown, context: string): void {
+  if (DEBUG_MODE) {
+    console.error(`[Telemetry Debug: ${context}]`, error)
+  }
+  // Otherwise, silent - telemetry must never break user workflows
+}
+
+// ============================================================================
+// Inlined File I/O (from src/utils/telemetry/telemetry-file-io.ts)
+// ============================================================================
+
+/**
+ * Get path to telemetry-events-{agent}.jsonl file.
+ */
+function getEventsFilePath(agentType?: AgentType | null): string {
+  const agent = agentType || "atomic"
+  return join(getBinaryDataDir(), `telemetry-events-${agent}.jsonl`)
+}
+
+/**
+ * Append an event to the telemetry events JSONL file.
+ * Uses atomic append-only writes for concurrent safety.
+ * Fails silently to ensure telemetry never breaks operation.
+ */
+function appendEvent(event: AgentSessionEvent, agentType?: AgentType | null): void {
+  try {
+    const dataDir = getBinaryDataDir()
+
+    // Ensure data directory exists before writing
+    if (!existsSync(dataDir)) {
+      mkdirSync(dataDir, { recursive: true })
+    }
+
+    const eventsPath = getEventsFilePath(agentType)
+    const line = JSON.stringify(event) + "\n"
+
+    // appendFileSync relies on OS-level O_APPEND atomicity for concurrent safety
+    appendFileSync(eventsPath, line, "utf-8")
+  } catch {
+    // Fail silently - telemetry should never break the application
+  }
+}
+
+// ============================================================================
+// Plugin-specific Telemetry Functions
+// ============================================================================
 
 /**
  * Get path to telemetry.json state file
@@ -150,8 +250,28 @@ function extractCommands(text: string): string[] {
 }
 
 /**
+ * Create an AgentSessionEvent with all required fields.
+ */
+function createSessionEvent(agentType: AgentType, commands: string[], anonymousId: string): AgentSessionEvent {
+  const sessionId = crypto.randomUUID()
+
+  return {
+    anonymousId,
+    eventId: sessionId,
+    sessionId,
+    eventType: "agent_session",
+    timestamp: new Date().toISOString(),
+    agentType,
+    commands,
+    commandCount: commands.length,
+    platform: process.platform,
+    atomicVersion: PLUGIN_VERSION,
+    source: "session_hook",
+  }
+}
+
+/**
  * Write session event to telemetry file
- * Uses shared createSessionEvent and appendEvent from telemetry modules
  */
 function writeSessionEvent(agentType: AgentType, commands: string[]): void {
   try {
@@ -162,8 +282,12 @@ function writeSessionEvent(agentType: AgentType, commands: string[]): void {
       return
     }
 
-    // createSessionEvent handles anonymous ID internally via getOrCreateTelemetryState
-    const event = createSessionEvent(agentType, commands)
+    const anonymousId = getAnonymousId()
+    if (!anonymousId) {
+      return
+    }
+
+    const event = createSessionEvent(agentType, commands, anonymousId)
     appendEvent(event, agentType)
   } catch (error) {
     handleTelemetryError(error, "opencode:writeSessionEvent")
@@ -179,10 +303,9 @@ function spawnUpload(): void {
 
     // Method 1: Check for bun installation (preferred for bun installs)
     // Bun installations are typically at ~/.bun/bin/atomic and are script files
-    const bunPath =
-      process.platform === "win32"
-        ? join(process.env.USERPROFILE || "", ".bun", "bin", "atomic.exe")
-        : join(process.env.HOME || "", ".bun", "bin", "atomic")
+    const bunPath = isWindows()
+      ? join(process.env.USERPROFILE || "", ".bun", "bin", "atomic.exe")
+      : join(process.env.HOME || "", ".bun", "bin", "atomic")
 
     if (existsSync(bunPath)) {
       atomicPath = bunPath
@@ -191,7 +314,7 @@ function spawnUpload(): void {
     // Method 2: Try to find atomic in PATH (works for both bun and native if in PATH)
     if (!atomicPath) {
       try {
-        const whichCommand = process.platform === "win32" ? "where atomic" : "which atomic"
+        const whichCommand = isWindows() ? "where atomic" : "which atomic"
         const result = execSync(whichCommand, { encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] })
         atomicPath = result.trim().split("\n")[0]
       } catch {
@@ -201,10 +324,9 @@ function spawnUpload(): void {
 
     // Method 3: Fall back to hardcoded native installation path
     if (!atomicPath) {
-      const nativePath =
-        process.platform === "win32"
-          ? join(process.env.USERPROFILE || "", ".local", "bin", "atomic.exe")
-          : join(process.env.HOME || "", ".local", "bin", "atomic")
+      const nativePath = isWindows()
+        ? join(process.env.USERPROFILE || "", ".local", "bin", "atomic.exe")
+        : join(process.env.HOME || "", ".local", "bin", "atomic")
 
       if (existsSync(nativePath)) {
         atomicPath = nativePath
@@ -228,15 +350,14 @@ function spawnUpload(): void {
 // Using array (not Set) to preserve duplicates for usage frequency tracking
 let sessionCommands: string[] = []
 
-export const TelemetryPlugin: Plugin = async ({ directory, client }) => {
-
+export const TelemetryPlugin: Plugin = async () => {
   return {
     /**
      * HOOK: command.execute.before
      * Primary detection method - intercepts slash commands before expansion
      * Receives the command name directly (e.g., "research-codebase")
      */
-    "command.execute.before": async (input, output) => {
+    "command.execute.before": async (input) => {
       const commandName = normalizeCommandName(input.command)
 
       if (commandName) {
@@ -249,7 +370,7 @@ export const TelemetryPlugin: Plugin = async ({ directory, client }) => {
      * Fallback detection for commands mentioned in agent responses
      * E.g., when an agent says "I'll use /commit to save your changes"
      */
-    "chat.message": async (input, output) => {
+    "chat.message": async (_input, output) => {
       for (const part of output.parts) {
         if (part.type === "text" && typeof part.text === "string") {
           // Check if message contains slash commands mentioned in text (agent responses)

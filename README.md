@@ -424,16 +424,16 @@ The loop exits when **any** of these conditions are met:
 
 ```bash
 # Default: implement features until all pass
-/ralph-loop
+/ralph:ralph-loop
 
 # Limit iterations
-/ralph-loop --max-iterations 20
+/ralph:ralph-loop --max-iterations 20
 
 # Custom prompt with completion promise
-/ralph-loop "Build a todo API" --completion-promise "DONE" --max-iterations 20
+/ralph:ralph-loop "Build a todo API" --completion-promise "DONE" --max-iterations 20
 
 # Custom feature list path
-/ralph-loop --feature-list specs/my-features.json
+/ralph:ralph-loop --feature-list specs/my-features.json
 ```
 
 ---

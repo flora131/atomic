@@ -124,3 +124,33 @@ Updated `.github/hooks/hooks.json` to reference the new TypeScript sessionStart 
 
 ### Next Steps:
 - Delete obsolete shell scripts after successful TypeScript conversion (Feature 6)
+
+## 2026-01-24: Feature 6 Complete - Delete obsolete shell scripts
+
+Deleted obsolete shell scripts and updated references to use TypeScript versions.
+
+### Deleted Files:
+- `.github/scripts/cancel-ralph.sh`
+- `.github/scripts/setup-ralph-loop.sh`
+- `.github/scripts/start-ralph-session.sh`
+- `.github/scripts/log-ralph-prompt.sh`
+
+### Updated References:
+- `.github/agents/cancel-ralph.md` - Updated to use `bun run ./.github/scripts/cancel-ralph.ts`
+- `.github/agents/ralph-loop.md` - Updated to use `bun run ./.github/scripts/ralph-loop.ts`
+- `.github/agents/ralph-loop.md` - Updated monitoring commands for YAML frontmatter format
+- `.opencode/plugin/ralph.ts` - Updated comment reference
+
+### Verification:
+- All TypeScript scripts tested and working
+- All 488 tests pass
+- No old .local.json state files found
+
+### Remaining Files in .github/scripts/:
+- `cancel-ralph.ts`
+- `ralph-loop.ts`
+- `start-ralph-session.ts`
+- `run.cmd` (utility script)
+
+### Next Steps:
+- Implement unit tests for YAML frontmatter parsing and writing (Feature 7)

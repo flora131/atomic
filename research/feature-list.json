@@ -85,7 +85,7 @@
       "Delete any old .local.json state files",
       "Verify no references to deleted files remain in codebase"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

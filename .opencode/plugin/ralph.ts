@@ -32,7 +32,7 @@ interface Feature {
   passes: boolean
 }
 
-// Default values - keep in sync with plugins/ralph/scripts/setup-ralph-loop.sh
+// Default values - keep in sync with .github/scripts/ralph-loop.ts
 const STATE_FILE = ".opencode/ralph-loop.local.md"
 const DEFAULT_MAX_ITERATIONS = 0
 const DEFAULT_COMPLETION_PROMISE = null

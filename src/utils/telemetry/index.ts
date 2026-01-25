@@ -51,3 +51,13 @@ export {
   promptTelemetryConsent,
   handleTelemetryConsent,
 } from "./telemetry-consent";
+
+// Telemetry upload
+export {
+  handleTelemetryUpload,
+  readEventsFromJSONL,
+  filterStaleEvents,
+  splitIntoBatches,
+  TELEMETRY_UPLOAD_CONFIG,
+  type UploadResult,
+} from "./telemetry-upload";

@@ -45,6 +45,34 @@ LOG_ENTRY=$(jq -n \
 
 echo "$LOG_ENTRY" >> "$RALPH_LOG_DIR/ralph-sessions.jsonl"
 
+# ============================================================================
+# TELEMETRY TRACKING
+# ============================================================================
+# Track agent session telemetry by detecting custom agents from events.jsonl
+# Agents are detected from instruction headers or task tool calls in Copilot's
+# session state directory.
+# IMPORTANT: This runs BEFORE Ralph loop check to ensure telemetry is captured
+# for all sessions, not just Ralph loop sessions.
+
+TELEMETRY_HELPER="$PROJECT_ROOT/bin/telemetry-helper.sh"
+
+# Source telemetry helper if available
+if [[ -f "$TELEMETRY_HELPER" ]]; then
+  # shellcheck source=../../bin/telemetry-helper.sh
+  source "$TELEMETRY_HELPER"
+
+  if is_telemetry_enabled; then
+    # Detect agents from Copilot session events.jsonl
+    DETECTED_AGENTS=$(detect_copilot_agents)
+
+    # Write telemetry event with detected agents
+    write_session_event "copilot" "$DETECTED_AGENTS"
+
+    # Spawn upload process
+    spawn_upload_process
+  fi
+fi
+
 # Check if Ralph loop is active
 if [[ ! -f "$RALPH_STATE_FILE" ]]; then
   # No active loop - clean exit
@@ -206,41 +234,6 @@ LOG_ENTRY=$(jq -n \
   }')
 
 echo "$LOG_ENTRY" >> "$RALPH_LOG_DIR/ralph-sessions.jsonl"
-
-# ============================================================================
-# TELEMETRY TRACKING
-# ============================================================================
-# Track agent session telemetry (Atomic slash commands used)
-# Commands are accumulated during the session via userPromptSubmitted hook
-# and read from temp file here at session end.
-
-TELEMETRY_HELPER="$PROJECT_ROOT/bin/telemetry-helper.sh"
-COMMANDS_TEMP_FILE=".github/telemetry-session-commands.tmp"
-
-# Source telemetry helper if available
-if [[ -f "$TELEMETRY_HELPER" ]]; then
-  # shellcheck source=../../bin/telemetry-helper.sh
-  source "$TELEMETRY_HELPER"
-
-  if is_telemetry_enabled; then
-    # Read accumulated commands from temp file (populated by userPromptSubmitted hook)
-    # Keep all occurrences to track actual usage frequency (no deduplication)
-    ACCUMULATED_COMMANDS=""
-    if [[ -f "$COMMANDS_TEMP_FILE" ]]; then
-      # Read all commands and convert to comma-separated (preserving duplicates for usage tracking)
-      ACCUMULATED_COMMANDS=$(cat "$COMMANDS_TEMP_FILE" | tr '\n' ',' | sed 's/,$//')
-    fi
-
-    # Write telemetry event with accumulated commands
-    write_session_event "copilot" "$ACCUMULATED_COMMANDS"
-
-    # Clean up temp file
-    rm -f "$COMMANDS_TEMP_FILE"
-
-    # Spawn background upload
-    spawn_upload_process
-  fi
-fi
 
 # Output is ignored for sessionEnd
 exit 0

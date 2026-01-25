@@ -9,50 +9,113 @@
  * Reference: Spec Section 5.3.3
  */
 
-import { existsSync, mkdirSync, appendFileSync } from "fs";
-import { join } from "path";
-import { getBinaryDataDir } from "../config-path";
+import { readFileSync } from "fs";
 import { isTelemetryEnabledSync, getOrCreateTelemetryState } from "./telemetry";
-import type { AgentSessionEvent, AgentType, TelemetryEvent } from "./types";
+import type { AgentSessionEvent, AgentType } from "./types";
 import { VERSION } from "../../version";
 import { ATOMIC_COMMANDS } from "./constants";
+import { appendEvent } from "./telemetry-file-io";
+import { handleTelemetryError } from "./telemetry-errors";
+
+/**
+ * Message structure from Claude Code transcript JSONL format.
+ * User messages have content as string, assistant messages as array.
+ */
+interface TranscriptMessage {
+  type: "user" | "assistant" | "system";
+  message?: {
+    role?: string;
+    content?: string | Array<{ type: string; text?: string }>;
+  };
+}
+
+/**
+ * Extract text content from a parsed transcript message.
+ *
+ * CRITICAL: Only extracts from string content (user-typed commands).
+ * When user messages have array content, it means skill instructions were loaded,
+ * which contain command references that are NOT actual user invocations.
+ *
+ * Format examples:
+ * - User typed command: {type: "user", message: {content: "/commit"}}
+ * - Skill loaded: {type: "user", message: {content: [{type: "text", text: "...run /commit..."}]}}
+ *
+ * @param message - Parsed JSONL message object
+ * @returns Text content from user-typed input only (empty string for loaded skills)
+ */
+function extractTextFromMessage(message: TranscriptMessage): string {
+  const content = message.message?.content;
+
+  // Only extract from string content - this is what the user actually typed
+  if (typeof content === "string") {
+    return content;
+  }
+
+  // Array content means skill instructions were loaded - DO NOT extract commands from these
+  // Skill instructions contain command references like "/commit" that are NOT user invocations
+  return "";
+}
+
+/**
+ * Find all occurrences of a command in text.
+ * Uses word boundary matching to avoid partial matches.
+ *
+ * @param text - Text to search
+ * @param command - Command to find (e.g., '/commit')
+ * @returns Number of times the command appears
+ */
+function countCommandOccurrences(text: string, command: string): number {
+  const escapedCmd = command.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(?:^|\\s|[^\\w/])${escapedCmd}(?:\\s|$|[^\\w-:])`, "g");
+  return text.match(regex)?.length || 0;
+}
 
 /**
  * Extract Atomic slash commands from a transcript string.
  * Used to identify which commands were used during an agent session.
  * Counts all occurrences to track actual usage frequency.
  *
- * @param transcript - The transcript text from the agent session
+ * The transcript is in JSONL format where each line is a JSON message.
+ * Only extracts commands from user messages to avoid false positives from
+ * skill instructions or agent suggestions.
+ *
+ * @param transcript - The transcript text from the agent session (JSONL format)
  * @returns Array of slash commands found (includes duplicates for usage tracking)
  *
  * @example
- * extractCommandsFromTranscript('User ran /research-codebase src/')
- * // Returns: ['/research-codebase']
+ * extractCommandsFromTranscript('{"role":"user","message":{"content":[{"type":"text","text":"/commit"}]}}')
+ * // Returns: ['/commit']
  *
  * @example
- * extractCommandsFromTranscript('First /commit then another /commit')
- * // Returns: ['/commit', '/commit']
- *
- * @example
- * extractCommandsFromTranscript('/ralph:ralph-loop was started')
- * // Returns: ['/ralph:ralph-loop']
+ * // Ignores commands in system messages (skill instructions)
+ * extractCommandsFromTranscript('{"role":"system","message":{"content":[{"type":"text","text":"Run /commit"}]}}')
+ * // Returns: []
  */
 export function extractCommandsFromTranscript(transcript: string): string[] {
   const foundCommands: string[] = [];
+  const lines = transcript.split("\n").filter((line) => line.trim() !== "");
 
-  for (const cmd of ATOMIC_COMMANDS) {
-    // Escape special regex characters in command (e.g., the colon in namespaced commands)
-    const escapedCmd = cmd.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // Match command at word boundary (start of line, after space, etc.)
-    // Followed by end of string, whitespace, or non-word character
-    const regex = new RegExp(`(?:^|\\s|[^\\w/])${escapedCmd}(?:\\s|$|[^\\w-:])`, "g");
+  for (const line of lines) {
+    try {
+      const message: TranscriptMessage = JSON.parse(line);
 
-    // Count all occurrences of this command (for usage frequency tracking)
-    const matches = transcript.match(regex);
-    if (matches) {
-      for (let i = 0; i < matches.length; i++) {
-        foundCommands.push(cmd);
+      // Only extract from user messages - skip assistant/system to avoid false positives
+      if (message.type !== "user") {
+        continue;
       }
+
+      const text = extractTextFromMessage(message);
+
+      // Find all commands in this user message
+      for (const cmd of ATOMIC_COMMANDS) {
+        const count = countCommandOccurrences(text, cmd);
+        for (let i = 0; i < count; i++) {
+          foundCommands.push(cmd);
+        }
+      }
+    } catch {
+      // Skip invalid JSON lines - graceful degradation
+      continue;
     }
   }
 
@@ -93,31 +156,7 @@ export function createSessionEvent(
   };
 }
 
-/**
- * Append an event to the telemetry events JSONL file.
- * Uses atomic append-only writes for concurrent safety.
- * Fails silently to ensure telemetry never breaks hook operation.
- *
- * @param event - The event object to append
- */
-function appendEvent(event: TelemetryEvent): void {
-  try {
-    const dataDir = getBinaryDataDir();
-
-    // Ensure data directory exists before writing
-    if (!existsSync(dataDir)) {
-      mkdirSync(dataDir, { recursive: true });
-    }
-
-    const eventsPath = join(dataDir, "telemetry-events.jsonl");
-    const line = JSON.stringify(event) + "\n";
-
-    // Atomic append-only write
-    appendFileSync(eventsPath, line, "utf-8");
-  } catch {
-    // Fail silently - telemetry should never break hooks
-  }
-}
+// appendEvent moved to telemetry-file-io.ts to avoid duplication
 
 /**
  * Track an agent session end event.
@@ -162,5 +201,5 @@ export function trackAgentSession(
 
   // Create and write the event
   const event = createSessionEvent(agentType, commands);
-  appendEvent(event);
+  appendEvent(event, agentType);
 }

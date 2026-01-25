@@ -82,12 +82,9 @@ const ATOMIC_COMMANDS = [
   "/commit",
   "/create-gh-pr",
   "/explain-code",
-  "/ralph-loop",
   "/ralph:ralph-loop",
-  "/cancel-ralph",
   "/ralph:cancel-ralph",
-  "/ralph-help",
-  "/ralph:help",
+  "/ralph:ralph-help",
 ] as const
 
 // Plugin version - used when CLI version is not available

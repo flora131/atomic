@@ -274,7 +274,7 @@ async function spawnUploadProcess(): Promise<void> {
     // Check if atomic command exists
     await $`command -v atomic`.quiet();
     // Spawn in background
-    $`nohup atomic --upload-telemetry > /dev/null 2>&1 &`.quiet().nothrow();
+    $`nohup atomic upload-telemetry > /dev/null 2>&1 &`.quiet().nothrow();
   } catch {
     // atomic not available, skip
   }

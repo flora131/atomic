@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "atomic -a claude ralph stop"
+            "command": "atomic ralph stop -a claude"
           }
         ]
       }

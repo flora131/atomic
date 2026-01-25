@@ -152,7 +152,7 @@
       "Update plugins/ralph/hooks/hooks.json: change 'atomic -a claude ralph stop' to 'atomic ralph stop -a claude'",
       "Verify ralph loop skill works with new syntax"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

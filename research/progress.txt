@@ -21,3 +21,31 @@ Created `.github/scripts/ralph-loop.ts` to replace `setup-ralph-loop.sh`.
 
 ### Next Steps:
 - Implement start-ralph-session.ts (Feature 2)
+
+## 2026-01-24: Feature 2 Complete - start-ralph-session.ts
+
+Created `.github/scripts/start-ralph-session.ts` to replace `start-ralph-session.sh`.
+
+### Implementation Details:
+- Implemented stdin JSON parsing following stop-hook.ts pattern
+- Created JSONL logging for session start events in `.github/logs/ralph-sessions.jsonl`
+- Implemented YAML frontmatter parsing for Ralph state file (`.github/ralph-loop.local.md`)
+- Added iteration status output to stderr when Ralph loop is active
+- Implemented iteration increment on resume/startup source types
+- Proper cross-platform line ending normalization (CRLF -> LF)
+
+### Testing:
+Created comprehensive test suite in `tests/ralph/start-ralph-session.test.ts`:
+- Session logging tests (JSONL format, empty input, invalid JSON, missing fields)
+- Ralph loop detection tests (active loop, unlimited iterations, no active loop)
+- Iteration increment tests (resume, startup, manual sources)
+- YAML frontmatter parsing tests (all fields, Windows line endings, inactive loop)
+
+All 13 tests pass.
+
+### Files Created:
+- `.github/scripts/start-ralph-session.ts` - TypeScript session start hook
+- `tests/ralph/start-ralph-session.test.ts` - Unit tests
+
+### Next Steps:
+- Implement cancel-ralph.ts (Feature 3)

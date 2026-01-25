@@ -28,7 +28,7 @@
       "Follow YAML frontmatter parsing pattern from .opencode/plugin/ralph.ts:119-168",
       "Test hook invocation with mock JSON input"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

@@ -24,6 +24,7 @@ import { COLORS } from "./utils/colors";
 import { AGENT_CONFIG, isValidAgent, type AgentKey } from "./config";
 import { initCommand } from "./commands/init";
 import { runAgentCommand } from "./commands/run-agent";
+import { configCommand } from "./commands/config";
 
 /**
  * Create and configure the main CLI program
@@ -122,6 +123,21 @@ export function createProgram() {
       });
 
       process.exit(exitCode);
+    });
+
+  // Add config command for managing CLI settings
+  const configCmd = program
+    .command("config")
+    .description("Manage atomic configuration");
+
+  // Add 'set' subcommand to config
+  configCmd
+    .command("set")
+    .description("Set a configuration value")
+    .argument("<key>", "Configuration key (e.g., telemetry)")
+    .argument("<value>", "Value to set (e.g., true, false)")
+    .action(async (key: string, value: string) => {
+      await configCommand("set", key, value);
     });
 
   return program;

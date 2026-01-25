@@ -188,7 +188,8 @@ function Get-AtomicVersion {
         if ($atomic) {
             $version = & $atomic.Source --version 2>$null
             if ($version) {
-                return $version.Trim()
+                # Strip "atomic v" prefix to match TypeScript VERSION format
+                return $version.Trim() -replace '^atomic v', ''
             }
         }
     } catch {

@@ -117,17 +117,6 @@ function getAnonymousId(): string | null {
 }
 
 /**
- * Get Atomic version.
- *
- * TODO(Phase N): Replace "unknown" with actual version from package.json
- * Requires robust path resolution across installation types (npm/bun/binary).
- * Not dead code - actively used but stubbed for now.
- */
-function getAtomicVersion(): string {
-  return "unknown"
-}
-
-/**
  * Normalize command name to match ATOMIC_COMMANDS format.
  * Handles both "command-name" and "/command-name" formats.
  */

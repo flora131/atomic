@@ -114,7 +114,7 @@
       "Test invalid argument handling and error messages",
       "Test positional arguments for prompt"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

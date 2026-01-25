@@ -105,12 +105,6 @@ atomic run claude
 
 Select your agent. The CLI configures your project automatically.
 
-> **Note:** When passing arguments to the agent, use `--` to separate atomic options from agent arguments:
->
-> ```bash
-> atomic run claude -- "/commit fix bug"
-> ```
-
 ### Install a specific version
 
 **macOS, Linux:**
@@ -169,7 +163,7 @@ Research → Plan (Spec) → Implement (Ralph) → (Debug) → PR
 
 ```bash
 # for claude-code
-atomic run claude -- "/research-codebase [Describe your feature or question]"
+atomic run claude "/research-codebase [Describe your feature or question]"
 
 # for opencode
 atomic run opencode
@@ -177,7 +171,7 @@ atomic run opencode
 /research-codebase "Describe your feature or question"
 
 # for copilot
-atomic run copilot -- -i "/research-codebase Describe your feature or question"
+atomic run copilot -i "/research-codebase Describe your feature or question"
 ```
 
 ```bash
@@ -191,7 +185,7 @@ atomic run copilot -- -i "/research-codebase Describe your feature or question"
 
 ```bash
 # for claude-code
-atomic run claude -- "/create-spec [research-path]"
+atomic run claude "/create-spec [research-path]"
 
 # for opencode
 atomic run opencode
@@ -199,7 +193,7 @@ atomic run opencode
 /create-spec [research-path]
 
 # for copilot
-atomic run copilot -- -i "/create-spec [research-path]"
+atomic run copilot -i "/create-spec [research-path]"
 ```
 
 ```bash
@@ -213,7 +207,7 @@ atomic run copilot -- -i "/create-spec [research-path]"
 
 ```bash
 # for claude-code
-atomic run claude -- "/create-feature-list [spec-path]"
+atomic run claude "/create-feature-list [spec-path]"
 
 # for opencode
 atomic run opencode
@@ -221,7 +215,7 @@ atomic run opencode
 /create-feature-list [spec-path]
 
 # for copilot
-atomic run copilot -- -i "/create-feature-list [spec-path]"
+atomic run copilot -i "/create-feature-list [spec-path]"
 ```
 
 ```bash
@@ -241,7 +235,7 @@ atomic run copilot -- -i "/create-feature-list [spec-path]"
 
 ```bash
 # for claude-code
-atomic run claude -- "/implement-feature"
+atomic run claude "/implement-feature"
 
 # for opencode
 atomic run opencode
@@ -249,7 +243,7 @@ atomic run opencode
 /implement-feature
 
 # for copilot
-atomic run copilot -- -i "/implement-feature"
+atomic run copilot -i "/implement-feature"
 ```
 
 ```bash
@@ -270,7 +264,7 @@ Or, use `/ralph:ralph-loop` for autonomous mode to enable multi-hour autonomous 
 
 ```bash
 # for claude-code
-atomic run claude -- "/ralph:ralph-loop"
+atomic run claude "/ralph:ralph-loop"
 
 # for opencode
 atomic run opencode
@@ -278,7 +272,7 @@ atomic run opencode
 /ralph:ralph-loop
 
 # for copilot
-atomic run copilot -- -i "/ralph:ralph-loop"
+atomic run copilot -i "/ralph:ralph-loop"
 ```
 
 ### 5. Debugging
@@ -291,7 +285,7 @@ First, generate a debugging report:
 
 ```bash
 # for claude-code
-atomic run claude -- "Use the debugging agent to create a debugging report for [insert error message here]."
+atomic run claude "Use the debugging agent to create a debugging report for [insert error message here]."
 
 # for opencode
 atomic run opencode
@@ -299,7 +293,7 @@ atomic run opencode
 "Use the debugging agent to create a debugging report for [insert error message here]."
 
 # for copilot
-atomic run copilot -- --agent debugger -i "Create a debugging report for [insert error message here]."
+atomic run copilot --agent debugger -i "Create a debugging report for [insert error message here]."
 ```
 
 Then, use the debugging report to guide your agent in the CLI:
@@ -312,7 +306,7 @@ Then, use the debugging report to guide your agent in the CLI:
 
 ```bash
 # for claude-code
-atomic run claude -- "/create-gh-pr"
+atomic run claude "/create-gh-pr"
 
 # for opencode
 atomic run opencode
@@ -320,7 +314,7 @@ atomic run opencode
 /create-gh-pr
 
 # for copilot
-atomic run copilot -- -i "/create-gh-pr"
+atomic run copilot -i "/create-gh-pr"
 ```
 
 ---

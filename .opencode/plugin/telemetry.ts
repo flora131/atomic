@@ -332,7 +332,7 @@ function spawnUpload(): void {
 
     // Spawn upload process if we found a binary
     if (atomicPath) {
-      const child = spawn(atomicPath, ["--upload-telemetry"], {
+      const child = spawn(atomicPath, ["upload-telemetry"], {
         detached: true,
         stdio: "ignore",
       })

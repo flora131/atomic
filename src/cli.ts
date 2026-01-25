@@ -8,7 +8,8 @@
  *   atomic                          Interactive setup (same as 'atomic init')
  *   atomic init                     Interactive setup with agent selection
  *   atomic init -a <agent>          Setup specific agent (skip selection)
- *   atomic run <agent> [args...]    Run agent with arguments
+ *   atomic run <agent>              Run agent without arguments
+ *   atomic run <agent> -- [args...] Run agent with arguments (-- required)
  *   atomic config set <key> <value> Set configuration value
  *   atomic update                   Self-update to latest version
  *   atomic uninstall                Remove atomic installation
@@ -106,13 +107,13 @@ export function createProgram() {
 
   // Add run command to execute a specific agent
   // This replaces the legacy `atomic --agent <name>` pattern with `atomic run <agent>`
+  // The -- separator is REQUIRED to disambiguate atomic options from agent arguments
   program
     .command("run")
-    .description("Run a coding agent")
+    .description("Run a coding agent (use -- to pass arguments to the agent)")
     .argument("<agent>", `Agent to run (${agentChoices})`)
-    .argument("[args...]", "Arguments to pass to the agent")
-    .passThroughOptions() // Allow unknown options after -- to pass to agent
-    .allowUnknownOption() // Don't error on unknown options (they go to agent)
+    .argument("[args...]", "Arguments to pass to the agent (after --)")
+    .passThroughOptions() // Enable -- separator for passing args to agent
     .action(async (agent: string, args: string[]) => {
       const globalOpts = program.opts();
 
@@ -120,6 +121,15 @@ export function createProgram() {
       if (!isValidAgent(agent)) {
         console.error(`${COLORS.yellow}Error: Unknown agent '${agent}'${COLORS.reset}`);
         console.error(`Valid agents: ${agentChoices}`);
+        console.error("\n(Run 'atomic run --help' for usage information)");
+        process.exit(1);
+      }
+
+      // Require -- separator when passing arguments to the agent
+      // This ensures clear disambiguation between atomic options and agent arguments
+      if (args.length > 0 && !process.argv.includes("--")) {
+        console.error(`${COLORS.yellow}Error: Use '--' to separate atomic options from agent arguments${COLORS.reset}`);
+        console.error(`\nExample: atomic run ${agent} -- ${args.join(" ")}`);
         console.error("\n(Run 'atomic run --help' for usage information)");
         process.exit(1);
       }

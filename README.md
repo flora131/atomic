@@ -163,7 +163,7 @@ Research → Plan (Spec) → Implement (Ralph) → (Debug) → PR
 
 ```bash
 # for claude-code
-atomic --agent claude -- /research-codebase "Describe your feature or question"
+atomic --agent claude -- "/research-codebase [Describe your feature or question]"
 
 # for opencode
 atomic --agent opencode
@@ -185,7 +185,7 @@ atomic --agent copilot -- --agent research-codebase -i "Describe your feature or
 
 ```bash
 # for claude-code
-atomic --agent claude -- /create-spec [research-path]
+atomic --agent claude -- "/create-spec [research-path]"
 
 # for opencode
 atomic --agent opencode
@@ -207,7 +207,7 @@ atomic --agent copilot -- --agent create-spec -i [research-path]
 
 ```bash
 # for claude-code
-atomic --agent claude -- /create-feature-list [spec-path]
+atomic --agent claude -- "/create-feature-list [spec-path]"
 
 # for opencode
 atomic --agent opencode
@@ -235,7 +235,7 @@ atomic --agent copilot -- --agent create-feature-list -i [spec-path]
 
 ```bash
 # for claude-code
-atomic --agent claude -- /implement-feature
+atomic --agent claude -- "/implement-feature"
 
 # for opencode
 atomic --agent opencode
@@ -264,7 +264,7 @@ Or, use `/ralph:ralph-loop` for autonomous mode to enable multi-hour autonomous 
 
 ```bash
 # for claude-code
-atomic --agent claude -- /ralph:ralph-loop
+atomic --agent claude -- "/ralph:ralph-loop"
 
 # for opencode
 atomic --agent opencode
@@ -306,7 +306,7 @@ Then, use the debugging report to guide your agent in the CLI:
 
 ```bash
 # for claude-code
-atomic --agent claude -- /create-gh-pr
+atomic --agent claude -- "/create-gh-pr"
 
 # for opencode
 atomic --agent opencode
@@ -374,7 +374,7 @@ Domain knowledge applied during work. These are automatically invoked when relev
 > **Note:** Use `--` to separate atomic flags from agent arguments. Everything after `--` is passed directly to the agent:
 >
 > ```bash
-> atomic --agent claude -- /research-codebase "question"
+> atomic --agent claude -- "/research-codebase [question]"
 > atomic -a opencode
 > ```
 

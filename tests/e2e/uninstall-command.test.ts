@@ -19,7 +19,7 @@ import { spawn } from "child_process";
  */
 describe("Uninstall Command E2E", () => {
   let tmpDir: string;
-  const atomicPath = path.join(__dirname, "../../src/index.ts");
+  const atomicPath = path.join(__dirname, "../../src/cli.ts");
 
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "atomic-uninstall-test-"));
@@ -100,12 +100,16 @@ describe("Uninstall Command E2E", () => {
 
   describe("Help text", () => {
     test("uninstall command is listed in help", async () => {
+      // Main help shows command list
       const { stdout, stderr } = await runAtomic(["--help"], { timeout: 5000 });
-      const output = stdout + stderr;
-
-      expect(output).toContain("uninstall");
-      expect(output).toContain("--dry-run");
-      expect(output).toContain("--keep-config");
+      const mainOutput = stdout + stderr;
+      expect(mainOutput).toContain("uninstall");
+      
+      // Subcommand help shows options
+      const { stdout: subStdout, stderr: subStderr } = await runAtomic(["uninstall", "--help"], { timeout: 5000 });
+      const subOutput = subStdout + subStderr;
+      expect(subOutput).toContain("--dry-run");
+      expect(subOutput).toContain("--keep-config");
     }, 10000);
 
     test("uninstall is in COMMANDS section", async () => {

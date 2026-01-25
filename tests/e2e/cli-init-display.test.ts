@@ -8,13 +8,13 @@ import { spawn } from "child_process";
  * E2E tests for CLI init display ordering
  *
  * These tests verify the correct display order when:
- * 1. Running `atomic -a [agent]` with uninitialized config
- * 2. Running `atomic init -a [agent]` directly
- * 3. Running `atomic -a [agent]` with existing config
+ * 1. Running `atomic init --agent [agent]` directly
+ * 2. Running `atomic run [agent]` with existing config
+ * 3. Running `atomic run [agent]` without config shows error
  */
 describe("CLI Init Display Ordering", () => {
   let tmpDir: string;
-  const atomicPath = path.join(__dirname, "../../src/index.ts");
+  const atomicPath = path.join(__dirname, "../../src/cli.ts");
 
   beforeEach(async () => {
     // Create a temporary directory for each test
@@ -72,29 +72,9 @@ describe("CLI Init Display Ordering", () => {
     return output.indexOf(needle);
   }
 
-  test("atomic -a claude without config shows correct display order", async () => {
-    // Run atomic with agent flag in a directory without config
-    const { stdout, stderr } = await runAtomic(["-a", "claude"]);
-    const output = stdout + stderr;
-
-    // Check for key elements in the output
-    const introPos = findPosition(output, "Atomic:");
-    const notFoundPos = findPosition(output, ".claude not found");
-    const configuringPos = findPosition(output, "Configuring");
-
-    // All elements should be present
-    expect(introPos).toBeGreaterThanOrEqual(0);
-    expect(notFoundPos).toBeGreaterThanOrEqual(0);
-    expect(configuringPos).toBeGreaterThanOrEqual(0);
-
-    // Verify ordering: intro -> not found -> configuring
-    expect(introPos).toBeLessThan(notFoundPos);
-    expect(notFoundPos).toBeLessThan(configuringPos);
-  }, 10000);
-
-  test("atomic init -a claude shows correct display order", async () => {
+  test("atomic init --agent claude shows correct display order", async () => {
     // Run atomic init with agent flag
-    const { stdout, stderr } = await runAtomic(["init", "-a", "claude"]);
+    const { stdout, stderr } = await runAtomic(["init", "--agent", "claude"]);
     const output = stdout + stderr;
 
     // Check for key elements in the output
@@ -105,30 +85,34 @@ describe("CLI Init Display Ordering", () => {
     expect(introPos).toBeGreaterThanOrEqual(0);
     expect(configuringPos).toBeGreaterThanOrEqual(0);
 
-    // "not found" should NOT appear in direct init
-    const notFoundPos = findPosition(output, ".claude not found");
-    expect(notFoundPos).toBe(-1);
-
     // Verify ordering: intro -> configuring
     expect(introPos).toBeLessThan(configuringPos);
   }, 10000);
 
-  test("atomic -a claude with existing config skips setup", async () => {
+  test("atomic run claude with existing config attempts to run agent", async () => {
     // Create .claude folder before running CLI
     await fs.mkdir(path.join(tmpDir, ".claude"));
 
-    // Run atomic with agent flag
-    const { stdout, stderr } = await runAtomic(["-a", "claude"]);
+    // Run atomic with run command
+    const { stdout, stderr } = await runAtomic(["run", "claude"]);
     const output = stdout + stderr;
 
     // Should NOT show intro banner or setup messages
     const introPos = findPosition(output, "Atomic:");
-    const notFoundPos = findPosition(output, ".claude not found");
     const configuringPos = findPosition(output, "Configuring");
 
     // None of these setup messages should appear
     expect(introPos).toBe(-1);
-    expect(notFoundPos).toBe(-1);
     expect(configuringPos).toBe(-1);
+  }, 10000);
+
+  test("atomic run with invalid agent shows error", async () => {
+    // Run atomic with invalid agent
+    const { stdout, stderr, exitCode } = await runAtomic(["run", "invalid-agent"]);
+    const output = stdout + stderr;
+
+    // Should show error about unknown agent
+    expect(output).toContain("Unknown agent");
+    expect(exitCode).toBe(1);
   }, 10000);
 });

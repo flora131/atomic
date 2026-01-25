@@ -154,3 +154,43 @@ Deleted obsolete shell scripts and updated references to use TypeScript versions
 
 ### Next Steps:
 - Implement unit tests for YAML frontmatter parsing and writing (Feature 7)
+
+## 2026-01-24: Feature 7 Complete - YAML frontmatter unit tests
+
+Created `tests/ralph/yaml-frontmatter.test.ts` with comprehensive unit tests for YAML frontmatter parsing and writing.
+
+### Implementation Details:
+- Created standalone test file with 46 tests across 6 test categories
+- Tests mirror the parseRalphState and writeRalphState implementations from source files
+- Comprehensive coverage of parsing, writing, and round-trip scenarios
+
+### Test Categories:
+1. **Parsing valid YAML frontmatter** (5 tests)
+   - All fields, active: false, iteration: 1, max_iterations: 0
+2. **Missing optional fields** (4 tests)
+   - Default feature_list_path, missing iteration/max_iterations, auto-generated started_at
+3. **Empty or malformed frontmatter** (6 tests)
+   - Missing file, empty file, no delimiters, incomplete frontmatter, minimal valid
+4. **Completion promise variations** (4 tests)
+   - null, quoted strings, spaces, single quotes
+5. **Cross-platform compatibility** (3 tests)
+   - Windows CRLF, mixed line endings, trailing whitespace
+6. **Special characters in prompts** (4 tests)
+   - Markdown formatting, YAML characters, unicode, multiline
+7. **Writing tests** (9 tests)
+   - All field combinations, multiline, markdown, special chars, unicode
+8. **Round-trip consistency** (5 tests)
+   - Write-parse preservation, null values, multiline, multiple cycles, unicode
+9. **Edge cases** (6 tests)
+   - Empty prompt, large iterations, very long prompt, paths with spaces, YAML-like content, --- in prompt
+
+### Testing:
+- All 46 tests pass
+- All 74 Ralph tests pass (including start-ralph-session and cancel-ralph tests)
+- All 534 project tests pass
+
+### Files Created:
+- `tests/ralph/yaml-frontmatter.test.ts` - Comprehensive YAML frontmatter unit tests
+
+### Next Steps:
+- Implement unit tests for CLI argument parsing in ralph-loop.ts (Feature 8)

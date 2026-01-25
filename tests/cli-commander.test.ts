@@ -127,12 +127,13 @@ describe("Commander.js CLI", () => {
       expect((runCmd as any)._passThroughOptions).toBe(true);
     });
 
-    test("run command allows unknown options", () => {
+    test("run command requires -- separator for agent args", () => {
       const program = createProgram();
       const runCmd = program.commands.find(cmd => cmd.name() === "run");
-      
-      // Commander.js sets _allowUnknownOption when .allowUnknownOption() is called
-      expect((runCmd as any)._allowUnknownOption).toBe(true);
+
+      // Run command should NOT allow unknown options (requires -- separator)
+      // This ensures clear disambiguation between atomic and agent options
+      expect((runCmd as any)._allowUnknownOption).toBeFalsy();
     });
   });
 
@@ -287,22 +288,23 @@ describe("New run command syntax", () => {
       expect(args[1].description).toContain("Arguments to pass");
     });
 
-    test("run command description mentions run command syntax", () => {
+    test("run command description mentions -- separator", () => {
       const program = createProgram();
       const runCmd = program.commands.find(cmd => cmd.name() === "run");
-      
-      expect(runCmd?.description()).toBe("Run a coding agent");
+
+      expect(runCmd?.description()).toBe("Run a coding agent (use -- to pass arguments to the agent)");
     });
   });
 
   describe("passthrough options behavior", () => {
-    test("run command is configured to pass options through", () => {
+    test("run command is configured to pass options through with -- separator", () => {
       const program = createProgram();
       const runCmd = program.commands.find(cmd => cmd.name() === "run");
-      
-      // These settings allow args after -- to pass to the agent
+
+      // passThroughOptions enables -- separator for passing args to agent
       expect((runCmd as any)._passThroughOptions).toBe(true);
-      expect((runCmd as any)._allowUnknownOption).toBe(true);
+      // allowUnknownOption should NOT be set - requires -- to pass args
+      expect((runCmd as any)._allowUnknownOption).toBeFalsy();
     });
   });
 });

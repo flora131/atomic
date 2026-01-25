@@ -371,13 +371,6 @@ Domain knowledge applied during work. These are automatically invoked when relev
 | OpenCode           | `atomic run opencode` | `.opencode/` | `AGENTS.md`  |
 | GitHub Copilot CLI | `atomic run copilot`  | `.github/`   | `AGENTS.md`  |
 
-> **Note:** Use `--` to separate atomic flags from agent arguments. Everything after `--` is passed directly to the agent:
->
-> ```bash
-> atomic run claude -- "/research-codebase [question]"
-> atomic run opencode
-> ```
-
 ---
 
 ## Autonomous Execution (Ralph)

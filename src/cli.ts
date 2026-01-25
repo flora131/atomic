@@ -240,8 +240,7 @@ Stopping:
         process.exit(1);
       }
 
-      const exitCode = await ralphStop();
-      process.exit(exitCode);
+      await ralphStop();
     });
 
   // Add hidden command for internal telemetry upload (used by background process)

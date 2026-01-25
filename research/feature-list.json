@@ -105,7 +105,7 @@
       "Test 'atomic ralph stop -a claude' stops loop",
       "Test 'atomic ralph setup \"test\"' shows error (missing agent)"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

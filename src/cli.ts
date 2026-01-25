@@ -27,6 +27,7 @@ import { runAgentCommand } from "./commands/run-agent";
 import { configCommand } from "./commands/config";
 import { updateCommand } from "./commands/update";
 import { uninstallCommand } from "./commands/uninstall";
+import { ralphSetup, ralphStop } from "./commands/ralph";
 
 /**
  * Create and configure the main CLI program
@@ -164,6 +165,87 @@ export function createProgram() {
         dryRun: localOpts.dryRun,
         keepConfig: localOpts.keepConfig,
       });
+    });
+
+  // Add ralph command for self-referential development loops
+  const ralphCmd = program
+    .command("ralph")
+    .description("Self-referential development loop for Claude Code");
+
+  /**
+   * Parse and validate --max-iterations argument
+   * Returns the parsed integer or exits with error if invalid
+   */
+  function parseIterations(value: string): number {
+    if (!/^\d+$/.test(value)) {
+      console.error(`${COLORS.yellow}Error: --max-iterations must be a positive integer or 0, got: ${value}${COLORS.reset}`);
+      console.error("");
+      console.error("   Valid examples:");
+      console.error("     --max-iterations 10");
+      console.error("     --max-iterations 50");
+      console.error("     --max-iterations 0  (unlimited)");
+      process.exit(1);
+    }
+    return parseInt(value, 10);
+  }
+
+  // Add 'setup' subcommand to ralph
+  ralphCmd
+    .command("setup")
+    .description("Initialize and start a Ralph loop")
+    .requiredOption("-a, --agent <name>", "Agent to use (currently only 'claude' is supported)")
+    .argument("[prompt...]", "Initial prompt to start the loop")
+    .option("--max-iterations <n>", "Maximum iterations before auto-stop (default: unlimited)", parseIterations)
+    .option("--completion-promise <text>", "Promise phrase to signal completion")
+    .option("--feature-list <path>", "Path to feature list JSON", "research/feature-list.json")
+    .action(async (promptParts: string[], localOpts) => {
+      // Validate agent is 'claude' (only supported agent for ralph)
+      if (localOpts.agent !== "claude") {
+        console.error(`${COLORS.yellow}Error: Ralph loop currently only supports 'claude' agent${COLORS.reset}`);
+        console.error(`You provided: ${localOpts.agent}`);
+        console.error("\n(Run 'atomic ralph setup --help' for usage information)");
+        process.exit(1);
+      }
+
+      // Build args array for ralphSetup to parse
+      const args: string[] = [];
+      
+      // Add prompt parts
+      if (promptParts.length > 0) {
+        args.push(...promptParts);
+      }
+      
+      // Add options
+      if (localOpts.maxIterations !== undefined) {
+        args.push("--max-iterations", String(localOpts.maxIterations));
+      }
+      if (localOpts.completionPromise) {
+        args.push("--completion-promise", localOpts.completionPromise);
+      }
+      if (localOpts.featureList && localOpts.featureList !== "research/feature-list.json") {
+        args.push("--feature-list", localOpts.featureList);
+      }
+
+      const exitCode = await ralphSetup(args);
+      process.exit(exitCode);
+    });
+
+  // Add 'stop' subcommand to ralph
+  ralphCmd
+    .command("stop")
+    .description("Stop hook handler (called automatically by hooks)")
+    .requiredOption("-a, --agent <name>", "Agent to use (currently only 'claude' is supported)")
+    .action(async (localOpts) => {
+      // Validate agent is 'claude' (only supported agent for ralph)
+      if (localOpts.agent !== "claude") {
+        console.error(`${COLORS.yellow}Error: Ralph loop currently only supports 'claude' agent${COLORS.reset}`);
+        console.error(`You provided: ${localOpts.agent}`);
+        console.error("\n(Run 'atomic ralph stop --help' for usage information)");
+        process.exit(1);
+      }
+
+      const exitCode = await ralphStop();
+      process.exit(exitCode);
     });
 
   return program;

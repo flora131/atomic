@@ -232,3 +232,45 @@ Feature 7: Migrate uninstall command with --dry-run and --keep-config options
 
 ### Next Feature:
 Feature 8: Migrate ralph command with setup and stop subcommands
+
+---
+
+## 2026-01-25: Feature 8 - Migrate ralph command with setup and stop subcommands
+
+### Completed Steps:
+1. Added ralph parent command to src/cli.ts:
+   - Registered as "ralph" with description "Self-referential development loop for Claude Code"
+   - Uses Commander.js nested command pattern for setup/stop subcommands
+
+2. Added parseIterations helper function:
+   - Validates --max-iterations is a non-negative integer
+   - Shows clear error message with valid examples on invalid input
+   - Returns parsed integer for use in options
+
+3. Added 'setup' subcommand with full options:
+   - `-a, --agent <name>` - Required option (currently only 'claude' supported)
+   - `[prompt...]` - Variadic argument for initial prompt
+   - `--max-iterations <n>` - Maximum iterations with validation
+   - `--completion-promise <text>` - Promise phrase to signal completion
+   - `--feature-list <path>` - Path to feature list JSON (default: research/feature-list.json)
+   - Validates agent is 'claude' with helpful error message
+   - Wired to existing ralphSetup handler
+
+4. Added 'stop' subcommand:
+   - `-a, --agent <name>` - Required option (currently only 'claude' supported)
+   - Validates agent is 'claude' with helpful error message
+   - Wired to existing ralphStop handler
+
+5. Verified functionality:
+   - `atomic ralph --help` shows setup and stop subcommands
+   - `atomic ralph setup --help` shows all options
+   - `atomic ralph setup "test"` (without -a) shows "required option not specified" error
+   - `atomic ralph setup -a unknown` shows "only supports claude" error
+   - Types compile correctly with `bun run typecheck`
+   - All 624 tests pass
+
+### Files Modified:
+- `src/cli.ts` - Added ralph command with setup and stop subcommands (lines 170-246)
+
+### Next Feature:
+Feature 9: Add main entry point with telemetry and error handling

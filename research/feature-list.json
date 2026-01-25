@@ -118,6 +118,6 @@
       "Ensure user-facing messages are identical",
       "Document any intentional message improvements"
     ],
-    "passes": false
+    "passes": true
   }
 ]

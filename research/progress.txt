@@ -49,3 +49,31 @@ All 13 tests pass.
 
 ### Next Steps:
 - Implement cancel-ralph.ts (Feature 3)
+
+## 2026-01-24: Feature 3 Complete - cancel-ralph.ts
+
+Created `.github/scripts/cancel-ralph.ts` to replace `cancel-ralph.sh`.
+
+### Implementation Details:
+- Graceful handling when no Ralph loop is active
+- YAML frontmatter parsing for state file (`.github/ralph-loop.local.md`)
+- State archiving with cancellation metadata (cancelled_at, stop_reason)
+- Cleanup of state file and continue flag
+- Process termination using pkill via Bun.$
+- Informative cancellation summary output
+
+### Testing:
+Created comprehensive test suite in `tests/ralph/cancel-ralph.test.ts`:
+- No active loop tests (missing state file, exit code)
+- Active loop cancellation tests (iteration count, timestamps, prompts)
+- File cleanup tests (state file, continue flag deletion)
+- State archiving tests (metadata, prompt preservation, directory creation)
+
+All 15 tests pass.
+
+### Files Created:
+- `.github/scripts/cancel-ralph.ts` - TypeScript cancel script
+- `tests/ralph/cancel-ralph.test.ts` - Unit tests
+
+### Next Steps:
+- Update stop-hook.ts to read new YAML frontmatter state file format (Feature 4)

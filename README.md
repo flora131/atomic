@@ -171,7 +171,7 @@ atomic --agent opencode
 /research-codebase "Describe your feature or question"
 
 # for copilot
-atomic --agent copilot -- --agent research-codebase -i "Describe your feature or question"
+atomic --agent copilot -- -i "/research-codebase Describe your feature or question"
 ```
 
 ```bash
@@ -193,7 +193,7 @@ atomic --agent opencode
 /create-spec [research-path]
 
 # for copilot
-atomic --agent copilot -- --agent create-spec -i [research-path]
+atomic --agent copilot -- -i "/create-spec [research-path]"
 ```
 
 ```bash
@@ -215,7 +215,7 @@ atomic --agent opencode
 /create-feature-list [spec-path]
 
 # for copilot
-atomic --agent copilot -- --agent create-feature-list -i [spec-path]
+atomic --agent copilot -- -i "/create-feature-list [spec-path]"
 ```
 
 ```bash
@@ -243,7 +243,7 @@ atomic --agent opencode
 /implement-feature
 
 # for copilot
-atomic --agent copilot -- --agent implement-feature -i "Create a implementation feature-list.json and progress.txt"
+atomic --agent copilot -- -i "/implement-feature"
 ```
 
 ```bash
@@ -269,10 +269,10 @@ atomic --agent claude -- "/ralph:ralph-loop"
 # for opencode
 atomic --agent opencode
 # then type:
-/ralph-loop
+/ralph:ralph-loop
 
 # for copilot
-atomic --agent copilot -- --agent ralph-loop -i "Start implementing the feature..."
+atomic --agent copilot -- -i "/ralph:ralph-loop"
 ```
 
 ### 5. Debugging
@@ -314,7 +314,7 @@ atomic --agent opencode
 /create-gh-pr
 
 # for copilot
-atomic --agent copilot -- --agent create-gh-pr -i "Create a pull request for the current branch."
+atomic --agent copilot -- -i "/create-gh-pr"
 ```
 
 ---
@@ -336,7 +336,7 @@ User-invocable slash commands that orchestrate workflows.
 | `/explain-code`        | `[path]`          | Explain code section in detail         |
 | `/ralph:ralph-loop`    | —                 | Run autonomous implementation loop     |
 | `/ralph:cancel-ralph`  | —                 | Stop autonomous loop                   |
-| `/ralph:help`          | —                 | Show Ralph documentation               |
+| `/ralph:ralph-help`    | —                 | Show Ralph documentation               |
 
 ### Agents
 
@@ -401,9 +401,7 @@ The [Ralph Wiggum Method](https://ghuntley.com/ralph/) enables multi-hour autono
 | --------------------- | ------------------------------------ |
 | `/ralph:ralph-loop`   | Start autonomous implementation loop |
 | `/ralph:cancel-ralph` | Stop the autonomous loop             |
-| `/ralph:help`         | Show Ralph documentation             |
-
-> **Note:** The `ralph:` prefix is specific to Claude Code (plugin namespace). For OpenCode and Copilot CLI, use `/ralph-loop`, `/cancel-ralph`, and `/ralph-help` instead.
+| `/ralph:ralph-help`   | Show Ralph documentation             |
 
 ### Parameters
 

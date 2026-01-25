@@ -33,3 +33,41 @@
 
 ### Next Feature:
 Feature 2: Create new Commander.js entry point with program setup
+
+---
+
+## 2026-01-25: Feature 2 - Create new Commander.js entry point with program setup
+
+### Completed Steps:
+1. Created `src/cli.ts` with Commander.js program setup:
+   - Used `@commander-js/extra-typings` for type-safe option parsing
+   - Exported `createProgram()` factory function for flexibility
+   - Exported `program` instance for use by main() and tests
+
+2. Added program metadata:
+   - Name: "atomic"
+   - Description: "Configuration management CLI for coding agents"
+   - Version: Uses VERSION from version.ts (currently 0.2.0)
+
+3. Configured error output with COLORS:
+   - Custom `writeErr` callback for colored stderr output
+   - Custom `outputError` callback for formatted error messages
+   - Added `showHelpAfterError` hint for user guidance
+
+4. Added global options:
+   - `-f, --force` - Overwrite all config files including CLAUDE.md/AGENTS.md
+   - `-y, --yes` - Auto-confirm all prompts (non-interactive mode)
+   - `--no-banner` - Skip ASCII banner display
+   - `--upload-telemetry` - Hidden internal flag for telemetry upload
+
+5. Verified functionality:
+   - Types compile correctly with `bun run typecheck`
+   - Help output shows expected options (--upload-telemetry hidden)
+   - Version output shows "0.2.0"
+   - All 624 tests pass
+
+### Files Created:
+- `src/cli.ts` - Commander.js program setup
+
+### Next Feature:
+Feature 3: Migrate init command with isDefault and local -a option

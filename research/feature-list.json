@@ -19,7 +19,7 @@
       "Add global options: -f/--force, -y/--yes, --no-banner, --upload-telemetry (hidden)",
       "Verify program compiles and shows help with 'bun src/cli.ts --help'"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

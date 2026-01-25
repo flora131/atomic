@@ -105,6 +105,12 @@ atomic run claude
 
 Select your agent. The CLI configures your project automatically.
 
+> **Note:** When passing arguments to the agent, use `--` to separate atomic options from agent arguments:
+>
+> ```bash
+> atomic run claude -- "/commit fix bug"
+> ```
+
 ### Install a specific version
 
 **macOS, Linux:**

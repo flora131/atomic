@@ -131,8 +131,10 @@ describe("Commander.js CLI", () => {
       const program = createProgram();
       const runCmd = program.commands.find(cmd => cmd.name() === "run");
 
-      // Run command should NOT allow unknown options (requires -- separator)
-      // This ensures clear disambiguation between atomic and agent options
+      // When _allowUnknownOption is false (the default), Commander.js will error
+      // on any unrecognized options (e.g., --help for the agent) that appear
+      // BEFORE the -- separator. This enforces that users must use -- to pass
+      // arguments to the agent, preventing ambiguity between atomic and agent options.
       expect((runCmd as any)._allowUnknownOption).toBeFalsy();
     });
   });
@@ -303,7 +305,8 @@ describe("New run command syntax", () => {
 
       // passThroughOptions enables -- separator for passing args to agent
       expect((runCmd as any)._passThroughOptions).toBe(true);
-      // allowUnknownOption should NOT be set - requires -- to pass args
+      // allowUnknownOption is false, so Commander.js errors on unrecognized options
+      // before --. This forces users to use the -- separator for all agent arguments.
       expect((runCmd as any)._allowUnknownOption).toBeFalsy();
     });
   });

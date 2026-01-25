@@ -60,11 +60,11 @@ export function createProgram() {
     .configureOutput({
       writeErr: (str) => {
         // Use colored output for errors
-        process.stderr.write(`${COLORS.yellow}${str}${COLORS.reset}`);
+        process.stderr.write(`${COLORS.red}${str}${COLORS.reset}`);
       },
       outputError: (str, write) => {
         // Format error messages with color
-        write(`${COLORS.yellow}${str}${COLORS.reset}`);
+        write(`${COLORS.red}${str}${COLORS.reset}`);
       },
     })
 
@@ -114,12 +114,21 @@ export function createProgram() {
     .argument("<agent>", `Agent to run (${agentChoices})`)
     .argument("[args...]", "Arguments to pass to the agent (after --)")
     .passThroughOptions() // Enable -- separator for passing args to agent
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ atomic run claude                         Run Claude Code interactively
+  $ atomic run claude -- /commit "fix bug"    Run with a slash command
+  $ atomic run claude -- --help               Show agent's help
+  $ atomic run opencode -- /research-codebase Research the codebase`
+    )
     .action(async (agent: string, args: string[]) => {
       const globalOpts = program.opts();
 
       // Validate agent name
       if (!isValidAgent(agent)) {
-        console.error(`${COLORS.yellow}Error: Unknown agent '${agent}'${COLORS.reset}`);
+        console.error(`${COLORS.red}Error: Unknown agent '${agent}'${COLORS.reset}`);
         console.error(`Valid agents: ${agentChoices}`);
         console.error("\n(Run 'atomic run --help' for usage information)");
         process.exit(1);
@@ -128,7 +137,7 @@ export function createProgram() {
       // Require -- separator when passing arguments to the agent
       // This ensures clear disambiguation between atomic options and agent arguments
       if (args.length > 0 && !process.argv.includes("--")) {
-        console.error(`${COLORS.yellow}Error: Use '--' to separate atomic options from agent arguments${COLORS.reset}`);
+        console.error(`${COLORS.red}Error: Use '--' to separate atomic options from agent arguments${COLORS.reset}`);
         console.error(`\nExample: atomic run ${agent} -- ${args.join(" ")}`);
         console.error("\n(Run 'atomic run --help' for usage information)");
         process.exit(1);
@@ -192,7 +201,7 @@ export function createProgram() {
    */
   function parseIterations(value: string): number {
     if (!/^\d+$/.test(value)) {
-      console.error(`${COLORS.yellow}Error: --max-iterations must be a positive integer or 0, got: ${value}${COLORS.reset}`);
+      console.error(`${COLORS.red}Error: --max-iterations must be a positive integer or 0, got: ${value}${COLORS.reset}`);
       console.error("");
       console.error("   Valid examples:");
       console.error("     --max-iterations 10");
@@ -215,7 +224,7 @@ export function createProgram() {
     .action(async (promptParts: string[], localOpts) => {
       // Validate agent is 'claude' (only supported agent for ralph)
       if (localOpts.agent !== "claude") {
-        console.error(`${COLORS.yellow}Error: Ralph loop currently only supports 'claude' agent${COLORS.reset}`);
+        console.error(`${COLORS.red}Error: Ralph loop currently only supports 'claude' agent${COLORS.reset}`);
         console.error(`You provided: ${localOpts.agent}`);
         console.error("\n(Run 'atomic ralph setup --help' for usage information)");
         process.exit(1);
@@ -252,7 +261,7 @@ export function createProgram() {
     .action(async (localOpts) => {
       // Validate agent is 'claude' (only supported agent for ralph)
       if (localOpts.agent !== "claude") {
-        console.error(`${COLORS.yellow}Error: Ralph loop currently only supports 'claude' agent${COLORS.reset}`);
+        console.error(`${COLORS.red}Error: Ralph loop currently only supports 'claude' agent${COLORS.reset}`);
         console.error(`You provided: ${localOpts.agent}`);
         console.error("\n(Run 'atomic ralph stop --help' for usage information)");
         process.exit(1);
@@ -336,7 +345,7 @@ async function main(): Promise<void> {
   } catch (error) {
     // Handle errors with colored output
     const message = error instanceof Error ? error.message : String(error);
-    console.error(`${COLORS.yellow}Error: ${message}${COLORS.reset}`);
+    console.error(`${COLORS.red}Error: ${message}${COLORS.reset}`);
 
     // Spawn telemetry upload even on error
     spawnTelemetryUpload();

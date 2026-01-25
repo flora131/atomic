@@ -48,3 +48,26 @@
 - `research/feature-list.json` (marked feature as passing)
 
 **Working State:** All tests passing, codebase stable
+
+### 2026-01-25 - Iteration 3
+
+**Features Completed:**
+- Feature #3: Remove manual argument parsing loop from ralph.ts (already done in iteration 2)
+- Feature #4: Update CLI action handler in src/cli.ts (already done in iteration 2)
+- Feature #5: Remove -h/--help handling from ralphSetup() (already done in iteration 2)
+- Feature #6: Remove or convert SETUP_HELP_TEXT constant
+
+**Summary:**
+- Marked features #3, #4, #5 as passing (completed in iteration 2)
+- Removed unused `SETUP_HELP_TEXT` constant (43 lines) from src/commands/ralph.ts
+- Added examples and stopping conditions to Commander.js help using `.addHelpText('after', ...)`
+- Help output now includes examples and stopping conditions
+- TypeScript compiles without errors
+- All 31 tests pass
+
+**Files Modified:**
+- `src/commands/ralph.ts` (removed SETUP_HELP_TEXT constant)
+- `src/cli.ts` (added .addHelpText() for examples)
+- `research/feature-list.json` (marked features as passing)
+
+**Working State:** All tests passing, codebase stable

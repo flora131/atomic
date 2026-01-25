@@ -69,50 +69,6 @@ export interface RalphSetupOptions {
 
 const RALPH_STATE_FILE = ".claude/ralph-loop.local.md";
 
-const SETUP_HELP_TEXT = `Ralph Loop - Interactive self-referential development loop
-
-USAGE:
-  atomic -a claude ralph setup [PROMPT...] [OPTIONS]
-
-ARGUMENTS:
-  PROMPT...    Initial prompt to start the loop (optional)
-
-OPTIONS:
-  --max-iterations <n>           Maximum iterations before auto-stop (default: unlimited)
-  --completion-promise '<text>'  Promise phrase (USE QUOTES for multi-word)
-  --feature-list <path>          Path to feature list JSON (default: research/feature-list.json)
-  -h, --help                     Show this help message
-
-DESCRIPTION:
-  Starts a Ralph Wiggum loop in your CURRENT session. The stop hook prevents
-  exit and feeds your output back as input until completion or iteration limit.
-
-  To signal completion, you must output: <promise>YOUR_PHRASE</promise>
-
-  Use this for:
-  - Interactive iteration where you want to see progress
-  - Tasks requiring self-correction and refinement
-  - Learning how Ralph works
-
-EXAMPLES:
-  atomic -a claude ralph setup                       (uses /implement-feature, runs until all features pass)
-  atomic -a claude ralph setup --max-iterations 20   (uses /implement-feature with iteration limit)
-  atomic -a claude ralph setup Build a todo API --completion-promise 'DONE' --max-iterations 20
-  atomic -a claude ralph setup Refactor cache layer  (custom prompt, runs forever)
-
-STOPPING:
-  Loop exits when any of these conditions are met:
-  - --max-iterations limit reached
-  - --completion-promise detected in output
-  - All features in --feature-list are passing (when max_iterations = 0)
-
-MONITORING:
-  # View current iteration:
-  grep '^iteration:' .claude/ralph-loop.local.md
-
-  # View full state:
-  head -10 .claude/ralph-loop.local.md`;
-
 const DEFAULT_PROMPT = `You are tasked with implementing a SINGLE feature from the \`research/feature-list.json\` file.
 
 # Getting up to speed

@@ -117,9 +117,10 @@ get_anonymous_id() {
 # Get Atomic version from state file (if available) or use "unknown"
 get_atomic_version() {
   # Try to get version by running atomic --version
+  # Strip "atomic v" prefix to match TypeScript VERSION format
   # Fall back to "unknown" if not available
   if command -v atomic &>/dev/null; then
-    atomic --version 2>/dev/null || echo "unknown"
+    atomic --version 2>/dev/null | sed 's/^atomic v//' || echo "unknown"
   else
     echo "unknown"
   fi

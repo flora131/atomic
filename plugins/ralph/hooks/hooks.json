@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "rm -f \"${CLAUDE_PROJECT_DIR}/.claude/ralph-loop.local.md\""
+            "command": "bun -e \"require('fs').rmSync(process.env.CLAUDE_PROJECT_DIR+'/.claude/ralph-loop.local.md',{force:true})\""
           }
         ]
       }

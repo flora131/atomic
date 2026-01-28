@@ -3,12 +3,18 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    paths:
+      - "package.json"
+      - "bun.lock"
+      - "tsconfig.json"
+      - "**/*.ts"
+      - "**/*.tsx"
+      - "**/*.js"
+      - "**/*.jsx"
 
 jobs:
   typescript-tests:
     name: TypeScript Tests
-    needs: changes
-    if: needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-latest
 
     steps:

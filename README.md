@@ -45,6 +45,25 @@ This approach highlights the best of SDLC and gets you 40-60% of the way there s
 
 ---
 
+## Table of Contents
+
+- [Set up Atomic](#set-up-atomic)
+- [The Flywheel](#the-flywheel)
+- [How It Works](#how-it-works)
+- [The Workflow](#the-workflow)
+- [Commands, Agents, and Skills](#commands-agents-and-skills)
+- [Supported Coding Agents](#supported-coding-agents)
+- [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
+- [Updating Atomic](#updating-atomic)
+- [Uninstalling Atomic](#uninstalling-atomic)
+- [Telemetry](#telemetry)
+- [Troubleshooting](#troubleshooting)
+- [FAQ](#faq)
+- [License](#license)
+- [Credits](#credits)
+
+---
+
 ## Set up Atomic
 
 > Install Atomic and start using it with your preferred AI coding agent.
@@ -599,6 +618,19 @@ git config --global user.email "you@example.com"
 **Windows Command Resolution:** If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic uses `Bun.which()` to resolve command paths, which handles Windows `.cmd`, `.exe`, and `.bat` extensions automatically.
 
 **File Preservation:** When re-running `atomic init`, your custom `CLAUDE.md` and `AGENTS.md` files are preserved by default. Use `--force` to overwrite all files including `CLAUDE.md`/`AGENTS.md`.
+
+**Shell Interprets Backticks as Commands:** When passing prompts to Atomic CLI commands, your shell (bash/zsh) interprets backticks (`` ` ``) as command substitution before Atomic receives the input. This causes commands like `` `pytest` `` in your prompt to be executed by the shell, resulting in errors like `zsh: command not found: pytest`.
+
+```bash
+# Problem:
+atomic ralph setup -a claude "NEVER run the entire test suite at once with `pytest`."
+# Error: zsh: command not found: pytest
+
+# Solution: Escape backticks with backslash
+atomic ralph setup -a claude "NEVER run the entire test suite at once with \`pytest\`."
+```
+
+This behavior is intentional—shell interpolation allows powerful patterns like `$(cat prompt.txt)` or variable expansion. When you need literal backticks in prompts, escape them.
 
 ---
 

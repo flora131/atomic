@@ -1,4 +1,4 @@
-name: PR Description
+name: Claude Code PR Description
 
 on:
   pull_request:

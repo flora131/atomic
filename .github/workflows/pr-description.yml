@@ -1,11 +1,11 @@
-name: Auto PR Format
+name: PR Description
 
 on:
   pull_request:
     types: [opened, synchronize]
 
 jobs:
-  generate-description:
+  pr-description:
     if: github.event.pull_request.user.login != 'dependabot[bot]'
     runs-on: ubuntu-latest
     permissions:
@@ -22,6 +22,7 @@ jobs:
         uses: anthropics/claude-code-action@v1
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: |
             REPO: ${{ github.repository }}
             PR NUMBER: ${{ github.event.pull_request.number }}
@@ -51,4 +52,5 @@ jobs:
             - Keep the title concise (under 72 characters) and the description informative
             - Use markdown formatting for readability
           claude_args: |
-            --model claude-sonnet-4-5 --allowedTools "Bash(git diff:*),Bash(git log:*),Bash(gh pr edit:*),Read,Glob,Grep"
+            --model claude-sonnet-4-5
+            --allowedTools "Bash(git diff:*),Bash(git log:*),Bash(gh pr edit:*),Read,Glob,Grep"

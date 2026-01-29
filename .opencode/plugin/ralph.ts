@@ -40,10 +40,10 @@ const DEFAULT_FEATURE_LIST_PATH = "research/feature-list.json"
 const DEFAULT_PROMPT = `You are tasked with implementing a SINGLE feature from the \`research/feature-list.json\` file.
 
 # Getting up to speed
-
-1. Run \`pwd\` to see the directory you're working in. Only make edits within the current git repository.
-2. Read the git logs and progress files (\`research/progress.txt\`) to get up to speed on what was recently worked on.
-3. Read the \`research/feature-list.json\` file and choose the highest-priority features that's not yet done to work on.
+1. IMPORTANT: If you sense your context window is more than 60% full, run the \`/compact\` command with your \`SlashCommand\` tool.
+2. Run \`pwd\` to see the directory you're working in. Only make edits within the current git repository.
+3. Read the git logs and progress files (\`research/progress.txt\`) to get up to speed on what was recently worked on.
+4. Read the \`research/feature-list.json\` file and choose the highest-priority features that's not yet done to work on.
 
 # Typical Workflow
 
@@ -373,47 +373,27 @@ export const RalphPlugin: Plugin = async ({ directory, client, $ }) => {
         },
       })
 
-      // Delete the old session and create a fresh one to completely clear the context window
-      let newSessionId = event.properties.sessionID
-
-      // Try to delete the old session - log but continue if it fails (maybe already deleted)
+      // Compact/summarize the session context before continuing to prevent context overflow
+      // This clears the context window by creating a summary of the conversation
       try {
-        await client.session.delete({
+        await client.session.summarize({
           path: { id: event.properties.sessionID },
         })
-      } catch (deleteErr) {
-        await client.app.log({
-          body: {
-            service: "ralph-plugin",
-            level: "warn",
-            message: `Could not delete old session: ${deleteErr}`,
-          },
-        })
-      }
-
-      // Create a new session - this is critical, we cannot proceed without it
-      try {
-        const newSession = await client.session.create({})
-        if (!newSession.data?.id) {
-          throw new Error("Failed to create new session - no session ID returned")
-        }
-        newSessionId = newSession.data.id
         await client.app.log({
           body: {
             service: "ralph-plugin",
             level: "info",
-            message: `Context cleared - new session ${newSessionId} created for iteration ${nextIteration}`,
+            message: `Context compacted before iteration ${nextIteration}`,
           },
         })
-      } catch (createErr) {
+      } catch (err) {
         await client.app.log({
           body: {
             service: "ralph-plugin",
-            level: "error",
-            message: `Critical: Could not create new session: ${createErr}`,
+            level: "warn",
+            message: `Could not compact context: ${err}`,
           },
         })
-        return // Cannot proceed without a valid session
       }
 
       // Append the prompt back to continue the session
@@ -422,7 +402,7 @@ export const RalphPlugin: Plugin = async ({ directory, client, $ }) => {
 
       // Use session.prompt to continue the conversation
       await client.session.prompt({
-        path: { id: newSessionId },
+        path: { id: event.properties.sessionID },
         body: {
           parts: [{ type: "text", text: continuationPrompt }],
         },

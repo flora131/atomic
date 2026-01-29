@@ -375,12 +375,29 @@ export const RalphPlugin: Plugin = async ({ directory, client, $ }) => {
 
       // Delete the old session and create a fresh one to completely clear the context window
       let newSessionId = event.properties.sessionID
+
+      // Try to delete the old session - log but continue if it fails (maybe already deleted)
       try {
         await client.session.delete({
           path: { id: event.properties.sessionID },
         })
+      } catch (deleteErr) {
+        await client.app.log({
+          body: {
+            service: "ralph-plugin",
+            level: "warn",
+            message: `Could not delete old session: ${deleteErr}`,
+          },
+        })
+      }
+
+      // Create a new session - this is critical, we cannot proceed without it
+      try {
         const newSession = await client.session.create({})
-        newSessionId = newSession.data!.id
+        if (!newSession.data?.id) {
+          throw new Error("Failed to create new session - no session ID returned")
+        }
+        newSessionId = newSession.data.id
         await client.app.log({
           body: {
             service: "ralph-plugin",
@@ -388,14 +405,15 @@ export const RalphPlugin: Plugin = async ({ directory, client, $ }) => {
             message: `Context cleared - new session ${newSessionId} created for iteration ${nextIteration}`,
           },
         })
-      } catch (err) {
+      } catch (createErr) {
         await client.app.log({
           body: {
             service: "ralph-plugin",
-            level: "warn",
-            message: `Could not clear context: ${err}`,
+            level: "error",
+            message: `Critical: Could not create new session: ${createErr}`,
           },
         })
+        return // Cannot proceed without a valid session
       }
 
       // Append the prompt back to continue the session

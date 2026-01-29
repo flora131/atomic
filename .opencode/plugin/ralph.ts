@@ -365,17 +365,19 @@ export const RalphPlugin: Plugin = async ({ directory, client, $ }) => {
         },
       })
 
-      // Compact/summarize the session context before continuing to prevent context overflow
-      // This clears the context window by creating a summary of the conversation
+      // Delete the old session and create a fresh one to completely clear the context window
+      let newSessionId = event.properties.sessionID
       try {
-        await client.session.summarize({
+        await client.session.delete({
           path: { id: event.properties.sessionID },
         })
+        const newSession = await client.session.create({})
+        newSessionId = newSession.data!.id
         await client.app.log({
           body: {
             service: "ralph-plugin",
             level: "info",
-            message: `Context compacted before iteration ${nextIteration}`,
+            message: `Context cleared - new session ${newSessionId} created for iteration ${nextIteration}`,
           },
         })
       } catch (err) {
@@ -383,7 +385,7 @@ export const RalphPlugin: Plugin = async ({ directory, client, $ }) => {
           body: {
             service: "ralph-plugin",
             level: "warn",
-            message: `Could not compact context: ${err}`,
+            message: `Could not clear context: ${err}`,
           },
         })
       }
@@ -394,7 +396,7 @@ export const RalphPlugin: Plugin = async ({ directory, client, $ }) => {
 
       // Use session.prompt to continue the conversation
       await client.session.prompt({
-        path: { id: event.properties.sessionID },
+        path: { id: newSessionId },
         body: {
           parts: [{ type: "text", text: continuationPrompt }],
         },

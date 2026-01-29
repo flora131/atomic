@@ -72,7 +72,7 @@ const RALPH_STATE_FILE = ".claude/ralph-loop.local.md";
 const DEFAULT_PROMPT = `You are tasked with implementing a SINGLE feature from the \`research/feature-list.json\` file.
 
 # Getting up to speed
-1. IMPORTANT: If you sense your context window is more than 60% full, run the \`/compact\` command with your SlashCommand tool.
+1. IMPORTANT: If you sense your context window is more than 60% full, run the \`/compact\` command with your \`SlashCommand\` tool.
 2. Run \`pwd\` to see the directory you're working in. Only make edits within the current git repository.
 3. Read the git logs and progress files (\`research/progress.txt\`) to get up to speed on what was recently worked on.
 4. Read the \`research/feature-list.json\` file and choose the highest-priority features that's not yet done to work on.

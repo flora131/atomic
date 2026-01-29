@@ -32,6 +32,14 @@ A typical workflow will start something like this:
 <Starts work on a new feature>
 ```
 
+## Sub-Agent Delegation
+
+When implementing complex features or refactoring large codebases, consider delegating work to sub-agents. This helps manage your context window and allows parallel progress on multiple files.
+
+1. Identify complex tasks that can be isolated (e.g., refactoring a module, implementing a feature).
+2. Create a sub-agent with a clear prompt and specific file targets.
+3. Monitor the sub-agent's progress and integrate their changes back into your main workflow.
+
 ## Test-Driven Development
 
 Frequently use unit tests, integration tests, and end-to-end tests to verify your work AFTER you implement the feature. If the codebase has existing tests, run them often to ensure existing functionality is not broken.

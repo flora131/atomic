@@ -72,10 +72,10 @@ const RALPH_STATE_FILE = ".claude/ralph-loop.local.md";
 const DEFAULT_PROMPT = `You are tasked with implementing a SINGLE feature from the \`research/feature-list.json\` file.
 
 # Getting up to speed
-
-1. Run \`pwd\` to see the directory you're working in. Only make edits within the current git repository.
-2. Read the git logs and progress files (\`research/progress.txt\`) to get up to speed on what was recently worked on.
-3. Read the \`research/feature-list.json\` file and choose the highest-priority features that's not yet done to work on.
+1. IMPORTANT: If you sense your context window is more than 60% full, run the \`/compact\` command with your SlashCommand tool.
+2. Run \`pwd\` to see the directory you're working in. Only make edits within the current git repository.
+3. Read the git logs and progress files (\`research/progress.txt\`) to get up to speed on what was recently worked on.
+4. Read the \`research/feature-list.json\` file and choose the highest-priority features that's not yet done to work on.
 
 # Typical Workflow
 
@@ -97,6 +97,14 @@ A typical workflow will start something like this:
 [Assistant] Based on my verification testing, I can see that the fundamental functionality is working well. The core chat features, theme switching, conversation loading, and error handling are all functioning correctly. Now let me review the tests.json file more comprehensively to understand what needs to be implemented next.
 <Starts work on a new feature>
 \`\`\`
+
+## Sub-Agent Delegation
+
+When implementing complex features or refactoring large codebases, consider delegating work to sub-agents. This helps manage your context window and allows parallel progress on multiple files.
+
+1. Identify complex tasks that can be isolated (e.g., refactoring a module, implementing a feature).
+2. Create a sub-agent with a clear prompt and specific file targets.
+3. Monitor the sub-agent's progress and integrate their changes back into your main workflow.
 
 ## Test-Driven Development
 

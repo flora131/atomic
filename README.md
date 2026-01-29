@@ -632,6 +632,36 @@ atomic ralph setup -a claude "NEVER run the entire test suite at once with \`pyt
 
 This behavior is intentional—shell interpolation allows powerful patterns like `$(cat prompt.txt)` or variable expansion. When you need literal backticks in prompts, escape them.
 
+**Ralph Continues After Stopping Session:** If you stop a Ralph session (e.g., Ctrl+C or esc) and open a new Claude session, Ralph may automatically resume. This is expected behavior—Ralph is designed to run autonomously until all features are complete or explicitly cancelled. You can still interrupt and give it instructions during execution.
+
+To properly stop Ralph:
+
+```bash
+# for claude-code
+atomic run claude "/ralph:cancel-ralph"
+
+# for opencode
+atomic run opencode
+# then type:
+/ralph:cancel-ralph
+
+# for copilot
+atomic run copilot -i "/ralph:cancel-ralph"
+```
+
+**Best Practice:** Run Ralph in a separate [git worktree](https://git-scm.com/docs/git-worktree) to isolate autonomous execution from your main development session:
+
+```bash
+# Create a worktree for Ralph
+git worktree add ../my-project-ralph feature-branch
+
+# Run Ralph in the worktree
+cd ../my-project-ralph
+atomic run claude "/ralph:ralph-loop"
+```
+
+This keeps your main workspace free for other work while Ralph runs autonomously.
+
 ---
 
 ## FAQ

@@ -66,6 +66,14 @@ A typical workflow will start something like this:
 <Starts work on a new feature>
 \`\`\`
 
+## Sub-Agent Delegation
+
+When implementing complex features or refactoring large codebases, consider delegating work to sub-agents. This helps manage your context window and allows parallel progress on multiple files.
+
+1. Identify complex tasks that can be isolated (e.g., refactoring a module, implementing a feature).
+2. Create a sub-agent with a clear prompt and specific file targets.
+3. Monitor the sub-agent's progress and integrate their changes back into your main workflow.
+
 ## Test-Driven Development
 
 Frequently use unit tests, integration tests, and end-to-end tests to verify your work AFTER you implement the feature. If the codebase has existing tests, run them often to ensure existing functionality is not broken.
@@ -365,27 +373,47 @@ export const RalphPlugin: Plugin = async ({ directory, client, $ }) => {
         },
       })
 
-      // Compact/summarize the session context before continuing to prevent context overflow
-      // This clears the context window by creating a summary of the conversation
+      // Delete the old session and create a fresh one to completely clear the context window
+      let newSessionId = event.properties.sessionID
+
+      // Try to delete the old session - log but continue if it fails (maybe already deleted)
       try {
-        await client.session.summarize({
+        await client.session.delete({
           path: { id: event.properties.sessionID },
         })
-        await client.app.log({
-          body: {
-            service: "ralph-plugin",
-            level: "info",
-            message: `Context compacted before iteration ${nextIteration}`,
-          },
-        })
-      } catch (err) {
+      } catch (deleteErr) {
         await client.app.log({
           body: {
             service: "ralph-plugin",
             level: "warn",
-            message: `Could not compact context: ${err}`,
+            message: `Could not delete old session: ${deleteErr}`,
           },
         })
+      }
+
+      // Create a new session - this is critical, we cannot proceed without it
+      try {
+        const newSession = await client.session.create({})
+        if (!newSession.data?.id) {
+          throw new Error("Failed to create new session - no session ID returned")
+        }
+        newSessionId = newSession.data.id
+        await client.app.log({
+          body: {
+            service: "ralph-plugin",
+            level: "info",
+            message: `Context cleared - new session ${newSessionId} created for iteration ${nextIteration}`,
+          },
+        })
+      } catch (createErr) {
+        await client.app.log({
+          body: {
+            service: "ralph-plugin",
+            level: "error",
+            message: `Critical: Could not create new session: ${createErr}`,
+          },
+        })
+        return // Cannot proceed without a valid session
       }
 
       // Append the prompt back to continue the session
@@ -394,7 +422,7 @@ export const RalphPlugin: Plugin = async ({ directory, client, $ }) => {
 
       // Use session.prompt to continue the conversation
       await client.session.prompt({
-        path: { id: event.properties.sessionID },
+        path: { id: newSessionId },
         body: {
           parts: [{ type: "text", text: continuationPrompt }],
         },

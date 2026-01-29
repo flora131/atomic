@@ -632,7 +632,7 @@ atomic ralph setup -a claude "NEVER run the entire test suite at once with \`pyt
 
 This behavior is intentional—shell interpolation allows powerful patterns like `$(cat prompt.txt)` or variable expansion. When you need literal backticks in prompts, escape them.
 
-**Ralph Continues After Stopping Session:** If you stop a Ralph session (e.g., Ctrl+C or esc) and open a new Claude session, Ralph may automatically resume. This is expected behavior—Ralph is designed to run autonomously until all features are complete or explicitly cancelled. You can still interrupt and give it instructions during execution.
+**Ralph Continues After Stopping Session:** If you stop a Ralph session (e.g., Ctrl+C or esc) and open a new Claude session, Ralph may automatically resume. This is expected behavior—Ralph is designed to run autonomously until an exit condition is met (completion promise / max iterations / all features passing) or it’s explicitly cancelled. You can still interrupt and give it instructions during execution.
 
 To properly stop Ralph:
 

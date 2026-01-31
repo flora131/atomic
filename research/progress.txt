@@ -132,3 +132,32 @@
 
 **Next**: Create commands module index with initialization function
 
+---
+
+### 2026-01-31 - Commands Module Index Implementation
+
+**Feature**: Create commands module index with initialization function
+
+**Status**: COMPLETE
+
+**Changes**:
+- Created `src/ui/commands/index.ts` with:
+  - Re-exports from all command modules (registry, builtin, workflow, skill)
+  - `initializeCommands()` - initializes all commands, returns count of newly registered
+  - `parseSlashCommand()` - parses input into { isCommand, name, args, raw }
+  - `isSlashCommand()` - checks if input starts with "/"
+  - `getCommandPrefix()` - extracts partial command name for autocomplete
+
+- Fixed alias conflict: removed "loop" alias from ralph:ralph-loop (reserved for atomic workflow)
+
+- Created `tests/ui/commands/index.test.ts` with 31 passing tests covering:
+  - initializeCommands() registration and idempotency
+  - parseSlashCommand() for various input formats
+  - isSlashCommand() detection
+  - getCommandPrefix() extraction
+  - Module export verification
+
+**Test Results**: 164 tests passing across all command tests (35 registry + 37 builtin + 28 workflow + 33 skill + 31 index)
+
+**Next**: Create Autocomplete component with two-column layout
+

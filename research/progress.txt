@@ -925,3 +925,44 @@ Implemented syntax-highlighted code block component for terminal UI:
 - All 63 UI tests pass (148 expect() calls)
 
 **Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 17
+
+**Feature Completed:** Feature 19 - Implement theme support with dark/light modes
+
+**Files Created:**
+- `src/ui/theme.tsx` - Theme configuration and context (270 lines)
+- `tests/ui/theme.test.ts` - Unit tests for theme functionality (33 passing tests)
+
+**Implementation Summary:**
+Implemented theme support for terminal chat UI:
+
+1. **Types:**
+   - `ThemeColors` - Color palette with 13 named colors
+   - `Theme` - Configuration with name, isDark flag, and colors
+   - `ThemeContextValue` - Context value with theme and controls
+   - `ThemeProviderProps` - Props for ThemeProvider component
+
+2. **Theme Definitions:**
+   - `darkTheme` - Dark mode optimized for terminals (black bg, white fg)
+   - `lightTheme` - Light mode with inverted colors
+
+3. **React Context:**
+   - `ThemeContext` - React context for theme state
+   - `ThemeProvider` - Provider component with toggle functionality
+   - `useTheme` - Hook for accessing theme and controls
+   - `useThemeColors` - Convenience hook for just the color palette
+
+4. **Helper Functions:**
+   - `getThemeByName()` - Get theme by name string
+   - `getMessageColor()` - Get color for message role
+   - `createCustomTheme()` - Create custom theme with overrides
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 96 UI tests pass (238 expect() calls)
+
+**Git Status:** Ready to commit

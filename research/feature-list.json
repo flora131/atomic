@@ -320,7 +320,7 @@
       "Implement ThemeProvider component",
       "Apply theme colors to ChatApp and MessageBubble components"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

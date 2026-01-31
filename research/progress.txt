@@ -814,3 +814,63 @@ Implemented three Checkpointer implementations for persisting and resuming graph
 - Full graph test suite: 260 tests pass (575 expect() calls)
 
 **Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 15
+
+**Feature Completed:** Implement terminal chat UI using @opentui/react and @opentui/core
+
+**Dependencies Added:**
+- `@opentui/core@0.1.75` - Terminal UI core library
+- `@opentui/react@0.1.75` - React renderer for OpenTUI
+- `@types/react@19.2.10` - React type definitions
+
+**Files Created:**
+- `src/ui/chat.tsx` - Terminal chat UI components (390 lines)
+- `tests/ui/chat.test.ts` - Unit tests for chat components (27 passing tests)
+
+**Files Modified:**
+- `tsconfig.json` - Added `jsxImportSource: "@opentui/react"` for OpenTUI JSX types
+- `package.json` - Added new dependencies
+
+**Implementation Summary:**
+Implemented a terminal-based chat interface using OpenTUI:
+
+1. **Types:**
+   - `MessageRole` - "user" | "assistant" | "system"
+   - `ChatMessage` - Message with id, role, content, timestamp, streaming
+   - `ChatAppProps` - Props for ChatApp component
+   - `MessageBubbleProps` - Props for MessageBubble component
+
+2. **Helper Functions:**
+   - `generateMessageId()` - Generate unique message IDs with timestamp
+   - `createMessage()` - Factory function for ChatMessage
+   - `formatTimestamp()` - Format ISO timestamp for display
+
+3. **MessageBubble Component:**
+   - Role-based styling (cyan for user, green for assistant, yellow for system)
+   - Streaming indicator when message is being received
+   - Optional markdown rendering for assistant messages
+   - Word-wrap for text content
+
+4. **ChatApp Component:**
+   - ScrollBox with stickyScroll and stickyStart="bottom"
+   - Header with title and exit instructions
+   - Message history with viewportCulling for performance
+   - Input area with disabled state during streaming
+   - Status bar showing message count or streaming status
+   - useKeyboard hook for ESC and Ctrl+C exit
+
+5. **Keyboard Handling:**
+   - ESC key triggers onExit callback
+   - Ctrl+C triggers onExit callback
+   - Enter key submits message via input component
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 27 new chat UI tests pass (61 expect() calls)
+- Full test suite: 1115 tests pass (2411 expect() calls)
+
+**Git Status:** Ready to commit

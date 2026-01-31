@@ -570,6 +570,7 @@ Atomic collects anonymous usage telemetry to help improve the product. All data 
 - Command names (init, help, config, etc.)
 - Agent type (claude, opencode, copilot)
 - Success/failure status
+- Session and workflow metrics (duration, feature count)
 
 ### What We NEVER Collect
 
@@ -580,9 +581,20 @@ Atomic collects anonymous usage telemetry to help improve the product. All data 
 
 ### Privacy Features
 
-- **Anonymous ID rotation**: Your anonymous ID is automatically rotated monthly for enhanced privacy
-- **CI auto-disable**: Telemetry is automatically disabled in CI environments
+- **Anonymous ID**: A stable but non-identifiable ID derived from machine characteristics
+- **Local logging**: Telemetry is stored locally as JSONL files before any remote transmission
+- **CI auto-disable**: Telemetry is automatically disabled in CI environments (`CI=true`)
 - **First-run consent**: You're prompted to opt-in during your first use of `atomic init`
+
+### Data Storage
+
+Telemetry data is stored locally before being sent:
+
+| Platform | Local Log Path |
+| -------- | -------------- |
+| Windows  | `%APPDATA%\atomic\telemetry\` |
+| macOS    | `~/Library/Application Support/atomic/telemetry/` |
+| Linux    | `~/.local/share/atomic/telemetry/` (XDG compliant) |
 
 ### Opt-Out Methods
 
@@ -592,16 +604,48 @@ You can disable telemetry at any time using any of these methods:
 # Using the config command
 atomic config set telemetry false
 
-# Using environment variables
+# Using environment variables (shell)
 export ATOMIC_TELEMETRY=0
-# or
+
+# Using the standard DO_NOT_TRACK signal (https://consoledonottrack.com/)
 export DO_NOT_TRACK=1
+```
+
+**Windows PowerShell:**
+
+```powershell
+# Set environment variable for current session
+$env:ATOMIC_TELEMETRY = "0"
+
+# Or set permanently for your user
+[Environment]::SetEnvironmentVariable("ATOMIC_TELEMETRY", "0", "User")
 ```
 
 To re-enable telemetry:
 
 ```bash
 atomic config set telemetry true
+# Or remove the environment variables
+unset ATOMIC_TELEMETRY
+unset DO_NOT_TRACK
+```
+
+### Programmatic Configuration
+
+If you're integrating Atomic into your tooling:
+
+```typescript
+import { loadTelemetryConfig, isTelemetryEnabled } from "@bastani/atomic";
+
+// Check if telemetry is enabled
+if (isTelemetryEnabled()) {
+  // Telemetry will be collected
+}
+
+// Load full configuration
+const config = loadTelemetryConfig();
+console.log(config.enabled);      // boolean
+console.log(config.localLogPath); // platform-specific path
 ```
 
 ---

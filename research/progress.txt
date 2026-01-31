@@ -210,4 +210,492 @@ Implemented the CopilotClient class for the GitHub Copilot CLI SDK with support 
 - All 34 unit tests pass (49 expect() calls)
 - Full SDK test suite: 112 tests pass
 
+**Git Status:** Committed as 04bf27b
+
+---
+
+### 2026-01-31 - Iteration 5
+
+**Feature Completed:** Create unified HookManager interface for cross-SDK hook registration
+
+**Files Created:**
+- `src/sdk/hooks.ts` - Full implementation of HookManager with unified event types
+- `tests/sdk/hooks.test.ts` - Unit tests (23 passing tests)
+
+**Files Modified:**
+- `src/sdk/index.ts` - Added exports for HookManager and hook-related types
+
+**Implementation Summary:**
+Implemented the HookManager class that provides a unified interface for registering hooks across all SDK clients:
+
+1. **11 Unified Hook Event Types:**
+   - Session lifecycle: session.start, session.end, session.error
+   - Tool execution: tool.before, tool.after, tool.error
+   - Message handling: message.before, message.after
+   - Permission handling: permission.request
+   - Subagent handling: subagent.start, subagent.end
+
+2. **HookContext Interface:**
+   - `sessionId` - Session where event occurred
+   - `agentType` - Type of agent (claude/opencode/copilot)
+   - `timestamp` - ISO 8601 timestamp
+   - `data` - Event-specific data with typed interfaces
+
+3. **HookManager Class:**
+   - `on(event, handler)` - Register handler, returns unsubscribe function
+   - `off(event)` - Remove all handlers for an event
+   - `clear()` - Remove all handlers
+   - `emit(event, context)` - Dispatch event to handlers
+   - `hasHandlers(event)` - Check if handlers registered
+   - `handlerCount(event)` - Get count of handlers
+
+4. **SDK-Specific Application:**
+   - `applyToClaudeClient()` - Maps unified events to Claude SDK hooks
+   - `applyToOpenCodeClient()` - Maps unified events to OpenCode events
+   - `applyToCopilotClient()` - Maps unified events to Copilot events
+   - Event mapping constants for each SDK
+
+5. **Hook Result System:**
+   - `continue: boolean` - Control handler chain execution
+   - `modifiedData` - Pass modified data to subsequent handlers
+   - `error` - Abort execution with error
+
+6. **Typed Event Data:**
+   - SessionStartEventData, SessionEndEventData, SessionErrorEventData
+   - ToolBeforeEventData, ToolAfterEventData, ToolErrorEventData
+   - MessageBeforeEventData, MessageAfterEventData
+   - PermissionRequestEventData
+   - SubagentStartEventData, SubagentEndEventData
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 23 unit tests pass (47 expect() calls)
+- Full SDK test suite: 135 tests pass
+
+**Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 6
+
+**Feature Completed:** Migrate Claude hooks from .claude/settings.json to SDK options.hooks configuration
+
+**Files Created:**
+- `src/sdk/claude-hooks.ts` - Native SDK hook handlers for telemetry tracking
+- `tests/sdk/claude-hooks.test.ts` - Unit tests for Claude hook handlers (25 passing tests)
+
+**Files Modified:**
+- `src/sdk/index.ts` - Added exports for Claude hook handlers
+- `.claude/settings.json` - Removed hooks configuration (now uses SDK native hooks)
+- `tests/telemetry/atomic-commands-sync.test.ts` - Updated to exclude removed hook script
+
+**Files Removed:**
+- `.claude/hooks/telemetry-stop.ts` - Replaced by `src/sdk/claude-hooks.ts`
+
+**Implementation Summary:**
+Migrated Claude Code hooks from external command-based execution to inline TypeScript handlers using the SDK native hook system:
+
+1. **New Hook Handler Functions:**
+   - `createSessionEndTelemetryHook()` - Replaces telemetry-stop.ts, reads transcript and calls trackAgentSession()
+   - `createDefaultClaudeHooks()` - Factory returning standard hook config with telemetry
+   - `createSessionStartHook()` - Customizable session start handler
+   - `createPreToolUseHook()` - Tool execution filtering with async filter support
+   - `createPostToolUseHook()` - Tool completion callback handler
+
+2. **Benefits of Migration:**
+   - No external process spawning on session end
+   - Direct integration with telemetry-session.ts module
+   - Type-safe hook handlers with proper error handling
+   - Hooks never block or throw errors (fail-safe design)
+
+3. **Configuration Changes:**
+   - Removed `hooks.SessionEnd` from `.claude/settings.json`
+   - Hooks now registered programmatically via `client.registerHooks()`
+
+4. **Error Handling:**
+   - All hooks return `{ continue: true }` on error
+   - Errors are caught and logged, never block session flow
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 25 new hook tests pass (39 expect() calls)
+- Full SDK test suite: 160 tests pass
+- Telemetry sync tests pass (2 tests)
+
+**Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 7
+
+**Feature Completed:** Migrate Copilot hooks from .github/hooks/hooks.json to SDK session.on() event handlers
+
+**Files Created:**
+- `src/sdk/copilot-hooks.ts` - Native SDK hook handlers for Copilot telemetry and Ralph loop
+- `tests/sdk/copilot-hooks.test.ts` - Unit tests for Copilot hook handlers (25 passing tests)
+
+**Files Modified:**
+- `src/sdk/index.ts` - Added exports for Copilot hook handlers
+- `.github/hooks/hooks.json` - Removed all hook configurations (now uses SDK native hooks)
+- `tests/telemetry/atomic-commands-sync.test.ts` - Updated to exclude migrated Copilot hooks
+
+**Implementation Summary:**
+Migrated Copilot hooks from external command-based execution to inline TypeScript handlers using the SDK native event system:
+
+1. **New Hook Handler Functions:**
+   - `createSessionStartHandler()` - Handles session.start events, detects active Ralph loops
+   - `createSessionEndHandler()` - Handles session.idle events, tracks telemetry and continues Ralph loop
+   - `createUserPromptHandler()` - Extracts Atomic commands from user prompts for telemetry
+   - `registerDefaultCopilotHooks()` - Registers all hooks with a CopilotClient
+   - `createDefaultCopilotHooks()` - Factory returning CopilotHookHandlers config
+
+2. **Ralph Loop Support:**
+   - YAML frontmatter parsing for Ralph state file
+   - Iteration tracking and increment on session end
+   - Completion condition checks (max iterations, all features passing)
+   - Background process spawning for loop continuation
+   - State archival on loop completion
+
+3. **Telemetry Integration:**
+   - Command extraction from prompts during session
+   - Accumulated commands tracked via temp file
+   - Session-end telemetry via trackAgentSession()
+   - Clean temp file handling
+
+4. **Configuration Changes:**
+   - Removed sessionStart, userPromptSubmitted, sessionEnd hooks from hooks.json
+   - Hooks now registered programmatically via registerDefaultCopilotHooks()
+
+5. **Error Handling:**
+   - All handlers never throw errors
+   - Fail-safe design that doesn't block session flow
+   - Proper cleanup even on errors
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 25 new hook tests pass (30 expect() calls)
+- Full SDK test suite: 185 tests pass
+- Telemetry sync tests pass (2 tests)
+
+**Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 8
+
+**Feature Completed:** Migrate OpenCode hooks from plugin files to SDK plugin hooks
+
+**Files Created:**
+- `src/sdk/opencode-hooks.ts` - Native SDK hook handlers for OpenCode telemetry and Ralph loop
+- `tests/sdk/opencode-hooks.test.ts` - Unit tests for OpenCode hook handlers (58 passing tests)
+
+**Files Modified:**
+- `src/sdk/index.ts` - Added exports for OpenCode hook handlers
+- `.opencode/opencode.json` - Removed plugin configuration (hooks now use SDK native handlers)
+- `tests/telemetry/atomic-commands-sync.test.ts` - Updated to test OpenCode hooks instead of removed plugins
+
+**Files Removed:**
+- `.opencode/plugin/telemetry.ts` - Replaced by `src/sdk/opencode-hooks.ts`
+- `.opencode/plugin/ralph.ts` - Replaced by `src/sdk/opencode-hooks.ts`
+
+**Implementation Summary:**
+Migrated OpenCode plugins from external command-based execution to inline TypeScript handlers using the SDK native event system:
+
+1. **New Hook Handler Functions:**
+   - `createSessionStartHandler()` - Initializes session, clears temp commands, detects active Ralph loops
+   - `createSessionIdleHandler()` - Tracks telemetry and handles Ralph loop continuation
+   - `createSessionDeletedHandler()` - Cleanup handler for session deletion
+   - `createCommandExecuteHandler()` - Tracks slash commands executed via SDK
+   - `createChatMessageHandler()` - Extracts commands from chat messages for telemetry
+   - `registerDefaultOpenCodeHooks()` - Registers all hooks with an OpenCodeClient
+   - `createDefaultOpenCodeHooks()` - Factory returning OpenCodeHookHandlers config
+
+2. **Ralph Loop Support:**
+   - `parseRalphState()` - Parse YAML frontmatter state file
+   - `writeRalphState()` - Write updated state to file
+   - `deleteRalphState()` - Remove state file on completion
+   - `checkFeaturesPassing()` - Check feature-list.json for completion
+   - `checkCompletionPromise()` - Check for completion promise in output
+   - Iteration tracking and increment on session idle
+   - Completion condition checks (max iterations, all features passing)
+   - Context compaction via SDK summarize() before continuation
+   - State archival on loop completion
+
+3. **Telemetry Integration:**
+   - `normalizeCommandName()` - Normalize command names to match ATOMIC_COMMANDS
+   - `extractCommandsFromText()` - Extract commands from message text
+   - Command accumulation via temp file during session
+   - Session-end telemetry via trackAgentSession()
+   - Clean temp file handling
+
+4. **Configuration Changes:**
+   - Removed `plugin` array from `.opencode/opencode.json`
+   - Hooks now registered programmatically via registerDefaultOpenCodeHooks()
+
+5. **Error Handling:**
+   - All handlers never throw errors
+   - Fail-safe design that doesn't block session flow
+   - Proper cleanup even on errors
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 58 new OpenCode hook tests pass (85 expect() calls)
+- Full SDK test suite: 243 tests pass
+- Telemetry sync tests pass (3 tests)
+
+**Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 9
+
+**Feature Completed:** Create src/graph/types.ts with all graph type definitions
+
+**Files Created:**
+- `src/graph/types.ts` - Core type definitions for graph execution engine
+- `src/graph/index.ts` - Export barrel file for graph module
+- `tests/graph/types.test.ts` - Unit tests for graph types (40 passing tests)
+
+**Implementation Summary:**
+Created comprehensive type definitions for the graph-based workflow execution engine:
+
+1. **Node Types:**
+   - `NodeId` - String identifier for nodes
+   - `NodeType` - Union type: agent, tool, decision, wait, subgraph, parallel
+   - `NodeDefinition` - Node with id, type, execute function, retry config
+   - `NodeExecuteFn` - Async function signature for node execution
+
+2. **State Management:**
+   - `BaseState` - Base interface with executionId, lastUpdated, outputs
+   - `ContextWindowUsage` - Token usage tracking
+   - `StateOf<T>` - Utility type to extract state from NodeDefinition
+   - `StateUpdate<TState>` - Partial state update type
+
+3. **Execution Types:**
+   - `ExecutionContext` - Context passed to node execute functions
+   - `NodeResult` - Return type with stateUpdate, goto, signals
+   - `ExecutionStatus` - pending, running, paused, completed, failed, cancelled
+   - `ExecutionSnapshot` - Full execution state for checkpointing
+
+4. **Signals:**
+   - `Signal` - context_window_warning, checkpoint, human_input_required, debug_report_generated
+   - `SignalData` - Signal with type, message, and optional data
+
+5. **Error Handling:**
+   - `ExecutionError` - Error with nodeId, error, timestamp, attempt
+   - `RetryConfig` - maxAttempts, backoffMs, backoffMultiplier, retryOn predicate
+   - `DebugReport` - errorSummary, stackTrace, relevantFiles, suggestedFixes
+
+6. **Graph Configuration:**
+   - `GraphConfig` - checkpointer, maxConcurrency, timeout, onProgress, contextWindowThreshold
+   - `Checkpointer` - Interface for save, load, list, delete operations
+   - `Edge` - from, to, condition, label for graph edges
+   - `EdgeCondition` - Predicate function for conditional edges
+   - `CompiledGraph` - Nodes, edges, startNode, endNodes, config
+
+7. **Type Guards:**
+   - `isNodeType()` - Validate node type strings
+   - `isSignal()` - Validate signal strings
+   - `isExecutionStatus()` - Validate execution status strings
+   - `isBaseState()` - Validate BaseState objects
+   - `isNodeResult()` - Validate NodeResult objects
+   - `isDebugReport()` - Validate DebugReport objects
+
+8. **Default Configurations:**
+   - `DEFAULT_RETRY_CONFIG` - maxAttempts: 3, backoffMs: 1000, multiplier: 2
+   - `DEFAULT_GRAPH_CONFIG` - maxConcurrency: 1, contextWindowThreshold: 60, autoCheckpoint: true
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 40 graph type tests pass (112 expect() calls)
+
+**Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 10
+
+**Feature Completed:** Create src/graph/annotation.ts with state annotation system
+
+**Files Created:**
+- `src/graph/annotation.ts` - State annotation system with reducers and factories
+- `tests/graph/annotation.test.ts` - Unit tests for annotation system (50 passing tests)
+
+**Files Modified:**
+- `src/graph/index.ts` - Added annotation exports
+
+**Implementation Summary:**
+Created a type-safe state annotation system inspired by LangGraph:
+
+1. **Annotation Types:**
+   - `Reducer<T>` - Function type for merging state values
+   - `Annotation<T>` - Definition with default value and optional reducer
+   - `AnnotationRoot` - Record type for combining annotations
+   - `ValueOf<A>` - Extract value type from Annotation
+   - `StateFromAnnotation<A>` - Infer state type from schema
+
+2. **Built-in Reducers:**
+   - `Reducers.replace` - Default replacement behavior
+   - `Reducers.concat` - Array concatenation
+   - `Reducers.merge` - Shallow object merging
+   - `Reducers.mergeById(idField)` - Array merging by ID field
+   - `Reducers.max/min/sum` - Numeric reducers
+   - `Reducers.or/and` - Boolean reducers
+   - `Reducers.ifDefined` - Update only if value is defined
+
+3. **Annotation Factory:**
+   - `annotation(defaultValue, reducer?)` - Create annotation definition
+   - `getDefaultValue(ann)` - Get default (handles factories)
+   - `applyReducer(ann, current, update)` - Apply reducer safely
+
+4. **State Management:**
+   - `initializeState(schema)` - Create state with defaults
+   - `applyStateUpdate(schema, current, update)` - Apply update with reducers
+
+5. **AtomicWorkflowState:**
+   - `AtomicStateAnnotation` - Full schema for Ralph loop workflow
+   - Fields: executionId, lastUpdated, outputs, researchDoc, specDoc, specApproved, featureList, currentFeature, allFeaturesPassing, debugReports, prUrl, contextWindowUsage, iteration
+   - `Feature` interface for feature list entries
+   - `createAtomicState(executionId?)` - Create initialized state
+   - `updateAtomicState(current, update)` - Apply update immutably
+
+6. **Type Guards:**
+   - `isFeature(value)` - Validate Feature objects
+   - `isAtomicWorkflowState(value)` - Validate AtomicWorkflowState objects
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 90 graph tests pass (242 expect() calls)
+
+**Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 11
+
+**Feature Completed:** Implement GraphBuilder with fluent API for workflow definition
+
+**Files Created:**
+- `src/graph/builder.ts` - GraphBuilder class with fluent API for building workflows
+- `tests/graph/builder.test.ts` - Unit tests for GraphBuilder (46 passing tests)
+
+**Files Modified:**
+- `src/graph/index.ts` - Added builder exports
+
+**Implementation Summary:**
+Implemented the GraphBuilder class providing a fluent API for constructing graph-based workflows:
+
+1. **GraphBuilder Class:**
+   - `start(node)` - Set the starting node
+   - `then(node)` - Add node and connect from current
+   - `end()` - Mark current node as terminal
+   - `compile(config?)` - Create CompiledGraph ready for execution
+
+2. **Conditional Branching:**
+   - `if(condition)` - Begin conditional branch with predicate
+   - `else()` - Begin alternative branch
+   - `endif()` - Close conditional block and create merge node
+   - Supports nested conditionals
+
+3. **Loop Constructs:**
+   - `loop(bodyNode, config)` - Add loop with exit condition
+   - `LoopConfig` interface with `until` condition and `maxIterations`
+   - Creates loop_start and loop_check nodes for iteration tracking
+
+4. **Parallel Execution:**
+   - `parallel(config)` - Execute multiple branches concurrently
+   - `ParallelConfig` with branches array and strategy (all/race/any)
+   - Optional merge function for combining results
+
+5. **Human-in-the-Loop:**
+   - `wait(prompt)` - Create wait node with string prompt
+   - `wait(node)` - Use custom wait node definition
+   - Emits human_input_required signal
+
+6. **Error Handling:**
+   - `catch(handler)` - Register error handler node
+   - Handler ID stored in config.metadata.errorHandlerId
+
+7. **Helper Functions:**
+   - `graph<TState>()` - Factory function to create new builder
+   - `createNode(id, type, execute, options?)` - Create node definition
+   - `createDecisionNode(id, routes, fallback)` - Create routing node
+   - `createWaitNode(id, prompt)` - Create wait node
+
+8. **Graph Query Methods:**
+   - `getNode(nodeId)` - Get node by ID
+   - `getEdgesFrom(nodeId)` - Get outgoing edges
+   - `getEdgesTo(nodeId)` - Get incoming edges
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 136 graph tests pass (353 expect() calls)
+
+**Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 12
+
+**Feature Completed:** Implement node factory functions for agent, tool, decision, wait, parallel nodes
+
+**Files Created:**
+- `src/graph/nodes.ts` - Node factory functions for all node types
+- `tests/graph/nodes.test.ts` - Unit tests for node factories (44 passing tests)
+
+**Files Modified:**
+- `src/graph/index.ts` - Added node factory exports
+
+**Implementation Summary:**
+Implemented factory functions for creating typed graph nodes:
+
+1. **Agent Node (`agentNode`):**
+   - `AgentNodeConfig` interface with agentType, systemPrompt, tools, outputMapper, sessionConfig
+   - Creates sessions using global ClientProvider
+   - Streams messages and applies outputMapper
+   - Tracks context window usage and emits warnings
+   - Uses AGENT_NODE_RETRY_CONFIG (2 attempts, 2000ms backoff)
+   - `setClientProvider()` / `getClientProvider()` for dependency injection
+
+2. **Tool Node (`toolNode`):**
+   - `ToolNodeConfig` interface with toolName, execute, args, outputMapper, timeout
+   - Executes tool with static or dynamic args
+   - Supports AbortSignal for timeout handling
+   - Maps results via outputMapper or stores in outputs
+
+3. **Decision Node (`decisionNode`):**
+   - `DecisionNodeConfig` interface with routes array and fallback
+   - `DecisionRoute` with condition function and target NodeId
+   - Evaluates routes in order, returns first match
+   - Falls back to default when no route matches
+
+4. **Wait Node (`waitNode`):**
+   - `WaitNodeConfig` interface with prompt, autoApprove, inputMapper
+   - Emits human_input_required signal with prompt
+   - Supports dynamic prompt functions
+   - autoApprove option for testing/automation
+
+5. **Parallel Node (`parallelNode`):**
+   - `ParallelNodeConfig` interface with branches, strategy, merge
+   - Supports "all", "race", "any" merge strategies
+   - Stores ParallelExecutionContext for execution engine
+   - Returns goto with all branch IDs
+
+6. **Subgraph Node (`subgraphNode`):**
+   - `SubgraphNodeConfig` interface with subgraph, inputMapper, outputMapper
+   - Executes nested compiled graphs
+   - Maps state between parent and subgraph
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 180 graph tests pass (437 expect() calls)
+
 **Git Status:** Ready to commit

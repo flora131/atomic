@@ -605,7 +605,7 @@
       "Export CompiledGraph from compiled.ts",
       "Export Checkpointer, MemorySaver, FileSaver, ResearchDirSaver from checkpointer.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

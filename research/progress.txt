@@ -252,3 +252,40 @@
 
 **Next**: Integrate autocomplete into ChatApp input handling
 
+---
+
+### 2026-01-31 - Autocomplete Integration Implementation
+
+**Feature**: Integrate autocomplete into ChatApp input handling
+
+**Status**: COMPLETE
+
+**Changes**:
+- Modified `src/ui/chat.tsx` to integrate autocomplete:
+  - Added import for `Autocomplete` component and `CommandDefinition` type
+  - Added `handleInputChange` callback that:
+    - Detects "/" prefix in input
+    - Shows autocomplete when input starts with "/" and has no space
+    - Updates autocompleteInput with text after "/"
+    - Resets selectedSuggestionIndex to 0 on input change
+    - Hides autocomplete when there's a space (arguments) or non-slash input
+  - Added `handleAutocompleteSelect` callback for Tab/Enter completion
+  - Added `handleAutocompleteIndexChange` callback for up/down navigation
+  - Updated keyboard handler to:
+    - Hide autocomplete on Escape key
+    - Check input after keystrokes using setTimeout
+  - Rendered `Autocomplete` component conditionally below input area
+  - Passed all required props: input, visible, selectedIndex, onSelect, onIndexChange
+
+- Created `tests/ui/chat-autocomplete.test.ts` with 19 tests covering:
+  - Autocomplete triggering with "/" prefix
+  - Prefix extraction and filtering
+  - Hiding on space (arguments mode)
+  - Hiding for non-slash input
+  - Full state transitions: empty → slash → command → arguments
+  - Edge cases: multiple slashes, slash in middle, whitespace, empty string
+
+**Test Results**: 251 tests passing across all command/component/chat tests (excluding 8 pre-existing theme failures)
+
+**Next**: Implement command completion and execution in ChatApp
+

@@ -279,7 +279,7 @@
       "Display typing indicator during streaming",
       "Handle stream completion to remove streaming flag"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -291,7 +291,7 @@
       "Handle flexGrow for responsive height",
       "Add border and title for chat history section"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -305,7 +305,7 @@
       "Implement extractCodeBlocks function to parse markdown code blocks",
       "Add border and padding styling"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

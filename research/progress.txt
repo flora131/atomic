@@ -468,3 +468,40 @@
 
 **Next**: Create ToolResultRegistry for tool-specific rendering
 
+---
+
+### 2026-01-31 - ToolResultRegistry Implementation
+
+**Feature**: Create ToolResultRegistry for tool-specific rendering
+
+**Status**: COMPLETE
+
+**Changes**:
+- Created `src/ui/tools/registry.ts` with:
+  - `ToolRenderProps` interface (input, output, syntaxStyle)
+  - `ToolRenderResult` interface (title, content, language, expandable)
+  - `ToolRenderer` interface (icon, getTitle, render)
+  - Individual tool renderers:
+    - `readToolRenderer` - file path title, code content with language detection
+    - `editToolRenderer` - diff display with +/- lines
+    - `bashToolRenderer` - command with output
+    - `writeToolRenderer` - created/updated status with preview
+    - `globToolRenderer` - pattern and matching files list
+    - `grepToolRenderer` - pattern and search results
+    - `defaultToolRenderer` - generic JSON input/output display
+  - `TOOL_RENDERERS` registry mapping tool names to renderers
+  - Helper functions: getToolRenderer, getRegisteredToolNames, hasCustomRenderer
+  - `getLanguageFromExtension` - maps file extensions to syntax highlighting languages
+
+- Created `tests/ui/tools/registry.test.ts` with 53 passing tests covering:
+  - All individual tool renderers (icon, getTitle, render)
+  - getToolRenderer lookup by name (case-insensitive)
+  - Default renderer fallback for unknown tools
+  - getRegisteredToolNames uniqueness and sorting
+  - hasCustomRenderer detection
+  - getLanguageFromExtension for JS/TS/Python/Rust/Go/config/shell/web
+
+**Test Results**: 53 tests passing in tools/registry
+
+**Next**: Create ToolResult component for rendering tool outputs
+

@@ -238,7 +238,7 @@
       "Export getToolRenderer(toolName) helper function",
       "Add unit tests in tests/ui/tools/registry.test.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

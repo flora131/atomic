@@ -336,7 +336,7 @@
       "Handle SIGINT and SIGTERM signals for cleanup",
       "Export startChatUI function"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

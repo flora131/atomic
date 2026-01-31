@@ -7,7 +7,7 @@
  * Reference: Feature 15 - Implement terminal chat UI
  */
 
-import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import { useKeyboard } from "@opentui/react";
 import type {
   KeyEvent,
@@ -19,7 +19,16 @@ import { copyToClipboard, pasteFromClipboard } from "../utils/clipboard.ts";
 import { Autocomplete } from "./components/autocomplete.tsx";
 import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
 import { ToolResult } from "./components/tool-result.tsx";
-import type { ToolExecutionStatus } from "./hooks/use-streaming-state.ts";
+import {
+  UserQuestionDialog,
+  type UserQuestion,
+  type QuestionAnswer,
+} from "./components/user-question-dialog.tsx";
+import {
+  useStreamingState,
+  type ToolExecutionStatus,
+  type ToolExecutionState,
+} from "./hooks/use-streaming-state.ts";
 import {
   globalRegistry,
   parseSlashCommand,
@@ -553,6 +562,12 @@ export function ChatApp({
   // Workflow chat state (autocomplete, workflow execution, approval)
   const [workflowState, setWorkflowState] = useState<WorkflowChatState>(defaultWorkflowChatState);
 
+  // Streaming state hook for tool executions and pending questions
+  const streamingState = useStreamingState();
+
+  // State for showing user question dialog
+  const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
+
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
 
@@ -563,6 +578,144 @@ export function ChatApp({
   const updateWorkflowState = useCallback((updates: Partial<WorkflowChatState>) => {
     setWorkflowState((prev) => ({ ...prev, ...updates }));
   }, []);
+
+  /**
+   * Handle tool execution start event.
+   * Updates streaming state and adds tool call to current message.
+   */
+  const handleToolStart = useCallback((
+    toolId: string,
+    toolName: string,
+    input: Record<string, unknown>
+  ) => {
+    // Update streaming state
+    streamingState.handleToolStart(toolId, toolName, input);
+
+    // Add tool call to current streaming message
+    const messageId = streamingMessageIdRef.current;
+    if (messageId) {
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id === messageId) {
+            const newToolCall: MessageToolCall = {
+              id: toolId,
+              toolName,
+              input,
+              status: "running",
+            };
+            return {
+              ...msg,
+              toolCalls: [...(msg.toolCalls || []), newToolCall],
+            };
+          }
+          return msg;
+        })
+      );
+    }
+  }, [streamingState]);
+
+  /**
+   * Handle tool execution complete event.
+   * Updates streaming state and tool call status in message.
+   */
+  const handleToolComplete = useCallback((
+    toolId: string,
+    output: unknown,
+    success: boolean,
+    error?: string
+  ) => {
+    // Update streaming state
+    if (success) {
+      streamingState.handleToolComplete(toolId, output);
+    } else {
+      streamingState.handleToolError(toolId, error || "Unknown error");
+    }
+
+    // Update tool call in current streaming message
+    const messageId = streamingMessageIdRef.current;
+    if (messageId) {
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (msg.id === messageId && msg.toolCalls) {
+            return {
+              ...msg,
+              toolCalls: msg.toolCalls.map((tc) => {
+                if (tc.id === toolId) {
+                  return {
+                    ...tc,
+                    output,
+                    status: success ? "completed" as const : "error" as const,
+                  };
+                }
+                return tc;
+              }),
+            };
+          }
+          return msg;
+        })
+      );
+    }
+  }, [streamingState]);
+
+  /**
+   * Handle human_input_required signal.
+   * Shows UserQuestionDialog for HITL interactions.
+   */
+  const handleHumanInputRequired = useCallback((question: UserQuestion) => {
+    // Add to pending questions queue
+    streamingState.addPendingQuestion(question);
+
+    // Show the question dialog if not already showing one
+    if (!activeQuestion) {
+      setActiveQuestion(question);
+    }
+  }, [streamingState, activeQuestion]);
+
+  /**
+   * Handle user answering a question from UserQuestionDialog.
+   */
+  const handleQuestionAnswer = useCallback((answer: QuestionAnswer) => {
+    // Clear active question
+    setActiveQuestion(null);
+
+    // Remove from pending questions
+    streamingState.removePendingQuestion();
+
+    // If cancelled, add system message
+    if (answer.cancelled) {
+      const msg = createMessage("system", "User cancelled the question.");
+      setMessages((prev) => [...prev, msg]);
+    } else {
+      // Add system message with selected options
+      const selectedLabels = answer.selected.join(", ");
+      const msg = createMessage("system", `User selected: ${selectedLabels}`);
+      setMessages((prev) => [...prev, msg]);
+
+      // Update workflow state if this was spec approval
+      if (answer.selected.includes("Approve")) {
+        updateWorkflowState({ specApproved: true, pendingApproval: false });
+      } else if (answer.selected.includes("Reject")) {
+        updateWorkflowState({ specApproved: false, pendingApproval: false });
+      }
+    }
+
+    // Check if there are more pending questions
+    const nextQuestion = streamingState.state.pendingQuestions[0];
+    if (nextQuestion) {
+      setActiveQuestion(nextQuestion);
+    }
+  }, [streamingState, updateWorkflowState]);
+
+  /**
+   * Update workflow progress state (called by workflow execution).
+   */
+  const updateWorkflowProgress = useCallback((updates: {
+    currentNode?: string | null;
+    iteration?: number;
+    featureProgress?: FeatureProgress | null;
+  }) => {
+    updateWorkflowState(updates);
+  }, [updateWorkflowState]);
 
   // Ref for textarea to access value and clear it
   const textareaRef = useRef<TextareaRenderable>(null);
@@ -1024,6 +1177,15 @@ export function ChatApp({
           <text style={{ fg: DIM_BLUE, attributes: 2 }}>{statusText}</text>
         )}
       </box>
+
+      {/* User Question Dialog - for HITL interactions */}
+      {activeQuestion && (
+        <UserQuestionDialog
+          question={activeQuestion}
+          onAnswer={handleQuestionAnswer}
+          visible={true}
+        />
+      )}
     </box>
   );
 }

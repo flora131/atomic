@@ -312,7 +312,7 @@
       "Update workflow state on execution progress",
       "Add integration tests for workflow execution flow"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

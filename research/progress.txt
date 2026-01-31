@@ -769,5 +769,67 @@ based on state changes, not by the commands themselves.
 
 **Test Results**: Exports verified via import test
 
-**Next**: Create unit tests for CommandRegistry (already done - Feature 25 can be skipped)
+---
+
+### 2026-01-31 - Test Feature Verification
+
+**Features 25-26**: Create unit tests for CommandRegistry and built-in commands
+
+**Status**: ALREADY COMPLETE (marked in feature-list.json from earlier implementation)
+
+Registry tests: 35 tests
+Built-in command tests: 45 tests
+
+---
+
+**Features 27-28**: Create integration tests for Autocomplete and ChatApp commands
+
+**Status**: ALREADY COMPLETE
+
+Tests exist in:
+- tests/ui/components/autocomplete.test.tsx (30 tests)
+- tests/ui/chat-autocomplete.test.ts (19 tests)
+- tests/ui/chat-command-execution.test.ts (24 tests)
+
+All feature steps covered:
+- Suggestions matching input prefix ✅
+- Keyboard navigation ✅
+- Tab completion ✅
+- Enter execution ✅
+- Escape to hide ✅
+- '/' shows autocomplete ✅
+- Filtering commands ✅
+- Executing slash commands ✅
+
+---
+
+## Summary
+
+**ALL 28 FEATURES COMPLETE**
+
+Total tests: 603 passing (8 pre-existing theme failures unrelated to TUI features)
+
+Files created/modified:
+- src/ui/commands/registry.ts
+- src/ui/commands/builtin-commands.ts
+- src/ui/commands/workflow-commands.ts
+- src/ui/commands/skill-commands.ts
+- src/ui/commands/index.ts
+- src/ui/components/autocomplete.tsx
+- src/ui/components/user-question-dialog.tsx
+- src/ui/components/workflow-status-bar.tsx
+- src/ui/components/tool-result.tsx
+- src/ui/components/index.ts
+- src/ui/hooks/use-streaming-state.ts
+- src/ui/hooks/index.ts
+- src/ui/tools/registry.ts
+- src/ui/tools/index.ts
+- src/ui/chat.tsx (extended)
+- src/ui/index.ts (extended)
+- tests/ui/commands/*.test.ts (4 files)
+- tests/ui/components/*.test.tsx (4 files)
+- tests/ui/hooks/*.test.ts (1 file)
+- tests/ui/tools/*.test.ts (1 file)
+- tests/ui/chat*.test.ts (4 files)
+- tests/ui/index.test.ts
 

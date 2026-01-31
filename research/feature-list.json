@@ -353,7 +353,7 @@
       "Handle registration errors gracefully",
       "Add integration test for full autocomplete initialization"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -365,7 +365,7 @@
       "Export WorkflowStatusBar component and WorkflowStatusBarProps type",
       "Export ToolResult component and ToolResultProps type"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

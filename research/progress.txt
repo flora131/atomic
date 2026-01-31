@@ -1084,4 +1084,71 @@ Created a comprehensive unified telemetry type system for cross-SDK event tracki
 - Linting passes (0 warnings, 0 errors)
 - All 40 telemetry type tests pass (174 expect() calls)
 
+**Git Status:** Committed as ac544a5
+
+---
+
+### 2026-01-31 - Iteration 20
+
+**Feature Completed:** Feature 22 - Implement UnifiedTelemetryCollector with JSONL logging and Azure App Insights
+
+**Files Created:**
+- `src/telemetry/collector.ts` - UnifiedTelemetryCollector implementation (380 lines)
+- `tests/telemetry/collector.test.ts` - Unit tests (41 passing tests)
+
+**Files Modified:**
+- `src/telemetry/index.ts` - Added collector exports
+
+**Implementation Summary:**
+Implemented the UnifiedTelemetryCollector class for cross-SDK telemetry collection:
+
+1. **Core Class:**
+   - `UnifiedTelemetryCollector` - Main implementation of TelemetryCollector interface
+   - Event buffering with configurable batch size (default 100)
+   - Auto-flush at configurable intervals (default 30 seconds)
+   - Uses unref() on interval to not block process exit
+
+2. **Anonymous ID Generation:**
+   - `generateAnonymousId()` - Creates stable ID from machine characteristics
+   - Uses SHA-256 hash of hostname, username, platform, arch
+   - Format as UUID-like string for consistency
+
+3. **Environment Variable Handling:**
+   - `shouldEnableTelemetry()` - Checks DO_NOT_TRACK=1, ATOMIC_TELEMETRY=0, CI=true
+   - Respects console.do not track standard
+   - Disabled by default in CI environments
+
+4. **Event Tracking:**
+   - `track()` - Buffers events with enriched properties
+   - Auto-adds platform, nodeVersion, anonymousId to each event
+   - Supports sessionId and executionId for correlation
+   - Auto-flushes when batch size reached
+
+5. **Flush Operations:**
+   - `flush()` - Writes to local log and sends to App Insights
+   - `writeToLocalLog()` - Writes JSONL files with date-based naming
+   - `sendToAppInsights()` - Posts to Azure ingestion endpoint
+   - Returns FlushResult with success/failure details
+
+6. **Lifecycle Management:**
+   - `shutdown()` - Stops interval and flushes remaining events
+   - Prevents tracking after shutdown
+   - Safe for multiple shutdown calls
+
+7. **Factory Functions:**
+   - `createTelemetryCollector()` - Creates collector with config
+   - `createNoopCollector()` - Creates disabled collector for testing
+   - `getGlobalCollector()` / `setGlobalCollector()` - Singleton management
+
+8. **Platform-Specific Log Paths:**
+   - `getDefaultLogPath()` - Returns platform-appropriate data directory
+   - Windows: %APPDATA%/atomic/telemetry
+   - macOS: ~/Library/Application Support/atomic/telemetry
+   - Linux: ~/.local/share/atomic/telemetry (XDG compliant)
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 41 collector tests pass (84 expect() calls)
+
 **Git Status:** Ready to commit

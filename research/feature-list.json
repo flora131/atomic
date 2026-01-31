@@ -366,7 +366,7 @@
       "Implement shutdown() clearing interval and flushing",
       "Start flush interval (30 seconds) if enabled"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

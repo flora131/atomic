@@ -1477,4 +1477,58 @@ Implemented context window monitoring with configurable thresholds for all three
 - All 72 node tests pass (150 expect() calls)
 - Full test suite: 1478 tests pass
 
+**Git Status:** Committed as 5ae746c
+
+---
+
+### 2026-01-31 - Iteration 26
+
+**Feature Completed:** Feature 28 - Support human-in-the-loop approval for spec review
+
+**Files Modified:**
+- `src/workflows/atomic.ts` - Added checkApprovalNode and updated workflow builder
+- `tests/workflows/atomic.test.ts` - Added 17 new tests for human-in-the-loop approval flow (57 total tests)
+
+**Implementation Summary:**
+Implemented full human-in-the-loop approval flow for spec review with rejection loop:
+
+1. **New Node: checkApprovalNode**
+   - Added `CHECK_APPROVAL` to `ATOMIC_NODE_IDS` constants
+   - Created `checkApprovalNode` decision node that:
+     - Routes to `CREATE_FEATURE_LIST` when `specApproved` is true
+     - Routes back to `CREATE_SPEC` when `specApproved` is false (for revision)
+
+2. **Updated Workflow Builder:**
+   - Added `checkApprovalNode` after `waitForApprovalNode`
+   - Flow: waitForApproval -> checkApproval -> (approved? createFeatureList : createSpec)
+   - This enables the revision loop for rejected specifications
+
+3. **Approval Flow Summary:**
+   - User submits spec -> reviewSpecNode checks approval status
+   - If not approved -> waitForApprovalNode emits `human_input_required` signal
+   - Graph execution pauses, spec displayed in prompt
+   - User input processed via inputMapper (sets `specApproved` based on "approve" keyword)
+   - checkApprovalNode routes based on result:
+     - Approved: proceed to createFeatureList
+     - Rejected: loop back to createSpec for revision
+
+4. **Tests Added (17 new tests):**
+   - waitForApprovalNode emits human_input_required signal
+   - Signal includes spec content in prompt
+   - Prompt includes approval instructions
+   - checkApprovalNode routes to CREATE_FEATURE_LIST when approved
+   - checkApprovalNode routes to CREATE_SPEC when rejected
+   - reviewSpecNode routes correctly based on specApproved
+   - Workflow includes approval nodes when not auto-approving
+   - Workflow skips approval nodes when auto-approving
+   - Decision node routing works via execute (not static edges)
+   - Input mapper correctly parses "approve" keyword (case insensitive)
+   - Empty input results in rejection
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 57 workflow tests pass (127 expect() calls)
+- Full test suite: 1495 tests pass
+
 **Git Status:** Ready to commit

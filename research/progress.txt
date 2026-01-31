@@ -1022,4 +1022,66 @@ Implemented CLI integration connecting ChatApp component to coding agent clients
 - Linting passes (0 warnings, 0 errors)
 - All 117 UI tests pass (299 expect() calls)
 
+**Git Status:** Committed as b39cff8
+
+---
+
+### 2026-01-31 - Iteration 19
+
+**Feature Completed:** Feature 21 - Create unified TelemetryCollector interface for cross-SDK event tracking
+
+**Files Created:**
+- `src/telemetry/types.ts` - Unified telemetry types (530 lines)
+- `src/telemetry/index.ts` - Module exports
+- `tests/telemetry/types.test.ts` - Unit tests (40 passing tests)
+
+**Implementation Summary:**
+Created a comprehensive unified telemetry type system for cross-SDK event tracking:
+
+1. **Event Type Categories:**
+   - `SdkEventType` - 9 events for SDK operations (session, message, tool, error)
+   - `GraphEventType` - 11 events for graph execution (execution, node, checkpoint)
+   - `WorkflowEventType` - 8 events for workflow tracking (iteration, feature, loop)
+   - `UiEventType` - 5 events for UI interactions (chat, theme)
+   - `TelemetryEventType` - Union of all 33 event types
+
+2. **Property Interfaces:**
+   - `BaseTelemetryProperties` - Common fields (platform, nodeVersion, atomicVersion, anonymousId)
+   - `SdkEventProperties` - SDK-specific (agentType, model, toolName, tokens)
+   - `GraphEventProperties` - Graph-specific (nodeId, nodeType, status, retryAttempt)
+   - `WorkflowEventProperties` - Workflow-specific (iteration, featureId, passing counts)
+   - `UiEventProperties` - UI-specific (themeName, messageCount, sessionDuration)
+
+3. **TelemetryEvent Interface:**
+   - `eventId` - UUID v4 for unique identification
+   - `timestamp` - ISO 8601 timestamp
+   - `eventType` - From TelemetryEventType union
+   - `sessionId` - Optional session correlation
+   - `executionId` - Optional graph execution correlation
+   - `properties` - Event-specific properties
+
+4. **TelemetryCollector Interface:**
+   - `track(eventType, properties, options)` - Track an event
+   - `flush()` - Flush buffered events to storage/remote
+   - `isEnabled()` - Check if telemetry is enabled
+   - `shutdown()` - Graceful shutdown with final flush
+   - `getBufferSize()` - Get current buffer count
+   - `getConfig()` - Get collector configuration
+
+5. **Type Guards:**
+   - `isSdkEventType()`, `isGraphEventType()`, `isWorkflowEventType()`, `isUiEventType()`
+   - `isTelemetryEventType()` - Validates any event type
+   - `isTelemetryEvent()` - Validates complete event objects
+   - `isFlushResult()` - Validates flush operation results
+
+6. **Helper Functions:**
+   - `getEventCategory()` - Extract category from event type
+   - `createTelemetryEvent()` - Factory with auto-generated ID and timestamp
+   - `DEFAULT_TELEMETRY_CONFIG` - Default configuration values
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 40 telemetry type tests pass (174 expect() calls)
+
 **Git Status:** Ready to commit

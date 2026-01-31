@@ -72,3 +72,14 @@ export {
   shouldTrackEvent,
   type SdkTelemetryConfig,
 } from "./sdk-integration.ts";
+
+// Graph integration
+export {
+  createProgressHandler,
+  withGraphTelemetry,
+  trackGraphExecution,
+  withExecutionTracking,
+  withCheckpointTelemetry,
+  type GraphTelemetryConfig,
+  type ExecutionTracker,
+} from "./graph-integration.ts";

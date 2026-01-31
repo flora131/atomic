@@ -49,3 +49,16 @@ export {
   createTelemetryEvent,
   DEFAULT_TELEMETRY_CONFIG,
 } from "./types.ts";
+
+// Collector implementation
+export {
+  UnifiedTelemetryCollector,
+  createTelemetryCollector,
+  createNoopCollector,
+  getGlobalCollector,
+  setGlobalCollector,
+  resetGlobalCollector,
+  generateAnonymousId,
+  getDefaultLogPath,
+  shouldEnableTelemetry,
+} from "./collector.ts";

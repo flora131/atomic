@@ -433,7 +433,7 @@
       "Compile graph with ResearchDirSaver checkpointer",
       "Export createAtomicWorkflow function"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

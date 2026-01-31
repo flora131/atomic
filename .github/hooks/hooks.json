@@ -1,39 +1,4 @@
 {
   "version": 1,
-  "hooks": {
-    "sessionStart": [
-      {
-        "type": "command",
-        "bash": "bun run ./.github/scripts/start-ralph-session.ts",
-        "powershell": "bun run ./.github/scripts/start-ralph-session.ts",
-        "cwd": ".",
-        "timeoutSec": 10
-      }
-    ],
-    "userPromptSubmitted": [
-      {
-        "type": "command",
-        "bash": "bun run ./.github/hooks/telemetry-session.ts",
-        "powershell": "bun run ./.github/hooks/telemetry-session.ts",
-        "cwd": ".",
-        "timeoutSec": 10
-      }
-    ],
-    "sessionEnd": [
-      {
-        "type": "command",
-        "bash": "bun run ./.github/hooks/telemetry-stop.ts",
-        "powershell": "bun run ./.github/hooks/telemetry-stop.ts",
-        "cwd": ".",
-        "timeoutSec": 30
-      },
-      {
-        "type": "command",
-        "bash": "bun run ./.github/hooks/ralph-stop.ts",
-        "powershell": "bun run ./.github/hooks/ralph-stop.ts",
-        "cwd": ".",
-        "timeoutSec": 30
-      }
-    ]
-  }
+  "hooks": {}
 }

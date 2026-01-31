@@ -95,3 +95,46 @@ export {
   type CopilotClientOptions,
   type CreateCopilotClientFn,
 } from "./copilot-client.ts";
+
+// HookManager exports
+export {
+  HookManager,
+  createHookManager,
+  type UnifiedHookEvent,
+  type HookContext,
+  type HookHandler,
+  type HookResult,
+  type HookEventData,
+  type HookEventDataMap,
+  type BaseHookEventData,
+  type SessionStartEventData as HookSessionStartEventData,
+  type SessionEndEventData as HookSessionEndEventData,
+  type SessionErrorEventData as HookSessionErrorEventData,
+  type ToolBeforeEventData,
+  type ToolAfterEventData,
+  type ToolErrorEventData,
+  type MessageBeforeEventData,
+  type MessageAfterEventData,
+  type PermissionRequestEventData,
+  type SubagentStartEventData as HookSubagentStartEventData,
+  type SubagentEndEventData,
+} from "./hooks.ts";
+
+// Claude Hook Handlers exports
+export {
+  createSessionEndTelemetryHook,
+  createDefaultClaudeHooks,
+  createSessionStartHook,
+  createPreToolUseHook,
+  createPostToolUseHook,
+} from "./claude-hooks.ts";
+
+// Copilot Hook Handlers exports
+export {
+  createSessionStartHandler as createCopilotSessionStartHandler,
+  createSessionEndHandler as createCopilotSessionEndHandler,
+  createUserPromptHandler as createCopilotUserPromptHandler,
+  registerDefaultCopilotHooks,
+  createDefaultCopilotHooks,
+  type CopilotHookHandlers,
+} from "./copilot-hooks.ts";

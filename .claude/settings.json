@@ -17,18 +17,5 @@
   },
   "enabledPlugins": {
     "ralph@atomic-plugins": true
-  },
-  "hooks": {
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bun run .claude/hooks/telemetry-stop.ts",
-            "timeout": 30
-          }
-        ]
-      }
-    ]
   }
 }

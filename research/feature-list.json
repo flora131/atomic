@@ -141,7 +141,7 @@
       "Pass selectedIndex and onIndexChange to Autocomplete",
       "Add integration tests for autocomplete triggering"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

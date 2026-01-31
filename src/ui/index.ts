@@ -446,3 +446,22 @@ export {
   getCompletedToolExecutions,
   getErroredToolExecutions,
 } from "./hooks/index.ts";
+
+// Tools module
+export {
+  type ToolRenderProps,
+  type ToolRenderResult,
+  type ToolRenderer,
+  readToolRenderer,
+  editToolRenderer,
+  bashToolRenderer,
+  writeToolRenderer,
+  globToolRenderer,
+  grepToolRenderer,
+  defaultToolRenderer,
+  TOOL_RENDERERS,
+  getToolRenderer,
+  getRegisteredToolNames,
+  hasCustomRenderer,
+  getLanguageFromExtension,
+} from "./tools/index.ts";

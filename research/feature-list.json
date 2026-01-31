@@ -266,7 +266,7 @@
       "Export TOOL_RENDERERS, getToolRenderer from registry.ts",
       "Update src/ui/index.ts to re-export tools module"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

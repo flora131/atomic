@@ -7,6 +7,10 @@
     "defaultMode": "bypassPermissions"
   },
   "enableAllProjectMcpServers": true,
+  "enabledPlugins": {
+    "ralph@atomic-plugins": true,
+    "frontend-design@claude-plugins-official": true
+  },
   "extraKnownMarketplaces": {
     "atomic-plugins": {
       "source": {
@@ -14,8 +18,5 @@
         "repo": "flora131/atomic"
       }
     }
-  },
-  "enabledPlugins": {
-    "ralph@atomic-plugins": true
   }
 }

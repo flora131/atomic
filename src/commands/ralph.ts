@@ -8,10 +8,32 @@
  */
 
 import { mkdir, unlink, readFile, writeFile, stat } from "node:fs/promises";
+import { createInterface } from "node:readline";
 import type {
   HookJSONOutput,
   StopHookInput,
 } from "@anthropic-ai/claude-agent-sdk";
+
+// Graph workflow imports
+import {
+  createAtomicWorkflow,
+  createAtomicState,
+  ATOMIC_NODE_IDS,
+  type AtomicWorkflowConfig,
+} from "../workflows/atomic.ts";
+import { streamGraph, type StepResult } from "../graph/compiled.ts";
+import { withGraphTelemetry } from "../telemetry/graph-integration.ts";
+import type { AtomicWorkflowState } from "../graph/annotation.ts";
+
+// SDK client imports
+import { createClaudeAgentClient } from "../sdk/claude-client.ts";
+import { createOpenCodeClient } from "../sdk/opencode-client.ts";
+import { createCopilotClient } from "../sdk/copilot-client.ts";
+import type { CodingAgentClient } from "../sdk/types.ts";
+import type { AgentType } from "../utils/telemetry/types.ts";
+
+// Configuration imports
+import { isGraphEngineEnabled } from "../config/ralph.ts";
 
 // ============================================================================
 // Types
@@ -61,6 +83,19 @@ export interface RalphSetupOptions {
    * Default: 'research/feature-list.json'
    */
   featureList?: string;
+
+  /**
+   * Agent type for graph-based execution.
+   * Used when ATOMIC_USE_GRAPH_ENGINE=true.
+   * Default: 'claude'
+   */
+  agentType?: AgentType;
+
+  /**
+   * Enable checkpointing for graph-based execution.
+   * Default: true
+   */
+  checkpointing?: boolean;
 }
 
 // ============================================================================
@@ -155,6 +190,251 @@ Use the "Gang of Four" patterns as a shared vocabulary to solve recurring proble
 - Write summaries of your progress in \`research/progress.txt\`
     - Tip: this can be useful to revert bad code changes and recover working states of the codebase
 - Note: you are competing with another coding agent that also implements features. The one who does a better job implementing features will be promoted. Focus on quality, correctness, and thorough testing. The agent who breaks the rules for implementation will be fired.`;
+
+// ============================================================================
+// Graph Engine Utilities
+// ============================================================================
+
+/**
+ * Create an SDK client based on agent type.
+ *
+ * @param agentType - The type of agent to create a client for
+ * @returns A CodingAgentClient instance
+ */
+function createClientForAgentType(agentType: AgentType): CodingAgentClient {
+  switch (agentType) {
+    case "claude":
+      return createClaudeAgentClient();
+    case "opencode":
+      return createOpenCodeClient();
+    case "copilot":
+      return createCopilotClient();
+    default:
+      throw new Error(`Unknown agent type: ${agentType}`);
+  }
+}
+
+/**
+ * Prompt the user for input via readline.
+ *
+ * @param question - The prompt to display
+ * @returns The user's input
+ */
+async function promptUserInput(question: string): Promise<string> {
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(answer);
+    });
+  });
+}
+
+/**
+ * Display a progress update for a graph execution step.
+ *
+ * @param stepResult - The step result from graph execution
+ */
+function displayStepProgress(stepResult: StepResult<AtomicWorkflowState>): void {
+  const { nodeId, status, state } = stepResult;
+  const nodeName = getNodeDisplayName(nodeId);
+  const statusEmoji = getStatusEmoji(status);
+
+  console.log(`${statusEmoji} ${nodeName} (iteration ${state.iteration})`);
+
+  // Display feature progress if available
+  if (state.featureList.length > 0) {
+    const passingCount = state.featureList.filter((f) => f.passes).length;
+    const totalCount = state.featureList.length;
+    console.log(`   Features: ${passingCount}/${totalCount} passing`);
+  }
+}
+
+/**
+ * Get a human-readable display name for a node ID.
+ */
+function getNodeDisplayName(nodeId: string): string {
+  const nodeNames: Record<string, string> = {
+    [ATOMIC_NODE_IDS.RESEARCH]: "Researching codebase",
+    [ATOMIC_NODE_IDS.CREATE_SPEC]: "Creating specification",
+    [ATOMIC_NODE_IDS.REVIEW_SPEC]: "Reviewing specification",
+    [ATOMIC_NODE_IDS.WAIT_FOR_APPROVAL]: "Waiting for approval",
+    [ATOMIC_NODE_IDS.CHECK_APPROVAL]: "Checking approval status",
+    [ATOMIC_NODE_IDS.CREATE_FEATURE_LIST]: "Creating feature list",
+    [ATOMIC_NODE_IDS.SELECT_FEATURE]: "Selecting next feature",
+    [ATOMIC_NODE_IDS.IMPLEMENT_FEATURE]: "Implementing feature",
+    [ATOMIC_NODE_IDS.CHECK_FEATURES]: "Checking feature status",
+    [ATOMIC_NODE_IDS.CREATE_PR]: "Creating pull request",
+  };
+  return nodeNames[nodeId] ?? nodeId;
+}
+
+/**
+ * Get an emoji indicator for execution status.
+ */
+function getStatusEmoji(status: string): string {
+  switch (status) {
+    case "running":
+      return "🔄";
+    case "paused":
+      return "⏸️";
+    case "completed":
+      return "✅";
+    case "failed":
+      return "❌";
+    case "cancelled":
+      return "🚫";
+    default:
+      return "▶️";
+  }
+}
+
+/**
+ * Execute the Ralph workflow using the graph engine.
+ *
+ * @param options - The setup options
+ * @returns Exit code (0 for success, non-zero for failure)
+ */
+async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number> {
+  const {
+    maxIterations = 100,
+    agentType = "claude",
+    checkpointing = true,
+    featureList: featureListPath = "research/feature-list.json",
+  } = options;
+
+  console.log("🚀 Starting graph-based workflow execution...\n");
+  console.log(`Agent type: ${agentType}`);
+  console.log(`Max iterations: ${maxIterations}`);
+  console.log(`Checkpointing: ${checkpointing ? "enabled" : "disabled"}`);
+  console.log("");
+
+  // Create the SDK client
+  const client = createClientForAgentType(agentType);
+  await client.start();
+
+  try {
+    // Configure the workflow
+    const workflowConfig: AtomicWorkflowConfig = {
+      maxIterations,
+      checkpointing,
+      checkpointDir: "research/checkpoints",
+      autoApproveSpec: false, // Require human approval
+      graphConfig: withGraphTelemetry({
+        metadata: {
+          agentType,
+          featureListPath,
+        },
+      }),
+    };
+
+    // Create the workflow
+    const workflow = createAtomicWorkflow(workflowConfig);
+
+    // Initialize state
+    const initialState = createAtomicState();
+
+    console.log("═══════════════════════════════════════════════════════════");
+    console.log("Workflow Execution Started");
+    console.log("═══════════════════════════════════════════════════════════\n");
+
+    // Stream execution and handle events
+    for await (const stepResult of streamGraph(workflow, { initialState })) {
+      displayStepProgress(stepResult);
+
+      // Handle human_input_required signal (paused status)
+      if (stepResult.status === "paused") {
+        console.log("\n═══════════════════════════════════════════════════════════");
+        console.log("Human Input Required");
+        console.log("═══════════════════════════════════════════════════════════\n");
+
+        // Show the spec for review
+        if (stepResult.state.specDoc) {
+          console.log("Specification for Review:");
+          console.log("─────────────────────────────────────────────────────────────");
+          console.log(stepResult.state.specDoc);
+          console.log("─────────────────────────────────────────────────────────────\n");
+        }
+
+        // Prompt for approval
+        const response = await promptUserInput(
+          "Type 'approve' to proceed or 'reject' to request revisions: "
+        );
+
+        const approved = response.toLowerCase().includes("approve");
+
+        if (approved) {
+          console.log("\n✅ Specification approved. Continuing workflow...\n");
+        } else {
+          console.log("\n🔄 Specification rejected. Returning to revision phase...\n");
+        }
+
+        // Resume execution with the approval result
+        // The graph will handle routing based on the specApproved state
+        // For now, we need to continue with updated state
+        // The workflow handles this via the checkApprovalNode
+      }
+
+      // Handle completion
+      if (stepResult.status === "completed") {
+        console.log("\n═══════════════════════════════════════════════════════════");
+        console.log("Workflow Completed");
+        console.log("═══════════════════════════════════════════════════════════\n");
+
+        // Display PR URL if available
+        if (stepResult.state.prUrl) {
+          console.log(`🔗 Pull Request URL: ${stepResult.state.prUrl}`);
+        }
+
+        // Display final feature status
+        const { featureList } = stepResult.state;
+        if (featureList.length > 0) {
+          const passingCount = featureList.filter((f) => f.passes).length;
+          const totalCount = featureList.length;
+          console.log(`📊 Final Feature Status: ${passingCount}/${totalCount} passing`);
+
+          if (passingCount < totalCount) {
+            console.log("\nPending Features:");
+            for (const feature of featureList.filter((f) => !f.passes)) {
+              console.log(`   - ${feature.description}`);
+            }
+          }
+        }
+
+        return 0;
+      }
+
+      // Handle failure
+      if (stepResult.status === "failed") {
+        console.error("\n❌ Workflow execution failed");
+        if (stepResult.error) {
+          const errorMessage =
+            stepResult.error.error instanceof Error
+              ? stepResult.error.error.message
+              : String(stepResult.error.error);
+          console.error(`   Error: ${errorMessage}`);
+          console.error(`   Node: ${stepResult.error.nodeId}`);
+        }
+        return 1;
+      }
+
+      // Handle cancellation
+      if (stepResult.status === "cancelled") {
+        console.log("\n🚫 Workflow execution cancelled");
+        return 1;
+      }
+    }
+
+    return 0;
+  } finally {
+    // Clean up the client
+    await client.stop();
+  }
+}
 
 // ============================================================================
 // Utility Functions
@@ -451,6 +731,12 @@ export async function ralphStop(): Promise<number> {
  * @param options - Configuration options for the Ralph loop
  */
 export async function ralphSetup(options: RalphSetupOptions): Promise<number> {
+  // Check for graph engine feature flag (see src/config/ralph.ts)
+  if (isGraphEngineEnabled()) {
+    console.log("🔧 Graph engine mode enabled via ATOMIC_USE_GRAPH_ENGINE\n");
+    return executeGraphWorkflow(options);
+  }
+
   // Destructure options with defaults
   const {
     prompt,

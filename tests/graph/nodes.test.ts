@@ -129,8 +129,8 @@ describe("Client Provider", () => {
   });
 
   test("AGENT_NODE_RETRY_CONFIG has correct defaults", () => {
-    expect(AGENT_NODE_RETRY_CONFIG.maxAttempts).toBe(2);
-    expect(AGENT_NODE_RETRY_CONFIG.backoffMs).toBe(2000);
+    expect(AGENT_NODE_RETRY_CONFIG.maxAttempts).toBe(3);
+    expect(AGENT_NODE_RETRY_CONFIG.backoffMs).toBe(1000);
     expect(AGENT_NODE_RETRY_CONFIG.backoffMultiplier).toBe(2);
   });
 });

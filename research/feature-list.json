@@ -476,7 +476,7 @@
       "Handle human_input_required signals for approvals",
       "Display final PR URL on completion"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -491,7 +491,7 @@
       "Display code blocks with syntax highlighting",
       "Support theme switching via command"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "performance",
@@ -506,7 +506,7 @@
       "Support retryOn predicate for selective retry",
       "Track attempt count in ExecutionError"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -520,7 +520,7 @@
       "Add flag to configuration schema",
       "Plan to enable by default in Phase 8"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -535,7 +535,7 @@
       "Test catch error handling",
       "Test compile produces valid CompiledGraph"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

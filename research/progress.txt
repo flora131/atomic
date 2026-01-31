@@ -330,3 +330,45 @@
 
 **Next**: Create UserQuestionDialog component for HITL interactions
 
+---
+
+### 2026-01-31 - UserQuestionDialog Component Implementation
+
+**Feature**: Create UserQuestionDialog component for HITL interactions
+
+**Status**: COMPLETE
+
+**Changes**:
+- Created `src/ui/components/user-question-dialog.tsx` with:
+  - `QuestionOption` interface (label, value, description)
+  - `UserQuestion` interface (header, question, options, multiSelect)
+  - `QuestionAnswer` interface (selected, cancelled)
+  - `UserQuestionDialogProps` interface (question, onAnswer, visible)
+  - `OptionRow` component for rendering individual options with checkbox/radio indicators
+  - `UserQuestionDialog` component with:
+    - Absolute positioning for dialog overlay
+    - Double border with theme accent color
+    - Question header and text display
+    - Options list with keyboard navigation (up/down with wrap)
+    - Single-select mode with radio indicators
+    - Multi-select mode with checkbox indicators
+    - Space key to toggle selection
+    - Enter key to confirm selection
+    - Escape key to cancel
+  - Utility functions: navigateUp, navigateDown, toggleSelection
+
+- Created `tests/ui/components/user-question-dialog.test.tsx` with 41 passing tests covering:
+  - navigateUp/navigateDown wrap behavior
+  - toggleSelection add/remove functionality
+  - UserQuestion structure validation
+  - QuestionAnswer structure (single/multi-select, cancelled)
+  - Keyboard navigation simulation
+  - Answer creation scenarios
+  - Edge cases (empty options, single option, long labels)
+  - Selection state management
+  - Highlighted index behavior
+
+**Test Results**: 41 tests passing in user-question-dialog component
+
+**Next**: Create WorkflowStatusBar component for progress display
+

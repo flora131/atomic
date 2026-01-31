@@ -617,7 +617,7 @@
       "Export withGraphTelemetry and trackGraphExecution from graph-integration.ts",
       "Export loadTelemetryConfig from config.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

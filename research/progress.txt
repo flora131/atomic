@@ -1973,3 +1973,35 @@ The src/sdk/index.ts file already exists with comprehensive exports (161 lines).
 - All 243 SDK tests pass (406 expect() calls)
 
 **Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 36
+
+**Feature Verified:** Feature 38 - Create src/graph/index.ts with all graph exports
+
+**Existing Implementation:**
+The src/graph/index.ts file already exists with comprehensive exports (235 lines).
+
+**Steps Verified:**
+1. ✅ Export all types from types.ts - Lines 13-72 (15+ type exports, 6 value exports)
+2. ✅ Export annotation and Reducers from annotation.ts - Lines 74-110 (6 type exports, 10 value exports)
+3. ✅ Export all node factory functions from nodes.ts - Lines 134-196 (13 type exports, 13 value exports)
+4. ✅ Export GraphBuilder and graph function from builder.ts - Lines 112-132
+5. ✅ Export CompiledGraph from compiled.ts - Lines 198-220 (3 type exports, 6 value exports)
+6. ✅ Export Checkpointer, MemorySaver, FileSaver, ResearchDirSaver from checkpointer.ts - Lines 222-234
+
+**Export Summary:**
+- types.ts: 15+ types (NodeId, NodeType, NodeDefinition, BaseState, etc.) + 6 values (type guards, defaults)
+- annotation.ts: 6 types (Reducer, Annotation, Feature, AtomicWorkflowState) + 10 values (Reducers, annotation, etc.)
+- builder.ts: 3 types (LoopConfig, MergeStrategy, ParallelConfig) + 5 values (GraphBuilder, graph, helpers)
+- nodes.ts: 13 types (AgentNodeConfig, ToolNodeConfig, etc.) + 13 values (node factories, context helpers)
+- compiled.ts: 3 types (ExecutionOptions, StepResult, ExecutionResult) + 6 values (GraphExecutor, executeGraph, etc.)
+- checkpointer.ts: 1 type (CheckpointerType) + 4 values (MemorySaver, FileSaver, ResearchDirSaver, createCheckpointer)
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 294 graph tests pass (658 expect() calls)
+
+**Git Status:** Ready to commit

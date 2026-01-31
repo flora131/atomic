@@ -125,7 +125,7 @@
       "Add feedback: string | null to state",
       "Initialize new state fields in ChatApp component"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

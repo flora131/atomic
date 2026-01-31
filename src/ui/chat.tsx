@@ -156,6 +156,56 @@ export interface ChatAppProps {
 }
 
 /**
+ * Internal state for the ChatApp component.
+ * Tracks autocomplete, workflow execution, and approval states.
+ */
+export interface WorkflowChatState {
+  // Autocomplete state
+  /** Whether the autocomplete dropdown is visible */
+  showAutocomplete: boolean;
+  /** Current input text for autocomplete filtering (without leading "/") */
+  autocompleteInput: string;
+  /** Index of the currently selected suggestion in autocomplete */
+  selectedSuggestionIndex: number;
+
+  // Workflow execution state
+  /** Whether a workflow is currently active */
+  workflowActive: boolean;
+  /** Type of the active workflow (e.g., "atomic") */
+  workflowType: string | null;
+  /** Initial prompt that started the workflow */
+  initialPrompt: string | null;
+
+  // Approval state for human-in-the-loop
+  /** Whether waiting for user approval (spec approval, etc.) */
+  pendingApproval: boolean;
+  /** Whether the spec/item has been approved */
+  specApproved: boolean;
+  /** User feedback when rejecting (passed back to workflow) */
+  feedback: string | null;
+}
+
+/**
+ * Default workflow chat state values.
+ */
+export const defaultWorkflowChatState: WorkflowChatState = {
+  // Autocomplete defaults
+  showAutocomplete: false,
+  autocompleteInput: "",
+  selectedSuggestionIndex: 0,
+
+  // Workflow defaults
+  workflowActive: false,
+  workflowType: null,
+  initialPrompt: null,
+
+  // Approval defaults
+  pendingApproval: false,
+  specApproved: false,
+  feedback: null,
+};
+
+/**
  * Props for the MessageBubble component.
  */
 export interface MessageBubbleProps {
@@ -434,13 +484,25 @@ export function ChatApp({
   // title and suggestion are deprecated, kept for backwards compatibility
   void _title;
   void _suggestion;
-  // State
+
+  // Core message state
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [isStreaming, setIsStreaming] = useState(false);
   const [inputFocused] = useState(true);
 
+  // Workflow chat state (autocomplete, workflow execution, approval)
+  const [workflowState, setWorkflowState] = useState<WorkflowChatState>(defaultWorkflowChatState);
+
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
+
+  /**
+   * Update workflow state with partial values.
+   * Convenience function for updating specific fields.
+   */
+  const updateWorkflowState = useCallback((updates: Partial<WorkflowChatState>) => {
+    setWorkflowState((prev) => ({ ...prev, ...updates }));
+  }, []);
 
   // Ref for textarea to access value and clear it
   const textareaRef = useRef<TextareaRenderable>(null);

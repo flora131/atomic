@@ -579,7 +579,7 @@
       "Document OpenTUI chat interface usage",
       "Create migration guide for existing Ralph users"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

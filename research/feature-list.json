@@ -626,6 +626,6 @@
       "Export createAtomicWorkflow from atomic.ts",
       "Export AtomicWorkflowState type from atomic.ts"
     ],
-    "passes": false
+    "passes": true
   }
 ]

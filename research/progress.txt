@@ -874,3 +874,54 @@ Implemented a terminal-based chat interface using OpenTUI:
 - Full test suite: 1115 tests pass (2411 expect() calls)
 
 **Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 16
+
+**Features Verified/Completed:**
+
+1. **Feature 16: Implement streaming message display with MarkdownRenderable** - Already implemented in Feature 15
+   - Verified all steps are complete in src/ui/chat.tsx
+   - Markdown component with streaming prop
+   - Typing indicator during streaming
+   - Incremental content updates via state
+
+2. **Feature 17: Implement sticky scroll chat history with ScrollBoxRenderable** - Already implemented in Feature 15
+   - Verified stickyScroll=true, stickyStart="bottom"
+   - viewportCulling for performance
+   - flexGrow for responsive height
+   - Border styling applied
+
+3. **Feature 18: Add syntax-highlighted code blocks via CodeRenderable**
+
+**Files Created:**
+- `src/ui/code-block.tsx` - Code block component (220 lines)
+- `tests/ui/code-block.test.ts` - Unit tests (36 passing tests)
+
+**Implementation Summary:**
+Implemented syntax-highlighted code block component for terminal UI:
+
+1. **Types:**
+   - `CodeBlockProps` - Props with content, language, streaming, syntaxStyle, showLineNumbers, title
+   - `ParsedCodeBlock` - Parsed code block with content, language, startIndex, endIndex
+
+2. **Helper Functions:**
+   - `normalizeLanguage()` - Map language aliases to standard identifiers (js->javascript, py->python, etc.)
+   - `extractCodeBlocks()` - Parse markdown fenced code blocks with regex
+   - `hasCodeBlocks()` - Check if text contains code blocks
+   - `extractInlineCode()` - Extract inline code from text
+
+3. **CodeBlock Component:**
+   - Uses OpenTUI's code renderable for syntax highlighting
+   - Falls back to plain text if no syntaxStyle provided
+   - Supports optional line numbers via line-number component
+   - Border and padding styling
+   - Streaming prop for live code updates
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 63 UI tests pass (148 expect() calls)
+
+**Git Status:** Ready to commit

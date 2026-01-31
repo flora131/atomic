@@ -408,3 +408,41 @@
 
 **Next**: Create useStreamingState hook for real-time updates
 
+---
+
+### 2026-01-31 - useStreamingState Hook Implementation
+
+**Feature**: Create useStreamingState hook for real-time updates
+
+**Status**: COMPLETE
+
+**Changes**:
+- Created `src/ui/hooks/use-streaming-state.ts` with:
+  - `ToolExecutionStatus` type (pending, running, completed, error)
+  - `ToolExecutionTimestamps` interface (startedAt, completedAt)
+  - `ToolExecutionState` interface (id, toolName, status, input, output, error, timestamps)
+  - `StreamingState` interface (isStreaming, streamingMessageId, toolExecutions, pendingQuestions)
+  - `UseStreamingStateReturn` interface for hook return type
+  - `useStreamingState` hook implementation with:
+    - startStreaming/stopStreaming for message streaming
+    - handleChunk for streamed content (pass-through)
+    - handleToolStart/handleToolComplete/handleToolError for tool lifecycle
+    - addPendingQuestion/removePendingQuestion for HITL queue
+    - clearToolExecutions and reset utilities
+  - Utility functions: createInitialStreamingState, generateToolExecutionId, getCurrentTimestamp
+  - Helper functions: getActiveToolExecutions, getCompletedToolExecutions, getErroredToolExecutions
+
+- Created `tests/ui/hooks/use-streaming-state.test.ts` with 34 passing tests covering:
+  - Initial state creation
+  - ID generation uniqueness
+  - Timestamp formatting
+  - Tool execution creation
+  - Active/completed/errored execution filtering
+  - StreamingState and ToolExecutionState structures
+  - State manipulation simulations
+  - Chunk handling
+
+**Test Results**: 34 tests passing in use-streaming-state hook
+
+**Next**: Create hooks module index with exports
+

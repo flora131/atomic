@@ -592,7 +592,7 @@
       "Export HookManager and hook types from hooks.ts",
       "Export createPermissionHandler from copilot-client.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

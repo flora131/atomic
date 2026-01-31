@@ -16,6 +16,8 @@ import type {
   KeyBinding,
 } from "@opentui/core";
 import { copyToClipboard, pasteFromClipboard } from "../utils/clipboard.ts";
+import { Autocomplete } from "./components/autocomplete.tsx";
+import type { CommandDefinition } from "./commands/index.ts";
 
 // ============================================================================
 // BLOCK LETTER LOGO WITH GRADIENT
@@ -507,6 +509,87 @@ export function ChatApp({
   // Ref for textarea to access value and clear it
   const textareaRef = useRef<TextareaRenderable>(null);
 
+  /**
+   * Handle input changes to detect slash command prefix.
+   * Shows autocomplete when input starts with "/" and has no space.
+   */
+  const handleInputChange = useCallback((value: string) => {
+    // Check if input starts with "/" (slash command)
+    if (value.startsWith("/")) {
+      // Extract the command prefix (text after "/" without spaces)
+      const afterSlash = value.slice(1);
+
+      // Only show autocomplete if there's no space (still typing command name)
+      if (!afterSlash.includes(" ")) {
+        updateWorkflowState({
+          showAutocomplete: true,
+          autocompleteInput: afterSlash,
+          selectedSuggestionIndex: 0, // Reset selection on input change
+        });
+      } else {
+        // Hide autocomplete when there's a space (user is typing arguments)
+        updateWorkflowState({
+          showAutocomplete: false,
+          autocompleteInput: "",
+        });
+      }
+    } else {
+      // Hide autocomplete for non-slash commands
+      if (workflowState.showAutocomplete) {
+        updateWorkflowState({
+          showAutocomplete: false,
+          autocompleteInput: "",
+          selectedSuggestionIndex: 0,
+        });
+      }
+    }
+  }, [workflowState.showAutocomplete, updateWorkflowState]);
+
+  /**
+   * Handle autocomplete selection (Tab for complete, Enter for execute).
+   */
+  const handleAutocompleteSelect = useCallback((
+    command: CommandDefinition,
+    action: "complete" | "execute"
+  ) => {
+    if (!textareaRef.current) return;
+
+    if (action === "complete") {
+      // Replace input with completed command + space for arguments
+      textareaRef.current.gotoBufferHome();
+      textareaRef.current.gotoBufferEnd({ select: true });
+      textareaRef.current.deleteChar();
+      textareaRef.current.insertText(`/${command.name} `);
+
+      // Hide autocomplete after completion
+      updateWorkflowState({
+        showAutocomplete: false,
+        autocompleteInput: "",
+        selectedSuggestionIndex: 0,
+      });
+    } else if (action === "execute") {
+      // For execute, we'll handle this in a later feature
+      // For now, just complete the command
+      textareaRef.current.gotoBufferHome();
+      textareaRef.current.gotoBufferEnd({ select: true });
+      textareaRef.current.deleteChar();
+      textareaRef.current.insertText(`/${command.name}`);
+
+      updateWorkflowState({
+        showAutocomplete: false,
+        autocompleteInput: "",
+        selectedSuggestionIndex: 0,
+      });
+    }
+  }, [updateWorkflowState]);
+
+  /**
+   * Handle autocomplete index changes (up/down navigation).
+   */
+  const handleAutocompleteIndexChange = useCallback((index: number) => {
+    updateWorkflowState({ selectedSuggestionIndex: index });
+  }, [updateWorkflowState]);
+
   // Key bindings for textarea: Enter submits, Shift+Enter adds newline
   const textareaKeyBindings: KeyBinding[] = [
     { name: "return", action: "submit" },
@@ -546,12 +629,20 @@ export function ChatApp({
     }
   }, []);
 
-  // Handle keyboard events for exit and clipboard
+  // Handle keyboard events for exit, clipboard, and autocomplete detection
   useKeyboard(
     useCallback(
       (event: KeyEvent) => {
-        // ESC key - exit
+        // ESC key - hide autocomplete or exit
         if (event.name === "escape") {
+          if (workflowState.showAutocomplete) {
+            updateWorkflowState({
+              showAutocomplete: false,
+              autocompleteInput: "",
+              selectedSuggestionIndex: 0,
+            });
+            return;
+          }
           onExit?.();
           return;
         }
@@ -585,8 +676,15 @@ export function ChatApp({
           void handlePaste();
           return;
         }
+
+        // After processing key, check input for slash command detection
+        // Use setTimeout to let the textarea update first
+        setTimeout(() => {
+          const value = textareaRef.current?.plainText ?? "";
+          handleInputChange(value);
+        }, 0);
       },
-      [onExit, handleCopy, handlePaste]
+      [onExit, handleCopy, handlePaste, workflowState.showAutocomplete, updateWorkflowState, handleInputChange]
     )
   );
 
@@ -716,6 +814,17 @@ export function ChatApp({
           keyBindings={textareaKeyBindings}
           onSubmit={handleSubmit}
           flexGrow={1}
+        />
+      </box>
+
+      {/* Autocomplete dropdown for slash commands */}
+      <box marginLeft={1} marginRight={1}>
+        <Autocomplete
+          input={workflowState.autocompleteInput}
+          visible={workflowState.showAutocomplete}
+          selectedIndex={workflowState.selectedSuggestionIndex}
+          onSelect={handleAutocompleteSelect}
+          onIndexChange={handleAutocompleteIndexChange}
         />
       </box>
 

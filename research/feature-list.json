@@ -1,631 +1,428 @@
 [
   {
     "category": "refactor",
-    "description": "Create CodingAgentClient interface with common session management operations",
+    "description": "Create CommandRegistry class and CommandDefinition interface",
     "steps": [
-      "Create src/sdk/types.ts file",
-      "Define SessionConfig interface with model, sessionId, systemPrompt, tools, mcpServers, permissionMode, maxBudgetUsd, maxTurns",
-      "Define Session interface with id, send, stream, summarize, getContextUsage, destroy methods",
-      "Define AgentMessage type with type, content, metadata fields",
-      "Define EventType union type for session.start, session.idle, session.error, message.delta, message.complete, tool.start, tool.complete, subagent.start, subagent.complete",
-      "Define AgentEvent interface with type, sessionId, timestamp, data",
-      "Define CodingAgentClient interface with createSession, resumeSession, on, registerTool, start, stop methods",
-      "Add TypeScript exports in src/sdk/index.ts"
+      "Create src/ui/commands/registry.ts file",
+      "Define CommandDefinition interface with name, description, category, execute, aliases, hidden fields",
+      "Define CommandContext interface with session, state, addMessage, setStreaming",
+      "Define CommandResult interface with success, message, stateUpdate",
+      "Implement CommandRegistry class with private commands Map and aliases Map",
+      "Implement register() method to add commands and their aliases",
+      "Implement get() method to retrieve command by name or alias",
+      "Implement search() method with prefix matching and sorting (exact match > category > alphabetical)",
+      "Implement all() method to return all visible commands",
+      "Export globalRegistry singleton instance",
+      "Add unit tests for CommandRegistry in tests/ui/commands/registry.test.ts"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Implement ClaudeAgentClient using V1+V2 hybrid approach with native hooks",
+    "description": "Implement built-in commands (/help, /status, /approve, /reject, /theme, /clear)",
     "steps": [
-      "Create src/sdk/claude-client.ts file",
-      "Import unstable_v2_createSession, unstable_v2_resumeSession, query from @anthropic-ai/claude-agent-sdk",
-      "Define ClaudeHookConfig interface for PreToolUse, PostToolUse, SessionStart, SessionEnd, SubagentStart, SubagentStop hooks",
-      "Implement ClaudeAgentClient class with eventHandlers, v2Sessions, v1Queries, hooks maps",
-      "Implement registerHooks method for native SDK hook registration",
-      "Implement createSession using V2 API with send/stream pattern",
-      "Implement createAdvancedSession using V1 API for forking and async input",
-      "Implement resumeSession using unstable_v2_resumeSession",
-      "Implement wrapV2Session to create unified Session interface from V2 session",
-      "Implement wrapV1Session for V1 query wrapping",
-      "Implement buildNativeHooks to convert registered hooks to SDK format",
-      "Implement on method for event subscription",
-      "Implement registerTool using createSdkMcpServer",
-      "Add unit tests with mocked SDK"
+      "Create src/ui/commands/builtin-commands.ts file",
+      "Implement /help command that lists all commands with descriptions",
+      "Implement /status command that shows workflow progress (feature iteration, spec status)",
+      "Implement /approve command that sets specApproved: true in state",
+      "Implement /reject command that sets specApproved: false and stores feedback",
+      "Implement /theme command that toggles dark/light ThemeContext",
+      "Implement /clear command that resets messages array",
+      "Create registerBuiltinCommands() function to register all built-ins with globalRegistry",
+      "Add unit tests in tests/ui/commands/builtin-commands.test.ts"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Implement OpenCodeClient using @opencode-ai/sdk/v2/client",
+    "description": "Implement workflow command registration from src/workflows/atomic.ts",
     "steps": [
-      "Create src/sdk/opencode-client.ts file",
-      "Import createOpencodeClient from @opencode-ai/sdk/v2/client",
-      "Implement OpenCodeClient class with client, eventHandlers, eventSubscription",
-      "Implement createSession using client.session.create",
-      "Implement resumeSession using client.session.get",
-      "Implement wrapSession with send, stream, summarize, destroy methods",
-      "Implement on method for event subscription",
-      "Implement start method to subscribe to events",
-      "Add support for session.summarize() for context compaction",
-      "Add unit tests with mocked SDK"
+      "Create src/ui/commands/workflow-commands.ts file",
+      "Define WorkflowMetadata interface with name, description, aliases, createWorkflow",
+      "Define WORKFLOW_DEFINITIONS array with atomic workflow metadata",
+      "Implement workflow command execute function that creates workflow and starts execution",
+      "Command execute should add 'Starting workflow...' message and update state",
+      "Set workflowActive: true, workflowType, initialPrompt in state",
+      "Create registerWorkflowCommands() function to register all workflow commands",
+      "Add unit tests in tests/ui/commands/workflow-commands.test.ts"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Implement CopilotClient using @github/copilot-sdk with full 31 event types support",
+    "description": "Implement skill command registration from system-reminder skill list",
     "steps": [
-      "Create src/sdk/copilot-client.ts file",
-      "Import CopilotClient, defineTool from @github/copilot-sdk",
-      "Implement CopilotClient class with client, eventHandlers, registeredTools",
-      "Support useStdio, port, and cliUrl connection modes",
-      "Implement createSession with tools and event subscription",
-      "Subscribe to all 31 event types via session.on",
-      "Implement resumeSession with event subscription",
-      "Implement wrapSession with send, stream, destroy methods",
-      "Implement on method with event type mapping to unified types",
-      "Implement registerTool method",
-      "Implement createPermissionHandler for permission approval flow",
-      "Add unit tests with mocked SDK"
+      "Create src/ui/commands/skill-commands.ts file",
+      "Define SKILL_DEFINITIONS array with all skills from system-reminder",
+      "Include skills: commit, research-codebase, create-spec, create-feature-list, implement-feature, create-gh-pr, explain-code",
+      "Include ralph skills: ralph:ralph-loop, ralph:cancel-ralph, ralph:ralph-help",
+      "Implement skill command execute function that invokes the skill via session",
+      "Create registerSkillCommands() function to register all skills with globalRegistry",
+      "Add unit tests in tests/ui/commands/skill-commands.test.ts"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "refactor",
-    "description": "Create unified HookManager interface for cross-SDK hook registration",
+    "description": "Create commands module index with initialization function",
     "steps": [
-      "Create src/sdk/hooks.ts file",
-      "Define UnifiedHookEvent type with session.start, session.end, session.error, tool.before, tool.after, tool.error, message.before, message.after, permission.request, subagent.start, subagent.end",
-      "Define HookContext interface with sessionId, agentType, timestamp, data",
-      "Implement HookManager class with handlers map",
-      "Implement on method for registering handlers",
-      "Implement applyToClaudeClient to map unified events to Claude hooks",
-      "Implement applyToCopilotClient to map unified events to Copilot events",
-      "Implement applyToOpenCodeClient to map unified events to OpenCode events",
-      "Implement emit method for dispatching events to handlers",
-      "Add unit tests for hook registration and event mapping"
+      "Create src/ui/commands/index.ts file",
+      "Export CommandRegistry, globalRegistry from registry.ts",
+      "Export CommandDefinition, CommandContext, CommandResult types",
+      "Export registerBuiltinCommands from builtin-commands.ts",
+      "Export registerWorkflowCommands from workflow-commands.ts",
+      "Export registerSkillCommands from skill-commands.ts",
+      "Implement initializeCommands() function that calls all register functions",
+      "Add parseSlashCommand() helper to extract command name and args from input",
+      "Add unit tests for initializeCommands in tests/ui/commands/index.test.ts"
     ],
-    "passes": true
-  },
-  {
-    "category": "refactor",
-    "description": "Migrate Claude hooks from .claude/settings.json to SDK options.hooks configuration",
-    "steps": [
-      "Identify existing hooks in .claude/settings.json",
-      "Convert SessionEnd hook commands to inline TypeScript handlers",
-      "Register converted hooks via ClaudeAgentClient.registerHooks()",
-      "Remove hook command scripts from .claude/hooks directory",
-      "Update settings.json to remove hooks configuration",
-      "Verify telemetry collection still works with native hooks",
-      "Add integration tests for migrated hooks"
-    ],
-    "passes": true
-  },
-  {
-    "category": "refactor",
-    "description": "Migrate Copilot hooks from .github/hooks/hooks.json to SDK session.on() event handlers",
-    "steps": [
-      "Identify existing hooks in .github/hooks/hooks.json",
-      "Convert sessionStart hook to client.on('session.start') subscription",
-      "Convert userPromptSubmitted hook to client.on('assistant.message') subscription",
-      "Convert sessionEnd hook to client.on('session.idle') subscription",
-      "Remove hook scripts from .github/scripts directory",
-      "Update hooks.json to remove configurations",
-      "Verify Ralph session and telemetry work with native SDK events",
-      "Add integration tests for migrated hooks"
-    ],
-    "passes": true
-  },
-  {
-    "category": "refactor",
-    "description": "Migrate OpenCode hooks from plugin files to SDK plugin hooks",
-    "steps": [
-      "Identify existing plugins in .opencode/plugin/*.ts",
-      "Convert plugin event handlers to OpenCodeClient.on() subscriptions",
-      "Implement registerPluginHook method for tool.execute.before/after",
-      "Migrate Ralph loop plugin to integrated event handlers",
-      "Remove external plugin files",
-      "Update opencode.json to remove plugin references",
-      "Verify session continuation works with native SDK events",
-      "Add integration tests for migrated hooks"
-    ],
-    "passes": true
-  },
-  {
-    "category": "refactor",
-    "description": "Create src/graph/types.ts with all graph type definitions",
-    "steps": [
-      "Create src/graph/types.ts file",
-      "Define BaseState interface with executionId, lastUpdated, outputs",
-      "Define ExecutionContext interface with state, config, errors, abortSignal, contextWindowUsage",
-      "Define NodeResult interface with stateUpdate, goto, signals",
-      "Define NodeId type alias",
-      "Define NodeType union type for agent, tool, decision, wait, subgraph, parallel",
-      "Define NodeDefinition interface with id, type, execute, retry",
-      "Define RetryConfig interface with maxAttempts, backoffMs, backoffMultiplier, retryOn",
-      "Define GraphConfig interface with checkpointer, maxConcurrency, timeout, onProgress",
-      "Define Signal type union for context_window_warning, checkpoint, human_input_required, debug_report_generated",
-      "Define ExecutionError interface with nodeId, error, timestamp, attempt",
-      "Define DebugReport interface with errorSummary, stackTrace, relevantFiles, suggestedFixes"
-    ],
-    "passes": true
-  },
-  {
-    "category": "refactor",
-    "description": "Create src/graph/annotation.ts with state annotation system",
-    "steps": [
-      "Create src/graph/annotation.ts file",
-      "Define Annotation interface with default and reducer",
-      "Implement annotation factory function",
-      "Define AnnotationRoot type for combining multiple annotations",
-      "Implement Reducers.replace for simple value replacement",
-      "Implement Reducers.concat for array concatenation",
-      "Implement Reducers.merge for object merging",
-      "Implement Reducers.mergeById for array merging by ID field",
-      "Create AtomicStateAnnotation with researchDoc, specDoc, specApproved, featureList, currentFeature, allFeaturesPassing, debugReports, prUrl, contextWindowUsage, iteration",
-      "Define AtomicWorkflowState type from annotation",
-      "Add unit tests for annotation system and reducers"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Implement GraphBuilder with fluent API for workflow definition",
-    "steps": [
-      "Create src/graph/builder.ts file",
-      "Define Edge interface with from, to, condition",
-      "Define LoopConfig interface with until and maxIterations",
-      "Implement GraphBuilder class with nodes, edges, startNode, endNodes, currentNode, conditionalStack",
-      "Implement start() method to set starting node",
-      "Implement then() method to add node and connect from current",
-      "Implement if() method to begin conditional branch",
-      "Implement else() method for alternative branch",
-      "Implement endif() method to close conditional block",
-      "Implement parallel() method for concurrent node execution with merge strategy",
-      "Implement loop() method with exit condition and maxIterations",
-      "Implement wait() method for human-in-the-loop prompts",
-      "Implement catch() method for error recovery handlers",
-      "Implement end() method to mark terminal nodes",
-      "Implement compile() method to create CompiledGraph",
-      "Implement graph() factory function",
-      "Add unit tests for all builder methods"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Implement node factory functions for agent, tool, decision, wait, parallel nodes",
-    "steps": [
-      "Create src/graph/nodes.ts file",
-      "Define AgentNodeConfig interface with agentType, systemPrompt, tools, outputMapper, sessionConfig",
-      "Implement agentNode factory function with session creation, message streaming, output mapping",
-      "Define ToolNodeConfig interface with toolName, args, outputMapper, timeout",
-      "Implement toolNode factory function with tool execution and output mapping",
-      "Define DecisionNodeConfig interface with condition and fallback",
-      "Implement decisionNode factory function returning goto based on condition",
-      "Define WaitNodeConfig interface with prompt, autoApprove, inputMapper",
-      "Implement waitNode factory function returning human_input_required signal",
-      "Define ParallelNodeConfig interface with branches, mergeStrategy, merge function",
-      "Implement parallelNode factory function with Promise.all/race/any support",
-      "Add default retry configuration for agent nodes",
-      "Add unit tests for all node factory functions"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Implement CompiledGraph execution engine with streaming support",
-    "steps": [
-      "Create src/graph/compiled.ts file",
-      "Implement CompiledGraph class with nodes, edges, startNode, endNodes, config",
-      "Implement execute() method for full execution returning final state",
-      "Implement stream() method as AsyncGenerator for incremental state updates",
-      "Implement BFS traversal with visited tracking",
-      "Implement state merging using annotation reducers",
-      "Implement executeWithRetry with exponential backoff",
-      "Handle goto results to override next nodes",
-      "Handle signals including human_input_required to pause execution",
-      "Implement checkpointing after each node completion",
-      "Implement initializeState with executionId and lastUpdated",
-      "Implement mergeState for immutable state updates",
-      "Implement isLoopNode helper for loop node detection",
-      "Add integration tests for execution engine"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Implement Checkpointer interface with MemorySaver, FileSaver, ResearchDirSaver",
-    "steps": [
-      "Create src/graph/checkpointer.ts file",
-      "Define Checkpointer interface with save, load, list, delete methods",
-      "Implement MemorySaver class using in-memory Map with structuredClone",
-      "Implement FileSaver class using fs/promises and JSON files",
-      "Implement ResearchDirSaver class storing checkpoints in research/checkpoints",
-      "Use YAML frontmatter + JSON format for ResearchDirSaver",
-      "Implement list() method to enumerate checkpoint IDs",
-      "Implement delete() method for checkpoint cleanup",
-      "Add unit tests for all checkpointer implementations"
-    ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Implement terminal chat UI using @opentui/react and @opentui/core",
+    "description": "Create Autocomplete component with two-column layout",
     "steps": [
-      "Install @opentui/core and @opentui/react dependencies",
-      "Create src/ui/chat.tsx file",
-      "Define ChatMessage interface with id, role, content, timestamp, streaming",
-      "Define ChatAppProps interface with onSendMessage, onStreamMessage, onExit",
-      "Implement ChatApp component with messages state and isStreaming state",
-      "Use useKeyboard hook for ESC and Ctrl+C to exit",
-      "Implement handleSubmit callback for message submission",
-      "Render header box with exit instructions",
-      "Render scrollbox with stickyScroll and stickyStart='bottom' for message history",
-      "Render input area with disabled state during streaming",
-      "Implement MessageBubble component with role-based styling"
+      "Create src/ui/components/autocomplete.tsx file",
+      "Define AutocompleteProps interface with input, visible, selectedIndex, onSelect, onIndexChange, maxSuggestions",
+      "Implement Autocomplete component using OpenTUI box and text primitives",
+      "Render two-column layout: command name | description",
+      "Apply highlighting to selected suggestion row",
+      "Use theme colors for styling (accent for selected, foreground for normal)",
+      "Support maxSuggestions prop (default 8) to limit displayed items",
+      "Filter suggestions using CommandRegistry.search() based on input prefix",
+      "Add unit tests in tests/ui/components/autocomplete.test.tsx"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Implement streaming message display with MarkdownRenderable",
+    "description": "Implement keyboard navigation for autocomplete",
     "steps": [
-      "Use markdown renderable in MessageBubble component",
-      "Pass streaming prop to markdown component",
-      "Handle partial content during streaming",
-      "Update message content incrementally via state updates",
-      "Display typing indicator during streaming",
-      "Handle stream completion to remove streaming flag"
+      "Add useKeyboard hook to Autocomplete component",
+      "Implement Up arrow to move selection up with wrap to bottom",
+      "Implement Down arrow to move selection down with wrap to top",
+      "Implement Tab key to complete selected command (call onSelect)",
+      "Implement Enter key to execute selected command (call onSelect)",
+      "Implement Escape key to hide autocomplete (handled by parent)",
+      "Prevent default behavior for navigation keys when autocomplete is visible",
+      "Add keyboard navigation tests to tests/ui/components/autocomplete.test.tsx"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Implement sticky scroll chat history with ScrollBoxRenderable",
+    "description": "Extend WorkflowChatState with autocomplete and workflow execution state",
     "steps": [
-      "Configure scrollbox with stickyScroll=true",
-      "Set stickyStart='bottom' for auto-scroll to latest messages",
-      "Enable viewportCulling for performance",
-      "Handle flexGrow for responsive height",
-      "Add border and title for chat history section"
+      "Modify src/ui/chat.tsx to add new state fields",
+      "Add showAutocomplete: boolean to state",
+      "Add autocompleteInput: string to state",
+      "Add selectedSuggestionIndex: number to state",
+      "Add workflowActive: boolean to state",
+      "Add workflowType: string | null to state",
+      "Add initialPrompt: string | null to state",
+      "Add pendingApproval: boolean to state",
+      "Add specApproved: boolean to state",
+      "Add feedback: string | null to state",
+      "Initialize new state fields in ChatApp component"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Add syntax-highlighted code blocks via CodeRenderable",
+    "description": "Integrate autocomplete into ChatApp input handling",
     "steps": [
-      "Create src/ui/code-block.tsx file",
-      "Define CodeBlockProps interface with content, language, streaming",
-      "Implement CodeBlock component using code renderable",
-      "Set syntaxStyle to monokai",
-      "Support streaming prop for live code updates",
-      "Implement extractCodeBlocks function to parse markdown code blocks",
-      "Add border and padding styling"
+      "Modify ChatApp in src/ui/chat.tsx to integrate autocomplete",
+      "Add handleInputChange callback that detects '/' prefix",
+      "Show autocomplete when input starts with '/' and has no space",
+      "Update autocompleteInput state with text after '/'",
+      "Reset selectedSuggestionIndex to 0 on input change",
+      "Hide autocomplete when input doesn't start with '/' or has space",
+      "Render Autocomplete component conditionally based on showAutocomplete",
+      "Pass selectedIndex and onIndexChange to Autocomplete",
+      "Add integration tests for autocomplete triggering"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Implement theme support with dark/light modes",
+    "description": "Implement command completion and execution in ChatApp",
     "steps": [
-      "Create src/ui/theme.ts file",
-      "Define Theme interface with name and colors",
-      "Define darkTheme with background, foreground, accent, border, userMessage, assistantMessage, error, success, warning colors",
-      "Define lightTheme with equivalent light mode colors",
-      "Create ThemeContext using React createContext",
-      "Implement useTheme hook",
-      "Implement ThemeProvider component",
-      "Apply theme colors to ChatApp and MessageBubble components"
+      "Implement handleAutocompleteSelect callback in ChatApp",
+      "On Tab completion: replace input with '/' + selected command name + space",
+      "On Enter execution: parse input to extract command name and args",
+      "Look up command in globalRegistry.get()",
+      "Create CommandContext with session, state, addMessage, setStreaming",
+      "Call command.execute(args, context) and await result",
+      "Apply result.stateUpdate to ChatApp state if present",
+      "Display result.message in chat if present",
+      "Handle command not found error gracefully",
+      "Add tests for command execution flow"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Implement CLI integration for chat UI",
+    "description": "Create UserQuestionDialog component for HITL interactions",
     "steps": [
-      "Create src/ui/index.ts file",
-      "Implement startChatUI function accepting client and sessionConfig",
-      "Create renderer using createCliRenderer",
-      "Implement handleSendMessage to create session and send messages",
-      "Implement handleStreamMessage as async generator",
-      "Implement handleExit with session cleanup and renderer destruction",
-      "Ensure unmount before destroy to avoid Yoga crash",
-      "Handle SIGINT and SIGTERM signals for cleanup",
-      "Export startChatUI function"
+      "Create src/ui/components/user-question-dialog.tsx file",
+      "Define UserQuestionDialogProps with question object and onAnswer callback",
+      "Implement dialog overlay using absolute positioning",
+      "Display question header and question text",
+      "Render options list with keyboard selection (up/down)",
+      "Support multiSelect mode with checkbox indicators",
+      "Implement space key for toggling multi-select options",
+      "Implement Enter key to confirm selection and call onAnswer",
+      "Style with theme colors and double border",
+      "Add unit tests in tests/ui/components/user-question-dialog.test.tsx"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "functional",
-    "description": "Create unified TelemetryCollector interface for cross-SDK event tracking",
+    "category": "ui",
+    "description": "Create WorkflowStatusBar component for progress display",
     "steps": [
-      "Create src/telemetry/types.ts file",
-      "Define TelemetryEvent interface with eventId, timestamp, eventType, sessionId, executionId, properties",
-      "Define TelemetryEventType union for SDK, graph, workflow, and UI events",
-      "Define TelemetryCollector interface with track, flush, isEnabled, shutdown methods"
+      "Create src/ui/components/workflow-status-bar.tsx file",
+      "Define WorkflowStatusBarProps with workflowActive, workflowType, currentNode, iteration, featureProgress",
+      "Render status bar only when workflowActive is true",
+      "Display workflow type with accent color and icon",
+      "Display current node name if present",
+      "Display iteration count",
+      "Display feature progress as completed/total if present",
+      "Use horizontal flexbox layout with gap between elements",
+      "Add single border with theme border color",
+      "Add unit tests in tests/ui/components/workflow-status-bar.test.tsx"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "functional",
-    "description": "Implement UnifiedTelemetryCollector with JSONL logging and Azure App Insights",
+    "category": "ui",
+    "description": "Create useStreamingState hook for real-time updates",
     "steps": [
-      "Create src/telemetry/collector.ts file",
-      "Implement UnifiedTelemetryCollector class with events array and config",
-      "Generate stable anonymousId from machine characteristics",
-      "Implement isEnabled() checking DO_NOT_TRACK and ATOMIC_TELEMETRY env vars",
-      "Implement track() method with eventId and timestamp generation",
-      "Add anonymousId, platform, nodeVersion to event properties",
-      "Implement auto-flush when batchSize (100) reached",
-      "Implement flush() method calling writeToLocalLog and sendToAppInsights",
-      "Implement writeToLocalLog writing JSONL files",
-      "Implement sendToAppInsights posting to Azure endpoint",
-      "Implement shutdown() clearing interval and flushing",
-      "Start flush interval (30 seconds) if enabled"
+      "Create src/ui/hooks/use-streaming-state.ts file",
+      "Define StreamingState interface with isStreaming, streamingMessageId, toolExecutions, pendingQuestions",
+      "Define ToolExecutionState interface with toolName, status, input, output, error, timestamps",
+      "Implement useStreamingState hook with useState",
+      "Implement handleChunk callback for streaming message updates",
+      "Implement handleToolStart callback for tool execution start",
+      "Implement handleToolComplete callback for tool completion",
+      "Implement handleToolError callback for tool errors",
+      "Return state and all handler callbacks",
+      "Add unit tests in tests/ui/hooks/use-streaming-state.test.ts"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "functional",
-    "description": "Implement SDK telemetry integration with withTelemetry wrapper",
+    "category": "ui",
+    "description": "Create hooks module index with exports",
     "steps": [
-      "Create src/telemetry/sdk-integration.ts file",
-      "Implement withTelemetry function wrapping CodingAgentClient",
-      "Track sdk.session.created on createSession",
-      "Track sdk.session.resumed on resumeSession",
-      "Wrap sessions with wrapSession function",
-      "Track sdk.message.sent on session.send",
-      "Track sdk.session.destroyed on session.destroy",
-      "Wrap on method to track all SDK events",
-      "Implement mapEventType for event type translation"
+      "Create src/ui/hooks/index.ts file",
+      "Export useStreamingState hook and types",
+      "Export StreamingState type",
+      "Export ToolExecutionState type",
+      "Update src/ui/index.ts to re-export hooks module"
     ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Implement graph telemetry integration for workflow tracking",
-    "steps": [
-      "Create src/telemetry/graph-integration.ts file",
-      "Implement withGraphTelemetry function adding telemetry to GraphConfig",
-      "Track graph.node.completed in onProgress callback",
-      "Implement trackGraphExecution factory returning started, completed, failed, checkpointSaved functions",
-      "Track graph.execution.started on workflow start",
-      "Track graph.execution.completed with totalIterations and featureCount",
-      "Track graph.execution.failed with errorMessage and nodeId",
-      "Track graph.checkpoint.saved with label"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Implement consent-based telemetry collection with DO_NOT_TRACK support",
-    "steps": [
-      "Create src/telemetry/config.ts file",
-      "Define TelemetryConfig interface with enabled, localLogPath, appInsightsKey",
-      "Implement loadTelemetryConfig function",
-      "Check DO_NOT_TRACK=1 environment variable",
-      "Check ATOMIC_TELEMETRY=0 environment variable",
-      "Determine platform-specific data directory",
-      "Set localLogPath to {dataDir}/telemetry",
-      "Load appInsightsKey from ATOMIC_APP_INSIGHTS_KEY env var",
-      "Document opt-out methods in README"
-    ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "refactor",
-    "description": "Migrate Ralph loop to graph-based execution",
+    "description": "Create ToolResultRegistry for tool-specific rendering",
     "steps": [
-      "Create src/workflows/atomic.ts file",
-      "Create research agentNode with codebase-research-analyzer type",
-      "Create createSpec agentNode for spec generation",
-      "Create reviewSpec decisionNode checking specApproved",
-      "Create waitForApproval waitNode for human review",
-      "Create createFeatureList agentNode for feature extraction",
-      "Create selectFeature decisionNode for feature selection",
-      "Create implementFeature agentNode for feature implementation",
-      "Create createPR toolNode using gh CLI",
-      "Build graph with start, then, loop, end chain",
-      "Configure loop until allFeaturesPassing with maxIterations 100",
-      "Compile graph with ResearchDirSaver checkpointer",
-      "Export createAtomicWorkflow function"
+      "Create src/ui/tools/registry.ts file",
+      "Define ToolRenderer interface with icon, title function, render function",
+      "Define ToolRenderProps interface with input, output, syntaxStyle",
+      "Create TOOL_RENDERERS Record mapping tool names to renderers",
+      "Implement Read tool renderer with file path title and code content",
+      "Implement Edit tool renderer with diff display",
+      "Implement Bash tool renderer with command and output display",
+      "Implement Write tool renderer with created/updated status",
+      "Export getToolRenderer(toolName) helper function",
+      "Add unit tests in tests/ui/tools/registry.test.ts"
     ],
-    "passes": true
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Create ToolResult component for rendering tool outputs",
+    "steps": [
+      "Create src/ui/components/tool-result.tsx file",
+      "Define ToolResultProps with toolName, input, output, status",
+      "Use ToolResultRegistry to get appropriate renderer",
+      "Render tool icon and title from renderer",
+      "Render tool output using renderer's render function",
+      "Handle unknown tools with generic fallback display",
+      "Show loading indicator when status is 'running'",
+      "Show error styling when status is 'error'",
+      "Add collapsible behavior for large outputs",
+      "Add unit tests in tests/ui/components/tool-result.test.tsx"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Create tools module index with exports",
+    "steps": [
+      "Create src/ui/tools/index.ts file",
+      "Export ToolRenderer, ToolRenderProps types from registry.ts",
+      "Export TOOL_RENDERERS, getToolRenderer from registry.ts",
+      "Update src/ui/index.ts to re-export tools module"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Update src/ui/index.ts with all new exports",
+    "steps": [
+      "Export all types and components from commands module",
+      "Export Autocomplete component from components",
+      "Export UserQuestionDialog component from components",
+      "Export WorkflowStatusBar component from components",
+      "Export ToolResult component from components",
+      "Export hooks module (useStreamingState)",
+      "Export tools module (ToolResultRegistry)",
+      "Export initializeCommands function",
+      "Export parseSlashCommand helper"
+    ],
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Implement context window monitoring with configurable thresholds",
+    "description": "Update ChatApp to render WorkflowStatusBar and ToolResults",
     "steps": [
-      "Add contextWindowUsage field to AtomicWorkflowState",
-      "Implement getContextUsage method in Session interface",
-      "Create context monitoring node checking usage",
-      "Emit context_window_warning signal at 60% threshold",
-      "Call session.summarize() for OpenCode client on warning",
-      "Recreate session for Claude client on warning",
-      "Add configurable threshold via GraphConfig"
+      "Import WorkflowStatusBar component in chat.tsx",
+      "Import ToolResult component in chat.tsx",
+      "Render WorkflowStatusBar between header and chat history",
+      "Pass workflow state to WorkflowStatusBar (workflowActive, workflowType, etc.)",
+      "Update MessageBubble to detect and render tool results",
+      "Parse tool call/result patterns from assistant messages",
+      "Render ToolResult components for each tool execution",
+      "Add integration tests for workflow status display"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Support human-in-the-loop approval for spec review",
+    "description": "Connect ChatApp to workflow execution with streaming",
     "steps": [
-      "Implement waitForApproval waitNode in Atomic workflow",
-      "Display spec content in prompt",
-      "Return human_input_required signal",
-      "Pause graph execution on signal",
-      "Resume with specApproved state update on approval",
-      "Route to createFeatureList on approval",
-      "Route to createSpec for revision on rejection"
+      "Import useStreamingState hook in chat.tsx",
+      "Initialize streaming state with useStreamingState",
+      "Connect SDK session events to streaming state handlers",
+      "Display tool execution progress in real-time",
+      "Handle human_input_required signal by showing UserQuestionDialog",
+      "Pass user responses back to workflow via state update",
+      "Update workflow state on execution progress",
+      "Add integration tests for workflow execution flow"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Update atomic ralph setup command to use graph engine",
+    "description": "Implement /approve and /reject commands with workflow state management",
     "steps": [
-      "Add ATOMIC_USE_GRAPH_ENGINE feature flag",
-      "Import createAtomicWorkflow in ralph command",
-      "Create client based on agent type flag",
-      "Compile workflow with telemetry and checkpointing",
-      "Execute workflow with initial state",
-      "Stream state updates to display progress",
-      "Handle human_input_required signals for approvals",
-      "Display final PR URL on completion"
+      "Update /approve command to work with workflow execution context",
+      "Update /reject command to work with workflow execution context",
+      "Resume paused workflow execution on approval",
+      "Loop back to spec creation on rejection with feedback",
+      "Store rejection feedback in workflow state",
+      "Display appropriate confirmation messages",
+      "Add integration tests for approval/rejection flow"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Integrate OpenTUI chat interface with graph workflows",
+    "description": "Implement /status command with comprehensive workflow info",
     "steps": [
-      "Create unified chat command in CLI",
-      "Initialize selected SDK client",
-      "Start chat UI with startChatUI",
-      "Connect chat messages to graph execution",
-      "Display workflow progress in chat",
-      "Handle approval prompts in chat UI",
-      "Display code blocks with syntax highlighting",
-      "Support theme switching via command"
+      "Enhance /status command to show detailed workflow status",
+      "Display current workflow type and phase",
+      "Display current iteration number and max iterations",
+      "Display spec approval status (pending/approved/rejected)",
+      "Display feature list progress (completed/total, current feature)",
+      "Display context window usage percentage",
+      "Format output with theme colors and clear sections",
+      "Add tests for status output formatting"
     ],
-    "passes": true
-  },
-  {
-    "category": "performance",
-    "description": "Implement retry logic with exponential backoff for node execution",
-    "steps": [
-      "Define RetryConfig in node definition",
-      "Set default maxAttempts to 3 for agent nodes",
-      "Set default backoffMs to 1000",
-      "Set default backoffMultiplier to 2",
-      "Implement executeWithRetry in CompiledGraph",
-      "Apply delay between retry attempts",
-      "Support retryOn predicate for selective retry",
-      "Track attempt count in ExecutionError"
-    ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Add feature flag ATOMIC_USE_GRAPH_ENGINE for rollout",
+    "description": "Integrate autocomplete system with ChatApp initialization",
     "steps": [
-      "Check ATOMIC_USE_GRAPH_ENGINE environment variable",
-      "Default to false during initial rollout",
-      "Use hook-based execution when flag is false",
-      "Use graph-based execution when flag is true",
-      "Document flag in README",
-      "Add flag to configuration schema",
-      "Plan to enable by default in Phase 8"
+      "Call initializeCommands() in startChatUI before rendering",
+      "Ensure globalRegistry is populated before ChatApp renders",
+      "Add debug logging for registered command count",
+      "Handle registration errors gracefully",
+      "Add integration test for full autocomplete initialization"
     ],
-    "passes": true
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Add components module index with exports",
+    "steps": [
+      "Create src/ui/components/index.ts file",
+      "Export Autocomplete component and AutocompleteProps type",
+      "Export UserQuestionDialog component and UserQuestionDialogProps type",
+      "Export WorkflowStatusBar component and WorkflowStatusBarProps type",
+      "Export ToolResult component and ToolResultProps type"
+    ],
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Create unit tests for GraphBuilder fluent API",
+    "description": "Create unit tests for CommandRegistry",
     "steps": [
-      "Create tests/graph/builder.test.ts file",
-      "Test linear graph building with start and then",
-      "Test loop exits on condition",
-      "Test parallel node execution",
-      "Test conditional branching with if/else/endif",
-      "Test wait node signal emission",
-      "Test catch error handling",
-      "Test compile produces valid CompiledGraph"
+      "Create tests/ui/commands/registry.test.ts file",
+      "Test register() adds command to registry",
+      "Test get() retrieves command by name",
+      "Test get() retrieves command by alias",
+      "Test get() returns undefined for unknown command",
+      "Test search() returns commands matching prefix",
+      "Test search() excludes hidden commands",
+      "Test search() sorts by category then alphabetically",
+      "Test all() returns all visible commands"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Create integration tests for SDK clients",
+    "description": "Create unit tests for built-in commands",
     "steps": [
-      "Create tests/sdk/claude-client.test.ts file",
-      "Test session creation and streaming",
-      "Create tests/sdk/opencode-client.test.ts file",
-      "Test session creation with summarize",
-      "Create tests/sdk/copilot-client.test.ts file",
-      "Test session with tool registration",
-      "Create tests/sdk/hooks.test.ts file",
-      "Test HookManager event mapping",
-      "Use mocked SDK responses for unit tests"
+      "Create tests/ui/commands/builtin-commands.test.ts file",
+      "Test /help lists all commands",
+      "Test /status shows workflow state",
+      "Test /approve sets specApproved to true",
+      "Test /reject sets specApproved to false and stores feedback",
+      "Test /theme toggles dark/light",
+      "Test /clear resets messages array"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Create end-to-end tests for Atomic workflow",
+    "description": "Create integration tests for Autocomplete component",
     "steps": [
-      "Create tests/workflows/atomic.test.ts file",
-      "Test workflow completes with checkpoints",
-      "Test context compaction triggers at threshold",
-      "Test error recovery with catch handler",
-      "Test human-in-the-loop approval flow",
-      "Test PR creation on completion",
-      "Run with bun test:e2e:graph command"
+      "Create tests/ui/components/autocomplete.test.tsx file",
+      "Test renders suggestions matching input prefix",
+      "Test highlights selected suggestion",
+      "Test keyboard up/down navigates suggestions",
+      "Test Tab completes selected command",
+      "Test Enter executes selected command",
+      "Test Escape hides autocomplete"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Update README with graph engine documentation",
+    "description": "Create end-to-end tests for ChatApp command integration",
     "steps": [
-      "Document graph engine architecture",
-      "Document workflow definition using fluent API",
-      "Document node types and factory functions",
-      "Document checkpointing and resumption",
-      "Document telemetry collection and opt-out",
-      "Document OpenTUI chat interface usage",
-      "Create migration guide for existing Ralph users"
+      "Create tests/ui/chat-commands.test.tsx file",
+      "Test typing '/' shows autocomplete",
+      "Test typing '/at' filters to 'atomic' workflow",
+      "Test executing '/atomic Build feature' starts workflow",
+      "Test executing '/help' shows help message",
+      "Test executing '/status' shows workflow status",
+      "Test executing '/approve' approves spec"
     ],
-    "passes": true
-  },
-  {
-    "category": "refactor",
-    "description": "Create src/sdk/index.ts with all SDK exports",
-    "steps": [
-      "Export all types from types.ts",
-      "Export ClaudeAgentClient from claude-client.ts",
-      "Export OpenCodeClient from opencode-client.ts",
-      "Export CopilotClient from copilot-client.ts",
-      "Export HookManager and hook types from hooks.ts",
-      "Export createPermissionHandler from copilot-client.ts"
-    ],
-    "passes": true
-  },
-  {
-    "category": "refactor",
-    "description": "Create src/graph/index.ts with all graph exports",
-    "steps": [
-      "Export all types from types.ts",
-      "Export annotation and Reducers from annotation.ts",
-      "Export all node factory functions from nodes.ts",
-      "Export GraphBuilder and graph function from builder.ts",
-      "Export CompiledGraph from compiled.ts",
-      "Export Checkpointer, MemorySaver, FileSaver, ResearchDirSaver from checkpointer.ts"
-    ],
-    "passes": true
-  },
-  {
-    "category": "refactor",
-    "description": "Create src/telemetry/index.ts with all telemetry exports",
-    "steps": [
-      "Export all types from types.ts",
-      "Export UnifiedTelemetryCollector from collector.ts",
-      "Export withTelemetry from sdk-integration.ts",
-      "Export withGraphTelemetry and trackGraphExecution from graph-integration.ts",
-      "Export loadTelemetryConfig from config.ts"
-    ],
-    "passes": true
-  },
-  {
-    "category": "refactor",
-    "description": "Create src/workflows/index.ts with workflow exports",
-    "steps": [
-      "Export createAtomicWorkflow from atomic.ts",
-      "Export AtomicWorkflowState type from atomic.ts"
-    ],
-    "passes": true
+    "passes": false
   }
 ]

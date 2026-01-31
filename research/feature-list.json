@@ -46,7 +46,7 @@
       "Create registerWorkflowCommands() function to register all workflow commands",
       "Add unit tests in tests/ui/commands/workflow-commands.test.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

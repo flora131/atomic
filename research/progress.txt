@@ -64,3 +64,36 @@
 
 **Next**: Implement workflow command registration from src/workflows/atomic.ts
 
+---
+
+### 2026-01-31 - Workflow Commands Implementation
+
+**Feature**: Implement workflow command registration from src/workflows/atomic.ts
+
+**Status**: COMPLETE
+
+**Changes**:
+- Created `src/ui/commands/workflow-commands.ts` with:
+  - `WorkflowMetadata` interface - defines workflow command metadata (name, description, aliases, createWorkflow)
+  - `WORKFLOW_DEFINITIONS` array - contains atomic workflow definition with aliases "ralph" and "loop"
+  - Workflow command execute function that:
+    - Validates no workflow is already active
+    - Requires a prompt argument
+    - Adds system message indicating workflow start
+    - Returns state updates: workflowActive, workflowType, initialPrompt
+  - `registerWorkflowCommands()` - registers all workflows with globalRegistry (idempotent)
+  - `getWorkflowMetadata()` - finds workflow by name or alias (case-insensitive)
+  - `createWorkflowByName()` - creates compiled workflow graph with config override support
+
+- Created `tests/ui/commands/workflow-commands.test.ts` with 28 passing tests covering:
+  - WORKFLOW_DEFINITIONS structure and atomic workflow presence
+  - Command metadata (name, category, aliases)
+  - Execute validation (requires prompt, checks existing workflow)
+  - State updates on successful execution
+  - Registration and alias lookup
+  - getWorkflowMetadata and createWorkflowByName helpers
+
+**Test Results**: 100 tests passing across all command tests (35 registry + 37 builtin + 28 workflow)
+
+**Next**: Implement skill command registration from system-reminder skill list
+

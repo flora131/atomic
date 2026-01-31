@@ -681,3 +681,55 @@
 
 **Next**: Implement /approve and /reject commands with workflow state management
 
+---
+
+### 2026-01-31 - Approve/Reject Commands and Enhanced Status
+
+**Feature 21**: Implement /approve and /reject commands with workflow state management
+
+**Status**: COMPLETE (commands already implemented with correct behavior)
+
+The /approve and /reject commands were already fully implemented:
+- Validate workflow active state
+- Validate pending approval state
+- Update specApproved and pendingApproval state
+- Store rejection feedback
+- Display appropriate messages
+
+Workflow resume/loop behavior is handled by the workflow execution engine
+based on state changes, not by the commands themselves.
+
+---
+
+**Feature 22**: Implement /status command with comprehensive workflow info
+
+**Status**: COMPLETE
+
+**Changes**:
+- Enhanced `src/ui/commands/builtin-commands.ts`:
+  - Updated statusCommand to show:
+    - Workflow type and active state
+    - Current node (snake_case converted to Title Case)
+    - Iteration count with optional max
+    - Feature progress with ASCII progress bar
+    - Current feature name (truncated if too long)
+    - Spec status (not yet created/pending/approved/rejected)
+    - Initial prompt
+    - Message count and streaming status
+  - Added formatNodeName helper (snake_case → Title Case)
+  - Added createProgressBar helper (ASCII progress bar with █ and ░)
+
+- Added 8 new tests to `tests/ui/commands/builtin-commands.test.ts`:
+  - Shows current node (formatted)
+  - Shows iteration with max
+  - Shows iteration without max
+  - Shows feature progress with bar
+  - Shows current feature name
+  - Truncates long feature names
+  - Shows spec not yet created state
+  - Shows comprehensive status (all fields)
+
+**Test Results**: 45 tests passing in builtin-commands (8 new)
+
+**Next**: Integrate autocomplete system with ChatApp initialization
+

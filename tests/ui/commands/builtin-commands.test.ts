@@ -209,6 +209,127 @@ describe("statusCommand", () => {
 
     expect(result.message).toContain("streaming");
   });
+
+  test("shows current node", () => {
+    const context = createMockContext({
+      workflowActive: true,
+      workflowType: "atomic",
+      currentNode: "create_spec",
+    });
+    const result = statusCommand.execute("", context);
+
+    expect(result.message).toContain("Create Spec");
+  });
+
+  test("shows iteration with max", () => {
+    const context = createMockContext({
+      workflowActive: true,
+      workflowType: "atomic",
+      iteration: 2,
+      maxIterations: 5,
+    });
+    const result = statusCommand.execute("", context);
+
+    expect(result.message).toContain("2/5");
+  });
+
+  test("shows iteration without max", () => {
+    const context = createMockContext({
+      workflowActive: true,
+      workflowType: "atomic",
+      iteration: 3,
+    });
+    const result = statusCommand.execute("", context);
+
+    expect(result.message).toContain("Iteration: 3");
+  });
+
+  test("shows feature progress with bar", () => {
+    const context = createMockContext({
+      workflowActive: true,
+      workflowType: "ralph",
+      featureProgress: {
+        completed: 5,
+        total: 10,
+      },
+    });
+    const result = statusCommand.execute("", context);
+
+    expect(result.message).toContain("5/10");
+    expect(result.message).toContain("█");
+    expect(result.message).toContain("░");
+  });
+
+  test("shows current feature name", () => {
+    const context = createMockContext({
+      workflowActive: true,
+      workflowType: "ralph",
+      featureProgress: {
+        completed: 3,
+        total: 10,
+        currentFeature: "Add user authentication",
+      },
+    });
+    const result = statusCommand.execute("", context);
+
+    expect(result.message).toContain("Add user authentication");
+  });
+
+  test("truncates long feature names", () => {
+    const context = createMockContext({
+      workflowActive: true,
+      workflowType: "ralph",
+      featureProgress: {
+        completed: 1,
+        total: 5,
+        currentFeature: "This is a very long feature name that should be truncated when displayed",
+      },
+    });
+    const result = statusCommand.execute("", context);
+
+    // Should be truncated with ...
+    expect(result.message).toContain("...");
+  });
+
+  test("shows spec not yet created state", () => {
+    const context = createMockContext({
+      workflowActive: true,
+      workflowType: "atomic",
+      specApproved: undefined,
+      pendingApproval: false,
+    });
+    const result = statusCommand.execute("", context);
+
+    expect(result.message).toContain("not yet created");
+  });
+
+  test("shows comprehensive status", () => {
+    const context = createMockContext({
+      workflowActive: true,
+      workflowType: "ralph",
+      currentNode: "implement_feature",
+      iteration: 2,
+      maxIterations: 5,
+      featureProgress: {
+        completed: 7,
+        total: 15,
+        currentFeature: "Feature 8",
+      },
+      specApproved: true,
+      initialPrompt: "Build TUI features",
+      messageCount: 42,
+    });
+    const result = statusCommand.execute("", context);
+
+    expect(result.message).toContain("ralph");
+    expect(result.message).toContain("Implement Feature");
+    expect(result.message).toContain("2/5");
+    expect(result.message).toContain("7/15");
+    expect(result.message).toContain("Feature 8");
+    expect(result.message).toContain("approved");
+    expect(result.message).toContain("Build TUI features");
+    expect(result.message).toContain("42");
+  });
 });
 
 describe("approveCommand", () => {

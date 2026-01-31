@@ -85,10 +85,12 @@ export const helpCommand: CommandDefinition = {
  * /status - Show current workflow progress and state.
  *
  * Displays:
- * - Workflow active state
- * - Current workflow type
+ * - Workflow active state and type
+ * - Current node being executed
+ * - Iteration count and max
  * - Spec approval status
- * - Feature iteration info
+ * - Feature list progress
+ * - Message count and streaming status
  */
 export const statusCommand: CommandDefinition = {
   name: "status",
@@ -103,11 +105,41 @@ export const statusCommand: CommandDefinition = {
     // Workflow state
     if (state.workflowActive) {
       lines.push(`Workflow: **${state.workflowType ?? "Unknown"}** (active)`);
+
+      // Current node
+      if (state.currentNode) {
+        lines.push(`Phase: **${formatNodeName(state.currentNode)}**`);
+      }
+
+      // Iteration count
+      if (state.iteration !== undefined && state.iteration > 0) {
+        if (state.maxIterations !== undefined && state.maxIterations > 0) {
+          lines.push(`Iteration: ${state.iteration}/${state.maxIterations}`);
+        } else {
+          lines.push(`Iteration: ${state.iteration}`);
+        }
+      }
+
+      // Feature progress
+      if (state.featureProgress) {
+        const { completed, total, currentFeature } = state.featureProgress;
+        const progressBar = createProgressBar(completed, total);
+        lines.push(`Features: ${progressBar} (${completed}/${total})`);
+        if (currentFeature) {
+          // Truncate long feature names
+          const maxLen = 40;
+          const truncated = currentFeature.length > maxLen
+            ? `${currentFeature.slice(0, maxLen - 3)}...`
+            : currentFeature;
+          lines.push(`  Current: ${truncated}`);
+        }
+      }
     } else {
       lines.push("Workflow: *inactive*");
     }
 
     // Spec approval status
+    lines.push("");
     if (state.pendingApproval) {
       lines.push("Spec: **pending approval**");
       lines.push("  Use `/approve` or `/reject <feedback>` to continue");
@@ -118,6 +150,8 @@ export const statusCommand: CommandDefinition = {
       if (!state.specApproved && state.feedback) {
         lines.push(`  Feedback: ${state.feedback}`);
       }
+    } else if (state.workflowActive) {
+      lines.push("Spec: *not yet created*");
     }
 
     // Initial prompt
@@ -126,11 +160,9 @@ export const statusCommand: CommandDefinition = {
       lines.push(`Initial prompt: "${state.initialPrompt}"`);
     }
 
-    // Message count
+    // Message count and streaming
     lines.push("");
     lines.push(`Messages: ${state.messageCount}`);
-
-    // Streaming state
     if (state.isStreaming) {
       lines.push("Status: *streaming response*");
     }
@@ -141,6 +173,30 @@ export const statusCommand: CommandDefinition = {
     };
   },
 };
+
+/**
+ * Format a node name for display (convert snake_case to Title Case).
+ */
+function formatNodeName(nodeName: string): string {
+  return nodeName
+    .split("_")
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+/**
+ * Create a simple ASCII progress bar.
+ * @param completed - Number of completed items
+ * @param total - Total number of items
+ * @param width - Width of the progress bar (default 10)
+ * @returns Progress bar string like "████░░░░░░"
+ */
+function createProgressBar(completed: number, total: number, width: number = 10): string {
+  if (total <= 0) return "░".repeat(width);
+  const filledCount = Math.round((completed / total) * width);
+  const emptyCount = width - filledCount;
+  return "█".repeat(filledCount) + "░".repeat(emptyCount);
+}
 
 /**
  * /approve - Approve the current spec.

@@ -232,7 +232,7 @@
       "Implement isLoopNode helper for loop node detection",
       "Add integration tests for execution engine"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

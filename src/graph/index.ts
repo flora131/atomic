@@ -179,3 +179,27 @@ export {
   parallelNode,
   subgraphNode,
 } from "./nodes.ts";
+
+// Type exports from compiled.ts
+export type {
+  // Execution types
+  ExecutionOptions,
+  StepResult,
+  ExecutionResult,
+} from "./compiled.ts";
+
+// Value exports from compiled.ts
+export {
+  // Helper functions
+  isLoopNode,
+  initializeExecutionState,
+  mergeState,
+
+  // Executor class
+  GraphExecutor,
+
+  // Factory functions
+  createExecutor,
+  executeGraph,
+  streamGraph,
+} from "./compiled.ts";

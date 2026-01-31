@@ -161,3 +161,31 @@
 
 **Next**: Create Autocomplete component with two-column layout
 
+---
+
+### 2026-01-31 - Autocomplete Component Implementation
+
+**Feature**: Create Autocomplete component with two-column layout
+
+**Status**: COMPLETE
+
+**Changes**:
+- Created `src/ui/components/autocomplete.tsx` with:
+  - `AutocompleteProps` interface - input, visible, selectedIndex, onSelect, onIndexChange, maxSuggestions
+  - `Autocomplete` component using OpenTUI box/text primitives
+  - Two-column layout: command name (fixed width) | description (flexible)
+  - Selected row highlighting with theme accent color
+  - Filters suggestions using globalRegistry.search()
+  - Supports maxSuggestions prop (default 8)
+  - `navigateUp()` and `navigateDown()` utility functions for keyboard nav
+
+- Created `tests/ui/components/autocomplete.test.tsx` with 19 passing tests covering:
+  - navigateUp/navigateDown wrap behavior
+  - Command search filtering
+  - Index clamping
+  - Visibility behavior
+
+**Test Results**: 183 tests passing total
+
+**Next**: Implement keyboard navigation for autocomplete
+

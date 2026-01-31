@@ -92,7 +92,7 @@
       "Filter suggestions using CommandRegistry.search() based on input prefix",
       "Add unit tests in tests/ui/components/autocomplete.test.tsx"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

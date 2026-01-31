@@ -248,7 +248,7 @@
       "Implement delete() method for checkpoint cleanup",
       "Add unit tests for all checkpointer implementations"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

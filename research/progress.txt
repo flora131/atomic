@@ -763,3 +763,54 @@ Fixed GraphBuilder.then() to properly handle first node after if() or else(). Th
 - All 213 graph tests pass (496 expect() calls)
 
 **Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 14
+
+**Feature Completed:** Implement Checkpointer interface with MemorySaver, FileSaver, ResearchDirSaver
+
+**Files Created:**
+- `src/graph/checkpointer.ts` - Three checkpointer implementations
+- `tests/graph/checkpointer.test.ts` - Unit tests for all implementations (47 passing tests)
+
+**Files Modified:**
+- `src/graph/index.ts` - Added checkpointer exports
+
+**Implementation Summary:**
+Implemented three Checkpointer implementations for persisting and resuming graph execution state:
+
+1. **MemorySaver:**
+   - In-memory storage using Map with structuredClone for deep copies
+   - Methods: save, load, loadByLabel, list, delete, clear, count
+   - Best for testing, development, and short-lived workflows
+
+2. **FileSaver:**
+   - File-based storage using JSON files
+   - Storage structure: `{baseDir}/{executionId}/{label}.json`
+   - Sanitizes labels for safe filenames
+   - Uses fs/promises for async file operations
+
+3. **ResearchDirSaver:**
+   - Research directory storage with YAML frontmatter + JSON format
+   - Storage structure: `research/checkpoints/{executionId}/{label}.md`
+   - YAML frontmatter with executionId, label, timestamp, nodeCount
+   - `getMetadata()` for reading frontmatter without loading full state
+   - Best for human-readable, git-friendly checkpoints
+
+4. **Factory Function:**
+   - `createCheckpointer(type, options)` - Create checkpointer by type
+   - Types: "memory", "file", "research"
+   - `CheckpointerType` type export
+
+5. **Exports Added:**
+   - Type export: `CheckpointerType`
+   - Value exports: `MemorySaver`, `FileSaver`, `ResearchDirSaver`, `createCheckpointer`
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 47 new checkpointer tests pass (79 expect() calls)
+- Full graph test suite: 260 tests pass (575 expect() calls)
+
+**Git Status:** Ready to commit

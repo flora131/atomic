@@ -209,7 +209,7 @@
       "Return state and all handler callbacks",
       "Add unit tests in tests/ui/hooks/use-streaming-state.test.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

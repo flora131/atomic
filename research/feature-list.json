@@ -282,7 +282,7 @@
       "Export initializeCommands function",
       "Export parseSlashCommand helper"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

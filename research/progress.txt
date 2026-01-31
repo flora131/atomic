@@ -565,3 +565,25 @@
 
 **Next**: Update src/ui/index.ts with all new exports
 
+---
+
+### 2026-01-31 - UI Index Exports Update
+
+**Feature**: Update src/ui/index.ts with all new exports
+
+**Status**: COMPLETE
+
+**Changes**:
+- Updated `src/ui/index.ts` with comprehensive exports:
+  - Commands module: CommandRegistry, globalRegistry, CommandDefinition, CommandContext, CommandResult, registerBuiltinCommands, registerWorkflowCommands, registerSkillCommands, initializeCommands, parseSlashCommand, isSlashCommand, getCommandPrefix
+  - Components:
+    - Autocomplete with navigateUp/navigateDown, useAutocompleteKeyboard
+    - UserQuestionDialog with toggleSelection, question types
+    - WorkflowStatusBar with format helpers, FeatureProgress
+    - ToolResult with shouldCollapse, getErrorColor
+  - All types properly exported
+
+**Test Results**: All exports verified via import test
+
+**Next**: Update ChatApp to render WorkflowStatusBar and ToolResults
+

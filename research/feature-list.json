@@ -192,7 +192,7 @@
       "Add single border with theme border color",
       "Add unit tests in tests/ui/components/workflow-status-bar.test.tsx"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

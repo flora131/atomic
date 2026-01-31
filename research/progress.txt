@@ -637,3 +637,47 @@
 
 **Next**: Connect ChatApp to workflow execution with streaming
 
+---
+
+### 2026-01-31 - Workflow Execution Streaming Integration
+
+**Feature**: Connect ChatApp to workflow execution with streaming
+
+**Status**: COMPLETE
+
+**Changes**:
+- Modified `src/ui/chat.tsx`:
+  - Added imports for useStreamingState, UserQuestionDialog, QuestionAnswer, ToolExecutionState
+  - Added streamingState hook initialization with useStreamingState()
+  - Added activeQuestion state for showing UserQuestionDialog
+  - Implemented handleToolStart callback:
+    - Updates streaming state with tool execution
+    - Adds MessageToolCall to current streaming message
+  - Implemented handleToolComplete callback:
+    - Updates streaming state on success or error
+    - Updates tool call status in message
+  - Implemented handleHumanInputRequired callback:
+    - Adds question to pending questions queue
+    - Shows UserQuestionDialog when no active question
+  - Implemented handleQuestionAnswer callback:
+    - Clears active question
+    - Removes from pending queue
+    - Adds system message with selection
+    - Updates workflow state for approval/rejection
+    - Shows next pending question if any
+  - Implemented updateWorkflowProgress callback for node/iteration/feature updates
+  - Rendered UserQuestionDialog conditionally when activeQuestion is set
+
+- Created `tests/ui/chat-workflow-integration.test.ts` with 26 passing tests covering:
+  - Streaming state integration (initial state, state changes)
+  - Tool execution events (start, complete, error, concurrent)
+  - Message tool calls (add, update, multiple)
+  - Human input required (HITL) flow (create, remove, queue)
+  - Question answer handling (single, multi, cancel, approval, rejection)
+  - Workflow progress updates (node, iteration, feature progress, full flow)
+  - Edge cases (empty maps, complex input, large output, long options, rapid transitions)
+
+**Test Results**: 592 tests passing total (26 new), 8 pre-existing theme failures
+
+**Next**: Implement /approve and /reject commands with workflow state management
+

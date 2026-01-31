@@ -733,3 +733,41 @@ based on state changes, not by the commands themselves.
 
 **Next**: Integrate autocomplete system with ChatApp initialization
 
+---
+
+### 2026-01-31 - Command Initialization and Components Index
+
+**Feature 23**: Integrate autocomplete system with ChatApp initialization
+
+**Status**: COMPLETE
+
+**Changes**:
+- Modified `src/ui/index.ts`:
+  - Added import for initializeCommands
+  - Call initializeCommands() in startChatUI before rendering ChatApp
+  - Added comment for optional debug logging of registered command count
+
+- Added 3 new tests to `tests/ui/index.test.ts`:
+  - initializeCommands is exported and callable
+  - initializeCommands is idempotent
+  - globalRegistry is properly populated with all command types
+
+**Test Results**: 24 tests passing in index.test.ts (3 new)
+
+---
+
+**Feature 24**: Add components module index with exports
+
+**Status**: COMPLETE
+
+**Changes**:
+- Created `src/ui/components/index.ts` with:
+  - Autocomplete exports (component, props, utilities)
+  - UserQuestionDialog exports (component, props, types)
+  - WorkflowStatusBar exports (component, props, utilities)
+  - ToolResult exports (component, props, utilities)
+
+**Test Results**: Exports verified via import test
+
+**Next**: Create unit tests for CommandRegistry (already done - Feature 25 can be skipped)
+

@@ -12,6 +12,7 @@ import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { createRoot, type Root } from "@opentui/react";
 import { ChatApp } from "./chat.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
+import { initializeCommands } from "./commands/index.ts";
 import type {
   CodingAgentClient,
   SessionConfig,
@@ -268,6 +269,13 @@ export async function startChatUI(
   });
 
   try {
+    // Initialize commands registry before rendering
+    // This ensures all slash commands are available when ChatApp mounts
+    const registeredCount = initializeCommands();
+    // Debug logging can be enabled here if needed:
+    // console.log(`Registered ${registeredCount} commands`);
+    void registeredCount; // Suppress unused variable warning
+
     // Create the CLI renderer with mouse mode disabled to allow native terminal text selection/copy
     state.renderer = await createCliRenderer({
       useMouse: false,

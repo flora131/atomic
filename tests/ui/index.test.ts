@@ -500,6 +500,78 @@ describe("Error Handling", () => {
 // Integration Pattern Tests
 // ============================================================================
 
+describe("Command Initialization", () => {
+  test("initializeCommands is exported and callable", async () => {
+    const { initializeCommands, globalRegistry } = await import(
+      "../../src/ui/index.ts"
+    );
+
+    expect(initializeCommands).toBeDefined();
+    expect(typeof initializeCommands).toBe("function");
+
+    // Clear registry first
+    globalRegistry.clear();
+
+    // Initialize should register commands
+    const count = initializeCommands();
+    expect(count).toBeGreaterThan(0);
+
+    // Registry should have commands
+    expect(globalRegistry.size()).toBeGreaterThan(0);
+
+    // Check for known commands
+    expect(globalRegistry.has("help")).toBe(true);
+    expect(globalRegistry.has("status")).toBe(true);
+    expect(globalRegistry.has("approve")).toBe(true);
+    expect(globalRegistry.has("reject")).toBe(true);
+  });
+
+  test("initializeCommands is idempotent", async () => {
+    const { initializeCommands, globalRegistry } = await import(
+      "../../src/ui/index.ts"
+    );
+
+    globalRegistry.clear();
+
+    // First call
+    const count1 = initializeCommands();
+    expect(count1).toBeGreaterThan(0);
+    const size1 = globalRegistry.size();
+
+    // Second call should not add more commands
+    const count2 = initializeCommands();
+    expect(count2).toBe(0);
+    const size2 = globalRegistry.size();
+
+    expect(size1).toBe(size2);
+  });
+
+  test("globalRegistry is properly populated", async () => {
+    const { initializeCommands, globalRegistry } = await import(
+      "../../src/ui/index.ts"
+    );
+
+    globalRegistry.clear();
+    initializeCommands();
+
+    // Check builtin commands
+    expect(globalRegistry.get("help")).toBeDefined();
+    expect(globalRegistry.get("status")).toBeDefined();
+    expect(globalRegistry.get("clear")).toBeDefined();
+    expect(globalRegistry.get("theme")).toBeDefined();
+
+    // Check aliases work
+    expect(globalRegistry.get("h")).toBeDefined(); // help alias
+    expect(globalRegistry.get("s")).toBeDefined(); // status alias
+
+    // Check workflow commands
+    expect(globalRegistry.get("atomic")).toBeDefined();
+
+    // Check skill commands
+    expect(globalRegistry.get("commit")).toBeDefined();
+  });
+});
+
 describe("Integration Patterns", () => {
   test("async generator pattern for streaming", async () => {
     async function* mockStream(): AsyncIterable<AgentMessage> {

@@ -459,6 +459,135 @@ ATOMIC_USE_GRAPH_ENGINE=true atomic ralph setup -a claude
 
 > **Note:** The graph engine is in active development. It will become the default execution mode in a future release (Phase 8). During the rollout period, the flag defaults to `false` for stability.
 
+#### Graph Engine Architecture
+
+The graph engine uses a directed graph model where:
+
+- **Nodes** represent discrete workflow steps (research, spec creation, feature implementation)
+- **Edges** define transitions between nodes with optional conditions
+- **State** flows through the graph, accumulating outputs from each node
+
+```
+┌──────────┐    ┌─────────────┐    ┌─────────────┐    ┌──────────────────┐
+│ Research │───▶│ Create Spec │───▶│ Review Spec │───▶│ Create Features  │
+└──────────┘    └─────────────┘    └──────┬──────┘    └────────┬─────────┘
+                                          │                     │
+                                    ┌─────▼─────┐         ┌─────▼─────┐
+                                    │  Approval │         │  Feature  │◀─┐
+                                    │   Wait    │         │   Loop    │──┘
+                                    └───────────┘         └─────┬─────┘
+                                                                │
+                                                          ┌─────▼─────┐
+                                                          │ Create PR │
+                                                          └───────────┘
+```
+
+#### Workflow Definition with Fluent API
+
+Workflows are defined using a fluent builder pattern:
+
+```typescript
+import { graph, agentNode, waitNode, decisionNode } from "@bastani/atomic/graph";
+
+const workflow = graph<MyState>()
+  .start(researchNode)
+  .then(createSpecNode)
+  .if((state) => !state.specApproved)
+    .wait("Please review the specification")
+  .endif()
+  .then(implementNode)
+  .loop(featureNode, { until: (s) => s.allFeaturesPassing, maxIterations: 100 })
+  .then(createPRNode)
+  .end()
+  .compile({ checkpointer: new ResearchDirSaver() });
+```
+
+#### Node Types
+
+| Node Type  | Purpose                                    | Factory Function   |
+| ---------- | ------------------------------------------ | ------------------ |
+| `agent`    | Execute AI agent for complex tasks         | `agentNode()`      |
+| `tool`     | Run a specific tool/function               | `toolNode()`       |
+| `decision` | Route based on state conditions            | `decisionNode()`   |
+| `wait`     | Pause for human input                      | `waitNode()`       |
+| `parallel` | Execute multiple branches concurrently     | `parallelNode()`   |
+| `subgraph` | Execute a nested workflow                  | `subgraphNode()`   |
+
+#### Checkpointing and Resumption
+
+The graph engine automatically checkpoints state after each node execution. To resume an interrupted workflow:
+
+```bash
+# Resume from last checkpoint
+atomic ralph resume --execution-id <id>
+
+# List available checkpoints
+atomic ralph checkpoints --execution-id <id>
+```
+
+Checkpoint storage options:
+
+| Saver              | Location                        | Use Case                    |
+| ------------------ | ------------------------------- | --------------------------- |
+| `MemorySaver`      | In-memory                       | Testing, short workflows    |
+| `FileSaver`        | JSON files in `.atomic/`        | Development                 |
+| `ResearchDirSaver` | `research/checkpoints/` (YAML)  | Production, git-friendly    |
+
+#### OpenTUI Chat Interface
+
+The graph engine includes an interactive terminal chat interface:
+
+```bash
+# Start chat with default agent
+atomic chat
+
+# Start with workflow mode enabled
+atomic chat --workflow
+
+# Specify agent and theme
+atomic chat -a opencode --theme light
+```
+
+Chat commands:
+
+| Command    | Description                           |
+| ---------- | ------------------------------------- |
+| `/start`   | Begin the Atomic workflow             |
+| `/status`  | Show current workflow progress        |
+| `/approve` | Approve specification                 |
+| `/reject`  | Request spec revisions                |
+| `/theme`   | Toggle dark/light theme               |
+| `/help`    | Show available commands               |
+
+#### Migrating from Hook-Based to Graph Engine
+
+**Step 1:** Enable the feature flag temporarily to test:
+
+```bash
+ATOMIC_USE_GRAPH_ENGINE=true atomic ralph setup -a claude
+```
+
+**Step 2:** Verify workflow behaves as expected:
+- Checkpoints are saved to `research/checkpoints/`
+- Spec approval prompts appear before feature implementation
+- Context window warnings trigger at 60% usage
+
+**Step 3:** Make permanent by adding to your shell profile:
+
+```bash
+echo 'export ATOMIC_USE_GRAPH_ENGINE=true' >> ~/.bashrc
+```
+
+**Key differences:**
+
+| Aspect            | Hook-Based                     | Graph Engine                    |
+| ----------------- | ------------------------------ | ------------------------------- |
+| Execution model   | Sequential hooks               | Directed graph                  |
+| State persistence | YAML frontmatter               | Structured checkpoints          |
+| Resumption        | Manual restart                 | Automatic from checkpoint       |
+| Spec approval     | Pre-loop                       | In-graph wait node              |
+| Error recovery    | Script restart                 | Catch handlers with retry       |
+
 ### Examples
 
 ```bash

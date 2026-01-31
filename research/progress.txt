@@ -1908,3 +1908,36 @@ The tests/workflows/atomic.test.ts file already exists with comprehensive test c
 - Full test suite: 1576 tests pass
 
 **Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 34
+
+**Feature Completed:** Feature 36 - Update README with graph engine documentation
+
+**Documentation Added:**
+Expanded the "Graph Engine (Experimental)" section in README.md with comprehensive documentation.
+
+**Steps Completed:**
+1. ✅ Graph Engine Architecture - Added visual diagram and explanation of nodes/edges/state flow
+2. ✅ Workflow Definition using Fluent API - Code example with graph(), if/endif, loop, wait patterns
+3. ✅ Node Types and Factory Functions - Table of 6 node types with purposes and factory functions
+4. ✅ Checkpointing and Resumption - Commands for resume/list checkpoints, storage options table
+5. ✅ Telemetry Collection and Opt-out - Already documented in existing Telemetry section
+6. ✅ OpenTUI Chat Interface Usage - Chat command examples and slash commands table
+7. ✅ Migration Guide - Step-by-step migration with key differences comparison table
+
+**New Sections Added:**
+- Graph Engine Architecture (with ASCII diagram)
+- Workflow Definition with Fluent API (code example)
+- Node Types (6 types documented)
+- Checkpointing and Resumption (3 savers documented)
+- OpenTUI Chat Interface (6 chat commands)
+- Migrating from Hook-Based to Graph Engine (3-step guide with comparison table)
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- Full test suite: 1576 tests pass
+
+**Git Status:** Ready to commit

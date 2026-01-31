@@ -29,6 +29,18 @@ export interface CommandContext {
 }
 
 /**
+ * Feature progress information for workflow status.
+ */
+export interface FeatureProgressState {
+  /** Number of completed features */
+  completed: number;
+  /** Total number of features */
+  total: number;
+  /** Name of the current feature being worked on */
+  currentFeature?: string;
+}
+
+/**
  * UI state passed to commands.
  */
 export interface CommandContextState {
@@ -42,6 +54,14 @@ export interface CommandContextState {
   workflowType?: string | null;
   /** Initial prompt for the workflow */
   initialPrompt?: string | null;
+  /** Current node being executed in the workflow */
+  currentNode?: string | null;
+  /** Current iteration number (1-based) */
+  iteration?: number;
+  /** Maximum number of iterations */
+  maxIterations?: number;
+  /** Feature progress information */
+  featureProgress?: FeatureProgressState | null;
   /** Whether spec approval is pending */
   pendingApproval?: boolean;
   /** Whether spec was approved */

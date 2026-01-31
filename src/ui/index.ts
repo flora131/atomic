@@ -465,3 +465,76 @@ export {
   hasCustomRenderer,
   getLanguageFromExtension,
 } from "./tools/index.ts";
+
+// Commands module
+export {
+  // Registry
+  CommandRegistry,
+  globalRegistry,
+  type CommandDefinition,
+  type CommandContext,
+  type CommandContextState,
+  type CommandResult,
+
+  // Built-in commands
+  registerBuiltinCommands,
+
+  // Workflow commands
+  registerWorkflowCommands,
+  type WorkflowMetadata,
+  WORKFLOW_DEFINITIONS,
+  getWorkflowMetadata,
+  createWorkflowByName,
+
+  // Skill commands
+  registerSkillCommands,
+  type SkillMetadata,
+  SKILL_DEFINITIONS,
+  getSkillMetadata,
+  isRalphSkill,
+  getRalphSkills,
+  getCoreSkills,
+
+  // Initialization and helpers
+  initializeCommands,
+  parseSlashCommand,
+  isSlashCommand,
+  getCommandPrefix,
+} from "./commands/index.ts";
+
+// Components
+export {
+  Autocomplete,
+  navigateUp,
+  navigateDown,
+  useAutocompleteKeyboard,
+  type AutocompleteProps,
+  type KeyboardHandlerResult,
+  type UseAutocompleteKeyboardOptions,
+} from "./components/autocomplete.tsx";
+
+export {
+  UserQuestionDialog,
+  toggleSelection,
+  type UserQuestionDialogProps,
+  type UserQuestion,
+  type QuestionOption,
+  type QuestionAnswer,
+} from "./components/user-question-dialog.tsx";
+
+export {
+  WorkflowStatusBar,
+  getWorkflowIcon,
+  formatWorkflowType,
+  formatIteration,
+  formatFeatureProgress,
+  type WorkflowStatusBarProps,
+  type FeatureProgress,
+} from "./components/workflow-status-bar.tsx";
+
+export {
+  ToolResult,
+  shouldCollapse,
+  getErrorColor,
+  type ToolResultProps,
+} from "./components/tool-result.tsx";

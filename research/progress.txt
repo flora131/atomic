@@ -98,4 +98,62 @@ Implemented the ClaudeAgentClient class that wraps the @anthropic-ai/claude-agen
 - All 25 unit tests pass (34 expect() calls)
 - Full test suite: 629 tests pass
 
+**Git Status:** Committed as cb1ed72
+
+---
+
+### 2026-01-31 - Iteration 3
+
+**Feature Completed:** Implement OpenCodeClient using @opencode-ai/sdk/v2/client
+
+**Files Created:**
+- `src/sdk/opencode-client.ts` - Full implementation of OpenCodeClient
+- `tests/sdk/opencode-client.test.ts` - Unit tests with mocked SDK (33 passing tests)
+
+**Files Modified:**
+- `src/sdk/index.ts` - Added exports for OpenCodeClient and SDK types
+
+**Implementation Summary:**
+Implemented the OpenCodeClient class for the OpenCode AI coding agent SDK:
+
+1. **SDK Interface Types:**
+   - `OpenCodeSdkSession` - Session with send/stream/summarize/destroy
+   - `OpenCodeSdkMessage` - Message format with role, content, toolCalls
+   - `OpenCodeSdkStreamEvent` - Stream events (delta, complete, tool_start, etc.)
+   - `OpenCodeSdkClient` - Main client with session/tools/events API
+   - `CreateOpenCodeClientFn` - Factory function type for dependency injection
+
+2. **Client Lifecycle:**
+   - `start()` / `stop()` with idempotent behavior
+   - `setClientFactory()` for late dependency injection
+   - Automatic SDK event subscription on start
+
+3. **Session Management:**
+   - `createSession()` - Create sessions via SDK client.session.create
+   - `resumeSession()` - Resume by ID via client.session.get
+   - `wrapSession()` - Wrap SDK session into unified Session interface
+
+4. **Session Operations:**
+   - `send()` - Send message with token tracking
+   - `stream()` - Async generator yielding AgentMessage chunks
+   - `summarize()` - Context compaction via SDK session.summarize()
+   - `getContextUsage()` - Get current token usage from SDK
+   - `destroy()` - Close session and cleanup
+
+5. **Event System:**
+   - SDK event type mapping to unified EventType
+   - Automatic subscription to 9 SDK event types
+   - Event forwarding to registered handlers
+
+6. **Tool Registration:**
+   - `registerTool()` - Register tools before or after start()
+   - Tools registered with SDK when client starts
+   - Late-registered tools added immediately to running client
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 33 unit tests pass (48 expect() calls)
+- Full SDK test suite: 78 tests pass
+
 **Git Status:** Ready to commit

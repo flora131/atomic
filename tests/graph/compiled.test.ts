@@ -369,6 +369,199 @@ describe("GraphExecutor", () => {
 
       expect(result.status).toBe("failed");
     });
+
+    test("succeeds after exactly maxAttempts retries", async () => {
+      // Fails 2 times, then succeeds on 3rd attempt (maxAttempts=3)
+      const failingNode = createFailingNode("retry-edge", 2);
+
+      const compiled = graph<TestState>()
+        .start(failingNode)
+        .end()
+        .compile();
+
+      const result = await executeGraph(compiled, {
+        initialState: { counter: 0, items: [], approved: false },
+      });
+
+      expect(result.status).toBe("completed");
+      expect(result.state.counter).toBe(999);
+    });
+
+    test("applies exponential backoff delays", async () => {
+      let attemptTimes: number[] = [];
+      let attempts = 0;
+
+      // Create a node that tracks attempt times
+      const timingNode = createNode<TestState>(
+        "timing-test",
+        "tool",
+        async () => {
+          attemptTimes.push(Date.now());
+          attempts++;
+          if (attempts < 3) {
+            throw new Error(`Intentional failure ${attempts}`);
+          }
+          return { stateUpdate: { counter: 999 } };
+        },
+        { retry: { maxAttempts: 3, backoffMs: 50, backoffMultiplier: 2 } }
+      );
+
+      const compiled = graph<TestState>()
+        .start(timingNode)
+        .end()
+        .compile();
+
+      await executeGraph(compiled, {
+        initialState: { counter: 0, items: [], approved: false },
+      });
+
+      // Should have 3 attempts
+      expect(attemptTimes.length).toBe(3);
+
+      // Calculate delays between attempts
+      const delay1 = attemptTimes[1]! - attemptTimes[0]!;
+      const delay2 = attemptTimes[2]! - attemptTimes[1]!;
+
+      // First delay should be ~50ms (backoffMs)
+      expect(delay1).toBeGreaterThanOrEqual(40); // Allow 10ms tolerance
+      expect(delay1).toBeLessThan(100);
+
+      // Second delay should be ~100ms (50 * 2 = 100)
+      expect(delay2).toBeGreaterThanOrEqual(80); // Allow 20ms tolerance
+      expect(delay2).toBeLessThan(200);
+    });
+
+    test("respects retryOn predicate - retries matching errors", async () => {
+      let attempts = 0;
+
+      const selectiveNode = createNode<TestState>(
+        "selective-retry",
+        "tool",
+        async () => {
+          attempts++;
+          if (attempts < 3) {
+            const error = new Error("transient_error");
+            throw error;
+          }
+          return { stateUpdate: { counter: 999 } };
+        },
+        {
+          retry: {
+            maxAttempts: 3,
+            backoffMs: 10,
+            backoffMultiplier: 1,
+            retryOn: (error) => error.message.includes("transient"),
+          },
+        }
+      );
+
+      const compiled = graph<TestState>()
+        .start(selectiveNode)
+        .end()
+        .compile();
+
+      const result = await executeGraph(compiled, {
+        initialState: { counter: 0, items: [], approved: false },
+      });
+
+      expect(result.status).toBe("completed");
+      expect(attempts).toBe(3);
+    });
+
+    test("respects retryOn predicate - does not retry non-matching errors", async () => {
+      let attempts = 0;
+
+      const selectiveNode = createNode<TestState>(
+        "no-retry",
+        "tool",
+        async () => {
+          attempts++;
+          throw new Error("permanent_error");
+        },
+        {
+          retry: {
+            maxAttempts: 3,
+            backoffMs: 10,
+            backoffMultiplier: 1,
+            retryOn: (error) => error.message.includes("transient"),
+          },
+        }
+      );
+
+      const compiled = graph<TestState>()
+        .start(selectiveNode)
+        .end()
+        .compile();
+
+      const result = await executeGraph(compiled, {
+        initialState: { counter: 0, items: [], approved: false },
+      });
+
+      // Should fail immediately without retrying
+      expect(result.status).toBe("failed");
+      expect(attempts).toBe(1);
+    });
+
+    test("tracks attempt count in execution error", async () => {
+      const alwaysFailNode = createNode<TestState>(
+        "tracked-failure",
+        "tool",
+        async () => {
+          throw new Error("Always fails");
+        },
+        { retry: { maxAttempts: 3, backoffMs: 10, backoffMultiplier: 1 } }
+      );
+
+      const compiled = graph<TestState>()
+        .start(alwaysFailNode)
+        .end()
+        .compile();
+
+      const steps: StepResult<TestState>[] = [];
+      for await (const step of streamGraph(compiled, {
+        initialState: { counter: 0, items: [], approved: false },
+      })) {
+        steps.push(step);
+      }
+
+      // Last step should be failed with error
+      const lastStep = steps[steps.length - 1]!;
+      expect(lastStep.status).toBe("failed");
+      expect(lastStep.error).toBeDefined();
+      expect(lastStep.error!.attempt).toBe(3); // All 3 attempts exhausted
+      expect(lastStep.error!.nodeId).toBe("tracked-failure");
+    });
+
+    test("uses default retry config when not specified", async () => {
+      let attempts = 0;
+
+      // Node without explicit retry config - uses DEFAULT_RETRY_CONFIG
+      const defaultRetryNode = createNode<TestState>(
+        "default-retry",
+        "tool",
+        async () => {
+          attempts++;
+          if (attempts < 3) {
+            throw new Error(`Failure ${attempts}`);
+          }
+          return { stateUpdate: { counter: 999 } };
+        }
+        // No retry config - will use default
+      );
+
+      const compiled = graph<TestState>()
+        .start(defaultRetryNode)
+        .end()
+        .compile();
+
+      const result = await executeGraph(compiled, {
+        initialState: { counter: 0, items: [], approved: false },
+      });
+
+      // Default maxAttempts is 3, so should succeed
+      expect(result.status).toBe("completed");
+      expect(attempts).toBe(3);
+    });
   });
 
   describe("signal handling", () => {

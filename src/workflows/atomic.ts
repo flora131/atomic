@@ -40,6 +40,7 @@ export const ATOMIC_NODE_IDS = {
   CREATE_SPEC: "create-spec",
   REVIEW_SPEC: "review-spec",
   WAIT_FOR_APPROVAL: "wait-for-approval",
+  CHECK_APPROVAL: "check-approval",
   CREATE_FEATURE_LIST: "create-feature-list",
   SELECT_FEATURE: "select-feature",
   IMPLEMENT_FEATURE: "implement-feature",
@@ -200,6 +201,24 @@ Type 'approve' to approve the specification, or provide feedback for revision.`;
       specApproved: approved,
     };
   },
+});
+
+/**
+ * Check approval decision node: Routes based on approval result.
+ * Routes to CREATE_FEATURE_LIST if approved, or back to CREATE_SPEC for revision.
+ */
+const checkApprovalNode = decisionNode<AtomicWorkflowState>({
+  id: ATOMIC_NODE_IDS.CHECK_APPROVAL,
+  name: "Check Approval Result",
+  description: "Route based on whether the spec was approved or rejected",
+  routes: [
+    {
+      condition: (state) => state.specApproved,
+      target: ATOMIC_NODE_IDS.CREATE_FEATURE_LIST,
+      label: "Approved",
+    },
+  ],
+  fallback: ATOMIC_NODE_IDS.CREATE_SPEC,
 });
 
 /**
@@ -463,9 +482,12 @@ export function createAtomicWorkflow(
     // Skip approval, go directly to feature list
     builder = builder.then(createFeatureListNode);
   } else {
-    // Wait for human approval, then create feature list
+    // Wait for human approval, then check result
+    // If approved -> create feature list
+    // If rejected -> loop back to create spec
     builder = builder
       .then(waitForApprovalNode)
+      .then(checkApprovalNode)
       .then(createFeatureListNode);
   }
   
@@ -520,6 +542,7 @@ export {
   createSpecNode,
   reviewSpecNode,
   waitForApprovalNode,
+  checkApprovalNode,
   createFeatureListNode,
   selectFeatureNode,
   implementFeatureNode,

@@ -1341,4 +1341,63 @@ Implemented consent-based telemetry configuration with environment variable supp
 - All 47 config tests pass (72 expect() calls)
 - Full test suite: 1410 tests pass
 
+**Git Status:** Committed as aa415bf
+
+---
+
+### 2026-01-31 - Iteration 24
+
+**Feature Completed:** Feature 26 - Migrate Ralph loop to graph-based execution
+
+**Files Created:**
+- `src/workflows/atomic.ts` - Main Atomic workflow definition (~500 lines)
+- `src/workflows/index.ts` - Module exports for workflows
+- `tests/workflows/atomic.test.ts` - Unit tests (40 passing tests)
+
+**Implementation Summary:**
+Implemented the complete Atomic workflow using the graph-based execution engine:
+
+1. **Constants and Types:**
+   - `DEFAULT_MAX_ITERATIONS = 100` - Maximum iterations for feature loop
+   - `ATOMIC_NODE_IDS` - All node IDs as string constants
+   - `AtomicWorkflowConfig` interface for workflow configuration
+
+2. **Helper Functions:**
+   - `extractTextContent()` - Extract text content from agent messages
+   - `parseFeatureList()` - Parse JSON feature list from agent output
+   - `getNextFeature()` - Get next unpassed feature from list
+   - `checkAllFeaturesPassing()` - Check if all features have passed
+
+3. **Node Definitions (9 nodes):**
+   - `researchNode` - agentNode with codebase-research-analyzer for codebase analysis
+   - `createSpecNode` - agentNode for spec generation from research
+   - `reviewSpecNode` - decisionNode checking specApproved flag
+   - `waitForApprovalNode` - waitNode emitting human_input_required signal
+   - `createFeatureListNode` - agentNode extracting feature list from spec
+   - `selectFeatureNode` - decisionNode selecting next feature to implement
+   - `implementFeatureNode` - agentNode implementing selected feature
+   - `checkFeaturesNode` - decisionNode checking if all features pass
+   - `createPRNode` - toolNode using gh CLI to create PR
+
+4. **Graph Structure:**
+   - Linear flow: research -> createSpec -> reviewSpec
+   - Conditional approval: waitForApproval (if not auto-approved) -> createFeatureList
+   - Feature loop: selectFeature -> implementFeature -> checkFeatures
+   - Loop continues until allFeaturesPassing or maxIterations reached
+   - Terminal node: createPR
+
+5. **Main Functions:**
+   - `createAtomicWorkflow(config)` - Creates compiled graph with full workflow
+   - `createTestAtomicWorkflow()` - Creates minimal workflow for unit testing
+
+6. **Bug Fix:**
+   - Fixed duplicate node issue in builder pattern where createFeatureListNode was added twice
+   - Restructured from ternary + then() to explicit if/else with proper builder chaining
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 40 workflow tests pass (102 expect() calls)
+- Full test suite: 1450 tests pass
+
 **Git Status:** Ready to commit

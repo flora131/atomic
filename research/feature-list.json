@@ -326,7 +326,7 @@
       "Display appropriate confirmation messages",
       "Add integration tests for approval/rejection flow"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -341,7 +341,7 @@
       "Format output with theme colors and clear sections",
       "Add tests for status output formatting"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

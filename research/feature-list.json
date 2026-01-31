@@ -409,7 +409,7 @@
       "Test Enter executes selected command",
       "Test Escape hides autocomplete"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -423,6 +423,6 @@
       "Test executing '/status' shows workflow status",
       "Test executing '/approve' approves spec"
     ],
-    "passes": false
+    "passes": true
   }
 ]

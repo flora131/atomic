@@ -397,7 +397,7 @@
       "Track graph.execution.failed with errorMessage and nodeId",
       "Track graph.checkpoint.saved with label"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

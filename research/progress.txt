@@ -1217,4 +1217,72 @@ Implemented SDK telemetry integration for automatic tracking of CodingAgentClien
 - Linting passes (0 warnings, 0 errors)
 - All 37 SDK integration tests pass (85 expect() calls)
 
+**Git Status:** Committed as 85c9cb9
+
+---
+
+### 2026-01-31 - Iteration 22
+
+**Feature Completed:** Feature 24 - Implement graph telemetry integration for workflow tracking
+
+**Files Created:**
+- `src/telemetry/graph-integration.ts` - Graph telemetry integration (500 lines)
+- `tests/telemetry/graph-integration.test.ts` - Unit tests (40 passing tests)
+
+**Files Modified:**
+- `src/telemetry/index.ts` - Added graph integration exports
+
+**Implementation Summary:**
+Implemented graph telemetry integration for tracking workflow execution events:
+
+1. **createProgressHandler Function:**
+   - Creates onProgress handler that tracks telemetry events
+   - Tracks graph.node.started on node_started events
+   - Tracks graph.node.completed on node_completed events
+   - Tracks graph.node.failed on node_error events
+   - Tracks graph.checkpoint.saved on checkpoint_saved events
+   - Supports trackNodes and trackCheckpoints config options
+
+2. **withGraphTelemetry Function:**
+   - Wraps GraphConfig with telemetry tracking
+   - Adds onProgress handler for automatic tracking
+   - Preserves existing onProgress handler
+   - Adds executionId to config metadata
+
+3. **trackGraphExecution Factory:**
+   - Returns ExecutionTracker with tracking methods
+   - `started()` - Track graph.execution.started
+   - `completed()` - Track graph.execution.completed with status
+   - `failed()` - Track graph.execution.failed with errorMessage and nodeId
+   - `checkpointSaved()` - Track graph.checkpoint.saved with label
+   - `checkpointLoaded()` - Track graph.checkpoint.loaded
+   - `nodeStarted()` - Track graph.node.started with nodeType
+   - `nodeCompleted()` - Track graph.node.completed with durationMs
+   - `nodeFailed()` - Track graph.node.failed with errorMessage
+   - `nodeRetried()` - Track graph.node.retried with retryAttempt
+
+4. **withExecutionTracking Function:**
+   - Convenience wrapper for automatic start/complete/fail tracking
+   - Provides tracker to execution function
+   - Tracks duration in completed/failed events
+   - Rethrows errors after tracking
+
+5. **withCheckpointTelemetry Function:**
+   - Wraps Checkpointer with telemetry tracking
+   - Tracks save and load operations
+   - Uses "auto" label when no label provided
+   - Passes through list and delete operations
+
+6. **GraphTelemetryConfig Interface:**
+   - `collector` - Custom telemetry collector
+   - `trackNodes` - Enable/disable node tracking (default true)
+   - `trackCheckpoints` - Enable/disable checkpoint tracking (default true)
+   - `additionalProperties` - Properties added to all events
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 40 graph integration tests pass (129 expect() calls)
+- Full test suite: 1363 tests pass
+
 **Git Status:** Ready to commit

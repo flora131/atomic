@@ -31,3 +31,36 @@
 
 **Next**: Implement built-in commands (/help, /status, /approve, /reject, /theme, /clear)
 
+---
+
+### 2026-01-31 - Built-in Commands Implementation
+
+**Feature**: Implement built-in commands (/help, /status, /approve, /reject, /theme, /clear)
+
+**Status**: COMPLETE
+
+**Changes**:
+- Created `src/ui/commands/builtin-commands.ts` with:
+  - `/help` command - lists all registered commands grouped by category with aliases
+  - `/status` command - shows workflow state, spec approval status, pending approval hints, message count, streaming status
+  - `/approve` command - approves spec (validates workflow active and pending approval)
+  - `/reject` command - rejects spec with optional feedback (validates workflow active and pending approval)
+  - `/theme` command - toggles theme or explicitly sets dark/light
+  - `/clear` command - clears all chat messages
+  - `registerBuiltinCommands()` function - registers all 6 commands idempotently
+  - All commands have appropriate aliases: help (h, ?), status (s), approve (ok, yes), reject (no), clear (cls, c)
+
+- Created `tests/ui/commands/builtin-commands.test.ts` with 37 passing tests covering:
+  - Command metadata verification (name, category, aliases)
+  - /help output formatting and grouping
+  - /status state display for various workflow states
+  - /approve validation and state updates
+  - /reject with and without feedback
+  - /theme toggle and explicit theme selection
+  - /clear state reset
+  - registerBuiltinCommands() idempotency
+
+**Test Results**: 72 tests passing across all command tests (35 registry + 37 builtin)
+
+**Next**: Implement workflow command registration from src/workflows/atomic.ts
+

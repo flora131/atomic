@@ -138,3 +138,23 @@ export {
   createDefaultCopilotHooks,
   type CopilotHookHandlers,
 } from "./copilot-hooks.ts";
+
+// OpenCode Hook Handlers exports
+export {
+  createSessionStartHandler as createOpenCodeSessionStartHandler,
+  createSessionIdleHandler as createOpenCodeSessionIdleHandler,
+  createSessionDeletedHandler as createOpenCodeSessionDeletedHandler,
+  createCommandExecuteHandler as createOpenCodeCommandExecuteHandler,
+  createChatMessageHandler as createOpenCodeChatMessageHandler,
+  registerDefaultOpenCodeHooks,
+  createDefaultOpenCodeHooks,
+  parseRalphState,
+  writeRalphState,
+  deleteRalphState,
+  checkFeaturesPassing,
+  checkCompletionPromise,
+  normalizeCommandName,
+  extractCommandsFromText,
+  type OpenCodeHookHandlers,
+  type OpenCodeHookContext,
+} from "./opencode-hooks.ts";

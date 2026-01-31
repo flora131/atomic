@@ -125,11 +125,12 @@ export function getClientProvider(): ClientProvider | null {
 
 /**
  * Default retry configuration for agent nodes.
- * Uses more conservative settings than the global default.
+ * Uses 3 attempts with 1 second initial backoff and 2x multiplier.
+ * This results in delays of: 1s (first retry), 2s (second retry).
  */
 export const AGENT_NODE_RETRY_CONFIG: RetryConfig = {
-  maxAttempts: 2,
-  backoffMs: 2000,
+  maxAttempts: 3,
+  backoffMs: 1000,
   backoffMultiplier: 2,
 };
 

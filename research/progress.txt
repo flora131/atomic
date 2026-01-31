@@ -1531,4 +1531,295 @@ Implemented full human-in-the-loop approval flow for spec review with rejection 
 - All 57 workflow tests pass (127 expect() calls)
 - Full test suite: 1495 tests pass
 
+**Git Status:** Committed as c557fc7
+
+---
+
+### 2026-01-31 - Iteration 27
+
+**Feature Completed:** Feature 29 - Update atomic ralph setup command to use graph engine
+
+**Files Modified:**
+- `src/commands/ralph.ts` - Added graph engine execution path with feature flag
+- `tests/ralph/ralph-graph-engine.test.ts` - Added 13 new tests for graph execution
+
+**Implementation Summary:**
+Updated the ralph setup command to support graph-based workflow execution via the `ATOMIC_USE_GRAPH_ENGINE` feature flag:
+
+1. **Feature Flag Check:**
+   - Added check for `ATOMIC_USE_GRAPH_ENGINE=true` environment variable
+   - When enabled, routes to `executeGraphWorkflow()` function
+   - When disabled, uses legacy Ralph loop implementation
+
+2. **Imports Added:**
+   - Graph workflow: `createAtomicWorkflow`, `createAtomicState`, `ATOMIC_NODE_IDS`
+   - Graph execution: `streamGraph`, `StepResult`
+   - Telemetry: `withGraphTelemetry`
+   - SDK clients: `createClaudeAgentClient`, `createOpenCodeClient`, `createCopilotClient`
+   - Types: `CodingAgentClient`, `AgentType`
+
+3. **SDK Client Factory:**
+   - `createClientForAgentType(agentType)` - Creates appropriate SDK client based on agent type
+   - Supports 'claude', 'opencode', 'copilot' agent types
+
+4. **Helper Functions:**
+   - `promptUserInput(question)` - Readline-based user input prompt for approvals
+   - `displayStepProgress(stepResult)` - Formats and displays execution step progress
+   - `getNodeDisplayName(nodeId)` - Maps node IDs to human-readable names
+   - `getStatusEmoji(status)` - Maps execution status to emoji indicators
+
+5. **Graph Execution Flow:**
+   - Initializes SDK client based on agent type
+   - Creates workflow with telemetry and checkpointing configuration
+   - Streams execution results, displaying progress for each node
+   - Handles `human_input_required` signals by pausing and prompting user for spec approval
+   - Displays final PR URL and feature status on completion
+   - Handles failure and cancellation states
+
+6. **Extended RalphSetupOptions:**
+   - Added `agentType?: AgentType` - Agent type for graph execution (default: 'claude')
+   - Added `checkpointing?: boolean` - Enable/disable checkpointing (default: true)
+
+7. **Tests Added (13 new tests):**
+   - Feature flag detection tests
+   - Client factory tests for each agent type
+   - Workflow configuration tests
+   - Graph execution streaming tests
+   - Node display name tests
+   - State initialization tests
+   - Interface extension tests
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 13 new tests pass (32 expect() calls)
+- Full test suite: 1508 tests pass
+
+**Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 28
+
+**Feature Completed:** Feature 30 - Integrate OpenTUI chat interface with graph workflows
+
+**Files Modified:**
+- `src/commands/chat.ts` - New chat command implementation
+- `src/cli.ts` - Added 'chat' command to CLI
+- `tests/commands/chat.test.ts` - Added 36 new tests for chat command
+
+**Implementation Summary:**
+Created a unified chat command that integrates the OpenTUI chat interface with graph-based workflows:
+
+1. **Chat Command (`src/commands/chat.ts`):**
+   - Created `chatCommand()` function as main entry point
+   - Added `ChatCommandOptions` interface with agent type, workflow mode, theme, model options
+   - Implemented client factory `createClientForAgentType()` for claude/opencode/copilot
+   - Added theme selection via `getTheme()` helper
+
+2. **Slash Commands Support:**
+   - `/workflow` or `/start` - Start the Atomic workflow
+   - `/status` - Show workflow status (iteration, spec approval, feature progress)
+   - `/approve` - Approve the current specification
+   - `/reject` - Reject and request revisions
+   - `/theme <dark|light>` - Switch theme
+   - `/help` - Show available commands
+   - Implemented `isSlashCommand()`, `parseSlashCommand()`, `handleThemeCommand()` helpers
+
+3. **Workflow Integration:**
+   - Created `WorkflowChatState` interface to track workflow state
+   - Implemented `startWorkflowChat()` for workflow-enabled chat sessions
+   - Created `wrapSessionWithWorkflow()` to intercept messages and handle workflow commands
+   - Implemented `streamWorkflowExecution()` as async generator for streaming workflow progress
+
+4. **Progress Display:**
+   - `getNodeDisplayName()` - Maps node IDs to human-readable names
+   - `formatStepProgress()` - Formats step results as chat messages
+   - `getStatusEmoji()` - Maps execution status to text indicators ([Running], [Done], etc.)
+
+5. **Human-in-the-Loop Approval:**
+   - Pauses workflow execution when specification needs review
+   - Displays spec doc in chat with approve/reject prompt
+   - Resumes workflow based on user input via `/approve` or `/reject`
+
+6. **CLI Integration (`src/cli.ts`):**
+   - Added 'chat' command with options: -a/--agent, -w/--workflow, -t/--theme, -m/--model
+   - Validates agent and theme choices
+   - Added comprehensive help text with examples
+
+7. **Tests Added (36 new tests):**
+   - Client factory tests for all agent types
+   - Agent display name tests
+   - Theme selection tests
+   - Slash command detection and parsing tests
+   - Theme command handling tests
+   - Node display name mapping tests
+   - Status emoji mapping tests
+   - Step progress formatting tests
+
+**Usage Examples:**
+```bash
+atomic chat                              # Start chat with Claude (default)
+atomic chat -a opencode                  # Start chat with OpenCode
+atomic chat -a copilot --workflow        # Start workflow-enabled chat
+atomic chat --theme light                # Start chat with light theme
+atomic chat -w --max-iterations 50       # Start workflow with iteration limit
+```
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 36 new tests pass (57 expect() calls)
+- Full test suite: 1544 tests pass
+
+**Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 29
+
+**Feature Completed:** Feature 31 - Implement retry logic with exponential backoff for node execution
+
+**Files Modified:**
+- `src/graph/nodes.ts` - Updated AGENT_NODE_RETRY_CONFIG to spec values
+- `tests/graph/nodes.test.ts` - Updated expected default values in test
+- `tests/graph/compiled.test.ts` - Added 6 new comprehensive retry tests
+
+**Implementation Summary:**
+Updated the retry configuration and added comprehensive tests for the exponential backoff retry logic:
+
+1. **Configuration Update (`src/graph/nodes.ts`):**
+   - Updated `AGENT_NODE_RETRY_CONFIG.maxAttempts` from 2 to 3
+   - Updated `AGENT_NODE_RETRY_CONFIG.backoffMs` from 2000 to 1000
+   - `backoffMultiplier` remains at 2 (correct per spec)
+
+2. **Existing Implementation Verification:**
+   - `RetryConfig` interface already defined in `src/graph/types.ts`
+   - `DEFAULT_RETRY_CONFIG` already defined with `maxAttempts: 3`, `backoffMs: 1000`, `backoffMultiplier: 2`
+   - `executeWithRetry` method already implemented in `GraphExecutor` class
+   - Exponential backoff delay calculation: `backoffMs * Math.pow(backoffMultiplier, attempt - 1)`
+   - `retryOn` predicate support already implemented
+   - `attempt` count tracked in `ExecutionError` interface
+
+3. **New Tests Added (6 tests):**
+   - `succeeds after exactly maxAttempts retries` - Edge case testing
+   - `applies exponential backoff delays` - Verifies actual timing
+   - `respects retryOn predicate - retries matching errors` - Selective retry
+   - `respects retryOn predicate - does not retry non-matching errors` - Predicate filtering
+   - `tracks attempt count in execution error` - Error metadata verification
+   - `uses default retry config when not specified` - Default behavior test
+
+4. **Retry Behavior:**
+   - First attempt: immediate execution
+   - First retry: waits 1000ms (backoffMs)
+   - Second retry: waits 2000ms (1000 * 2^1)
+   - Third attempt (if maxAttempts=3): executes after total wait of ~3000ms
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 6 new tests pass
+- Full test suite: 1550 tests pass
+
+**Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 30
+
+**Feature Completed:** Feature 32 - Add feature flag ATOMIC_USE_GRAPH_ENGINE for rollout
+
+**Files Created:**
+- `src/config/ralph.ts` - Ralph configuration module with feature flag (180 lines)
+- `src/config/index.ts` - Configuration module exports
+- `tests/config/ralph.test.ts` - Unit tests for Ralph config (26 passing tests)
+
+**Files Modified:**
+- `src/commands/ralph.ts` - Updated to use imported `isGraphEngineEnabled()` function
+- `README.md` - Added documentation for graph engine feature flag
+
+**Implementation Summary:**
+Added feature flag infrastructure for controlled rollout of the graph-based execution engine:
+
+1. **Configuration Module (`src/config/ralph.ts`):**
+   - `RalphConfig` interface with useGraphEngine, maxIterations, featureListPath, completionPromise
+   - `LoadRalphConfigOptions` interface for configuration overrides
+   - `RALPH_ENV_VARS` constants including ATOMIC_USE_GRAPH_ENGINE
+   - `RALPH_DEFAULTS` with useGraphEngine: false for stability during rollout
+
+2. **Helper Functions:**
+   - `isGraphEngineEnabled()` - Checks ATOMIC_USE_GRAPH_ENGINE=true env var
+   - `loadRalphConfig(options)` - Loads configuration from env and defaults
+   - `describeRalphConfig(config)` - Human-readable configuration summary
+
+3. **Feature Flag Behavior:**
+   - Default: `false` - Uses hook-based execution (stable, production-ready)
+   - `true` - Uses graph-based workflow execution (experimental)
+   - Strict comparison: only `"true"` enables graph mode (not "1", "TRUE", etc.)
+
+4. **README Documentation:**
+   - Added "Graph Engine (Experimental)" section under Ralph
+   - Environment variable usage examples
+   - Feature comparison table (true vs false)
+   - Note about Phase 8 default change
+
+5. **Code Integration:**
+   - Updated `ralphSetup()` to import and use `isGraphEngineEnabled()`
+   - Centralized env var handling in configuration module
+   - Cleaner separation of concerns
+
+**Tests Added (26 tests):**
+- RALPH_ENV_VARS constant tests
+- RALPH_DEFAULTS value tests
+- isGraphEngineEnabled() tests for all edge cases (undefined, empty, false, 0, true, TRUE, 1)
+- loadRalphConfig() default and override tests
+- describeRalphConfig() output formatting tests
+- Type validation tests
+- Integration tests
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 26 new tests pass (41 expect() calls)
+- Full test suite: 1576 tests pass
+
+**Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 31
+
+**Feature Verified:** Feature 33 - Create unit tests for GraphBuilder fluent API
+
+**Existing Implementation:**
+The tests/graph/builder.test.ts file already exists with comprehensive test coverage (46 tests, 111 expect() calls).
+
+**Steps Verified:**
+1. ✅ tests/graph/builder.test.ts file exists (805 lines)
+2. ✅ Linear graph building tested in `start()` and `then()` describe blocks
+3. ✅ Loop exits on condition tested in `loop()` describe block
+4. ✅ Parallel node execution tested in `parallel()` describe block
+5. ✅ Conditional branching tested in "Conditional Branching (if/else/endif)" describe block
+6. ✅ Wait node signal emission tested in `wait()` describe block
+7. ✅ Catch error handling tested in `catch()` describe block
+8. ✅ Compile produces valid CompiledGraph tested in `compile()` describe block
+
+**Test Coverage Summary:**
+- `GraphBuilder` class tests: 14 tests
+- Conditional Branching tests: 10 tests
+- Loop tests: 3 tests
+- Parallel execution tests: 3 tests
+- Wait node tests: 3 tests
+- Error handler tests: 2 tests
+- Graph query method tests: 3 tests
+- Helper function tests: 4 tests
+- Fluent API chaining tests: 2 tests
+- Edge cases tests: 3 tests
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 46 builder tests pass (111 expect() calls)
+- Full test suite: 1576 tests pass
+
 **Git Status:** Ready to commit

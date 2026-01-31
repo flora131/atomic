@@ -432,6 +432,33 @@ The loop exits when **any** of these conditions are met:
 2. `--completion-promise` phrase detected in output (via `<promise>TEXT</promise>` tags)
 3. All features in `--feature-list` are passing (when using `/implement-feature` with no iteration limit)
 
+### Graph Engine (Experimental)
+
+Ralph supports an experimental graph-based execution engine that provides:
+
+- **Structured workflow execution** with defined nodes and edges
+- **Checkpointing** for workflow resumption after interruptions
+- **Context window monitoring** with automatic session compaction
+- **Human-in-the-loop approvals** for spec review before implementation
+
+To enable the graph engine, set the `ATOMIC_USE_GRAPH_ENGINE` environment variable:
+
+```bash
+# Enable graph-based execution
+export ATOMIC_USE_GRAPH_ENGINE=true
+atomic ralph setup -a claude
+
+# Or inline
+ATOMIC_USE_GRAPH_ENGINE=true atomic ralph setup -a claude
+```
+
+| Value   | Behavior                                      |
+| ------- | --------------------------------------------- |
+| `true`  | Uses graph-based workflow execution           |
+| `false` | Uses traditional hook-based execution (default) |
+
+> **Note:** The graph engine is in active development. It will become the default execution mode in a future release (Phase 8). During the rollout period, the flag defaults to `false` for stability.
+
 ### Examples
 
 ```bash

@@ -30,6 +30,7 @@ import { configCommand } from "./commands/config";
 import { updateCommand } from "./commands/update";
 import { uninstallCommand } from "./commands/uninstall";
 import { ralphSetup, ralphStop } from "./commands/ralph";
+import { chatCommand } from "./commands/chat";
 import { cleanupWindowsLeftoverFiles } from "./utils/cleanup";
 import { isTelemetryEnabledSync } from "./utils/telemetry";
 import { handleTelemetryUpload } from "./utils/telemetry/telemetry-upload";
@@ -123,6 +124,68 @@ Examples:
       const exitCode = await runAgentCommand(agent, args, {
         force: globalOpts.force,
         yes: globalOpts.yes,
+      });
+
+      process.exit(exitCode);
+    });
+
+  // Add chat command for interactive chat with coding agents
+  program
+    .command("chat")
+    .description("Start an interactive chat session with a coding agent")
+    .option(
+      "-a, --agent <name>",
+      `Agent to chat with (${agentChoices})`,
+      "claude"
+    )
+    .option("-w, --workflow", "Enable graph workflow mode", false)
+    .option(
+      "-t, --theme <name>",
+      "UI theme (dark, light)",
+      "dark"
+    )
+    .option("-m, --model <name>", "Model to use for the chat session")
+    .option("--max-iterations <n>", "Maximum iterations for workflow mode", "100")
+    .addHelpText(
+      "after",
+      `
+Examples:
+  $ atomic chat                              Start chat with Claude (default)
+  $ atomic chat -a opencode                  Start chat with OpenCode
+  $ atomic chat -a copilot --workflow        Start workflow-enabled chat with Copilot
+  $ atomic chat --theme light                Start chat with light theme
+  $ atomic chat -w --max-iterations 50       Start workflow with iteration limit
+
+Slash Commands (in workflow mode):
+  /workflow - Start the Atomic workflow
+  /status   - Show workflow status
+  /approve  - Approve the current specification
+  /reject   - Reject and request revisions
+  /theme    - Switch theme (dark/light)
+  /help     - Show available commands`
+    )
+    .action(async (localOpts) => {
+      // Validate agent choice
+      const validAgents = Object.keys(AGENT_CONFIG);
+      if (!validAgents.includes(localOpts.agent)) {
+        console.error(`${COLORS.red}Error: Unknown agent '${localOpts.agent}'${COLORS.reset}`);
+        console.error(`Valid agents: ${agentChoices}`);
+        process.exit(1);
+      }
+
+      // Validate theme choice
+      if (localOpts.theme !== "dark" && localOpts.theme !== "light") {
+        console.error(`${COLORS.red}Error: Invalid theme '${localOpts.theme}'${COLORS.reset}`);
+        console.error("Valid themes: dark, light");
+        process.exit(1);
+      }
+
+      const exitCode = await chatCommand({
+        agentType: localOpts.agent as "claude" | "opencode" | "copilot",
+        workflow: localOpts.workflow,
+        theme: localOpts.theme as "dark" | "light",
+        model: localOpts.model,
+        maxIterations: parseInt(localOpts.maxIterations, 10),
       });
 
       process.exit(exitCode);

@@ -1151,4 +1151,70 @@ Implemented the UnifiedTelemetryCollector class for cross-SDK telemetry collecti
 - Linting passes (0 warnings, 0 errors)
 - All 41 collector tests pass (84 expect() calls)
 
+**Git Status:** Committed as d7b9cd5
+
+---
+
+### 2026-01-31 - Iteration 21
+
+**Feature Completed:** Feature 23 - Implement SDK telemetry integration with withTelemetry wrapper
+
+**Files Created:**
+- `src/telemetry/sdk-integration.ts` - SDK telemetry integration (350 lines)
+- `tests/telemetry/sdk-integration.test.ts` - Unit tests (37 passing tests)
+
+**Files Modified:**
+- `src/telemetry/index.ts` - Added SDK integration exports
+
+**Implementation Summary:**
+Implemented SDK telemetry integration for automatic tracking of CodingAgentClient operations:
+
+1. **withTelemetry Function:**
+   - Wraps CodingAgentClient with telemetry tracking
+   - Tracks createSession with model and duration
+   - Tracks resumeSession with success/failure
+   - Returns wrapped sessions automatically
+   - Flushes telemetry on client stop
+
+2. **wrapSession Function:**
+   - Wraps Session with telemetry tracking
+   - Tracks send() with success, duration, error
+   - Tracks stream() with completion status
+   - Tracks destroy() for session cleanup
+   - Passes through summarize() and getContextUsage()
+
+3. **Event Type Mapping:**
+   - `mapEventType()` - Maps SDK EventType to telemetry SdkEventType
+   - Maps session.start -> sdk.session.created
+   - Maps session.error -> sdk.error
+   - Maps message.delta/complete -> sdk.message.received
+   - Maps tool.start/complete -> sdk.tool.started/completed
+
+4. **Event Tracking Configuration:**
+   - `shouldTrackEvent()` - Determines if event should be tracked
+   - Always tracks session events
+   - Optional tracking for messages (default true)
+   - Optional tracking for tools (default true)
+   - Always tracks subagent events
+
+5. **SdkTelemetryConfig Interface:**
+   - `collector` - Custom telemetry collector
+   - `trackMessages` - Enable/disable message tracking
+   - `trackTools` - Enable/disable tool tracking
+   - `additionalProperties` - Properties added to all events
+
+6. **withTelemetryFactory Function:**
+   - Wraps client factory with telemetry
+   - Produces telemetry-wrapped clients from factory output
+
+7. **Event Handler Wrapping:**
+   - Wraps `on()` handlers to track SDK events
+   - Extracts relevant properties from events
+   - Forwards events to original handlers
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 37 SDK integration tests pass (85 expect() calls)
+
 **Git Status:** Ready to commit

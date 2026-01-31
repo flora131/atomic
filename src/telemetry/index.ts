@@ -62,3 +62,13 @@ export {
   getDefaultLogPath,
   shouldEnableTelemetry,
 } from "./collector.ts";
+
+// SDK integration
+export {
+  withTelemetry,
+  withTelemetryFactory,
+  wrapSession,
+  mapEventType,
+  shouldTrackEvent,
+  type SdkTelemetryConfig,
+} from "./sdk-integration.ts";

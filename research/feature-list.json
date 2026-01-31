@@ -382,7 +382,7 @@
       "Wrap on method to track all SDK events",
       "Implement mapEventType for event type translation"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

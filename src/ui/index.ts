@@ -429,3 +429,20 @@ export {
   hasCodeBlocks,
   extractInlineCode,
 } from "./code-block.tsx";
+
+// Hooks module
+export {
+  useStreamingState,
+  type StreamingState,
+  type ToolExecutionState,
+  type ToolExecutionStatus,
+  type ToolExecutionTimestamps,
+  type UseStreamingStateReturn,
+  createInitialStreamingState,
+  generateToolExecutionId,
+  getCurrentTimestamp,
+  createToolExecution,
+  getActiveToolExecutions,
+  getCompletedToolExecutions,
+  getErroredToolExecutions,
+} from "./hooks/index.ts";

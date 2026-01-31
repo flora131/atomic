@@ -1,0 +1,33 @@
+/**
+ * Hooks Module Index
+ *
+ * Re-exports all hooks and their types for the UI module.
+ *
+ * Reference: Feature 14 - Create hooks module index with exports
+ */
+
+// ============================================================================
+// USE STREAMING STATE
+// ============================================================================
+
+export {
+  // Hook
+  useStreamingState,
+  default as useStreamingStateDefault,
+
+  // Types
+  type StreamingState,
+  type ToolExecutionState,
+  type ToolExecutionStatus,
+  type ToolExecutionTimestamps,
+  type UseStreamingStateReturn,
+
+  // Utility functions
+  createInitialStreamingState,
+  generateToolExecutionId,
+  getCurrentTimestamp,
+  createToolExecution,
+  getActiveToolExecutions,
+  getCompletedToolExecutions,
+  getErroredToolExecutions,
+} from "./use-streaming-state.ts";

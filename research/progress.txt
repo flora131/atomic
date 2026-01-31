@@ -1941,3 +1941,35 @@ Expanded the "Graph Engine (Experimental)" section in README.md with comprehensi
 - Full test suite: 1576 tests pass
 
 **Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 35
+
+**Feature Verified:** Feature 37 - Create src/sdk/index.ts with all SDK exports
+
+**Existing Implementation:**
+The src/sdk/index.ts file already exists with comprehensive exports (161 lines).
+
+**Steps Verified:**
+1. ✅ Export all types from types.ts - Lines 8-49 (20+ type exports)
+2. ✅ Export ClaudeAgentClient from claude-client.ts - Lines 51-56
+3. ✅ Export OpenCodeClient from opencode-client.ts - Lines 58-74
+4. ✅ Export CopilotClient from copilot-client.ts - Lines 76-97
+5. ✅ Export HookManager and hook types from hooks.ts - Lines 99-121
+6. ✅ Export createPermissionHandler from copilot-client.ts - Lines 80-81 (createAutoApprovePermissionHandler, createDenyAllPermissionHandler)
+
+**Export Summary:**
+- Type exports: 20+ types (PermissionMode, SessionConfig, AgentMessage, etc.)
+- Claude exports: ClaudeAgentClient, createClaudeAgentClient, ClaudeHookConfig
+- OpenCode exports: OpenCodeClient, createOpenCodeClient, 11 SDK types
+- Copilot exports: CopilotClient, createCopilotClient, permission handlers, 15 SDK types
+- HookManager exports: HookManager, createHookManager, 13 hook types
+- Hook handlers: Claude, Copilot, OpenCode hook factories
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 243 SDK tests pass (406 expect() calls)
+
+**Git Status:** Ready to commit

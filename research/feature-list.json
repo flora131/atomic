@@ -565,7 +565,7 @@
       "Test PR creation on completion",
       "Run with bun test:e2e:graph command"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

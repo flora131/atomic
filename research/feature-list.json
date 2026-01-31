@@ -76,7 +76,7 @@
       "Add parseSlashCommand() helper to extract command name and args from input",
       "Add unit tests for initializeCommands in tests/ui/commands/index.test.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

@@ -92,7 +92,7 @@ describe("SKILL_DEFINITIONS", () => {
   test("ralph:ralph-loop skill has correct aliases", () => {
     const ralphLoop = SKILL_DEFINITIONS.find((s) => s.name === "ralph:ralph-loop");
     expect(ralphLoop?.aliases).toContain("ralph-loop");
-    expect(ralphLoop?.aliases).toContain("loop");
+    // Note: "loop" alias is reserved for atomic workflow to avoid conflicts
   });
 });
 
@@ -255,7 +255,7 @@ describe("getSkillMetadata", () => {
 
   test("finds ralph skills", () => {
     const ralphLoop = getSkillMetadata("ralph:ralph-loop");
-    const byAlias = getSkillMetadata("loop");
+    const byAlias = getSkillMetadata("ralph-loop");
 
     expect(ralphLoop?.name).toBe("ralph:ralph-loop");
     expect(byAlias?.name).toBe("ralph:ralph-loop");

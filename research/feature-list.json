@@ -31,7 +31,7 @@
       "Create registerBuiltinCommands() function to register all built-ins with globalRegistry",
       "Add unit tests in tests/ui/commands/builtin-commands.test.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -381,7 +381,7 @@
       "Test search() sorts by category then alphabetically",
       "Test all() returns all visible commands"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -395,7 +395,7 @@
       "Test /theme toggles dark/light",
       "Test /clear resets messages array"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

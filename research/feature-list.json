@@ -86,7 +86,7 @@
       "Implement emit method for dispatching events to handlers",
       "Add unit tests for hook registration and event mapping"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",
@@ -100,7 +100,7 @@
       "Verify telemetry collection still works with native hooks",
       "Add integration tests for migrated hooks"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",
@@ -115,7 +115,7 @@
       "Verify Ralph session and telemetry work with native SDK events",
       "Add integration tests for migrated hooks"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",
@@ -130,7 +130,7 @@
       "Verify session continuation works with native SDK events",
       "Add integration tests for migrated hooks"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",
@@ -149,7 +149,7 @@
       "Define ExecutionError interface with nodeId, error, timestamp, attempt",
       "Define DebugReport interface with errorSummary, stackTrace, relevantFiles, suggestedFixes"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",
@@ -167,7 +167,7 @@
       "Define AtomicWorkflowState type from annotation",
       "Add unit tests for annotation system and reducers"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -191,7 +191,7 @@
       "Implement graph() factory function",
       "Add unit tests for all builder methods"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -211,7 +211,7 @@
       "Add default retry configuration for agent nodes",
       "Add unit tests for all node factory functions"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

@@ -7,8 +7,12 @@ import { ATOMIC_COMMANDS } from "../../src/utils/telemetry/constants";
  * Tests to verify ATOMIC_COMMANDS is synchronized across all locations:
  * 1. src/utils/telemetry/constants.ts (source of truth)
  * 2. .opencode/plugin/telemetry.ts (OpenCode plugin - inlined)
- * 3. .claude/hooks/telemetry-stop.ts (Claude Code hook - inlined)
- * 4. .github/hooks/telemetry-session.ts (Copilot hook - inlined)
+ *
+ * Note: Claude Code hooks have been migrated to SDK native handlers in
+ * src/sdk/claude-hooks.ts which uses the telemetry-session module directly.
+ *
+ * Note: Copilot hooks have been migrated to SDK native handlers in
+ * src/sdk/copilot-hooks.ts which uses the telemetry-session module directly.
  *
  * These tests prevent accidental desynchronization when updating command lists.
  */
@@ -45,22 +49,13 @@ test("ATOMIC_COMMANDS is synchronized across all TypeScript locations", () => {
   // Source of truth
   const sourceCommands = [...ATOMIC_COMMANDS];
 
-  // Extract from OpenCode plugin
+  // Extract from OpenCode plugin (only remaining external location)
   const opencodeFilePath = join(projectRoot, ".opencode/plugin/telemetry.ts");
   const opencodeCommands = extractTypeScriptCommands(opencodeFilePath);
 
-  // Extract from Claude Code hook
-  const claudeFilePath = join(projectRoot, ".claude/hooks/telemetry-stop.ts");
-  const claudeCommands = extractTypeScriptCommands(claudeFilePath);
-
-  // Extract from Copilot hook
-  const copilotFilePath = join(projectRoot, ".github/hooks/telemetry-session.ts");
-  const copilotCommands = extractTypeScriptCommands(copilotFilePath);
-
-  // Verify all match the source of truth
+  // Verify OpenCode plugin matches the source of truth
+  // Note: Claude and Copilot hooks now use src/sdk/*-hooks.ts -> telemetry-session.ts
   expect(opencodeCommands).toEqual(sourceCommands);
-  expect(claudeCommands).toEqual(sourceCommands);
-  expect(copilotCommands).toEqual(sourceCommands);
 });
 
 test("ATOMIC_COMMANDS is not empty", () => {

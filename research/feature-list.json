@@ -158,7 +158,7 @@
       "Handle command not found error gracefully",
       "Add tests for command execution flow"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

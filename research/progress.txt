@@ -289,3 +289,44 @@
 
 **Next**: Implement command completion and execution in ChatApp
 
+---
+
+### 2026-01-31 - Command Execution Implementation
+
+**Feature**: Implement command completion and execution in ChatApp
+
+**Status**: COMPLETE
+
+**Changes**:
+- Modified `src/ui/chat.tsx` with new imports and functions:
+  - Added imports: globalRegistry, parseSlashCommand, CommandContext, CommandContextState
+  - Added `addMessage` helper callback for commands to add messages to chat
+  - Added `executeCommand` async function that:
+    - Looks up command in globalRegistry
+    - Shows error message for unknown commands
+    - Creates CommandContext with session, state, addMessage, setStreaming
+    - Calls command.execute() and awaits result
+    - Applies result.stateUpdate to workflow state
+    - Displays result.message as system message
+    - Handles execution errors with try/catch
+  - Updated `handleAutocompleteSelect` to:
+    - Clear textarea and hide autocomplete for both actions
+    - On "complete": insert command with trailing space
+    - On "execute": call executeCommand immediately
+  - Updated `handleSubmit` to:
+    - Hide autocomplete if visible
+    - Check for slash commands using parseSlashCommand
+    - Route slash commands to executeCommand
+    - Pass regular messages to existing handlers
+
+- Created `tests/ui/chat-command-execution.test.ts` with 24 tests covering:
+  - parseSlashCommand: simple commands, args, whitespace, case handling
+  - Command lookup: by name, by alias, unknown commands, case-insensitive
+  - Command execution: args passing, failed results, state updates, async commands, error handling
+  - CommandContext: addMessage callback, setStreaming callback, state access
+  - Integration flow: parse → lookup → execute → result
+
+**Test Results**: 245 tests passing across all chat/command tests
+
+**Next**: Create UserQuestionDialog component for HITL interactions
+

@@ -17,7 +17,13 @@ import type {
 } from "@opentui/core";
 import { copyToClipboard, pasteFromClipboard } from "../utils/clipboard.ts";
 import { Autocomplete } from "./components/autocomplete.tsx";
-import type { CommandDefinition } from "./commands/index.ts";
+import {
+  globalRegistry,
+  parseSlashCommand,
+  type CommandDefinition,
+  type CommandContext,
+  type CommandContextState,
+} from "./commands/index.ts";
 
 // ============================================================================
 // BLOCK LETTER LOGO WITH GRADIENT
@@ -546,6 +552,90 @@ export function ChatApp({
   }, [workflowState.showAutocomplete, updateWorkflowState]);
 
   /**
+   * Helper to add a message to the chat.
+   * Used by command execution context.
+   */
+  const addMessage = useCallback((role: "user" | "assistant" | "system", content: string) => {
+    const msg = createMessage(role, content);
+    setMessages((prev) => [...prev, msg]);
+  }, []);
+
+  /**
+   * Execute a slash command by name with arguments.
+   * Creates the CommandContext and calls the command's execute function.
+   *
+   * @param commandName - The command name (without leading slash)
+   * @param args - Arguments to pass to the command
+   * @returns Promise resolving to true if command executed successfully
+   */
+  const executeCommand = useCallback(async (
+    commandName: string,
+    args: string
+  ): Promise<boolean> => {
+    // Look up the command in the registry
+    const command = globalRegistry.get(commandName);
+
+    if (!command) {
+      // Command not found - show error message
+      addMessage("system", `Unknown command: /${commandName}. Type /help for available commands.`);
+      return false;
+    }
+
+    // Create the command context
+    const contextState: CommandContextState = {
+      isStreaming,
+      messageCount: messages.length,
+      workflowActive: workflowState.workflowActive,
+      workflowType: workflowState.workflowType,
+      initialPrompt: workflowState.initialPrompt,
+      pendingApproval: workflowState.pendingApproval,
+      specApproved: workflowState.specApproved,
+      feedback: workflowState.feedback,
+    };
+
+    const context: CommandContext = {
+      session: null, // Session will be passed from parent in production
+      state: contextState,
+      addMessage,
+      setStreaming: setIsStreaming,
+    };
+
+    try {
+      // Execute the command (may be sync or async)
+      const result = await Promise.resolve(command.execute(args, context));
+
+      // Apply state updates if present
+      if (result.stateUpdate) {
+        updateWorkflowState({
+          workflowActive: result.stateUpdate.workflowActive ?? workflowState.workflowActive,
+          workflowType: result.stateUpdate.workflowType ?? workflowState.workflowType,
+          initialPrompt: result.stateUpdate.initialPrompt ?? workflowState.initialPrompt,
+          pendingApproval: result.stateUpdate.pendingApproval ?? workflowState.pendingApproval,
+          specApproved: result.stateUpdate.specApproved ?? workflowState.specApproved,
+          feedback: result.stateUpdate.feedback ?? workflowState.feedback,
+        });
+
+        // Also update isStreaming if specified
+        if (result.stateUpdate.isStreaming !== undefined) {
+          setIsStreaming(result.stateUpdate.isStreaming);
+        }
+      }
+
+      // Display message if present
+      if (result.message) {
+        addMessage("system", result.message);
+      }
+
+      return result.success;
+    } catch (error) {
+      // Handle execution error
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      addMessage("system", `Error executing /${commandName}: ${errorMessage}`);
+      return false;
+    }
+  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState]);
+
+  /**
    * Handle autocomplete selection (Tab for complete, Enter for execute).
    */
   const handleAutocompleteSelect = useCallback((
@@ -554,34 +644,26 @@ export function ChatApp({
   ) => {
     if (!textareaRef.current) return;
 
+    // Clear the textarea first
+    textareaRef.current.gotoBufferHome();
+    textareaRef.current.gotoBufferEnd({ select: true });
+    textareaRef.current.deleteChar();
+
+    // Hide autocomplete
+    updateWorkflowState({
+      showAutocomplete: false,
+      autocompleteInput: "",
+      selectedSuggestionIndex: 0,
+    });
+
     if (action === "complete") {
       // Replace input with completed command + space for arguments
-      textareaRef.current.gotoBufferHome();
-      textareaRef.current.gotoBufferEnd({ select: true });
-      textareaRef.current.deleteChar();
       textareaRef.current.insertText(`/${command.name} `);
-
-      // Hide autocomplete after completion
-      updateWorkflowState({
-        showAutocomplete: false,
-        autocompleteInput: "",
-        selectedSuggestionIndex: 0,
-      });
     } else if (action === "execute") {
-      // For execute, we'll handle this in a later feature
-      // For now, just complete the command
-      textareaRef.current.gotoBufferHome();
-      textareaRef.current.gotoBufferEnd({ select: true });
-      textareaRef.current.deleteChar();
-      textareaRef.current.insertText(`/${command.name}`);
-
-      updateWorkflowState({
-        showAutocomplete: false,
-        autocompleteInput: "",
-        selectedSuggestionIndex: 0,
-      });
+      // Execute the command immediately with no arguments
+      void executeCommand(command.name, "");
     }
-  }, [updateWorkflowState]);
+  }, [updateWorkflowState, executeCommand]);
 
   /**
    * Handle autocomplete index changes (up/down navigation).
@@ -691,6 +773,7 @@ export function ChatApp({
   /**
    * Handle message submission from textarea.
    * Gets value from textarea ref since onSubmit receives SubmitEvent, not value.
+   * Handles both slash commands and regular messages.
    */
   const handleSubmit = useCallback(
     () => {
@@ -708,6 +791,24 @@ export function ChatApp({
         textareaRef.current.deleteChar();
       }
 
+      // Hide autocomplete if visible
+      if (workflowState.showAutocomplete) {
+        updateWorkflowState({
+          showAutocomplete: false,
+          autocompleteInput: "",
+          selectedSuggestionIndex: 0,
+        });
+      }
+
+      // Check if this is a slash command
+      const parsed = parseSlashCommand(trimmedValue);
+      if (parsed.isCommand) {
+        // Execute the slash command
+        void executeCommand(parsed.name, parsed.args);
+        return;
+      }
+
+      // Regular message handling below
       // Add user message
       const userMessage = createMessage("user", trimmedValue);
       setMessages((prev: ChatMessage[]) => [...prev, userMessage]);
@@ -757,7 +858,7 @@ export function ChatApp({
         void Promise.resolve(onStreamMessage(trimmedValue, handleChunk, handleComplete));
       }
     },
-    [isStreaming, onSendMessage, onStreamMessage]
+    [isStreaming, onSendMessage, onStreamMessage, workflowState.showAutocomplete, updateWorkflowState, executeCommand]
   );
 
   // Render message list (no empty state text)

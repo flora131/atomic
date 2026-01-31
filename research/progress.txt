@@ -97,3 +97,38 @@
 
 **Next**: Implement skill command registration from system-reminder skill list
 
+---
+
+### 2026-01-31 - Skill Commands Implementation
+
+**Feature**: Implement skill command registration from system-reminder skill list
+
+**Status**: COMPLETE
+
+**Changes**:
+- Created `src/ui/commands/skill-commands.ts` with:
+  - `SkillMetadata` interface - defines skill command metadata (name, description, aliases, hidden)
+  - `SKILL_DEFINITIONS` array with 11 skills:
+    - Core: commit (ci), research-codebase (research), create-spec (spec), create-feature-list (features), implement-feature (impl), create-gh-pr (pr), explain-code (explain), prompt-engineer (prompt)
+    - Ralph: ralph:ralph-loop (ralph-loop, loop), ralph:cancel-ralph (cancel-ralph, stop-ralph), ralph:ralph-help (ralph-help)
+    - Hidden: testing-anti-patterns (test-patterns)
+  - Skill command execute function that:
+    - Validates session is available
+    - Adds system message with skill invocation
+    - Sets streaming state for response
+  - `registerSkillCommands()` - registers all skills with globalRegistry (idempotent)
+  - Helper functions: getSkillMetadata(), isRalphSkill(), getRalphSkills(), getCoreSkills()
+
+- Created `tests/ui/commands/skill-commands.test.ts` with 33 passing tests covering:
+  - SKILL_DEFINITIONS structure and skill presence
+  - Core and Ralph skill separation
+  - Command metadata and aliases
+  - Execute validation (requires session)
+  - State updates on execution
+  - Registration and alias lookup
+  - Helper function behavior
+
+**Test Results**: 133 tests passing across all command tests (35 registry + 37 builtin + 28 workflow + 33 skill)
+
+**Next**: Create commands module index with initialization function
+

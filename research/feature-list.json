@@ -447,7 +447,7 @@
       "Recreate session for Claude client on warning",
       "Add configurable threshold via GraphConfig"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

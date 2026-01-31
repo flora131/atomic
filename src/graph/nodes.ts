@@ -22,8 +22,9 @@ import type {
   RetryConfig,
   ExecutionContext,
   SignalData,
+  ContextWindowUsage,
 } from "./types.ts";
-import type { SessionConfig, AgentMessage, CodingAgentClient } from "../sdk/types.ts";
+import type { SessionConfig, AgentMessage, CodingAgentClient, Session, ContextUsage } from "../sdk/types.ts";
 import { DEFAULT_RETRY_CONFIG } from "./types.ts";
 
 // ============================================================================
@@ -849,4 +850,348 @@ export function subgraphNode<
       return { stateUpdate };
     },
   };
+}
+
+// ============================================================================
+// CONTEXT MONITORING NODE
+// ============================================================================
+
+/**
+ * Action to take when context window threshold is exceeded.
+ */
+export type ContextCompactionAction = "summarize" | "recreate" | "warn" | "none";
+
+/**
+ * State interface extension for context monitoring.
+ * Workflows using context monitoring should include these fields.
+ */
+export interface ContextMonitoringState extends BaseState {
+  /** Current context window usage */
+  contextWindowUsage: ContextWindowUsage | null;
+}
+
+/**
+ * Configuration for creating a context monitoring node.
+ *
+ * @template TState - The state type for the workflow
+ */
+export interface ContextMonitorNodeConfig<TState extends BaseState = BaseState> {
+  /** Unique identifier for the node */
+  id: NodeId;
+
+  /**
+   * Agent type to determine compaction strategy.
+   * - "opencode": Calls session.summarize()
+   * - "claude": Signals need to recreate session
+   * - "copilot": Signals only (no native compaction)
+   */
+  agentType: AgentNodeAgentType;
+
+  /**
+   * Context usage threshold percentage (0-100) that triggers action.
+   * Defaults to 60 (60%).
+   */
+  threshold?: number;
+
+  /**
+   * Action to take when threshold is exceeded:
+   * - "summarize": Call session.summarize() (OpenCode only)
+   * - "recreate": Signal that session should be recreated (Claude)
+   * - "warn": Emit warning signal only
+   * - "none": Do nothing
+   * Defaults to auto-detect based on agentType.
+   */
+  action?: ContextCompactionAction;
+
+  /**
+   * Session to monitor and potentially compact.
+   * Can be a function that retrieves the session from state.
+   */
+  getSession?: (state: TState) => Session | null;
+
+  /**
+   * Function to get the current context usage.
+   * If not provided, uses getSession().getContextUsage().
+   */
+  getContextUsage?: (state: TState) => Promise<ContextUsage | null>;
+
+  /**
+   * Callback when compaction is performed.
+   * @param usage - Context usage before compaction
+   * @param action - Action that was taken
+   */
+  onCompaction?: (usage: ContextUsage, action: ContextCompactionAction) => void;
+
+  /** Human-readable name */
+  name?: string;
+
+  /** Description */
+  description?: string;
+}
+
+/**
+ * Default context window threshold percentage.
+ */
+export const DEFAULT_CONTEXT_THRESHOLD = 60;
+
+/**
+ * Get the default compaction action for an agent type.
+ *
+ * @param agentType - The agent type
+ * @returns The default compaction action
+ */
+export function getDefaultCompactionAction(agentType: AgentNodeAgentType): ContextCompactionAction {
+  switch (agentType) {
+    case "opencode":
+      return "summarize";
+    case "claude":
+      return "recreate";
+    case "copilot":
+      return "warn";
+    default:
+      return "warn";
+  }
+}
+
+/**
+ * Convert SDK ContextUsage to graph ContextWindowUsage.
+ *
+ * @param usage - SDK context usage
+ * @returns Graph context window usage
+ */
+export function toContextWindowUsage(usage: ContextUsage): ContextWindowUsage {
+  return {
+    inputTokens: usage.inputTokens,
+    outputTokens: usage.outputTokens,
+    maxTokens: usage.maxTokens,
+    usagePercentage: usage.usagePercentage,
+  };
+}
+
+/**
+ * Check if context usage exceeds threshold.
+ *
+ * @param usage - Context usage to check
+ * @param threshold - Threshold percentage (0-100)
+ * @returns True if usage exceeds threshold
+ */
+export function isContextThresholdExceeded(
+  usage: ContextUsage | ContextWindowUsage | null,
+  threshold: number
+): boolean {
+  if (!usage) return false;
+  return usage.usagePercentage >= threshold;
+}
+
+/**
+ * Create a context monitoring node that checks and manages context window usage.
+ *
+ * This node:
+ * 1. Gets the current context window usage
+ * 2. Checks if usage exceeds the configured threshold
+ * 3. Takes appropriate action (summarize, recreate signal, or warn)
+ * 4. Updates state with current usage
+ *
+ * @template TState - The state type for the workflow (must extend ContextMonitoringState)
+ * @param config - Context monitoring node configuration
+ * @returns A NodeDefinition that monitors context usage
+ *
+ * @example
+ * ```typescript
+ * const monitorNode = contextMonitorNode<MyState>({
+ *   id: "context-check",
+ *   agentType: "opencode",
+ *   threshold: 70,
+ *   getSession: (state) => state.activeSession,
+ * });
+ * ```
+ */
+export function contextMonitorNode<TState extends ContextMonitoringState = ContextMonitoringState>(
+  config: ContextMonitorNodeConfig<TState>
+): NodeDefinition<TState> {
+  const {
+    id,
+    agentType,
+    threshold = DEFAULT_CONTEXT_THRESHOLD,
+    action = getDefaultCompactionAction(agentType),
+    getSession,
+    getContextUsage: customGetContextUsage,
+    onCompaction,
+    name,
+    description,
+  } = config;
+
+  return {
+    id,
+    type: "tool",
+    name: name ?? "context-monitor",
+    description: description ?? `Monitor context window usage (threshold: ${threshold}%)`,
+    execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
+      // Get context usage
+      let usage: ContextUsage | null = null;
+
+      if (customGetContextUsage) {
+        usage = await customGetContextUsage(ctx.state);
+      } else if (getSession) {
+        const session = getSession(ctx.state);
+        if (session) {
+          usage = await session.getContextUsage();
+        }
+      } else {
+        // Try to use contextWindowUsage from execution context
+        if (ctx.contextWindowUsage) {
+          usage = {
+            inputTokens: ctx.contextWindowUsage.inputTokens,
+            outputTokens: ctx.contextWindowUsage.outputTokens,
+            maxTokens: ctx.contextWindowUsage.maxTokens,
+            usagePercentage: ctx.contextWindowUsage.usagePercentage,
+          };
+        }
+      }
+
+      // Build state update with current usage
+      const stateUpdate: Partial<TState> = {
+        contextWindowUsage: usage ? toContextWindowUsage(usage) : null,
+      } as Partial<TState>;
+
+      // Check if threshold is exceeded
+      if (!isContextThresholdExceeded(usage, threshold)) {
+        // Under threshold, no action needed
+        return { stateUpdate };
+      }
+
+      // Threshold exceeded - take action
+      const signals: SignalData[] = [];
+
+      switch (action) {
+        case "summarize": {
+          // OpenCode: call session.summarize()
+          const session = getSession?.(ctx.state);
+          if (session) {
+            try {
+              await session.summarize();
+              onCompaction?.(usage!, action);
+              
+              // Get updated usage after summarization
+              const newUsage = await session.getContextUsage();
+              stateUpdate.contextWindowUsage = newUsage ? toContextWindowUsage(newUsage) : null;
+            } catch (error) {
+              // If summarize fails, emit warning instead
+              signals.push({
+                type: "context_window_warning",
+                message: `Context compaction failed: ${error instanceof Error ? error.message : String(error)}`,
+                data: {
+                  usagePercentage: usage!.usagePercentage,
+                  threshold,
+                  action: "summarize",
+                  error: true,
+                },
+              });
+            }
+          } else {
+            // No session available, emit warning
+            signals.push({
+              type: "context_window_warning",
+              message: `Context usage at ${usage!.usagePercentage.toFixed(1)}% (no session for summarization)`,
+              data: {
+                usagePercentage: usage!.usagePercentage,
+                threshold,
+                action: "warn",
+              },
+            });
+          }
+          break;
+        }
+
+        case "recreate": {
+          // Claude: signal that session should be recreated
+          onCompaction?.(usage!, action);
+          signals.push({
+            type: "context_window_warning",
+            message: `Context usage at ${usage!.usagePercentage.toFixed(1)}% - session recreation recommended`,
+            data: {
+              usagePercentage: usage!.usagePercentage,
+              threshold,
+              action: "recreate",
+              shouldRecreateSession: true,
+            },
+          });
+          break;
+        }
+
+        case "warn": {
+          // Emit warning signal only
+          signals.push({
+            type: "context_window_warning",
+            message: `Context usage at ${usage!.usagePercentage.toFixed(1)}%`,
+            data: {
+              usagePercentage: usage!.usagePercentage,
+              threshold,
+              action: "warn",
+            },
+          });
+          break;
+        }
+
+        case "none":
+          // Do nothing
+          break;
+      }
+
+      return {
+        stateUpdate,
+        signals: signals.length > 0 ? signals : undefined,
+      };
+    },
+  };
+}
+
+/**
+ * Options for creating a simple context check.
+ */
+export interface ContextCheckOptions {
+  /** Threshold percentage (default: 60) */
+  threshold?: number;
+  /** Whether to emit a signal when threshold is exceeded (default: true) */
+  emitSignal?: boolean;
+}
+
+/**
+ * Simple helper to check context usage against a threshold.
+ * Returns true if usage exceeds threshold.
+ *
+ * @param session - Session to check
+ * @param options - Check options
+ * @returns Object with exceeded flag and current usage
+ */
+export async function checkContextUsage(
+  session: Session,
+  options: ContextCheckOptions = {}
+): Promise<{ exceeded: boolean; usage: ContextUsage }> {
+  const { threshold = DEFAULT_CONTEXT_THRESHOLD } = options;
+  const usage = await session.getContextUsage();
+  const exceeded = isContextThresholdExceeded(usage, threshold);
+  return { exceeded, usage };
+}
+
+/**
+ * Perform context compaction on a session based on agent type.
+ *
+ * @param session - Session to compact
+ * @param agentType - Type of agent
+ * @returns True if compaction was performed
+ */
+export async function compactContext(
+  session: Session,
+  agentType: AgentNodeAgentType
+): Promise<boolean> {
+  const action = getDefaultCompactionAction(agentType);
+  
+  if (action === "summarize") {
+    await session.summarize();
+    return true;
+  }
+  
+  // "recreate" and "warn" don't perform automatic compaction
+  return false;
 }

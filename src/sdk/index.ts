@@ -72,3 +72,26 @@ export {
   type CreateOpenCodeClientFn,
   type OpenCodeClientOptions,
 } from "./opencode-client.ts";
+
+// Copilot Client exports
+export {
+  CopilotClient,
+  createCopilotClient,
+  createAutoApprovePermissionHandler,
+  createDenyAllPermissionHandler,
+  type CopilotSdkEventType,
+  type CopilotSdkEvent,
+  type CopilotSdkSession,
+  type CopilotSdkMessage,
+  type CopilotSdkToolCall,
+  type CopilotSdkStreamEvent,
+  type CopilotSdkUsage,
+  type CopilotSdkToolDefinition,
+  type CopilotSdkPermissionRequest,
+  type CopilotPermissionHandler,
+  type CopilotConnectionMode,
+  type CopilotSdkClient,
+  type CopilotSdkSessionConfig,
+  type CopilotClientOptions,
+  type CreateCopilotClientFn,
+} from "./copilot-client.ts";

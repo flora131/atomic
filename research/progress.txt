@@ -965,4 +965,61 @@ Implemented theme support for terminal chat UI:
 - Linting passes (0 warnings, 0 errors)
 - All 96 UI tests pass (238 expect() calls)
 
+**Git Status:** Committed as 252150f
+
+---
+
+### 2026-01-31 - Iteration 18
+
+**Feature Completed:** Feature 20 - Implement CLI integration for chat UI
+
+**Files Created:**
+- `src/ui/index.ts` - CLI integration entry point (320 lines)
+- `tests/ui/index.test.ts` - Unit tests for CLI integration (21 passing tests)
+
+**Implementation Summary:**
+Implemented CLI integration connecting ChatApp component to coding agent clients:
+
+1. **Types:**
+   - `ChatUIConfig` - Configuration with sessionConfig, theme, title, placeholder
+   - `ChatUIResult` - Result with session, messageCount, duration
+   - `ChatUIState` - Internal state for managing lifecycle
+
+2. **startChatUI Function:**
+   - Accepts CodingAgentClient and optional ChatUIConfig
+   - Creates CLI renderer using createCliRenderer()
+   - Creates React root using createRoot()
+   - Renders ChatApp with ThemeProvider
+   - Returns Promise resolving to ChatUIResult on exit
+
+3. **Message Handlers:**
+   - `handleSendMessage()` - Creates session if needed, tracks message count
+   - `handleStreamMessage()` - Streams response via session.stream(), calls onChunk/onComplete
+   - `handleExit()` - Triggers cleanup and resolves exit promise
+
+4. **Cleanup:**
+   - Unmount React root before destroying renderer (avoids Yoga crash)
+   - Destroy session if active
+   - Remove signal handlers
+   - Calculate duration and return result
+
+5. **Signal Handlers:**
+   - SIGINT (Ctrl+C) triggers cleanup
+   - SIGTERM triggers cleanup
+   - Handlers removed on cleanup to prevent leaks
+
+6. **startMockChatUI Helper:**
+   - Creates mock client for testing/demo
+   - Mock session echoes messages with simulated delay
+   - Useful for UI development without real backend
+
+7. **Re-exports:**
+   - All exports from chat.tsx, theme.tsx, code-block.tsx
+   - Provides single entry point for UI module
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 117 UI tests pass (299 expect() calls)
+
 **Git Status:** Ready to commit

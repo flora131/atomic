@@ -347,7 +347,7 @@
       "Define TelemetryEventType union for SDK, graph, workflow, and UI events",
       "Define TelemetryCollector interface with track, flush, isEnabled, shutdown methods"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

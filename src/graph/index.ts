@@ -160,6 +160,12 @@ export type {
 
   // Subgraph node types
   SubgraphNodeConfig,
+
+  // Context monitoring types
+  ContextCompactionAction,
+  ContextMonitoringState,
+  ContextMonitorNodeConfig,
+  ContextCheckOptions,
 } from "./nodes.ts";
 
 // Value exports from nodes.ts
@@ -170,6 +176,7 @@ export {
 
   // Default configurations
   AGENT_NODE_RETRY_CONFIG,
+  DEFAULT_CONTEXT_THRESHOLD,
 
   // Node factory functions
   agentNode,
@@ -178,6 +185,14 @@ export {
   waitNode,
   parallelNode,
   subgraphNode,
+  contextMonitorNode,
+
+  // Context monitoring helpers
+  getDefaultCompactionAction,
+  toContextWindowUsage,
+  isContextThresholdExceeded,
+  checkContextUsage,
+  compactContext,
 } from "./nodes.ts";
 
 // Type exports from compiled.ts

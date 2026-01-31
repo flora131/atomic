@@ -894,3 +894,548 @@ describe("Edge Cases", () => {
     expect(result.goto).toBe("rejected-empty");
   });
 });
+
+// ============================================================================
+// Context Monitoring Node Tests
+// ============================================================================
+
+import {
+  contextMonitorNode,
+  DEFAULT_CONTEXT_THRESHOLD,
+  getDefaultCompactionAction,
+  toContextWindowUsage,
+  isContextThresholdExceeded,
+  checkContextUsage,
+  compactContext,
+  type ContextMonitoringState,
+  type ContextCompactionAction,
+} from "../../src/graph/nodes.ts";
+import type { ContextWindowUsage } from "../../src/graph/types.ts";
+import type { ContextUsage } from "../../src/sdk/types.ts";
+
+// Extend TestState for context monitoring tests
+interface ContextTestState extends ContextMonitoringState {
+  counter: number;
+  approved: boolean;
+  items: string[];
+  document?: string;
+  results?: unknown[];
+}
+
+function createContextTestState(overrides: Partial<ContextTestState> = {}): ContextTestState {
+  return {
+    executionId: "test-exec-1",
+    lastUpdated: new Date().toISOString(),
+    outputs: {},
+    counter: 0,
+    approved: false,
+    items: [],
+    contextWindowUsage: null,
+    ...overrides,
+  };
+}
+
+function createContextTestContext(
+  stateOverrides: Partial<ContextTestState> = {}
+): ExecutionContext<ContextTestState> {
+  return {
+    state: createContextTestState(stateOverrides),
+    config: {} as GraphConfig,
+    errors: [],
+  };
+}
+
+describe("Context Monitoring Helpers", () => {
+  test("DEFAULT_CONTEXT_THRESHOLD is 60", () => {
+    expect(DEFAULT_CONTEXT_THRESHOLD).toBe(60);
+  });
+
+  test("getDefaultCompactionAction returns correct action for each agent type", () => {
+    expect(getDefaultCompactionAction("opencode")).toBe("summarize");
+    expect(getDefaultCompactionAction("claude")).toBe("recreate");
+    expect(getDefaultCompactionAction("copilot")).toBe("warn");
+  });
+
+  test("toContextWindowUsage converts ContextUsage correctly", () => {
+    const usage: ContextUsage = {
+      inputTokens: 5000,
+      outputTokens: 2000,
+      maxTokens: 100000,
+      usagePercentage: 7.0,
+    };
+
+    const result = toContextWindowUsage(usage);
+
+    expect(result.inputTokens).toBe(5000);
+    expect(result.outputTokens).toBe(2000);
+    expect(result.maxTokens).toBe(100000);
+    expect(result.usagePercentage).toBe(7.0);
+  });
+
+  test("isContextThresholdExceeded returns false when usage is null", () => {
+    expect(isContextThresholdExceeded(null, 60)).toBe(false);
+  });
+
+  test("isContextThresholdExceeded returns false when under threshold", () => {
+    const usage: ContextUsage = {
+      inputTokens: 5000,
+      outputTokens: 2000,
+      maxTokens: 100000,
+      usagePercentage: 50.0,
+    };
+
+    expect(isContextThresholdExceeded(usage, 60)).toBe(false);
+  });
+
+  test("isContextThresholdExceeded returns true when at threshold", () => {
+    const usage: ContextUsage = {
+      inputTokens: 30000,
+      outputTokens: 30000,
+      maxTokens: 100000,
+      usagePercentage: 60.0,
+    };
+
+    expect(isContextThresholdExceeded(usage, 60)).toBe(true);
+  });
+
+  test("isContextThresholdExceeded returns true when above threshold", () => {
+    const usage: ContextUsage = {
+      inputTokens: 40000,
+      outputTokens: 35000,
+      maxTokens: 100000,
+      usagePercentage: 75.0,
+    };
+
+    expect(isContextThresholdExceeded(usage, 60)).toBe(true);
+  });
+});
+
+describe("checkContextUsage", () => {
+  test("returns exceeded: false when under threshold", async () => {
+    const mockSession = createMockSession();
+    (mockSession.getContextUsage as ReturnType<typeof mock>).mockImplementation(async () => ({
+      inputTokens: 5000,
+      outputTokens: 2000,
+      maxTokens: 100000,
+      usagePercentage: 7.0,
+    }));
+
+    const result = await checkContextUsage(mockSession);
+
+    expect(result.exceeded).toBe(false);
+    expect(result.usage.usagePercentage).toBe(7.0);
+  });
+
+  test("returns exceeded: true when over threshold", async () => {
+    const mockSession = createMockSession();
+    (mockSession.getContextUsage as ReturnType<typeof mock>).mockImplementation(async () => ({
+      inputTokens: 40000,
+      outputTokens: 30000,
+      maxTokens: 100000,
+      usagePercentage: 70.0,
+    }));
+
+    const result = await checkContextUsage(mockSession);
+
+    expect(result.exceeded).toBe(true);
+    expect(result.usage.usagePercentage).toBe(70.0);
+  });
+
+  test("uses custom threshold when provided", async () => {
+    const mockSession = createMockSession();
+    (mockSession.getContextUsage as ReturnType<typeof mock>).mockImplementation(async () => ({
+      inputTokens: 30000,
+      outputTokens: 15000,
+      maxTokens: 100000,
+      usagePercentage: 45.0,
+    }));
+
+    // Under default (60) but over custom (40)
+    const result = await checkContextUsage(mockSession, { threshold: 40 });
+
+    expect(result.exceeded).toBe(true);
+  });
+});
+
+describe("compactContext", () => {
+  test("calls summarize for opencode agent", async () => {
+    const mockSession = createMockSession();
+    const result = await compactContext(mockSession, "opencode");
+
+    expect(mockSession.summarize).toHaveBeenCalled();
+    expect(result).toBe(true);
+  });
+
+  test("does not call summarize for claude agent", async () => {
+    const mockSession = createMockSession();
+    const result = await compactContext(mockSession, "claude");
+
+    expect(mockSession.summarize).not.toHaveBeenCalled();
+    expect(result).toBe(false);
+  });
+
+  test("does not call summarize for copilot agent", async () => {
+    const mockSession = createMockSession();
+    const result = await compactContext(mockSession, "copilot");
+
+    expect(mockSession.summarize).not.toHaveBeenCalled();
+    expect(result).toBe(false);
+  });
+});
+
+describe("contextMonitorNode", () => {
+  test("creates node with correct type and id", () => {
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "opencode",
+    });
+
+    expect(node.id).toBe("context-check");
+    expect(node.type).toBe("tool");
+    expect(node.name).toBe("context-monitor");
+  });
+
+  test("uses custom name and description", () => {
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "opencode",
+      name: "My Monitor",
+      description: "Monitors context carefully",
+    });
+
+    expect(node.name).toBe("My Monitor");
+    expect(node.description).toBe("Monitors context carefully");
+  });
+
+  test("updates state with context usage when under threshold", async () => {
+    const mockSession = createMockSession();
+    (mockSession.getContextUsage as ReturnType<typeof mock>).mockImplementation(async () => ({
+      inputTokens: 5000,
+      outputTokens: 2000,
+      maxTokens: 100000,
+      usagePercentage: 7.0,
+    }));
+
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "opencode",
+      getSession: () => mockSession,
+    });
+
+    const ctx = createContextTestContext();
+    const result = await node.execute(ctx);
+
+    expect(result.stateUpdate?.contextWindowUsage).toEqual({
+      inputTokens: 5000,
+      outputTokens: 2000,
+      maxTokens: 100000,
+      usagePercentage: 7.0,
+    });
+    expect(result.signals).toBeUndefined();
+  });
+
+  test("calls summarize for opencode when threshold exceeded", async () => {
+    const mockSession = createMockSession();
+    let summarizeCalled = false;
+    
+    (mockSession.getContextUsage as ReturnType<typeof mock>).mockImplementation(async () => {
+      // Return high usage first, then low after summarize
+      if (summarizeCalled) {
+        return {
+          inputTokens: 10000,
+          outputTokens: 5000,
+          maxTokens: 100000,
+          usagePercentage: 15.0,
+        };
+      }
+      return {
+        inputTokens: 40000,
+        outputTokens: 30000,
+        maxTokens: 100000,
+        usagePercentage: 70.0,
+      };
+    });
+
+    (mockSession.summarize as ReturnType<typeof mock>).mockImplementation(async () => {
+      summarizeCalled = true;
+    });
+
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "opencode",
+      getSession: () => mockSession,
+    });
+
+    const ctx = createContextTestContext();
+    const result = await node.execute(ctx);
+
+    expect(mockSession.summarize).toHaveBeenCalled();
+    // After summarize, usage should be updated
+    expect(result.stateUpdate?.contextWindowUsage?.usagePercentage).toBe(15.0);
+    // No warning signal since summarize succeeded
+    expect(result.signals).toBeUndefined();
+  });
+
+  test("emits recreate signal for claude when threshold exceeded", async () => {
+    const mockSession = createMockSession();
+    (mockSession.getContextUsage as ReturnType<typeof mock>).mockImplementation(async () => ({
+      inputTokens: 40000,
+      outputTokens: 30000,
+      maxTokens: 100000,
+      usagePercentage: 70.0,
+    }));
+
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "claude",
+      getSession: () => mockSession,
+    });
+
+    const ctx = createContextTestContext();
+    const result = await node.execute(ctx);
+
+    expect(result.signals).toBeDefined();
+    expect(result.signals).toHaveLength(1);
+    expect(result.signals![0]!.type).toBe("context_window_warning");
+    expect(result.signals![0]!.data?.action).toBe("recreate");
+    expect(result.signals![0]!.data?.shouldRecreateSession).toBe(true);
+  });
+
+  test("emits warning signal for copilot when threshold exceeded", async () => {
+    const mockSession = createMockSession();
+    (mockSession.getContextUsage as ReturnType<typeof mock>).mockImplementation(async () => ({
+      inputTokens: 40000,
+      outputTokens: 30000,
+      maxTokens: 100000,
+      usagePercentage: 70.0,
+    }));
+
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "copilot",
+      getSession: () => mockSession,
+    });
+
+    const ctx = createContextTestContext();
+    const result = await node.execute(ctx);
+
+    expect(result.signals).toBeDefined();
+    expect(result.signals).toHaveLength(1);
+    expect(result.signals![0]!.type).toBe("context_window_warning");
+    expect(result.signals![0]!.data?.action).toBe("warn");
+  });
+
+  test("uses custom threshold", async () => {
+    const mockSession = createMockSession();
+    (mockSession.getContextUsage as ReturnType<typeof mock>).mockImplementation(async () => ({
+      inputTokens: 30000,
+      outputTokens: 15000,
+      maxTokens: 100000,
+      usagePercentage: 45.0,
+    }));
+
+    // Default threshold (60) would not trigger
+    const nodeDefault = contextMonitorNode<ContextTestState>({
+      id: "context-check-default",
+      agentType: "copilot",
+      getSession: () => mockSession,
+    });
+
+    // Custom threshold (40) should trigger
+    const nodeCustom = contextMonitorNode<ContextTestState>({
+      id: "context-check-custom",
+      agentType: "copilot",
+      threshold: 40,
+      getSession: () => mockSession,
+    });
+
+    const ctx = createContextTestContext();
+
+    const resultDefault = await nodeDefault.execute(ctx);
+    expect(resultDefault.signals).toBeUndefined();
+
+    const resultCustom = await nodeCustom.execute(ctx);
+    expect(resultCustom.signals).toBeDefined();
+    expect(resultCustom.signals![0]!.type).toBe("context_window_warning");
+  });
+
+  test("uses custom action override", async () => {
+    const mockSession = createMockSession();
+    (mockSession.getContextUsage as ReturnType<typeof mock>).mockImplementation(async () => ({
+      inputTokens: 40000,
+      outputTokens: 30000,
+      maxTokens: 100000,
+      usagePercentage: 70.0,
+    }));
+
+    // OpenCode with action override to "warn" instead of "summarize"
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "opencode",
+      action: "warn",
+      getSession: () => mockSession,
+    });
+
+    const ctx = createContextTestContext();
+    const result = await node.execute(ctx);
+
+    expect(mockSession.summarize).not.toHaveBeenCalled();
+    expect(result.signals).toBeDefined();
+    expect(result.signals![0]!.data?.action).toBe("warn");
+  });
+
+  test("action none does not emit signals", async () => {
+    const mockSession = createMockSession();
+    (mockSession.getContextUsage as ReturnType<typeof mock>).mockImplementation(async () => ({
+      inputTokens: 40000,
+      outputTokens: 30000,
+      maxTokens: 100000,
+      usagePercentage: 70.0,
+    }));
+
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "opencode",
+      action: "none",
+      getSession: () => mockSession,
+    });
+
+    const ctx = createContextTestContext();
+    const result = await node.execute(ctx);
+
+    expect(mockSession.summarize).not.toHaveBeenCalled();
+    expect(result.signals).toBeUndefined();
+  });
+
+  test("calls onCompaction callback when action is taken", async () => {
+    const mockSession = createMockSession();
+    (mockSession.getContextUsage as ReturnType<typeof mock>).mockImplementation(async () => ({
+      inputTokens: 40000,
+      outputTokens: 30000,
+      maxTokens: 100000,
+      usagePercentage: 70.0,
+    }));
+
+    let callbackUsage: ContextUsage | undefined;
+    let callbackAction: ContextCompactionAction | undefined;
+
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "claude",
+      getSession: () => mockSession,
+      onCompaction: (usage, action) => {
+        callbackUsage = usage;
+        callbackAction = action;
+      },
+    });
+
+    const ctx = createContextTestContext();
+    await node.execute(ctx);
+
+    expect(callbackUsage).toBeDefined();
+    expect(callbackUsage!.usagePercentage).toBe(70.0);
+    expect(callbackAction).toBe("recreate");
+  });
+
+  test("uses customGetContextUsage function", async () => {
+    const customUsage: ContextUsage = {
+      inputTokens: 50000,
+      outputTokens: 25000,
+      maxTokens: 100000,
+      usagePercentage: 75.0,
+    };
+
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "copilot",
+      getContextUsage: async () => customUsage,
+    });
+
+    const ctx = createContextTestContext();
+    const result = await node.execute(ctx);
+
+    expect(result.stateUpdate?.contextWindowUsage?.usagePercentage).toBe(75.0);
+    expect(result.signals).toBeDefined();
+  });
+
+  test("uses context window usage from execution context when no session", async () => {
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "copilot",
+    });
+
+    const ctx = createContextTestContext();
+    ctx.contextWindowUsage = {
+      inputTokens: 40000,
+      outputTokens: 30000,
+      maxTokens: 100000,
+      usagePercentage: 70.0,
+    };
+
+    const result = await node.execute(ctx);
+
+    expect(result.stateUpdate?.contextWindowUsage?.usagePercentage).toBe(70.0);
+    expect(result.signals).toBeDefined();
+  });
+
+  test("handles null context usage gracefully", async () => {
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "opencode",
+    });
+
+    const ctx = createContextTestContext();
+    const result = await node.execute(ctx);
+
+    expect(result.stateUpdate?.contextWindowUsage).toBeNull();
+    expect(result.signals).toBeUndefined();
+  });
+
+  test("emits warning signal when summarize fails", async () => {
+    const mockSession = createMockSession();
+    (mockSession.getContextUsage as ReturnType<typeof mock>).mockImplementation(async () => ({
+      inputTokens: 40000,
+      outputTokens: 30000,
+      maxTokens: 100000,
+      usagePercentage: 70.0,
+    }));
+    (mockSession.summarize as ReturnType<typeof mock>).mockImplementation(async () => {
+      throw new Error("Summarize failed");
+    });
+
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "opencode",
+      getSession: () => mockSession,
+    });
+
+    const ctx = createContextTestContext();
+    const result = await node.execute(ctx);
+
+    expect(result.signals).toBeDefined();
+    expect(result.signals![0]!.type).toBe("context_window_warning");
+    expect(result.signals![0]!.message).toContain("Summarize failed");
+    expect(result.signals![0]!.data?.error).toBe(true);
+  });
+
+  test("emits warning when getSession returns null for summarize action", async () => {
+    const node = contextMonitorNode<ContextTestState>({
+      id: "context-check",
+      agentType: "opencode",
+      getSession: () => null,
+      getContextUsage: async () => ({
+        inputTokens: 40000,
+        outputTokens: 30000,
+        maxTokens: 100000,
+        usagePercentage: 70.0,
+      }),
+    });
+
+    const ctx = createContextTestContext();
+    const result = await node.execute(ctx);
+
+    expect(result.signals).toBeDefined();
+    expect(result.signals![0]!.type).toBe("context_window_warning");
+    expect(result.signals![0]!.message).toContain("no session");
+  });
+});

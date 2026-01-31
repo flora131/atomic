@@ -505,3 +505,40 @@
 
 **Next**: Create ToolResult component for rendering tool outputs
 
+---
+
+### 2026-01-31 - ToolResult Component Implementation
+
+**Feature**: Create ToolResult component for rendering tool outputs
+
+**Status**: COMPLETE
+
+**Changes**:
+- Created `src/ui/components/tool-result.tsx` with:
+  - `ToolResultProps` interface (toolName, input, output, status, initialExpanded, maxCollapsedLines)
+  - `StatusIndicator` component with icons for each status (pending, running, completed, error)
+  - `CollapsibleContent` component with expand/collapse toggle
+  - `ToolResult` component with:
+    - Tool icon and title from ToolResultRegistry
+    - Status indicator with color coding
+    - Collapsible content for large outputs
+    - Error styling for failed executions
+    - Content only shown when not pending
+  - Utility functions: shouldCollapse, getErrorColor
+
+- Created `tests/ui/components/tool-result.test.tsx` with 35 passing tests covering:
+  - shouldCollapse logic with initialExpanded override
+  - getErrorColor for dark/light themes
+  - ToolResultProps structure validation
+  - Tool renderer integration (Read, Bash, Edit, Write, Glob, Grep)
+  - Status display configuration
+  - Collapsible behavior edge cases
+  - Error handling
+  - Render result structure
+  - Icon and title display for all tools
+  - Edge cases (missing input, undefined output, empty content, very long output)
+
+**Test Results**: 35 tests passing in tool-result component
+
+**Next**: Create tools module index with exports
+

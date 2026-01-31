@@ -255,7 +255,7 @@
       "Add collapsible behavior for large outputs",
       "Add unit tests in tests/ui/components/tool-result.test.tsx"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

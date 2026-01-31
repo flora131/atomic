@@ -1,0 +1,46 @@
+## Progress Log
+
+### 2026-01-31 - Iteration 1
+
+**Feature Completed:** Create CodingAgentClient interface with common session management operations
+
+**Files Created:**
+- `src/sdk/types.ts` - Core type definitions for the unified coding agent SDK interface
+- `src/sdk/index.ts` - Export barrel file for SDK module
+- `tests/sdk/types.test.ts` - Unit tests for SDK types (20 passing tests)
+
+**Implementation Summary:**
+Created a comprehensive type system for the unified coding agent client interface that abstracts multiple SDK backends (Claude, OpenCode, Copilot). The types include:
+
+1. **Configuration Types:**
+   - `PermissionMode` - auto/prompt/deny for tool execution
+   - `McpServerConfig` - MCP server connection settings
+   - `SessionConfig` - Session creation parameters
+
+2. **Message Types:**
+   - `AgentMessage` - Unified message format with type, content, metadata
+   - `MessageRole`, `MessageContentType`, `MessageMetadata` - Supporting types
+
+3. **Session Interface:**
+   - `Session` - Active session with send, stream, summarize, getContextUsage, destroy methods
+   - `ContextUsage` - Token consumption tracking
+
+4. **Event System:**
+   - `EventType` - Union of all 9 event types (session.start, session.idle, session.error, message.delta, message.complete, tool.start, tool.complete, subagent.start, subagent.complete)
+   - `AgentEvent<T>` - Generic event type with type-safe data payloads
+   - `EventHandler<T>` - Type-safe event handler callbacks
+   - Specific event data interfaces for each event type
+
+5. **Tool System:**
+   - `ToolDefinition` - Tool registration with JSON schema input validation
+
+6. **Client Interface:**
+   - `CodingAgentClient` - Unified interface for all agent backends
+   - `CodingAgentClientFactory` - Factory function type
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 20 unit tests pass (65 expect() calls)
+
+**Git Status:** Ready to commit

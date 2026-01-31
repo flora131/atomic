@@ -372,3 +372,39 @@
 
 **Next**: Create WorkflowStatusBar component for progress display
 
+---
+
+### 2026-01-31 - WorkflowStatusBar Component Implementation
+
+**Feature**: Create WorkflowStatusBar component for progress display
+
+**Status**: COMPLETE
+
+**Changes**:
+- Created `src/ui/components/workflow-status-bar.tsx` with:
+  - `FeatureProgress` interface (completed, total, currentFeature)
+  - `WorkflowStatusBarProps` interface (workflowActive, workflowType, currentNode, iteration, maxIterations, featureProgress)
+  - `StatusItem` component for individual status elements with separators
+  - `WorkflowStatusBar` component with:
+    - Only renders when workflowActive is true
+    - Workflow type with icon (⚛ for atomic, 🔄 for ralph, ⚡ for other)
+    - Current node name display
+    - Iteration count with optional max
+    - Feature progress (completed/total with optional current feature)
+    - Horizontal flexbox layout with separator bars
+    - Single border with theme colors
+  - Utility functions: getWorkflowIcon, formatWorkflowType, formatIteration, formatFeatureProgress
+
+- Created `tests/ui/components/workflow-status-bar.test.tsx` with 36 passing tests covering:
+  - getWorkflowIcon for different workflow types
+  - formatWorkflowType capitalization and null handling
+  - formatIteration with and without max
+  - formatFeatureProgress with current feature and truncation
+  - Props structure validation
+  - Display logic combinations
+  - Edge cases (large numbers, special chars, empty values)
+
+**Test Results**: 36 tests passing in workflow-status-bar component
+
+**Next**: Create useStreamingState hook for real-time updates
+

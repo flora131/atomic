@@ -16,6 +16,7 @@ import {
   type MessageRole,
   type ChatAppProps,
   type MessageBubbleProps,
+  type MessageToolCall,
   type WorkflowChatState,
   defaultWorkflowChatState,
 } from "../../src/ui/chat.tsx";
@@ -358,6 +359,10 @@ describe("defaultWorkflowChatState", () => {
     expect(defaultWorkflowChatState.workflowActive).toBe(false);
     expect(defaultWorkflowChatState.workflowType).toBeNull();
     expect(defaultWorkflowChatState.initialPrompt).toBeNull();
+    expect(defaultWorkflowChatState.currentNode).toBeNull();
+    expect(defaultWorkflowChatState.iteration).toBe(0);
+    expect(defaultWorkflowChatState.maxIterations).toBeUndefined();
+    expect(defaultWorkflowChatState.featureProgress).toBeNull();
   });
 
   test("has correct approval defaults", () => {
@@ -495,6 +500,10 @@ describe("WorkflowChatState type", () => {
       workflowActive: true,
       workflowType: "atomic",
       initialPrompt: "test prompt",
+      currentNode: "create_spec",
+      iteration: 3,
+      maxIterations: 10,
+      featureProgress: { completed: 5, total: 10, currentFeature: "Test" },
       pendingApproval: true,
       specApproved: true,
       feedback: "test feedback",
@@ -505,5 +514,219 @@ describe("WorkflowChatState type", () => {
 
     expect(resetState).toEqual(defaultWorkflowChatState);
     expect(resetState).not.toEqual(modifiedState);
+  });
+
+  test("allows all new workflow status fields to be set", () => {
+    const state: WorkflowChatState = {
+      ...defaultWorkflowChatState,
+      workflowActive: true,
+      workflowType: "ralph",
+      initialPrompt: "Implement feature list",
+      currentNode: "implement_feature",
+      iteration: 2,
+      maxIterations: 5,
+      featureProgress: {
+        completed: 3,
+        total: 10,
+        currentFeature: "Add login button",
+      },
+    };
+
+    expect(state.currentNode).toBe("implement_feature");
+    expect(state.iteration).toBe(2);
+    expect(state.maxIterations).toBe(5);
+    expect(state.featureProgress).toEqual({
+      completed: 3,
+      total: 10,
+      currentFeature: "Add login button",
+    });
+  });
+
+  test("supports workflow progress tracking state transitions", () => {
+    let state: WorkflowChatState = { ...defaultWorkflowChatState };
+
+    // Start workflow
+    state = {
+      ...state,
+      workflowActive: true,
+      workflowType: "atomic",
+      currentNode: "create_spec",
+      iteration: 1,
+      maxIterations: 5,
+    };
+    expect(state.currentNode).toBe("create_spec");
+    expect(state.iteration).toBe(1);
+
+    // Move to next node
+    state = { ...state, currentNode: "create_feature_list" };
+    expect(state.currentNode).toBe("create_feature_list");
+
+    // Start implementing features
+    state = {
+      ...state,
+      currentNode: "implement_feature",
+      featureProgress: { completed: 0, total: 5, currentFeature: "Feature 1" },
+    };
+    expect(state.featureProgress?.completed).toBe(0);
+    expect(state.featureProgress?.total).toBe(5);
+
+    // Complete a feature
+    state = {
+      ...state,
+      featureProgress: { completed: 1, total: 5, currentFeature: "Feature 2" },
+    };
+    expect(state.featureProgress?.completed).toBe(1);
+
+    // Complete iteration
+    state = { ...state, iteration: 2 };
+    expect(state.iteration).toBe(2);
+  });
+});
+
+// ============================================================================
+// MessageToolCall Tests
+// ============================================================================
+
+describe("MessageToolCall type", () => {
+  test("creates a basic tool call", () => {
+    const toolCall: MessageToolCall = {
+      id: "tool_1",
+      toolName: "Read",
+      input: { file_path: "/path/to/file.ts" },
+      status: "pending",
+    };
+
+    expect(toolCall.toolName).toBe("Read");
+    expect(toolCall.status).toBe("pending");
+    expect(toolCall.output).toBeUndefined();
+  });
+
+  test("creates a tool call with output", () => {
+    const toolCall: MessageToolCall = {
+      id: "tool_2",
+      toolName: "Bash",
+      input: { command: "ls -la" },
+      output: "file1.txt\nfile2.txt",
+      status: "completed",
+    };
+
+    expect(toolCall.output).toBe("file1.txt\nfile2.txt");
+    expect(toolCall.status).toBe("completed");
+  });
+
+  test("supports all status types", () => {
+    const statuses: MessageToolCall["status"][] = [
+      "pending",
+      "running",
+      "completed",
+      "error",
+    ];
+
+    for (const status of statuses) {
+      const toolCall: MessageToolCall = {
+        id: `tool_${status}`,
+        toolName: "Test",
+        input: {},
+        status,
+      };
+      expect(toolCall.status).toBe(status);
+    }
+  });
+
+  test("creates tool call with error output", () => {
+    const toolCall: MessageToolCall = {
+      id: "tool_error",
+      toolName: "Bash",
+      input: { command: "invalid_command" },
+      output: "command not found: invalid_command",
+      status: "error",
+    };
+
+    expect(toolCall.status).toBe("error");
+    expect(toolCall.output).toContain("command not found");
+  });
+});
+
+describe("ChatMessage with tool calls", () => {
+  test("creates message without tool calls", () => {
+    const msg: ChatMessage = {
+      id: "msg_1",
+      role: "assistant",
+      content: "Hello!",
+      timestamp: new Date().toISOString(),
+    };
+
+    expect(msg.toolCalls).toBeUndefined();
+  });
+
+  test("creates message with tool calls", () => {
+    const msg: ChatMessage = {
+      id: "msg_2",
+      role: "assistant",
+      content: "Let me read that file for you.",
+      timestamp: new Date().toISOString(),
+      toolCalls: [
+        {
+          id: "tool_1",
+          toolName: "Read",
+          input: { file_path: "/src/index.ts" },
+          output: "export const main = () => {};",
+          status: "completed",
+        },
+      ],
+    };
+
+    expect(msg.toolCalls).toHaveLength(1);
+    expect(msg.toolCalls![0]!.toolName).toBe("Read");
+  });
+
+  test("creates message with multiple tool calls", () => {
+    const msg: ChatMessage = {
+      id: "msg_3",
+      role: "assistant",
+      content: "I'll search the codebase.",
+      timestamp: new Date().toISOString(),
+      toolCalls: [
+        {
+          id: "tool_1",
+          toolName: "Glob",
+          input: { pattern: "**/*.ts" },
+          output: ["file1.ts", "file2.ts"],
+          status: "completed",
+        },
+        {
+          id: "tool_2",
+          toolName: "Grep",
+          input: { pattern: "TODO" },
+          output: ["file1.ts:10: // TODO: fix this"],
+          status: "completed",
+        },
+      ],
+    };
+
+    expect(msg.toolCalls).toHaveLength(2);
+    expect(msg.toolCalls![0]!.toolName).toBe("Glob");
+    expect(msg.toolCalls![1]!.toolName).toBe("Grep");
+  });
+
+  test("creates streaming message with pending tool calls", () => {
+    const msg: ChatMessage = {
+      id: "msg_4",
+      role: "assistant",
+      content: "",
+      timestamp: new Date().toISOString(),
+      streaming: true,
+      toolCalls: [
+        {
+          id: "tool_1",
+          toolName: "Bash",
+          input: { command: "npm install" },
+          status: "running",
+        },
+      ],
+    };
+
+    expect(msg.streaming).toBe(true);
+    expect(msg.toolCalls![0]!.status).toBe("running");
   });
 });

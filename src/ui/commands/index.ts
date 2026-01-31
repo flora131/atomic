@@ -22,6 +22,7 @@ export {
   type CommandContextState,
   type CommandResult,
   type CommandCategory,
+  type FeatureProgressState,
 } from "./registry.ts";
 
 // ============================================================================

@@ -587,3 +587,53 @@
 
 **Next**: Update ChatApp to render WorkflowStatusBar and ToolResults
 
+---
+
+### 2026-01-31 - ChatApp WorkflowStatusBar and ToolResult Integration
+
+**Feature**: Update ChatApp to render WorkflowStatusBar and ToolResults
+
+**Status**: COMPLETE
+
+**Changes**:
+- Modified `src/ui/chat.tsx`:
+  - Added imports for WorkflowStatusBar, ToolResult, FeatureProgress, ToolExecutionStatus
+  - Added `MessageToolCall` interface for tool calls within messages (id, toolName, input, output, status)
+  - Extended `ChatMessage` interface with optional `toolCalls` array
+  - Extended `WorkflowChatState` with new workflow status fields:
+    - currentNode: string | null - current node being executed
+    - iteration: number - current iteration number (1-based)
+    - maxIterations: number | undefined - maximum iterations
+    - featureProgress: FeatureProgress | null - feature progress info
+  - Updated `defaultWorkflowChatState` with new field defaults
+  - Updated `MessageBubble` component to render tool results:
+    - Detects toolCalls in assistant messages
+    - Renders ToolResult components for each tool execution
+  - Added `WorkflowStatusBar` between header and input area:
+    - Passes workflowActive, workflowType, currentNode, iteration, maxIterations, featureProgress
+  - Updated executeCommand to handle new state fields in stateUpdate
+
+- Modified `src/ui/commands/registry.ts`:
+  - Added `FeatureProgressState` interface
+  - Extended `CommandContextState` with new workflow fields:
+    - currentNode, iteration, maxIterations, featureProgress
+
+- Updated `src/ui/commands/index.ts`:
+  - Added FeatureProgressState export
+
+- Updated `src/ui/index.ts`:
+  - Added MessageToolCall export
+  - Added FeatureProgressState export
+
+- Updated `tests/ui/chat.test.ts` with 10+ new tests covering:
+  - New workflow state fields in defaultWorkflowChatState
+  - WorkflowChatState with all new fields
+  - Workflow progress tracking state transitions
+  - MessageToolCall type structure
+  - ChatMessage with tool calls (single and multiple)
+  - Streaming messages with pending tool calls
+
+**Test Results**: 48 tests passing in chat.test.ts, 566 total passing (8 pre-existing theme failures)
+
+**Next**: Connect ChatApp to workflow execution with streaming
+

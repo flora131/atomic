@@ -408,6 +408,7 @@ export {
   LoadingIndicator,
   type ChatAppProps,
   type ChatMessage,
+  type MessageToolCall,
   type WorkflowChatState,
   defaultWorkflowChatState,
 } from "./chat.tsx";
@@ -475,6 +476,7 @@ export {
   type CommandContext,
   type CommandContextState,
   type CommandResult,
+  type FeatureProgressState,
 
   // Built-in commands
   registerBuiltinCommands,

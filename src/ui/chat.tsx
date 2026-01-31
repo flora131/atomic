@@ -7,7 +7,7 @@
  * Reference: Feature 15 - Implement terminal chat UI
  */
 
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useKeyboard } from "@opentui/react";
 import type {
   KeyEvent,
@@ -17,6 +17,9 @@ import type {
 } from "@opentui/core";
 import { copyToClipboard, pasteFromClipboard } from "../utils/clipboard.ts";
 import { Autocomplete } from "./components/autocomplete.tsx";
+import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
+import { ToolResult } from "./components/tool-result.tsx";
+import type { ToolExecutionStatus } from "./hooks/use-streaming-state.ts";
 import {
   globalRegistry,
   parseSlashCommand,
@@ -114,6 +117,22 @@ export interface AtomicHeaderProps {
 export type MessageRole = "user" | "assistant" | "system";
 
 /**
+ * Represents a tool call within a message.
+ */
+export interface MessageToolCall {
+  /** Unique tool call identifier */
+  id: string;
+  /** Name of the tool being called */
+  toolName: string;
+  /** Input parameters for the tool */
+  input: Record<string, unknown>;
+  /** Output from the tool (if available) */
+  output?: unknown;
+  /** Current execution status */
+  status: ToolExecutionStatus;
+}
+
+/**
  * A single chat message.
  */
 export interface ChatMessage {
@@ -127,6 +146,8 @@ export interface ChatMessage {
   timestamp: string;
   /** Whether message is currently streaming */
   streaming?: boolean;
+  /** Tool calls within this message (for assistant messages) */
+  toolCalls?: MessageToolCall[];
 }
 
 /**
@@ -183,6 +204,14 @@ export interface WorkflowChatState {
   workflowType: string | null;
   /** Initial prompt that started the workflow */
   initialPrompt: string | null;
+  /** Current node being executed in the workflow */
+  currentNode: string | null;
+  /** Current iteration number (1-based) */
+  iteration: number;
+  /** Maximum number of iterations */
+  maxIterations: number | undefined;
+  /** Feature progress information */
+  featureProgress: FeatureProgress | null;
 
   // Approval state for human-in-the-loop
   /** Whether waiting for user approval (spec approval, etc.) */
@@ -206,6 +235,10 @@ export const defaultWorkflowChatState: WorkflowChatState = {
   workflowActive: false,
   workflowType: null,
   initialPrompt: null,
+  currentNode: null,
+  iteration: 0,
+  maxIterations: undefined,
+  featureProgress: null,
 
   // Approval defaults
   pendingApproval: false,
@@ -404,6 +437,7 @@ export function AtomicHeader({
 /**
  * Renders a single chat message with role-based styling.
  * Clean, minimal design with Atomic branding.
+ * Includes tool results for assistant messages that contain tool calls.
  */
 export function MessageBubble({ message, isLast, syntaxStyle }: MessageBubbleProps): React.ReactNode {
   const roleLabel = message.role === "user" ? "You" : message.role === "assistant" ? "Atomic" : "System";
@@ -412,6 +446,9 @@ export function MessageBubble({ message, isLast, syntaxStyle }: MessageBubblePro
 
   // Show loading animation only before any content arrives
   const showLoadingAnimation = message.streaming && !message.content.trim();
+
+  // Check if message has tool calls
+  const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
 
   // Render content based on role and syntaxStyle availability
   const contentElement = showLoadingAnimation ? (
@@ -447,6 +484,21 @@ export function MessageBubble({ message, isLast, syntaxStyle }: MessageBubblePro
           {timestamp}
         </text>
       </box>
+
+      {/* Tool results for assistant messages */}
+      {hasToolCalls && (
+        <box flexDirection="column" marginTop={1} marginBottom={1}>
+          {message.toolCalls!.map((toolCall) => (
+            <ToolResult
+              key={toolCall.id}
+              toolName={toolCall.toolName}
+              input={toolCall.input}
+              output={toolCall.output}
+              status={toolCall.status}
+            />
+          ))}
+        </box>
+      )}
 
       {/* Message content */}
       {contentElement}
@@ -588,6 +640,10 @@ export function ChatApp({
       workflowActive: workflowState.workflowActive,
       workflowType: workflowState.workflowType,
       initialPrompt: workflowState.initialPrompt,
+      currentNode: workflowState.currentNode,
+      iteration: workflowState.iteration,
+      maxIterations: workflowState.maxIterations,
+      featureProgress: workflowState.featureProgress,
       pendingApproval: workflowState.pendingApproval,
       specApproved: workflowState.specApproved,
       feedback: workflowState.feedback,
@@ -610,6 +666,10 @@ export function ChatApp({
           workflowActive: result.stateUpdate.workflowActive ?? workflowState.workflowActive,
           workflowType: result.stateUpdate.workflowType ?? workflowState.workflowType,
           initialPrompt: result.stateUpdate.initialPrompt ?? workflowState.initialPrompt,
+          currentNode: result.stateUpdate.currentNode ?? workflowState.currentNode,
+          iteration: result.stateUpdate.iteration ?? workflowState.iteration,
+          maxIterations: result.stateUpdate.maxIterations ?? workflowState.maxIterations,
+          featureProgress: result.stateUpdate.featureProgress ?? workflowState.featureProgress,
           pendingApproval: result.stateUpdate.pendingApproval ?? workflowState.pendingApproval,
           specApproved: result.stateUpdate.specApproved ?? workflowState.specApproved,
           feedback: result.stateUpdate.feedback ?? workflowState.feedback,
@@ -892,6 +952,16 @@ export function ChatApp({
         model={model}
         tier={tier}
         workingDir={workingDir}
+      />
+
+      {/* Workflow Status Bar - shows workflow progress when active */}
+      <WorkflowStatusBar
+        workflowActive={workflowState.workflowActive}
+        workflowType={workflowState.workflowType}
+        currentNode={workflowState.currentNode}
+        iteration={workflowState.iteration}
+        maxIterations={workflowState.maxIterations}
+        featureProgress={workflowState.featureProgress}
       />
 
       {/* Input Area - bordered box with prompt on same line */}

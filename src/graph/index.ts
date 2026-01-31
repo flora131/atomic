@@ -203,3 +203,17 @@ export {
   executeGraph,
   streamGraph,
 } from "./compiled.ts";
+
+// Type exports from checkpointer.ts
+export type { CheckpointerType } from "./checkpointer.ts";
+
+// Value exports from checkpointer.ts
+export {
+  // Checkpointer implementations
+  MemorySaver,
+  FileSaver,
+  ResearchDirSaver,
+
+  // Factory function
+  createCheckpointer,
+} from "./checkpointer.ts";

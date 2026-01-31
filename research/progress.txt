@@ -699,3 +699,67 @@ Implemented factory functions for creating typed graph nodes:
 - All 180 graph tests pass (437 expect() calls)
 
 **Git Status:** Ready to commit
+
+---
+
+### 2026-01-31 - Iteration 13
+
+**Feature Completed:** Implement CompiledGraph execution engine with streaming support
+
+**Files Created:**
+- `src/graph/compiled.ts` - Graph execution engine with streaming support
+- `tests/graph/compiled.test.ts` - Integration tests (33 passing tests)
+
+**Files Modified:**
+- `src/graph/index.ts` - Added compiled graph exports
+- `src/graph/builder.ts` - Fixed bug in conditional branching (then() after if())
+
+**Implementation Summary:**
+Implemented the CompiledGraph execution engine:
+
+1. **GraphExecutor Class:**
+   - `execute()` - Full execution returning final state
+   - `stream()` - AsyncGenerator yielding StepResult after each node
+   - Handles graph traversal with BFS-style queue
+
+2. **State Management:**
+   - `initializeExecutionState()` - Initialize state with executionId and timestamp
+   - `mergeState()` - Immutable state merging with special outputs handling
+   - State updates applied after each node execution
+
+3. **Retry with Exponential Backoff:**
+   - `executeWithRetry()` - Retries failed nodes up to maxAttempts
+   - Configurable backoff delay with multiplier
+   - Optional `retryOn` predicate for selective retry
+
+4. **Signal Handling:**
+   - `human_input_required` - Pauses execution with "paused" status
+   - `checkpoint` - Triggers immediate checkpoint save
+   - `context_window_warning` - Emitted but doesn't pause
+
+5. **Checkpointing:**
+   - Auto-checkpoint after each node if enabled
+   - Graceful handling of checkpoint errors (logged, not thrown)
+   - Progress events emitted via onProgress callback
+
+6. **Control Flow:**
+   - `goto` result overrides normal edge traversal
+   - Multiple goto targets executed in sequence
+   - End node detection considers queue emptiness for parallel paths
+   - AbortSignal support for cancellation
+
+7. **Helper Functions:**
+   - `isLoopNode()` - Detect loop_start/loop_check nodes
+   - `createExecutor()` - Factory for GraphExecutor
+   - `executeGraph()` - Direct execution helper
+   - `streamGraph()` - Direct streaming helper
+
+**Bug Fix:**
+Fixed GraphBuilder.then() to properly handle first node after if() or else(). The bug was that currentNodeId was null after if(), but the branch start assignment was inside a check for currentNodeId !== null.
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 213 graph tests pass (496 expect() calls)
+
+**Git Status:** Ready to commit

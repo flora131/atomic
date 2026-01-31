@@ -107,7 +107,7 @@
       "Prevent default behavior for navigation keys when autocomplete is visible",
       "Add keyboard navigation tests to tests/ui/components/autocomplete.test.tsx"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

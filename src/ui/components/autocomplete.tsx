@@ -7,9 +7,10 @@
  * Reference: Feature 6 - Create Autocomplete component with two-column layout
  */
 
-import React, { useMemo } from "react";
+import React, { useMemo, useCallback } from "react";
 import { useTheme } from "../theme.tsx";
 import { globalRegistry, type CommandDefinition } from "../commands/index.ts";
+import type { KeyEvent } from "@opentui/core";
 
 // ============================================================================
 // TYPES
@@ -207,4 +208,132 @@ export function navigateUp(currentIndex: number, totalItems: number): number {
 export function navigateDown(currentIndex: number, totalItems: number): number {
   if (totalItems === 0) return 0;
   return currentIndex >= totalItems - 1 ? 0 : currentIndex + 1;
+}
+
+// ============================================================================
+// KEYBOARD NAVIGATION HOOK
+// ============================================================================
+
+/**
+ * Result of keyboard event handling.
+ */
+export interface KeyboardHandlerResult {
+  /** Whether the key event was handled */
+  handled: boolean;
+  /** Action to take (if any) */
+  action?: "complete" | "execute" | "hide";
+}
+
+/**
+ * Options for the useAutocompleteKeyboard hook.
+ */
+export interface UseAutocompleteKeyboardOptions {
+  /** Whether autocomplete is visible */
+  visible: boolean;
+  /** Current selected index */
+  selectedIndex: number;
+  /** Total number of suggestions */
+  totalSuggestions: number;
+  /** Callback to update selected index */
+  onIndexChange: (index: number) => void;
+  /** Callback when Tab is pressed (complete) */
+  onComplete: () => void;
+  /** Callback when Enter is pressed (execute) */
+  onExecute: () => void;
+  /** Callback when Escape is pressed (hide) */
+  onHide: () => void;
+}
+
+/**
+ * Hook for handling autocomplete keyboard navigation.
+ *
+ * Returns a key handler function that can be passed to useKeyboard.
+ * Handles Up/Down arrows, Tab, Enter, and Escape keys.
+ *
+ * @param options - Configuration options
+ * @returns Key handler function
+ *
+ * @example
+ * ```tsx
+ * const handleAutocompleteKey = useAutocompleteKeyboard({
+ *   visible: showAutocomplete,
+ *   selectedIndex,
+ *   totalSuggestions: suggestions.length,
+ *   onIndexChange: setSelectedIndex,
+ *   onComplete: () => completeCommand(),
+ *   onExecute: () => executeCommand(),
+ *   onHide: () => setShowAutocomplete(false),
+ * });
+ *
+ * useKeyboard((event) => {
+ *   const result = handleAutocompleteKey(event);
+ *   if (result.handled) return;
+ *   // Handle other keys...
+ * });
+ * ```
+ */
+export function useAutocompleteKeyboard(
+  options: UseAutocompleteKeyboardOptions
+): (event: KeyEvent) => KeyboardHandlerResult {
+  const {
+    visible,
+    selectedIndex,
+    totalSuggestions,
+    onIndexChange,
+    onComplete,
+    onExecute,
+    onHide,
+  } = options;
+
+  return useCallback(
+    (event: KeyEvent): KeyboardHandlerResult => {
+      // Don't handle if not visible
+      if (!visible) {
+        return { handled: false };
+      }
+
+      const key = event.key;
+
+      // Up arrow - navigate up
+      if (key === "up") {
+        const newIndex = navigateUp(selectedIndex, totalSuggestions);
+        onIndexChange(newIndex);
+        return { handled: true };
+      }
+
+      // Down arrow - navigate down
+      if (key === "down") {
+        const newIndex = navigateDown(selectedIndex, totalSuggestions);
+        onIndexChange(newIndex);
+        return { handled: true };
+      }
+
+      // Tab - complete the selected command
+      if (key === "tab") {
+        if (totalSuggestions > 0) {
+          onComplete();
+          return { handled: true, action: "complete" };
+        }
+        return { handled: false };
+      }
+
+      // Enter - execute the selected command
+      if (key === "return") {
+        if (totalSuggestions > 0) {
+          onExecute();
+          return { handled: true, action: "execute" };
+        }
+        return { handled: false };
+      }
+
+      // Escape - hide autocomplete
+      if (key === "escape") {
+        onHide();
+        return { handled: true, action: "hide" };
+      }
+
+      return { handled: false };
+    },
+    [visible, selectedIndex, totalSuggestions, onIndexChange, onComplete, onExecute, onHide]
+  );
 }

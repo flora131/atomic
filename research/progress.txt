@@ -446,3 +446,25 @@
 
 **Next**: Create hooks module index with exports
 
+---
+
+### 2026-01-31 - Hooks Module Index Implementation
+
+**Feature**: Create hooks module index with exports
+
+**Status**: COMPLETE
+
+**Changes**:
+- Created `src/ui/hooks/index.ts` with:
+  - Re-export of useStreamingState hook
+  - Re-export of all types: StreamingState, ToolExecutionState, ToolExecutionStatus, ToolExecutionTimestamps, UseStreamingStateReturn
+  - Re-export of all utility functions: createInitialStreamingState, generateToolExecutionId, getCurrentTimestamp, createToolExecution, getActiveToolExecutions, getCompletedToolExecutions, getErroredToolExecutions
+
+- Updated `src/ui/index.ts` to:
+  - Re-export hooks module with all hook exports
+  - Verified exports work correctly via bun --eval
+
+**Test Results**: Hooks exports verified via import test
+
+**Next**: Create ToolResultRegistry for tool-specific rendering
+

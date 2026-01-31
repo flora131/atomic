@@ -221,7 +221,7 @@
       "Export ToolExecutionState type",
       "Update src/ui/index.ts to re-export hooks module"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

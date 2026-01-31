@@ -403,7 +403,14 @@ export async function startMockChatUI(
 // EXPORTS
 // ============================================================================
 
-export { ChatApp, LoadingIndicator, type ChatAppProps, type ChatMessage } from "./chat.tsx";
+export {
+  ChatApp,
+  LoadingIndicator,
+  type ChatAppProps,
+  type ChatMessage,
+  type WorkflowChatState,
+  defaultWorkflowChatState,
+} from "./chat.tsx";
 export {
   ThemeProvider,
   useTheme,

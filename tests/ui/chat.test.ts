@@ -16,6 +16,8 @@ import {
   type MessageRole,
   type ChatAppProps,
   type MessageBubbleProps,
+  type WorkflowChatState,
+  defaultWorkflowChatState,
 } from "../../src/ui/chat.tsx";
 
 // ============================================================================
@@ -338,5 +340,170 @@ describe("Edge cases", () => {
     const msg = createMessage("user", multilineContent);
     expect(msg.content).toBe(multilineContent);
     expect(msg.content.split("\n").length).toBe(3);
+  });
+});
+
+// ============================================================================
+// WorkflowChatState Tests
+// ============================================================================
+
+describe("defaultWorkflowChatState", () => {
+  test("has correct autocomplete defaults", () => {
+    expect(defaultWorkflowChatState.showAutocomplete).toBe(false);
+    expect(defaultWorkflowChatState.autocompleteInput).toBe("");
+    expect(defaultWorkflowChatState.selectedSuggestionIndex).toBe(0);
+  });
+
+  test("has correct workflow defaults", () => {
+    expect(defaultWorkflowChatState.workflowActive).toBe(false);
+    expect(defaultWorkflowChatState.workflowType).toBeNull();
+    expect(defaultWorkflowChatState.initialPrompt).toBeNull();
+  });
+
+  test("has correct approval defaults", () => {
+    expect(defaultWorkflowChatState.pendingApproval).toBe(false);
+    expect(defaultWorkflowChatState.specApproved).toBe(false);
+    expect(defaultWorkflowChatState.feedback).toBeNull();
+  });
+});
+
+describe("WorkflowChatState type", () => {
+  test("allows all autocomplete fields to be set", () => {
+    const state: WorkflowChatState = {
+      ...defaultWorkflowChatState,
+      showAutocomplete: true,
+      autocompleteInput: "hel",
+      selectedSuggestionIndex: 2,
+    };
+
+    expect(state.showAutocomplete).toBe(true);
+    expect(state.autocompleteInput).toBe("hel");
+    expect(state.selectedSuggestionIndex).toBe(2);
+  });
+
+  test("allows all workflow fields to be set", () => {
+    const state: WorkflowChatState = {
+      ...defaultWorkflowChatState,
+      workflowActive: true,
+      workflowType: "atomic",
+      initialPrompt: "Build a feature",
+    };
+
+    expect(state.workflowActive).toBe(true);
+    expect(state.workflowType).toBe("atomic");
+    expect(state.initialPrompt).toBe("Build a feature");
+  });
+
+  test("allows all approval fields to be set", () => {
+    const state: WorkflowChatState = {
+      ...defaultWorkflowChatState,
+      pendingApproval: true,
+      specApproved: true,
+      feedback: "Looks good!",
+    };
+
+    expect(state.pendingApproval).toBe(true);
+    expect(state.specApproved).toBe(true);
+    expect(state.feedback).toBe("Looks good!");
+  });
+
+  test("supports partial state updates via spread", () => {
+    let state: WorkflowChatState = { ...defaultWorkflowChatState };
+
+    // Simulate starting a workflow
+    state = {
+      ...state,
+      workflowActive: true,
+      workflowType: "atomic",
+      initialPrompt: "Create a login form",
+    };
+
+    expect(state.workflowActive).toBe(true);
+    expect(state.workflowType).toBe("atomic");
+    // Autocomplete state should remain unchanged
+    expect(state.showAutocomplete).toBe(false);
+  });
+
+  test("supports autocomplete state transitions", () => {
+    let state: WorkflowChatState = { ...defaultWorkflowChatState };
+
+    // User types "/"
+    state = { ...state, showAutocomplete: true, autocompleteInput: "" };
+    expect(state.showAutocomplete).toBe(true);
+
+    // User types "/hel"
+    state = { ...state, autocompleteInput: "hel" };
+    expect(state.autocompleteInput).toBe("hel");
+
+    // User navigates down
+    state = { ...state, selectedSuggestionIndex: 1 };
+    expect(state.selectedSuggestionIndex).toBe(1);
+
+    // User selects command (hides autocomplete)
+    state = {
+      ...state,
+      showAutocomplete: false,
+      autocompleteInput: "",
+      selectedSuggestionIndex: 0,
+    };
+    expect(state.showAutocomplete).toBe(false);
+  });
+
+  test("supports approval state transitions", () => {
+    let state: WorkflowChatState = {
+      ...defaultWorkflowChatState,
+      workflowActive: true,
+      workflowType: "atomic",
+    };
+
+    // Workflow requests approval
+    state = { ...state, pendingApproval: true };
+    expect(state.pendingApproval).toBe(true);
+    expect(state.specApproved).toBe(false);
+
+    // User approves
+    state = { ...state, pendingApproval: false, specApproved: true };
+    expect(state.pendingApproval).toBe(false);
+    expect(state.specApproved).toBe(true);
+  });
+
+  test("supports rejection with feedback", () => {
+    let state: WorkflowChatState = {
+      ...defaultWorkflowChatState,
+      workflowActive: true,
+      workflowType: "atomic",
+      pendingApproval: true,
+    };
+
+    // User rejects with feedback
+    state = {
+      ...state,
+      pendingApproval: false,
+      specApproved: false,
+      feedback: "Need more error handling",
+    };
+
+    expect(state.specApproved).toBe(false);
+    expect(state.feedback).toBe("Need more error handling");
+  });
+
+  test("can reset to defaults", () => {
+    const modifiedState: WorkflowChatState = {
+      showAutocomplete: true,
+      autocompleteInput: "test",
+      selectedSuggestionIndex: 5,
+      workflowActive: true,
+      workflowType: "atomic",
+      initialPrompt: "test prompt",
+      pendingApproval: true,
+      specApproved: true,
+      feedback: "test feedback",
+    };
+
+    // Reset to defaults
+    const resetState: WorkflowChatState = { ...defaultWorkflowChatState };
+
+    expect(resetState).toEqual(defaultWorkflowChatState);
+    expect(resetState).not.toEqual(modifiedState);
   });
 });

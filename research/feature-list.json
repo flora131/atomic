@@ -60,7 +60,7 @@
       "Create registerSkillCommands() function to register all skills with globalRegistry",
       "Add unit tests in tests/ui/commands/skill-commands.test.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

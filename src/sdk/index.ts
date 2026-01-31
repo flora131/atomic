@@ -47,3 +47,10 @@ export type {
   CodingAgentClient,
   CodingAgentClientFactory,
 } from "./types.ts";
+
+// Claude Agent Client exports
+export {
+  ClaudeAgentClient,
+  createClaudeAgentClient,
+  type ClaudeHookConfig,
+} from "./claude-client.ts";

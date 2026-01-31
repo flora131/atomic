@@ -33,7 +33,7 @@
       "Implement registerTool using createSdkMcpServer",
       "Add unit tests with mocked SDK"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

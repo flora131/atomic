@@ -175,7 +175,7 @@
       "Style with theme colors and double border",
       "Add unit tests in tests/ui/components/user-question-dialog.test.tsx"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

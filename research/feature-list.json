@@ -551,7 +551,7 @@
       "Test HookManager event mapping",
       "Use mocked SDK responses for unit tests"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

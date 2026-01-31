@@ -83,3 +83,18 @@ export {
   type GraphTelemetryConfig,
   type ExecutionTracker,
 } from "./graph-integration.ts";
+
+// Configuration
+export {
+  loadTelemetryConfig,
+  isTelemetryEnabled,
+  getPlatformDataDir,
+  getDefaultTelemetryLogPath,
+  getAppInsightsKey,
+  toCollectorConfig,
+  describeTelemetryConfig,
+  getTelemetryDisabledReason,
+  TELEMETRY_ENV_VARS,
+  type TelemetryConfig,
+  type LoadTelemetryConfigOptions,
+} from "./config.ts";

@@ -413,7 +413,7 @@
       "Load appInsightsKey from ATOMIC_APP_INSIGHTS_KEY env var",
       "Document opt-out methods in README"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "refactor",

@@ -1285,4 +1285,60 @@ Implemented graph telemetry integration for tracking workflow execution events:
 - All 40 graph integration tests pass (129 expect() calls)
 - Full test suite: 1363 tests pass
 
+**Git Status:** Committed as 9d6fdd4
+
+---
+
+### 2026-01-31 - Iteration 23
+
+**Feature Completed:** Feature 25 - Implement consent-based telemetry collection with DO_NOT_TRACK support
+
+**Files Created:**
+- `src/telemetry/config.ts` - Telemetry configuration module (270 lines)
+- `tests/telemetry/config.test.ts` - Unit tests (47 passing tests)
+
+**Files Modified:**
+- `src/telemetry/index.ts` - Added config exports
+- `README.md` - Enhanced telemetry documentation with opt-out methods
+
+**Implementation Summary:**
+Implemented consent-based telemetry configuration with environment variable support:
+
+1. **TelemetryConfig Interface:**
+   - `enabled` - Whether telemetry collection is enabled
+   - `localLogPath` - Path for local JSONL log files
+   - `appInsightsKey` - Optional Azure Application Insights key
+
+2. **Environment Variable Detection:**
+   - `isTelemetryEnabled()` - Checks DO_NOT_TRACK=1, ATOMIC_TELEMETRY=0, CI=true
+   - `getAppInsightsKey()` - Loads ATOMIC_APP_INSIGHTS_KEY from environment
+   - `TELEMETRY_ENV_VARS` - Constants for all supported env vars
+
+3. **Platform-Specific Data Directory:**
+   - `getPlatformDataDir()` - Returns platform-appropriate data directory
+   - Windows: %APPDATA%
+   - macOS: ~/Library/Application Support
+   - Linux: $XDG_DATA_HOME or ~/.local/share
+
+4. **Configuration Loading:**
+   - `loadTelemetryConfig()` - Main config loader with options override support
+   - `getDefaultTelemetryLogPath()` - Returns {dataDir}/atomic/telemetry
+   - `toCollectorConfig()` - Converts to full TelemetryCollectorConfig
+
+5. **Helper Functions:**
+   - `describeTelemetryConfig()` - Human-readable config summary
+   - `getTelemetryDisabledReason()` - Returns which env var disabled telemetry
+
+6. **README Documentation:**
+   - Updated telemetry section with comprehensive opt-out methods
+   - Added platform-specific log paths table
+   - Added Windows PowerShell examples
+   - Added programmatic configuration examples
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 47 config tests pass (72 expect() calls)
+- Full test suite: 1410 tests pass
+
 **Git Status:** Ready to commit

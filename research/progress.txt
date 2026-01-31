@@ -43,4 +43,59 @@ Created a comprehensive type system for the unified coding agent client interfac
 - Linting passes (0 warnings, 0 errors)
 - All 20 unit tests pass (65 expect() calls)
 
+**Git Status:** Committed as 46c671a
+
+---
+
+### 2026-01-31 - Iteration 2
+
+**Feature Completed:** Implement ClaudeAgentClient using V1+V2 hybrid approach with native hooks
+
+**Files Created:**
+- `src/sdk/claude-client.ts` - Full implementation of ClaudeAgentClient
+- `tests/sdk/claude-client.test.ts` - Unit tests with mocked SDK (25 passing tests)
+
+**Files Modified:**
+- `src/sdk/index.ts` - Added exports for ClaudeAgentClient
+
+**Implementation Summary:**
+Implemented the ClaudeAgentClient class that wraps the @anthropic-ai/claude-agent-sdk to provide a unified CodingAgentClient interface:
+
+1. **Client Lifecycle:**
+   - `start()` / `stop()` methods for client lifecycle management
+   - Automatic cleanup of all active sessions on stop
+
+2. **Session Management:**
+   - `createSession()` - Creates new sessions using the SDK query() function
+   - `resumeSession()` - Resumes existing sessions by ID
+   - `wrapQuery()` - Internal method to wrap SDK Query into unified Session interface
+
+3. **Session Operations:**
+   - `send()` - Send message and get complete response
+   - `stream()` - Stream message responses incrementally
+   - `summarize()` - Logs warning (SDK handles compaction automatically)
+   - `getContextUsage()` - Track input/output token usage
+   - `destroy()` - Close session and cleanup resources
+
+4. **Hook System:**
+   - `ClaudeHookConfig` interface for all 13 SDK hook types
+   - `registerHooks()` - Register native SDK hooks before start
+   - `buildNativeHooks()` - Convert hooks to SDK format
+   - Automatic hook registration for event handlers
+
+5. **Event Handling:**
+   - `on()` - Register event handlers for unified EventType
+   - Event mapping from SDK message types to unified types
+   - Automatic event emission on session events
+
+6. **Tool Registration:**
+   - `registerTool()` - Register custom tools via createSdkMcpServer
+   - Tools automatically added to session options
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 25 unit tests pass (34 expect() calls)
+- Full test suite: 629 tests pass
+
 **Git Status:** Ready to commit

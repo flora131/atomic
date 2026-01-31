@@ -35,6 +35,16 @@ export interface ChatUIConfig {
   title?: string;
   /** Placeholder text for the input */
   placeholder?: string;
+  /** Application version for header */
+  version?: string;
+  /** Model name for header */
+  model?: string;
+  /** Model tier/plan for header */
+  tier?: string;
+  /** Working directory for header */
+  workingDir?: string;
+  /** Suggestion text for header */
+  suggestion?: string;
 }
 
 /**
@@ -100,6 +110,11 @@ export async function startChatUI(
     theme = darkTheme,
     title = "Atomic Chat",
     placeholder = "Type a message...",
+    version,
+    model,
+    tier,
+    workingDir,
+    suggestion,
   } = config;
 
   // Initialize state
@@ -253,8 +268,10 @@ export async function startChatUI(
   });
 
   try {
-    // Create the CLI renderer
-    state.renderer = await createCliRenderer();
+    // Create the CLI renderer with mouse mode disabled to allow native terminal text selection/copy
+    state.renderer = await createCliRenderer({
+      useMouse: false,
+    });
 
     // Create React root
     state.root = createRoot(state.renderer);
@@ -268,6 +285,11 @@ export async function startChatUI(
           children: React.createElement(ChatApp, {
             title,
             placeholder,
+            version,
+            model,
+            tier,
+            workingDir,
+            suggestion,
             onSendMessage: handleSendMessage,
             onStreamMessage: handleStreamMessage,
             onExit: handleExit,
@@ -381,7 +403,7 @@ export async function startMockChatUI(
 // EXPORTS
 // ============================================================================
 
-export { ChatApp, type ChatAppProps, type ChatMessage } from "./chat.tsx";
+export { ChatApp, LoadingIndicator, type ChatAppProps, type ChatMessage } from "./chat.tsx";
 export {
   ThemeProvider,
   useTheme,

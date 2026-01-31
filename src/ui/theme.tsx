@@ -87,7 +87,7 @@ export interface ThemeProviderProps {
 
 /**
  * Dark theme configuration.
- * Optimized for terminal environments with dark backgrounds.
+ * Muted dusty pink & pale blue aesthetic with dark background.
  */
 export const darkTheme: Theme = {
   name: "dark",
@@ -95,23 +95,23 @@ export const darkTheme: Theme = {
   colors: {
     background: "black",
     foreground: "white",
-    accent: "blue",
-    border: "gray",
-    userMessage: "cyan",
-    assistantMessage: "green",
-    systemMessage: "yellow",
-    error: "red",
-    success: "green",
-    warning: "yellow",
-    muted: "gray",
-    inputFocus: "green",
-    inputStreaming: "yellow",
+    accent: "#D4A5A5",      // Dusty rose accent
+    border: "#B8878A",      // Muted rose border
+    userMessage: "#A8C5D8", // Pale sky blue for user
+    assistantMessage: "#D4A5A5", // Dusty rose for assistant
+    systemMessage: "#C9B896",    // Muted gold
+    error: "#C98A8A",       // Dusty red
+    success: "#8AB89A",     // Muted sage
+    warning: "#C9B896",     // Muted gold
+    muted: "#9A9AAC",       // Dusty lavender
+    inputFocus: "#D4A5A5",  // Dusty rose focus
+    inputStreaming: "#B8A0B8", // Muted mauve streaming
   },
 };
 
 /**
  * Light theme configuration.
- * Optimized for terminal environments with light backgrounds.
+ * Muted dusty pink & pale blue aesthetic with light background.
  */
 export const lightTheme: Theme = {
   name: "light",
@@ -119,17 +119,17 @@ export const lightTheme: Theme = {
   colors: {
     background: "white",
     foreground: "black",
-    accent: "blue",
-    border: "gray",
-    userMessage: "blue",
-    assistantMessage: "magenta",
-    systemMessage: "yellow",
-    error: "red",
-    success: "green",
-    warning: "yellow",
-    muted: "gray",
-    inputFocus: "blue",
-    inputStreaming: "yellow",
+    accent: "#B8878A",      // Muted rose accent
+    border: "#E8C4C4",      // Pale rose border
+    userMessage: "#5A8AA8", // Muted steel blue for user
+    assistantMessage: "#B8878A", // Muted rose for assistant
+    systemMessage: "#A89060",    // Dusty gold
+    error: "#A86868",       // Muted red
+    success: "#5A886A",     // Muted sage
+    warning: "#A89060",     // Dusty gold
+    muted: "#7A7A8C",       // Dusty gray-violet
+    inputFocus: "#B8878A",  // Muted rose focus
+    inputStreaming: "#9A7898", // Dusty mauve streaming
   },
 };
 

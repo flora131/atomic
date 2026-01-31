@@ -264,6 +264,11 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
       placeholder: workflow
         ? "Type a message or /workflow to start..."
         : "Type a message...",
+      version: "0.4.4",
+      model: model ?? "Opus 4.5",
+      tier: "Claude Max",
+      workingDir: process.cwd(),
+      suggestion: 'Try "fix typecheck errors"',
     };
 
     if (workflow) {

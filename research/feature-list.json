@@ -266,7 +266,7 @@
       "Render input area with disabled state during streaming",
       "Implement MessageBubble component with role-based styling"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

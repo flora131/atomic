@@ -310,6 +310,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
               },
             });
 
+            // Track if we've yielded streaming deltas to avoid duplicating content
+            let hasYieldedDeltas = false;
+
             for await (const sdkMessage of newQuery) {
               processMsg(sdkMessage);
 
@@ -319,6 +322,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                   event.type === "content_block_delta" &&
                   event.delta.type === "text_delta"
                 ) {
+                  hasYieldedDeltas = true;
                   yield {
                     type: "text",
                     content: event.delta.text,
@@ -326,20 +330,24 @@ export class ClaudeAgentClient implements CodingAgentClient {
                   };
                 }
               } else if (sdkMessage.type === "assistant") {
-                const { type, content } = extractMessageContent(sdkMessage);
-                yield {
-                  type,
-                  content,
-                  role: "assistant",
-                  metadata: {
-                    tokenUsage: {
-                      inputTokens: sdkMessage.message.usage?.input_tokens ?? 0,
-                      outputTokens: sdkMessage.message.usage?.output_tokens ?? 0,
+                // Only yield the complete message if we haven't streamed deltas
+                // (deltas already contain the full content incrementally)
+                if (!hasYieldedDeltas) {
+                  const { type, content } = extractMessageContent(sdkMessage);
+                  yield {
+                    type,
+                    content,
+                    role: "assistant",
+                    metadata: {
+                      tokenUsage: {
+                        inputTokens: sdkMessage.message.usage?.input_tokens ?? 0,
+                        outputTokens: sdkMessage.message.usage?.output_tokens ?? 0,
+                      },
+                      model: sdkMessage.message.model,
+                      stopReason: sdkMessage.message.stop_reason ?? undefined,
                     },
-                    model: sdkMessage.message.model,
-                    stopReason: sdkMessage.message.stop_reason ?? undefined,
-                  },
-                };
+                  };
+                }
               }
             }
           },

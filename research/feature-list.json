@@ -461,7 +461,7 @@
       "Route to createFeatureList on approval",
       "Route to createSpec for revision on rejection"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

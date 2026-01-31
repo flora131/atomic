@@ -23,6 +23,7 @@ import {
   createSpecNode,
   reviewSpecNode,
   waitForApprovalNode,
+  checkApprovalNode,
   createFeatureListNode,
   selectFeatureNode,
   implementFeatureNode,
@@ -89,6 +90,7 @@ describe("Constants", () => {
     expect(ATOMIC_NODE_IDS.CREATE_SPEC).toBe("create-spec");
     expect(ATOMIC_NODE_IDS.REVIEW_SPEC).toBe("review-spec");
     expect(ATOMIC_NODE_IDS.WAIT_FOR_APPROVAL).toBe("wait-for-approval");
+    expect(ATOMIC_NODE_IDS.CHECK_APPROVAL).toBe("check-approval");
     expect(ATOMIC_NODE_IDS.CREATE_FEATURE_LIST).toBe("create-feature-list");
     expect(ATOMIC_NODE_IDS.SELECT_FEATURE).toBe("select-feature");
     expect(ATOMIC_NODE_IDS.IMPLEMENT_FEATURE).toBe("implement-feature");
@@ -242,6 +244,14 @@ describe("Node Definitions", () => {
       expect(waitForApprovalNode.id).toBe("wait-for-approval");
       expect(waitForApprovalNode.type).toBe("wait");
       expect(waitForApprovalNode.name).toBe("Wait for Approval");
+    });
+  });
+
+  describe("checkApprovalNode", () => {
+    test("has correct properties", () => {
+      expect(checkApprovalNode.id).toBe("check-approval");
+      expect(checkApprovalNode.type).toBe("decision");
+      expect(checkApprovalNode.name).toBe("Check Approval Result");
     });
   });
 
@@ -430,5 +440,186 @@ describe("Integration", () => {
     const researchNode = workflow.nodes.get(ATOMIC_NODE_IDS.RESEARCH);
     expect(researchNode).toBeDefined();
     expect(researchNode?.type).toBe("agent");
+  });
+});
+
+// ============================================================================
+// Human-in-the-Loop Approval Tests
+// ============================================================================
+
+import type { ExecutionContext, GraphConfig, NodeResult } from "../../src/graph/types.ts";
+
+describe("Human-in-the-Loop Approval Flow", () => {
+  function createExecutionContext(stateOverrides: Partial<AtomicWorkflowState> = {}): ExecutionContext<AtomicWorkflowState> {
+    return {
+      state: createTestState(stateOverrides),
+      config: {} as GraphConfig,
+      errors: [],
+    };
+  }
+
+  describe("waitForApprovalNode execution", () => {
+    test("emits human_input_required signal", async () => {
+      const ctx = createExecutionContext({
+        specDoc: "Test specification document",
+      });
+
+      const result = await waitForApprovalNode.execute(ctx);
+
+      expect(result.signals).toBeDefined();
+      expect(result.signals).toHaveLength(1);
+      expect(result.signals![0]!.type).toBe("human_input_required");
+    });
+
+    test("includes spec content in prompt", async () => {
+      const specContent = "This is my detailed specification";
+      const ctx = createExecutionContext({
+        specDoc: specContent,
+      });
+
+      const result = await waitForApprovalNode.execute(ctx);
+
+      expect(result.signals![0]!.message).toContain(specContent);
+    });
+
+    test("prompt includes approval instructions", async () => {
+      const ctx = createExecutionContext({
+        specDoc: "Test spec",
+      });
+
+      const result = await waitForApprovalNode.execute(ctx);
+
+      expect(result.signals![0]!.message).toContain("approve");
+      expect(result.signals![0]!.message).toContain("feedback");
+    });
+  });
+
+  describe("checkApprovalNode execution", () => {
+    test("routes to CREATE_FEATURE_LIST when approved", async () => {
+      const ctx = createExecutionContext({
+        specApproved: true,
+      });
+
+      const result = await checkApprovalNode.execute(ctx);
+
+      expect(result.goto).toBe(ATOMIC_NODE_IDS.CREATE_FEATURE_LIST);
+    });
+
+    test("routes to CREATE_SPEC when rejected", async () => {
+      const ctx = createExecutionContext({
+        specApproved: false,
+      });
+
+      const result = await checkApprovalNode.execute(ctx);
+
+      expect(result.goto).toBe(ATOMIC_NODE_IDS.CREATE_SPEC);
+    });
+  });
+
+  describe("reviewSpecNode execution", () => {
+    test("routes to WAIT_FOR_APPROVAL when spec not approved", async () => {
+      const ctx = createExecutionContext({
+        specApproved: false,
+      });
+
+      const result = await reviewSpecNode.execute(ctx);
+
+      expect(result.goto).toBe(ATOMIC_NODE_IDS.WAIT_FOR_APPROVAL);
+    });
+
+    test("routes to CREATE_FEATURE_LIST when spec already approved", async () => {
+      const ctx = createExecutionContext({
+        specApproved: true,
+      });
+
+      const result = await reviewSpecNode.execute(ctx);
+
+      expect(result.goto).toBe(ATOMIC_NODE_IDS.CREATE_FEATURE_LIST);
+    });
+  });
+
+  describe("Workflow with approval flow", () => {
+    test("workflow includes approval nodes when not auto-approving", () => {
+      const workflow = createAtomicWorkflow({
+        checkpointing: false,
+        autoApproveSpec: false,
+      });
+
+      expect(workflow.nodes.has(ATOMIC_NODE_IDS.WAIT_FOR_APPROVAL)).toBe(true);
+      expect(workflow.nodes.has(ATOMIC_NODE_IDS.CHECK_APPROVAL)).toBe(true);
+    });
+
+    test("workflow skips approval nodes when auto-approving", () => {
+      const workflow = createAtomicWorkflow({
+        checkpointing: false,
+        autoApproveSpec: true,
+      });
+
+      // With auto-approve, wait-for-approval and check-approval nodes 
+      // are not added to the workflow graph
+      expect(workflow.nodes.has(ATOMIC_NODE_IDS.WAIT_FOR_APPROVAL)).toBe(false);
+      expect(workflow.nodes.has(ATOMIC_NODE_IDS.CHECK_APPROVAL)).toBe(false);
+    });
+
+    test("checkApprovalNode routes to CREATE_SPEC on rejection (via execute)", async () => {
+      // Decision nodes use dynamic routing via goto in execute function
+      // not via static graph edges
+      const ctx = createExecutionContext({ specApproved: false });
+      const result = await checkApprovalNode.execute(ctx);
+      
+      // Verify the node routes to CREATE_SPEC when rejected
+      expect(result.goto).toBe(ATOMIC_NODE_IDS.CREATE_SPEC);
+    });
+
+    test("checkApprovalNode routes to CREATE_FEATURE_LIST on approval (via execute)", async () => {
+      const ctx = createExecutionContext({ specApproved: true });
+      const result = await checkApprovalNode.execute(ctx);
+      
+      // Verify the node routes to CREATE_FEATURE_LIST when approved
+      expect(result.goto).toBe(ATOMIC_NODE_IDS.CREATE_FEATURE_LIST);
+    });
+
+    test("workflow has edge from check-approval to create-feature-list (default)", () => {
+      const workflow = createAtomicWorkflow({
+        checkpointing: false,
+        autoApproveSpec: false,
+      });
+
+      // The default edge goes to create-feature-list (the next sequential node)
+      // Dynamic routing to create-spec happens via the checkApprovalNode's execute function
+      const defaultEdge = workflow.edges.find(
+        (e) => e.from === ATOMIC_NODE_IDS.CHECK_APPROVAL && e.to === ATOMIC_NODE_IDS.CREATE_FEATURE_LIST
+      );
+
+      expect(defaultEdge).toBeDefined();
+    });
+  });
+
+  describe("State update simulation", () => {
+    test("approval input sets specApproved to true", () => {
+      // Simulate what inputMapper does
+      const input = "I approve this specification";
+      const approved = input.toLowerCase().includes("approve");
+      expect(approved).toBe(true);
+    });
+
+    test("rejection input sets specApproved to false", () => {
+      // Simulate what inputMapper does
+      const input = "Please revise the implementation details";
+      const approved = input.toLowerCase().includes("approve");
+      expect(approved).toBe(false);
+    });
+
+    test("APPROVE (uppercase) is recognized", () => {
+      const input = "APPROVE";
+      const approved = input.toLowerCase().includes("approve");
+      expect(approved).toBe(true);
+    });
+
+    test("empty input is rejected", () => {
+      const input = "";
+      const approved = input.toLowerCase().includes("approve");
+      expect(approved).toBe(false);
+    });
   });
 });

@@ -1400,4 +1400,81 @@ Implemented the complete Atomic workflow using the graph-based execution engine:
 - All 40 workflow tests pass (102 expect() calls)
 - Full test suite: 1450 tests pass
 
+**Git Status:** Committed as a9aff54
+
+---
+
+### 2026-01-31 - Iteration 25
+
+**Feature Completed:** Feature 27 - Implement context window monitoring with configurable thresholds
+
+**Files Modified:**
+- `src/graph/nodes.ts` - Added context monitoring node factory and helper functions (~200 lines added)
+- `src/graph/index.ts` - Added context monitoring exports
+- `tests/graph/nodes.test.ts` - Added 28 new tests for context monitoring (72 total tests)
+
+**Implementation Summary:**
+Implemented context window monitoring with configurable thresholds for all three SDK types:
+
+1. **Context Monitoring Types:**
+   - `ContextCompactionAction` - "summarize" | "recreate" | "warn" | "none"
+   - `ContextMonitoringState` - State interface extension with contextWindowUsage field
+   - `ContextMonitorNodeConfig` - Configuration for context monitoring node
+   - `ContextCheckOptions` - Options for simple context usage checks
+
+2. **Helper Functions:**
+   - `DEFAULT_CONTEXT_THRESHOLD = 60` - Default threshold percentage
+   - `getDefaultCompactionAction(agentType)` - Returns appropriate action for agent type
+     - OpenCode: "summarize" (calls session.summarize())
+     - Claude: "recreate" (signals session should be recreated)
+     - Copilot: "warn" (emits warning signal only)
+   - `toContextWindowUsage(usage)` - Convert SDK ContextUsage to graph ContextWindowUsage
+   - `isContextThresholdExceeded(usage, threshold)` - Check if usage exceeds threshold
+   - `checkContextUsage(session, options)` - Simple helper to check session usage
+   - `compactContext(session, agentType)` - Perform context compaction based on agent type
+
+3. **contextMonitorNode Factory:**
+   - Creates a tool-type node that monitors context window usage
+   - Gets context usage from session or custom function
+   - Checks against configurable threshold (default 60%)
+   - Takes appropriate action based on agent type or override:
+     - Summarize: Calls session.summarize() for OpenCode
+     - Recreate: Emits signal recommending session recreation for Claude
+     - Warn: Emits warning signal for Copilot
+     - None: Silent, no action
+   - Updates state with current contextWindowUsage
+   - Calls optional onCompaction callback when action is taken
+   - Handles errors gracefully (emits warning if summarize fails)
+
+4. **Integration:**
+   - Exported from src/graph/index.ts
+   - Works with existing agentNode context warning (complementary)
+   - Can be used standalone in workflows for explicit monitoring
+
+5. **Tests (28 new tests):**
+   - Helper function tests for threshold checking
+   - checkContextUsage tests with custom thresholds
+   - compactContext tests for each agent type
+   - contextMonitorNode tests:
+     - Node creation with correct type and id
+     - Context usage update when under threshold
+     - Summarize action for OpenCode
+     - Recreate signal for Claude
+     - Warn signal for Copilot
+     - Custom threshold support
+     - Custom action override
+     - Action "none" behavior
+     - onCompaction callback
+     - Custom getContextUsage function
+     - Execution context contextWindowUsage fallback
+     - Null context usage handling
+     - Error handling when summarize fails
+     - Warning when no session for summarize
+
+**Verification:**
+- TypeScript type checking passes
+- Linting passes (0 warnings, 0 errors)
+- All 72 node tests pass (150 expect() calls)
+- Full test suite: 1478 tests pass
+
 **Git Status:** Ready to commit

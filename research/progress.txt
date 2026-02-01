@@ -565,3 +565,42 @@ Verified that integration tests for message queuing flow are already in place fr
 
 ### Next Feature
 The next highest priority feature is: "Add integration tests for verbose mode toggle"
+
+---
+
+## 2026-02-01 - Feature: Add integration tests for verbose mode toggle
+
+### Summary
+Verified that integration tests for verbose mode toggle are already in place from previous implementations. The VerboseMode, Ctrl+O, TimestampDisplay, and FooterStatus test suites cover all required functionality.
+
+### Tests Already Present
+- `VerboseMode State` (9 tests):
+  - verboseMode defaults to false
+  - verboseMode can be toggled
+  - verboseMode propagates to MessageBubble props
+  - verboseMode propagates to ToolResult through MessageBubble
+  - ChatApp state structure includes verboseMode
+  - verboseMode state is independent of other states
+
+- `Ctrl+O Keyboard Shortcut for Verbose Mode` (7 tests):
+  - Ctrl+O key event has correct properties
+  - Ctrl+O toggles verboseMode from false to true
+  - Ctrl+O toggles verboseMode from true to false
+  - multiple Ctrl+O presses toggle correctly
+  - Ctrl+O handler is distinct from other Ctrl shortcuts
+  - verboseMode state change propagates to ToolResult
+  - keyboard handler structure supports Ctrl+O pattern
+
+- `TimestampDisplay in MessageBubble` (6 tests):
+  - Timestamp display only shows when verboseMode is true
+
+- `FooterStatus Integration` (6 tests):
+  - FooterStatus updates when verboseMode toggles
+
+### Test Results
+- VerboseMode: 13 tests pass (40 expect() calls)
+- Ctrl+O: 7 tests pass (23 expect() calls)
+- All feature requirements verified covered
+
+### Next Feature
+The next highest priority feature is: E2E tests (which require tmux-cli skill)

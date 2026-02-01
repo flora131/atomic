@@ -21,3 +21,38 @@ Implemented the `useMessageQueue` custom React hook for managing a message queue
 
 ### Next Feature
 The next highest priority feature is: "Integrate message queue into ChatApp to allow input during streaming"
+
+---
+
+## 2026-02-01 - Feature: Integrate message queue into ChatApp
+
+### Summary
+Integrated the `useMessageQueue` hook into the ChatApp component to allow users to type and submit messages while a response is streaming, instead of blocking input.
+
+### Changes Made
+- Imported `useMessageQueue` from hooks module
+- Added `messageQueue` state using the hook after existing state declarations
+- Modified `handleSubmit` to:
+  - Remove the blocking behavior when `isStreaming` is true
+  - Queue regular messages when streaming instead of returning early
+  - Still allow slash commands to execute during streaming
+  - Clear textarea after enqueue (same as after direct send)
+- Updated dependency array to include `messageQueue`
+
+### Files Modified
+- `src/ui/chat.tsx` - Integrated message queue with handleSubmit logic
+- `tests/ui/chat.test.ts` - Added 5 integration tests for queue behavior
+
+### Test Results
+- All 53 chat tests pass (153 expect() calls)
+- All 75 hook tests pass (155 expect() calls)
+- New tests cover: queue typing, FIFO order, content integrity, textarea clearing
+
+### Behavior Changes
+- Users can now type during streaming without input being blocked
+- Messages typed during streaming are queued for later processing
+- Slash commands still work during streaming (not queued)
+- Textarea is cleared after queuing, same UX as direct send
+
+### Next Feature
+The next highest priority feature is: "Process queued messages sequentially after stream completion"

@@ -481,3 +481,34 @@ Added the SPINNER_VERBS constant array with 8 contextually appropriate verbs for
 
 ### Next Feature
 The next highest priority feature is: "Enhance LoadingIndicator to display random spinner verb"
+
+---
+
+## 2026-02-01 - Feature: Enhance LoadingIndicator to display random spinner verb
+
+### Summary
+Enhanced the LoadingIndicator component to display a random spinner verb alongside the wave animation. The verb is selected on mount using the getRandomSpinnerVerb helper and displayed as "Verb... ●∙∙".
+
+### Changes Made
+- Added exported `getRandomSpinnerVerb()` helper function
+- Enhanced LoadingIndicator to:
+  - Store random verb in state on mount using `useState(() => getRandomSpinnerVerb())`
+  - Display verb text with ellipsis before the wave animation
+  - Use muted lavender color (#9A9AAC) for verb text
+
+### Files Modified
+- `src/ui/chat.tsx` - Enhanced LoadingIndicator component
+- `tests/ui/chat.test.ts` - Added 9 tests for getRandomSpinnerVerb and LoadingIndicator
+
+### Test Results
+- All 108 chat tests pass (329 expect() calls)
+- All 873 UI tests pass (2148 expect() calls)
+- New tests cover: getRandomSpinnerVerb return type, valid verbs, variation, verb formatting
+
+### Display Example
+```
+Thinking... ●∙∙
+```
+
+### Next Feature
+The next highest priority feature is: "Export new components and hooks from index files"

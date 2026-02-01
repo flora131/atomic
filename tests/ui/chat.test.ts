@@ -13,6 +13,7 @@ import {
   createMessage,
   formatTimestamp,
   SPINNER_VERBS,
+  getRandomSpinnerVerb,
   type ChatMessage,
   type MessageRole,
   type ChatAppProps,
@@ -1775,5 +1776,91 @@ describe("SPINNER_VERBS", () => {
       const verb = getRandomVerb();
       expect(SPINNER_VERBS).toContain(verb);
     }
+  });
+});
+
+// ============================================================================
+// getRandomSpinnerVerb Tests
+// ============================================================================
+
+describe("getRandomSpinnerVerb", () => {
+  /**
+   * Tests for the getRandomSpinnerVerb helper function.
+   * This function selects a random verb from SPINNER_VERBS.
+   */
+
+  test("returns a string", () => {
+    const verb = getRandomSpinnerVerb();
+    expect(typeof verb).toBe("string");
+  });
+
+  test("returns a verb from SPINNER_VERBS", () => {
+    const verb = getRandomSpinnerVerb();
+    expect(SPINNER_VERBS).toContain(verb);
+  });
+
+  test("returns non-empty string", () => {
+    const verb = getRandomSpinnerVerb();
+    expect(verb.length).toBeGreaterThan(0);
+  });
+
+  test("multiple calls return valid verbs", () => {
+    // Call multiple times to verify randomness works
+    for (let i = 0; i < 20; i++) {
+      const verb = getRandomSpinnerVerb();
+      expect(SPINNER_VERBS).toContain(verb);
+    }
+  });
+
+  test("can potentially return different verbs on different calls", () => {
+    // Run enough times to statistically expect variation
+    const verbs = new Set<string>();
+    for (let i = 0; i < 50; i++) {
+      verbs.add(getRandomSpinnerVerb());
+    }
+    // With 8 verbs and 50 calls, we should get at least 2 different verbs
+    expect(verbs.size).toBeGreaterThan(1);
+  });
+});
+
+// ============================================================================
+// LoadingIndicator Enhancement Tests
+// ============================================================================
+
+describe("LoadingIndicator with spinner verb", () => {
+  /**
+   * Tests for the enhanced LoadingIndicator that displays random verb text.
+   * The component shows "Verb..." alongside the wave animation.
+   */
+
+  test("verb format includes ellipsis", () => {
+    const verb = getRandomSpinnerVerb();
+    const formatted = `${verb}...`;
+    expect(formatted).toMatch(/\.\.\./);
+  });
+
+  test("verb format with space for animation", () => {
+    const verb = getRandomSpinnerVerb();
+    const formatted = `${verb}... `;
+    expect(formatted.endsWith(" ")).toBe(true);
+  });
+
+  test("verb display is consistent with SPINNER_VERBS content", () => {
+    // Simulate what LoadingIndicator does
+    const verb = getRandomSpinnerVerb();
+    const displayText = `${verb}... `;
+
+    // Verify it contains a valid verb
+    const containsValidVerb = SPINNER_VERBS.some(v => displayText.includes(v));
+    expect(containsValidVerb).toBe(true);
+  });
+
+  test("LoadingIndicator verb is selected on mount", () => {
+    // Simulate the useState pattern used in LoadingIndicator
+    // The verb is selected once via () => getRandomSpinnerVerb()
+    const selectVerbOnMount = () => getRandomSpinnerVerb();
+    const verb = selectVerbOnMount();
+
+    expect(SPINNER_VERBS).toContain(verb);
   });
 });

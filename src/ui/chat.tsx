@@ -366,6 +366,16 @@ const LOADING_DOT_COLORS = [
 ];
 
 /**
+ * Select a random verb from the SPINNER_VERBS array.
+ *
+ * @returns A randomly selected verb string
+ */
+export function getRandomSpinnerVerb(): string {
+  const index = Math.floor(Math.random() * SPINNER_VERBS.length);
+  return SPINNER_VERBS[index] as string;
+}
+
+/**
  * Props for the LoadingIndicator component.
  */
 interface LoadingIndicatorProps {
@@ -374,14 +384,17 @@ interface LoadingIndicatorProps {
 }
 
 /**
- * Animated loading indicator with a wave effect.
+ * Animated loading indicator with a wave effect and random verb text.
  * Three dots animate left-to-right with gradient colors.
+ * A random verb is selected on mount and displayed as "Verb..." with the animation.
  *
  * Returns span elements (not wrapped in text) so it can be composed
  * inside other text elements. Wrap in <text> when using standalone.
  */
 export function LoadingIndicator({ speed = 120 }: LoadingIndicatorProps): React.ReactNode {
   const [frameIndex, setFrameIndex] = useState(0);
+  // Select random verb only on mount (empty dependency array)
+  const [verb] = useState(() => getRandomSpinnerVerb());
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -395,6 +408,7 @@ export function LoadingIndicator({ speed = 120 }: LoadingIndicatorProps): React.
 
   return (
     <>
+      <span style={{ fg: "#9A9AAC" }}>{verb}... </span>
       {frame.map((dot, i) => (
         <span key={i} style={{ fg: LOADING_DOT_COLORS[i] }}>
           {dot}

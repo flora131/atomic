@@ -921,3 +921,60 @@ The SSE streaming handler is implemented directly in `opencode-client.ts` follow
 ### Next Feature
 The next highest priority feature is: "Create OpenCode agent adapter implementing AgentAdapter interface"
 
+---
+
+## 2026-02-01 - Feature: Create OpenCode agent adapter implementing AgentAdapter interface
+
+### Summary
+Enhanced the OpenCodeClient to support OpenCode agent modes (build, plan, general, explore). The agent adapter functionality was already implemented in the `OpenCodeClient` class, which implements the `CodingAgentClient` interface. Added agent mode support for different use cases.
+
+### Changes Made
+
+#### Type Definitions (src/sdk/types.ts)
+- Added `OpenCodeAgentMode` type: `"build" | "plan" | "general" | "explore"`
+- Added `agentMode?: OpenCodeAgentMode` to `SessionConfig` interface
+
+#### OpenCodeClient (src/sdk/opencode-client.ts)
+- Imported `OpenCodeAgentMode` type
+- Added `defaultAgentMode?: OpenCodeAgentMode` to `OpenCodeClientOptions`
+- Updated `wrapSession()` to extract agentMode from config with fallback logic:
+  1. Session config `agentMode` (highest priority)
+  2. Client `defaultAgentMode`
+  3. Default to `"build"` (lowest priority)
+- Updated `session.prompt()` call to pass `agent: agentMode`
+- Updated `session.promptAsync()` call to pass `agent: agentMode`
+
+#### SDK Index (src/sdk/index.ts)
+- Exported `OpenCodeAgentMode` type
+
+### Agent Mode Descriptions
+| Mode | Type | Purpose | Permissions |
+|------|------|---------|-------------|
+| `build` | Primary | Full development work | Full tool access, file operations allowed |
+| `plan` | Primary | Analysis and planning | Denies file edits by default |
+| `general` | Subagent | Complex multi-step tasks | Full tool access |
+| `explore` | Subagent | Fast read-only exploration | Cannot modify files |
+
+### Test Results
+- 69 tests pass (previously 52)
+- 7 tests skipped (integration tests requiring server)
+- 82 expect() calls
+- New tests cover:
+  - OpenCodeClientOptions with defaultAgentMode
+  - OpenCodeAgentMode type validation
+  - SessionConfig agentMode handling
+  - Mode fallback logic
+  - Type exports from sdk/types.ts and sdk/index.ts
+
+### Files Modified
+- `src/sdk/types.ts` - Added OpenCodeAgentMode type
+- `src/sdk/opencode-client.ts` - Added agent mode support
+- `src/sdk/index.ts` - Exported OpenCodeAgentMode
+- `tests/sdk/opencode-client.test.ts` - Added 17 agent mode tests
+
+### Architecture Note
+The "agent adapter" described in the feature list is the existing `OpenCodeClient` class, which implements the unified `CodingAgentClient` interface. The codebase doesn't use a separate "AgentAdapter" pattern - instead, all agent functionality is consolidated in the `*-client.ts` files in `src/sdk/`.
+
+### Next Feature
+The next highest priority feature is: "Integrate OpenCode adapter into agent registry"
+

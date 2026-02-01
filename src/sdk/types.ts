@@ -27,6 +27,15 @@ export interface McpServerConfig {
 }
 
 /**
+ * OpenCode agent modes for different use cases
+ * - build: Default mode with full tool access for development
+ * - plan: Restricted mode that denies file edits by default
+ * - general: Subagent for complex multi-step tasks
+ * - explore: Fast read-only codebase exploration
+ */
+export type OpenCodeAgentMode = "build" | "plan" | "general" | "explore";
+
+/**
  * Configuration for creating a new agent session.
  * Reference: Feature list step 2
  */
@@ -47,6 +56,8 @@ export interface SessionConfig {
   maxBudgetUsd?: number;
   /** Maximum number of turns/interactions in the session */
   maxTurns?: number;
+  /** OpenCode agent mode (only for OpenCode client) */
+  agentMode?: OpenCodeAgentMode;
 }
 
 /**

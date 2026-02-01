@@ -22,6 +22,7 @@ import type {
   EventHandler,
   AgentEvent,
   ToolDefinition,
+  OpenCodeAgentMode,
 } from "./types.ts";
 
 // Import the real SDK
@@ -52,6 +53,8 @@ export interface OpenCodeClientOptions {
   maxRetries?: number;
   /** Delay between retries in milliseconds */
   retryDelay?: number;
+  /** Default agent mode for new sessions (default: "build") */
+  defaultAgentMode?: OpenCodeAgentMode;
 }
 
 /**
@@ -476,6 +479,11 @@ export class OpenCodeClient implements CodingAgentClient {
    */
   private wrapSession(sessionId: string, config: SessionConfig): Session {
     const client = this;
+    // Use agent mode from session config, falling back to client default, then "build"
+    const agentMode =
+      config.agentMode ??
+      client.clientOptions.defaultAgentMode ??
+      "build";
 
     const session: Session = {
       id: sessionId,
@@ -488,6 +496,7 @@ export class OpenCodeClient implements CodingAgentClient {
         const result = await client.sdkClient.session.prompt({
           sessionID: sessionId,
           directory: client.clientOptions.directory,
+          agent: agentMode,
           parts: [{ type: "text", text: message }],
         });
 
@@ -544,6 +553,7 @@ export class OpenCodeClient implements CodingAgentClient {
             const result = await client.sdkClient.session.promptAsync({
               sessionID: sessionId,
               directory: client.clientOptions.directory,
+              agent: agentMode,
               parts: [{ type: "text", text: message }],
             });
 

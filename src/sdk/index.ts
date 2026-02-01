@@ -11,6 +11,7 @@ export type {
   PermissionMode,
   McpServerConfig,
   SessionConfig,
+  OpenCodeAgentMode,
 
   // Message types
   MessageRole,

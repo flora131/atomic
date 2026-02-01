@@ -297,16 +297,18 @@
     "category": "functional",
     "description": "Create OpenCode agent adapter implementing AgentAdapter interface",
     "steps": [
-      "Create new file src/agents/opencode/adapter.ts",
-      "Import OpenCodeClient and streaming handler",
-      "Implement AgentAdapter interface with sendMessage method",
-      "Map atomic message format to OpenCode prompt format",
-      "Map OpenCode responses back to atomic ChatMessage format",
-      "Handle tool calls and results through the adapter",
-      "Support agent modes (build, plan, general)",
-      "Export adapter as default export"
+      "OpenCodeClient in src/sdk/opencode-client.ts implements CodingAgentClient interface",
+      "Client is already integrated into factory in src/commands/chat.ts",
+      "AgentMessage format is used for prompt/response mapping",
+      "Tool calls handled via message.part.updated events for type=tool",
+      "Added OpenCodeAgentMode type (build, plan, general, explore)",
+      "Added agentMode to SessionConfig for session-level mode selection",
+      "Added defaultAgentMode to OpenCodeClientOptions for client-level default",
+      "Agent mode passed to session.prompt() and session.promptAsync() calls",
+      "Added 17 unit tests for agent mode support",
+      "Exported OpenCodeAgentMode from sdk/index.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

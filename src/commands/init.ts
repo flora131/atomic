@@ -23,6 +23,19 @@ import { getConfigRoot } from "../utils/config-path";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL, getOppositeScriptExtension } from "../utils/detect";
 import { mergeJsonFile } from "../utils/merge";
 import { trackAtomicCommand, handleTelemetryConsent, type AgentType } from "../utils/telemetry";
+import {
+  getProviderOptions,
+  getSaplingWorkflowOptions,
+  getProvider,
+  isValidProvider,
+  type ProviderName,
+  type SaplingOptions,
+} from "../providers";
+import {
+  writeAtomicConfig,
+  createDefaultConfig,
+  readAtomicConfig,
+} from "../utils/atomic-config";
 
 interface InitOptions {
   showBanner?: boolean;
@@ -32,6 +45,10 @@ interface InitOptions {
   force?: boolean;
   /** Auto-confirm all prompts (non-interactive mode for CI/testing) */
   yes?: boolean;
+  /** Pre-selected source control provider (non-interactive) */
+  provider?: ProviderName;
+  /** Sapling PR workflow (non-interactive) */
+  saplingPrWorkflow?: SaplingOptions["prWorkflow"];
 }
 
 
@@ -98,7 +115,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
   // Show config not found message if provided (after intro, before agent selection)
   if (configNotFoundMessage) {
-    log.info(configNotFoundMessage);
+    log.step(configNotFoundMessage);
   }
 
   // Select agent
@@ -111,7 +128,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       process.exit(1);
     }
     agentKey = options.preSelectedAgent;
-    log.info(`Configuring ${AGENT_CONFIG[agentKey].name}...`);
+    log.step(`Configuring ${AGENT_CONFIG[agentKey].name}...`);
   } else {
     // Interactive selection
     const agentKeys = getAgentKeys();
@@ -138,6 +155,112 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
   // Auto-confirm mode for CI/testing
   const autoConfirm = options.yes ?? false;
+
+  // ========================================
+  // Source Control Provider Selection
+  // ========================================
+
+  let selectedProvider: ProviderName;
+  let saplingOptions: SaplingOptions | undefined;
+
+  // Check if atomic config already exists
+  const existingConfig = await readAtomicConfig(targetDir);
+
+  if (options.provider) {
+    // Non-interactive: provider specified via CLI flag
+    if (!isValidProvider(options.provider)) {
+      cancel(`Unknown provider: ${options.provider}. Valid options: github, sapling`);
+      process.exit(1);
+    }
+    selectedProvider = options.provider;
+
+    if (selectedProvider === "sapling") {
+      saplingOptions = {
+        prWorkflow: options.saplingPrWorkflow ?? "stack",
+      };
+    }
+
+    log.step(`Source control provider: ${getProvider(selectedProvider).displayName}`);
+  } else if (existingConfig && !options.force) {
+    // Use existing config if present (and not forcing reconfiguration)
+    selectedProvider = existingConfig.sourceControl.provider;
+    saplingOptions = existingConfig.sourceControl.sapling;
+    log.step(`Using existing source control provider: ${getProvider(selectedProvider).displayName}`);
+  } else if (!autoConfirm) {
+    // Interactive: prompt for provider selection
+    const providerOptions = getProviderOptions();
+
+    const providerSelection = await select({
+      message: "Select your source control provider:",
+      options: providerOptions,
+    });
+
+    if (isCancel(providerSelection)) {
+      cancel("Operation cancelled.");
+      process.exit(0);
+    }
+
+    selectedProvider = providerSelection as ProviderName;
+
+    // If Sapling, prompt for workflow preference
+    if (selectedProvider === "sapling") {
+      const workflowOptions = getSaplingWorkflowOptions();
+
+      const workflowSelection = await select({
+        message: "Select your preferred PR workflow:",
+        options: workflowOptions,
+      });
+
+      if (isCancel(workflowSelection)) {
+        cancel("Operation cancelled.");
+        process.exit(0);
+      }
+
+      saplingOptions = {
+        prWorkflow: workflowSelection as SaplingOptions["prWorkflow"],
+      };
+    }
+  } else {
+    // Auto-confirm mode without provider specified: default to GitHub
+    selectedProvider = "github";
+    log.info("Defaulting to GitHub provider (use --provider to specify)");
+  }
+
+  // Check provider prerequisites
+  const provider = getProvider(selectedProvider);
+  const prereqs = await provider.checkPrerequisites();
+
+  if (!prereqs.satisfied) {
+    if (autoConfirm) {
+      // Non-interactive mode should fail fast rather than continuing with broken commands.
+      throw new Error(
+        `${provider.displayName} CLI prerequisites missing: ${prereqs.missing.join(", ")}`
+      );
+    }
+
+    note(
+      `Missing prerequisites for ${provider.displayName}:\n\n` +
+        prereqs.missing
+          .map((m) => `  • ${m}: ${prereqs.installInstructions[m]}`)
+          .join("\n") +
+        "\n\nInstall the missing tools and run 'atomic init' again.",
+      "Prerequisites Required"
+    );
+
+    const continueAnyway = await confirm({
+      message: "Continue anyway? (Commands may not work correctly)",
+      initialValue: false,
+    });
+
+    if (isCancel(continueAnyway) || !continueAnyway) {
+      cancel("Operation cancelled. Install prerequisites and try again.");
+      process.exit(0);
+    }
+  }
+
+  // ========================================
+  // Directory Confirmation
+  // ========================================
 
   // Confirm directory
   let confirmDir: boolean | symbol = true;
@@ -269,6 +392,13 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
     // Track successful init command
     trackAtomicCommand("init", agentKey as AgentType, true);
+    // Write .atomic/config.yaml
+    const atomicConfig = createDefaultConfig(selectedProvider, { sapling: saplingOptions });
+    await writeAtomicConfig(atomicConfig, targetDir);
+    note(
+      `✓ Created .atomic/config.yaml\n✓ Provider set to: ${provider.displayName}${selectedProvider === "sapling" && saplingOptions ? ` (${saplingOptions.prWorkflow}-based workflow)` : ""}`,
+      "Configuration saved"
+    );
   } catch (error) {
     // Track failed init command before exiting
     trackAtomicCommand("init", agentKey as AgentType, false);

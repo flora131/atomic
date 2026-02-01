@@ -12,14 +12,6 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { mkdirSync, rmSync, existsSync, readFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-
-import {
-  extractCommandsFromTranscript,
-  createSessionEvent,
-  trackAgentSession,
-} from "../../src/utils/telemetry/telemetry-session";
-import { writeTelemetryState, getTelemetryFilePath } from "../../src/utils/telemetry/telemetry";
-import { getEventsFilePath } from "../../src/utils/telemetry/telemetry-cli";
 import type { TelemetryState, AgentSessionEvent, TelemetryEvent } from "../../src/utils/telemetry/types";
 
 // Use a temp directory for tests to avoid polluting real config
@@ -35,14 +27,29 @@ mock.module("ci-info", () => ({
   isCI: false,
 }));
 
+// Import telemetry modules AFTER mocks are applied
+const {
+  extractCommandsFromTranscript,
+  createSessionEvent,
+  trackAgentSession,
+} = await import("../../src/utils/telemetry/telemetry-session");
+
+const { writeTelemetryState, getTelemetryFilePath } = await import(
+  "../../src/utils/telemetry/telemetry"
+);
+
+const { getEventsFilePath } = await import("../../src/utils/telemetry/telemetry-cli");
+
 // Helper to create enabled telemetry state
 function createEnabledState(): TelemetryState {
+  const now = new Date().toISOString();
   return {
     enabled: true,
     consentGiven: true,
     anonymousId: "session-test-uuid",
-    createdAt: "2026-01-01T00:00:00Z",
-    rotatedAt: "2026-01-01T00:00:00Z",
+    // Use current timestamp to avoid month-boundary rotation during tests
+    createdAt: now,
+    rotatedAt: now,
   };
 }
 

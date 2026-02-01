@@ -44,7 +44,7 @@ describe("initCommand display ordering", () => {
 
   describe("configNotFoundMessage display", () => {
     test("configNotFoundMessage displays after intro when provided", async () => {
-      // Track log.info calls to verify message order
+      // Track log.info and log.step calls to verify message order
       const logInfoCalls: string[] = [];
 
       // Mock @clack/prompts - confirm returns cancel to exit before file copying
@@ -58,6 +58,10 @@ describe("initCommand display ordering", () => {
           },
           info: (msg: string) => {
             callOrder.push(`log.info:${msg}`);
+            logInfoCalls.push(msg);
+          },
+          step: (msg: string) => {
+            callOrder.push(`log.step:${msg}`);
             logInfoCalls.push(msg);
           },
         },
@@ -127,6 +131,10 @@ describe("initCommand display ordering", () => {
           message: () => {},
           info: (msg: string) => {
             callOrder.push(`log.info:${msg}`);
+            logInfoCalls.push(msg);
+          },
+          step: (msg: string) => {
+            callOrder.push(`log.step:${msg}`);
             logInfoCalls.push(msg);
           },
         },
@@ -317,6 +325,9 @@ describe("initCommand display ordering", () => {
           },
           info: (msg: string) => {
             callOrder.push(`log.info:${msg}`);
+          },
+          step: (msg: string) => {
+            callOrder.push(`log.step:${msg}`);
           },
         },
         select: async () => "claude",

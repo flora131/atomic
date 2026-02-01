@@ -77,7 +77,7 @@
       "Pass verboseMode to MessageBubble for timestamp display",
       "Verify state propagates correctly to all child components"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

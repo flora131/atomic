@@ -266,6 +266,8 @@ export interface MessageBubbleProps {
   isLast?: boolean;
   /** Optional syntax style for markdown rendering */
   syntaxStyle?: SyntaxStyle;
+  /** Whether verbose mode is enabled (shows timestamps) */
+  verboseMode?: boolean;
 }
 
 // ============================================================================
@@ -451,7 +453,7 @@ export function AtomicHeader({
  * - Assistant messages: bullet point (●) prefix, no header
  * Includes tool results for assistant messages that contain tool calls.
  */
-export function MessageBubble({ message, isLast, syntaxStyle }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false }: MessageBubbleProps): React.ReactNode {
   // Show loading animation only before any content arrives
   const showLoadingAnimation = message.streaming && !message.content.trim();
 
@@ -518,6 +520,7 @@ export function MessageBubble({ message, isLast, syntaxStyle }: MessageBubblePro
                 input={toolCall.input}
                 output={toolCall.output}
                 status={toolCall.status}
+                verboseMode={verboseMode}
               />
             ))}
           </box>
@@ -595,6 +598,9 @@ export function ChatApp({
 
   // Message queue for queuing messages during streaming
   const messageQueue = useMessageQueue();
+
+  // Verbose mode state for expanded tool outputs and timestamps
+  const [verboseMode, setVerboseMode] = useState(false);
 
   // State for showing user question dialog
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
@@ -1202,6 +1208,7 @@ export function ChatApp({
           message={msg}
           isLast={index === messages.length - 1}
           syntaxStyle={syntaxStyle}
+          verboseMode={verboseMode}
         />
       ))}
     </>

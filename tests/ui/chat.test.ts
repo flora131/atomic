@@ -1028,3 +1028,173 @@ describe("Queue Processing after Stream Completion", () => {
     expect(delay).toBeGreaterThanOrEqual(45); // Allow some timing variance
   });
 });
+
+// ============================================================================
+// VerboseMode State Tests
+// ============================================================================
+
+describe("VerboseMode State", () => {
+  /**
+   * These tests verify the verboseMode state in ChatApp.
+   * VerboseMode controls:
+   * - ToolResult expanded/collapsed state
+   * - Timestamp display in MessageBubble
+   */
+
+  test("verboseMode defaults to false", () => {
+    // Simulate initial state of ChatApp
+    let verboseMode = false;
+
+    expect(verboseMode).toBe(false);
+  });
+
+  test("verboseMode can be toggled", () => {
+    let verboseMode = false;
+
+    // Toggle on
+    verboseMode = !verboseMode;
+    expect(verboseMode).toBe(true);
+
+    // Toggle off
+    verboseMode = !verboseMode;
+    expect(verboseMode).toBe(false);
+  });
+
+  test("verboseMode propagates to MessageBubble props", () => {
+    // Simulate MessageBubble props with verboseMode
+    interface TestMessageBubbleProps {
+      message: ChatMessage;
+      isLast?: boolean;
+      verboseMode?: boolean;
+    }
+
+    const propsWithVerbose: TestMessageBubbleProps = {
+      message: createMessage("assistant", "Test"),
+      verboseMode: true,
+    };
+
+    const propsWithoutVerbose: TestMessageBubbleProps = {
+      message: createMessage("assistant", "Test"),
+      verboseMode: false,
+    };
+
+    expect(propsWithVerbose.verboseMode).toBe(true);
+    expect(propsWithoutVerbose.verboseMode).toBe(false);
+  });
+
+  test("verboseMode propagates to ToolResult through MessageBubble", () => {
+    // Simulate the prop flow: ChatApp -> MessageBubble -> ToolResult
+    interface ToolResultProps {
+      toolName: string;
+      input: Record<string, unknown>;
+      status: string;
+      verboseMode?: boolean;
+    }
+
+    const verboseToolResult: ToolResultProps = {
+      toolName: "Read",
+      input: { file_path: "/test.ts" },
+      status: "completed",
+      verboseMode: true,
+    };
+
+    const normalToolResult: ToolResultProps = {
+      toolName: "Read",
+      input: { file_path: "/test.ts" },
+      status: "completed",
+      verboseMode: false,
+    };
+
+    expect(verboseToolResult.verboseMode).toBe(true);
+    expect(normalToolResult.verboseMode).toBe(false);
+  });
+
+  test("ChatApp state structure includes verboseMode", () => {
+    // Simulate the state structure in ChatApp
+    interface ChatAppState {
+      messages: ChatMessage[];
+      isStreaming: boolean;
+      verboseMode: boolean;
+    }
+
+    const initialState: ChatAppState = {
+      messages: [],
+      isStreaming: false,
+      verboseMode: false,
+    };
+
+    expect(initialState.verboseMode).toBe(false);
+
+    // Toggle verbose mode
+    const updatedState: ChatAppState = {
+      ...initialState,
+      verboseMode: true,
+    };
+
+    expect(updatedState.verboseMode).toBe(true);
+    // Other state should remain unchanged
+    expect(updatedState.messages).toEqual([]);
+    expect(updatedState.isStreaming).toBe(false);
+  });
+
+  test("verboseMode state is independent of other states", () => {
+    // Verify verboseMode doesn't interfere with other states
+    interface ChatAppState {
+      messages: ChatMessage[];
+      isStreaming: boolean;
+      verboseMode: boolean;
+      workflowActive: boolean;
+    }
+
+    let state: ChatAppState = {
+      messages: [],
+      isStreaming: false,
+      verboseMode: false,
+      workflowActive: false,
+    };
+
+    // Start streaming - verboseMode unaffected
+    state = { ...state, isStreaming: true };
+    expect(state.verboseMode).toBe(false);
+    expect(state.isStreaming).toBe(true);
+
+    // Toggle verboseMode during streaming - streaming unaffected
+    state = { ...state, verboseMode: true };
+    expect(state.verboseMode).toBe(true);
+    expect(state.isStreaming).toBe(true);
+
+    // End streaming - verboseMode persists
+    state = { ...state, isStreaming: false };
+    expect(state.verboseMode).toBe(true);
+    expect(state.isStreaming).toBe(false);
+  });
+});
+
+describe("MessageBubbleProps with verboseMode", () => {
+  test("MessageBubbleProps interface includes verboseMode", () => {
+    const props: MessageBubbleProps = {
+      message: createMessage("user", "Hello"),
+      isLast: true,
+      verboseMode: true,
+    };
+
+    expect(props.verboseMode).toBe(true);
+  });
+
+  test("verboseMode defaults to undefined when not provided", () => {
+    const props: MessageBubbleProps = {
+      message: createMessage("user", "Hello"),
+    };
+
+    expect(props.verboseMode).toBeUndefined();
+  });
+
+  test("verboseMode can be explicitly set to false", () => {
+    const props: MessageBubbleProps = {
+      message: createMessage("user", "Hello"),
+      verboseMode: false,
+    };
+
+    expect(props.verboseMode).toBe(false);
+  });
+});

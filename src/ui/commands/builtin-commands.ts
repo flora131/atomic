@@ -326,10 +326,7 @@ export const clearCommand: CommandDefinition = {
   execute: (_args: string, _context: CommandContext): CommandResult => {
     return {
       success: true,
-      message: "Chat cleared.",
-      stateUpdate: {
-        messageCount: 0,
-      },
+      clearMessages: true,
     };
   },
 };

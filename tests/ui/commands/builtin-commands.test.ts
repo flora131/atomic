@@ -491,8 +491,7 @@ describe("clearCommand", () => {
     const result = clearCommand.execute("", context);
 
     expect(result.success).toBe(true);
-    expect(result.message).toContain("cleared");
-    expect(result.stateUpdate?.messageCount).toBe(0);
+    expect(result.clearMessages).toBe(true);
   });
 });
 

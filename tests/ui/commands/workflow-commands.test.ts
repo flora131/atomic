@@ -17,6 +17,7 @@ import {
   globalRegistry,
   type CommandContext,
   type CommandContextState,
+  type CommandResult,
 } from "../../../src/ui/commands/registry.ts";
 
 // ============================================================================
@@ -119,7 +120,7 @@ describe("workflowCommands", () => {
       workflowActive: true,
       workflowType: "atomic",
     });
-    const result = atomicCmd!.execute("Build a feature", context);
+    const result = atomicCmd!.execute("Build a feature", context) as CommandResult;
 
     expect(result.success).toBe(false);
     expect(result.message).toContain("already active");
@@ -130,7 +131,7 @@ describe("workflowCommands", () => {
     expect(atomicCmd).toBeDefined();
 
     const context = createMockContext();
-    const result = atomicCmd!.execute("Build a new feature", context);
+    const result = atomicCmd!.execute("Build a new feature", context) as CommandResult;
 
     expect(result.success).toBe(true);
     expect(result.stateUpdate?.workflowActive).toBe(true);
@@ -172,7 +173,7 @@ describe("workflowCommands", () => {
     expect(atomicCmd).toBeDefined();
 
     const context = createMockContext();
-    const result = atomicCmd!.execute("  Build a feature  ", context);
+    const result = atomicCmd!.execute("  Build a feature  ", context) as CommandResult;
 
     expect(result.stateUpdate?.initialPrompt).toBe("Build a feature");
   });
@@ -215,7 +216,7 @@ describe("registerWorkflowCommands", () => {
     expect(atomicCmd).toBeDefined();
 
     const context = createMockContext();
-    const result = atomicCmd!.execute("Test prompt", context);
+    const result = atomicCmd!.execute("Test prompt", context) as CommandResult;
 
     expect(result.success).toBe(true);
   });

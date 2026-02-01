@@ -80,6 +80,8 @@ export interface CommandResult {
   message?: string;
   /** Optional state updates to apply */
   stateUpdate?: Partial<CommandContextState>;
+  /** If true, clear all messages from the chat */
+  clearMessages?: boolean;
 }
 
 /**
@@ -281,10 +283,11 @@ export class CommandRegistry {
    * Sort commands by exact match, category priority, then alphabetically.
    */
   private sortCommands(commands: CommandDefinition[], searchKey: string): CommandDefinition[] {
+    // Priority: workflow > skill > builtin > custom (per spec section 5.3)
     const categoryPriority: Record<CommandCategory, number> = {
-      builtin: 0,
-      workflow: 1,
-      skill: 2,
+      workflow: 0,
+      skill: 1,
+      builtin: 2,
       custom: 3,
     };
 

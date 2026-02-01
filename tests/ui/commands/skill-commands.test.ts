@@ -126,11 +126,11 @@ describe("skillCommands", () => {
     const result = commitCmd!.execute("", context);
 
     expect(result.success).toBe(true);
-    expect(result.message).toContain("commit");
-    expect(result.message).toContain("invoked");
+    // No system message is displayed - skill executes silently
+    expect(result.message).toBeUndefined();
   });
 
-  test("skill command passes arguments", () => {
+  test("skill command executes without system messages", () => {
     const commitCmd = skillCommands.find((c) => c.name === "commit");
     expect(commitCmd).toBeDefined();
 
@@ -146,10 +146,8 @@ describe("skillCommands", () => {
 
     commitCmd!.execute("-m 'Fix bug'", context);
 
-    expect(messages.length).toBe(1);
-    expect(messages[0]?.role).toBe("system");
-    expect(messages[0]?.content).toContain("commit");
-    expect(messages[0]?.content).toContain("-m 'Fix bug'");
+    // No system messages should be added - skill executes silently
+    expect(messages.length).toBe(0);
   });
 
   test("skill command sets streaming state", () => {

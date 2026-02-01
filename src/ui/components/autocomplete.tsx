@@ -7,10 +7,10 @@
  * Reference: Feature 6 - Create Autocomplete component with two-column layout
  */
 
-import React, { useMemo, useCallback } from "react";
+import React, { useMemo, useCallback, useRef, useEffect } from "react";
 import { useTheme } from "../theme.tsx";
 import { globalRegistry, type CommandDefinition } from "../commands/index.ts";
-import type { KeyEvent } from "@opentui/core";
+import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
 
 // ============================================================================
 // TYPES
@@ -82,17 +82,17 @@ function SuggestionRow({
     <box
       flexDirection="row"
       width="100%"
-      style={{ bg: bgColor }}
+      backgroundColor={bgColor}
       paddingLeft={1}
       paddingRight={1}
     >
       {/* Command name column - fixed width */}
       <box width={20}>
-        <text style={{ fg: fgColor, bold: isSelected }}>{commandName}</text>
+        <text fg={fgColor} attributes={isSelected ? 1 : undefined}>{commandName}</text>
       </box>
       {/* Description column - flexible */}
       <box flexGrow={1}>
-        <text style={{ fg: descColor }}>{description}</text>
+        <text fg={descColor}>{description}</text>
       </box>
     </box>
   );
@@ -129,6 +129,8 @@ export function Autocomplete({
   maxSuggestions = 8,
 }: AutocompleteProps): React.ReactNode {
   const { theme } = useTheme();
+  const scrollRef = useRef<ScrollBoxRenderable>(null);
+  const itemHeight = 1; // Each suggestion row is 1 line tall
 
   // Get matching commands from the registry
   const suggestions = useMemo(() => {
@@ -137,9 +139,9 @@ export function Autocomplete({
     // Search for commands matching the input prefix
     const matches = globalRegistry.search(input);
 
-    // Limit to maxSuggestions
-    return matches.slice(0, maxSuggestions);
-  }, [input, visible, maxSuggestions]);
+    // Return all matches - scrollbox handles overflow display
+    return matches;
+  }, [input, visible]);
 
   // Ensure selectedIndex is within bounds
   const validIndex = Math.min(
@@ -152,30 +154,59 @@ export function Autocomplete({
     onIndexChange(validIndex);
   }
 
+  // Scroll to keep selected item visible
+  useEffect(() => {
+    if (!scrollRef.current || suggestions.length === 0) return;
+
+    const scrollBox = scrollRef.current;
+    const selectedTop = validIndex * itemHeight;
+    const selectedBottom = selectedTop + itemHeight;
+    const viewportHeight = maxSuggestions;
+
+    // Check if selected item is above viewport
+    if (selectedTop < scrollBox.scrollTop) {
+      scrollBox.scrollTo(selectedTop);
+    }
+    // Check if selected item is below viewport
+    else if (selectedBottom > scrollBox.scrollTop + viewportHeight) {
+      scrollBox.scrollTo(selectedBottom - viewportHeight);
+    }
+  }, [validIndex, suggestions.length, maxSuggestions]);
+
   // Don't render if not visible or no suggestions
   if (!visible || suggestions.length === 0) {
     return null;
   }
+
+  // Calculate display height - min of suggestions or maxSuggestions, plus 2 for borders
+  const displayHeight = Math.min(suggestions.length, maxSuggestions) + 2;
 
   return (
     <box
       flexDirection="column"
       borderStyle="single"
       borderColor={theme.colors.border}
-      style={{ bg: theme.colors.background }}
+      backgroundColor={theme.colors.background}
       width="100%"
-      maxHeight={maxSuggestions + 2} // +2 for borders
+      height={displayHeight}
     >
-      {suggestions.map((command, index) => (
-        <SuggestionRow
-          key={command.name}
-          command={command}
-          isSelected={index === validIndex}
-          accentColor={theme.colors.accent}
-          foregroundColor={theme.colors.foreground}
-          mutedColor={theme.colors.muted}
-        />
-      ))}
+      <scrollbox
+        ref={scrollRef}
+        flexGrow={1}
+        scrollY={true}
+        scrollX={false}
+      >
+        {suggestions.map((command, index) => (
+          <SuggestionRow
+            key={command.name}
+            command={command}
+            isSelected={index === validIndex}
+            accentColor={theme.colors.accent}
+            foregroundColor={theme.colors.foreground}
+            mutedColor={theme.colors.muted}
+          />
+        ))}
+      </scrollbox>
     </box>
   );
 }
@@ -292,7 +323,7 @@ export function useAutocompleteKeyboard(
         return { handled: false };
       }
 
-      const key = event.key;
+      const key = event.name;
 
       // Up arrow - navigate up
       if (key === "up") {

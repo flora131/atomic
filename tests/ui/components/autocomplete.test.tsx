@@ -237,8 +237,8 @@ describe("Autocomplete behavior expectations", () => {
 
 describe("useAutocompleteKeyboard", () => {
   // Helper to create mock key events
-  function createKeyEvent(key: string): KeyEvent {
-    return { key } as KeyEvent;
+  function createKeyEvent(name: string): KeyEvent {
+    return { name } as KeyEvent;
   }
 
   // Helper to create handler with tracking
@@ -265,7 +265,7 @@ describe("useAutocompleteKeyboard", () => {
         return { handled: false };
       }
 
-      const key = event.key;
+      const key = event.name;
 
       if (key === "up") {
         const newIndex = navigateUp(selectedIndex, totalSuggestions);

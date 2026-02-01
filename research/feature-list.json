@@ -38,7 +38,7 @@
       "Verify sequential processing of multiple queued messages",
       "Test queue empties correctly after all messages processed"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

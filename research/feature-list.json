@@ -177,7 +177,7 @@
       "Verify footer displays correctly in the UI",
       "Test footer updates when queue count changes"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

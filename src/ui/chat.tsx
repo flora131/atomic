@@ -20,6 +20,7 @@ import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplet
 import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
 import { ToolResult } from "./components/tool-result.tsx";
 import { TimestampDisplay } from "./components/timestamp-display.tsx";
+import { FooterStatus } from "./components/footer-status.tsx";
 import {
   UserQuestionDialog,
   type UserQuestion,
@@ -1316,6 +1317,14 @@ export function ChatApp({
           />
         </box>
       </scrollbox>
+
+      {/* Footer Status - shows status line at bottom */}
+      <FooterStatus
+        verboseMode={verboseMode}
+        isStreaming={isStreaming}
+        queuedCount={messageQueue.count}
+        modelId={model}
+      />
 
       {/* User Question Dialog - for HITL interactions */}
       {activeQuestion && (

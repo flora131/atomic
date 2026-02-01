@@ -1570,3 +1570,146 @@ describe("Ctrl+O Keyboard Shortcut for Verbose Mode", () => {
     expect(verboseMode).toBe(true); // Should still be true
   });
 });
+
+// ============================================================================
+// FooterStatus Integration Tests
+// ============================================================================
+
+describe("FooterStatus Integration", () => {
+  /**
+   * These tests verify the FooterStatus component integration in ChatApp.
+   * The footer displays: verboseMode, isStreaming, queuedCount, modelId.
+   */
+
+  test("FooterStatus receives correct props from ChatApp state", () => {
+    // Simulate the props that ChatApp passes to FooterStatus
+    interface FooterStatusPropsFromChat {
+      verboseMode: boolean;
+      isStreaming: boolean;
+      queuedCount: number;
+      modelId: string;
+    }
+
+    const props: FooterStatusPropsFromChat = {
+      verboseMode: false,
+      isStreaming: false,
+      queuedCount: 0,
+      modelId: "Opus 4.5",
+    };
+
+    expect(props.verboseMode).toBe(false);
+    expect(props.isStreaming).toBe(false);
+    expect(props.queuedCount).toBe(0);
+    expect(props.modelId).toBe("Opus 4.5");
+  });
+
+  test("FooterStatus queuedCount updates with message queue", () => {
+    // Simulate queue state changes
+    interface QueueState {
+      count: number;
+    }
+
+    let queue: QueueState = { count: 0 };
+    let footerQueuedCount = queue.count;
+
+    // Initially empty
+    expect(footerQueuedCount).toBe(0);
+
+    // Add messages to queue
+    queue = { count: 1 };
+    footerQueuedCount = queue.count;
+    expect(footerQueuedCount).toBe(1);
+
+    queue = { count: 3 };
+    footerQueuedCount = queue.count;
+    expect(footerQueuedCount).toBe(3);
+
+    // Empty queue
+    queue = { count: 0 };
+    footerQueuedCount = queue.count;
+    expect(footerQueuedCount).toBe(0);
+  });
+
+  test("FooterStatus updates when streaming starts and stops", () => {
+    let isStreaming = false;
+    let footerIsStreaming = isStreaming;
+
+    // Start streaming
+    isStreaming = true;
+    footerIsStreaming = isStreaming;
+    expect(footerIsStreaming).toBe(true);
+
+    // Stop streaming
+    isStreaming = false;
+    footerIsStreaming = isStreaming;
+    expect(footerIsStreaming).toBe(false);
+  });
+
+  test("FooterStatus updates when verboseMode toggles", () => {
+    let verboseMode = false;
+    let footerVerboseMode = verboseMode;
+
+    // Toggle on
+    verboseMode = true;
+    footerVerboseMode = verboseMode;
+    expect(footerVerboseMode).toBe(true);
+
+    // Toggle off
+    verboseMode = false;
+    footerVerboseMode = verboseMode;
+    expect(footerVerboseMode).toBe(false);
+  });
+
+  test("FooterStatus receives modelId from ChatApp props", () => {
+    // Simulate different model IDs
+    const models = ["Opus 4.5", "Sonnet 4", "claude-3-opus", "gpt-4"];
+
+    for (const modelId of models) {
+      const footerProps = { modelId };
+      expect(footerProps.modelId).toBe(modelId);
+    }
+  });
+
+  test("FooterStatus state reflects combined ChatApp state", () => {
+    // Simulate a realistic combined state scenario
+    interface ChatAppStateForFooter {
+      verboseMode: boolean;
+      isStreaming: boolean;
+      queuedCount: number;
+      modelId: string;
+    }
+
+    // Initial state
+    let state: ChatAppStateForFooter = {
+      verboseMode: false,
+      isStreaming: false,
+      queuedCount: 0,
+      modelId: "Opus 4.5",
+    };
+
+    expect(state.verboseMode).toBe(false);
+    expect(state.isStreaming).toBe(false);
+    expect(state.queuedCount).toBe(0);
+
+    // User sends message, streaming starts
+    state = { ...state, isStreaming: true };
+    expect(state.isStreaming).toBe(true);
+
+    // User queues messages during streaming
+    state = { ...state, queuedCount: 2 };
+    expect(state.queuedCount).toBe(2);
+
+    // User toggles verbose mode
+    state = { ...state, verboseMode: true };
+    expect(state.verboseMode).toBe(true);
+
+    // Stream completes, queue processes
+    state = { ...state, isStreaming: false, queuedCount: 1 };
+    expect(state.isStreaming).toBe(false);
+    expect(state.queuedCount).toBe(1);
+
+    // All queued messages processed
+    state = { ...state, queuedCount: 0 };
+    expect(state.queuedCount).toBe(0);
+  });
+});

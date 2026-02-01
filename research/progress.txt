@@ -604,3 +604,39 @@ Verified that integration tests for verbose mode toggle are already in place fro
 
 ### Next Feature
 The next highest priority feature is: E2E tests (which require tmux-cli skill)
+
+---
+
+## 2026-02-01 - E2E Test: Create dummy temp project with atomic init
+
+### Summary
+Executed the first E2E test using tmux-cli to verify that `atomic init` works correctly. The test created a temporary project and verified the initialization process.
+
+### Test Steps Executed
+1. Launched new zsh pane (dev:0.1) for E2E testing
+2. Created temp directory: `/tmp/atomic-e2e-test`
+3. Ran `atomic init` in the temp directory
+4. Interactive prompts answered:
+   - Selected "Claude Code" as the coding agent
+   - Confirmed "Yes" to install config files
+   - Enabled anonymous telemetry
+5. Verified successful completion with exit code 0
+
+### Files Created by atomic init
+- `/tmp/atomic-e2e-test/.claude/`
+  - `agents/`
+  - `commands/`
+  - `hooks/`
+  - `skills/`
+  - `ralph-loop.local.md`
+  - `settings.json`
+- `/tmp/atomic-e2e-test/.mcp.json`
+- `/tmp/atomic-e2e-test/CLAUDE.md`
+
+### Test Result
+- **PASS**: atomic init completed successfully
+- All expected config files were created
+- Exit code: 0
+
+### Next Feature
+The next highest priority feature is: "E2E test: Verify atomic chat with Claude agent (-a claude)"

@@ -512,3 +512,29 @@ Thinking... ●∙∙
 
 ### Next Feature
 The next highest priority feature is: "Export new components and hooks from index files"
+
+---
+
+## 2026-02-01 - Feature: Export new components and hooks from index files
+
+### Summary
+Verified that all new components and hooks are properly exported from their respective index files. The exports were already in place from previous implementations.
+
+### Verification
+- `src/ui/components/index.ts` exports: FooterStatus, TimestampDisplay, QueueIndicator
+- `src/ui/hooks/index.ts` exports: useMessageQueue
+- All modules verified accessible via bun import test
+
+### Files Already Configured
+- `src/ui/components/index.ts` - Has all component exports
+- `src/ui/hooks/index.ts` - Has useMessageQueue export
+
+### Test Results
+- All exports verified via runtime import check
+- FooterStatus: function
+- TimestampDisplay: function
+- QueueIndicator: function
+- useMessageQueue: function
+
+### Next Feature
+The next highest priority feature is: "Add integration tests for message queuing flow"

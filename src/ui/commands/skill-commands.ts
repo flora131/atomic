@@ -139,21 +139,15 @@ function createSkillCommand(metadata: SkillMetadata): CommandDefinition {
       // Build the skill invocation message
       const skillName = metadata.name;
       const skillArgs = args.trim();
-      const invocationMessage = skillArgs
+      const _invocationMessage = skillArgs
         ? `/${skillName} ${skillArgs}`
         : `/${skillName}`;
 
-      // Add a system message indicating skill invocation
-      context.addMessage(
-        "system",
-        `Invoking skill **${skillName}**...${skillArgs ? `\n\nArguments: "${skillArgs}"` : ""}`
-      );
-
       // Return success - the actual skill invocation happens through the session
       // The UI layer should handle sending the invocation message to the agent
+      // Note: No system message is displayed - the skill executes silently
       return {
         success: true,
-        message: `Skill **${skillName}** invoked.`,
         stateUpdate: {
           // Mark that we're waiting for a skill response
           isStreaming: true,

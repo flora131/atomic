@@ -55,9 +55,9 @@ describe("darkTheme", () => {
   });
 
   test("has distinct message colors", () => {
-    expect(darkTheme.colors.userMessage).toBe("cyan");
-    expect(darkTheme.colors.assistantMessage).toBe("green");
-    expect(darkTheme.colors.systemMessage).toBe("yellow");
+    expect(darkTheme.colors.userMessage).toBe("#A8C5D8");      // Pale sky blue
+    expect(darkTheme.colors.assistantMessage).toBe("#D4A5A5"); // Dusty rose
+    expect(darkTheme.colors.systemMessage).toBe("#C9B896");    // Muted gold
   });
 });
 
@@ -92,9 +92,9 @@ describe("lightTheme", () => {
   });
 
   test("has distinct message colors", () => {
-    expect(lightTheme.colors.userMessage).toBe("blue");
-    expect(lightTheme.colors.assistantMessage).toBe("magenta");
-    expect(lightTheme.colors.systemMessage).toBe("yellow");
+    expect(lightTheme.colors.userMessage).toBe("#5A8AA8");      // Muted steel blue
+    expect(lightTheme.colors.assistantMessage).toBe("#B8878A"); // Muted rose
+    expect(lightTheme.colors.systemMessage).toBe("#A89060");    // Dusty gold
   });
 });
 
@@ -106,18 +106,18 @@ describe("theme color consistency", () => {
   });
 
   test("error color is consistent", () => {
-    expect(darkTheme.colors.error).toBe("red");
-    expect(lightTheme.colors.error).toBe("red");
+    expect(darkTheme.colors.error).toBe("#C98A8A");  // Dusty red
+    expect(lightTheme.colors.error).toBe("#A86868"); // Muted red
   });
 
   test("success color is consistent", () => {
-    expect(darkTheme.colors.success).toBe("green");
-    expect(lightTheme.colors.success).toBe("green");
+    expect(darkTheme.colors.success).toBe("#8AB89A");  // Muted sage
+    expect(lightTheme.colors.success).toBe("#5A886A"); // Muted sage
   });
 
   test("warning color is consistent", () => {
-    expect(darkTheme.colors.warning).toBe("yellow");
-    expect(lightTheme.colors.warning).toBe("yellow");
+    expect(darkTheme.colors.warning).toBe("#C9B896");  // Muted gold
+    expect(lightTheme.colors.warning).toBe("#A89060"); // Dusty gold
   });
 });
 
@@ -153,18 +153,18 @@ describe("getThemeByName", () => {
 
 describe("getMessageColor", () => {
   test("returns user color for user role", () => {
-    expect(getMessageColor("user", darkTheme.colors)).toBe("cyan");
-    expect(getMessageColor("user", lightTheme.colors)).toBe("blue");
+    expect(getMessageColor("user", darkTheme.colors)).toBe("#A8C5D8");  // Pale sky blue
+    expect(getMessageColor("user", lightTheme.colors)).toBe("#5A8AA8"); // Muted steel blue
   });
 
   test("returns assistant color for assistant role", () => {
-    expect(getMessageColor("assistant", darkTheme.colors)).toBe("green");
-    expect(getMessageColor("assistant", lightTheme.colors)).toBe("magenta");
+    expect(getMessageColor("assistant", darkTheme.colors)).toBe("#D4A5A5"); // Dusty rose
+    expect(getMessageColor("assistant", lightTheme.colors)).toBe("#B8878A"); // Muted rose
   });
 
   test("returns system color for system role", () => {
-    expect(getMessageColor("system", darkTheme.colors)).toBe("yellow");
-    expect(getMessageColor("system", lightTheme.colors)).toBe("yellow");
+    expect(getMessageColor("system", darkTheme.colors)).toBe("#C9B896"); // Muted gold
+    expect(getMessageColor("system", lightTheme.colors)).toBe("#A89060"); // Dusty gold
   });
 });
 

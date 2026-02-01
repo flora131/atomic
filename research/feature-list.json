@@ -234,7 +234,7 @@
       "Test timestamps appear when verbose mode enabled",
       "Test footer shows verbose mode indicator"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "e2e",

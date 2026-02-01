@@ -20,7 +20,10 @@ import {
   registerDefaultCopilotHooks,
   createDefaultCopilotHooks,
 } from "../../src/sdk/copilot-hooks.ts";
-import type { CopilotSdkEvent } from "../../src/sdk/copilot-client.ts";
+import type { AgentEvent, EventType } from "../../src/sdk/types.ts";
+
+// Type alias for hook events - uses our unified event type
+type HookEvent = AgentEvent<EventType>;
 
 // Test file paths
 const TEST_RALPH_STATE = ".github/ralph-loop.local.md";
@@ -28,19 +31,19 @@ const TEST_RALPH_LOG_DIR = ".github/logs";
 const TEST_TEMP_COMMANDS = ".github/telemetry-session-commands.tmp";
 
 /**
- * Helper to create a mock CopilotSdkEvent
+ * Helper to create a mock HookEvent
  */
 function createMockEvent(
-  type: string,
-  overrides: Partial<CopilotSdkEvent> = {}
-): CopilotSdkEvent {
+  type: EventType,
+  overrides: Partial<HookEvent> = {}
+): HookEvent {
   return {
-    type: type as CopilotSdkEvent["type"],
+    type,
     sessionId: "test-session-123",
     timestamp: new Date().toISOString(),
     data: {},
     ...overrides,
-  };
+  } as HookEvent;
 }
 
 /**

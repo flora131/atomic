@@ -10,8 +10,15 @@
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
 import { join, dirname } from "path";
-import type { CopilotClient, CopilotSdkEvent } from "./copilot-client.ts";
+import type { CopilotClient } from "./copilot-client.ts";
+import type { AgentEvent, EventType } from "./types.ts";
 import { trackAgentSession } from "../utils/telemetry/index.ts";
+import { tryAcquireLock, releaseLock } from "../utils/file-lock.ts";
+
+/**
+ * Type alias for hook event - uses our unified event type
+ */
+type HookEvent = AgentEvent<EventType>;
 
 // ============================================================================
 // CONSTANTS
@@ -57,8 +64,8 @@ interface RalphState {
  * Configuration for Copilot SDK hooks
  */
 export interface CopilotHookHandlers {
-  onSessionStart?: (event: CopilotSdkEvent) => void | Promise<void>;
-  onSessionEnd?: (event: CopilotSdkEvent) => void | Promise<void>;
+  onSessionStart?: (event: HookEvent) => void | Promise<void>;
+  onSessionEnd?: (event: HookEvent) => void | Promise<void>;
   onUserPrompt?: (prompt: string) => void | Promise<void>;
 }
 
@@ -117,13 +124,22 @@ function parseRalphState(): RalphState | null {
 }
 
 /**
- * Write Ralph state to YAML frontmatter file
+ * Write Ralph state to YAML frontmatter file with file locking.
+ * Uses non-blocking lock acquisition to prevent concurrent writes.
  */
 function writeRalphState(state: RalphState): void {
-  const completionPromiseYaml =
-    state.completionPromise === null ? "null" : `"${state.completionPromise}"`;
+  // Acquire lock before writing
+  const lockResult = tryAcquireLock(RALPH_STATE_FILE);
+  if (!lockResult.acquired) {
+    console.warn(`[Copilot] Could not acquire lock for ${RALPH_STATE_FILE}: ${lockResult.error}`);
+    // Fall through to write anyway to avoid blocking the session
+  }
 
-  const content = `---
+  try {
+    const completionPromiseYaml =
+      state.completionPromise === null ? "null" : `"${state.completionPromise}"`;
+
+    const content = `---
 active: ${state.active}
 iteration: ${state.iteration}
 max_iterations: ${state.maxIterations}
@@ -135,13 +151,23 @@ started_at: "${state.startedAt}"
 ${state.prompt}
 `;
 
-  writeFileSync(RALPH_STATE_FILE, content, "utf-8");
+    writeFileSync(RALPH_STATE_FILE, content, "utf-8");
+  } finally {
+    // Release lock if we acquired it
+    if (lockResult.acquired) {
+      releaseLock(RALPH_STATE_FILE);
+    }
+  }
 }
 
 /**
- * Check if all features are passing in the feature list
+ * Check if all features are passing in the feature list.
+ * Uses file locking to prevent read during concurrent write.
  */
 async function checkFeaturesPassing(path: string): Promise<boolean> {
+  // Acquire lock before reading
+  const lockResult = tryAcquireLock(path);
+
   try {
     const features = JSON.parse(readFileSync(path, "utf-8")) as Array<{ passes?: boolean }>;
 
@@ -160,6 +186,11 @@ async function checkFeaturesPassing(path: string): Promise<boolean> {
     return failingFeatures === 0;
   } catch {
     return false;
+  } finally {
+    // Release lock if we acquired it
+    if (lockResult.acquired) {
+      releaseLock(path);
+    }
   }
 }
 
@@ -251,8 +282,8 @@ async function logRalphSession(entry: Record<string, unknown>): Promise<void> {
  *
  * @returns Handler function for session.start event
  */
-export function createSessionStartHandler(): (event: CopilotSdkEvent) => Promise<void> {
-  return async (event: CopilotSdkEvent) => {
+export function createSessionStartHandler(): (event: HookEvent) => Promise<void> {
+  return async (event: HookEvent) => {
     try {
       const timestamp = event.timestamp || new Date().toISOString();
       const sessionId = event.sessionId;
@@ -332,8 +363,8 @@ export function createUserPromptHandler(): (prompt: string) => Promise<void> {
  *
  * @returns Handler function for session.idle event
  */
-export function createSessionEndHandler(): (event: CopilotSdkEvent) => Promise<void> {
-  return async (event: CopilotSdkEvent) => {
+export function createSessionEndHandler(): (event: HookEvent) => Promise<void> {
+  return async (event: HookEvent) => {
     try {
       const timestamp = event.timestamp || new Date().toISOString();
       const sessionId = event.sessionId;
@@ -532,24 +563,14 @@ export function registerDefaultCopilotHooks(client: CopilotClient): Array<() => 
   // Register session start handler
   const sessionStartHandler = createSessionStartHandler();
   const unsubSessionStart = client.on("session.start", (event) => {
-    sessionStartHandler({
-      type: "session.start",
-      sessionId: event.sessionId,
-      timestamp: event.timestamp,
-      data: event.data as Record<string, unknown>,
-    });
+    sessionStartHandler(event);
   });
   unsubscribers.push(unsubSessionStart);
 
   // Register session end handler (using session.idle as per SDK mapping)
   const sessionEndHandler = createSessionEndHandler();
   const unsubSessionEnd = client.on("session.idle", (event) => {
-    sessionEndHandler({
-      type: "session.idle",
-      sessionId: event.sessionId,
-      timestamp: event.timestamp,
-      data: event.data as Record<string, unknown>,
-    });
+    sessionEndHandler(event);
   });
   unsubscribers.push(unsubSessionEnd);
 

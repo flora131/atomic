@@ -254,6 +254,10 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   try {
     await client.start();
 
+    // Get model info from the client (after start to ensure connection)
+    // Pass the model from CLI options if provided for accurate display
+    const modelDisplayInfo = await client.getModelDisplayInfo(model);
+
     // Build chat UI configuration
     const chatConfig: ChatUIConfig = {
       sessionConfig: {
@@ -265,8 +269,8 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
         ? "Type a message or /workflow to start..."
         : "Type a message...",
       version: "0.4.4",
-      model: model ?? "Opus 4.5",
-      tier: "Claude Max",
+      model: model ?? modelDisplayInfo.model,
+      tier: modelDisplayInfo.tier,
       workingDir: process.cwd(),
       suggestion: 'Try "fix typecheck errors"',
     };
@@ -343,6 +347,7 @@ async function startWorkflowChat(
     registerTool: client.registerTool.bind(client),
     start: client.start.bind(client),
     stop: client.stop.bind(client),
+    getModelDisplayInfo: client.getModelDisplayInfo.bind(client),
   };
 
   const result = await startChatUI(workflowClient, config);

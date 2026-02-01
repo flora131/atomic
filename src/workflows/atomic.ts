@@ -21,6 +21,7 @@ import {
   graph,
   agentNode,
   toolNode,
+  clearContextNode,
   decisionNode,
   waitNode,
   ResearchDirSaver,
@@ -37,7 +38,9 @@ export const DEFAULT_MAX_ITERATIONS = 100;
 /** Node IDs for the Atomic workflow */
 export const ATOMIC_NODE_IDS = {
   RESEARCH: "research",
+  CLEAR_AFTER_RESEARCH: "clear-after-research",
   CREATE_SPEC: "create-spec",
+  CLEAR_AFTER_SPEC: "clear-after-spec",
   REVIEW_SPEC: "review-spec",
   WAIT_FOR_APPROVAL: "wait-for-approval",
   CHECK_APPROVAL: "check-approval",
@@ -162,6 +165,28 @@ Please provide a clear, actionable specification.`;
       [ATOMIC_NODE_IDS.CREATE_SPEC]: messages,
     },
   }),
+});
+
+/**
+ * Clear context after research node.
+ * Clears the context window before spec creation.
+ */
+const clearAfterResearchNode = clearContextNode<AtomicWorkflowState>({
+  id: ATOMIC_NODE_IDS.CLEAR_AFTER_RESEARCH,
+  name: "Clear Context After Research",
+  description: "Clear context window before spec creation",
+  message: "Research complete. Clearing context window for spec creation.",
+});
+
+/**
+ * Clear context after spec creation node.
+ * Clears the context window before HIL review.
+ */
+const clearAfterSpecNode = clearContextNode<AtomicWorkflowState>({
+  id: ATOMIC_NODE_IDS.CLEAR_AFTER_SPEC,
+  name: "Clear Context After Spec",
+  description: "Clear context window before HIL review",
+  message: "Specification complete. Clearing context window for review.",
 });
 
 /**
@@ -471,18 +496,21 @@ export function createAtomicWorkflow(
   } = config;
 
   // Build the workflow graph
+  // The sequence follows: research → clear → spec → clear → HIL review
   let builder = graph<AtomicWorkflowState>()
     // Phase 1: Research and Specification
     .start(researchNode)
+    .then(clearAfterResearchNode)  // Clear context after research
     .then(createSpecNode)
+    .then(clearAfterSpecNode)      // Clear context after spec
     .then(reviewSpecNode);
-  
+
   // Add approval step if not auto-approving
   if (autoApproveSpec) {
     // Skip approval, go directly to feature list
     builder = builder.then(createFeatureListNode);
   } else {
-    // Wait for human approval, then check result
+    // Wait for human approval (HIL), then check result
     // If approved -> create feature list
     // If rejected -> loop back to create spec
     builder = builder

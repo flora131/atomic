@@ -37,6 +37,46 @@ import type {
   CodingAgentClient,
   CodingAgentClientFactory,
 } from "../../src/sdk/types.ts";
+import { formatModelDisplayName } from "../../src/sdk/types.ts";
+
+describe("formatModelDisplayName", () => {
+  test("formats claude-opus-4-5-20251101 to Opus 4.5", () => {
+    expect(formatModelDisplayName("claude-opus-4-5-20251101")).toBe("Opus 4.5");
+  });
+
+  test("formats claude-sonnet-4-5-20250929 to Sonnet 4.5", () => {
+    expect(formatModelDisplayName("claude-sonnet-4-5-20250929")).toBe("Sonnet 4.5");
+  });
+
+  test("formats claude-haiku-3-5 to Haiku 3.5", () => {
+    expect(formatModelDisplayName("claude-haiku-3-5")).toBe("Haiku 3.5");
+  });
+
+  test("formats claude-3-opus to Opus", () => {
+    expect(formatModelDisplayName("claude-3-opus")).toBe("Opus");
+  });
+
+  test("formats claude-3-sonnet to Sonnet", () => {
+    expect(formatModelDisplayName("claude-3-sonnet")).toBe("Sonnet");
+  });
+
+  test("formats claude-opus-4 to Opus 4", () => {
+    expect(formatModelDisplayName("claude-opus-4")).toBe("Opus 4");
+  });
+
+  test("returns Claude for empty string", () => {
+    expect(formatModelDisplayName("")).toBe("Claude");
+  });
+
+  test("returns Claude for just claude", () => {
+    expect(formatModelDisplayName("claude")).toBe("Claude");
+  });
+
+  test("handles case insensitivity", () => {
+    expect(formatModelDisplayName("CLAUDE-OPUS-4-5")).toBe("Opus 4.5");
+    expect(formatModelDisplayName("Claude-Sonnet-4")).toBe("Sonnet 4");
+  });
+});
 
 describe("SDK Types Module", () => {
   describe("PermissionMode", () => {
@@ -406,6 +446,7 @@ describe("SDK Types Module", () => {
           mockSessions.clear();
           eventHandlers.clear();
         },
+        getModelDisplayInfo: async () => ({ model: "Mock", tier: "Test" }),
       };
 
       // Test the mock client
@@ -506,6 +547,7 @@ describe("SDK Types Module", () => {
           registerTool: () => {},
           start: async () => {},
           stop: async () => {},
+          getModelDisplayInfo: async () => ({ model: "Mock", tier: "Test" }),
         };
       };
 

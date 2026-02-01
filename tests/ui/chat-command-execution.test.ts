@@ -11,7 +11,44 @@ import {
   type CommandDefinition,
   type CommandContext,
   type CommandResult,
+  type CommandContextState,
 } from "../../src/ui/commands/index.ts";
+
+// ============================================================================
+// TEST HELPERS
+// ============================================================================
+
+/**
+ * Create a mock CommandContext for testing.
+ */
+function createMockContext(
+  options: {
+    session?: object | null;
+    stateOverrides?: Partial<CommandContextState>;
+    onAddMessage?: (role: string, content: string) => void;
+    onSetStreaming?: (streaming: boolean) => void;
+    onSendMessage?: (content: string) => void;
+  } = {}
+): CommandContext & { sentMessages: string[] } {
+  const sentMessages: string[] = [];
+  return {
+    session: (options.session as CommandContext["session"]) ?? null,
+    state: {
+      isStreaming: false,
+      messageCount: 0,
+      ...options.stateOverrides,
+    },
+    addMessage: options.onAddMessage ?? (() => {}),
+    setStreaming: options.onSetStreaming ?? (() => {}),
+    sendMessage: (content: string) => {
+      sentMessages.push(content);
+      if (options.onSendMessage) {
+        options.onSendMessage(content);
+      }
+    },
+    sentMessages,
+  };
+}
 
 // ============================================================================
 // SETUP
@@ -228,12 +265,7 @@ describe("Command execution", () => {
 
   test("executes command with args", async () => {
     const command = globalRegistry.get("test-cmd");
-    const context: CommandContext = {
-      session: null,
-      state: { isStreaming: false, messageCount: 5 },
-      addMessage: () => {},
-      setStreaming: () => {},
-    };
+    const context = createMockContext({ stateOverrides: { messageCount: 5 } });
 
     const result = await command!.execute("my args", context);
 
@@ -245,12 +277,7 @@ describe("Command execution", () => {
 
   test("handles failed command result", async () => {
     const command = globalRegistry.get("failing-cmd");
-    const context: CommandContext = {
-      session: null,
-      state: { isStreaming: false, messageCount: 0 },
-      addMessage: () => {},
-      setStreaming: () => {},
-    };
+    const context = createMockContext();
 
     const result = await command!.execute("", context);
 
@@ -260,12 +287,7 @@ describe("Command execution", () => {
 
   test("returns state updates", async () => {
     const command = globalRegistry.get("state-update-cmd");
-    const context: CommandContext = {
-      session: null,
-      state: { isStreaming: false, messageCount: 0 },
-      addMessage: () => {},
-      setStreaming: () => {},
-    };
+    const context = createMockContext();
 
     const result = await command!.execute("", context);
 
@@ -277,12 +299,7 @@ describe("Command execution", () => {
 
   test("handles async commands", async () => {
     const command = globalRegistry.get("async-cmd");
-    const context: CommandContext = {
-      session: null,
-      state: { isStreaming: false, messageCount: 0 },
-      addMessage: () => {},
-      setStreaming: () => {},
-    };
+    const context = createMockContext();
 
     const result = await command!.execute("async arg", context);
 
@@ -292,12 +309,7 @@ describe("Command execution", () => {
 
   test("handles command that throws", async () => {
     const command = globalRegistry.get("throwing-cmd");
-    const context: CommandContext = {
-      session: null,
-      state: { isStreaming: false, messageCount: 0 },
-      addMessage: () => {},
-      setStreaming: () => {},
-    };
+    const context = createMockContext();
 
     // Command execution should throw - ChatApp wraps this in try/catch
     let thrownError: Error | null = null;
@@ -330,14 +342,11 @@ describe("CommandContext", () => {
       },
     });
 
-    const context: CommandContext = {
-      session: null,
-      state: { isStreaming: false, messageCount: 0 },
-      addMessage: (role, content) => {
+    const context = createMockContext({
+      onAddMessage: (role, content) => {
         messages.push({ role, content });
       },
-      setStreaming: () => {},
-    };
+    });
 
     const command = globalRegistry.get("msg-cmd");
     command!.execute("", context);
@@ -360,14 +369,11 @@ describe("CommandContext", () => {
       },
     });
 
-    const context: CommandContext = {
-      session: null,
-      state: { isStreaming: false, messageCount: 0 },
-      addMessage: () => {},
-      setStreaming: (streaming) => {
+    const context = createMockContext({
+      onSetStreaming: (streaming) => {
         streamingState = streaming;
       },
-    };
+    });
 
     const command = globalRegistry.get("stream-cmd");
     command!.execute("", context);
@@ -388,18 +394,14 @@ describe("CommandContext", () => {
       },
     });
 
-    const context: CommandContext = {
-      session: null,
-      state: {
-        isStreaming: false,
+    const context = createMockContext({
+      stateOverrides: {
         messageCount: 10,
         workflowActive: true,
         workflowType: "atomic",
         pendingApproval: true,
       },
-      addMessage: () => {},
-      setStreaming: () => {},
-    };
+    });
 
     const command = globalRegistry.get("state-cmd");
     command!.execute("", context);
@@ -419,7 +421,6 @@ describe("CommandContext", () => {
 describe("Command execution flow", () => {
   test("full flow: parse → lookup → execute → result", async () => {
     const messages: string[] = [];
-    let workflowActive = false;
 
     globalRegistry.register({
       name: "workflow",
@@ -445,12 +446,10 @@ describe("Command execution flow", () => {
     expect(command).toBeDefined();
 
     // 3. Execute with context
-    const context: CommandContext = {
-      session: null,
-      state: { isStreaming: false, messageCount: 0, workflowActive: false },
-      addMessage: (_, content) => messages.push(content),
-      setStreaming: () => {},
-    };
+    const context = createMockContext({
+      stateOverrides: { workflowActive: false },
+      onAddMessage: (_, content) => messages.push(content),
+    });
 
     const result = await command!.execute(parsed.args, context);
 
@@ -484,12 +483,7 @@ describe("Command execution flow", () => {
 
     expect(command?.name).toBe("help");
 
-    const context: CommandContext = {
-      session: null,
-      state: { isStreaming: false, messageCount: 0 },
-      addMessage: () => {},
-      setStreaming: () => {},
-    };
+    const context = createMockContext();
 
     const result = await command!.execute("", context);
     expect(result.message).toBe("Help text");

@@ -26,6 +26,15 @@ export {
 } from "./registry.ts";
 
 // ============================================================================
+// IMPORTS FOR LOCAL USE
+// ============================================================================
+
+import { globalRegistry } from "./registry.ts";
+import { registerBuiltinCommands } from "./builtin-commands.ts";
+import { registerWorkflowCommands, loadWorkflowsFromDisk } from "./workflow-commands.ts";
+import { registerSkillCommands } from "./skill-commands.ts";
+
+// ============================================================================
 // RE-EXPORTS FROM COMMAND MODULES
 // ============================================================================
 
@@ -48,6 +57,10 @@ export {
   WORKFLOW_DEFINITIONS,
   getWorkflowMetadata,
   createWorkflowByName,
+  loadWorkflowsFromDisk,
+  getAllWorkflows,
+  discoverWorkflowFiles,
+  getWorkflowCommands,
   type WorkflowMetadata,
 } from "./workflow-commands.ts";
 
@@ -67,19 +80,17 @@ export {
 // INITIALIZATION
 // ============================================================================
 
-import { globalRegistry } from "./registry.ts";
-import { registerBuiltinCommands } from "./builtin-commands.ts";
-import { registerWorkflowCommands } from "./workflow-commands.ts";
-import { registerSkillCommands } from "./skill-commands.ts";
-
 /**
  * Initialize all commands by registering them with the global registry.
  *
  * This function is idempotent - calling it multiple times is safe.
  * Commands are registered in this order:
  * 1. Built-in commands (help, status, approve, reject, theme, clear)
- * 2. Workflow commands (atomic)
+ * 2. Workflow commands (atomic + dynamically loaded from disk)
  * 3. Skill commands (commit, research-codebase, etc.)
+ *
+ * Note: This synchronous version only loads built-in workflows.
+ * Use `initializeCommandsAsync()` to also load workflows from disk.
  *
  * @returns The number of commands registered
  *
@@ -101,6 +112,33 @@ export function initializeCommands(): number {
   // Register all command types
   registerBuiltinCommands();
   registerWorkflowCommands();
+  registerSkillCommands();
+
+  const afterCount = globalRegistry.size();
+  return afterCount - beforeCount;
+}
+
+/**
+ * Initialize all commands asynchronously, including dynamic workflow loading.
+ *
+ * This function loads workflows from:
+ * - .atomic/workflows/ (local project workflows - highest priority)
+ * - ~/.atomic/workflows/ (global user workflows)
+ * - Built-in workflows (lowest priority)
+ *
+ * @returns The number of commands registered
+ */
+export async function initializeCommandsAsync(): Promise<number> {
+  const beforeCount = globalRegistry.size();
+
+  // Register built-in commands first
+  registerBuiltinCommands();
+
+  // Load workflows from disk before registering workflow commands
+  await loadWorkflowsFromDisk();
+  registerWorkflowCommands();
+
+  // Register skill commands
   registerSkillCommands();
 
   const afterCount = globalRegistry.size();

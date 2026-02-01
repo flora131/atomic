@@ -4,9 +4,14 @@
  * Registers skill commands that invoke predefined skills via session.
  * Skills are specialized prompts/workflows that can be triggered via slash commands.
  *
+ * The skill commands load the skill prompt from disk (from agent config directories)
+ * and expand $ARGUMENTS with the user's arguments before sending to the agent.
+ *
  * Reference: Feature 4 - Implement skill command registration
  */
 
+import { existsSync, readFileSync } from "fs";
+import { join } from "path";
 import type {
   CommandDefinition,
   CommandContext,
@@ -111,6 +116,84 @@ export const SKILL_DEFINITIONS: SkillMetadata[] = [
 ];
 
 // ============================================================================
+// SKILL PROMPT LOADING
+// ============================================================================
+
+/**
+ * Paths to search for skill/command definitions.
+ * Order matters - first found wins.
+ */
+const SKILL_SEARCH_PATHS = [
+  // Claude Code commands
+  ".claude/commands",
+  // OpenCode commands
+  ".opencode/command",
+  // GitHub Copilot commands (if they exist)
+  ".github/commands",
+];
+
+/**
+ * Load a skill prompt from disk by searching common paths.
+ * Returns the skill content with frontmatter stripped.
+ *
+ * @param skillName - The skill name (e.g., "research-codebase")
+ * @returns The skill prompt content, or null if not found
+ */
+function loadSkillPrompt(skillName: string): string | null {
+  // Handle namespaced skills (e.g., "ralph:ralph-loop" -> "ralph-loop")
+  const baseName = skillName.includes(":") ? skillName.split(":").pop()! : skillName;
+
+  for (const searchPath of SKILL_SEARCH_PATHS) {
+    const fullPath = join(process.cwd(), searchPath, `${baseName}.md`);
+    if (existsSync(fullPath)) {
+      try {
+        const content = readFileSync(fullPath, "utf-8");
+        // Strip YAML frontmatter if present
+        return stripFrontmatter(content);
+      } catch {
+        // Continue to next path
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Strip YAML frontmatter from markdown content.
+ * Frontmatter is enclosed by "---" delimiters at the start of the file.
+ */
+function stripFrontmatter(content: string): string {
+  const lines = content.split("\n");
+  if (lines[0]?.trim() !== "---") {
+    return content;
+  }
+
+  // Find the closing ---
+  let endIndex = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i]?.trim() === "---") {
+      endIndex = i;
+      break;
+    }
+  }
+
+  if (endIndex === -1) {
+    return content;
+  }
+
+  // Return content after frontmatter
+  return lines.slice(endIndex + 1).join("\n").trim();
+}
+
+/**
+ * Expand $ARGUMENTS placeholder in skill prompt with user arguments.
+ */
+function expandArguments(prompt: string, args: string): string {
+  return prompt.replace(/\$ARGUMENTS/g, args || "[no arguments provided]");
+}
+
+// ============================================================================
 // COMMAND FACTORY
 // ============================================================================
 
@@ -128,30 +211,33 @@ function createSkillCommand(metadata: SkillMetadata): CommandDefinition {
     aliases: metadata.aliases,
     hidden: metadata.hidden,
     execute: (args: string, context: CommandContext): CommandResult => {
-      // Check if session is available
-      if (!context.session) {
-        return {
-          success: false,
-          message: `Cannot invoke skill "${metadata.name}": No active session. Send a message first to start a session.`,
-        };
+      const skillArgs = args.trim();
+
+      // Load the skill prompt from disk and expand arguments
+      // This ensures the TUI can stream the agent's response since we send
+      // the expanded prompt as a regular message rather than a slash command.
+      //
+      // The SDK slash command approach doesn't stream output back through
+      // the stream API, so we load and expand the prompt ourselves.
+      const skillPrompt = loadSkillPrompt(metadata.name);
+
+      if (skillPrompt) {
+        // Expand $ARGUMENTS placeholder with user arguments
+        const expandedPrompt = expandArguments(skillPrompt, skillArgs);
+        context.sendMessage(expandedPrompt);
+      } else {
+        // Fallback: send slash command to agent's native skill system
+        // This handles skills that aren't defined in local .claude/commands/ etc.
+        // The agent SDK may process it internally without streaming output.
+        const invocationMessage = skillArgs
+          ? `/${metadata.name} ${skillArgs}`
+          : `/${metadata.name}`;
+        context.sendMessage(invocationMessage);
       }
 
-      // Build the skill invocation message
-      const skillName = metadata.name;
-      const skillArgs = args.trim();
-      const _invocationMessage = skillArgs
-        ? `/${skillName} ${skillArgs}`
-        : `/${skillName}`;
-
-      // Return success - the actual skill invocation happens through the session
-      // The UI layer should handle sending the invocation message to the agent
-      // Note: No system message is displayed - the skill executes silently
       return {
         success: true,
-        stateUpdate: {
-          // Mark that we're waiting for a skill response
-          isStreaming: true,
-        },
+        // No message displayed - the agent will handle displaying the skill output
       };
     },
   };
@@ -232,3 +318,6 @@ export function getRalphSkills(): SkillMetadata[] {
 export function getCoreSkills(): SkillMetadata[] {
   return SKILL_DEFINITIONS.filter((s) => !isRalphSkill(s.name));
 }
+
+// Export helper functions for testing and external use
+export { loadSkillPrompt, stripFrontmatter, expandArguments };

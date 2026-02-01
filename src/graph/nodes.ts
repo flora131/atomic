@@ -429,6 +429,93 @@ export function toolNode<
 }
 
 // ============================================================================
+// CLEAR CONTEXT NODE
+// ============================================================================
+
+/**
+ * Configuration for creating a clear context node.
+ *
+ * @template TState - The state type for the workflow
+ */
+export interface ClearContextNodeConfig<TState extends BaseState = BaseState> {
+  /** Unique identifier for the node */
+  id: NodeId;
+
+  /** Optional name for display */
+  name?: string;
+
+  /** Optional description */
+  description?: string;
+
+  /**
+   * Optional message to display when clearing context.
+   * Can be a string or function that receives current state.
+   */
+  message?: string | ((state: TState) => string);
+}
+
+/**
+ * Creates a node that clears the context window by calling session.summarize().
+ *
+ * This is used to reset the context between major workflow steps (e.g., after
+ * research and after spec creation) to ensure clean state for the next phase.
+ *
+ * The node:
+ * 1. Calls session.summarize() to compact context (if session exists)
+ * 2. Emits a context_window_warning signal with action "summarize"
+ * 3. Returns no state update
+ *
+ * @param config - Node configuration
+ * @returns Node definition for clearing context
+ *
+ * @example
+ * ```typescript
+ * const clearAfterResearch = clearContextNode<MyState>({
+ *   id: "clear-after-research",
+ *   message: "Research complete. Clearing context for spec creation.",
+ * });
+ *
+ * // Use in workflow
+ * graph<MyState>()
+ *   .start(researchNode)
+ *   .then(clearAfterResearch)
+ *   .then(specNode)
+ *   .compile();
+ * ```
+ */
+export function clearContextNode<TState extends BaseState = BaseState>(
+  config: ClearContextNodeConfig<TState>
+): NodeDefinition<TState> {
+  const { id, name, description, message } = config;
+
+  return {
+    id,
+    type: "tool",
+    name: name ?? "clear-context",
+    description: description ?? "Clears the context window",
+    execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
+      const resolvedMessage = typeof message === "function" ? message(ctx.state) : message;
+
+      // Emit context_window_warning signal to trigger summarization
+      return {
+        signals: [
+          {
+            type: "context_window_warning",
+            message: resolvedMessage ?? "Clearing context window",
+            data: {
+              usage: 100, // Force summarization
+              threshold: ctx.contextWindowThreshold ?? 60,
+              nodeId: id,
+              action: "summarize",
+            },
+          },
+        ],
+      };
+    },
+  };
+}
+
+// ============================================================================
 // DECISION NODE
 // ============================================================================
 

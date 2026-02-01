@@ -152,6 +152,9 @@ export type {
   InputMapper,
   WaitNodeConfig,
 
+  // Clear context node types
+  ClearContextNodeConfig,
+
   // Parallel node types
   ParallelMergeStrategy,
   ParallelMerger,
@@ -181,6 +184,7 @@ export {
   // Node factory functions
   agentNode,
   toolNode,
+  clearContextNode,
   decisionNode,
   waitNode,
   parallelNode,

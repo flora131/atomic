@@ -36,31 +36,33 @@ This document synthesizes research on configuration file discovery and semantics
 
 ### Local Project Configs (`.claude/` folder)
 
-| File/Directory | Purpose | Schema |
-|----------------|---------|--------|
-| `settings.json` | Project settings (shared via git) | JSON with permissions, env, hooks |
-| `settings.local.json` | Local overrides (gitignored) | Same as settings.json |
-| `CLAUDE.md` | Project memory (alternative location) | Markdown |
-| `CLAUDE.local.md` | Local project memory (gitignored) | Markdown |
-| `commands/*.md` | Slash commands (legacy) | Markdown with optional YAML frontmatter |
-| `skills/<name>/SKILL.md` | Skills | YAML frontmatter + Markdown |
-| `agents/<name>.md` | Custom subagents | YAML frontmatter + Markdown |
-| `rules/*.md` | Modular rules | Markdown with optional path filtering |
+| File/Directory           | Purpose                               | Schema                                  |
+| ------------------------ | ------------------------------------- | --------------------------------------- |
+| `settings.json`          | Project settings (shared via git)     | JSON with permissions, env, hooks       |
+| `settings.local.json`    | Local overrides (gitignored)          | Same as settings.json                   |
+| `CLAUDE.md`              | Project memory (alternative location) | Markdown                                |
+| `CLAUDE.local.md`        | Local project memory (gitignored)     | Markdown                                |
+| `commands/*.md`          | Slash commands (legacy)               | Markdown with optional YAML frontmatter |
+| `skills/<name>/SKILL.md` | Skills                                | YAML frontmatter + Markdown             |
+| `agents/<name>.md`       | Custom subagents                      | YAML frontmatter + Markdown             |
+| `rules/*.md`             | Modular rules                         | Markdown with optional path filtering   |
 
 **Root-level config files:**
+
 - `CLAUDE.md` - Project memory (primary location)
 - `CLAUDE.local.md` - Local memory (gitignored)
 - `.mcp.json` - MCP server configurations
 
 ### Global User Configs
 
-| Platform | User Config Directory | System Managed Directory |
-|----------|----------------------|--------------------------|
-| **macOS** | `~/.claude/` | `/Library/Application Support/ClaudeCode/` |
-| **Linux/WSL** | `~/.claude/` | `/etc/claude-code/` |
-| **Windows** | `~/.claude/` | `C:\Program Files\ClaudeCode\` |
+| Platform      | User Config Directory | System Managed Directory                   |
+| ------------- | --------------------- | ------------------------------------------ |
+| **macOS**     | `~/.claude/`          | `/Library/Application Support/ClaudeCode/` |
+| **Linux/WSL** | `~/.claude/`          | `/etc/claude-code/`                        |
+| **Windows**   | `~/.claude/`          | `C:\Program Files\ClaudeCode\`             |
 
 **User config files:**
+
 - `~/.claude/settings.json` - User-wide settings
 - `~/.claude/CLAUDE.md` - User-wide memory
 - `~/.claude/commands/*.md` - Personal commands
@@ -71,25 +73,25 @@ This document synthesizes research on configuration file discovery and semantics
 
 ### Discovery/Merge Semantics
 
-| Feature | Merge Behavior | Priority Order (highest first) |
-|---------|---------------|-------------------------------|
-| **CLAUDE.md** | Additive (all loaded) | Managed > User > Project > Local > Nested |
-| **Settings** | Override by key | Managed > CLI > Local > Project > User |
-| **Skills** | Override by name | Managed > User > Project > Plugin (namespaced) |
-| **Agents** | Override by name | Managed > CLI flag > Project > User > Plugin |
-| **MCP servers** | Override by name | Local > Project > User |
-| **Hooks** | Merge (all fire) | All sources combined, parallel execution |
+| Feature         | Merge Behavior        | Priority Order (highest first)                 |
+| --------------- | --------------------- | ---------------------------------------------- |
+| **CLAUDE.md**   | Additive (all loaded) | Managed > User > Project > Local > Nested      |
+| **Settings**    | Override by key       | Managed > CLI > Local > Project > User         |
+| **Skills**      | Override by name      | Managed > User > Project > Plugin (namespaced) |
+| **Agents**      | Override by name      | Managed > CLI flag > Project > User > Plugin   |
+| **MCP servers** | Override by name      | Local > Project > User                         |
+| **Hooks**       | Merge (all fire)      | All sources combined, parallel execution       |
 
 ### Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `ANTHROPIC_API_KEY` | API key for authentication |
-| `ANTHROPIC_MODEL` | Override default model |
-| `CLAUDE_CODE_ENABLE_TELEMETRY` | Enable telemetry (1/0) |
-| `CLAUDE_CODE_SHELL` | Shell to use |
-| `CLAUDE_CODE_TMPDIR` | Temp directory |
-| `MAX_THINKING_TOKENS` | Max thinking tokens (default: 31999) |
+| Variable                       | Description                          |
+| ------------------------------ | ------------------------------------ |
+| `ANTHROPIC_API_KEY`            | API key for authentication           |
+| `ANTHROPIC_MODEL`              | Override default model               |
+| `CLAUDE_CODE_ENABLE_TELEMETRY` | Enable telemetry (1/0)               |
+| `CLAUDE_CODE_SHELL`            | Shell to use                         |
+| `CLAUDE_CODE_TMPDIR`           | Temp directory                       |
+| `MAX_THINKING_TOKENS`          | Max thinking tokens (default: 31999) |
 
 ### SKILL.md Schema
 
@@ -111,7 +113,6 @@ hooks:
         - type: command
           command: "./validate.sh"
 ---
-
 Your skill instructions here...
 Use $ARGUMENTS or $0, $1, $2 for arguments.
 Use ${CLAUDE_SESSION_ID} for session ID.
@@ -124,32 +125,32 @@ Use !`command` for dynamic context injection.
 
 ### Configuration File Locations
 
-| Priority | Location | Scope |
-|----------|----------|-------|
-| 1 (highest) | `OPENCODE_CONFIG_CONTENT` env var | Inline JSON |
-| 2 | `OPENCODE_CONFIG` env var | Custom file path |
-| 3 | `.opencode/opencode.jsonc` | Project-local |
-| 4 | `~/.config/opencode/opencode.jsonc` | User-global |
-| 5 | Built-in defaults | Fallback |
+| Priority    | Location                            | Scope            |
+| ----------- | ----------------------------------- | ---------------- |
+| 1 (highest) | `OPENCODE_CONFIG_CONTENT` env var   | Inline JSON      |
+| 2           | `OPENCODE_CONFIG` env var           | Custom file path |
+| 3           | `.opencode/opencode.jsonc`          | Project-local    |
+| 4           | `~/.config/opencode/opencode.jsonc` | User-global      |
+| 5           | Built-in defaults                   | Fallback         |
 
 ### Project Config (`.opencode/` folder)
 
-| File | Purpose |
-|------|---------|
-| `opencode.jsonc` | Main configuration (JSONC format with comments) |
-| `agents/*.md` | Custom agent definitions (Markdown + YAML frontmatter) |
-| `commands/*.md` | Custom commands (Markdown + YAML frontmatter) |
-| `instructions/*.md` | Glob-based instructions |
+| File                | Purpose                                                |
+| ------------------- | ------------------------------------------------------ |
+| `opencode.jsonc`    | Main configuration (JSONC format with comments)        |
+| `agents/*.md`       | Custom agent definitions (Markdown + YAML frontmatter) |
+| `commands/*.md`     | Custom commands (Markdown + YAML frontmatter)          |
+| `instructions/*.md` | Glob-based instructions                                |
 
 ### Global User Config
 
 **Path:** `~/.config/opencode/` (all platforms use XDG-style)
 
-| File | Purpose |
-|------|---------|
+| File             | Purpose                                   |
+| ---------------- | ----------------------------------------- |
 | `opencode.jsonc` | User preferences, keybinds, default model |
-| `agents/*.md` | Personal agents |
-| `commands/*.md` | Personal commands |
+| `agents/*.md`    | Personal agents                           |
+| `commands/*.md`  | Personal commands                         |
 
 ### Configuration Schema
 
@@ -169,8 +170,8 @@ Use !`command` for dynamic context injection.
       "model": "anthropic/claude-opus-4",
       "temperature": 0.3,
       "mode": "primary",
-      "steps": 20
-    }
+      "steps": 20,
+    },
   },
 
   // Custom commands
@@ -178,37 +179,37 @@ Use !`command` for dynamic context injection.
     "pr-review": {
       "description": "Review current PR changes",
       "template": "Review the changes...",
-      "agent": "reviewer"
-    }
+      "agent": "reviewer",
+    },
   },
 
   // MCP servers
   "mcp": {
     "filesystem": {
       "type": "local",
-      "command": ["npx", "-y", "@anthropic-ai/mcp-server-fs"]
-    }
+      "command": ["npx", "-y", "@anthropic-ai/mcp-server-fs"],
+    },
   },
 
   // Permissions
   "permission": {
     "edit": "ask",
     "bash": "ask",
-    "read": "allow"
-  }
+    "read": "allow",
+  },
 }
 ```
 
 ### Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `OPENCODE_CONFIG` | Custom config file path |
-| `OPENCODE_CONFIG_DIR` | Custom config directory |
-| `OPENCODE_CONFIG_CONTENT` | Inline JSON config (highest priority) |
-| `OPENCODE_DISABLE_PROJECT_CONFIG` | Disable project config loading |
-| `OPENCODE_DISABLE_CLAUDE_CODE` | Disable all .claude support |
-| `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS` | Disable loading .claude/skills |
+| Variable                              | Description                           |
+| ------------------------------------- | ------------------------------------- |
+| `OPENCODE_CONFIG`                     | Custom config file path               |
+| `OPENCODE_CONFIG_DIR`                 | Custom config directory               |
+| `OPENCODE_CONFIG_CONTENT`             | Inline JSON config (highest priority) |
+| `OPENCODE_DISABLE_PROJECT_CONFIG`     | Disable project config loading        |
+| `OPENCODE_DISABLE_CLAUDE_CODE`        | Disable all .claude support           |
+| `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS` | Disable loading .claude/skills        |
 
 ### Merge Behavior
 
@@ -224,15 +225,16 @@ Use !`command` for dynamic context injection.
 
 ### Local Project Configs (`.github/` folder)
 
-| File/Directory | Purpose |
-|----------------|---------|
-| `.github/copilot-instructions.md` | Repository-wide instructions |
+| File/Directory                           | Purpose                                         |
+| ---------------------------------------- | ----------------------------------------------- |
+| `.github/copilot-instructions.md`        | Repository-wide instructions                    |
 | `.github/instructions/*.instructions.md` | Path-specific instructions with `applyTo` globs |
-| `.github/agents/*.agent.md` | Custom agent profiles |
-| `.github/skills/*/SKILL.md` | Agent skills with bundled resources |
-| `.github/hooks/*.json` | Copilot hooks for lifecycle events |
+| `.github/agents/*.agent.md`              | Custom agent profiles                           |
+| `.github/skills/*/SKILL.md`              | Agent skills with bundled resources             |
+| `.github/hooks/*.json`                   | Copilot hooks for lifecycle events              |
 
 **Also Supported (at repository root):**
+
 - `AGENTS.md` - Open standard for agent instructions (nested in monorepos)
 - `CLAUDE.md` - Claude-specific instructions
 - `GEMINI.md` - Gemini-specific instructions
@@ -241,13 +243,13 @@ Use !`command` for dynamic context injection.
 
 **Default Location:** `~/.copilot/`
 
-| File | Purpose |
-|------|---------|
-| `config.json` | User preferences, default models |
-| `mcp-config.json` | MCP server configurations |
-| `skills/` | Personal skills directory |
-| `command-history-state.json` | Command history tracking |
-| `logs/` | Debug and activity logs |
+| File                         | Purpose                          |
+| ---------------------------- | -------------------------------- |
+| `config.json`                | User preferences, default models |
+| `mcp-config.json`            | MCP server configurations        |
+| `skills/`                    | Personal skills directory        |
+| `command-history-state.json` | Command history tracking         |
+| `logs/`                      | Debug and activity logs          |
 
 ### Priority Order
 
@@ -282,14 +284,14 @@ You are a security-focused code reviewer...
 
 ### Copilot Hooks
 
-| Hook Type | Trigger | Can Block |
-|-----------|---------|-----------|
-| `sessionStart` | Agent session begins | No |
-| `sessionEnd` | Session completion | No |
-| `userPromptSubmitted` | User submits prompt | Yes |
-| `preToolUse` | Before tool execution | Yes |
-| `postToolUse` | After tool completion | No |
-| `errorOccurred` | Execution errors | No |
+| Hook Type             | Trigger               | Can Block |
+| --------------------- | --------------------- | --------- |
+| `sessionStart`        | Agent session begins  | No        |
+| `sessionEnd`          | Session completion    | No        |
+| `userPromptSubmitted` | User submits prompt   | Yes       |
+| `preToolUse`          | Before tool execution | Yes       |
+| `postToolUse`         | After tool completion | No        |
+| `errorOccurred`       | Execution errors      | No        |
 
 ---
 
@@ -297,21 +299,21 @@ You are a security-focused code reviewer...
 
 ### XDG Base Directory Specification (Linux)
 
-| Variable | Purpose | Default |
-|----------|---------|---------|
-| `$XDG_CONFIG_HOME` | User-specific config | `$HOME/.config` |
-| `$XDG_DATA_HOME` | User-specific data | `$HOME/.local/share` |
-| `$XDG_STATE_HOME` | Logs, history | `$HOME/.local/state` |
-| `$XDG_CACHE_HOME` | Cache | `$HOME/.cache` |
+| Variable           | Purpose              | Default              |
+| ------------------ | -------------------- | -------------------- |
+| `$XDG_CONFIG_HOME` | User-specific config | `$HOME/.config`      |
+| `$XDG_DATA_HOME`   | User-specific data   | `$HOME/.local/share` |
+| `$XDG_STATE_HOME`  | Logs, history        | `$HOME/.local/state` |
+| `$XDG_CACHE_HOME`  | Cache                | `$HOME/.cache`       |
 
 ### Platform-Specific Paths
 
-| Purpose | Linux | macOS | Windows |
-|---------|-------|-------|---------|
-| Config | `~/.config/APP/` | `~/Library/Application Support/APP/` | `%APPDATA%\APP\` |
-| Data | `~/.local/share/APP/` | `~/Library/Application Support/APP/` | `%LOCALAPPDATA%\APP\` |
-| Cache | `~/.cache/APP/` | `~/Library/Caches/APP/` | `%LOCALAPPDATA%\APP\Cache\` |
-| Logs | `~/.local/state/APP/` | `~/Library/Logs/APP/` | `%LOCALAPPDATA%\APP\Log\` |
+| Purpose | Linux                 | macOS                                | Windows                     |
+| ------- | --------------------- | ------------------------------------ | --------------------------- |
+| Config  | `~/.config/APP/`      | `~/Library/Application Support/APP/` | `%APPDATA%\APP\`            |
+| Data    | `~/.local/share/APP/` | `~/Library/Application Support/APP/` | `%LOCALAPPDATA%\APP\`       |
+| Cache   | `~/.cache/APP/`       | `~/Library/Caches/APP/`              | `%LOCALAPPDATA%\APP\Cache\` |
+| Logs    | `~/.local/state/APP/` | `~/Library/Logs/APP/`                | `%LOCALAPPDATA%\APP\Log\`   |
 
 ### Recommendation for CLI Tools
 
@@ -322,9 +324,9 @@ Use `~/.config/atomic/` on all Unix-like platforms for consistency.
 ### Recommended Library: env-paths
 
 ```typescript
-import envPaths from 'env-paths';
+import envPaths from "env-paths";
 
-const paths = envPaths('atomic', { suffix: '' });
+const paths = envPaths("atomic", { suffix: "" });
 // paths.config → ~/.config/atomic (Linux/macOS)
 // paths.config → %APPDATA%\atomic\Config (Windows)
 ```
@@ -343,12 +345,12 @@ const paths = envPaths('atomic', { suffix: '' });
 
 ### Merge Behavior by Feature Type
 
-| Feature | Strategy | Rationale |
-|---------|----------|-----------|
-| **Workflows** | Override by name | Local workflows replace global with same name |
-| **Agent configs** | Deep merge | Inherit base config, override specific keys |
-| **Permissions** | Override | Local permissions replace global |
-| **Environment** | Shallow merge | Local env vars added to global |
+| Feature           | Strategy         | Rationale                                     |
+| ----------------- | ---------------- | --------------------------------------------- |
+| **Workflows**     | Override by name | Local workflows replace global with same name |
+| **Agent configs** | Deep merge       | Inherit base config, override specific keys   |
+| **Permissions**   | Override         | Local permissions replace global              |
+| **Environment**   | Shallow merge    | Local env vars added to global                |
 
 ---
 
@@ -375,48 +377,48 @@ const paths = envPaths('atomic', { suffix: '' });
 
 ```typescript
 // ~/.atomic/workflows/code-review.ts
-import { defineWorkflow, agentNode, decisionNode } from '@atomic/sdk';
+import { defineWorkflow, agentNode, decisionNode } from "@atomic/sdk";
 
 export default defineWorkflow({
-  id: 'code-review',
-  name: 'Comprehensive Code Review',
-  description: 'Multi-stage code review with security and quality checks',
+  id: "code-review",
+  name: "Comprehensive Code Review",
+  description: "Multi-stage code review with security and quality checks",
 
   // Agent configurations
   agents: {
-    'security-reviewer': {
-      description: 'Security-focused code analysis',
-      model: 'sonnet',
-      tools: ['Read', 'Grep', 'Glob'],
-      systemPrompt: 'You are a security expert...'
+    "security-reviewer": {
+      description: "Security-focused code analysis",
+      model: "sonnet",
+      tools: ["Read", "Grep", "Glob"],
+      systemPrompt: "You are a security expert...",
     },
-    'quality-reviewer': {
-      description: 'Code quality analysis',
-      model: 'haiku',
-      tools: ['Read', 'Grep']
-    }
+    "quality-reviewer": {
+      description: "Code quality analysis",
+      model: "haiku",
+      tools: ["Read", "Grep"],
+    },
   },
 
   // Workflow steps
   steps: [
     agentNode({
-      id: 'analyze',
-      agent: 'quality-reviewer',
-      prompt: 'Analyze code structure in {{target_path}}'
+      id: "analyze",
+      agent: "quality-reviewer",
+      prompt: "Analyze code structure in {{target_path}}",
     }),
     agentNode({
-      id: 'security',
-      agent: 'security-reviewer',
-      prompt: 'Review {{target_path}} for vulnerabilities',
-      dependsOn: ['analyze']
+      id: "security",
+      agent: "security-reviewer",
+      prompt: "Review {{target_path}} for vulnerabilities",
+      dependsOn: ["analyze"],
     }),
     decisionNode({
-      id: 'should-continue',
+      id: "should-continue",
       condition: (state) => state.securityPassed,
-      thenTarget: 'create-report',
-      elseTarget: 'flag-issues'
-    })
-  ]
+      thenTarget: "create-report",
+      elseTarget: "flag-issues",
+    }),
+  ],
 });
 ```
 
@@ -424,48 +426,48 @@ export default defineWorkflow({
 
 ```typescript
 // src/config/workflow-loader.ts
-import envPaths from 'env-paths';
-import { cosmiconfig } from 'cosmiconfig';
+import envPaths from "env-paths";
+import { cosmiconfig } from "cosmiconfig";
 
 export interface WorkflowConfig {
   id: string;
   name: string;
-  source: 'local' | 'global' | 'builtin';
+  source: "local" | "global" | "builtin";
   path: string;
 }
 
 export async function discoverWorkflows(): Promise<WorkflowConfig[]> {
-  const paths = envPaths('atomic', { suffix: '' });
+  const paths = envPaths("atomic", { suffix: "" });
   const workflows: WorkflowConfig[] = [];
 
   // 1. Load built-in workflows
   workflows.push(...getBuiltinWorkflows());
 
   // 2. Load global workflows (~/.atomic/workflows/)
-  const globalDir = join(paths.config, 'workflows');
+  const globalDir = join(paths.config, "workflows");
   if (await pathExists(globalDir)) {
-    workflows.push(...await loadWorkflowsFromDir(globalDir, 'global'));
+    workflows.push(...(await loadWorkflowsFromDir(globalDir, "global")));
   }
 
   // 3. Load local workflows (.atomic/workflows/) - override by name
-  const localDir = '.atomic/workflows';
+  const localDir = ".atomic/workflows";
   if (await pathExists(localDir)) {
-    workflows.push(...await loadWorkflowsFromDir(localDir, 'local'));
+    workflows.push(...(await loadWorkflowsFromDir(localDir, "local")));
   }
 
   // Local workflows override global with same id
-  return dedupeByName(workflows, 'local');
+  return dedupeByName(workflows, "local");
 }
 ```
 
 ### Environment Variable Overrides
 
-| Variable | Description |
-|----------|-------------|
-| `ATOMIC_CONFIG_PATH` | Override config file path |
-| `ATOMIC_WORKFLOWS_DIR` | Override workflows directory |
-| `ATOMIC_NO_GLOBAL` | Disable global config loading |
-| `ATOMIC_USE_GRAPH_ENGINE` | Enable graph-based execution |
+| Variable                  | Description                   |
+| ------------------------- | ----------------------------- |
+| `ATOMIC_CONFIG_PATH`      | Override config file path     |
+| `ATOMIC_WORKFLOWS_DIR`    | Override workflows directory  |
+| `ATOMIC_NO_GLOBAL`        | Disable global config loading |
+| `ATOMIC_USE_GRAPH_ENGINE` | Enable graph-based execution  |
 
 ---
 
@@ -473,13 +475,13 @@ export async function discoverWorkflows(): Promise<WorkflowConfig[]> {
 
 ### What to Migrate (User Customizations Only)
 
-| Source | Migrate | Skip |
-|--------|---------|------|
-| `.claude/skills/*` | User-created skills | Built-in skills |
-| `.claude/agents/*` | User-created agents | Built-in agents |
+| Source               | Migrate             | Skip              |
+| -------------------- | ------------------- | ----------------- |
+| `.claude/skills/*`   | User-created skills | Built-in skills   |
+| `.claude/agents/*`   | User-created agents | Built-in agents   |
 | `.claude/commands/*` | User slash commands | Built-in commands |
-| `.opencode/agents/*` | Custom agents | Default agents |
-| `.github/skills/*` | Project skills | Built-in skills |
+| `.opencode/agents/*` | Custom agents       | Default agents    |
+| `.github/skills/*`   | Project skills      | Built-in skills   |
 
 ### Migration Detection
 
@@ -487,13 +489,13 @@ export async function discoverWorkflows(): Promise<WorkflowConfig[]> {
 // Detect user customizations vs built-ins
 function isUserCustomization(path: string): boolean {
   // Check for known built-in markers
-  const content = await readFile(path, 'utf-8');
+  const content = await readFile(path, "utf-8");
   const frontmatter = parseFrontmatter(content);
 
   // Built-ins typically have these markers:
   if (frontmatter.builtin === true) return false;
-  if (frontmatter.source?.startsWith('anthropic/')) return false;
-  if (frontmatter.source?.startsWith('github/')) return false;
+  if (frontmatter.source?.startsWith("anthropic/")) return false;
+  if (frontmatter.source?.startsWith("github/")) return false;
 
   return true;
 }
@@ -508,21 +510,21 @@ function convertClaudeSkill(skillPath: string): WorkflowStep {
 
   return agentNode({
     id: skill.name,
-    agent: 'claude',
+    agent: "claude",
     prompt: skill.instructions,
-    tools: skill['allowed-tools']?.split(', ') || [],
-    model: skill.model || 'inherit'
+    tools: skill["allowed-tools"]?.split(", ") || [],
+    model: skill.model || "inherit",
   });
 }
 
 // Convert OpenCode agent to Atomic agent definition
 function convertOpenCodeAgent(agentConfig: OpenCodeAgent): AgentDefinition {
   return {
-    id: agentConfig.name || 'converted-agent',
+    id: agentConfig.name || "converted-agent",
     description: agentConfig.description,
-    model: agentConfig.model || 'sonnet',
+    model: agentConfig.model || "sonnet",
     tools: agentConfig.tools || [],
-    systemPrompt: agentConfig.prompt
+    systemPrompt: agentConfig.prompt,
   };
 }
 ```
@@ -532,6 +534,7 @@ function convertOpenCodeAgent(agentConfig: OpenCodeAgent): AgentDefinition {
 ## Sources
 
 ### Official Documentation
+
 - [Claude Code Settings](https://code.claude.com/docs/en/settings)
 - [Claude Code Memory](https://code.claude.com/docs/en/memory)
 - [Claude Code Hooks](https://code.claude.com/docs/en/hooks)
@@ -540,10 +543,12 @@ function convertOpenCodeAgent(agentConfig: OpenCodeAgent): AgentDefinition {
 - [XDG Base Directory Specification](https://specifications.freedesktop.org/basedir/latest/)
 
 ### Libraries
+
 - [env-paths](https://github.com/sindresorhus/env-paths) - Cross-platform config paths
 - [cosmiconfig](https://github.com/cosmiconfig/cosmiconfig) - Config file discovery
 
 ### Existing Atomic Implementation
+
 - `src/utils/config-path.ts` - Current config path utilities
 - `src/config/ralph.ts` - Ralph configuration loader
 - `src/workflows/atomic.ts` - Graph-based workflow definition

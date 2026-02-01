@@ -383,6 +383,10 @@ export function withTelemetry(
       await collector.flush();
       return client.stop();
     },
+
+    async getModelDisplayInfo(modelHint?: string) {
+      return client.getModelDisplayInfo(modelHint);
+    },
   };
 }
 

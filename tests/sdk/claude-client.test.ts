@@ -103,6 +103,30 @@ describe("ClaudeAgentClient", () => {
     });
   });
 
+  describe("Model Display", () => {
+    test("getModelDisplayInfo returns formatted model name from hint", async () => {
+      await client.start();
+      const info = await client.getModelDisplayInfo("claude-opus-4-5-20251101");
+      expect(info.model).toBe("Opus 4.5");
+      expect(info.tier).toBe("Claude Code");
+    });
+
+    test("getModelDisplayInfo returns Claude when no model hint or detected", async () => {
+      // No start() - detectedModel will be null
+      const newClient = new ClaudeAgentClient();
+      const info = await newClient.getModelDisplayInfo();
+      expect(info.model).toBe("Claude");
+      expect(info.tier).toBe("Claude Code");
+    });
+
+    test("getModelDisplayInfo uses hint over detected model", async () => {
+      await client.start();
+      // Even if the SDK returns a different model, the hint should be used
+      const info = await client.getModelDisplayInfo("claude-sonnet-4-5");
+      expect(info.model).toBe("Sonnet 4.5");
+    });
+  });
+
   describe("Session Creation", () => {
     beforeEach(async () => {
       await client.start();
@@ -335,6 +359,8 @@ describe("ClaudeAgentClient", () => {
   describe("Configuration Options", () => {
     beforeEach(async () => {
       await client.start();
+      // Clear mock after start() since start() now makes a probe query to detect the model
+      mockQuery.mockClear();
     });
 
     test("MCP servers are passed to SDK", async () => {

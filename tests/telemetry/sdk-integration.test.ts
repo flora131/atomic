@@ -98,6 +98,9 @@ function createMockClient(): CodingAgentClient {
     registerTool(tool: ToolDefinition): void {},
     async start(): Promise<void> {},
     async stop(): Promise<void> {},
+    async getModelDisplayInfo() {
+      return { model: "Mock", tier: "Test" };
+    },
   };
 }
 

@@ -36,13 +36,16 @@ mock.module("ci-info", () => ({
 }));
 
 // Helper to create enabled telemetry state
+// Uses current month for rotatedAt to prevent ID rotation during tests
 function createEnabledState(): TelemetryState {
+  const now = new Date();
+  const currentMonth = new Date(now.getUTCFullYear(), now.getUTCMonth(), 1).toISOString();
   return {
     enabled: true,
     consentGiven: true,
     anonymousId: "session-test-uuid",
-    createdAt: "2026-01-01T00:00:00Z",
-    rotatedAt: "2026-01-01T00:00:00Z",
+    createdAt: currentMonth,
+    rotatedAt: currentMonth,
   };
 }
 

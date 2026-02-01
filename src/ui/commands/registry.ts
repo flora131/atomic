@@ -26,6 +26,11 @@ export interface CommandContext {
   addMessage: (role: "user" | "assistant" | "system", content: string) => void;
   /** Helper to set streaming state */
   setStreaming: (streaming: boolean) => void;
+  /**
+   * Send a message through the normal message flow (creates session if needed).
+   * Use this for commands that need to invoke agent interactions.
+   */
+  sendMessage: (content: string) => void;
 }
 
 /**

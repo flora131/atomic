@@ -423,3 +423,37 @@ Auto-approve │ claude-3-opus │ 2 queued │ verbose    Ctrl+O: verbose  Ctrl
 
 ### Next Feature
 The next highest priority feature is: "Integrate FooterStatus into ChatApp layout"
+
+---
+
+## 2026-02-01 - Feature: Integrate FooterStatus into ChatApp layout
+
+### Summary
+Integrated the FooterStatus component into the ChatApp layout to display a status line at the bottom of the chat interface with permission mode, queue count, streaming status, and keyboard shortcuts.
+
+### Changes Made
+- Imported FooterStatus from `./components/footer-status.tsx`
+- Added FooterStatus component after the scrollbox in ChatApp layout
+- Passed props: `verboseMode`, `isStreaming`, `queuedCount={messageQueue.count}`, `modelId={model}`
+
+### Files Modified
+- `src/ui/chat.tsx` - Added import and FooterStatus rendering
+- `tests/ui/chat.test.ts` - Added 6 integration tests for FooterStatus
+
+### Test Results
+- All 91 chat tests pass (260 expect() calls)
+- All 856 UI tests pass (2079 expect() calls)
+- New tests cover: props from state, queuedCount updates, streaming state, verboseMode toggle, modelId, combined state
+
+### Layout Structure
+```
+ChatApp
+  → AtomicHeader
+  → WorkflowStatusBar
+  → scrollbox (messages + input + autocomplete)
+  → FooterStatus  ← NEW
+  → UserQuestionDialog
+```
+
+### Next Feature
+The next highest priority feature is: "Define configurable array of spinner verbs for LoadingIndicator"

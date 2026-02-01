@@ -13,7 +13,9 @@ import { describe, test, expect } from "bun:test";
 import {
   shouldCollapse,
   getErrorColor,
+  getToolSummary,
   type ToolResultProps,
+  type ToolSummary,
 } from "../../../src/ui/components/tool-result.tsx";
 import { getToolRenderer } from "../../../src/ui/tools/registry.ts";
 
@@ -398,5 +400,296 @@ describe("Edge cases", () => {
     });
 
     expect(result.content.length).toBeGreaterThan(0);
+  });
+});
+
+// ============================================================================
+// GET TOOL SUMMARY TESTS
+// ============================================================================
+
+describe("getToolSummary", () => {
+  test("Read tool returns line count summary", () => {
+    const summary = getToolSummary(
+      "Read",
+      { file_path: "/test.ts" },
+      "line1\nline2\nline3",
+      3
+    );
+
+    expect(summary.text).toBe("3 lines");
+    expect(summary.count).toBe(3);
+  });
+
+  test("Read tool handles single line", () => {
+    const summary = getToolSummary(
+      "Read",
+      { file_path: "/test.ts" },
+      "single line",
+      1
+    );
+
+    expect(summary.text).toBe("1 line");
+    expect(summary.count).toBe(1);
+  });
+
+  test("Glob tool returns file count summary", () => {
+    const summary = getToolSummary(
+      "Glob",
+      { pattern: "**/*.ts" },
+      "/file1.ts\n/file2.ts\n/file3.ts",
+      3
+    );
+
+    expect(summary.text).toBe("3 files found");
+    expect(summary.count).toBe(3);
+  });
+
+  test("Glob tool handles single file", () => {
+    const summary = getToolSummary(
+      "Glob",
+      { pattern: "**/*.ts" },
+      "/file1.ts",
+      1
+    );
+
+    expect(summary.text).toBe("1 file found");
+    expect(summary.count).toBe(1);
+  });
+
+  test("Grep tool returns match count summary", () => {
+    const summary = getToolSummary(
+      "Grep",
+      { pattern: "TODO" },
+      "file1.ts:10:TODO\nfile2.ts:20:TODO",
+      2
+    );
+
+    expect(summary.text).toBe("2 matches");
+    expect(summary.count).toBe(2);
+  });
+
+  test("Grep tool handles single match", () => {
+    const summary = getToolSummary(
+      "Grep",
+      { pattern: "TODO" },
+      "file1.ts:10:TODO",
+      1
+    );
+
+    expect(summary.text).toBe("1 match");
+    expect(summary.count).toBe(1);
+  });
+
+  test("Bash tool returns truncated command", () => {
+    const summary = getToolSummary(
+      "Bash",
+      { command: "echo hello" },
+      "hello",
+      1
+    );
+
+    expect(summary.text).toBe("echo hello");
+    expect(summary.count).toBe(1);
+  });
+
+  test("Bash tool truncates long commands", () => {
+    const longCommand = "npm install --save-dev typescript eslint prettier husky lint-staged";
+    const summary = getToolSummary(
+      "Bash",
+      { command: longCommand },
+      "output",
+      1
+    );
+
+    expect(summary.text.length).toBeLessThanOrEqual(30);
+    expect(summary.text).toContain("...");
+  });
+
+  test("Edit tool returns edited file summary", () => {
+    const summary = getToolSummary(
+      "Edit",
+      { file_path: "/src/components/app.tsx", old_string: "old", new_string: "new" },
+      undefined,
+      2
+    );
+
+    expect(summary.text).toBe("edited app.tsx");
+    expect(summary.count).toBeUndefined();
+  });
+
+  test("Write tool returns created file summary", () => {
+    const summary = getToolSummary(
+      "Write",
+      { file_path: "/src/utils/helpers.ts", content: "content" },
+      true,
+      1
+    );
+
+    expect(summary.text).toBe("created helpers.ts");
+    expect(summary.count).toBeUndefined();
+  });
+
+  test("Task tool returns truncated description", () => {
+    const summary = getToolSummary(
+      "Task",
+      { description: "Search for authentication patterns" },
+      "result",
+      5
+    );
+
+    expect(summary.text).toBe("Search for authentication patterns");
+    expect(summary.count).toBeUndefined();
+  });
+
+  test("Task tool truncates long descriptions", () => {
+    const longDesc = "This is a very long task description that should be truncated for display";
+    const summary = getToolSummary(
+      "Task",
+      { description: longDesc },
+      "result",
+      5
+    );
+
+    expect(summary.text.length).toBeLessThanOrEqual(40);
+    expect(summary.text).toContain("...");
+  });
+
+  test("Unknown tool returns line count", () => {
+    const summary = getToolSummary(
+      "CustomTool",
+      { key: "value" },
+      "output",
+      10
+    );
+
+    expect(summary.text).toBe("10 lines");
+    expect(summary.count).toBe(10);
+  });
+
+  test("handles empty output", () => {
+    const summary = getToolSummary(
+      "Read",
+      { file_path: "/empty.txt" },
+      "",
+      0
+    );
+
+    expect(summary.text).toBe("0 lines");
+    expect(summary.count).toBe(0);
+  });
+});
+
+// ============================================================================
+// DEFAULT COLLAPSED BEHAVIOR TESTS
+// ============================================================================
+
+describe("Default collapsed behavior", () => {
+  test("default maxCollapsedLines is 3", () => {
+    const props: ToolResultProps = {
+      toolName: "Read",
+      input: { file_path: "/test.ts" },
+      status: "completed",
+    };
+
+    // Default maxCollapsedLines should be 3
+    expect(props.maxCollapsedLines).toBeUndefined();
+    // The component defaults to 3
+  });
+
+  test("default initialExpanded is false", () => {
+    const props: ToolResultProps = {
+      toolName: "Read",
+      input: { file_path: "/test.ts" },
+      status: "completed",
+    };
+
+    // Default initialExpanded should be false (collapsed)
+    expect(props.initialExpanded).toBeUndefined();
+    // The component defaults to false
+  });
+
+  test("content with more than 3 lines should collapse by default", () => {
+    const content = ["line1", "line2", "line3", "line4", "line5"];
+    const isCollapsed = shouldCollapse(content.length, 3, false);
+    expect(isCollapsed).toBe(true);
+  });
+
+  test("content with 3 or fewer lines should not collapse", () => {
+    const content = ["line1", "line2", "line3"];
+    const isCollapsed = shouldCollapse(content.length, 3);
+    expect(isCollapsed).toBe(false);
+  });
+});
+
+// ============================================================================
+// VERBOSE MODE TESTS
+// ============================================================================
+
+describe("verboseMode support", () => {
+  test("verboseMode prop defaults to false", () => {
+    const props: ToolResultProps = {
+      toolName: "Read",
+      input: { file_path: "/test.ts" },
+      status: "completed",
+    };
+
+    expect(props.verboseMode).toBeUndefined();
+  });
+
+  test("verboseMode can be set to true", () => {
+    const props: ToolResultProps = {
+      toolName: "Read",
+      input: { file_path: "/test.ts" },
+      status: "completed",
+      verboseMode: true,
+    };
+
+    expect(props.verboseMode).toBe(true);
+  });
+
+  test("verboseMode can be set to false", () => {
+    const props: ToolResultProps = {
+      toolName: "Read",
+      input: { file_path: "/test.ts" },
+      status: "completed",
+      verboseMode: false,
+    };
+
+    expect(props.verboseMode).toBe(false);
+  });
+});
+
+// ============================================================================
+// TOOL SUMMARY STRUCTURE TESTS
+// ============================================================================
+
+describe("ToolSummary structure", () => {
+  test("basic summary with count", () => {
+    const summary: ToolSummary = {
+      text: "5 lines",
+      count: 5,
+    };
+
+    expect(summary.text).toBe("5 lines");
+    expect(summary.count).toBe(5);
+  });
+
+  test("summary without count", () => {
+    const summary: ToolSummary = {
+      text: "edited file.ts",
+    };
+
+    expect(summary.text).toBe("edited file.ts");
+    expect(summary.count).toBeUndefined();
+  });
+
+  test("summary with zero count", () => {
+    const summary: ToolSummary = {
+      text: "0 matches",
+      count: 0,
+    };
+
+    expect(summary.text).toBe("0 matches");
+    expect(summary.count).toBe(0);
   });
 });

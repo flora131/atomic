@@ -65,7 +65,7 @@
       "Add maxCollapsedLines prop defaulting to 3",
       "Update tests for collapsed default behavior"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

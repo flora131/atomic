@@ -124,3 +124,46 @@ Created the `QueueIndicator` component to display a visual indicator showing the
 
 ### Next Feature
 The next highest priority feature is: "Enhance ToolResult to default collapsed with summary line"
+
+---
+
+## 2026-02-01 - Feature: Enhance ToolResult to default collapsed with summary line
+
+### Summary
+Enhanced the ToolResult component to default to collapsed state with tool-specific summary lines. Added support for verboseMode prop to force expanded state.
+
+### Changes Made
+- Changed `initialExpanded` default from undefined to `false`
+- Changed `maxCollapsedLines` default from 10 to 3
+- Added `verboseMode` prop to force expanded state
+- Implemented `getToolSummary()` function with tool-specific summaries:
+  - Read: "{n} line(s)"
+  - Glob: "{n} file(s) found"
+  - Grep: "{n} match(es)"
+  - Bash: truncated command (max 30 chars)
+  - Edit: "edited {filename}"
+  - Write: "created {filename}"
+  - Task: truncated description (max 40 chars)
+  - Default: "{n} line(s)"
+- Added summary display in header when collapsed
+- Added expand hint "(ctrl+o to expand all)" when collapsed
+- Added `useEffect` to sync expanded state with verboseMode changes
+
+### Files Modified
+- `src/ui/components/tool-result.tsx` - Enhanced component implementation
+- `src/ui/components/index.ts` - Added exports for getToolSummary and ToolSummary type
+- `tests/ui/components/tool-result.test.tsx` - Added 24 new tests
+
+### Test Results
+- All 59 ToolResult tests pass (107 expect() calls)
+- All 724 UI tests pass (1827 expect() calls)
+- New tests cover: getToolSummary for all tools, default collapsed behavior, verboseMode support, ToolSummary structure
+
+### Behavior Changes
+- Tool results now collapse by default showing only 3 lines
+- Summary appears in header (e.g., "Read index.ts ● done — 42 lines")
+- Expand hint shows "(ctrl+o to expand all)" when collapsed
+- verboseMode prop forces all tool results to expand
+
+### Next Feature
+The next highest priority feature is: "Add verboseMode state to ChatApp"

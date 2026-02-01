@@ -165,7 +165,13 @@ describe("OpenCodeClient", () => {
 
   describe("Health Check", () => {
     test("healthCheck returns error when server not running", async () => {
-      const health = await client.healthCheck();
+      // Use a port that is guaranteed not to have a server running
+      const unreachableClient = new OpenCodeClient({
+        baseUrl: "http://localhost:59999",
+        maxRetries: 1,
+        retryDelay: 100,
+      });
+      const health = await unreachableClient.healthCheck();
       expect(health.healthy).toBe(false);
       expect(health.error).toBeDefined();
     });
@@ -173,11 +179,24 @@ describe("OpenCodeClient", () => {
 
   describe("Connection", () => {
     test("connect throws error when server not running", async () => {
-      await expect(client.connect()).rejects.toThrow("Failed to connect");
+      // Use a port that is guaranteed not to have a server running
+      const unreachableClient = new OpenCodeClient({
+        baseUrl: "http://localhost:59999",
+        maxRetries: 1,
+        retryDelay: 100,
+      });
+      await expect(unreachableClient.connect()).rejects.toThrow("Failed to connect");
     });
 
-    test("start throws error when server not running", async () => {
-      await expect(client.start()).rejects.toThrow("Failed to connect");
+    test("start throws error when server not running and autoStart disabled", async () => {
+      // Create client with autoStart disabled and unreachable port
+      const noAutoStartClient = new OpenCodeClient({
+        baseUrl: "http://localhost:59999",
+        maxRetries: 1,
+        retryDelay: 100,
+        autoStart: false,
+      });
+      await expect(noAutoStartClient.start()).rejects.toThrow("Failed to connect");
     });
   });
 

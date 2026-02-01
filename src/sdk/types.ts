@@ -36,6 +36,70 @@ export interface McpServerConfig {
 export type OpenCodeAgentMode = "build" | "plan" | "general" | "explore";
 
 /**
+ * Model display information for UI rendering.
+ * Contains the model name and provider/tier for display purposes.
+ */
+export interface ModelDisplayInfo {
+  /** Model name/ID for display (e.g., "Opus 4.5", "Sonnet 4.5", "GPT-4") */
+  model: string;
+  /** Provider or tier name for display (e.g., "Claude Code", "GitHub Copilot") */
+  tier: string;
+}
+
+/**
+ * Formats a model ID into a human-readable display name.
+ * Examples:
+ *   - "claude-opus-4-5-20251101" → "Opus 4.5"
+ *   - "claude-sonnet-4-5-20250929" → "Sonnet 4.5"
+ *   - "claude-3-opus" → "Opus"
+ *   - "gpt-4" → "GPT-4"
+ */
+export function formatModelDisplayName(modelId: string): string {
+  if (!modelId) return "Claude";
+
+  const lower = modelId.toLowerCase();
+
+  // Handle Claude model formats
+  if (lower.includes("claude")) {
+    // Extract model family (opus, sonnet, haiku)
+    let family = "";
+    if (lower.includes("opus")) family = "Opus";
+    else if (lower.includes("sonnet")) family = "Sonnet";
+    else if (lower.includes("haiku")) family = "Haiku";
+
+    if (!family) return "Claude";
+
+    // Extract version number (e.g., "4-5" or "4.5" or just "4")
+    // Match patterns like "opus-4-5", "opus-4.5", "sonnet-4-5-20250929"
+    const versionMatch = lower.match(
+      /(?:opus|sonnet|haiku)[- ]?(\d+)(?:[.-](\d+))?/
+    );
+
+    if (versionMatch) {
+      const major = versionMatch[1];
+      const minor = versionMatch[2];
+      if (minor) {
+        return `${family} ${major}.${minor}`;
+      }
+      return `${family} ${major}`;
+    }
+
+    return family;
+  }
+
+  // Handle GPT models
+  if (lower.includes("gpt")) {
+    return modelId.toUpperCase().replace(/-/g, "-");
+  }
+
+  // For other models, return capitalized
+  return modelId
+    .split("-")
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+/**
  * Configuration for creating a new agent session.
  * Reference: Feature list step 2
  */
@@ -383,6 +447,14 @@ export interface CodingAgentClient {
    * Should be called when the client is no longer needed.
    */
   stop(): Promise<void>;
+
+  /**
+   * Get model display information for UI rendering.
+   * Returns the current model name and provider/tier for display.
+   * Should be called after start() to get accurate information.
+   * @param modelHint - Optional model ID to use for display (e.g., from CLI options)
+   */
+  getModelDisplayInfo(modelHint?: string): Promise<ModelDisplayInfo>;
 }
 
 /**

@@ -32,9 +32,11 @@ function createMockContext(
   options: {
     session?: object | null;
     stateOverrides?: Partial<CommandContextState>;
+    onSendMessage?: (content: string) => void;
   } = {}
-): CommandContext {
+): CommandContext & { sentMessages: string[] } {
   const messages: Array<{ role: string; content: string }> = [];
+  const sentMessages: string[] = [];
   return {
     session: options.session ?? null,
     state: {
@@ -46,6 +48,13 @@ function createMockContext(
       messages.push({ role, content });
     },
     setStreaming: () => {},
+    sendMessage: (content: string) => {
+      sentMessages.push(content);
+      if (options.onSendMessage) {
+        options.onSendMessage(content);
+      }
+    },
+    sentMessages,
   };
 }
 
@@ -107,27 +116,37 @@ describe("skillCommands", () => {
     }
   });
 
-  test("commit command requires session", () => {
+  test("commit command works without session (uses sendMessage)", () => {
     const commitCmd = skillCommands.find((c) => c.name === "commit");
     expect(commitCmd).toBeDefined();
 
     const context = createMockContext({ session: null });
     const result = commitCmd!.execute("", context);
 
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("No active session");
+    // Should succeed and send message through sendMessage
+    expect(result.success).toBe(true);
+    expect(context.sentMessages).toHaveLength(1);
+    // Now sends expanded prompt (if skill file exists) or falls back to slash command
+    // The sent message should contain the skill prompt or slash command
+    expect(context.sentMessages[0]).toBeDefined();
+    expect(context.sentMessages[0]!.length).toBeGreaterThan(0);
   });
 
-  test("commit command succeeds with session", () => {
+  test("commit command sends expanded prompt with args", () => {
     const commitCmd = skillCommands.find((c) => c.name === "commit");
     expect(commitCmd).toBeDefined();
 
-    const context = createMockContext({ session: { id: "test-session" } });
-    const result = commitCmd!.execute("", context);
+    const context = createMockContext({ session: null });
+    const result = commitCmd!.execute("-m 'Fix bug'", context);
 
     expect(result.success).toBe(true);
-    // No system message is displayed - skill executes silently
-    expect(result.message).toBeUndefined();
+    expect(context.sentMessages).toHaveLength(1);
+    // Should have expanded $ARGUMENTS with the provided args
+    // If skill file exists, it expands; otherwise falls back to slash command
+    const sentMessage = context.sentMessages[0]!;
+    expect(sentMessage.length).toBeGreaterThan(0);
+    // If prompt was expanded, it should contain the args or the slash command
+    expect(sentMessage.includes("-m 'Fix bug'") || sentMessage.includes("/commit")).toBe(true);
   });
 
   test("skill command executes without system messages", () => {
@@ -135,29 +154,35 @@ describe("skillCommands", () => {
     expect(commitCmd).toBeDefined();
 
     const messages: Array<{ role: string; content: string }> = [];
+    const sentMessages: string[] = [];
     const context: CommandContext = {
-      session: { id: "test-session" } as any,
+      session: null,
       state: { isStreaming: false, messageCount: 0 },
       addMessage: (role, content) => {
         messages.push({ role, content });
       },
       setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
     };
 
     commitCmd!.execute("-m 'Fix bug'", context);
 
-    // No system messages should be added - skill executes silently
+    // No system messages should be added - skill executes silently via sendMessage
     expect(messages.length).toBe(0);
+    expect(sentMessages.length).toBe(1);
   });
 
-  test("skill command sets streaming state", () => {
+  test("skill command does not set streaming state directly", () => {
     const commitCmd = skillCommands.find((c) => c.name === "commit");
     expect(commitCmd).toBeDefined();
 
-    const context = createMockContext({ session: { id: "test-session" } });
+    const context = createMockContext({ session: null });
     const result = commitCmd!.execute("", context);
 
-    expect(result.stateUpdate?.isStreaming).toBe(true);
+    // sendMessage handles streaming state, not the command result
+    expect(result.stateUpdate?.isStreaming).toBeUndefined();
   });
 
   test("hidden skill is created with hidden flag", () => {
@@ -208,10 +233,13 @@ describe("registerSkillCommands", () => {
     const commitCmd = globalRegistry.get("commit");
     expect(commitCmd).toBeDefined();
 
-    const context = createMockContext({ session: { id: "test-session" } });
+    const context = createMockContext({ session: null });
     const result = commitCmd!.execute("", context);
 
     expect(result.success).toBe(true);
+    // Should send either expanded prompt or slash command fallback
+    expect(context.sentMessages).toHaveLength(1);
+    expect(context.sentMessages[0]!.length).toBeGreaterThan(0);
   });
 
   test("commands can be looked up by alias after registration", () => {

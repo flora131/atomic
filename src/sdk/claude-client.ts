@@ -17,6 +17,7 @@ import {
   type SDKMessage,
   type SDKAssistantMessage,
   type SDKResultMessage,
+  type SDKSystemMessage,
   type HookEvent,
   type HookCallback,
   type HookCallbackMatcher,
@@ -36,6 +37,7 @@ import type {
   ToolDefinition,
   MessageContentType,
 } from "./types.ts";
+import { formatModelDisplayName } from "./types.ts";
 
 /**
  * Configuration for Claude SDK native hooks
@@ -62,6 +64,8 @@ export interface ClaudeHookConfig {
 interface ClaudeSessionState {
   query: Query;
   sessionId: string;
+  /** SDK's session ID for resuming conversations (captured from first message) */
+  sdkSessionId: string | null;
   config: SessionConfig;
   inputTokens: number;
   outputTokens: number;
@@ -149,6 +153,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
   private registeredTools: Map<string, McpSdkServerConfigWithInstance> =
     new Map();
   private isRunning = false;
+  /** Model detected from the SDK system init message */
+  private detectedModel: string | null = null;
 
   /**
    * Register native SDK hooks for event handling.
@@ -235,6 +241,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
     const state: ClaudeSessionState = {
       query: queryInstance,
       sessionId,
+      sdkSessionId: null,
       config,
       inputTokens: 0,
       outputTokens: 0,
@@ -251,10 +258,16 @@ export class ClaudeAgentClient implements CodingAgentClient {
           throw new Error("Session is closed");
         }
 
-        // Create a new query with the message
+        // Build options with resume if we have an SDK session ID
+        const options = this.buildSdkOptions(config);
+        if (state.sdkSessionId) {
+          options.resume = state.sdkSessionId;
+        }
+
+        // Create a new query with the message, resuming the conversation if possible
         const newQuery = query({
           prompt: message,
-          options: this.buildSdkOptions(config),
+          options,
         });
 
         // Consume all messages and return the final assistant message
@@ -295,6 +308,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
         const buildOptions = () => this.buildSdkOptions(config);
         const processMsg = (msg: SDKMessage) =>
           this.processMessage(msg, sessionId, state);
+        // Capture SDK session ID for resume
+        const getSdkSessionId = () => state.sdkSessionId;
 
         return {
           [Symbol.asyncIterator]: async function* () {
@@ -302,12 +317,19 @@ export class ClaudeAgentClient implements CodingAgentClient {
               throw new Error("Session is closed");
             }
 
+            // Build options with resume if we have an SDK session ID
+            const options = {
+              ...buildOptions(),
+              includePartialMessages: true,
+            };
+            const sdkSessionId = getSdkSessionId();
+            if (sdkSessionId) {
+              options.resume = sdkSessionId;
+            }
+
             const newQuery = query({
               prompt: message,
-              options: {
-                ...buildOptions(),
-                includePartialMessages: true,
-              },
+              options,
             });
 
             // Track if we've yielded streaming deltas to avoid duplicating content
@@ -396,6 +418,23 @@ export class ClaudeAgentClient implements CodingAgentClient {
     sessionId: string,
     state: ClaudeSessionState
   ): void {
+    // Capture SDK session ID from any message that has it
+    // This is needed to resume the conversation in subsequent queries
+    if (!state.sdkSessionId && "session_id" in sdkMessage) {
+      const msgWithSessionId = sdkMessage as { session_id?: string };
+      if (msgWithSessionId.session_id) {
+        state.sdkSessionId = msgWithSessionId.session_id;
+      }
+    }
+
+    // Capture model from system init message
+    if (sdkMessage.type === "system" && sdkMessage.subtype === "init") {
+      const systemMsg = sdkMessage as SDKSystemMessage;
+      if (systemMsg.model && !this.detectedModel) {
+        this.detectedModel = systemMsg.model;
+      }
+    }
+
     // Track token usage
     if (sdkMessage.type === "assistant") {
       const usage = sdkMessage.message.usage;
@@ -624,13 +663,45 @@ export class ClaudeAgentClient implements CodingAgentClient {
    * Start the client
    */
   async start(): Promise<void> {
+    if (this.isRunning) {
+      return; // Already running
+    }
     this.isRunning = true;
+
+    // Probe the SDK to detect the default model from the system init message
+    // This makes a lightweight query that doesn't require actual user input
+    try {
+      const probeQuery = query({
+        prompt: "",
+        options: {
+          maxTurns: 0, // Don't allow any turns - just get init message
+        },
+      });
+
+      // Read the first message (should be system init)
+      for await (const msg of probeQuery) {
+        if (msg.type === "system" && msg.subtype === "init") {
+          const systemMsg = msg as SDKSystemMessage;
+          if (systemMsg.model) {
+            this.detectedModel = systemMsg.model;
+          }
+          // Got what we need, stop reading
+          break;
+        }
+      }
+      probeQuery.close();
+    } catch {
+      // Probe failed - will fall back to "Claude" in getModelDisplayInfo
+    }
   }
 
   /**
    * Stop the client and clean up resources
    */
   async stop(): Promise<void> {
+    if (!this.isRunning) {
+      return; // Already stopped
+    }
     this.isRunning = false;
 
     // Close all active sessions
@@ -643,6 +714,24 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
     this.sessions.clear();
     this.eventHandlers.clear();
+  }
+
+  /**
+   * Get model display information for UI rendering.
+   * Uses the model hint if provided, otherwise uses the model detected from
+   * the SDK system init message, or falls back to "Claude".
+   * @param modelHint - Optional model ID to format for display
+   */
+  async getModelDisplayInfo(
+    modelHint?: string
+  ): Promise<{ model: string; tier: string }> {
+    // Priority: modelHint > detectedModel > default "Claude"
+    const modelId = modelHint || this.detectedModel;
+    const model = modelId ? formatModelDisplayName(modelId) : "Claude";
+    return {
+      model,
+      tier: "Claude Code",
+    };
   }
 }
 

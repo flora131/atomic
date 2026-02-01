@@ -16,6 +16,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync, appendF
 import { join, dirname } from "path";
 import type { OpenCodeClient, OpenCodeSdkEvent } from "./opencode-client.ts";
 import { trackAgentSession } from "../utils/telemetry/index.ts";
+import { tryAcquireLock, releaseLock } from "../utils/file-lock.ts";
 
 // ============================================================================
 // CONSTANTS
@@ -153,20 +154,29 @@ export function parseRalphState(directory: string = process.cwd()): RalphState |
 }
 
 /**
- * Write Ralph state to YAML frontmatter file
+ * Write Ralph state to YAML frontmatter file with file locking.
+ * Uses non-blocking lock acquisition to prevent concurrent writes.
  */
 export function writeRalphState(state: RalphState, directory: string = process.cwd()): void {
   const statePath = join(directory, RALPH_STATE_FILE);
   const dirPath = dirname(statePath);
-  
+
   if (!existsSync(dirPath)) {
     mkdirSync(dirPath, { recursive: true });
   }
 
-  const completionPromiseYaml =
-    state.completionPromise === null ? "null" : `"${state.completionPromise}"`;
+  // Acquire lock before writing
+  const lockResult = tryAcquireLock(statePath);
+  if (!lockResult.acquired) {
+    console.warn(`[OpenCode] Could not acquire lock for ${statePath}: ${lockResult.error}`);
+    // Fall through to write anyway to avoid blocking the session
+  }
 
-  const content = `---
+  try {
+    const completionPromiseYaml =
+      state.completionPromise === null ? "null" : `"${state.completionPromise}"`;
+
+    const content = `---
 active: ${state.active}
 iteration: ${state.iteration}
 max_iterations: ${state.maxIterations}
@@ -178,7 +188,13 @@ started_at: "${state.startedAt}"
 ${state.prompt}
 `;
 
-  writeFileSync(statePath, content, "utf-8");
+    writeFileSync(statePath, content, "utf-8");
+  } finally {
+    // Release lock if we acquired it
+    if (lockResult.acquired) {
+      releaseLock(statePath);
+    }
+  }
 }
 
 /**
@@ -195,13 +211,17 @@ export function deleteRalphState(directory: string = process.cwd()): boolean {
 }
 
 /**
- * Check if all features are passing in the feature list
+ * Check if all features are passing in the feature list.
+ * Uses file locking to prevent read during concurrent write.
  */
 export function checkFeaturesPassing(
   directory: string,
   featureListPath: string
 ): FeatureStatus | null {
   const fullPath = join(directory, featureListPath);
+
+  // Acquire lock before reading
+  const lockResult = tryAcquireLock(fullPath);
 
   try {
     const content = readFileSync(fullPath, "utf-8");
@@ -223,6 +243,11 @@ export function checkFeaturesPassing(
     };
   } catch {
     return null;
+  } finally {
+    // Release lock if we acquired it
+    if (lockResult.acquired) {
+      releaseLock(fullPath);
+    }
   }
 }
 

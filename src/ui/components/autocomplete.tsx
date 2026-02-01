@@ -8,6 +8,7 @@
  */
 
 import React, { useMemo, useCallback, useRef, useEffect } from "react";
+import { useTerminalDimensions } from "@opentui/react";
 import { useTheme } from "../theme.tsx";
 import { globalRegistry, type CommandDefinition } from "../commands/index.ts";
 import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
@@ -48,6 +49,8 @@ interface SuggestionRowProps {
   foregroundColor: string;
   /** Muted color for description */
   mutedColor: string;
+  /** Terminal width for dynamic truncation */
+  terminalWidth: number;
 }
 
 // ============================================================================
@@ -56,6 +59,8 @@ interface SuggestionRowProps {
 
 /**
  * Renders a single suggestion row with command name and description.
+ * Styled to match Claude Code's elegant autocomplete appearance.
+ * Uses text color (not background) for selection indication.
  */
 function SuggestionRow({
   command,
@@ -63,34 +68,52 @@ function SuggestionRow({
   accentColor,
   foregroundColor,
   mutedColor,
+  terminalWidth,
 }: SuggestionRowProps): React.ReactNode {
-  const bgColor = isSelected ? accentColor : undefined;
-  const fgColor = isSelected ? "#000000" : foregroundColor;
-  const descColor = isSelected ? "#333333" : mutedColor;
+  // Selection uses accent color for text, not background
+  const fgColor = isSelected ? accentColor : foregroundColor;
+  const descColor = isSelected ? accentColor : mutedColor;
 
   // Format command name with leading slash
-  const commandName = `/${command.name}`;
+  const fullName = `/${command.name}`;
 
-  // Truncate description if too long (terminal width considerations)
-  const maxDescLength = 40;
+  // Calculate column widths based on terminal width
+  // Layout: 2 (padding) + cmdCol + 2 (gap) + descCol + 2 (padding)
+  const padding = 4; // 2 left + 2 right
+  const gap = 2;
+  const availableWidth = terminalWidth - padding - gap;
+
+  // Command column gets ~30% of available width, min 18, max 28
+  const cmdColWidth = Math.min(28, Math.max(18, Math.floor(availableWidth * 0.3)));
+  const descColWidth = availableWidth - cmdColWidth;
+
+  // Truncate command name if needed
+  const displayName = fullName.length > cmdColWidth
+    ? `${fullName.slice(0, cmdColWidth - 1)}…`
+    : fullName.padEnd(cmdColWidth);
+
+  // Truncate description based on remaining terminal width
   const description =
-    command.description.length > maxDescLength
-      ? `${command.description.slice(0, maxDescLength - 3)}...`
+    command.description.length > descColWidth
+      ? `${command.description.slice(0, descColWidth - 1)}…`
       : command.description;
 
   return (
     <box
       flexDirection="row"
       width="100%"
-      backgroundColor={bgColor}
-      paddingLeft={1}
-      paddingRight={1}
+      paddingLeft={2}
+      paddingRight={2}
     >
-      {/* Command name column - fixed width */}
-      <box width={20}>
-        <text fg={fgColor} attributes={isSelected ? 1 : undefined}>{commandName}</text>
+      {/* Command name column */}
+      <box width={cmdColWidth}>
+        <text fg={fgColor} attributes={isSelected ? 1 : undefined}>{displayName}</text>
       </box>
-      {/* Description column - flexible */}
+      {/* Gap between columns */}
+      <box width={gap}>
+        <text>{" "}</text>
+      </box>
+      {/* Description column */}
       <box flexGrow={1}>
         <text fg={descColor}>{description}</text>
       </box>
@@ -129,6 +152,7 @@ export function Autocomplete({
   maxSuggestions = 8,
 }: AutocompleteProps): React.ReactNode {
   const { theme } = useTheme();
+  const { width: terminalWidth } = useTerminalDimensions();
   const scrollRef = useRef<ScrollBoxRenderable>(null);
   const itemHeight = 1; // Each suggestion row is 1 line tall
 
@@ -178,15 +202,13 @@ export function Autocomplete({
     return null;
   }
 
-  // Calculate display height - min of suggestions or maxSuggestions, plus 2 for borders
-  const displayHeight = Math.min(suggestions.length, maxSuggestions) + 2;
+  // Calculate display height - min of suggestions or maxSuggestions
+  // No borders for cleaner Claude Code-style look
+  const displayHeight = Math.min(suggestions.length, maxSuggestions);
 
   return (
     <box
       flexDirection="column"
-      borderStyle="single"
-      borderColor={theme.colors.border}
-      backgroundColor={theme.colors.background}
       width="100%"
       height={displayHeight}
     >
@@ -204,6 +226,7 @@ export function Autocomplete({
             accentColor={theme.colors.accent}
             foregroundColor={theme.colors.foreground}
             mutedColor={theme.colors.muted}
+            terminalWidth={terminalWidth}
           />
         ))}
       </scrollbox>

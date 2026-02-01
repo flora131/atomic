@@ -31,6 +31,38 @@ import {
   type OpencodeClient as SdkClient,
   type OpencodeClientConfig,
 } from "@opencode-ai/sdk/v2/client";
+import {
+  createOpencodeServer,
+  type ServerOptions as SdkServerOptions,
+} from "@opencode-ai/sdk/v2/server";
+
+/**
+ * Type alias for OpenCode SDK event type
+ * Used by opencode-hooks.ts for event handlers
+ *
+ * This is a simplified type covering the events we care about.
+ * The full SDK Event type is a union of 40+ event types.
+ */
+export interface OpenCodeSdkEvent {
+  type: string;
+  properties?: {
+    sessionID?: string;
+    info?: {
+      id?: string;
+      title?: string;
+    };
+    status?: "idle" | "busy" | "retry";
+    error?: string;
+    part?: {
+      type: string;
+      content?: string;
+      tool?: string;
+      state?: unknown;
+    };
+    delta?: string;
+    [key: string]: unknown;
+  };
+}
 
 /**
  * Default OpenCode server configuration
@@ -55,6 +87,12 @@ export interface OpenCodeClientOptions {
   retryDelay?: number;
   /** Default agent mode for new sessions (default: "build") */
   defaultAgentMode?: OpenCodeAgentMode;
+  /** Auto-start OpenCode server if not running (default: true) */
+  autoStart?: boolean;
+  /** Port for server when auto-starting (default: 4096) */
+  port?: number;
+  /** Hostname for server when auto-starting (default: localhost) */
+  hostname?: string;
 }
 
 /**
@@ -86,6 +124,8 @@ export class OpenCodeClient implements CodingAgentClient {
   private isConnected = false;
   private currentSessionId: string | null = null;
   private eventSubscriptionController: AbortController | null = null;
+  private serverCloseCallback: (() => void) | null = null;
+  private isServerSpawned = false;
 
   /**
    * Create a new OpenCodeClient
@@ -274,9 +314,12 @@ export class OpenCodeClient implements CodingAgentClient {
     try {
       this.eventSubscriptionController = new AbortController();
 
-      const eventStream = await this.sdkClient.event.subscribe({
+      const result = await this.sdkClient.event.subscribe({
         directory: this.clientOptions.directory,
       });
+
+      // The SDK returns { stream: AsyncGenerator } - extract the stream
+      const eventStream = result.stream;
 
       // Process events in background
       this.processEventStream(eventStream).catch((error) => {
@@ -294,7 +337,7 @@ export class OpenCodeClient implements CodingAgentClient {
    * Process SSE event stream
    */
   private async processEventStream(
-    eventStream: AsyncIterable<unknown>
+    eventStream: AsyncGenerator<unknown, unknown, unknown>
   ): Promise<void> {
     try {
       for await (const event of eventStream) {
@@ -368,15 +411,17 @@ export class OpenCodeClient implements CodingAgentClient {
         // Handle streaming text parts
         const part = properties?.part as Record<string, unknown> | undefined;
         const delta = properties?.delta as string | undefined;
+        // Session ID is in properties, not in part
+        const partSessionId = (properties?.sessionID as string) ?? (part?.sessionID as string) ?? "";
         if (part?.type === "text" && delta) {
-          this.emitEvent("message.delta", (part?.sessionID as string) ?? "", {
+          this.emitEvent("message.delta", partSessionId, {
             delta,
             contentType: "text",
           });
         } else if (part?.type === "tool") {
           const toolState = part?.state as Record<string, unknown> | undefined;
           if (toolState?.status === "pending") {
-            this.emitEvent("tool.start", (part?.sessionID as string) ?? "", {
+            this.emitEvent("tool.start", partSessionId, {
               toolName: (part?.tool as string) ?? "",
               toolInput: toolState?.input,
             });
@@ -384,7 +429,7 @@ export class OpenCodeClient implements CodingAgentClient {
             toolState?.status === "completed" ||
             toolState?.status === "error"
           ) {
-            this.emitEvent("tool.complete", (part?.sessionID as string) ?? "", {
+            this.emitEvent("tool.complete", partSessionId, {
               toolName: (part?.tool as string) ?? "",
               toolResult: toolState?.output,
               success: toolState?.status === "completed",
@@ -485,13 +530,26 @@ export class OpenCodeClient implements CodingAgentClient {
       client.clientOptions.defaultAgentMode ??
       "build";
 
+    // Track session state for token usage and lifecycle
+    const sessionState = {
+      inputTokens: 0,
+      outputTokens: 0,
+      isClosed: false,
+    };
+
     const session: Session = {
       id: sessionId,
 
       send: async (message: string): Promise<AgentMessage> => {
+        if (sessionState.isClosed) {
+          throw new Error("Session is closed");
+        }
         if (!client.sdkClient) {
           throw new Error("Client not connected");
         }
+
+        // Estimate input tokens (approximately 4 chars per token)
+        sessionState.inputTokens += Math.ceil(message.length / 4);
 
         const result = await client.sdkClient.session.prompt({
           sessionID: sessionId,
@@ -507,29 +565,33 @@ export class OpenCodeClient implements CodingAgentClient {
         // Extract text content from parts
         const parts = result.data?.parts ?? [];
         const textParts = parts.filter(
-          (p): p is { type: "text"; text: string } =>
-            (p as Record<string, unknown>).type === "text"
+          (p) => (p as Record<string, unknown>).type === "text"
         );
         const content = textParts
-          .map((p) => (p as { text: string }).text)
+          .map((p) => ((p as Record<string, unknown>).text as string) ?? "")
           .join("");
+
+        // Estimate output tokens
+        sessionState.outputTokens += Math.ceil(content.length / 4);
 
         // Check for tool calls
         const toolParts = parts.filter(
-          (p): p is { type: "tool"; tool: string; state: unknown } =>
-            (p as Record<string, unknown>).type === "tool"
+          (p) => (p as Record<string, unknown>).type === "tool"
         );
 
         if (toolParts.length > 0) {
           return {
             type: "tool_use",
             content: {
-              toolCalls: toolParts.map((t) => ({
-                id: ((t as Record<string, unknown>).id as string) ?? "",
-                name: t.tool,
-                input: (((t.state as Record<string, unknown>)?.input ??
-                  {}) as Record<string, unknown>),
-              })),
+              toolCalls: toolParts.map((t) => {
+                const part = t as Record<string, unknown>;
+                const state = (part.state as Record<string, unknown>) ?? {};
+                return {
+                  id: (part.id as string) ?? "",
+                  name: (part.tool as string) ?? "",
+                  input: ((state.input ?? {}) as Record<string, unknown>),
+                };
+              }),
             },
             role: "assistant",
           };
@@ -545,29 +607,153 @@ export class OpenCodeClient implements CodingAgentClient {
       stream: (message: string): AsyncIterable<AgentMessage> => {
         return {
           async *[Symbol.asyncIterator]() {
+            if (sessionState.isClosed) {
+              throw new Error("Session is closed");
+            }
             if (!client.sdkClient) {
               throw new Error("Client not connected");
             }
 
-            // Send async prompt - SSE events will stream back
-            const result = await client.sdkClient.session.promptAsync({
-              sessionID: sessionId,
-              directory: client.clientOptions.directory,
-              agent: agentMode,
-              parts: [{ type: "text", text: message }],
-            });
+            // Estimate input tokens (approximately 4 chars per token)
+            sessionState.inputTokens += Math.ceil(message.length / 4);
 
-            if (result.error) {
-              throw new Error(`Failed to send message: ${result.error}`);
-            }
+            // Set up streaming via SSE events
+            // OpenCode streams text deltas via message.part.updated events
+            const deltaQueue: AgentMessage[] = [];
+            let resolveNext: (() => void) | null = null;
+            let streamDone = false;
+            let streamError: Error | null = null;
+            let totalOutputChars = 0;
 
-            // Yield initial response
-            // Note: Actual streaming comes through SSE events
-            yield {
-              type: "text",
-              content: "",
-              role: "assistant",
+            // Handler for delta events from SSE
+            const handleDelta = (event: AgentEvent<"message.delta">) => {
+              // Only handle events for our session
+              if (event.sessionId !== sessionId) return;
+
+              const delta = event.data?.delta as string | undefined;
+              if (delta) {
+                totalOutputChars += delta.length;
+                deltaQueue.push({
+                  type: "text" as const,
+                  content: delta,
+                  role: "assistant" as const,
+                });
+                resolveNext?.();
+              }
             };
+
+            // Handler for session idle (stream complete)
+            const handleIdle = (event: AgentEvent<"session.idle">) => {
+              if (event.sessionId !== sessionId) return;
+              streamDone = true;
+              resolveNext?.();
+            };
+
+            // Handler for session error
+            const handleError = (event: AgentEvent<"session.error">) => {
+              if (event.sessionId !== sessionId) return;
+              streamError = new Error(String(event.data?.error ?? "Stream error"));
+              streamDone = true;
+              resolveNext?.();
+            };
+
+            // Subscribe to events
+            const unsubDelta = client.on("message.delta", handleDelta);
+            const unsubIdle = client.on("session.idle", handleIdle);
+            const unsubError = client.on("session.error", handleError);
+
+            try {
+              // Start the prompt (this initiates the agentic loop)
+              // The response will come through SSE events
+              const result = await client.sdkClient.session.prompt({
+                sessionID: sessionId,
+                directory: client.clientOptions.directory,
+                agent: agentMode,
+                parts: [{ type: "text", text: message }],
+              });
+
+              if (result.error) {
+                throw new Error(`Failed to send message: ${result.error}`);
+              }
+
+              // If we got a direct response (no SSE streaming), yield it
+              // This handles cases where the SDK returns immediately
+              if (result.data?.parts) {
+                const parts = result.data.parts;
+                for (const part of parts) {
+                  if (part.type === "text" && part.text) {
+                    totalOutputChars += part.text.length;
+                    yield {
+                      type: "text" as const,
+                      content: part.text,
+                      role: "assistant" as const,
+                    };
+                  } else if (part.type === "reasoning" && part.text) {
+                    yield {
+                      type: "thinking" as const,
+                      content: part.text,
+                      role: "assistant" as const,
+                    };
+                  } else if (part.type === "tool") {
+                    const toolPart = part as Record<string, unknown>;
+                    const toolState = toolPart.state as Record<string, unknown> | undefined;
+                    if (toolState?.status === "completed" && toolState?.output) {
+                      yield {
+                        type: "tool_result" as const,
+                        content: toolState.output,
+                        role: "assistant" as const,
+                        metadata: {
+                          toolName: toolPart.tool as string,
+                        },
+                      };
+                    }
+                  }
+                }
+
+                // Update token counts from response
+                const tokens = result.data.info?.tokens;
+                if (tokens) {
+                  sessionState.inputTokens = tokens.input ?? sessionState.inputTokens;
+                  sessionState.outputTokens = tokens.output ?? 0;
+                }
+              }
+
+              // Yield any SSE deltas that arrived
+              while (!streamDone || deltaQueue.length > 0) {
+                if (deltaQueue.length > 0) {
+                  yield deltaQueue.shift()!;
+                } else if (!streamDone) {
+                  // Wait for next delta or completion
+                  await new Promise<void>((resolve) => {
+                    resolveNext = resolve;
+                    // Add a timeout to prevent infinite waiting
+                    setTimeout(resolve, 30000);
+                  });
+                  resolveNext = null;
+                }
+              }
+
+              // Check for stream error
+              if (streamError) {
+                throw streamError;
+              }
+
+              // Estimate output tokens if not already set
+              if (sessionState.outputTokens === 0) {
+                sessionState.outputTokens = Math.ceil(totalOutputChars / 4);
+              }
+            } catch (error) {
+              yield {
+                type: "text" as const,
+                content: `Error: ${error instanceof Error ? error.message : String(error)}`,
+                role: "assistant" as const,
+              };
+            } finally {
+              // Unsubscribe from events
+              unsubDelta();
+              unsubIdle();
+              unsubError();
+            }
           },
         };
       },
@@ -588,17 +774,25 @@ export class OpenCodeClient implements CodingAgentClient {
       },
 
       getContextUsage: async (): Promise<ContextUsage> => {
-        // OpenCode SDK doesn't expose direct token usage API
-        // Return placeholder values
+        // Return tracked token usage from session state
+        // Note: OpenCode SDK doesn't expose direct token usage API,
+        // so values may be estimated based on message lengths
+        const totalTokens = sessionState.inputTokens + sessionState.outputTokens;
+        const maxTokens = 200000; // Default context window
         return {
-          inputTokens: 0,
-          outputTokens: 0,
-          maxTokens: 200000,
-          usagePercentage: 0,
+          inputTokens: sessionState.inputTokens,
+          outputTokens: sessionState.outputTokens,
+          maxTokens,
+          usagePercentage: (totalTokens / maxTokens) * 100,
         };
       },
 
       destroy: async (): Promise<void> => {
+        if (sessionState.isClosed) {
+          return;
+        }
+        sessionState.isClosed = true;
+
         if (!client.sdkClient) {
           return;
         }
@@ -648,6 +842,38 @@ export class OpenCodeClient implements CodingAgentClient {
   }
 
   /**
+   * Try to spawn a local OpenCode server
+   * @returns True if server was spawned successfully
+   */
+  private async spawnServer(): Promise<boolean> {
+    // Parse port from baseUrl
+    const url = new URL(this.clientOptions.baseUrl ?? DEFAULT_OPENCODE_BASE_URL);
+    const port = this.clientOptions.port ?? parseInt(url.port || "4096", 10);
+    const hostname = this.clientOptions.hostname ?? url.hostname ?? "localhost";
+
+    try {
+      const serverOptions: SdkServerOptions = {
+        hostname,
+        port,
+        timeout: this.clientOptions.timeout ?? 30000,
+      };
+
+      const { url: serverUrl, close } = await createOpencodeServer(serverOptions);
+      this.serverCloseCallback = close;
+      this.isServerSpawned = true;
+
+      // Update baseUrl to the actual server URL
+      this.clientOptions.baseUrl = serverUrl;
+
+      return true;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to spawn OpenCode server: ${errorMsg}`);
+      return false;
+    }
+  }
+
+  /**
    * Start the client and connect to OpenCode server
    */
   async start(): Promise<void> {
@@ -655,8 +881,25 @@ export class OpenCodeClient implements CodingAgentClient {
       return;
     }
 
-    // Connect to OpenCode server
-    await this.connect();
+    const autoStart = this.clientOptions.autoStart !== false;
+
+    // First, try to connect to existing server
+    try {
+      await this.connect();
+    } catch (connectionError) {
+      // If autoStart is enabled, try spawning a server
+      if (autoStart) {
+        const spawned = await this.spawnServer();
+        if (spawned) {
+          // Try connecting again
+          await this.connect();
+        } else {
+          throw connectionError;
+        }
+      } else {
+        throw connectionError;
+      }
+    }
 
     // Start SSE event subscription
     await this.subscribeToSdkEvents();
@@ -675,6 +918,17 @@ export class OpenCodeClient implements CodingAgentClient {
     // Disconnect from server
     await this.disconnect();
 
+    // Close spawned server if we started it
+    if (this.serverCloseCallback && this.isServerSpawned) {
+      try {
+        this.serverCloseCallback();
+      } catch {
+        // Ignore errors during cleanup
+      }
+      this.serverCloseCallback = null;
+      this.isServerSpawned = false;
+    }
+
     this.eventHandlers.clear();
     this.isRunning = false;
   }
@@ -691,6 +945,59 @@ export class OpenCodeClient implements CodingAgentClient {
    */
   getBaseUrl(): string {
     return this.clientOptions.baseUrl ?? DEFAULT_OPENCODE_BASE_URL;
+  }
+
+  /**
+   * Get model display information for UI rendering.
+   * Queries config.providers() from the OpenCode SDK to get the default model.
+   * @param _modelHint - Optional model hint (unused, queries SDK config instead)
+   */
+  async getModelDisplayInfo(
+    _modelHint?: string
+  ): Promise<{ model: string; tier: string }> {
+    if (!this.isRunning || !this.sdkClient) {
+      return {
+        model: "Claude",
+        tier: "OpenCode",
+      };
+    }
+
+    try {
+      // Try to get providers config which includes default model info
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const configClient = this.sdkClient as any;
+      if (configClient.config && typeof configClient.config.providers === "function") {
+        const result = await configClient.config.providers();
+        const defaults = result.data?.default as Record<string, string> | undefined;
+        if (defaults) {
+          // Get the first default model (format: providerID -> modelID)
+          const providerKeys = Object.keys(defaults);
+          const firstProvider = providerKeys[0];
+          if (firstProvider) {
+            const modelId = defaults[firstProvider];
+            if (modelId) {
+              // Format model ID for display (e.g., "claude-sonnet-4-20250514" -> "Claude Sonnet 4")
+              const displayModel = modelId
+                .replace(/-\d+$/, "") // Remove trailing date
+                .split("-")
+                .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+                .join(" ");
+              return {
+                model: displayModel,
+                tier: "OpenCode",
+              };
+            }
+          }
+        }
+      }
+    } catch {
+      // Fall back to default if config.providers fails
+    }
+
+    return {
+      model: "Claude",
+      tier: "OpenCode",
+    };
   }
 }
 

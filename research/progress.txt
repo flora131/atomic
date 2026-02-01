@@ -385,3 +385,41 @@ Integrated the TimestampDisplay component into the MessageBubble component to sh
 
 ### Next Feature
 The next highest priority feature is: "Create FooterStatus component for status line"
+
+---
+
+## 2026-02-01 - Feature: Create FooterStatus component
+
+### Summary
+Created the FooterStatus component to display a status line at the bottom of the chat interface with permission mode, queue count, streaming status, and keyboard shortcuts.
+
+### Files Created
+- `src/ui/components/footer-status.tsx` - Component with:
+  - `FooterStatusProps` interface (verboseMode, isStreaming, queuedCount, modelId)
+  - `getPermissionModeIndicator()` - returns permission mode text
+  - `formatQueuedCount()` - formats queued message count
+  - `getShortcutHints()` - returns keyboard shortcut hints
+  - `buildStatusParts()` - builds status parts array
+  - `FooterStatus` - status line component
+- `tests/ui/components/footer-status.test.tsx` - 27 comprehensive unit tests
+
+### Files Modified
+- `src/ui/components/index.ts` - Added exports for FooterStatus and utilities
+
+### Features
+- Left side: Status indicators (permission mode, model, streaming, queue, verbose)
+- Right side: Keyboard shortcuts (Ctrl+O, Ctrl+C, Ctrl+V)
+- Parts separated by " │ " character
+- Shortcuts separated by double space
+
+### Test Results
+- All 27 FooterStatus tests pass (48 expect() calls)
+- All 850 UI tests pass (2054 expect() calls)
+
+### Example Display
+```
+Auto-approve │ claude-3-opus │ 2 queued │ verbose    Ctrl+O: verbose  Ctrl+C: copy  Ctrl+V: paste
+```
+
+### Next Feature
+The next highest priority feature is: "Integrate FooterStatus into ChatApp layout"

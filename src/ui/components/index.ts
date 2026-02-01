@@ -82,3 +82,16 @@ export {
   buildDisplayParts,
   type TimestampDisplayProps,
 } from "./timestamp-display.tsx";
+
+// ============================================================================
+// FOOTER STATUS COMPONENT
+// ============================================================================
+
+export {
+  FooterStatus,
+  getPermissionModeIndicator,
+  formatQueuedCount,
+  getShortcutHints,
+  buildStatusParts,
+  type FooterStatusProps,
+} from "./footer-status.tsx";

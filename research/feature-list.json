@@ -1,513 +1,178 @@
 [
   {
     "category": "functional",
-    "description": "Create useMessageQueue hook for message queue state management",
+    "description": "Message queuing - allow user input during streaming responses",
     "steps": [
-      "Create new file src/ui/hooks/use-message-queue.ts",
-      "Define QueuedMessage interface with id, content, and queuedAt fields",
-      "Define UseMessageQueueReturn interface with queue, enqueue, dequeue, clear, and count",
-      "Implement useMessageQueue hook with useState for queue array",
-      "Implement enqueue function to add messages with unique id and timestamp",
-      "Implement dequeue function to remove and return first message",
-      "Implement clear function to empty the queue",
-      "Export hook and interfaces",
-      "Create tests/ui/hooks/use-message-queue.test.ts with unit tests"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Integrate message queue into ChatApp to allow input during streaming",
-    "steps": [
-      "Import useMessageQueue hook into src/ui/chat.tsx",
-      "Add queue state using useMessageQueue hook after existing state declarations",
-      "Modify handleSubmit to queue messages when isStreaming is true instead of blocking",
-      "Clear textarea after enqueue just like after direct send",
-      "Verify messages are queued correctly during streaming",
-      "Test that input is no longer blocked during streaming responses"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Process queued messages sequentially after stream completion",
-    "steps": [
-      "Modify handleComplete in src/ui/chat.tsx to process queue",
-      "After setting isStreaming to false, call dequeue to get next message",
-      "If message exists, call handleSendMessage with 50ms delay",
-      "Verify sequential processing of multiple queued messages",
-      "Test queue empties correctly after all messages processed"
+      "Create useMessageQueue hook in src/ui/hooks/use-message-queue.ts with QueuedMessage interface",
+      "Implement enqueue, dequeue, clear, and count methods in the hook",
+      "Add messageQueue state to ChatApp component",
+      "Remove isStreaming guard from handleSubmit function",
+      "Queue messages when isStreaming is true instead of blocking",
+      "Process queued messages sequentially in handleComplete after response completes",
+      "Add visual indicator for queued messages (QueueIndicator component)",
+      "Write unit tests for useMessageQueue hook",
+      "Write integration tests for message queuing flow"
     ],
     "passes": true
   },
   {
     "category": "ui",
-    "description": "Create QueueIndicator component to display queued message count",
+    "description": "Collapsible tool outputs - default to collapsed with summary line",
     "steps": [
-      "Create new file src/ui/components/queue-indicator.tsx",
-      "Define QueueIndicatorProps interface with count and queue array",
-      "Render visual indicator showing number of queued messages",
-      "Only display when count > 0",
-      "Export component from src/ui/components/index.ts",
-      "Add unit tests for the component"
+      "Change ToolResult initialExpanded default from true to false",
+      "Implement getToolSummary function to generate summary text for each tool type",
+      "Add summary line display when collapsed showing tool name and result count",
+      "Add maxCollapsedLines prop with default of 3",
+      "Add showExpandHint prop with (ctrl+o to expand) hint text",
+      "Update ToolResult to respect verboseMode prop for forced expansion",
+      "Write unit tests for getToolSummary function",
+      "Write component tests for collapsed/expanded states"
+    ],
+    "passes": true
+  },
+  {
+    "category": "critical",
+    "description": "Fix tool call display in chat UI - tool calls not showing during streaming",
+    "steps": [
+      "Add tool_use message type handling in handleStreamMessage in src/ui/index.ts",
+      "Extract tool name, input, and ID from tool_use messages",
+      "Pass tool events to ChatApp via callbacks or message content",
+      "Display tool calls in MessageBubble with ToolResult component",
+      "Ensure tool output is captured and displayed after tool execution",
+      "Write integration tests for tool call display"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Enhance ToolResult to default collapsed with summary line",
+    "description": "Timing display - track and show message duration and timestamps",
     "steps": [
-      "Update src/ui/components/tool-result.tsx to change initialExpanded default to false",
-      "Implement getToolSummary function for tool-specific summaries",
-      "Handle Read, Glob, Grep, Bash, Edit, Write, and Task tool summaries",
-      "Show summary line with tool name and result count when collapsed",
-      "Display expand hint text (ctrl+o to expand) when collapsed",
-      "Add maxCollapsedLines prop defaulting to 3",
-      "Update tests for collapsed default behavior"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Add verboseMode state to ChatApp",
-    "steps": [
-      "Add verboseMode state (boolean, default: false) to src/ui/chat.tsx",
-      "Pass verboseMode prop to child components that need it",
-      "Pass verboseMode to ToolResult components",
-      "Pass verboseMode to MessageBubble for timestamp display",
-      "Verify state propagates correctly to all child components"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Implement Ctrl+O keyboard shortcut to toggle verbose mode",
-    "steps": [
-      "Add keyboard handler for Ctrl+O in src/ui/chat.tsx useKeyboard callback",
-      "Toggle verboseMode state when Ctrl+O is pressed",
-      "Verify shortcut works in the existing keyboard handling flow",
-      "Test that verbose mode toggles correctly on keypress"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Enhance ToolResult to respect verboseMode prop",
-    "steps": [
-      "Add verboseMode prop to ToolResultProps interface",
-      "Force expanded state when verboseMode is true",
-      "Add useEffect to update expanded state when verboseMode changes",
-      "Verify tool outputs expand when verbose mode is enabled",
-      "Verify tool outputs collapse when verbose mode is disabled"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Create format utilities for duration and timestamp display",
-    "steps": [
-      "Create new file src/ui/utils/format.ts",
-      "Implement formatDuration function (ms < 1000 shows ms, < 60000 shows seconds, else minutes)",
-      "Implement formatTimestamp function for HH:MM AM/PM format",
-      "Export both functions",
-      "Create tests/ui/utils/format.test.ts with edge case tests"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Add timestamp tracking to messages",
-    "steps": [
-      "Enhance ChatMessage interface with durationMs, modelId, and streamingStartedAt fields",
+      "Create src/ui/utils/format.ts with formatDuration and formatTimestamp functions",
+      "Add durationMs, modelId, and streamingStartedAt fields to ChatMessage interface",
       "Add streamingStartRef to track when streaming starts",
-      "Set streamingStartRef.current = Date.now() in handleStreamStart",
-      "Calculate duration in handleComplete using streamingStartRef",
-      "Update message with durationMs and modelId when stream completes",
-      "Reset streamingStartRef.current to null after calculation"
+      "Record streamingStartedAt timestamp in handleStreamStart",
+      "Calculate and store durationMs in handleComplete",
+      "Create TimestampDisplay component in src/ui/components/timestamp-display.tsx",
+      "Display timestamp and model name right-aligned when verbose mode is enabled",
+      "Write unit tests for formatDuration and formatTimestamp utilities",
+      "Write component tests for TimestampDisplay"
     ],
     "passes": true
   },
   {
     "category": "ui",
-    "description": "Create TimestampDisplay component for right-aligned timestamp and model",
+    "description": "Spinner verb customization - display random verbs during loading",
     "steps": [
-      "Create new file src/ui/components/timestamp-display.tsx",
-      "Define TimestampDisplayProps with timestamp, durationMs, and modelId",
-      "Render right-aligned timestamp using formatTimestamp",
-      "Render duration using formatDuration when available",
-      "Render model name when available",
-      "Export component from src/ui/components/index.ts",
-      "Create unit tests for the component"
+      "Define array of spinner verbs (Thinking, Analyzing, Processing, etc.)",
+      "Update LoadingIndicator component to accept verb prop",
+      "Select random verb when loading starts",
+      "Display verb text alongside loading animation",
+      "Consider verb rotation during long operations",
+      "Write component tests for LoadingIndicator with verbs"
     ],
     "passes": true
   },
-  {
+    {
     "category": "ui",
-    "description": "Integrate TimestampDisplay into MessageBubble for verbose mode",
+    "description": "QueueIndicator component - visual display of queued messages",
     "steps": [
-      "Import TimestampDisplay in src/ui/chat.tsx MessageBubble component",
-      "Add verboseMode prop to MessageBubble",
-      "Conditionally render TimestampDisplay when verboseMode is enabled",
-      "Display timestamp, duration, and model for assistant messages",
-      "Test timestamp display appears only in verbose mode"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Create FooterStatus component for status line",
-    "steps": [
-      "Create new file src/ui/components/footer-status.tsx",
-      "Define FooterStatusProps with verboseMode, isStreaming, queuedCount, modelId",
-      "Render permission mode indicator",
-      "Render queued message count when > 0",
-      "Render keyboard shortcut hints",
-      "Export component from src/ui/components/index.ts",
-      "Create unit tests for the component"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Integrate FooterStatus into ChatApp layout",
-    "steps": [
-      "Import FooterStatus in src/ui/chat.tsx",
-      "Add FooterStatus to ChatApp render at bottom of layout",
-      "Pass verboseMode, isStreaming, queueCount, and modelId props",
-      "Verify footer displays correctly in the UI",
-      "Test footer updates when queue count changes"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Define configurable array of spinner verbs for LoadingIndicator",
-    "steps": [
-      "Create SPINNER_VERBS constant array with verbs like Thinking, Analyzing, Processing",
-      "Add at least 5-8 different verb options",
-      "Ensure verbs are contextually appropriate for AI assistant actions"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Enhance LoadingIndicator to display random spinner verb",
-    "steps": [
-      "Modify LoadingIndicator component in src/ui/chat.tsx",
-      "Select random verb from SPINNER_VERBS array on mount",
-      "Display verb text alongside the wave animation",
-      "Format as 'Verb...' with ellipsis",
-      "Verify verb changes between different loading instances"
+      "Create QueueIndicator component in src/ui/components/queue-indicator.tsx",
+      "Accept queue array and display count",
+      "Show queued message previews (truncated content)",
+      "Style to differentiate from sent messages",
+      "Export from src/ui/components/index.ts",
+      "Write component tests for QueueIndicator"
     ],
     "passes": true
   },
   {
     "category": "refactor",
-    "description": "Export new components and hooks from index files",
+    "description": "Create hooks directory and export structure",
     "steps": [
-      "Update or create src/ui/components/index.ts with exports for FooterStatus, TimestampDisplay, QueueIndicator",
-      "Create src/ui/hooks/index.ts if it doesn't exist",
+      "Create src/ui/hooks directory if it doesn't exist",
+      "Create src/ui/hooks/index.ts to export hooks",
       "Export useMessageQueue from hooks index",
-      "Verify all new modules are properly accessible"
+      "Update any existing hook imports to use the new structure"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Add integration tests for message queuing flow",
+    "description": "InlineTool component - single-line display for read-only tools",
     "steps": [
-      "Add tests to tests/ui/chat.test.tsx for queue functionality",
-      "Test submitting message during streaming adds to queue",
-      "Test queue processes after stream completion",
-      "Test multiple queued messages process sequentially",
-      "Test queue indicator updates correctly"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Add integration tests for verbose mode toggle",
-    "steps": [
-      "Add tests to tests/ui/chat.test.tsx for verbose mode",
-      "Test Ctrl+O toggles verboseMode state",
-      "Test tool outputs expand when verbose mode enabled",
-      "Test timestamps appear when verbose mode enabled",
-      "Test footer shows verbose mode indicator"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Install and configure @opencode-ai/sdk dependency",
-    "steps": [
-      "Add @opencode-ai/sdk package to package.json dependencies",
-      "Run pnpm install to install the SDK",
-      "Verify SDK exports are accessible (createOpencodeClient)",
-      "Add SDK types to TypeScript configuration if needed",
-      "Document SDK version requirements in README or docs"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Create OpenCode client adapter implementing AgentAdapter interface",
-    "steps": [
-      "Create new file src/agents/opencode/client.ts",
-      "Import createOpencodeClient from @opencode-ai/sdk",
-      "Define OpenCodeClientOptions interface with port, host, and timeout options",
-      "Implement OpenCodeClient class with connect, disconnect, and health check methods",
-      "Implement session management (create, list, get current session)",
-      "Handle connection errors and retry logic",
-      "Export client class and types"
-    ],
-    "passes": true
-  },
-  {
-    "category": "refactor",
-    "description": "Remove mock SDK interfaces and use real SDK types throughout codebase",
-    "steps": [
-      "Remove OpenCodeSdkSession, OpenCodeSdkMessage, OpenCodeSdkToolCall mock interfaces",
-      "Remove OpenCodeSdkStreamEvent, OpenCodeSdkUsage, OpenCodeSdkEventType mock types",
-      "Remove OpenCodeSdkEvent, OpenCodeSdkClient, OpenCodeSdkSessionConfig mock interfaces",
-      "Remove OpenCodeSdkToolDefinition, CreateOpenCodeClientFn mock types",
-      "Update src/sdk/index.ts exports to only export real types",
-      "Update all tests to use real SDK integration tests instead of mocks",
-      "Add integration test infrastructure with OPENCODE_SERVER environment variable",
-      "Document integration testing requirements in README"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Implement SSE streaming handler for OpenCode responses",
-    "steps": [
-      "SSE handler implemented in src/sdk/opencode-client.ts (integrated, not separate file)",
-      "subscribeToSdkEvents() subscribes to /global/event SSE endpoint",
-      "processEventStream() processes the async iterable event stream",
-      "handleSdkEvent() parses and converts SDK events to atomic format",
-      "message.part.updated events with type=text handle streaming text deltas",
-      "message.part.updated events with type=tool handle tool.start/tool.complete",
-      "message.updated events handle message completion for assistant messages",
-      "AbortController-based disconnection for SSE reconnection support",
-      "Added 23 unit tests for SSE event mapping and streaming interface"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Create OpenCode agent adapter implementing AgentAdapter interface",
-    "steps": [
-      "OpenCodeClient in src/sdk/opencode-client.ts implements CodingAgentClient interface",
-      "Client is already integrated into factory in src/commands/chat.ts",
-      "AgentMessage format is used for prompt/response mapping",
-      "Tool calls handled via message.part.updated events for type=tool",
-      "Added OpenCodeAgentMode type (build, plan, general, explore)",
-      "Added agentMode to SessionConfig for session-level mode selection",
-      "Added defaultAgentMode to OpenCodeClientOptions for client-level default",
-      "Agent mode passed to session.prompt() and session.promptAsync() calls",
-      "Added 17 unit tests for agent mode support",
-      "Exported OpenCodeAgentMode from sdk/index.ts"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Integrate OpenCode adapter into agent registry",
-    "steps": [
-      "Update src/agents/registry.ts to import OpenCode adapter",
-      "Add 'opencode' to AgentType union type",
-      "Register OpenCode adapter in the agent factory",
-      "Add OpenCode configuration options to agent config",
-      "Verify -a opencode flag selects OpenCode adapter correctly",
-      "Add fallback error handling if OpenCode server not running"
+      "Define INLINE_TOOLS constant array (Glob, Read, Grep, List, WebFetch, WebSearch)",
+      "Create InlineTool component with icon, summary, and status",
+      "Use accent color for active tools, muted for completed",
+      "Show pending indicator for in-progress tools",
+      "Integrate with ToolResult to use InlineTool when appropriate",
+      "Write component tests for InlineTool"
     ],
     "passes": false
   },
   {
     "category": "functional",
-    "description": "Implement OpenCode tool call mapping",
+    "description": "BlockTool component - bordered box display for mutating tools",
     "steps": [
-      "Create new file src/agents/opencode/tools.ts",
-      "Map OpenCode built-in tools (read, write, edit, bash, glob, grep, task) to atomic format",
-      "Handle tool input/output serialization",
-      "Map tool results back to OpenCode expected format",
-      "Support custom tool extensions if available",
-      "Add unit tests for tool mapping functions"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Add OpenCode server health check and auto-start",
-    "steps": [
-      "Implement health check to /global/health endpoint before sending messages",
-      "Display user-friendly error if OpenCode server not running",
-      "Optionally prompt user to start OpenCode server",
-      "Add --opencode-port flag to specify custom port (default 1337)",
-      "Add --opencode-host flag to specify custom host (default localhost)",
-      "Cache health check result to avoid repeated checks"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Support OpenCode multi-session capability",
-    "steps": [
-      "Add session ID tracking to OpenCode adapter",
-      "Implement session persistence across chat restarts",
-      "Add /sessions command to list active OpenCode sessions",
-      "Add /session <id> command to switch between sessions",
-      "Store session ID in atomic config for continuity",
-      "Handle session expiration and cleanup"
+      "Define BLOCK_TOOLS constant array (Bash, Write, Edit, Task, TodoWrite, Question)",
+      "Create BlockTool component with bordered box, title, and collapsible content",
+      "Add toggle indicator (▼/▶) for expand/collapse",
+      "Support onClick handler for toggling",
+      "Integrate with ToolResult to use BlockTool when appropriate",
+      "Write component tests for BlockTool"
     ],
     "passes": false
   },
   {
     "category": "ui",
-    "description": "Add OpenCode branding and status indicators",
+    "description": "Toast notification system for SDK errors",
     "steps": [
-      "Create OpenCode-specific header/branding for chat UI",
-      "Display OpenCode connection status in footer",
-      "Show active session ID when connected",
-      "Display OpenCode version info when available",
-      "Add visual distinction between OpenCode and other agents"
+      "Create Toast interface with id, variant, message, duration fields",
+      "Create ToastProvider context component",
+      "Implement showToast callback with auto-dismiss timer",
+      "Create ToastItem component for individual toast display",
+      "Position toasts in top-right corner with absolute positioning",
+      "Subscribe to client session.error events in ChatApp",
+      "Display error toasts for SDK errors",
+      "Write component tests for Toast system"
     ],
     "passes": false
   },
   {
     "category": "functional",
-    "description": "Add unit tests for OpenCode adapter",
+    "description": "SDK permission handler integration for Claude client",
     "steps": [
-      "Create tests/agents/opencode/client.test.ts",
-      "Create tests/agents/opencode/adapter.test.ts",
-      "Create tests/agents/opencode/streaming.test.ts",
-      "Create tests/agents/opencode/tools.test.ts",
-      "Mock SDK responses for unit testing",
-      "Test error handling and edge cases",
-      "Verify message format conversions"
+      "Add PermissionRequest hook to buildNativeHooks in claude-client.ts",
+      "Emit permission.request event with toolUseID, toolName, toolInput, suggestions",
+      "Implement waitForPermissionDecision method with abort support",
+      "Return permissionDecision and permissionDecisionReason from hook",
+      "Subscribe to permission.request events in ChatApp",
+      "Show UserQuestionDialog for permission requests",
+      "Write integration tests for permission flow"
     ],
     "passes": false
   },
   {
-    "category": "e2e",
-    "description": "E2E test: Create dummy temp project with atomic init",
+    "category": "functional",
+    "description": "SDK permission handler integration for Copilot client",
     "steps": [
-      "Use tmux-cli skill to create a new tmux session for E2E testing",
-      "Create a temporary directory for the test project (e.g., /tmp/atomic-e2e-test-XXXX)",
-      "Navigate to the temp directory in the tmux pane",
-      "Run 'atomic init' to initialize the project",
-      "Verify initialization completes successfully by checking output",
-      "Verify expected config files are created (.claude, .opencode, .github directories)",
-      "Capture and log test results"
-    ],
-    "passes": true
-  },
-  {
-    "category": "e2e",
-    "description": "E2E test: Verify atomic chat with Claude agent (-a claude)",
-    "steps": [
-      "Use tmux-cli skill to communicate with test tmux session",
-      "Navigate to the initialized temp project directory",
-      "Run 'atomic chat -a claude' in the tmux pane",
-      "Wait for chat UI to initialize and display",
-      "Verify Claude agent header/branding appears in the UI",
-      "Send a simple test message (e.g., 'Hello, respond with OK')",
-      "Verify response is received from Claude agent",
-      "Exit chat gracefully with Ctrl+C or /exit command",
-      "Capture and log test results"
-    ],
-    "passes": true
-  },
-  {
-    "category": "e2e",
-    "description": "E2E test: Verify atomic chat with OpenCode agent (-a opencode)",
-    "steps": [
-      "Use tmux-cli skill to communicate with test tmux session",
-      "Navigate to the initialized temp project directory",
-      "Run 'atomic chat -a opencode' in the tmux pane",
-      "Wait for chat UI to initialize and display",
-      "Verify OpenCode agent header/branding appears in the UI",
-      "Send a simple test message (e.g., 'Hello, respond with OK')",
-      "Verify response is received from OpenCode agent",
-      "Exit chat gracefully with Ctrl+C or /exit command",
-      "Capture and log test results"
-    ],
-    "passes": false,
-    "notes": "BLOCKED: Requires OpenCode implementation features to be completed first. Dependencies: Install @opencode-ai/sdk, Create OpenCode client adapter, Implement SSE streaming handler, Create OpenCode agent adapter, Integrate into agent registry."
-  },
-  {
-    "category": "e2e",
-    "description": "E2E test: Verify atomic chat with Copilot agent (-a copilot)",
-    "steps": [
-      "Use tmux-cli skill to communicate with test tmux session",
-      "Navigate to the initialized temp project directory",
-      "Run 'atomic chat -a copilot' in the tmux pane",
-      "Wait for chat UI to initialize and display",
-      "Verify Copilot agent header/branding appears in the UI",
-      "Send a simple test message (e.g., 'Hello, respond with OK')",
-      "Verify response is received from Copilot agent",
-      "Exit chat gracefully with Ctrl+C or /exit command",
-      "Capture and log test results"
+      "Call setPermissionHandler in createSession for copilot-client.ts",
+      "Emit permission.request event with requestId, toolName, arguments",
+      "Implement waitForPermissionDecision method",
+      "Return approved or denied-interactively-by-user response",
+      "Wire to ChatApp permission event subscription",
+      "Write integration tests for Copilot permission flow"
     ],
     "passes": false
   },
   {
-    "category": "e2e",
-    "description": "E2E test: Verify message queuing during streaming for all agents",
+    "category": "functional",
+    "description": "SDK permission handler integration for OpenCode client",
     "steps": [
-      "Use tmux-cli skill to communicate with test tmux session",
-      "For each agent (claude, opencode, copilot):",
-      "  - Start 'atomic chat -a <agent>'",
-      "  - Send a message that triggers a long response",
-      "  - While streaming, type and submit a second message",
-      "  - Verify the second message is queued (queue indicator shows)",
-      "  - Wait for first response to complete",
-      "  - Verify queued message is processed automatically",
-      "Exit and capture results for each agent"
-    ],
-    "passes": false
-  },
-  {
-    "category": "e2e",
-    "description": "E2E test: Verify verbose mode toggle (Ctrl+O) for all agents",
-    "steps": [
-      "Use tmux-cli skill to communicate with test tmux session",
-      "For each agent (claude, opencode, copilot):",
-      "  - Start 'atomic chat -a <agent>'",
-      "  - Send a message that triggers tool usage",
-      "  - Verify tool output is collapsed by default",
-      "  - Press Ctrl+O to toggle verbose mode",
-      "  - Verify tool output expands and timestamps appear",
-      "  - Press Ctrl+O again to toggle off",
-      "  - Verify tool output collapses",
-      "Exit and capture results for each agent"
-    ],
-    "passes": false
-  },
-  {
-    "category": "e2e",
-    "description": "E2E test: Verify footer status displays correctly for all agents",
-    "steps": [
-      "Use tmux-cli skill to communicate with test tmux session",
-      "For each agent (claude, opencode, copilot):",
-      "  - Start 'atomic chat -a <agent>'",
-      "  - Verify footer status line is visible at bottom",
-      "  - Verify keyboard shortcut hints are displayed",
-      "  - Toggle verbose mode and verify footer updates",
-      "  - Queue a message and verify queue count appears in footer",
-      "Exit and capture results for each agent"
-    ],
-    "passes": false
-  },
-  {
-    "category": "e2e",
-    "description": "E2E test: Cleanup temp project after all tests complete",
-    "steps": [
-      "Use tmux-cli skill to communicate with test tmux session",
-      "Remove the temporary test project directory",
-      "Kill the test tmux session",
-      "Verify cleanup completed successfully",
-      "Generate final E2E test report summarizing all pass/fail results"
+      "Handle Permission field in SSE events in opencode-client.ts",
+      "Surface permission events to UI layer",
+      "Emit permission.request event with relevant data",
+      "Wire to ChatApp permission event subscription",
+      "Write integration tests for OpenCode permission flow"
     ],
     "passes": false
   }

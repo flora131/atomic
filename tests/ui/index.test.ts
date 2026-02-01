@@ -128,6 +128,10 @@ describe("Mock Client Implementation", () => {
       async start(): Promise<void> {},
 
       async stop(): Promise<void> {},
+
+      async getModelDisplayInfo() {
+        return { model: "Mock", tier: "Test" };
+      },
     };
 
     expect(mockClient.agentType).toBe("claude");
@@ -137,6 +141,7 @@ describe("Mock Client Implementation", () => {
     expect(typeof mockClient.registerTool).toBe("function");
     expect(typeof mockClient.start).toBe("function");
     expect(typeof mockClient.stop).toBe("function");
+    expect(typeof mockClient.getModelDisplayInfo).toBe("function");
   });
 
   test("mock session send returns echo", async () => {
@@ -453,6 +458,10 @@ describe("Error Handling", () => {
       async start(): Promise<void> {},
 
       async stop(): Promise<void> {},
+
+      async getModelDisplayInfo() {
+        return { model: "Mock", tier: "Test" };
+      },
     };
 
     // Verify the client throws on createSession

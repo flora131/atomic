@@ -2,6 +2,7 @@
  * Unit tests for OpenCodeClient
  *
  * Tests cover:
+ * - SDK installation verification
  * - Client lifecycle (start, stop)
  * - Session creation and management
  * - Message sending and streaming
@@ -13,6 +14,103 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+
+/**
+ * SDK Installation Verification Tests
+ *
+ * These tests verify that the @opencode-ai/sdk package is installed
+ * and exports are accessible.
+ */
+describe("@opencode-ai/sdk Installation", () => {
+  test("@opencode-ai/sdk package is installed", async () => {
+    // Verify the package is importable
+    const sdkModule = await import("@opencode-ai/sdk/v2/client");
+    expect(sdkModule).toBeDefined();
+  });
+
+  test("createOpencodeClient function is exported", async () => {
+    const { createOpencodeClient } = await import("@opencode-ai/sdk/v2/client");
+    expect(typeof createOpencodeClient).toBe("function");
+  });
+
+  test("OpencodeClient class is exported", async () => {
+    const { OpencodeClient } = await import("@opencode-ai/sdk/v2/client");
+    expect(OpencodeClient).toBeDefined();
+    expect(typeof OpencodeClient).toBe("function");
+  });
+
+  test("SDK types are accessible", async () => {
+    // Import the types module to verify it exists
+    const typesModule = await import("@opencode-ai/sdk/v2/client");
+    // OpencodeClientConfig is a type alias for Config
+    expect(typesModule).toBeDefined();
+  });
+
+  test("createOpencodeClient creates a client instance", async () => {
+    const { createOpencodeClient, OpencodeClient } = await import(
+      "@opencode-ai/sdk/v2/client"
+    );
+    // Create a client without connecting (no server needed for this test)
+    const client = createOpencodeClient({
+      baseUrl: "http://localhost:4096",
+    });
+    expect(client).toBeInstanceOf(OpencodeClient);
+  });
+
+  test("client has expected session methods", async () => {
+    const { createOpencodeClient } = await import("@opencode-ai/sdk/v2/client");
+    const client = createOpencodeClient({
+      baseUrl: "http://localhost:4096",
+    });
+
+    // Verify session namespace exists with expected methods
+    expect(client.session).toBeDefined();
+    expect(typeof client.session.create).toBe("function");
+    expect(typeof client.session.get).toBe("function");
+    expect(typeof client.session.list).toBe("function");
+    expect(typeof client.session.prompt).toBe("function");
+    expect(typeof client.session.summarize).toBe("function");
+    expect(typeof client.session.messages).toBe("function");
+  });
+
+  test("client has expected global methods", async () => {
+    const { createOpencodeClient } = await import("@opencode-ai/sdk/v2/client");
+    const client = createOpencodeClient({
+      baseUrl: "http://localhost:4096",
+    });
+
+    // Verify global namespace exists with expected methods
+    expect(client.global).toBeDefined();
+    expect(typeof client.global.health).toBe("function");
+    expect(typeof client.global.event).toBe("function");
+  });
+
+  test("client has expected event methods", async () => {
+    const { createOpencodeClient } = await import("@opencode-ai/sdk/v2/client");
+    const client = createOpencodeClient({
+      baseUrl: "http://localhost:4096",
+    });
+
+    // Verify event namespace exists with expected methods
+    expect(client.event).toBeDefined();
+    expect(typeof client.event.subscribe).toBe("function");
+  });
+
+  test("SDK version is 1.x.x or higher", async () => {
+    // Read package.json to verify version
+    const packageJson = await import("@opencode-ai/sdk/package.json", {
+      with: { type: "json" },
+    });
+    const version = packageJson.default.version;
+    expect(version).toBeDefined();
+    // Version should be 1.x.x or higher (or a snapshot version)
+    expect(
+      version.startsWith("1.") ||
+        version.startsWith("0.0.0-") ||
+        parseInt(version.split(".")[0]) >= 1
+    ).toBe(true);
+  });
+});
 import {
   OpenCodeClient,
   createOpenCodeClient,

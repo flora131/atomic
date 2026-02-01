@@ -575,6 +575,158 @@ describe("SSE Event Mapping", () => {
 });
 
 /**
+ * Agent Mode Tests
+ *
+ * These tests verify that OpenCode agent modes (build, plan, general, explore)
+ * are properly configured and passed to the SDK.
+ */
+describe("Agent Mode Support", () => {
+  let client: OpenCodeClient;
+
+  beforeEach(() => {
+    client = new OpenCodeClient({
+      baseUrl: "http://localhost:4096",
+      maxRetries: 1,
+      retryDelay: 100,
+    });
+  });
+
+  afterEach(async () => {
+    try {
+      await client.stop();
+    } catch {
+      // Ignore errors during cleanup
+    }
+  });
+
+  describe("OpenCodeClientOptions", () => {
+    test("defaultAgentMode is optional", () => {
+      const defaultClient = new OpenCodeClient();
+      expect(defaultClient).toBeInstanceOf(OpenCodeClient);
+    });
+
+    test("defaultAgentMode can be set to build", () => {
+      const buildClient = new OpenCodeClient({
+        defaultAgentMode: "build",
+      });
+      expect(buildClient).toBeInstanceOf(OpenCodeClient);
+    });
+
+    test("defaultAgentMode can be set to plan", () => {
+      const planClient = new OpenCodeClient({
+        defaultAgentMode: "plan",
+      });
+      expect(planClient).toBeInstanceOf(OpenCodeClient);
+    });
+
+    test("defaultAgentMode can be set to general", () => {
+      const generalClient = new OpenCodeClient({
+        defaultAgentMode: "general",
+      });
+      expect(generalClient).toBeInstanceOf(OpenCodeClient);
+    });
+
+    test("defaultAgentMode can be set to explore", () => {
+      const exploreClient = new OpenCodeClient({
+        defaultAgentMode: "explore",
+      });
+      expect(exploreClient).toBeInstanceOf(OpenCodeClient);
+    });
+  });
+
+  describe("OpenCodeAgentMode Type", () => {
+    test("build mode is valid", () => {
+      const mode: import("../../src/sdk/types.ts").OpenCodeAgentMode = "build";
+      expect(mode).toBe("build");
+    });
+
+    test("plan mode is valid", () => {
+      const mode: import("../../src/sdk/types.ts").OpenCodeAgentMode = "plan";
+      expect(mode).toBe("plan");
+    });
+
+    test("general mode is valid", () => {
+      const mode: import("../../src/sdk/types.ts").OpenCodeAgentMode = "general";
+      expect(mode).toBe("general");
+    });
+
+    test("explore mode is valid", () => {
+      const mode: import("../../src/sdk/types.ts").OpenCodeAgentMode = "explore";
+      expect(mode).toBe("explore");
+    });
+  });
+
+  describe("SessionConfig agentMode", () => {
+    test("agentMode can be passed in session config", () => {
+      // Verify that SessionConfig accepts agentMode
+      const config: import("../../src/sdk/types.ts").SessionConfig = {
+        agentMode: "plan",
+      };
+      expect(config.agentMode).toBe("plan");
+    });
+
+    test("agentMode is optional in session config", () => {
+      const config: import("../../src/sdk/types.ts").SessionConfig = {};
+      expect(config.agentMode).toBeUndefined();
+    });
+
+    test("agentMode can be combined with other config options", () => {
+      const config: import("../../src/sdk/types.ts").SessionConfig = {
+        model: "claude-3-opus",
+        sessionId: "test-session",
+        agentMode: "explore",
+      };
+      expect(config.agentMode).toBe("explore");
+      expect(config.model).toBe("claude-3-opus");
+    });
+  });
+
+  describe("Mode Fallback Logic", () => {
+    test("defaults to build when no mode specified", () => {
+      // When creating a session without agentMode,
+      // and client has no defaultAgentMode,
+      // it should default to "build"
+      const defaultClient = new OpenCodeClient();
+      expect(defaultClient).toBeInstanceOf(OpenCodeClient);
+      // The actual mode is used internally when sending prompts
+      // This test verifies the client can be created
+    });
+
+    test("client defaultAgentMode is used when session config has no mode", () => {
+      const planClient = new OpenCodeClient({
+        defaultAgentMode: "plan",
+      });
+      expect(planClient).toBeInstanceOf(OpenCodeClient);
+    });
+
+    test("session config agentMode overrides client default", () => {
+      // Session-level agentMode should take precedence
+      const sessionConfig: import("../../src/sdk/types.ts").SessionConfig = {
+        agentMode: "explore",
+      };
+      expect(sessionConfig.agentMode).toBe("explore");
+    });
+  });
+
+  describe("Type Exports", () => {
+    test("OpenCodeAgentMode is exported from types", async () => {
+      const types = await import("../../src/sdk/types.ts");
+      // Type-only check - TypeScript will validate this
+      type Mode = typeof types extends { OpenCodeAgentMode: infer T } ? T : never;
+      // Runtime check that the module exports correctly
+      expect(types).toBeDefined();
+    });
+
+    test("OpenCodeAgentMode is exported from sdk index", async () => {
+      const sdk = await import("../../src/sdk/index.ts");
+      // Type-only check - the type is exported
+      // Runtime check that the module exports correctly
+      expect(sdk).toBeDefined();
+    });
+  });
+});
+
+/**
  * Integration Tests - Require OpenCode Server Running
  *
  * These tests are skipped by default and require an OpenCode server

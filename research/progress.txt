@@ -347,3 +347,41 @@ Created the TimestampDisplay component for displaying right-aligned timestamp, d
 
 ### Next Feature
 The next highest priority feature is: "Integrate TimestampDisplay into MessageBubble for verbose mode"
+
+---
+
+## 2026-02-01 - Feature: Integrate TimestampDisplay into MessageBubble
+
+### Summary
+Integrated the TimestampDisplay component into the MessageBubble component to show timing information for assistant messages when verbose mode is enabled.
+
+### Changes Made
+- Imported TimestampDisplay from `./components/timestamp-display.tsx`
+- Added TimestampDisplay rendering after contentElement in assistant messages
+- Conditionally renders only when:
+  - `verboseMode` is true
+  - `message.streaming` is false (completed messages only)
+- Passes message.timestamp, message.durationMs, and message.modelId to TimestampDisplay
+
+### Files Modified
+- `src/ui/chat.tsx` - Added import and TimestampDisplay rendering
+- `tests/ui/chat.test.ts` - Added 6 new integration tests
+
+### Test Results
+- All 85 chat tests pass (235 expect() calls)
+- All 823 UI tests pass (2006 expect() calls)
+- New tests cover: durationMs, modelId, timing info, streaming state, verboseMode toggle
+
+### Render Logic
+```tsx
+{verboseMode && !message.streaming && (
+  <TimestampDisplay
+    timestamp={message.timestamp}
+    durationMs={message.durationMs}
+    modelId={message.modelId}
+  />
+)}
+```
+
+### Next Feature
+The next highest priority feature is: "Create FooterStatus component for status line"

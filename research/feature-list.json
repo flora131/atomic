@@ -151,7 +151,7 @@
       "Display timestamp, duration, and model for assistant messages",
       "Test timestamp display appears only in verbose mode"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

@@ -166,4 +166,37 @@ Enhanced the ToolResult component to default to collapsed state with tool-specif
 - verboseMode prop forces all tool results to expand
 
 ### Next Feature
-The next highest priority feature is: "Add verboseMode state to ChatApp"
+The next highest priority feature is: "Implement Ctrl+O keyboard shortcut to toggle verbose mode"
+
+---
+
+## 2026-02-01 - Feature: Add verboseMode state to ChatApp
+
+### Summary
+Added verboseMode state to ChatApp component to control expanded/collapsed state of tool outputs and timestamp display. The state is passed down to MessageBubble and ToolResult components.
+
+### Changes Made
+- Added `verboseMode` state (boolean, default: false) to ChatApp component
+- Updated `MessageBubbleProps` interface to include optional `verboseMode` prop
+- Updated `MessageBubble` component signature to accept `verboseMode` prop
+- Modified ToolResult rendering in MessageBubble to pass `verboseMode` prop
+- Updated message list rendering to pass `verboseMode` to each MessageBubble
+
+### Files Modified
+- `src/ui/chat.tsx` - Added verboseMode state and prop propagation
+- `tests/ui/chat.test.ts` - Added 9 new tests for verboseMode state
+
+### Test Results
+- All 67 chat tests pass (190 expect() calls)
+- All 733 UI tests pass (1847 expect() calls)
+- New tests cover: default state, toggle behavior, prop propagation, interface updates
+
+### Prop Flow
+```
+ChatApp (verboseMode state)
+  → MessageBubble (verboseMode prop)
+    → ToolResult (verboseMode prop)
+```
+
+### Next Feature
+The next highest priority feature is: "Implement Ctrl+O keyboard shortcut to toggle verbose mode"

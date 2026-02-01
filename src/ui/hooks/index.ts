@@ -31,3 +31,17 @@ export {
   getCompletedToolExecutions,
   getErroredToolExecutions,
 } from "./use-streaming-state.ts";
+
+// ============================================================================
+// USE MESSAGE QUEUE
+// ============================================================================
+
+export {
+  // Hook
+  useMessageQueue,
+  default as useMessageQueueDefault,
+
+  // Types
+  type QueuedMessage,
+  type UseMessageQueueReturn,
+} from "./use-message-queue.ts";

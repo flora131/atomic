@@ -9,6 +9,7 @@
 
 import { mkdir, unlink, readFile, writeFile, stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
+import { withLock } from "../utils/file-lock.ts";
 import type {
   HookJSONOutput,
   StopHookInput,
@@ -496,32 +497,43 @@ function extractPromptText(content: string): string {
 }
 
 /**
- * Check if all features are passing
+ * Check if all features are passing.
+ * Uses file locking to prevent read during concurrent write.
  */
 async function testAllFeaturesPassing(
   featureListPath: string,
 ): Promise<boolean> {
   try {
-    const content = await readFile(featureListPath, "utf-8");
-    const features: FeatureItem[] = JSON.parse(content);
+    return await withLock(featureListPath, async () => {
+      const content = await readFile(featureListPath, "utf-8");
+      const features: FeatureItem[] = JSON.parse(content);
 
-    const totalFeatures = features.length;
-    if (totalFeatures === 0) {
-      console.error("ERROR: research/feature-list.json is empty.");
+      const totalFeatures = features.length;
+      if (totalFeatures === 0) {
+        console.error("ERROR: research/feature-list.json is empty.");
+        return false;
+      }
+
+      const passingFeatures = features.filter((f) => f.passes === true).length;
+      const failingFeatures = totalFeatures - passingFeatures;
+
+      console.error(
+        `Feature Progress: ${passingFeatures} / ${totalFeatures} passing (${failingFeatures} remaining)`,
+      );
+
+      return failingFeatures === 0;
+    }, { timeoutMs: 5000 });
+  } catch (lockError) {
+    // If lock acquisition fails, try without lock
+    console.error(`Warning: Could not acquire lock for ${featureListPath}: ${lockError instanceof Error ? lockError.message : String(lockError)}`);
+    try {
+      const content = await readFile(featureListPath, "utf-8");
+      const features: FeatureItem[] = JSON.parse(content);
+      return features.filter((f) => f.passes === true).length === features.length;
+    } catch {
+      console.error("ERROR: Failed to parse research/feature-list.json");
       return false;
     }
-
-    const passingFeatures = features.filter((f) => f.passes === true).length;
-    const failingFeatures = totalFeatures - passingFeatures;
-
-    console.error(
-      `Feature Progress: ${passingFeatures} / ${totalFeatures} passing (${failingFeatures} remaining)`,
-    );
-
-    return failingFeatures === 0;
-  } catch {
-    console.error("ERROR: Failed to parse research/feature-list.json");
-    return false;
   }
 }
 
@@ -695,12 +707,19 @@ export async function ralphStop(): Promise<number> {
     return 0;
   }
 
-  // Step 10: Update iteration in frontmatter
+  // Step 10: Update iteration in frontmatter with file locking
   const updatedContent = stateContent.replace(
     /^iteration: .*/m,
     `iteration: ${nextIteration}`,
   );
-  await writeFile(RALPH_STATE_FILE, updatedContent);
+  try {
+    await withLock(RALPH_STATE_FILE, async () => {
+      await writeFile(RALPH_STATE_FILE, updatedContent);
+    }, { timeoutMs: 5000 });
+  } catch {
+    // Fallback: write without lock if lock acquisition fails
+    await writeFile(RALPH_STATE_FILE, updatedContent);
+  }
 
   // Step 11: Build system message with iteration count and completion promise info
   let systemMsg: string;
@@ -798,7 +817,15 @@ started_at: "${startedAt}"
 ${fullPrompt}
 `;
 
-  await writeFile(RALPH_STATE_FILE, stateFileContent);
+  // Write state file with locking
+  try {
+    await withLock(RALPH_STATE_FILE, async () => {
+      await writeFile(RALPH_STATE_FILE, stateFileContent);
+    }, { timeoutMs: 5000 });
+  } catch {
+    // Fallback: write without lock if lock acquisition fails
+    await writeFile(RALPH_STATE_FILE, stateFileContent);
+  }
 
   // Output setup message
   const maxIterationsDisplay =

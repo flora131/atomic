@@ -6,13 +6,26 @@
  * - Multiple connection modes (stdio, port, cliUrl)
  * - Session creation and resumption
  * - Streaming message responses
- * - All 31 Copilot SDK event types
+ * - All Copilot SDK event types
  * - Permission handler for approval flows
  *
- * Note: This implementation is designed to work with the @github/copilot-sdk
- * package when it becomes available. Currently uses typed stubs that define the
- * expected SDK interface.
+ * Uses the official @github/copilot-sdk package for communication with
+ * the GitHub Copilot CLI server via JSON-RPC.
  */
+
+import {
+  CopilotClient as SdkCopilotClient,
+  CopilotSession as SdkCopilotSession,
+  type CopilotClientOptions as SdkClientOptions,
+  type SessionConfig as SdkSessionConfig,
+  type SessionEvent as SdkSessionEvent,
+  type SessionEventType as SdkSessionEventType,
+  type PermissionHandler as SdkPermissionHandler,
+  type PermissionRequest as SdkPermissionRequest,
+  type PermissionRequestResult as SdkPermissionResult,
+  type Tool as SdkTool,
+  type ResumeSessionConfig as SdkResumeSessionConfig,
+} from "@github/copilot-sdk";
 
 import type {
   CodingAgentClient,
@@ -27,146 +40,12 @@ import type {
 } from "./types.ts";
 
 /**
- * All 31 Copilot SDK event types
+ * Permission handler function type (unified interface)
  */
-export type CopilotSdkEventType =
-  // Session events
-  | "session.start"
-  | "session.ready"
-  | "session.idle"
-  | "session.busy"
-  | "session.end"
-  | "session.error"
-  // Message events
-  | "message.start"
-  | "message.delta"
-  | "message.complete"
-  | "message.error"
-  // Assistant events
-  | "assistant.thinking"
-  | "assistant.message"
-  | "assistant.tool_use"
-  | "assistant.tool_result"
-  // Tool events
-  | "tool.start"
-  | "tool.progress"
-  | "tool.complete"
-  | "tool.error"
-  | "tool.cancelled"
-  // Permission events
-  | "permission.request"
-  | "permission.granted"
-  | "permission.denied"
-  | "permission.timeout"
-  // Subagent events
-  | "subagent.start"
-  | "subagent.message"
-  | "subagent.complete"
-  | "subagent.error"
-  // Context events
-  | "context.update"
-  | "context.compact"
-  // Connection events
-  | "connection.open"
-  | "connection.close"
-  | "connection.error";
+export type CopilotPermissionHandler = SdkPermissionHandler;
 
 /**
- * Copilot SDK Event interface
- */
-export interface CopilotSdkEvent {
-  type: CopilotSdkEventType;
-  sessionId: string;
-  timestamp: string;
-  data?: Record<string, unknown>;
-}
-
-/**
- * Copilot SDK Session interface
- */
-export interface CopilotSdkSession {
-  id: string;
-  send(message: string): Promise<CopilotSdkMessage>;
-  stream(message: string): AsyncIterable<CopilotSdkStreamEvent>;
-  on(eventType: CopilotSdkEventType, handler: (event: CopilotSdkEvent) => void): () => void;
-  getUsage(): Promise<CopilotSdkUsage>;
-  destroy(): Promise<void>;
-}
-
-/**
- * Copilot SDK Message interface
- */
-export interface CopilotSdkMessage {
-  id: string;
-  role: "assistant" | "user" | "system";
-  content: string;
-  toolCalls?: CopilotSdkToolCall[];
-  usage?: CopilotSdkUsage;
-}
-
-/**
- * Copilot SDK Tool Call interface
- */
-export interface CopilotSdkToolCall {
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-  output?: unknown;
-  status: "pending" | "running" | "complete" | "error" | "cancelled";
-}
-
-/**
- * Copilot SDK Stream Event interface
- */
-export interface CopilotSdkStreamEvent {
-  type: "delta" | "complete" | "tool_start" | "tool_progress" | "tool_end" | "error" | "thinking";
-  content?: string;
-  message?: CopilotSdkMessage;
-  toolCall?: CopilotSdkToolCall;
-  error?: Error;
-  progress?: number;
-}
-
-/**
- * Copilot SDK Usage interface
- */
-export interface CopilotSdkUsage {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  contextLimit: number;
-}
-
-/**
- * Copilot SDK Tool Definition interface
- */
-export interface CopilotSdkToolDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  handler: (input: unknown) => Promise<unknown>;
-}
-
-/**
- * Copilot SDK Permission Request interface
- */
-export interface CopilotSdkPermissionRequest {
-  id: string;
-  toolName: string;
-  toolInput: Record<string, unknown>;
-  reason?: string;
-  timeout?: number;
-}
-
-/**
- * Permission handler function type
- */
-export type CopilotPermissionHandler = (
-  request: CopilotSdkPermissionRequest
-) => Promise<"granted" | "denied">;
-
-/**
- * Connection mode options
+ * Connection mode options (backwards compatibility)
  */
 export type CopilotConnectionMode =
   | { type: "stdio" }
@@ -174,80 +53,58 @@ export type CopilotConnectionMode =
   | { type: "cliUrl"; url: string };
 
 /**
- * Copilot SDK Client interface
- */
-export interface CopilotSdkClient {
-  session: {
-    create(config: CopilotSdkSessionConfig): Promise<CopilotSdkSession>;
-    get(sessionId: string): Promise<CopilotSdkSession | null>;
-    list(): Promise<CopilotSdkSession[]>;
-  };
-  on(eventType: CopilotSdkEventType, handler: (event: CopilotSdkEvent) => void): () => void;
-  tools: {
-    register(tool: CopilotSdkToolDefinition): void;
-    list(): CopilotSdkToolDefinition[];
-  };
-  setPermissionHandler(handler: CopilotPermissionHandler): void;
-  connect(): Promise<void>;
-  disconnect(): Promise<void>;
-}
-
-/**
- * Copilot SDK Session Config interface
- */
-export interface CopilotSdkSessionConfig {
-  model?: string;
-  systemPrompt?: string;
-  tools?: string[];
-  maxTokens?: number;
-  temperature?: number;
-}
-
-/**
  * Options for creating a Copilot client
  */
 export interface CopilotClientOptions {
+  /** Connection mode configuration */
   connectionMode?: CopilotConnectionMode;
+  /** Timeout for operations in milliseconds */
   timeout?: number;
+  /** Path to the Copilot CLI executable */
+  cliPath?: string;
+  /** Extra arguments to pass to the CLI */
+  cliArgs?: string[];
+  /** Working directory for the CLI process */
+  cwd?: string;
+  /** Log level for the CLI server */
+  logLevel?: "none" | "error" | "warning" | "info" | "debug" | "all";
+  /** Auto-start the CLI server on first use */
+  autoStart?: boolean;
+  /** Auto-restart the CLI server if it crashes */
+  autoRestart?: boolean;
+  /** GitHub token for authentication */
+  githubToken?: string;
 }
-
-/**
- * Factory function type for creating Copilot SDK client
- */
-export type CreateCopilotClientFn = (options?: CopilotClientOptions) => CopilotSdkClient;
 
 /**
  * Internal session state for tracking active sessions
  */
 interface CopilotSessionState {
-  sdkSession: CopilotSdkSession;
+  sdkSession: SdkCopilotSession;
   sessionId: string;
   config: SessionConfig;
   inputTokens: number;
   outputTokens: number;
   isClosed: boolean;
-  eventUnsubscribers: Array<() => void>;
+  unsubscribe: () => void;
 }
 
 /**
- * Maps Copilot SDK event types to unified EventType
+ * Maps SDK event types to unified EventType
  */
-function mapSdkEventToEventType(sdkEventType: CopilotSdkEventType): EventType | null {
-  const mapping: Partial<Record<CopilotSdkEventType, EventType>> = {
+function mapSdkEventToEventType(sdkEventType: SdkSessionEventType): EventType | null {
+  const mapping: Partial<Record<SdkSessionEventType, EventType>> = {
     "session.start": "session.start",
-    "session.ready": "session.start",
+    "session.resume": "session.start",
     "session.idle": "session.idle",
-    "session.end": "session.idle",
     "session.error": "session.error",
-    "message.delta": "message.delta",
-    "message.complete": "message.complete",
+    "assistant.message_delta": "message.delta",
     "assistant.message": "message.complete",
-    "tool.start": "tool.start",
-    "tool.complete": "tool.complete",
-    "tool.error": "session.error",
-    "subagent.start": "subagent.start",
-    "subagent.complete": "subagent.complete",
-    "subagent.error": "session.error",
+    "tool.execution_start": "tool.start",
+    "tool.execution_complete": "tool.complete",
+    "subagent.started": "subagent.start",
+    "subagent.completed": "subagent.complete",
+    "subagent.failed": "session.error",
   };
   return mapping[sdkEventType] ?? null;
 }
@@ -255,38 +112,26 @@ function mapSdkEventToEventType(sdkEventType: CopilotSdkEventType): EventType | 
 /**
  * CopilotClient implements CodingAgentClient for the GitHub Copilot SDK.
  *
- * This client wraps the Copilot SDK to provide a unified interface
+ * This client wraps the official @github/copilot-sdk to provide a unified interface
  * for session management, message streaming, and event handling.
- * Supports all 31 Copilot event types and permission handling.
  */
 export class CopilotClient implements CodingAgentClient {
   readonly agentType = "copilot" as const;
 
-  private sdkClient: CopilotSdkClient | null = null;
-  private createClientFn: CreateCopilotClientFn | null = null;
+  private sdkClient: SdkCopilotClient | null = null;
   private clientOptions: CopilotClientOptions;
   private eventHandlers: Map<EventType, Set<EventHandler<EventType>>> = new Map();
   private sessions: Map<string, CopilotSessionState> = new Map();
-  private sdkEventUnsubscribers: Array<() => void> = [];
-  private registeredTools: Map<string, ToolDefinition> = new Map();
+  private registeredTools: ToolDefinition[] = [];
   private permissionHandler: CopilotPermissionHandler | null = null;
   private isRunning = false;
 
   /**
    * Create a new CopilotClient
-   * @param createClientFn - Factory function to create SDK client (injected for testing)
    * @param options - Client options including connection mode
    */
-  constructor(createClientFn?: CreateCopilotClientFn, options: CopilotClientOptions = {}) {
-    this.createClientFn = createClientFn ?? null;
+  constructor(options: CopilotClientOptions = {}) {
     this.clientOptions = options;
-  }
-
-  /**
-   * Set the SDK client factory function
-   */
-  setClientFactory(createClientFn: CreateCopilotClientFn): void {
-    this.createClientFn = createClientFn;
   }
 
   /**
@@ -294,19 +139,55 @@ export class CopilotClient implements CodingAgentClient {
    */
   setPermissionHandler(handler: CopilotPermissionHandler): void {
     this.permissionHandler = handler;
-    if (this.sdkClient) {
-      this.sdkClient.setPermissionHandler(handler);
+  }
+
+  /**
+   * Build SDK client options from our client options
+   */
+  private buildSdkOptions(): SdkClientOptions {
+    const opts: SdkClientOptions = {
+      cliPath: this.clientOptions.cliPath,
+      cliArgs: this.clientOptions.cliArgs,
+      cwd: this.clientOptions.cwd,
+      logLevel: this.clientOptions.logLevel,
+      autoStart: this.clientOptions.autoStart ?? true,
+      autoRestart: this.clientOptions.autoRestart ?? true,
+      githubToken: this.clientOptions.githubToken,
+    };
+
+    // Handle connection mode
+    if (this.clientOptions.connectionMode) {
+      switch (this.clientOptions.connectionMode.type) {
+        case "stdio":
+          opts.useStdio = true;
+          break;
+        case "port":
+          opts.port = this.clientOptions.connectionMode.port;
+          opts.useStdio = false;
+          break;
+        case "cliUrl":
+          opts.cliUrl = this.clientOptions.connectionMode.url;
+          break;
+      }
     }
+
+    return opts;
   }
 
   /**
    * Wrap a Copilot SDK session into a unified Session interface
    */
   private wrapSession(
-    sdkSession: CopilotSdkSession,
-    sessionId: string,
+    sdkSession: SdkCopilotSession,
     config: SessionConfig
   ): Session {
+    const sessionId = sdkSession.sessionId;
+
+    // Subscribe to all session events
+    const unsubscribe = sdkSession.on((event: SdkSessionEvent) => {
+      this.handleSdkEvent(sessionId, event);
+    });
+
     const state: CopilotSessionState = {
       sdkSession,
       sessionId,
@@ -314,13 +195,13 @@ export class CopilotClient implements CodingAgentClient {
       inputTokens: 0,
       outputTokens: 0,
       isClosed: false,
-      eventUnsubscribers: [],
+      unsubscribe,
     };
 
     this.sessions.set(sessionId, state);
 
-    // Subscribe to session-level events
-    this.subscribeToSessionEvents(sdkSession, sessionId, state);
+    // Emit session start event
+    this.emitEvent("session.start", sessionId, { config });
 
     const session: Session = {
       id: sessionId,
@@ -330,162 +211,143 @@ export class CopilotClient implements CodingAgentClient {
           throw new Error("Session is closed");
         }
 
-        const sdkMessage = await state.sdkSession.send(message);
+        // Use sendAndWait for blocking send
+        const response = await state.sdkSession.sendAndWait({ prompt: message });
 
-        // Track token usage
-        if (sdkMessage.usage) {
-          state.inputTokens += sdkMessage.usage.inputTokens;
-          state.outputTokens += sdkMessage.usage.outputTokens;
+        // Track token usage from usage events
+        if (response) {
+          const content = response.data.content;
+          return {
+            type: "text",
+            content: content,
+            role: "assistant",
+          };
         }
 
-        // Emit message complete event
-        this.emitEvent("message.complete", sessionId, { message: sdkMessage });
-
         return {
-          type: sdkMessage.toolCalls ? "tool_use" : "text",
-          content: sdkMessage.toolCalls
-            ? { toolCalls: sdkMessage.toolCalls }
-            : sdkMessage.content,
+          type: "text",
+          content: "",
           role: "assistant",
-          metadata: {
-            tokenUsage: sdkMessage.usage
-              ? {
-                  inputTokens: sdkMessage.usage.inputTokens,
-                  outputTokens: sdkMessage.usage.outputTokens,
-                }
-              : undefined,
-          },
         };
       },
 
       stream: (message: string): AsyncIterable<AgentMessage> => {
-        const emitEvent = (type: EventType, data: Record<string, unknown>) =>
-          this.emitEvent(type, sessionId, data);
-
+        const self = this;
         return {
           [Symbol.asyncIterator]: async function* () {
             if (state.isClosed) {
               throw new Error("Session is closed");
             }
 
-            for await (const event of state.sdkSession.stream(message)) {
-              switch (event.type) {
-                case "thinking":
-                  yield {
-                    type: "thinking",
-                    content: event.content ?? "",
-                    role: "assistant",
-                  };
-                  break;
+            // Set up event handler to collect streaming events
+            const chunks: AgentMessage[] = [];
+            let resolveChunk: (() => void) | null = null;
+            let done = false;
 
-                case "delta":
-                  emitEvent("message.delta", { delta: event.content });
-                  yield {
+            // Track if we've yielded streaming deltas to avoid duplicating content
+            let hasYieldedDeltas = false;
+
+            const eventHandler = (event: SdkSessionEvent) => {
+              if (event.type === "assistant.message_delta") {
+                hasYieldedDeltas = true;
+                chunks.push({
+                  type: "text",
+                  content: event.data.deltaContent,
+                  role: "assistant",
+                });
+                resolveChunk?.();
+              } else if (event.type === "assistant.reasoning_delta") {
+                hasYieldedDeltas = true;
+                chunks.push({
+                  type: "thinking",
+                  content: event.data.deltaContent,
+                  role: "assistant",
+                });
+                resolveChunk?.();
+              } else if (event.type === "assistant.message") {
+                // Only yield the complete message if we haven't streamed deltas
+                // (deltas already contain the full content incrementally)
+                if (!hasYieldedDeltas) {
+                  chunks.push({
                     type: "text",
-                    content: event.content ?? "",
+                    content: event.data.content,
                     role: "assistant",
-                  };
-                  break;
-
-                case "complete":
-                  if (event.message) {
-                    // Track token usage
-                    if (event.message.usage) {
-                      state.inputTokens += event.message.usage.inputTokens;
-                      state.outputTokens += event.message.usage.outputTokens;
-                    }
-
-                    emitEvent("message.complete", { message: event.message });
-
-                    yield {
-                      type: event.message.toolCalls ? "tool_use" : "text",
-                      content: event.message.toolCalls
-                        ? { toolCalls: event.message.toolCalls }
-                        : event.message.content,
-                      role: "assistant",
-                      metadata: {
-                        tokenUsage: event.message.usage
-                          ? {
-                              inputTokens: event.message.usage.inputTokens,
-                              outputTokens: event.message.usage.outputTokens,
-                            }
-                          : undefined,
-                      },
-                    };
-                  }
-                  break;
-
-                case "tool_start":
-                  if (event.toolCall) {
-                    emitEvent("tool.start", {
-                      toolName: event.toolCall.name,
-                      toolInput: event.toolCall.input,
-                    });
-                  }
-                  break;
-
-                case "tool_progress":
-                  // Progress events are internal, not mapped to unified type
-                  break;
-
-                case "tool_end":
-                  if (event.toolCall) {
-                    emitEvent("tool.complete", {
-                      toolName: event.toolCall.name,
-                      toolResult: event.toolCall.output,
-                      success: event.toolCall.status === "complete",
-                    });
-                  }
-                  break;
-
-                case "error":
-                  emitEvent("session.error", {
-                    error: event.error?.message ?? "Unknown error",
+                    metadata: {
+                      messageId: event.data.messageId,
+                    },
                   });
-                  break;
+                }
+                done = true;
+                resolveChunk?.();
+              } else if (event.type === "session.idle") {
+                done = true;
+                resolveChunk?.();
+              } else if (event.type === "tool.execution_start") {
+                self.emitEvent("tool.start", sessionId, {
+                  toolName: event.data.toolName,
+                  toolInput: event.data.arguments,
+                });
+              } else if (event.type === "tool.execution_complete") {
+                self.emitEvent("tool.complete", sessionId, {
+                  toolName: event.data.toolCallId,
+                  success: event.data.success,
+                  error: event.data.error?.message,
+                });
               }
+            };
+
+            const unsub = state.sdkSession.on(eventHandler);
+
+            try {
+              // Send the message (non-blocking)
+              await state.sdkSession.send({ prompt: message });
+
+              // Yield chunks as they arrive
+              while (!done) {
+                if (chunks.length > 0) {
+                  yield chunks.shift()!;
+                } else {
+                  // Wait for next chunk
+                  await new Promise<void>((resolve) => {
+                    resolveChunk = resolve;
+                  });
+                }
+              }
+
+              // Yield any remaining chunks
+              while (chunks.length > 0) {
+                yield chunks.shift()!;
+              }
+            } finally {
+              unsub();
             }
           },
         };
       },
 
       summarize: async (): Promise<void> => {
-        // Copilot SDK doesn't have a direct summarize method
-        // Context compaction is handled automatically
+        // Copilot SDK handles context compaction automatically
+        // via infinite sessions configuration
         console.warn(
           "CopilotClient.summarize(): Context compaction is handled automatically by the SDK"
         );
       },
 
       getContextUsage: async (): Promise<ContextUsage> => {
-        if (state.isClosed) {
-          return {
-            inputTokens: state.inputTokens,
-            outputTokens: state.outputTokens,
-            maxTokens: 200000,
-            usagePercentage: ((state.inputTokens + state.outputTokens) / 200000) * 100,
-          };
-        }
-
-        const usage = await state.sdkSession.getUsage();
+        // Token usage is tracked via session.usage_info events
+        // Return cached values
         return {
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          maxTokens: usage.contextLimit,
-          usagePercentage: (usage.totalTokens / usage.contextLimit) * 100,
+          inputTokens: state.inputTokens,
+          outputTokens: state.outputTokens,
+          maxTokens: 200000, // Default context window
+          usagePercentage: ((state.inputTokens + state.outputTokens) / 200000) * 100,
         };
       },
 
       destroy: async (): Promise<void> => {
         if (!state.isClosed) {
           state.isClosed = true;
-
-          // Unsubscribe from session events
-          for (const unsub of state.eventUnsubscribers) {
-            unsub();
-          }
-          state.eventUnsubscribers = [];
-
+          state.unsubscribe();
           await state.sdkSession.destroy();
           this.sessions.delete(sessionId);
           this.emitEvent("session.idle", sessionId, { reason: "destroyed" });
@@ -497,75 +359,78 @@ export class CopilotClient implements CodingAgentClient {
   }
 
   /**
-   * Subscribe to all SDK events for a session
+   * Handle SDK session events and map to unified events
    */
-  private subscribeToSessionEvents(
-    sdkSession: CopilotSdkSession,
-    sessionId: string,
-    state: CopilotSessionState
-  ): void {
-    const eventTypes: CopilotSdkEventType[] = [
-      "session.start",
-      "session.ready",
-      "session.idle",
-      "session.busy",
-      "session.end",
-      "session.error",
-      "message.start",
-      "message.delta",
-      "message.complete",
-      "message.error",
-      "assistant.thinking",
-      "assistant.message",
-      "assistant.tool_use",
-      "assistant.tool_result",
-      "tool.start",
-      "tool.progress",
-      "tool.complete",
-      "tool.error",
-      "tool.cancelled",
-      "permission.request",
-      "permission.granted",
-      "permission.denied",
-      "permission.timeout",
-      "subagent.start",
-      "subagent.message",
-      "subagent.complete",
-      "subagent.error",
-      "context.update",
-      "context.compact",
-    ];
+  private handleSdkEvent(sessionId: string, event: SdkSessionEvent): void {
+    const state = this.sessions.get(sessionId);
 
-    for (const sdkEventType of eventTypes) {
-      const unsub = sdkSession.on(sdkEventType, (sdkEvent) => {
-        const eventType = mapSdkEventToEventType(sdkEventType);
-        if (eventType) {
-          this.emitEvent(eventType, sessionId, sdkEvent.data ?? {});
-        }
-      });
-      state.eventUnsubscribers.push(unsub);
+    // Track token usage from usage events
+    if (event.type === "assistant.usage" && state) {
+      state.inputTokens += event.data.inputTokens ?? 0;
+      state.outputTokens += event.data.outputTokens ?? 0;
     }
-  }
 
-  /**
-   * Subscribe to global SDK events
-   */
-  private subscribeToSdkEvents(): void {
-    if (!this.sdkClient) return;
+    // Map to unified event type
+    const eventType = mapSdkEventToEventType(event.type);
+    if (eventType) {
+      let eventData: Record<string, unknown> = {};
 
-    const globalEventTypes: CopilotSdkEventType[] = [
-      "connection.open",
-      "connection.close",
-      "connection.error",
-    ];
+      switch (event.type) {
+        case "session.start":
+          eventData = { config: state?.config };
+          break;
+        case "session.idle":
+          eventData = { reason: "idle" };
+          break;
+        case "session.error":
+          eventData = { error: event.data.message };
+          break;
+        case "assistant.message_delta":
+          eventData = { delta: event.data.deltaContent };
+          break;
+        case "assistant.message":
+          eventData = {
+            message: {
+              type: "text",
+              content: event.data.content,
+              role: "assistant",
+            },
+          };
+          break;
+        case "tool.execution_start":
+          eventData = {
+            toolName: event.data.toolName,
+            toolInput: event.data.arguments,
+          };
+          break;
+        case "tool.execution_complete":
+          eventData = {
+            toolName: event.data.toolCallId,
+            success: event.data.success,
+            toolResult: event.data.result?.content,
+            error: event.data.error?.message,
+          };
+          break;
+        case "subagent.started":
+          eventData = {
+            subagentId: event.data.toolCallId,
+            subagentType: event.data.agentName,
+          };
+          break;
+        case "subagent.completed":
+          eventData = {
+            subagentId: event.data.toolCallId,
+            success: true,
+          };
+          break;
+        case "subagent.failed":
+          eventData = {
+            error: event.data.error,
+          };
+          break;
+      }
 
-    for (const sdkEventType of globalEventTypes) {
-      const unsub = this.sdkClient.on(sdkEventType, (sdkEvent) => {
-        if (sdkEventType === "connection.error") {
-          this.emitEvent("session.error", sdkEvent.sessionId, sdkEvent.data ?? {});
-        }
-      });
-      this.sdkEventUnsubscribers.push(unsub);
+      this.emitEvent(eventType, sessionId, eventData);
     }
   }
 
@@ -597,6 +462,18 @@ export class CopilotClient implements CodingAgentClient {
   }
 
   /**
+   * Convert unified tool definition to SDK tool format
+   */
+  private convertTool(tool: ToolDefinition): SdkTool {
+    return {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.inputSchema,
+      handler: async (args) => tool.handler(args),
+    };
+  }
+
+  /**
    * Create a new agent session
    */
   async createSession(config: SessionConfig = {}): Promise<Session> {
@@ -604,19 +481,20 @@ export class CopilotClient implements CodingAgentClient {
       throw new Error("Client not started. Call start() first.");
     }
 
-    const sdkConfig: CopilotSdkSessionConfig = {
+    const sdkConfig: SdkSessionConfig = {
+      sessionId: config.sessionId,
       model: config.model,
-      systemPrompt: config.systemPrompt,
-      tools: config.tools,
+      systemMessage: config.systemPrompt
+        ? { mode: "append", content: config.systemPrompt }
+        : undefined,
+      availableTools: config.tools,
+      streaming: true,
+      tools: this.registeredTools.map((t) => this.convertTool(t)),
+      onPermissionRequest: this.permissionHandler || undefined,
     };
 
-    const sdkSession = await this.sdkClient.session.create(sdkConfig);
-    const sessionId = config.sessionId ?? sdkSession.id;
-
-    // Emit session start event
-    this.emitEvent("session.start", sessionId, { config });
-
-    return this.wrapSession(sdkSession, sessionId, config);
+    const sdkSession = await this.sdkClient.createSession(sdkConfig);
+    return this.wrapSession(sdkSession, config);
   }
 
   /**
@@ -630,16 +508,22 @@ export class CopilotClient implements CodingAgentClient {
     // Check if session is already active locally
     const existingState = this.sessions.get(sessionId);
     if (existingState && !existingState.isClosed) {
-      return this.wrapSession(existingState.sdkSession, sessionId, existingState.config);
+      return this.wrapSession(existingState.sdkSession, existingState.config);
     }
 
-    // Try to get session from SDK
-    const sdkSession = await this.sdkClient.session.get(sessionId);
-    if (!sdkSession) {
+    // Try to resume session from SDK
+    try {
+      const resumeConfig: SdkResumeSessionConfig = {
+        streaming: true,
+        tools: this.registeredTools.map((t) => this.convertTool(t)),
+        onPermissionRequest: this.permissionHandler || undefined,
+      };
+      const sdkSession = await this.sdkClient.resumeSession(sessionId, resumeConfig);
+      return this.wrapSession(sdkSession, {});
+    } catch {
+      // Session not found or cannot be resumed
       return null;
     }
-
-    return this.wrapSession(sdkSession, sessionId, {});
   }
 
   /**
@@ -663,17 +547,7 @@ export class CopilotClient implements CodingAgentClient {
    * Register a custom tool
    */
   registerTool(tool: ToolDefinition): void {
-    this.registeredTools.set(tool.name, tool);
-
-    // If client is running, register with SDK
-    if (this.sdkClient) {
-      this.sdkClient.tools.register({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.inputSchema,
-        handler: async (input) => tool.handler(input),
-      });
-    }
+    this.registeredTools.push(tool);
   }
 
   /**
@@ -684,36 +558,12 @@ export class CopilotClient implements CodingAgentClient {
       return;
     }
 
-    if (!this.createClientFn) {
-      throw new Error(
-        "No SDK client factory provided. " +
-          "Either pass createCopilotClient to constructor or call setClientFactory()."
-      );
-    }
+    // Create SDK client with options
+    const sdkOptions = this.buildSdkOptions();
+    this.sdkClient = new SdkCopilotClient(sdkOptions);
 
-    // Create SDK client
-    this.sdkClient = this.createClientFn(this.clientOptions);
-
-    // Set permission handler if configured
-    if (this.permissionHandler) {
-      this.sdkClient.setPermissionHandler(this.permissionHandler);
-    }
-
-    // Register any tools that were added before start
-    for (const tool of this.registeredTools.values()) {
-      this.sdkClient.tools.register({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.inputSchema,
-        handler: async (input) => tool.handler(input),
-      });
-    }
-
-    // Subscribe to global SDK events
-    this.subscribeToSdkEvents();
-
-    // Connect to the CLI
-    await this.sdkClient.connect();
+    // Start the client
+    await this.sdkClient.start();
     this.isRunning = true;
   }
 
@@ -725,19 +575,11 @@ export class CopilotClient implements CodingAgentClient {
       return;
     }
 
-    // Unsubscribe from global SDK events
-    for (const unsub of this.sdkEventUnsubscribers) {
-      unsub();
-    }
-    this.sdkEventUnsubscribers = [];
-
     // Close all active sessions
     for (const [_sessionId, state] of this.sessions) {
       if (!state.isClosed) {
         state.isClosed = true;
-        for (const unsub of state.eventUnsubscribers) {
-          unsub();
-        }
+        state.unsubscribe();
         try {
           await state.sdkSession.destroy();
         } catch {
@@ -747,14 +589,92 @@ export class CopilotClient implements CodingAgentClient {
     }
     this.sessions.clear();
 
-    // Disconnect SDK client
+    // Stop SDK client
     if (this.sdkClient) {
-      await this.sdkClient.disconnect();
+      await this.sdkClient.stop();
       this.sdkClient = null;
     }
 
     this.eventHandlers.clear();
     this.isRunning = false;
+  }
+
+  /**
+   * Get the current connection state
+   */
+  getState(): "disconnected" | "connecting" | "connected" | "error" {
+    if (!this.sdkClient) {
+      return "disconnected";
+    }
+    return this.sdkClient.getState();
+  }
+
+  /**
+   * List all available sessions
+   */
+  async listSessions(): Promise<Array<{ sessionId: string; summary?: string }>> {
+    if (!this.isRunning || !this.sdkClient) {
+      return [];
+    }
+    const sessions = await this.sdkClient.listSessions();
+    return sessions.map((s) => ({
+      sessionId: s.sessionId,
+      summary: s.summary,
+    }));
+  }
+
+  /**
+   * Delete a session by ID
+   */
+  async deleteSession(sessionId: string): Promise<void> {
+    if (!this.isRunning || !this.sdkClient) {
+      return;
+    }
+
+    // Close local state if exists
+    const state = this.sessions.get(sessionId);
+    if (state) {
+      state.isClosed = true;
+      state.unsubscribe();
+      this.sessions.delete(sessionId);
+    }
+
+    await this.sdkClient.deleteSession(sessionId);
+  }
+
+  /**
+   * Get model display information for UI rendering.
+   * Queries available models from the Copilot SDK and returns the first one.
+   * @param _modelHint - Optional model hint (unused, queries SDK instead)
+   */
+  async getModelDisplayInfo(
+    _modelHint?: string
+  ): Promise<{ model: string; tier: string }> {
+    if (!this.isRunning || !this.sdkClient) {
+      return {
+        model: "Copilot",
+        tier: "GitHub Copilot",
+      };
+    }
+
+    try {
+      const models = await this.sdkClient.listModels();
+      const firstModel = models?.[0];
+      if (firstModel) {
+        // Return the first available model's display name or ID
+        return {
+          model: firstModel.name ?? firstModel.id ?? "Copilot",
+          tier: "GitHub Copilot",
+        };
+      }
+    } catch {
+      // Fall back to default if listModels fails
+    }
+
+    return {
+      model: "Copilot",
+      tier: "GitHub Copilot",
+    };
   }
 }
 
@@ -762,24 +682,27 @@ export class CopilotClient implements CodingAgentClient {
  * Create a permission handler that auto-approves all requests
  */
 export function createAutoApprovePermissionHandler(): CopilotPermissionHandler {
-  return async () => "granted";
+  return async () => ({ kind: "approved" });
 }
 
 /**
  * Create a permission handler that denies all requests
  */
 export function createDenyAllPermissionHandler(): CopilotPermissionHandler {
-  return async () => "denied";
+  return async () => ({ kind: "denied-interactively-by-user" });
 }
 
 /**
  * Factory function to create a CopilotClient instance
- * @param createClientFn - Optional SDK client factory (for dependency injection)
  * @param options - Client options including connection mode
  */
-export function createCopilotClient(
-  createClientFn?: CreateCopilotClientFn,
-  options?: CopilotClientOptions
-): CopilotClient {
-  return new CopilotClient(createClientFn, options);
+export function createCopilotClient(options?: CopilotClientOptions): CopilotClient {
+  return new CopilotClient(options);
 }
+
+// Re-export types for backwards compatibility
+export type {
+  SdkSessionEvent as CopilotSdkEvent,
+  SdkSessionEventType as CopilotSdkEventType,
+  SdkPermissionRequest as CopilotSdkPermissionRequest,
+};

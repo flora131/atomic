@@ -105,6 +105,7 @@ function createMockClient(session: Session): CodingAgentClient {
     resumeSession: mock(async () => session),
     registerTool: mock(() => {}),
     on: mock(() => () => {}),
+    getModelDisplayInfo: mock(async () => ({ model: "Mock", tier: "Test" })),
   };
 }
 

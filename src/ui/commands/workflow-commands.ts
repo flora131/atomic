@@ -4,9 +4,14 @@
  * Registers workflow commands that start graph-based workflow executions.
  * Each workflow command creates a new workflow instance and updates the UI state.
  *
+ * The workflow sequence follows the Atomic pattern:
+ * 1. /research-codebase → clear → 2. /create-spec → clear → 3. HIL spec review
+ *
  * Reference: Feature 3 - Implement workflow command registration
  */
 
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
+import { join, dirname } from "path";
 import type {
   CommandDefinition,
   CommandContext,
@@ -16,6 +21,10 @@ import { globalRegistry } from "./registry.ts";
 import { createAtomicWorkflow, type AtomicWorkflowConfig } from "../../workflows/atomic.ts";
 import type { CompiledGraph } from "../../graph/types.ts";
 import type { AtomicWorkflowState } from "../../graph/annotation.ts";
+import {
+  generateRalphSessionId,
+  getRalphSessionPaths,
+} from "../../config/ralph.ts";
 
 // ============================================================================
 // TYPES
@@ -35,6 +44,262 @@ export interface WorkflowMetadata {
   createWorkflow: (config?: Record<string, unknown>) => CompiledGraph<AtomicWorkflowState>;
   /** Optional default configuration */
   defaultConfig?: Record<string, unknown>;
+  /** Source: built-in, global (~/.atomic/workflows), or local (.atomic/workflows) */
+  source?: "builtin" | "global" | "local";
+}
+
+/**
+ * Workflow session state for tracking multi-step workflow execution.
+ */
+export interface WorkflowSession {
+  /** Unique session ID */
+  sessionId: string;
+  /** Agent type (claude, opencode, copilot) */
+  agentType: string;
+  /** Current workflow step */
+  currentStep: WorkflowStep;
+  /** Session-specific file paths */
+  paths: {
+    featureListPath: string;
+    progressFilePath: string;
+    stateFilePath: string;
+  };
+  /** Timestamp when session was created */
+  createdAt: number;
+  /** Research document path (if created) */
+  researchDocPath?: string;
+  /** Spec document path (if created) */
+  specDocPath?: string;
+}
+
+/**
+ * Workflow steps for the Atomic workflow.
+ */
+export type WorkflowStep =
+  | "research"
+  | "research_complete"
+  | "create_spec"
+  | "spec_complete"
+  | "spec_review"
+  | "spec_approved"
+  | "spec_rejected"
+  | "create_features"
+  | "implement"
+  | "complete";
+
+// ============================================================================
+// WORKFLOW SESSION MANAGEMENT
+// ============================================================================
+
+/** Active workflow sessions (keyed by sessionId) */
+const activeSessions = new Map<string, WorkflowSession>();
+
+/**
+ * Create a new workflow session with unique file paths.
+ */
+export function createWorkflowSession(agentType: string): WorkflowSession {
+  const sessionId = generateRalphSessionId();
+  const paths = getRalphSessionPaths(agentType, sessionId);
+
+  const session: WorkflowSession = {
+    sessionId,
+    agentType,
+    currentStep: "research",
+    paths,
+    createdAt: Date.now(),
+  };
+
+  activeSessions.set(sessionId, session);
+  return session;
+}
+
+/**
+ * Get the current active session (most recent if multiple).
+ */
+export function getActiveSession(): WorkflowSession | undefined {
+  const sessions = Array.from(activeSessions.values());
+  return sessions.sort((a, b) => b.createdAt - a.createdAt)[0];
+}
+
+/**
+ * Update a session's current step.
+ */
+export function updateSessionStep(sessionId: string, step: WorkflowStep): void {
+  const session = activeSessions.get(sessionId);
+  if (session) {
+    session.currentStep = step;
+  }
+}
+
+/**
+ * Complete and remove a session.
+ */
+export function completeSession(sessionId: string): void {
+  activeSessions.delete(sessionId);
+}
+
+// ============================================================================
+// WORKFLOW DIRECTORY LOADING
+// ============================================================================
+
+/**
+ * Paths to search for workflow definitions.
+ * Local workflows (.atomic/workflows) override global (~/.atomic/workflows).
+ */
+const WORKFLOW_SEARCH_PATHS = [
+  // Local project workflows (highest priority)
+  join(process.cwd(), ".atomic", "workflows"),
+  // Global user workflows
+  join(process.env.HOME || "~", ".atomic", "workflows"),
+];
+
+/**
+ * Discover workflow files from disk.
+ * Returns paths to .ts files that define workflows.
+ */
+export function discoverWorkflowFiles(): { path: string; source: "local" | "global" }[] {
+  const discovered: { path: string; source: "local" | "global" }[] = [];
+
+  for (let i = 0; i < WORKFLOW_SEARCH_PATHS.length; i++) {
+    const searchPath = WORKFLOW_SEARCH_PATHS[i]!;
+    const source = i === 0 ? "local" : "global";
+
+    if (existsSync(searchPath)) {
+      try {
+        const files = require("fs").readdirSync(searchPath) as string[];
+        for (const file of files) {
+          if (file.endsWith(".ts")) {
+            discovered.push({ path: join(searchPath, file), source });
+          }
+        }
+      } catch {
+        // Skip directories we can't read
+      }
+    }
+  }
+
+  return discovered;
+}
+
+/**
+ * Dynamically loaded workflows from disk.
+ * Populated by loadWorkflowsFromDisk().
+ */
+let loadedWorkflows: WorkflowMetadata[] = [];
+
+/**
+ * Load workflow definitions from .ts files on disk.
+ *
+ * Workflows are expected to export:
+ * - `default`: A function that creates a CompiledGraph (required)
+ * - `name`: Workflow name (optional, defaults to filename)
+ * - `description`: Human-readable description (optional)
+ * - `aliases`: Alternative names (optional)
+ *
+ * Example workflow file (.atomic/workflows/my-workflow.ts):
+ * ```typescript
+ * import { graph, agentNode } from "@bastani/atomic/graph";
+ *
+ * export const name = "my-workflow";
+ * export const description = "My custom workflow";
+ * export const aliases = ["mw"];
+ *
+ * export default function createWorkflow(config?: Record<string, unknown>) {
+ *   return graph<MyState>()
+ *     .start(researchNode)
+ *     .then(implementNode)
+ *     .end()
+ *     .compile();
+ * }
+ * ```
+ *
+ * @returns Array of loaded workflow metadata (local workflows override global)
+ */
+export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata[]> {
+  const discovered = discoverWorkflowFiles();
+  const loaded: WorkflowMetadata[] = [];
+  const loadedNames = new Set<string>();
+
+  for (const { path, source } of discovered) {
+    try {
+      // Dynamic import of the workflow file
+      const module = await import(path);
+
+      // Extract workflow name from module or filename
+      const filename = path.split("/").pop()?.replace(".ts", "") ?? "unknown";
+      const name = module.name ?? filename;
+
+      // Skip if already loaded (local takes priority over global)
+      if (loadedNames.has(name.toLowerCase())) {
+        continue;
+      }
+
+      // Validate that default export is a function
+      if (typeof module.default !== "function") {
+        console.warn(`Workflow file ${path} does not export a default function, skipping`);
+        continue;
+      }
+
+      const metadata: WorkflowMetadata = {
+        name,
+        description: module.description ?? `Custom workflow: ${name}`,
+        aliases: module.aliases,
+        createWorkflow: module.default,
+        defaultConfig: module.defaultConfig,
+        source,
+      };
+
+      loaded.push(metadata);
+      loadedNames.add(name.toLowerCase());
+
+      // Also track aliases
+      if (metadata.aliases) {
+        for (const alias of metadata.aliases) {
+          loadedNames.add(alias.toLowerCase());
+        }
+      }
+    } catch (error) {
+      console.warn(`Failed to load workflow from ${path}:`, error);
+    }
+  }
+
+  loadedWorkflows = loaded;
+  return loaded;
+}
+
+/**
+ * Get all workflows including built-in and dynamically loaded.
+ * Local workflows override global, both override built-in.
+ */
+export function getAllWorkflows(): WorkflowMetadata[] {
+  const allWorkflows: WorkflowMetadata[] = [];
+  const seenNames = new Set<string>();
+
+  // First, add dynamically loaded workflows (local > global)
+  for (const workflow of loadedWorkflows) {
+    const lowerName = workflow.name.toLowerCase();
+    if (!seenNames.has(lowerName)) {
+      allWorkflows.push(workflow);
+      seenNames.add(lowerName);
+      // Also track aliases
+      if (workflow.aliases) {
+        for (const alias of workflow.aliases) {
+          seenNames.add(alias.toLowerCase());
+        }
+      }
+    }
+  }
+
+  // Then add built-in workflows (lowest priority)
+  for (const workflow of BUILTIN_WORKFLOW_DEFINITIONS) {
+    const lowerName = workflow.name.toLowerCase();
+    if (!seenNames.has(lowerName)) {
+      allWorkflows.push(workflow);
+      seenNames.add(lowerName);
+    }
+  }
+
+  return allWorkflows;
 }
 
 // ============================================================================
@@ -42,11 +307,10 @@ export interface WorkflowMetadata {
 // ============================================================================
 
 /**
- * Available workflow definitions.
- *
- * Each entry defines a workflow command that can be invoked via slash command.
+ * Built-in workflow definitions.
+ * These can be overridden by local or global workflows with the same name.
  */
-export const WORKFLOW_DEFINITIONS: WorkflowMetadata[] = [
+const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata[] = [
   {
     name: "atomic",
     description: "Start the Atomic (Ralph) workflow for feature implementation",
@@ -63,8 +327,15 @@ export const WORKFLOW_DEFINITIONS: WorkflowMetadata[] = [
       checkpointing: true,
       autoApproveSpec: false,
     },
+    source: "builtin",
   },
 ];
+
+/**
+ * Exported for backwards compatibility.
+ * Use getAllWorkflows() to get all workflows including dynamically loaded ones.
+ */
+export const WORKFLOW_DEFINITIONS = BUILTIN_WORKFLOW_DEFINITIONS;
 
 // ============================================================================
 // COMMAND FACTORY
@@ -129,27 +400,40 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
 // ============================================================================
 
 /**
- * Workflow commands created from definitions.
+ * Get workflow commands from all definitions (built-in + loaded from disk).
+ * This function returns a fresh array each time, reflecting any dynamically loaded workflows.
  */
-export const workflowCommands: CommandDefinition[] = WORKFLOW_DEFINITIONS.map(
+export function getWorkflowCommands(): CommandDefinition[] {
+  return getAllWorkflows().map(createWorkflowCommand);
+}
+
+/**
+ * Workflow commands created from built-in definitions.
+ * For dynamically loaded workflows, use getWorkflowCommands().
+ */
+export const workflowCommands: CommandDefinition[] = BUILTIN_WORKFLOW_DEFINITIONS.map(
   createWorkflowCommand
 );
 
 /**
  * Register all workflow commands with the global registry.
+ * Includes both built-in and dynamically loaded workflows.
  *
  * Call this function during application initialization.
+ * For best results, call loadWorkflowsFromDisk() first to discover custom workflows.
  *
  * @example
  * ```typescript
- * import { registerWorkflowCommands } from "./workflow-commands";
+ * import { loadWorkflowsFromDisk, registerWorkflowCommands } from "./workflow-commands";
  *
  * // In app initialization
+ * await loadWorkflowsFromDisk();
  * registerWorkflowCommands();
  * ```
  */
 export function registerWorkflowCommands(): void {
-  for (const command of workflowCommands) {
+  const commands = getWorkflowCommands();
+  for (const command of commands) {
     // Skip if already registered (idempotent)
     if (!globalRegistry.has(command.name)) {
       globalRegistry.register(command);
@@ -159,13 +443,14 @@ export function registerWorkflowCommands(): void {
 
 /**
  * Get a workflow by name.
+ * Searches all workflows (built-in + loaded from disk).
  *
  * @param name - Workflow name
  * @returns WorkflowMetadata if found, undefined otherwise
  */
 export function getWorkflowMetadata(name: string): WorkflowMetadata | undefined {
   const lowerName = name.toLowerCase();
-  return WORKFLOW_DEFINITIONS.find(
+  return getAllWorkflows().find(
     (w) =>
       w.name.toLowerCase() === lowerName ||
       w.aliases?.some((a) => a.toLowerCase() === lowerName)

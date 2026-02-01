@@ -12,6 +12,14 @@ export type {
   McpServerConfig,
   SessionConfig,
   OpenCodeAgentMode,
+  ModelDisplayInfo,
+} from "./types.ts";
+
+// Utility function exports
+export { formatModelDisplayName } from "./types.ts";
+
+// Type exports (continued)
+export type {
 
   // Message types
   MessageRole,
@@ -72,19 +80,10 @@ export {
   createDenyAllPermissionHandler,
   type CopilotSdkEventType,
   type CopilotSdkEvent,
-  type CopilotSdkSession,
-  type CopilotSdkMessage,
-  type CopilotSdkToolCall,
-  type CopilotSdkStreamEvent,
-  type CopilotSdkUsage,
-  type CopilotSdkToolDefinition,
   type CopilotSdkPermissionRequest,
   type CopilotPermissionHandler,
   type CopilotConnectionMode,
-  type CopilotSdkClient,
-  type CopilotSdkSessionConfig,
   type CopilotClientOptions,
-  type CreateCopilotClientFn,
 } from "./copilot-client.ts";
 
 // HookManager exports

@@ -640,3 +640,38 @@ Executed the first E2E test using tmux-cli to verify that `atomic init` works co
 
 ### Next Feature
 The next highest priority feature is: "E2E test: Verify atomic chat with Claude agent (-a claude)"
+
+---
+
+## 2026-02-01 - E2E Test: Verify atomic chat with Claude agent (-a claude)
+
+### Summary
+Executed E2E test to verify that `atomic chat -a claude` works correctly. The test started the chat interface, sent a message, verified response, and exited gracefully.
+
+### Test Steps Executed
+1. Navigated to temp project: `/tmp/atomic-e2e-test`
+2. Ran `atomic chat -a claude`
+3. Verified chat UI initialized with:
+   - ATOMIC header with version v0.4.4
+   - Model displayed: "Opus 4.5 · Claude Max"
+   - Working directory: /tmp/atomic-e2e-test
+   - Input textarea visible
+   - FooterStatus displayed with shortcuts
+4. Sent test message: "Hello! Please respond with just the word OK"
+5. Verified Claude agent responded with: "OK"
+6. Noted: `/exit` command not recognized (shows "Unknown command")
+7. Exited successfully with Ctrl+C
+
+### Test Observations
+- Loading indicator showed: "Analyzing... ●•∙"
+- Footer showed "streaming.." during response
+- Chat exited cleanly with Ctrl+C
+
+### Test Result
+- **PASS**: atomic chat -a claude works correctly
+- UI initialized properly
+- Claude agent responds to messages
+- Exit via Ctrl+C successful
+
+### Next Feature
+The next highest priority feature is: "E2E test: Verify atomic chat with OpenCode agent (-a opencode)"

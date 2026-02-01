@@ -264,7 +264,7 @@
       "Exit chat gracefully with Ctrl+C or /exit command",
       "Capture and log test results"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "e2e",

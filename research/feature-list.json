@@ -112,7 +112,7 @@
       "Export both functions",
       "Create tests/ui/utils/format.test.ts with edge case tests"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

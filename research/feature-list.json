@@ -125,7 +125,7 @@
       "Update message with durationMs and modelId when stream completes",
       "Reset streamingStartRef.current to null after calculation"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

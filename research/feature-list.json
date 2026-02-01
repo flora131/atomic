@@ -1,428 +1,361 @@
 [
   {
-    "category": "refactor",
-    "description": "Create CommandRegistry class and CommandDefinition interface",
+    "category": "functional",
+    "description": "Create useMessageQueue hook for message queue state management",
     "steps": [
-      "Create src/ui/commands/registry.ts file",
-      "Define CommandDefinition interface with name, description, category, execute, aliases, hidden fields",
-      "Define CommandContext interface with session, state, addMessage, setStreaming",
-      "Define CommandResult interface with success, message, stateUpdate",
-      "Implement CommandRegistry class with private commands Map and aliases Map",
-      "Implement register() method to add commands and their aliases",
-      "Implement get() method to retrieve command by name or alias",
-      "Implement search() method with prefix matching and sorting (exact match > category > alphabetical)",
-      "Implement all() method to return all visible commands",
-      "Export globalRegistry singleton instance",
-      "Add unit tests for CommandRegistry in tests/ui/commands/registry.test.ts"
+      "Create new file src/ui/hooks/use-message-queue.ts",
+      "Define QueuedMessage interface with id, content, and queuedAt fields",
+      "Define UseMessageQueueReturn interface with queue, enqueue, dequeue, clear, and count",
+      "Implement useMessageQueue hook with useState for queue array",
+      "Implement enqueue function to add messages with unique id and timestamp",
+      "Implement dequeue function to remove and return first message",
+      "Implement clear function to empty the queue",
+      "Export hook and interfaces",
+      "Create tests/ui/hooks/use-message-queue.test.ts with unit tests"
     ],
     "passes": true
   },
   {
     "category": "functional",
-    "description": "Implement built-in commands (/help, /status, /approve, /reject, /theme, /clear)",
+    "description": "Integrate message queue into ChatApp to allow input during streaming",
     "steps": [
-      "Create src/ui/commands/builtin-commands.ts file",
-      "Implement /help command that lists all commands with descriptions",
-      "Implement /status command that shows workflow progress (feature iteration, spec status)",
-      "Implement /approve command that sets specApproved: true in state",
-      "Implement /reject command that sets specApproved: false and stores feedback",
-      "Implement /theme command that toggles dark/light ThemeContext",
-      "Implement /clear command that resets messages array",
-      "Create registerBuiltinCommands() function to register all built-ins with globalRegistry",
-      "Add unit tests in tests/ui/commands/builtin-commands.test.ts"
+      "Import useMessageQueue hook into src/ui/chat.tsx",
+      "Add queue state using useMessageQueue hook after existing state declarations",
+      "Modify handleSubmit to queue messages when isStreaming is true instead of blocking",
+      "Clear textarea after enqueue just like after direct send",
+      "Verify messages are queued correctly during streaming",
+      "Test that input is no longer blocked during streaming responses"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Implement workflow command registration from src/workflows/atomic.ts",
+    "description": "Process queued messages sequentially after stream completion",
     "steps": [
-      "Create src/ui/commands/workflow-commands.ts file",
-      "Define WorkflowMetadata interface with name, description, aliases, createWorkflow",
-      "Define WORKFLOW_DEFINITIONS array with atomic workflow metadata",
-      "Implement workflow command execute function that creates workflow and starts execution",
-      "Command execute should add 'Starting workflow...' message and update state",
-      "Set workflowActive: true, workflowType, initialPrompt in state",
-      "Create registerWorkflowCommands() function to register all workflow commands",
-      "Add unit tests in tests/ui/commands/workflow-commands.test.ts"
+      "Modify handleComplete in src/ui/chat.tsx to process queue",
+      "After setting isStreaming to false, call dequeue to get next message",
+      "If message exists, call handleSendMessage with 50ms delay",
+      "Verify sequential processing of multiple queued messages",
+      "Test queue empties correctly after all messages processed"
     ],
-    "passes": true
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Create QueueIndicator component to display queued message count",
+    "steps": [
+      "Create new file src/ui/components/queue-indicator.tsx",
+      "Define QueueIndicatorProps interface with count and queue array",
+      "Render visual indicator showing number of queued messages",
+      "Only display when count > 0",
+      "Export component from src/ui/components/index.ts",
+      "Add unit tests for the component"
+    ],
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Implement skill command registration from system-reminder skill list",
+    "description": "Enhance ToolResult to default collapsed with summary line",
     "steps": [
-      "Create src/ui/commands/skill-commands.ts file",
-      "Define SKILL_DEFINITIONS array with all skills from system-reminder",
-      "Include skills: commit, research-codebase, create-spec, create-feature-list, implement-feature, create-gh-pr, explain-code",
-      "Include ralph skills: ralph:ralph-loop, ralph:cancel-ralph, ralph:ralph-help",
-      "Implement skill command execute function that invokes the skill via session",
-      "Create registerSkillCommands() function to register all skills with globalRegistry",
-      "Add unit tests in tests/ui/commands/skill-commands.test.ts"
+      "Update src/ui/components/tool-result.tsx to change initialExpanded default to false",
+      "Implement getToolSummary function for tool-specific summaries",
+      "Handle Read, Glob, Grep, Bash, Edit, Write, and Task tool summaries",
+      "Show summary line with tool name and result count when collapsed",
+      "Display expand hint text (ctrl+o to expand) when collapsed",
+      "Add maxCollapsedLines prop defaulting to 3",
+      "Update tests for collapsed default behavior"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "refactor",
-    "description": "Create commands module index with initialization function",
+    "category": "functional",
+    "description": "Add verboseMode state to ChatApp",
     "steps": [
-      "Create src/ui/commands/index.ts file",
-      "Export CommandRegistry, globalRegistry from registry.ts",
-      "Export CommandDefinition, CommandContext, CommandResult types",
-      "Export registerBuiltinCommands from builtin-commands.ts",
-      "Export registerWorkflowCommands from workflow-commands.ts",
-      "Export registerSkillCommands from skill-commands.ts",
-      "Implement initializeCommands() function that calls all register functions",
-      "Add parseSlashCommand() helper to extract command name and args from input",
-      "Add unit tests for initializeCommands in tests/ui/commands/index.test.ts"
+      "Add verboseMode state (boolean, default: false) to src/ui/chat.tsx",
+      "Pass verboseMode prop to child components that need it",
+      "Pass verboseMode to ToolResult components",
+      "Pass verboseMode to MessageBubble for timestamp display",
+      "Verify state propagates correctly to all child components"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "ui",
-    "description": "Create Autocomplete component with two-column layout",
+    "category": "functional",
+    "description": "Implement Ctrl+O keyboard shortcut to toggle verbose mode",
     "steps": [
-      "Create src/ui/components/autocomplete.tsx file",
-      "Define AutocompleteProps interface with input, visible, selectedIndex, onSelect, onIndexChange, maxSuggestions",
-      "Implement Autocomplete component using OpenTUI box and text primitives",
-      "Render two-column layout: command name | description",
-      "Apply highlighting to selected suggestion row",
-      "Use theme colors for styling (accent for selected, foreground for normal)",
-      "Support maxSuggestions prop (default 8) to limit displayed items",
-      "Filter suggestions using CommandRegistry.search() based on input prefix",
-      "Add unit tests in tests/ui/components/autocomplete.test.tsx"
+      "Add keyboard handler for Ctrl+O in src/ui/chat.tsx useKeyboard callback",
+      "Toggle verboseMode state when Ctrl+O is pressed",
+      "Verify shortcut works in the existing keyboard handling flow",
+      "Test that verbose mode toggles correctly on keypress"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "ui",
-    "description": "Implement keyboard navigation for autocomplete",
+    "category": "functional",
+    "description": "Enhance ToolResult to respect verboseMode prop",
     "steps": [
-      "Add useKeyboard hook to Autocomplete component",
-      "Implement Up arrow to move selection up with wrap to bottom",
-      "Implement Down arrow to move selection down with wrap to top",
-      "Implement Tab key to complete selected command (call onSelect)",
-      "Implement Enter key to execute selected command (call onSelect)",
-      "Implement Escape key to hide autocomplete (handled by parent)",
-      "Prevent default behavior for navigation keys when autocomplete is visible",
-      "Add keyboard navigation tests to tests/ui/components/autocomplete.test.tsx"
+      "Add verboseMode prop to ToolResultProps interface",
+      "Force expanded state when verboseMode is true",
+      "Add useEffect to update expanded state when verboseMode changes",
+      "Verify tool outputs expand when verbose mode is enabled",
+      "Verify tool outputs collapse when verbose mode is disabled"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Extend WorkflowChatState with autocomplete and workflow execution state",
+    "description": "Create format utilities for duration and timestamp display",
     "steps": [
-      "Modify src/ui/chat.tsx to add new state fields",
-      "Add showAutocomplete: boolean to state",
-      "Add autocompleteInput: string to state",
-      "Add selectedSuggestionIndex: number to state",
-      "Add workflowActive: boolean to state",
-      "Add workflowType: string | null to state",
-      "Add initialPrompt: string | null to state",
-      "Add pendingApproval: boolean to state",
-      "Add specApproved: boolean to state",
-      "Add feedback: string | null to state",
-      "Initialize new state fields in ChatApp component"
+      "Create new file src/ui/utils/format.ts",
+      "Implement formatDuration function (ms < 1000 shows ms, < 60000 shows seconds, else minutes)",
+      "Implement formatTimestamp function for HH:MM AM/PM format",
+      "Export both functions",
+      "Create tests/ui/utils/format.test.ts with edge case tests"
     ],
-    "passes": true
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Add timestamp tracking to messages",
+    "steps": [
+      "Enhance ChatMessage interface with durationMs, modelId, and streamingStartedAt fields",
+      "Add streamingStartRef to track when streaming starts",
+      "Set streamingStartRef.current = Date.now() in handleStreamStart",
+      "Calculate duration in handleComplete using streamingStartRef",
+      "Update message with durationMs and modelId when stream completes",
+      "Reset streamingStartRef.current to null after calculation"
+    ],
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Integrate autocomplete into ChatApp input handling",
+    "description": "Create TimestampDisplay component for right-aligned timestamp and model",
     "steps": [
-      "Modify ChatApp in src/ui/chat.tsx to integrate autocomplete",
-      "Add handleInputChange callback that detects '/' prefix",
-      "Show autocomplete when input starts with '/' and has no space",
-      "Update autocompleteInput state with text after '/'",
-      "Reset selectedSuggestionIndex to 0 on input change",
-      "Hide autocomplete when input doesn't start with '/' or has space",
-      "Render Autocomplete component conditionally based on showAutocomplete",
-      "Pass selectedIndex and onIndexChange to Autocomplete",
-      "Add integration tests for autocomplete triggering"
+      "Create new file src/ui/components/timestamp-display.tsx",
+      "Define TimestampDisplayProps with timestamp, durationMs, and modelId",
+      "Render right-aligned timestamp using formatTimestamp",
+      "Render duration using formatDuration when available",
+      "Render model name when available",
+      "Export component from src/ui/components/index.ts",
+      "Create unit tests for the component"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Implement command completion and execution in ChatApp",
+    "description": "Integrate TimestampDisplay into MessageBubble for verbose mode",
     "steps": [
-      "Implement handleAutocompleteSelect callback in ChatApp",
-      "On Tab completion: replace input with '/' + selected command name + space",
-      "On Enter execution: parse input to extract command name and args",
-      "Look up command in globalRegistry.get()",
-      "Create CommandContext with session, state, addMessage, setStreaming",
-      "Call command.execute(args, context) and await result",
-      "Apply result.stateUpdate to ChatApp state if present",
-      "Display result.message in chat if present",
-      "Handle command not found error gracefully",
-      "Add tests for command execution flow"
+      "Import TimestampDisplay in src/ui/chat.tsx MessageBubble component",
+      "Add verboseMode prop to MessageBubble",
+      "Conditionally render TimestampDisplay when verboseMode is enabled",
+      "Display timestamp, duration, and model for assistant messages",
+      "Test timestamp display appears only in verbose mode"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Create UserQuestionDialog component for HITL interactions",
+    "description": "Create FooterStatus component for status line",
     "steps": [
-      "Create src/ui/components/user-question-dialog.tsx file",
-      "Define UserQuestionDialogProps with question object and onAnswer callback",
-      "Implement dialog overlay using absolute positioning",
-      "Display question header and question text",
-      "Render options list with keyboard selection (up/down)",
-      "Support multiSelect mode with checkbox indicators",
-      "Implement space key for toggling multi-select options",
-      "Implement Enter key to confirm selection and call onAnswer",
-      "Style with theme colors and double border",
-      "Add unit tests in tests/ui/components/user-question-dialog.test.tsx"
+      "Create new file src/ui/components/footer-status.tsx",
+      "Define FooterStatusProps with verboseMode, isStreaming, queuedCount, modelId",
+      "Render permission mode indicator",
+      "Render queued message count when > 0",
+      "Render keyboard shortcut hints",
+      "Export component from src/ui/components/index.ts",
+      "Create unit tests for the component"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Create WorkflowStatusBar component for progress display",
+    "description": "Integrate FooterStatus into ChatApp layout",
     "steps": [
-      "Create src/ui/components/workflow-status-bar.tsx file",
-      "Define WorkflowStatusBarProps with workflowActive, workflowType, currentNode, iteration, featureProgress",
-      "Render status bar only when workflowActive is true",
-      "Display workflow type with accent color and icon",
-      "Display current node name if present",
-      "Display iteration count",
-      "Display feature progress as completed/total if present",
-      "Use horizontal flexbox layout with gap between elements",
-      "Add single border with theme border color",
-      "Add unit tests in tests/ui/components/workflow-status-bar.test.tsx"
+      "Import FooterStatus in src/ui/chat.tsx",
+      "Add FooterStatus to ChatApp render at bottom of layout",
+      "Pass verboseMode, isStreaming, queueCount, and modelId props",
+      "Verify footer displays correctly in the UI",
+      "Test footer updates when queue count changes"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Create useStreamingState hook for real-time updates",
+    "description": "Define configurable array of spinner verbs for LoadingIndicator",
     "steps": [
-      "Create src/ui/hooks/use-streaming-state.ts file",
-      "Define StreamingState interface with isStreaming, streamingMessageId, toolExecutions, pendingQuestions",
-      "Define ToolExecutionState interface with toolName, status, input, output, error, timestamps",
-      "Implement useStreamingState hook with useState",
-      "Implement handleChunk callback for streaming message updates",
-      "Implement handleToolStart callback for tool execution start",
-      "Implement handleToolComplete callback for tool completion",
-      "Implement handleToolError callback for tool errors",
-      "Return state and all handler callbacks",
-      "Add unit tests in tests/ui/hooks/use-streaming-state.test.ts"
+      "Create SPINNER_VERBS constant array with verbs like Thinking, Analyzing, Processing",
+      "Add at least 5-8 different verb options",
+      "Ensure verbs are contextually appropriate for AI assistant actions"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Create hooks module index with exports",
+    "description": "Enhance LoadingIndicator to display random spinner verb",
     "steps": [
-      "Create src/ui/hooks/index.ts file",
-      "Export useStreamingState hook and types",
-      "Export StreamingState type",
-      "Export ToolExecutionState type",
-      "Update src/ui/index.ts to re-export hooks module"
+      "Modify LoadingIndicator component in src/ui/chat.tsx",
+      "Select random verb from SPINNER_VERBS array on mount",
+      "Display verb text alongside the wave animation",
+      "Format as 'Verb...' with ellipsis",
+      "Verify verb changes between different loading instances"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "refactor",
-    "description": "Create ToolResultRegistry for tool-specific rendering",
+    "description": "Export new components and hooks from index files",
     "steps": [
-      "Create src/ui/tools/registry.ts file",
-      "Define ToolRenderer interface with icon, title function, render function",
-      "Define ToolRenderProps interface with input, output, syntaxStyle",
-      "Create TOOL_RENDERERS Record mapping tool names to renderers",
-      "Implement Read tool renderer with file path title and code content",
-      "Implement Edit tool renderer with diff display",
-      "Implement Bash tool renderer with command and output display",
-      "Implement Write tool renderer with created/updated status",
-      "Export getToolRenderer(toolName) helper function",
-      "Add unit tests in tests/ui/tools/registry.test.ts"
+      "Update or create src/ui/components/index.ts with exports for FooterStatus, TimestampDisplay, QueueIndicator",
+      "Create src/ui/hooks/index.ts if it doesn't exist",
+      "Export useMessageQueue from hooks index",
+      "Verify all new modules are properly accessible"
     ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Create ToolResult component for rendering tool outputs",
-    "steps": [
-      "Create src/ui/components/tool-result.tsx file",
-      "Define ToolResultProps with toolName, input, output, status",
-      "Use ToolResultRegistry to get appropriate renderer",
-      "Render tool icon and title from renderer",
-      "Render tool output using renderer's render function",
-      "Handle unknown tools with generic fallback display",
-      "Show loading indicator when status is 'running'",
-      "Show error styling when status is 'error'",
-      "Add collapsible behavior for large outputs",
-      "Add unit tests in tests/ui/components/tool-result.test.tsx"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Create tools module index with exports",
-    "steps": [
-      "Create src/ui/tools/index.ts file",
-      "Export ToolRenderer, ToolRenderProps types from registry.ts",
-      "Export TOOL_RENDERERS, getToolRenderer from registry.ts",
-      "Update src/ui/index.ts to re-export tools module"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Update src/ui/index.ts with all new exports",
-    "steps": [
-      "Export all types and components from commands module",
-      "Export Autocomplete component from components",
-      "Export UserQuestionDialog component from components",
-      "Export WorkflowStatusBar component from components",
-      "Export ToolResult component from components",
-      "Export hooks module (useStreamingState)",
-      "Export tools module (ToolResultRegistry)",
-      "Export initializeCommands function",
-      "Export parseSlashCommand helper"
-    ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Update ChatApp to render WorkflowStatusBar and ToolResults",
+    "description": "Add integration tests for message queuing flow",
     "steps": [
-      "Import WorkflowStatusBar component in chat.tsx",
-      "Import ToolResult component in chat.tsx",
-      "Render WorkflowStatusBar between header and chat history",
-      "Pass workflow state to WorkflowStatusBar (workflowActive, workflowType, etc.)",
-      "Update MessageBubble to detect and render tool results",
-      "Parse tool call/result patterns from assistant messages",
-      "Render ToolResult components for each tool execution",
-      "Add integration tests for workflow status display"
+      "Add tests to tests/ui/chat.test.tsx for queue functionality",
+      "Test submitting message during streaming adds to queue",
+      "Test queue processes after stream completion",
+      "Test multiple queued messages process sequentially",
+      "Test queue indicator updates correctly"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Connect ChatApp to workflow execution with streaming",
+    "description": "Add integration tests for verbose mode toggle",
     "steps": [
-      "Import useStreamingState hook in chat.tsx",
-      "Initialize streaming state with useStreamingState",
-      "Connect SDK session events to streaming state handlers",
-      "Display tool execution progress in real-time",
-      "Handle human_input_required signal by showing UserQuestionDialog",
-      "Pass user responses back to workflow via state update",
-      "Update workflow state on execution progress",
-      "Add integration tests for workflow execution flow"
+      "Add tests to tests/ui/chat.test.tsx for verbose mode",
+      "Test Ctrl+O toggles verboseMode state",
+      "Test tool outputs expand when verbose mode enabled",
+      "Test timestamps appear when verbose mode enabled",
+      "Test footer shows verbose mode indicator"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "functional",
-    "description": "Implement /approve and /reject commands with workflow state management",
+    "category": "e2e",
+    "description": "E2E test: Create dummy temp project with atomic init",
     "steps": [
-      "Update /approve command to work with workflow execution context",
-      "Update /reject command to work with workflow execution context",
-      "Resume paused workflow execution on approval",
-      "Loop back to spec creation on rejection with feedback",
-      "Store rejection feedback in workflow state",
-      "Display appropriate confirmation messages",
-      "Add integration tests for approval/rejection flow"
+      "Use tmux-cli skill to create a new tmux session for E2E testing",
+      "Create a temporary directory for the test project (e.g., /tmp/atomic-e2e-test-XXXX)",
+      "Navigate to the temp directory in the tmux pane",
+      "Run 'atomic init' to initialize the project",
+      "Verify initialization completes successfully by checking output",
+      "Verify expected config files are created (.claude, .opencode, .github directories)",
+      "Capture and log test results"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "functional",
-    "description": "Implement /status command with comprehensive workflow info",
+    "category": "e2e",
+    "description": "E2E test: Verify atomic chat with Claude agent (-a claude)",
     "steps": [
-      "Enhance /status command to show detailed workflow status",
-      "Display current workflow type and phase",
-      "Display current iteration number and max iterations",
-      "Display spec approval status (pending/approved/rejected)",
-      "Display feature list progress (completed/total, current feature)",
-      "Display context window usage percentage",
-      "Format output with theme colors and clear sections",
-      "Add tests for status output formatting"
+      "Use tmux-cli skill to communicate with test tmux session",
+      "Navigate to the initialized temp project directory",
+      "Run 'atomic chat -a claude' in the tmux pane",
+      "Wait for chat UI to initialize and display",
+      "Verify Claude agent header/branding appears in the UI",
+      "Send a simple test message (e.g., 'Hello, respond with OK')",
+      "Verify response is received from Claude agent",
+      "Exit chat gracefully with Ctrl+C or /exit command",
+      "Capture and log test results"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "functional",
-    "description": "Integrate autocomplete system with ChatApp initialization",
+    "category": "e2e",
+    "description": "E2E test: Verify atomic chat with OpenCode agent (-a opencode)",
     "steps": [
-      "Call initializeCommands() in startChatUI before rendering",
-      "Ensure globalRegistry is populated before ChatApp renders",
-      "Add debug logging for registered command count",
-      "Handle registration errors gracefully",
-      "Add integration test for full autocomplete initialization"
+      "Use tmux-cli skill to communicate with test tmux session",
+      "Navigate to the initialized temp project directory",
+      "Run 'atomic chat -a opencode' in the tmux pane",
+      "Wait for chat UI to initialize and display",
+      "Verify OpenCode agent header/branding appears in the UI",
+      "Send a simple test message (e.g., 'Hello, respond with OK')",
+      "Verify response is received from OpenCode agent",
+      "Exit chat gracefully with Ctrl+C or /exit command",
+      "Capture and log test results"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "ui",
-    "description": "Add components module index with exports",
+    "category": "e2e",
+    "description": "E2E test: Verify atomic chat with Copilot agent (-a copilot)",
     "steps": [
-      "Create src/ui/components/index.ts file",
-      "Export Autocomplete component and AutocompleteProps type",
-      "Export UserQuestionDialog component and UserQuestionDialogProps type",
-      "Export WorkflowStatusBar component and WorkflowStatusBarProps type",
-      "Export ToolResult component and ToolResultProps type"
+      "Use tmux-cli skill to communicate with test tmux session",
+      "Navigate to the initialized temp project directory",
+      "Run 'atomic chat -a copilot' in the tmux pane",
+      "Wait for chat UI to initialize and display",
+      "Verify Copilot agent header/branding appears in the UI",
+      "Send a simple test message (e.g., 'Hello, respond with OK')",
+      "Verify response is received from Copilot agent",
+      "Exit chat gracefully with Ctrl+C or /exit command",
+      "Capture and log test results"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "functional",
-    "description": "Create unit tests for CommandRegistry",
+    "category": "e2e",
+    "description": "E2E test: Verify message queuing during streaming for all agents",
     "steps": [
-      "Create tests/ui/commands/registry.test.ts file",
-      "Test register() adds command to registry",
-      "Test get() retrieves command by name",
-      "Test get() retrieves command by alias",
-      "Test get() returns undefined for unknown command",
-      "Test search() returns commands matching prefix",
-      "Test search() excludes hidden commands",
-      "Test search() sorts by category then alphabetically",
-      "Test all() returns all visible commands"
+      "Use tmux-cli skill to communicate with test tmux session",
+      "For each agent (claude, opencode, copilot):",
+      "  - Start 'atomic chat -a <agent>'",
+      "  - Send a message that triggers a long response",
+      "  - While streaming, type and submit a second message",
+      "  - Verify the second message is queued (queue indicator shows)",
+      "  - Wait for first response to complete",
+      "  - Verify queued message is processed automatically",
+      "Exit and capture results for each agent"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "functional",
-    "description": "Create unit tests for built-in commands",
+    "category": "e2e",
+    "description": "E2E test: Verify verbose mode toggle (Ctrl+O) for all agents",
     "steps": [
-      "Create tests/ui/commands/builtin-commands.test.ts file",
-      "Test /help lists all commands",
-      "Test /status shows workflow state",
-      "Test /approve sets specApproved to true",
-      "Test /reject sets specApproved to false and stores feedback",
-      "Test /theme toggles dark/light",
-      "Test /clear resets messages array"
+      "Use tmux-cli skill to communicate with test tmux session",
+      "For each agent (claude, opencode, copilot):",
+      "  - Start 'atomic chat -a <agent>'",
+      "  - Send a message that triggers tool usage",
+      "  - Verify tool output is collapsed by default",
+      "  - Press Ctrl+O to toggle verbose mode",
+      "  - Verify tool output expands and timestamps appear",
+      "  - Press Ctrl+O again to toggle off",
+      "  - Verify tool output collapses",
+      "Exit and capture results for each agent"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "functional",
-    "description": "Create integration tests for Autocomplete component",
+    "category": "e2e",
+    "description": "E2E test: Verify footer status displays correctly for all agents",
     "steps": [
-      "Create tests/ui/components/autocomplete.test.tsx file",
-      "Test renders suggestions matching input prefix",
-      "Test highlights selected suggestion",
-      "Test keyboard up/down navigates suggestions",
-      "Test Tab completes selected command",
-      "Test Enter executes selected command",
-      "Test Escape hides autocomplete"
+      "Use tmux-cli skill to communicate with test tmux session",
+      "For each agent (claude, opencode, copilot):",
+      "  - Start 'atomic chat -a <agent>'",
+      "  - Verify footer status line is visible at bottom",
+      "  - Verify keyboard shortcut hints are displayed",
+      "  - Toggle verbose mode and verify footer updates",
+      "  - Queue a message and verify queue count appears in footer",
+      "Exit and capture results for each agent"
     ],
-    "passes": true
+    "passes": false
   },
   {
-    "category": "functional",
-    "description": "Create end-to-end tests for ChatApp command integration",
+    "category": "e2e",
+    "description": "E2E test: Cleanup temp project after all tests complete",
     "steps": [
-      "Create tests/ui/chat-commands.test.tsx file",
-      "Test typing '/' shows autocomplete",
-      "Test typing '/at' filters to 'atomic' workflow",
-      "Test executing '/atomic Build feature' starts workflow",
-      "Test executing '/help' shows help message",
-      "Test executing '/status' shows workflow status",
-      "Test executing '/approve' approves spec"
+      "Use tmux-cli skill to communicate with test tmux session",
+      "Remove the temporary test project directory",
+      "Kill the test tmux session",
+      "Verify cleanup completed successfully",
+      "Generate final E2E test report summarizing all pass/fail results"
     ],
-    "passes": true
+    "passes": false
   }
 ]

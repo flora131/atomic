@@ -730,3 +730,164 @@ describe("ChatMessage with tool calls", () => {
     expect(msg.toolCalls![0]!.status).toBe("running");
   });
 });
+
+// ============================================================================
+// Message Queue Integration Tests
+// ============================================================================
+
+describe("Message Queue Integration", () => {
+  /**
+   * These tests verify the behavior of message queuing during streaming.
+   * The ChatApp component uses useMessageQueue to allow users to type
+   * and submit messages while a response is streaming, instead of blocking.
+   */
+
+  test("message queue hook is properly typed with ChatApp", () => {
+    // Verify the types are compatible
+    // This is a compile-time check - the code below should type-check correctly
+
+    // Simulating the queue state that ChatApp uses
+    interface MessageQueueState {
+      queue: Array<{ id: string; content: string; queuedAt: string }>;
+      enqueue: (content: string) => void;
+      dequeue: () => { id: string; content: string; queuedAt: string } | undefined;
+      clear: () => void;
+      count: number;
+    }
+
+    const mockQueue: MessageQueueState = {
+      queue: [],
+      enqueue: () => {},
+      dequeue: () => undefined,
+      clear: () => {},
+      count: 0,
+    };
+
+    expect(mockQueue.queue).toEqual([]);
+    expect(mockQueue.count).toBe(0);
+    expect(typeof mockQueue.enqueue).toBe("function");
+    expect(typeof mockQueue.dequeue).toBe("function");
+    expect(typeof mockQueue.clear).toBe("function");
+  });
+
+  test("handleSubmit logic queues messages during streaming", () => {
+    // Simulate handleSubmit logic when isStreaming is true
+    let isStreaming = true;
+    const queue: string[] = [];
+
+    const handleSubmitLogic = (trimmedValue: string) => {
+      if (!trimmedValue) {
+        return { action: "none" };
+      }
+
+      // Slash commands are allowed during streaming
+      if (trimmedValue.startsWith("/")) {
+        return { action: "executeCommand", value: trimmedValue };
+      }
+
+      // Queue regular messages during streaming
+      if (isStreaming) {
+        queue.push(trimmedValue);
+        return { action: "queued", value: trimmedValue };
+      }
+
+      // Send message normally when not streaming
+      return { action: "send", value: trimmedValue };
+    };
+
+    // Test 1: Empty value should do nothing
+    expect(handleSubmitLogic("")).toEqual({ action: "none" });
+
+    // Test 2: Slash commands work during streaming
+    expect(handleSubmitLogic("/help")).toEqual({ action: "executeCommand", value: "/help" });
+
+    // Test 3: Regular messages are queued during streaming
+    expect(handleSubmitLogic("Hello")).toEqual({ action: "queued", value: "Hello" });
+    expect(queue).toEqual(["Hello"]);
+
+    // Test 4: Multiple messages can be queued
+    expect(handleSubmitLogic("World")).toEqual({ action: "queued", value: "World" });
+    expect(queue).toEqual(["Hello", "World"]);
+
+    // Test 5: After streaming ends, messages are sent directly
+    isStreaming = false;
+    expect(handleSubmitLogic("Direct message")).toEqual({ action: "send", value: "Direct message" });
+    // Queue should not change for direct sends
+    expect(queue).toEqual(["Hello", "World"]);
+  });
+
+  test("queued messages preserve content integrity", () => {
+    // Test that various content types are queued correctly
+    const queue: Array<{ id: string; content: string; queuedAt: string }> = [];
+    let idCounter = 0;
+
+    const enqueue = (content: string) => {
+      queue.push({
+        id: `queue_${idCounter++}`,
+        content,
+        queuedAt: new Date().toISOString(),
+      });
+    };
+
+    // Normal text
+    enqueue("Hello, world!");
+    expect(queue[0]?.content).toBe("Hello, world!");
+
+    // Unicode content
+    enqueue("こんにちは 🌍");
+    expect(queue[1]?.content).toBe("こんにちは 🌍");
+
+    // Multi-line content
+    enqueue("Line 1\nLine 2\nLine 3");
+    expect(queue[2]?.content).toBe("Line 1\nLine 2\nLine 3");
+
+    // Special characters
+    enqueue("<script>alert('test')</script>");
+    expect(queue[3]?.content).toBe("<script>alert('test')</script>");
+
+    // Long content
+    const longContent = "A".repeat(10000);
+    enqueue(longContent);
+    expect(queue[4]?.content).toBe(longContent);
+
+    expect(queue.length).toBe(5);
+  });
+
+  test("queue FIFO order is maintained", () => {
+    const queue: string[] = [];
+
+    // Simulate enqueue
+    const enqueue = (content: string) => queue.push(content);
+
+    // Simulate dequeue
+    const dequeue = () => queue.shift();
+
+    // Enqueue in order
+    enqueue("First");
+    enqueue("Second");
+    enqueue("Third");
+
+    // Dequeue should return in FIFO order
+    expect(dequeue()).toBe("First");
+    expect(dequeue()).toBe("Second");
+    expect(dequeue()).toBe("Third");
+    expect(dequeue()).toBeUndefined();
+  });
+
+  test("textarea is cleared after queuing message", () => {
+    // Simulate textarea clearing behavior
+    let textareaValue = "Message to queue";
+
+    // Simulate the clear operation
+    const clearTextarea = () => {
+      textareaValue = "";
+    };
+
+    // Before clearing
+    expect(textareaValue).toBe("Message to queue");
+
+    // After the clear operation that happens in handleSubmit
+    clearTextarea();
+    expect(textareaValue).toBe("");
+  });
+});

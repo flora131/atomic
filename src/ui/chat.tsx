@@ -29,6 +29,7 @@ import {
   type ToolExecutionStatus,
   type ToolExecutionState,
 } from "./hooks/use-streaming-state.ts";
+import { useMessageQueue } from "./hooks/use-message-queue.ts";
 import {
   globalRegistry,
   parseSlashCommand,
@@ -592,6 +593,9 @@ export function ChatApp({
   // Streaming state hook for tool executions and pending questions
   const streamingState = useStreamingState();
 
+  // Message queue for queuing messages during streaming
+  const messageQueue = useMessageQueue();
+
   // State for showing user question dialog
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
 
@@ -1076,13 +1080,14 @@ export function ChatApp({
    * Handle message submission from textarea.
    * Gets value from textarea ref since onSubmit receives SubmitEvent, not value.
    * Handles both slash commands and regular messages.
+   * When streaming, queues messages instead of blocking.
    */
   const handleSubmit = useCallback(
     () => {
       // Get value from textarea ref
       const value = textareaRef.current?.plainText ?? "";
       const trimmedValue = value.trim();
-      if (!trimmedValue || isStreaming) {
+      if (!trimmedValue) {
         return;
       }
 
@@ -1105,8 +1110,14 @@ export function ChatApp({
       // Check if this is a slash command
       const parsed = parseSlashCommand(trimmedValue);
       if (parsed.isCommand) {
-        // Execute the slash command
+        // Execute the slash command (allowed even during streaming)
         void executeCommand(parsed.name, parsed.args);
+        return;
+      }
+
+      // If streaming, queue the message instead of sending immediately
+      if (isStreaming) {
+        messageQueue.enqueue(trimmedValue);
         return;
       }
 
@@ -1160,7 +1171,7 @@ export function ChatApp({
         void Promise.resolve(onStreamMessage(trimmedValue, handleChunk, handleComplete));
       }
     },
-    [isStreaming, onSendMessage, onStreamMessage, workflowState.showAutocomplete, updateWorkflowState, executeCommand]
+    [isStreaming, onSendMessage, onStreamMessage, workflowState.showAutocomplete, updateWorkflowState, executeCommand, messageQueue]
   );
 
   // Render message list (no empty state text)

@@ -71,3 +71,14 @@ export {
   truncateContent,
   type QueueIndicatorProps,
 } from "./queue-indicator.tsx";
+
+// ============================================================================
+// TIMESTAMP DISPLAY COMPONENT
+// ============================================================================
+
+export {
+  TimestampDisplay,
+  formatModelId,
+  buildDisplayParts,
+  type TimestampDisplayProps,
+} from "./timestamp-display.tsx";

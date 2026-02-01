@@ -12,6 +12,7 @@ import {
   generateMessageId,
   createMessage,
   formatTimestamp,
+  SPINNER_VERBS,
   type ChatMessage,
   type MessageRole,
   type ChatAppProps,
@@ -1711,5 +1712,68 @@ describe("FooterStatus Integration", () => {
     // All queued messages processed
     state = { ...state, queuedCount: 0 };
     expect(state.queuedCount).toBe(0);
+  });
+});
+
+// ============================================================================
+// SPINNER_VERBS Tests
+// ============================================================================
+
+describe("SPINNER_VERBS", () => {
+  /**
+   * These tests verify the SPINNER_VERBS constant array used by LoadingIndicator.
+   * The array contains contextually appropriate verbs for AI assistant actions.
+   */
+
+  test("SPINNER_VERBS is an array", () => {
+    expect(Array.isArray(SPINNER_VERBS)).toBe(true);
+  });
+
+  test("SPINNER_VERBS has at least 5 verbs", () => {
+    expect(SPINNER_VERBS.length).toBeGreaterThanOrEqual(5);
+  });
+
+  test("SPINNER_VERBS has at most 10 verbs", () => {
+    expect(SPINNER_VERBS.length).toBeLessThanOrEqual(10);
+  });
+
+  test("all SPINNER_VERBS are non-empty strings", () => {
+    for (const verb of SPINNER_VERBS) {
+      expect(typeof verb).toBe("string");
+      expect(verb.length).toBeGreaterThan(0);
+    }
+  });
+
+  test("SPINNER_VERBS are capitalized (first letter uppercase)", () => {
+    for (const verb of SPINNER_VERBS) {
+      const firstChar = verb[0];
+      expect(firstChar).toBe(firstChar?.toUpperCase());
+    }
+  });
+
+  test("SPINNER_VERBS contains expected verbs", () => {
+    // Check for some expected verbs
+    expect(SPINNER_VERBS).toContain("Thinking");
+    expect(SPINNER_VERBS).toContain("Processing");
+    expect(SPINNER_VERBS).toContain("Analyzing");
+  });
+
+  test("SPINNER_VERBS has no duplicates", () => {
+    const uniqueVerbs = new Set(SPINNER_VERBS);
+    expect(uniqueVerbs.size).toBe(SPINNER_VERBS.length);
+  });
+
+  test("random verb selection works with SPINNER_VERBS", () => {
+    // Simulate random verb selection used in LoadingIndicator
+    const getRandomVerb = () => {
+      const index = Math.floor(Math.random() * SPINNER_VERBS.length);
+      return SPINNER_VERBS[index];
+    };
+
+    // Run multiple times to ensure it returns valid verbs
+    for (let i = 0; i < 10; i++) {
+      const verb = getRandomVerb();
+      expect(SPINNER_VERBS).toContain(verb);
+    }
   });
 });

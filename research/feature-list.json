@@ -51,7 +51,7 @@
       "Export component from src/ui/components/index.ts",
       "Add unit tests for the component"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

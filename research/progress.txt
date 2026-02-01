@@ -90,3 +90,37 @@ Enhanced the ChatApp to automatically process queued messages after each stream 
 
 ### Next Feature
 The next highest priority feature is: "Create QueueIndicator component to display queued message count"
+
+---
+
+## 2026-02-01 - Feature: Create QueueIndicator component
+
+### Summary
+Created the `QueueIndicator` component to display a visual indicator showing the number of queued messages. The component only renders when there are messages in the queue.
+
+### Files Created
+- `src/ui/components/queue-indicator.tsx` - Component implementation with:
+  - `QueueIndicatorProps` interface (count, queue, compact)
+  - `formatQueueCount()` utility for singular/plural formatting
+  - `getQueueIcon()` utility for consistent icon
+  - `truncateContent()` utility for message preview truncation
+  - `QueueIndicator` component with compact and non-compact modes
+- `tests/ui/components/queue-indicator.test.tsx` - 38 comprehensive unit tests
+
+### Files Modified
+- `src/ui/components/index.ts` - Added exports for the new component and utilities
+
+### Test Results
+- All 38 tests pass (62 expect() calls)
+- All 700 UI tests pass (1786 expect() calls)
+- Tests cover: formatQueueCount, getQueueIcon, truncateContent, props structure, display logic, edge cases, integration
+
+### Features
+- Compact mode (default): Single line with icon and count text
+- Non-compact mode: Shows icon, count, and preview of first 3 queued messages
+- Only renders when count > 0 to avoid visual clutter
+- Message preview truncation with ellipsis for long content
+- Singular/plural grammar handling ("1 message queued" vs "2 messages queued")
+
+### Next Feature
+The next highest priority feature is: "Enhance ToolResult to default collapsed with summary line"

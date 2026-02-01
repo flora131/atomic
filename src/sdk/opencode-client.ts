@@ -2,15 +2,14 @@
  * OpenCodeClient - Implementation of CodingAgentClient for OpenCode SDK
  *
  * This module implements the unified CodingAgentClient interface for the
- * OpenCode AI coding agent. It supports:
+ * OpenCode AI coding agent using the @opencode-ai/sdk package.
+ *
+ * Features:
  * - Session creation and resumption
- * - Streaming message responses
+ * - Streaming message responses via SSE
  * - Context compaction via summarize()
  * - Event subscription
- *
- * Note: This implementation is designed to work with the @opencode-ai/sdk/v2/client
- * package when it becomes available. Currently uses typed stubs that define the
- * expected SDK interface.
+ * - Health checks and connection management
  */
 
 import type {
@@ -25,431 +24,372 @@ import type {
   ToolDefinition,
 } from "./types.ts";
 
-/**
- * OpenCode SDK Session interface (expected from @opencode-ai/sdk/v2/client)
- * This defines what we expect from the OpenCode SDK session API.
- */
-export interface OpenCodeSdkSession {
-  id: string;
-  send(message: string): Promise<OpenCodeSdkMessage>;
-  stream(message: string): AsyncIterable<OpenCodeSdkStreamEvent>;
-  summarize(): Promise<void>;
-  getUsage(): Promise<OpenCodeSdkUsage>;
-  destroy(): Promise<void>;
-}
+// Import the real SDK
+import {
+  createOpencodeClient as createSdkClient,
+  type OpencodeClient as SdkClient,
+  type OpencodeClientConfig,
+} from "@opencode-ai/sdk/v2/client";
 
 /**
- * OpenCode SDK Message interface
+ * Default OpenCode server configuration
  */
-export interface OpenCodeSdkMessage {
-  id: string;
-  role: "assistant" | "user" | "system";
-  content: string;
-  toolCalls?: OpenCodeSdkToolCall[];
-  usage?: OpenCodeSdkUsage;
-}
-
-/**
- * OpenCode SDK Tool Call interface
- */
-export interface OpenCodeSdkToolCall {
-  id: string;
-  name: string;
-  input: Record<string, unknown>;
-  output?: unknown;
-}
-
-/**
- * OpenCode SDK Stream Event interface
- */
-export interface OpenCodeSdkStreamEvent {
-  type: "delta" | "complete" | "tool_start" | "tool_end" | "error";
-  content?: string;
-  message?: OpenCodeSdkMessage;
-  toolCall?: OpenCodeSdkToolCall;
-  error?: Error;
-}
-
-/**
- * OpenCode SDK Usage interface
- */
-export interface OpenCodeSdkUsage {
-  inputTokens: number;
-  outputTokens: number;
-  totalTokens: number;
-  contextLimit: number;
-}
-
-/**
- * OpenCode SDK Event types
- */
-export type OpenCodeSdkEventType =
-  | "session.created"
-  | "session.resumed"
-  | "session.idle"
-  | "session.error"
-  | "message.start"
-  | "message.delta"
-  | "message.complete"
-  | "tool.start"
-  | "tool.complete"
-  | "tool.error"
-  | "compact.start"
-  | "compact.complete";
-
-/**
- * OpenCode SDK Event interface
- */
-export interface OpenCodeSdkEvent {
-  type: OpenCodeSdkEventType;
-  sessionId: string;
-  timestamp: string;
-  data?: Record<string, unknown>;
-}
-
-/**
- * OpenCode SDK Client interface (expected from @opencode-ai/sdk/v2/client)
- */
-export interface OpenCodeSdkClient {
-  session: {
-    create(config: OpenCodeSdkSessionConfig): Promise<OpenCodeSdkSession>;
-    get(sessionId: string): Promise<OpenCodeSdkSession | null>;
-    list(): Promise<OpenCodeSdkSession[]>;
-  };
-  on(
-    eventType: OpenCodeSdkEventType,
-    handler: (event: OpenCodeSdkEvent) => void
-  ): () => void;
-  tools: {
-    register(tool: OpenCodeSdkToolDefinition): void;
-    list(): OpenCodeSdkToolDefinition[];
-  };
-  start(): Promise<void>;
-  stop(): Promise<void>;
-}
-
-/**
- * OpenCode SDK Session Config interface
- */
-export interface OpenCodeSdkSessionConfig {
-  model?: string;
-  systemPrompt?: string;
-  tools?: string[];
-  maxTokens?: number;
-  temperature?: number;
-}
-
-/**
- * OpenCode SDK Tool Definition interface
- */
-export interface OpenCodeSdkToolDefinition {
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
-  handler: (input: unknown) => Promise<unknown>;
-}
-
-/**
- * Factory function type for creating OpenCode SDK client
- * This is what we expect from: import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
- */
-export type CreateOpenCodeClientFn = (
-  options?: OpenCodeClientOptions
-) => OpenCodeSdkClient;
+const DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096";
+const DEFAULT_MAX_RETRIES = 3;
+const DEFAULT_RETRY_DELAY = 1000;
 
 /**
  * Options for creating an OpenCode client
  */
 export interface OpenCodeClientOptions {
-  apiKey?: string;
+  /** Base URL for OpenCode server (default: http://localhost:4096) */
   baseUrl?: string;
+  /** Request timeout in milliseconds */
   timeout?: number;
+  /** Working directory for the OpenCode server */
+  directory?: string;
+  /** Maximum retry attempts for connection */
+  maxRetries?: number;
+  /** Delay between retries in milliseconds */
+  retryDelay?: number;
 }
 
 /**
- * Internal session state for tracking active sessions
+ * Health check response from OpenCode server
  */
-interface OpenCodeSessionState {
-  sdkSession: OpenCodeSdkSession;
-  sessionId: string;
-  config: SessionConfig;
-  inputTokens: number;
-  outputTokens: number;
-  isClosed: boolean;
-}
-
-/**
- * Maps OpenCode SDK event types to unified EventType
- */
-function mapSdkEventToEventType(
-  sdkEventType: OpenCodeSdkEventType
-): EventType | null {
-  const mapping: Record<OpenCodeSdkEventType, EventType | null> = {
-    "session.created": "session.start",
-    "session.resumed": "session.start",
-    "session.idle": "session.idle",
-    "session.error": "session.error",
-    "message.start": null,
-    "message.delta": "message.delta",
-    "message.complete": "message.complete",
-    "tool.start": "tool.start",
-    "tool.complete": "tool.complete",
-    "tool.error": "session.error",
-    "compact.start": null,
-    "compact.complete": null,
-  };
-  return mapping[sdkEventType];
+export interface OpenCodeHealthStatus {
+  healthy: boolean;
+  version?: string;
+  uptime?: number;
+  error?: string;
 }
 
 /**
  * OpenCodeClient implements CodingAgentClient for the OpenCode SDK.
  *
- * This client wraps the OpenCode SDK to provide a unified interface
+ * This client wraps the @opencode-ai/sdk to provide a unified interface
  * for session management, message streaming, and event handling.
  */
 export class OpenCodeClient implements CodingAgentClient {
   readonly agentType = "opencode" as const;
 
-  private sdkClient: OpenCodeSdkClient | null = null;
-  private createClientFn: CreateOpenCodeClientFn | null = null;
+  private sdkClient: SdkClient | null = null;
   private clientOptions: OpenCodeClientOptions;
   private eventHandlers: Map<EventType, Set<EventHandler<EventType>>> =
     new Map();
-  private sessions: Map<string, OpenCodeSessionState> = new Map();
-  private sdkEventUnsubscribers: Array<() => void> = [];
+  private activeSessions: Set<string> = new Set();
   private registeredTools: Map<string, ToolDefinition> = new Map();
   private isRunning = false;
+  private isConnected = false;
+  private currentSessionId: string | null = null;
+  private eventSubscriptionController: AbortController | null = null;
 
   /**
    * Create a new OpenCodeClient
-   * @param createClientFn - Factory function to create SDK client (injected for testing)
    * @param options - Client options
    */
-  constructor(
-    createClientFn?: CreateOpenCodeClientFn,
-    options: OpenCodeClientOptions = {}
-  ) {
-    this.createClientFn = createClientFn ?? null;
-    this.clientOptions = options;
-  }
-
-  /**
-   * Set the SDK client factory function
-   * Used for dependency injection in production
-   */
-  setClientFactory(createClientFn: CreateOpenCodeClientFn): void {
-    this.createClientFn = createClientFn;
-  }
-
-  /**
-   * Wrap an OpenCode SDK session into a unified Session interface
-   */
-  private wrapSession(
-    sdkSession: OpenCodeSdkSession,
-    sessionId: string,
-    config: SessionConfig
-  ): Session {
-    const state: OpenCodeSessionState = {
-      sdkSession,
-      sessionId,
-      config,
-      inputTokens: 0,
-      outputTokens: 0,
-      isClosed: false,
+  constructor(options: OpenCodeClientOptions = {}) {
+    this.clientOptions = {
+      baseUrl: DEFAULT_OPENCODE_BASE_URL,
+      maxRetries: DEFAULT_MAX_RETRIES,
+      retryDelay: DEFAULT_RETRY_DELAY,
+      ...options,
     };
+  }
 
-    this.sessions.set(sessionId, state);
-
-    const session: Session = {
-      id: sessionId,
-
-      send: async (message: string): Promise<AgentMessage> => {
-        if (state.isClosed) {
-          throw new Error("Session is closed");
-        }
-
-        const sdkMessage = await state.sdkSession.send(message);
-
-        // Track token usage
-        if (sdkMessage.usage) {
-          state.inputTokens += sdkMessage.usage.inputTokens;
-          state.outputTokens += sdkMessage.usage.outputTokens;
-        }
-
-        // Emit message complete event
-        this.emitEvent("message.complete", sessionId, { message: sdkMessage });
-
-        return {
-          type: sdkMessage.toolCalls ? "tool_use" : "text",
-          content: sdkMessage.toolCalls
-            ? { toolCalls: sdkMessage.toolCalls }
-            : sdkMessage.content,
-          role: "assistant",
-          metadata: {
-            tokenUsage: sdkMessage.usage
-              ? {
-                  inputTokens: sdkMessage.usage.inputTokens,
-                  outputTokens: sdkMessage.usage.outputTokens,
-                }
-              : undefined,
-          },
-        };
-      },
-
-      stream: (message: string): AsyncIterable<AgentMessage> => {
-        const emitEvent = (
-          type: EventType,
-          data: Record<string, unknown>
-        ) => this.emitEvent(type, sessionId, data);
-
-        return {
-          [Symbol.asyncIterator]: async function* () {
-            if (state.isClosed) {
-              throw new Error("Session is closed");
-            }
-
-            for await (const event of state.sdkSession.stream(message)) {
-              switch (event.type) {
-                case "delta":
-                  emitEvent("message.delta", { delta: event.content });
-                  yield {
-                    type: "text",
-                    content: event.content ?? "",
-                    role: "assistant",
-                  };
-                  break;
-
-                case "complete":
-                  if (event.message) {
-                    // Track token usage
-                    if (event.message.usage) {
-                      state.inputTokens += event.message.usage.inputTokens;
-                      state.outputTokens += event.message.usage.outputTokens;
-                    }
-
-                    emitEvent("message.complete", { message: event.message });
-
-                    yield {
-                      type: event.message.toolCalls ? "tool_use" : "text",
-                      content: event.message.toolCalls
-                        ? { toolCalls: event.message.toolCalls }
-                        : event.message.content,
-                      role: "assistant",
-                      metadata: {
-                        tokenUsage: event.message.usage
-                          ? {
-                              inputTokens: event.message.usage.inputTokens,
-                              outputTokens: event.message.usage.outputTokens,
-                            }
-                          : undefined,
-                      },
-                    };
-                  }
-                  break;
-
-                case "tool_start":
-                  if (event.toolCall) {
-                    emitEvent("tool.start", {
-                      toolName: event.toolCall.name,
-                      toolInput: event.toolCall.input,
-                    });
-                  }
-                  break;
-
-                case "tool_end":
-                  if (event.toolCall) {
-                    emitEvent("tool.complete", {
-                      toolName: event.toolCall.name,
-                      toolResult: event.toolCall.output,
-                      success: true,
-                    });
-                  }
-                  break;
-
-                case "error":
-                  emitEvent("session.error", {
-                    error: event.error?.message ?? "Unknown error",
-                  });
-                  break;
-              }
-            }
-          },
-        };
-      },
-
-      summarize: async (): Promise<void> => {
-        if (state.isClosed) {
-          throw new Error("Session is closed");
-        }
-
-        // OpenCode SDK supports context compaction via summarize()
-        await state.sdkSession.summarize();
-
-        // Emit event for tracking
-        this.emitEvent("session.idle", sessionId, {
-          reason: "context_compacted",
+  /**
+   * Check if the OpenCode server is healthy and reachable
+   * @returns Health status of the OpenCode server
+   */
+  async healthCheck(): Promise<OpenCodeHealthStatus> {
+    try {
+      if (!this.sdkClient) {
+        // Create temporary client for health check
+        const tempClient = createSdkClient({
+          baseUrl: this.clientOptions.baseUrl,
+          directory: this.clientOptions.directory,
         });
-      },
-
-      getContextUsage: async (): Promise<ContextUsage> => {
-        if (state.isClosed) {
+        const result = await tempClient.global.health();
+        if (result.error) {
           return {
-            inputTokens: state.inputTokens,
-            outputTokens: state.outputTokens,
-            maxTokens: 200000,
-            usagePercentage:
-              ((state.inputTokens + state.outputTokens) / 200000) * 100,
+            healthy: false,
+            error: String(result.error),
           };
         }
-
-        const usage = await state.sdkSession.getUsage();
         return {
-          inputTokens: usage.inputTokens,
-          outputTokens: usage.outputTokens,
-          maxTokens: usage.contextLimit,
-          usagePercentage: (usage.totalTokens / usage.contextLimit) * 100,
+          healthy: true,
+          version: result.data?.version,
         };
-      },
+      }
 
-      destroy: async (): Promise<void> => {
-        if (!state.isClosed) {
-          state.isClosed = true;
-          await state.sdkSession.destroy();
-          this.sessions.delete(sessionId);
-          this.emitEvent("session.idle", sessionId, { reason: "destroyed" });
-        }
-      },
-    };
-
-    return session;
+      const result = await this.sdkClient.global.health();
+      if (result.error) {
+        return {
+          healthy: false,
+          error: String(result.error),
+        };
+      }
+      return {
+        healthy: true,
+        version: result.data?.version,
+      };
+    } catch (error) {
+      return {
+        healthy: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   /**
-   * Subscribe to SDK events and forward to unified event handlers
+   * Connect to the OpenCode server with retry logic
+   * @returns True if connection successful
+   * @throws Error if connection fails after all retries
    */
-  private subscribeToSdkEvents(): void {
+  async connect(): Promise<boolean> {
+    if (this.isConnected) {
+      return true;
+    }
+
+    const maxRetries = this.clientOptions.maxRetries ?? DEFAULT_MAX_RETRIES;
+    const retryDelay = this.clientOptions.retryDelay ?? DEFAULT_RETRY_DELAY;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Create the SDK client
+        this.sdkClient = createSdkClient({
+          baseUrl: this.clientOptions.baseUrl,
+          directory: this.clientOptions.directory,
+        });
+
+        // Verify connection with health check
+        const health = await this.healthCheck();
+        if (health.healthy) {
+          this.isConnected = true;
+          this.emitEvent("session.start", "connection", {
+            config: { baseUrl: this.clientOptions.baseUrl },
+          });
+          return true;
+        }
+
+        throw new Error(health.error ?? "Health check failed");
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+
+        if (attempt === maxRetries) {
+          this.emitEvent("session.error", "connection", {
+            error: `Failed to connect after ${maxRetries} attempts: ${errorMsg}`,
+          });
+          throw new Error(
+            `Failed to connect to OpenCode server at ${this.clientOptions.baseUrl}: ${errorMsg}`
+          );
+        }
+
+        // Wait before retry
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      }
+    }
+
+    return false;
+  }
+
+  /**
+   * Disconnect from the OpenCode server
+   */
+  async disconnect(): Promise<void> {
+    if (this.eventSubscriptionController) {
+      this.eventSubscriptionController.abort();
+      this.eventSubscriptionController = null;
+    }
+
+    // Close all active sessions
+    for (const sessionId of this.activeSessions) {
+      try {
+        if (this.sdkClient) {
+          await this.sdkClient.session.delete({
+            sessionID: sessionId,
+            directory: this.clientOptions.directory,
+          });
+        }
+      } catch {
+        // Ignore errors during cleanup
+      }
+    }
+    this.activeSessions.clear();
+
+    this.isConnected = false;
+    this.sdkClient = null;
+    this.currentSessionId = null;
+
+    this.emitEvent("session.idle", "connection", { reason: "disconnected" });
+  }
+
+  /**
+   * Get current session ID
+   */
+  getCurrentSessionId(): string | null {
+    return this.currentSessionId;
+  }
+
+  /**
+   * List all sessions from the OpenCode server
+   */
+  async listSessions(): Promise<
+    Array<{ id: string; title?: string; createdAt?: number }>
+  > {
+    if (!this.sdkClient) {
+      return [];
+    }
+
+    const result = await this.sdkClient.session.list({
+      directory: this.clientOptions.directory,
+    });
+
+    if (result.error || !result.data) {
+      return [];
+    }
+
+    return (
+      result.data as Array<{
+        id: string;
+        title?: string;
+        time?: { created?: number };
+      }>
+    ).map((session) => ({
+      id: session.id,
+      title: session.title,
+      createdAt: session.time?.created,
+    }));
+  }
+
+  /**
+   * Subscribe to SSE events from OpenCode server
+   */
+  private async subscribeToSdkEvents(): Promise<void> {
     if (!this.sdkClient) return;
 
-    const sdkEventTypes: OpenCodeSdkEventType[] = [
-      "session.created",
-      "session.resumed",
-      "session.idle",
-      "session.error",
-      "message.delta",
-      "message.complete",
-      "tool.start",
-      "tool.complete",
-      "tool.error",
-    ];
+    try {
+      this.eventSubscriptionController = new AbortController();
 
-    for (const sdkEventType of sdkEventTypes) {
-      const unsubscribe = this.sdkClient.on(sdkEventType, (sdkEvent) => {
-        const eventType = mapSdkEventToEventType(sdkEventType);
-        if (eventType) {
-          this.emitEvent(eventType, sdkEvent.sessionId, sdkEvent.data ?? {});
+      const eventStream = await this.sdkClient.event.subscribe({
+        directory: this.clientOptions.directory,
+      });
+
+      // Process events in background
+      this.processEventStream(eventStream).catch((error) => {
+        // Only log if not aborted
+        if (error?.name !== "AbortError") {
+          console.error("SSE event stream error:", error);
         }
       });
-      this.sdkEventUnsubscribers.push(unsubscribe);
+    } catch (error) {
+      console.error("Failed to subscribe to events:", error);
+    }
+  }
+
+  /**
+   * Process SSE event stream
+   */
+  private async processEventStream(
+    eventStream: AsyncIterable<unknown>
+  ): Promise<void> {
+    try {
+      for await (const event of eventStream) {
+        if (this.eventSubscriptionController?.signal.aborted) {
+          break;
+        }
+        this.handleSdkEvent(event as Record<string, unknown>);
+      }
+    } catch (error) {
+      if ((error as Error)?.name !== "AbortError") {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Handle events from SDK and map to unified event types
+   */
+  private handleSdkEvent(event: Record<string, unknown>): void {
+    const eventType = event.type as string;
+    const properties = event.properties as Record<string, unknown> | undefined;
+
+    // Map SDK events to unified events
+    switch (eventType) {
+      case "session.created":
+        this.emitEvent(
+          "session.start",
+          (properties?.sessionID as string) ?? "",
+          {
+            config: {},
+          }
+        );
+        break;
+
+      case "session.idle":
+        this.emitEvent(
+          "session.idle",
+          (properties?.sessionID as string) ?? "",
+          {
+            reason: "idle",
+          }
+        );
+        break;
+
+      case "session.error":
+        this.emitEvent(
+          "session.error",
+          (properties?.sessionID as string) ?? "",
+          {
+            error: properties?.error ?? "Unknown error",
+          }
+        );
+        break;
+
+      case "message.updated": {
+        // Handle message updates (info contains the message)
+        const info = properties?.info as Record<string, unknown> | undefined;
+        if (info?.role === "assistant") {
+          this.emitEvent(
+            "message.complete",
+            (info?.sessionID as string) ?? "",
+            {
+              message: info,
+            }
+          );
+        }
+        break;
+      }
+
+      case "message.part.updated": {
+        // Handle streaming text parts
+        const part = properties?.part as Record<string, unknown> | undefined;
+        const delta = properties?.delta as string | undefined;
+        if (part?.type === "text" && delta) {
+          this.emitEvent("message.delta", (part?.sessionID as string) ?? "", {
+            delta,
+            contentType: "text",
+          });
+        } else if (part?.type === "tool") {
+          const toolState = part?.state as Record<string, unknown> | undefined;
+          if (toolState?.status === "pending") {
+            this.emitEvent("tool.start", (part?.sessionID as string) ?? "", {
+              toolName: (part?.tool as string) ?? "",
+              toolInput: toolState?.input,
+            });
+          } else if (
+            toolState?.status === "completed" ||
+            toolState?.status === "error"
+          ) {
+            this.emitEvent("tool.complete", (part?.sessionID as string) ?? "", {
+              toolName: (part?.tool as string) ?? "",
+              toolResult: toolState?.output,
+              success: toolState?.status === "completed",
+            });
+          }
+        }
+        break;
+      }
     }
   }
 
@@ -488,19 +428,25 @@ export class OpenCodeClient implements CodingAgentClient {
       throw new Error("Client not started. Call start() first.");
     }
 
-    const sdkConfig: OpenCodeSdkSessionConfig = {
-      model: config.model,
-      systemPrompt: config.systemPrompt,
-      tools: config.tools,
-    };
+    const result = await this.sdkClient.session.create({
+      directory: this.clientOptions.directory,
+      title: config.sessionId ?? undefined,
+    });
 
-    const sdkSession = await this.sdkClient.session.create(sdkConfig);
-    const sessionId = config.sessionId ?? sdkSession.id;
+    if (result.error || !result.data) {
+      throw new Error(
+        `Failed to create session: ${result.error ?? "Unknown error"}`
+      );
+    }
+
+    const sessionId = result.data.id;
+    this.currentSessionId = sessionId;
+    this.activeSessions.add(sessionId);
 
     // Emit session start event
     this.emitEvent("session.start", sessionId, { config });
 
-    return this.wrapSession(sdkSession, sessionId, config);
+    return this.wrapSession(sessionId, config);
   }
 
   /**
@@ -511,23 +457,157 @@ export class OpenCodeClient implements CodingAgentClient {
       throw new Error("Client not started. Call start() first.");
     }
 
-    // Check if session is already active locally
-    const existingState = this.sessions.get(sessionId);
-    if (existingState && !existingState.isClosed) {
-      return this.wrapSession(
-        existingState.sdkSession,
-        sessionId,
-        existingState.config
-      );
-    }
+    const result = await this.sdkClient.session.get({
+      sessionID: sessionId,
+      directory: this.clientOptions.directory,
+    });
 
-    // Try to get session from SDK
-    const sdkSession = await this.sdkClient.session.get(sessionId);
-    if (!sdkSession) {
+    if (result.error || !result.data) {
       return null;
     }
 
-    return this.wrapSession(sdkSession, sessionId, {});
+    this.currentSessionId = sessionId;
+    this.activeSessions.add(sessionId);
+    return this.wrapSession(sessionId, {});
+  }
+
+  /**
+   * Wrap a session ID into a unified Session interface
+   */
+  private wrapSession(sessionId: string, config: SessionConfig): Session {
+    const client = this;
+
+    const session: Session = {
+      id: sessionId,
+
+      send: async (message: string): Promise<AgentMessage> => {
+        if (!client.sdkClient) {
+          throw new Error("Client not connected");
+        }
+
+        const result = await client.sdkClient.session.prompt({
+          sessionID: sessionId,
+          directory: client.clientOptions.directory,
+          parts: [{ type: "text", text: message }],
+        });
+
+        if (result.error) {
+          throw new Error(`Failed to send message: ${result.error}`);
+        }
+
+        // Extract text content from parts
+        const parts = result.data?.parts ?? [];
+        const textParts = parts.filter(
+          (p): p is { type: "text"; text: string } =>
+            (p as Record<string, unknown>).type === "text"
+        );
+        const content = textParts
+          .map((p) => (p as { text: string }).text)
+          .join("");
+
+        // Check for tool calls
+        const toolParts = parts.filter(
+          (p): p is { type: "tool"; tool: string; state: unknown } =>
+            (p as Record<string, unknown>).type === "tool"
+        );
+
+        if (toolParts.length > 0) {
+          return {
+            type: "tool_use",
+            content: {
+              toolCalls: toolParts.map((t) => ({
+                id: ((t as Record<string, unknown>).id as string) ?? "",
+                name: t.tool,
+                input: (((t.state as Record<string, unknown>)?.input ??
+                  {}) as Record<string, unknown>),
+              })),
+            },
+            role: "assistant",
+          };
+        }
+
+        return {
+          type: "text",
+          content,
+          role: "assistant",
+        };
+      },
+
+      stream: (message: string): AsyncIterable<AgentMessage> => {
+        return {
+          async *[Symbol.asyncIterator]() {
+            if (!client.sdkClient) {
+              throw new Error("Client not connected");
+            }
+
+            // Send async prompt - SSE events will stream back
+            const result = await client.sdkClient.session.promptAsync({
+              sessionID: sessionId,
+              directory: client.clientOptions.directory,
+              parts: [{ type: "text", text: message }],
+            });
+
+            if (result.error) {
+              throw new Error(`Failed to send message: ${result.error}`);
+            }
+
+            // Yield initial response
+            // Note: Actual streaming comes through SSE events
+            yield {
+              type: "text",
+              content: "",
+              role: "assistant",
+            };
+          },
+        };
+      },
+
+      summarize: async (): Promise<void> => {
+        if (!client.sdkClient) {
+          throw new Error("Client not connected");
+        }
+
+        await client.sdkClient.session.summarize({
+          sessionID: sessionId,
+          directory: client.clientOptions.directory,
+        });
+
+        client.emitEvent("session.idle", sessionId, {
+          reason: "context_compacted",
+        });
+      },
+
+      getContextUsage: async (): Promise<ContextUsage> => {
+        // OpenCode SDK doesn't expose direct token usage API
+        // Return placeholder values
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          maxTokens: 200000,
+          usagePercentage: 0,
+        };
+      },
+
+      destroy: async (): Promise<void> => {
+        if (!client.sdkClient) {
+          return;
+        }
+
+        await client.sdkClient.session.delete({
+          sessionID: sessionId,
+          directory: client.clientOptions.directory,
+        });
+
+        client.activeSessions.delete(sessionId);
+        if (client.currentSessionId === sessionId) {
+          client.currentSessionId = null;
+        }
+
+        client.emitEvent("session.idle", sessionId, { reason: "destroyed" });
+      },
+    };
+
+    return session;
   }
 
   /**
@@ -549,54 +629,28 @@ export class OpenCodeClient implements CodingAgentClient {
 
   /**
    * Register a custom tool
+   * Note: OpenCode tools are configured server-side, this is a no-op
    */
   registerTool(tool: ToolDefinition): void {
     this.registeredTools.set(tool.name, tool);
-
-    // If client is running, register with SDK
-    if (this.sdkClient) {
-      this.sdkClient.tools.register({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.inputSchema,
-        handler: async (input) => tool.handler(input),
-      });
-    }
+    // OpenCode tools are registered server-side via MCP or config
+    // This method stores tools for potential future use
   }
 
   /**
-   * Start the client
+   * Start the client and connect to OpenCode server
    */
   async start(): Promise<void> {
     if (this.isRunning) {
       return;
     }
 
-    if (!this.createClientFn) {
-      throw new Error(
-        "No SDK client factory provided. " +
-          "Either pass createOpencodeClient to constructor or call setClientFactory()."
-      );
-    }
+    // Connect to OpenCode server
+    await this.connect();
 
-    // Create SDK client
-    this.sdkClient = this.createClientFn(this.clientOptions);
+    // Start SSE event subscription
+    await this.subscribeToSdkEvents();
 
-    // Register any tools that were added before start
-    for (const tool of this.registeredTools.values()) {
-      this.sdkClient.tools.register({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.inputSchema,
-        handler: async (input) => tool.handler(input),
-      });
-    }
-
-    // Subscribe to SDK events
-    this.subscribeToSdkEvents();
-
-    // Start SDK client
-    await this.sdkClient.start();
     this.isRunning = true;
   }
 
@@ -608,44 +662,34 @@ export class OpenCodeClient implements CodingAgentClient {
       return;
     }
 
-    // Unsubscribe from SDK events
-    for (const unsubscribe of this.sdkEventUnsubscribers) {
-      unsubscribe();
-    }
-    this.sdkEventUnsubscribers = [];
-
-    // Close all active sessions
-    for (const [_sessionId, state] of this.sessions) {
-      if (!state.isClosed) {
-        state.isClosed = true;
-        try {
-          await state.sdkSession.destroy();
-        } catch {
-          // Ignore errors during cleanup
-        }
-      }
-    }
-    this.sessions.clear();
-
-    // Stop SDK client
-    if (this.sdkClient) {
-      await this.sdkClient.stop();
-      this.sdkClient = null;
-    }
+    // Disconnect from server
+    await this.disconnect();
 
     this.eventHandlers.clear();
     this.isRunning = false;
+  }
+
+  /**
+   * Check if the client is currently connected to OpenCode server
+   */
+  isConnectedToServer(): boolean {
+    return this.isConnected;
+  }
+
+  /**
+   * Get the configured base URL
+   */
+  getBaseUrl(): string {
+    return this.clientOptions.baseUrl ?? DEFAULT_OPENCODE_BASE_URL;
   }
 }
 
 /**
  * Factory function to create an OpenCodeClient instance
- * @param createClientFn - Optional SDK client factory (for dependency injection)
  * @param options - Client options
  */
 export function createOpenCodeClient(
-  createClientFn?: CreateOpenCodeClientFn,
   options?: OpenCodeClientOptions
 ): OpenCodeClient {
-  return new OpenCodeClient(createClientFn, options);
+  return new OpenCodeClient(options);
 }

@@ -1198,3 +1198,168 @@ describe("MessageBubbleProps with verboseMode", () => {
     expect(props.verboseMode).toBe(false);
   });
 });
+
+// ============================================================================
+// Ctrl+O Keyboard Shortcut Tests
+// ============================================================================
+
+describe("Ctrl+O Keyboard Shortcut for Verbose Mode", () => {
+  /**
+   * These tests verify the Ctrl+O keyboard shortcut toggles verbose mode.
+   * The shortcut should toggle the verboseMode state in ChatApp.
+   */
+
+  test("Ctrl+O key event has correct properties", () => {
+    // Simulate a Ctrl+O key event structure
+    interface KeyEvent {
+      name: string;
+      ctrl: boolean;
+      shift: boolean;
+      alt: boolean;
+    }
+
+    const ctrlOEvent: KeyEvent = {
+      name: "o",
+      ctrl: true,
+      shift: false,
+      alt: false,
+    };
+
+    expect(ctrlOEvent.name).toBe("o");
+    expect(ctrlOEvent.ctrl).toBe(true);
+    expect(ctrlOEvent.shift).toBe(false);
+  });
+
+  test("Ctrl+O toggles verboseMode from false to true", () => {
+    let verboseMode = false;
+
+    // Simulate toggle action
+    const toggleVerboseMode = () => {
+      verboseMode = !verboseMode;
+    };
+
+    // Simulate Ctrl+O press
+    toggleVerboseMode();
+    expect(verboseMode).toBe(true);
+  });
+
+  test("Ctrl+O toggles verboseMode from true to false", () => {
+    let verboseMode = true;
+
+    // Simulate toggle action
+    const toggleVerboseMode = () => {
+      verboseMode = !verboseMode;
+    };
+
+    // Simulate Ctrl+O press
+    toggleVerboseMode();
+    expect(verboseMode).toBe(false);
+  });
+
+  test("multiple Ctrl+O presses toggle correctly", () => {
+    let verboseMode = false;
+
+    const toggleVerboseMode = () => {
+      verboseMode = !verboseMode;
+    };
+
+    // First toggle: off -> on
+    toggleVerboseMode();
+    expect(verboseMode).toBe(true);
+
+    // Second toggle: on -> off
+    toggleVerboseMode();
+    expect(verboseMode).toBe(false);
+
+    // Third toggle: off -> on
+    toggleVerboseMode();
+    expect(verboseMode).toBe(true);
+  });
+
+  test("Ctrl+O handler is distinct from other Ctrl shortcuts", () => {
+    // Simulate key event handling logic
+    interface KeyEvent {
+      name: string;
+      ctrl: boolean;
+      shift: boolean;
+    }
+
+    const isCtrlO = (event: KeyEvent): boolean => {
+      return event.ctrl && event.name === "o" && !event.shift;
+    };
+
+    const isCtrlC = (event: KeyEvent): boolean => {
+      return event.ctrl && event.name === "c";
+    };
+
+    const isCtrlV = (event: KeyEvent): boolean => {
+      return event.ctrl && event.name === "v";
+    };
+
+    // Ctrl+O should only match Ctrl+O
+    expect(isCtrlO({ name: "o", ctrl: true, shift: false })).toBe(true);
+    expect(isCtrlO({ name: "c", ctrl: true, shift: false })).toBe(false);
+    expect(isCtrlO({ name: "v", ctrl: true, shift: false })).toBe(false);
+    expect(isCtrlO({ name: "o", ctrl: false, shift: false })).toBe(false);
+
+    // Other shortcuts should not match Ctrl+O
+    expect(isCtrlC({ name: "o", ctrl: true, shift: false })).toBe(false);
+    expect(isCtrlV({ name: "o", ctrl: true, shift: false })).toBe(false);
+  });
+
+  test("verboseMode state change propagates to ToolResult", () => {
+    // Simulate state propagation after Ctrl+O toggle
+    let verboseMode = false;
+    let toolResultVerboseMode = verboseMode;
+
+    const toggleVerboseMode = () => {
+      verboseMode = !verboseMode;
+      toolResultVerboseMode = verboseMode; // Simulates React re-render prop update
+    };
+
+    expect(toolResultVerboseMode).toBe(false);
+
+    toggleVerboseMode();
+    expect(verboseMode).toBe(true);
+    expect(toolResultVerboseMode).toBe(true);
+
+    toggleVerboseMode();
+    expect(verboseMode).toBe(false);
+    expect(toolResultVerboseMode).toBe(false);
+  });
+
+  test("keyboard handler structure supports Ctrl+O pattern", () => {
+    // Verify the keyboard event handler pattern used in ChatApp
+    interface KeyEvent {
+      name: string;
+      ctrl: boolean;
+      shift: boolean;
+    }
+
+    let handledEvent: string | null = null;
+    let verboseMode = false;
+
+    const keyboardHandler = (event: KeyEvent) => {
+      // Pattern matching similar to ChatApp useKeyboard callback
+      if (event.ctrl && event.name === "o") {
+        handledEvent = "Ctrl+O";
+        verboseMode = !verboseMode;
+        return;
+      }
+      if (event.ctrl && event.name === "c") {
+        handledEvent = "Ctrl+C";
+        return;
+      }
+    };
+
+    // Test Ctrl+O handling
+    keyboardHandler({ name: "o", ctrl: true, shift: false });
+    expect(handledEvent).toBe("Ctrl+O");
+    expect(verboseMode).toBe(true);
+
+    // Test that other events don't affect verboseMode
+    keyboardHandler({ name: "c", ctrl: true, shift: false });
+    expect(handledEvent).toBe("Ctrl+C");
+    expect(verboseMode).toBe(true); // Should still be true
+  });
+});

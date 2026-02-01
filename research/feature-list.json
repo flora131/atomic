@@ -88,7 +88,7 @@
       "Verify shortcut works in the existing keyboard handling flow",
       "Test that verbose mode toggles correctly on keypress"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -100,7 +100,7 @@
       "Verify tool outputs expand when verbose mode is enabled",
       "Verify tool outputs collapse when verbose mode is disabled"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

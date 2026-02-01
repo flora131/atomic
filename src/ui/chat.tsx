@@ -1071,6 +1071,12 @@ export function ChatApp({
           return;
         }
 
+        // Ctrl+O - toggle verbose mode (expand/collapse all tool outputs)
+        if (event.ctrl && event.name === "o") {
+          setVerboseMode((prev) => !prev);
+          return;
+        }
+
         // After processing key, check input for slash command detection
         // Use setTimeout to let the textarea update first
         setTimeout(() => {
@@ -1078,7 +1084,7 @@ export function ChatApp({
           handleInputChange(value);
         }, 0);
       },
-      [onExit, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand]
+      [onExit, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand, setVerboseMode]
     )
   );
 

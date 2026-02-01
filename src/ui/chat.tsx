@@ -20,7 +20,6 @@ import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplet
 import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
 import { ToolResult } from "./components/tool-result.tsx";
 import { TimestampDisplay } from "./components/timestamp-display.tsx";
-import { FooterStatus } from "./components/footer-status.tsx";
 import {
   UserQuestionDialog,
   type UserQuestion,
@@ -167,6 +166,25 @@ export interface ChatMessage {
 }
 
 /**
+ * Tool start event callback signature.
+ */
+export type OnToolStart = (
+  toolId: string,
+  toolName: string,
+  input: Record<string, unknown>
+) => void;
+
+/**
+ * Tool complete event callback signature.
+ */
+export type OnToolComplete = (
+  toolId: string,
+  output: unknown,
+  success: boolean,
+  error?: string
+) => void;
+
+/**
  * Props for the ChatApp component.
  */
 export interface ChatAppProps {
@@ -198,6 +216,16 @@ export interface ChatAppProps {
   workingDir?: string;
   /** Suggestion text for header */
   suggestion?: string;
+  /**
+   * Register callback to receive tool start notifications.
+   * Called with a function that should be invoked when a tool starts.
+   */
+  registerToolStartHandler?: (handler: OnToolStart) => void;
+  /**
+   * Register callback to receive tool complete notifications.
+   * Called with a function that should be invoked when a tool completes.
+   */
+  registerToolCompleteHandler?: (handler: OnToolComplete) => void;
 }
 
 /**
@@ -318,6 +346,17 @@ export function formatTimestamp(isoString: string): string {
 // ============================================================================
 // DESIGN TOKENS - ATOMIC BRANDING (Muted Pink & Pale Blue Theme)
 // ============================================================================
+
+// ============================================================================
+// DISPLAY CONSTANTS
+// ============================================================================
+
+/**
+ * Maximum number of messages to display in the chat UI.
+ * Older messages beyond this limit are truncated for performance.
+ * Adjust this value based on terminal size and performance needs.
+ */
+export const MAX_VISIBLE_MESSAGES = 10;
 
 // ============================================================================
 // LOADING INDICATOR COMPONENT
@@ -625,6 +664,8 @@ export function ChatApp({
   tier = "Claude Max",
   workingDir = "~/",
   suggestion: _suggestion,
+  registerToolStartHandler,
+  registerToolCompleteHandler,
 }: ChatAppProps): React.ReactNode {
   // title and suggestion are deprecated, kept for backwards compatibility
   void _title;
@@ -741,6 +782,19 @@ export function ChatApp({
     }
   }, [streamingState]);
 
+  // Register tool event handlers with parent component
+  useEffect(() => {
+    if (registerToolStartHandler) {
+      registerToolStartHandler(handleToolStart);
+    }
+  }, [registerToolStartHandler, handleToolStart]);
+
+  useEffect(() => {
+    if (registerToolCompleteHandler) {
+      registerToolCompleteHandler(handleToolComplete);
+    }
+  }, [registerToolCompleteHandler, handleToolComplete]);
+
   /**
    * Handle human_input_required signal.
    * Shows UserQuestionDialog for HITL interactions.
@@ -803,6 +857,9 @@ export function ChatApp({
 
   // Ref for textarea to access value and clear it
   const textareaRef = useRef<TextareaRenderable>(null);
+
+  // Ref for sendMessage to allow executeCommand to call it without circular dependencies
+  const sendMessageRef = useRef<((content: string) => void) | null>(null);
 
   /**
    * Handle input changes to detect slash command prefix.
@@ -891,6 +948,12 @@ export function ChatApp({
       state: contextState,
       addMessage,
       setStreaming: setIsStreaming,
+      sendMessage: (content: string) => {
+        // Use ref to call sendMessage without circular dependency
+        if (sendMessageRef.current) {
+          sendMessageRef.current(content);
+        }
+      },
     };
 
     try {
@@ -1118,12 +1181,6 @@ export function ChatApp({
           return;
         }
 
-        // Ctrl+O - toggle verbose mode (expand/collapse all tool outputs)
-        if (event.ctrl && event.name === "o") {
-          setVerboseMode((prev) => !prev);
-          return;
-        }
-
         // After processing key, check input for slash command detection
         // Use setTimeout to let the textarea update first
         setTimeout(() => {
@@ -1131,7 +1188,7 @@ export function ChatApp({
           handleInputChange(value);
         }, 0);
       },
-      [onExit, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand, setVerboseMode]
+      [onExit, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand]
     )
   );
 
@@ -1211,6 +1268,11 @@ export function ChatApp({
     [onSendMessage, onStreamMessage, messageQueue, model]
   );
 
+  // Keep the sendMessageRef in sync with sendMessage callback
+  useEffect(() => {
+    sendMessageRef.current = sendMessage;
+  }, [sendMessage]);
+
   /**
    * Handle message submission from textarea.
    * Gets value from textarea ref since onSubmit receives SubmitEvent, not value.
@@ -1262,14 +1324,31 @@ export function ChatApp({
     [isStreaming, workflowState.showAutocomplete, updateWorkflowState, executeCommand, messageQueue, sendMessage]
   );
 
+  // Get the visible messages (limit to MAX_VISIBLE_MESSAGES for performance)
+  // Show the most recent messages, truncating older ones
+  const visibleMessages = messages.length > MAX_VISIBLE_MESSAGES
+    ? messages.slice(-MAX_VISIBLE_MESSAGES)
+    : messages;
+
+  // Show truncation indicator if there are hidden messages
+  const hiddenMessageCount = messages.length - visibleMessages.length;
+
   // Render message list (no empty state text)
   const messageContent = messages.length > 0 ? (
     <>
-      {messages.map((msg, index) => (
+      {/* Truncation indicator - shows how many messages are hidden */}
+      {hiddenMessageCount > 0 && (
+        <box marginBottom={1} paddingLeft={1}>
+          <text style={{ fg: MUTED_LAVENDER, attr: "dim" }}>
+            ↑ {hiddenMessageCount} earlier message{hiddenMessageCount !== 1 ? "s" : ""} hidden
+          </text>
+        </box>
+      )}
+      {visibleMessages.map((msg, index) => (
         <MessageBubble
           key={msg.id}
           message={msg}
-          isLast={index === messages.length - 1}
+          isLast={index === visibleMessages.length - 1}
           syntaxStyle={syntaxStyle}
           verboseMode={verboseMode}
         />
@@ -1306,7 +1385,8 @@ export function ChatApp({
       <scrollbox
         flexGrow={1}
         stickyScroll={true}
-        viewportCulling={true}
+        stickyStart="bottom"
+        viewportCulling={false}
         paddingLeft={1}
         paddingRight={1}
       >
@@ -1348,13 +1428,6 @@ export function ChatApp({
         </box>
       </scrollbox>
 
-      {/* Footer Status - shows status line at bottom */}
-      <FooterStatus
-        verboseMode={verboseMode}
-        isStreaming={isStreaming}
-        queuedCount={messageQueue.count}
-        modelId={model}
-      />
 
       {/* User Question Dialog - for HITL interactions */}
       {activeQuestion && (

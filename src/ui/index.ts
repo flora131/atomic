@@ -10,9 +10,9 @@
 import React from "react";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { createRoot, type Root } from "@opentui/react";
-import { ChatApp } from "./chat.tsx";
+import { ChatApp, type OnToolStart, type OnToolComplete } from "./chat.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
-import { initializeCommands } from "./commands/index.ts";
+import { initializeCommandsAsync } from "./commands/index.ts";
 import type {
   CodingAgentClient,
   SessionConfig,
@@ -70,6 +70,12 @@ interface ChatUIState {
   startTime: number;
   messageCount: number;
   cleanupHandlers: (() => void)[];
+  /** Registered handler for tool start events */
+  toolStartHandler: OnToolStart | null;
+  /** Registered handler for tool complete events */
+  toolCompleteHandler: OnToolComplete | null;
+  /** Tool ID counter for generating unique IDs */
+  toolIdCounter: number;
 }
 
 // ============================================================================
@@ -126,6 +132,9 @@ export async function startChatUI(
     startTime: Date.now(),
     messageCount: 0,
     cleanupHandlers: [],
+    toolStartHandler: null,
+    toolCompleteHandler: null,
+    toolIdCounter: 0,
   };
 
   // Create a promise that resolves when the UI exits
@@ -205,18 +214,44 @@ export async function startChatUI(
   }
 
   /**
+   * Subscribe to tool.complete events from the client.
+   * Tool start comes from stream messages, tool complete comes from events.
+   */
+  function subscribeToToolCompleteEvents(): () => void {
+    // Subscribe to tool.complete events (Claude SDK uses hooks for this)
+    const unsubComplete = client.on("tool.complete", (event) => {
+      const data = event.data as { toolResult?: unknown; success?: boolean; error?: string };
+      if (state.toolCompleteHandler) {
+        // Use the current tool ID (should match the last tool_use)
+        const toolId = `tool_${state.toolIdCounter}`;
+        state.toolCompleteHandler(
+          toolId,
+          data.toolResult,
+          data.success ?? true,
+          data.error
+        );
+      }
+    });
+
+    return unsubComplete;
+  }
+
+  /**
    * Handle streaming a message response from the agent.
-   * This is an async generator that yields chunks.
+   * Handles text, tool_use, and tool_result messages from the stream.
    */
   async function handleStreamMessage(
     content: string,
     onChunk: (chunk: string) => void,
     onComplete: () => void
   ): Promise<void> {
-    // Create session if needed
+    // Create session if needed and subscribe to tool events
     if (!state.session) {
       try {
         state.session = await client.createSession(sessionConfig);
+        // Subscribe to tool complete events (Claude uses hooks for this)
+        const unsubscribe = subscribeToToolCompleteEvents();
+        state.cleanupHandlers.push(unsubscribe);
       } catch (error) {
         console.error("Failed to create session:", error);
         onComplete();
@@ -229,16 +264,38 @@ export async function startChatUI(
       const stream = state.session.stream(content);
 
       for await (const message of stream) {
-        // Extract text content from the message
+        // Handle text content
         if (message.type === "text" && typeof message.content === "string") {
           onChunk(message.content);
+        }
+        // Handle tool_use content - notify UI of tool invocation
+        else if (message.type === "tool_use" && message.content) {
+          const toolContent = message.content as { name?: string; input?: Record<string, unknown> };
+          if (state.toolStartHandler && toolContent.name) {
+            const toolId = `tool_${++state.toolIdCounter}`;
+            state.toolStartHandler(
+              toolId,
+              toolContent.name,
+              toolContent.input ?? {}
+            );
+          }
+        }
+        // Handle tool_result content - notify UI of tool completion
+        else if (message.type === "tool_result") {
+          if (state.toolCompleteHandler) {
+            const toolId = `tool_${state.toolIdCounter}`;
+            state.toolCompleteHandler(
+              toolId,
+              message.content,
+              true
+            );
+          }
         }
       }
 
       state.messageCount++;
       onComplete();
     } catch (error) {
-      console.error("Streaming error:", error);
       onComplete();
     }
   }
@@ -271,20 +328,30 @@ export async function startChatUI(
   try {
     // Initialize commands registry before rendering
     // This ensures all slash commands are available when ChatApp mounts
-    const registeredCount = initializeCommands();
-    // Debug logging can be enabled here if needed:
-    // console.log(`Registered ${registeredCount} commands`);
-    void registeredCount; // Suppress unused variable warning
+    // Uses async version to support loading workflows from disk
+    await initializeCommandsAsync();
 
-    // Create the CLI renderer with mouse mode disabled to allow native terminal text selection/copy
+    // Create the CLI renderer with:
+    // - mouse mode disabled to allow native terminal text selection/copy
+    // - useAlternateScreen: false so CLI output persists after exit (inline mode)
     state.renderer = await createCliRenderer({
       useMouse: false,
+      useAlternateScreen: false,
     });
 
     // Create React root
     state.root = createRoot(state.renderer);
 
     // Render the chat application
+    // Handler registration callbacks - ChatApp will call these with its internal handlers
+    const registerToolStartHandler = (handler: OnToolStart) => {
+      state.toolStartHandler = handler;
+    };
+
+    const registerToolCompleteHandler = (handler: OnToolComplete) => {
+      state.toolCompleteHandler = handler;
+    };
+
     state.root.render(
       React.createElement(
         ThemeProvider,
@@ -301,6 +368,8 @@ export async function startChatUI(
             onSendMessage: handleSendMessage,
             onStreamMessage: handleStreamMessage,
             onExit: handleExit,
+            registerToolStartHandler,
+            registerToolCompleteHandler,
           }),
         }
       )
@@ -402,6 +471,10 @@ export async function startMockChatUI(
     async stop(): Promise<void> {
       // No-op for mock
     },
+
+    async getModelDisplayInfo() {
+      return { model: "Mock Model", tier: "Mock Tier" };
+    },
   };
 
   return startChatUI(mockClient, config);
@@ -414,10 +487,13 @@ export async function startMockChatUI(
 export {
   ChatApp,
   LoadingIndicator,
+  MAX_VISIBLE_MESSAGES,
   type ChatAppProps,
   type ChatMessage,
   type MessageToolCall,
   type WorkflowChatState,
+  type OnToolStart,
+  type OnToolComplete,
   defaultWorkflowChatState,
 } from "./chat.tsx";
 export {
@@ -507,6 +583,7 @@ export {
 
   // Initialization and helpers
   initializeCommands,
+  initializeCommandsAsync,
   parseSlashCommand,
   isSlashCommand,
   getCommandPrefix,

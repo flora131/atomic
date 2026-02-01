@@ -9,7 +9,8 @@
   "enableAllProjectMcpServers": true,
   "enabledPlugins": {
     "ralph@atomic-plugins": true,
-    "frontend-design@claude-plugins-official": true
+    "frontend-design@claude-plugins-official": true,
+    "tmux-cli@cctools-plugins": true
   },
   "extraKnownMarketplaces": {
     "atomic-plugins": {

@@ -1077,6 +1077,72 @@ export function ChatApp({
   );
 
   /**
+   * Send a message and handle streaming response.
+   * Extracted to allow reuse for queued message processing.
+   */
+  const sendMessage = useCallback(
+    (content: string) => {
+      // Add user message
+      const userMessage = createMessage("user", content);
+      setMessages((prev: ChatMessage[]) => [...prev, userMessage]);
+
+      // Call send handler (fire and forget for sync callback signature)
+      if (onSendMessage) {
+        void Promise.resolve(onSendMessage(content));
+      }
+
+      // Handle streaming response if handler provided
+      if (onStreamMessage) {
+        setIsStreaming(true);
+
+        // Create placeholder assistant message
+        const assistantMessage = createMessage("assistant", "", true);
+        streamingMessageIdRef.current = assistantMessage.id;
+        setMessages((prev: ChatMessage[]) => [...prev, assistantMessage]);
+
+        // Handle stream chunks
+        const handleChunk = (chunk: string) => {
+          const messageId = streamingMessageIdRef.current;
+          if (messageId) {
+            setMessages((prev: ChatMessage[]) =>
+              prev.map((msg: ChatMessage) =>
+                msg.id === messageId
+                  ? { ...msg, content: msg.content + chunk }
+                  : msg
+              )
+            );
+          }
+        };
+
+        // Handle stream completion - process next queued message after delay
+        const handleComplete = () => {
+          const messageId = streamingMessageIdRef.current;
+          if (messageId) {
+            setMessages((prev: ChatMessage[]) =>
+              prev.map((msg: ChatMessage) =>
+                msg.id === messageId ? { ...msg, streaming: false } : msg
+              )
+            );
+          }
+          streamingMessageIdRef.current = null;
+          setIsStreaming(false);
+
+          // Process next queued message after 50ms delay
+          const nextMessage = messageQueue.dequeue();
+          if (nextMessage) {
+            setTimeout(() => {
+              sendMessage(nextMessage.content);
+            }, 50);
+          }
+        };
+
+        void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete));
+      }
+    },
+    [onSendMessage, onStreamMessage, messageQueue]
+  );
+
+  /**
    * Handle message submission from textarea.
    * Gets value from textarea ref since onSubmit receives SubmitEvent, not value.
    * Handles both slash commands and regular messages.
@@ -1121,57 +1187,10 @@ export function ChatApp({
         return;
       }
 
-      // Regular message handling below
-      // Add user message
-      const userMessage = createMessage("user", trimmedValue);
-      setMessages((prev: ChatMessage[]) => [...prev, userMessage]);
-
-      // Call send handler (fire and forget for sync callback signature)
-      if (onSendMessage) {
-        void Promise.resolve(onSendMessage(trimmedValue));
-      }
-
-      // Handle streaming response if handler provided
-      if (onStreamMessage) {
-        setIsStreaming(true);
-
-        // Create placeholder assistant message
-        const assistantMessage = createMessage("assistant", "", true);
-        streamingMessageIdRef.current = assistantMessage.id;
-        setMessages((prev: ChatMessage[]) => [...prev, assistantMessage]);
-
-        // Handle stream chunks
-        const handleChunk = (chunk: string) => {
-          const messageId = streamingMessageIdRef.current;
-          if (messageId) {
-            setMessages((prev: ChatMessage[]) =>
-              prev.map((msg: ChatMessage) =>
-                msg.id === messageId
-                  ? { ...msg, content: msg.content + chunk }
-                  : msg
-              )
-            );
-          }
-        };
-
-        // Handle stream completion
-        const handleComplete = () => {
-          const messageId = streamingMessageIdRef.current;
-          if (messageId) {
-            setMessages((prev: ChatMessage[]) =>
-              prev.map((msg: ChatMessage) =>
-                msg.id === messageId ? { ...msg, streaming: false } : msg
-              )
-            );
-          }
-          streamingMessageIdRef.current = null;
-          setIsStreaming(false);
-        };
-
-        void Promise.resolve(onStreamMessage(trimmedValue, handleChunk, handleComplete));
-      }
+      // Send the message
+      sendMessage(trimmedValue);
     },
-    [isStreaming, onSendMessage, onStreamMessage, workflowState.showAutocomplete, updateWorkflowState, executeCommand, messageQueue]
+    [isStreaming, workflowState.showAutocomplete, updateWorkflowState, executeCommand, messageQueue, sendMessage]
   );
 
   // Render message list (no empty state text)

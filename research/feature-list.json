@@ -210,7 +210,7 @@
       "Export useMessageQueue from hooks index",
       "Verify all new modules are properly accessible"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

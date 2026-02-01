@@ -260,7 +260,22 @@
       "Handle connection errors and retry logic",
       "Export client class and types"
     ],
-    "passes": false
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Remove mock SDK interfaces and use real SDK types throughout codebase",
+    "steps": [
+      "Remove OpenCodeSdkSession, OpenCodeSdkMessage, OpenCodeSdkToolCall mock interfaces",
+      "Remove OpenCodeSdkStreamEvent, OpenCodeSdkUsage, OpenCodeSdkEventType mock types",
+      "Remove OpenCodeSdkEvent, OpenCodeSdkClient, OpenCodeSdkSessionConfig mock interfaces",
+      "Remove OpenCodeSdkToolDefinition, CreateOpenCodeClientFn mock types",
+      "Update src/sdk/index.ts exports to only export real types",
+      "Update all tests to use real SDK integration tests instead of mocks",
+      "Add integration test infrastructure with OPENCODE_SERVER environment variable",
+      "Document integration testing requirements in README"
+    ],
+    "passes": true
   },
   {
     "category": "functional",

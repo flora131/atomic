@@ -59,18 +59,8 @@ export {
 export {
   OpenCodeClient,
   createOpenCodeClient,
-  type OpenCodeSdkSession,
-  type OpenCodeSdkMessage,
-  type OpenCodeSdkToolCall,
-  type OpenCodeSdkStreamEvent,
-  type OpenCodeSdkUsage,
-  type OpenCodeSdkEventType,
-  type OpenCodeSdkEvent,
-  type OpenCodeSdkClient,
-  type OpenCodeSdkSessionConfig,
-  type OpenCodeSdkToolDefinition,
-  type CreateOpenCodeClientFn,
   type OpenCodeClientOptions,
+  type OpenCodeHealthStatus,
 } from "./opencode-client.ts";
 
 // Copilot Client exports

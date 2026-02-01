@@ -801,3 +801,73 @@ const events = await client.event.subscribe();
 
 ### Next Feature
 The next highest priority feature is: "Create OpenCode client adapter implementing AgentAdapter interface"
+
+---
+
+## 2026-02-01 - Feature: Create OpenCode client adapter and remove mock SDK
+
+### Summary
+Implemented the OpenCodeClient class using the real @opencode-ai/sdk package instead of mock interfaces. This provides proper integration with OpenCode server including health checks, connection management, session management, SSE event streaming, and retry logic.
+
+### Key Changes
+
+#### Removed Mock Patterns
+- Removed all mock SDK interfaces (OpenCodeSdkSession, OpenCodeSdkMessage, etc.)
+- Removed mock client factory pattern (CreateOpenCodeClientFn)
+- Removed dependency injection for mock clients
+- Updated exports in src/sdk/index.ts to only export real types
+
+#### Implemented Real SDK Integration
+- Import real SDK: `createOpencodeClient from "@opencode-ai/sdk/v2/client"`
+- OpenCodeClientOptions interface with: baseUrl, timeout, directory, maxRetries, retryDelay
+- OpenCodeHealthStatus interface for health check responses
+
+#### OpenCodeClient Class Methods
+- `healthCheck()` - Check server health via global.health()
+- `connect()` - Connect with retry logic and health verification
+- `disconnect()` - Clean up sessions and SSE subscriptions
+- `start()` - Connect and subscribe to SSE events
+- `stop()` - Disconnect and clean up resources
+- `createSession()` - Create new session via SDK
+- `resumeSession()` - Resume existing session by ID
+- `listSessions()` - List all sessions from server
+- `getCurrentSessionId()` - Get current active session
+- `isConnectedToServer()` - Check connection status
+- `getBaseUrl()` - Get configured base URL
+
+#### Session Interface Implementation
+- `send()` - Send message via session.prompt()
+- `stream()` - Stream via session.promptAsync() with SSE
+- `summarize()` - Compact context via session.summarize()
+- `getContextUsage()` - Return placeholder values (SDK limitation)
+- `destroy()` - Delete session via session.delete()
+
+#### SSE Event Handling
+- Subscribe to events via client.event.subscribe()
+- Process event stream in background
+- Map SDK events to unified event types:
+  - session.created → session.start
+  - session.idle → session.idle
+  - session.error → session.error
+  - message.updated → message.complete
+  - message.part.updated → message.delta, tool.start, tool.complete
+
+### Files Modified
+- `src/sdk/opencode-client.ts` - Complete rewrite using real SDK
+- `src/sdk/index.ts` - Updated exports to remove mock types
+- `tests/sdk/opencode-client.test.ts` - Rewritten as integration tests
+
+### Test Results
+- 29 tests pass
+- 7 tests skipped (integration tests requiring server)
+- 41 expect() calls
+- Tests cover: SDK installation, client construction, health check, connection, event handling, tool registration, factory function, session operations, cleanup
+
+### Integration Testing
+- Tests that require OpenCode server are skipped by default
+- Set `OPENCODE_SERVER=1` environment variable to run integration tests
+- Integration tests verify: health check, connect, start, createSession, listSessions, send, destroy
+
+### Next Feature
+The next highest priority feature is: "Implement SSE streaming handler for OpenCode responses"
+

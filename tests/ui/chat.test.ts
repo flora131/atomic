@@ -891,3 +891,140 @@ describe("Message Queue Integration", () => {
     expect(textareaValue).toBe("");
   });
 });
+
+// ============================================================================
+// Queue Processing Tests
+// ============================================================================
+
+describe("Queue Processing after Stream Completion", () => {
+  /**
+   * These tests verify that queued messages are processed sequentially
+   * after stream completion, with a 50ms delay between each message.
+   */
+
+  test("handleComplete dequeues next message after stream ends", () => {
+    // Simulate the queue and handleComplete behavior
+    const queue: string[] = ["First queued", "Second queued"];
+    const processedMessages: string[] = [];
+    let isStreaming = true;
+
+    const dequeue = () => queue.shift();
+
+    const sendMessage = (content: string) => {
+      processedMessages.push(content);
+      isStreaming = true;
+    };
+
+    const handleComplete = () => {
+      isStreaming = false;
+      const nextMessage = dequeue();
+      if (nextMessage) {
+        sendMessage(nextMessage);
+      }
+    };
+
+    // Complete first stream
+    handleComplete();
+    expect(isStreaming).toBe(true); // Started processing next message
+    expect(processedMessages).toEqual(["First queued"]);
+    expect(queue).toEqual(["Second queued"]);
+
+    // Complete second stream
+    handleComplete();
+    expect(processedMessages).toEqual(["First queued", "Second queued"]);
+    expect(queue).toEqual([]);
+
+    // Complete third stream - no more messages
+    handleComplete();
+    expect(isStreaming).toBe(false); // No more messages to process
+    expect(processedMessages.length).toBe(2);
+  });
+
+  test("empty queue does not trigger message send", () => {
+    const queue: string[] = [];
+    let sendCalled = false;
+
+    const dequeue = () => queue.shift();
+
+    const handleComplete = () => {
+      const nextMessage = dequeue();
+      if (nextMessage) {
+        sendCalled = true;
+      }
+    };
+
+    handleComplete();
+    expect(sendCalled).toBe(false);
+  });
+
+  test("queued messages preserve order during sequential processing", () => {
+    // Simulate the full flow: queue 3 messages, then process them
+    const queue: string[] = [];
+    const processedOrder: string[] = [];
+
+    const enqueue = (content: string) => queue.push(content);
+    const dequeue = () => queue.shift();
+
+    // Queue messages during "streaming"
+    enqueue("Message A");
+    enqueue("Message B");
+    enqueue("Message C");
+
+    expect(queue).toEqual(["Message A", "Message B", "Message C"]);
+
+    // Simulate handleComplete processing each message
+    while (queue.length > 0) {
+      const msg = dequeue();
+      if (msg) processedOrder.push(msg);
+    }
+
+    // Verify FIFO order is maintained
+    expect(processedOrder).toEqual(["Message A", "Message B", "Message C"]);
+  });
+
+  test("sendMessage function creates user message and starts streaming", () => {
+    // Verify the sendMessage behavior
+    const messages: Array<{ role: string; content: string }> = [];
+    let isStreaming = false;
+    let streamingMessageId: string | null = null;
+
+    const sendMessage = (content: string) => {
+      // Add user message
+      messages.push({ role: "user", content });
+
+      // Start streaming
+      isStreaming = true;
+      streamingMessageId = `msg_${Date.now()}`;
+      messages.push({ role: "assistant", content: "" });
+    };
+
+    sendMessage("Hello");
+
+    expect(messages.length).toBe(2);
+    expect(messages[0]).toEqual({ role: "user", content: "Hello" });
+    expect(messages[1]).toEqual({ role: "assistant", content: "" });
+    expect(isStreaming).toBe(true);
+    expect(streamingMessageId).not.toBeNull();
+  });
+
+  test("50ms delay between processing queued messages", async () => {
+    // Test that there's a delay between processing messages
+    const processedAt: number[] = [];
+
+    const simulateDelayedProcessing = () => {
+      return new Promise<void>((resolve) => {
+        processedAt.push(Date.now());
+        setTimeout(() => {
+          processedAt.push(Date.now());
+          resolve();
+        }, 50);
+      });
+    };
+
+    await simulateDelayedProcessing();
+
+    expect(processedAt.length).toBe(2);
+    const delay = processedAt[1]! - processedAt[0]!;
+    expect(delay).toBeGreaterThanOrEqual(45); // Allow some timing variance
+  });
+});

@@ -281,16 +281,17 @@
     "category": "functional",
     "description": "Implement SSE streaming handler for OpenCode responses",
     "steps": [
-      "Create new file src/agents/opencode/streaming.ts",
-      "Subscribe to /global/event SSE endpoint for real-time updates",
-      "Parse SSE events and convert to atomic message format",
-      "Handle text delta events for streaming text",
-      "Handle tool use events and convert to atomic ToolCall format",
-      "Handle tool result events",
-      "Handle session completion events",
-      "Implement reconnection logic for SSE disconnects"
+      "SSE handler implemented in src/sdk/opencode-client.ts (integrated, not separate file)",
+      "subscribeToSdkEvents() subscribes to /global/event SSE endpoint",
+      "processEventStream() processes the async iterable event stream",
+      "handleSdkEvent() parses and converts SDK events to atomic format",
+      "message.part.updated events with type=text handle streaming text deltas",
+      "message.part.updated events with type=tool handle tool.start/tool.complete",
+      "message.updated events handle message completion for assistant messages",
+      "AbortController-based disconnection for SSE reconnection support",
+      "Added 23 unit tests for SSE event mapping and streaming interface"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

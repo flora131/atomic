@@ -55,7 +55,9 @@ export {
   ToolResult,
   shouldCollapse,
   getErrorColor,
+  getToolSummary,
   type ToolResultProps,
+  type ToolSummary,
 } from "./tool-result.tsx";
 
 // ============================================================================

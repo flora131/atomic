@@ -324,6 +324,22 @@ export function formatTimestamp(isoString: string): string {
 // ============================================================================
 
 /**
+ * Configurable array of spinner verbs for the loading indicator.
+ * These verbs are contextually appropriate for AI assistant actions.
+ * One is randomly selected when LoadingIndicator mounts.
+ */
+export const SPINNER_VERBS = [
+  "Thinking",
+  "Analyzing",
+  "Processing",
+  "Reasoning",
+  "Considering",
+  "Evaluating",
+  "Formulating",
+  "Generating",
+];
+
+/**
  * Animation frames for the wave dot loading indicator.
  * Creates a smooth left-to-right wave effect using varying dot sizes.
  */

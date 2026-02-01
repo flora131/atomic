@@ -227,3 +227,41 @@ Added Ctrl+O keyboard shortcut to toggle verbose mode in the ChatApp. This allow
 
 ### Next Feature
 The next highest priority feature is: "Create format utilities for duration and timestamp display"
+
+---
+
+## 2026-02-01 - Feature: Create format utilities for duration and timestamp display
+
+### Summary
+Created the format utilities module with `formatDuration` and `formatTimestamp` functions for displaying timing information in the UI.
+
+### Files Created
+- `src/ui/utils/format.ts` - Format utilities with:
+  - `FormattedDuration` interface (text, ms)
+  - `FormattedTimestamp` interface (text, date)
+  - `formatDuration(ms)` - formats milliseconds to human-readable string
+  - `formatTimestamp(date)` - formats Date to 12-hour HH:MM AM/PM format
+- `src/ui/utils/index.ts` - Utils module index with exports
+- `tests/ui/utils/format.test.ts` - 49 comprehensive unit tests
+
+### Features
+- **formatDuration**:
+  - Under 1000ms: shows milliseconds (e.g., "500ms")
+  - Under 60000ms: shows seconds with decimal (e.g., "2.5s")
+  - 60000ms+: shows minutes and seconds (e.g., "1m 30s")
+  - Handles negative values (returns "0ms")
+  - Rounds fractional milliseconds
+
+- **formatTimestamp**:
+  - 12-hour format with AM/PM (e.g., "2:30 PM")
+  - Accepts Date objects or ISO strings
+  - Pads minutes with leading zero
+  - Handles invalid dates gracefully (returns "--:-- --")
+
+### Test Results
+- All 49 format tests pass (61 expect() calls)
+- All 789 UI tests pass (1931 expect() calls)
+- Tests cover: milliseconds range, seconds range, minutes range, AM/PM times, edge cases, interface types
+
+### Next Feature
+The next highest priority feature is: "Add timestamp tracking to messages"

@@ -308,3 +308,42 @@ sendMessage called
 
 ### Next Feature
 The next highest priority feature is: "Create TimestampDisplay component for right-aligned timestamp and model"
+
+---
+
+## 2026-02-01 - Feature: Create TimestampDisplay component
+
+### Summary
+Created the TimestampDisplay component for displaying right-aligned timestamp, duration, and model information in verbose mode.
+
+### Files Created
+- `src/ui/components/timestamp-display.tsx` - Component with:
+  - `TimestampDisplayProps` interface (timestamp, durationMs, modelId)
+  - `formatModelId()` - truncates long model names
+  - `buildDisplayParts()` - combines timestamp, duration, model into parts
+  - `TimestampDisplay` - right-aligned display component
+- `tests/ui/components/timestamp-display.test.tsx` - 23 comprehensive unit tests
+
+### Files Modified
+- `src/ui/components/index.ts` - Added exports for TimestampDisplay and utilities
+
+### Features
+- Right-aligned display using flex layout with justifyContent="flex-end"
+- Parts separated by " • " (bullet) character
+- Uses format utilities from `../utils/format.ts`:
+  - `formatTimestamp()` for 12-hour AM/PM time
+  - `formatDuration()` for ms/seconds/minutes display
+- Model name truncation for long names (max 25 chars)
+
+### Test Results
+- All 23 TimestampDisplay tests pass (53 expect() calls)
+- All 817 UI tests pass (1993 expect() calls)
+- Tests cover: formatModelId, buildDisplayParts, props interface, component exports
+
+### Example Display
+```
+2:30 PM • 2.5s • claude-3-opus
+```
+
+### Next Feature
+The next highest priority feature is: "Integrate TimestampDisplay into MessageBubble for verbose mode"

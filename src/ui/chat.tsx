@@ -158,6 +158,10 @@ export interface ChatMessage {
   streaming?: boolean;
   /** Tool calls within this message (for assistant messages) */
   toolCalls?: MessageToolCall[];
+  /** Duration in milliseconds for assistant message generation */
+  durationMs?: number;
+  /** Model ID used for this message */
+  modelId?: string;
 }
 
 /**
@@ -607,6 +611,8 @@ export function ChatApp({
 
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
+  // Ref to track when streaming started for duration calculation
+  const streamingStartRef = useRef<number | null>(null);
 
   /**
    * Update workflow state with partial values.
@@ -1106,6 +1112,8 @@ export function ChatApp({
       // Handle streaming response if handler provided
       if (onStreamMessage) {
         setIsStreaming(true);
+        // Track when streaming started for duration calculation
+        streamingStartRef.current = Date.now();
 
         // Create placeholder assistant message
         const assistantMessage = createMessage("assistant", "", true);
@@ -1129,14 +1137,22 @@ export function ChatApp({
         // Handle stream completion - process next queued message after delay
         const handleComplete = () => {
           const messageId = streamingMessageIdRef.current;
+          // Calculate duration from streaming start
+          const durationMs = streamingStartRef.current
+            ? Date.now() - streamingStartRef.current
+            : undefined;
+
           if (messageId) {
             setMessages((prev: ChatMessage[]) =>
               prev.map((msg: ChatMessage) =>
-                msg.id === messageId ? { ...msg, streaming: false } : msg
+                msg.id === messageId
+                  ? { ...msg, streaming: false, durationMs, modelId: model }
+                  : msg
               )
             );
           }
           streamingMessageIdRef.current = null;
+          streamingStartRef.current = null;
           setIsStreaming(false);
 
           // Process next queued message after 50ms delay
@@ -1151,7 +1167,7 @@ export function ChatApp({
         void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete));
       }
     },
-    [onSendMessage, onStreamMessage, messageQueue]
+    [onSendMessage, onStreamMessage, messageQueue, model]
   );
 
   /**

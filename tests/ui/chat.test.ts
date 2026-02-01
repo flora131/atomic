@@ -173,6 +173,86 @@ describe("ChatMessage type", () => {
     expect(msgWithStreaming.streaming).toBe(true);
     expect(msgWithoutStreaming.streaming).toBeUndefined();
   });
+
+  test("allows optional durationMs property for timing tracking", () => {
+    const msgWithDuration: ChatMessage = {
+      id: "test",
+      role: "assistant",
+      content: "Response",
+      timestamp: new Date().toISOString(),
+      durationMs: 1500,
+    };
+
+    const msgWithoutDuration: ChatMessage = {
+      id: "test",
+      role: "user",
+      content: "Hello",
+      timestamp: new Date().toISOString(),
+    };
+
+    expect(msgWithDuration.durationMs).toBe(1500);
+    expect(msgWithoutDuration.durationMs).toBeUndefined();
+  });
+
+  test("allows optional modelId property for model tracking", () => {
+    const msgWithModelId: ChatMessage = {
+      id: "test",
+      role: "assistant",
+      content: "Response",
+      timestamp: new Date().toISOString(),
+      modelId: "claude-3-opus",
+    };
+
+    const msgWithoutModelId: ChatMessage = {
+      id: "test",
+      role: "user",
+      content: "Hello",
+      timestamp: new Date().toISOString(),
+    };
+
+    expect(msgWithModelId.modelId).toBe("claude-3-opus");
+    expect(msgWithoutModelId.modelId).toBeUndefined();
+  });
+
+  test("allows combining durationMs and modelId for complete timing info", () => {
+    const assistantMessage: ChatMessage = {
+      id: "test",
+      role: "assistant",
+      content: "Here is my response",
+      timestamp: new Date().toISOString(),
+      streaming: false,
+      durationMs: 2500,
+      modelId: "claude-3-sonnet",
+    };
+
+    expect(assistantMessage.durationMs).toBe(2500);
+    expect(assistantMessage.modelId).toBe("claude-3-sonnet");
+    expect(assistantMessage.streaming).toBe(false);
+  });
+
+  test("durationMs accepts zero value", () => {
+    const msg: ChatMessage = {
+      id: "test",
+      role: "assistant",
+      content: "Response",
+      timestamp: new Date().toISOString(),
+      durationMs: 0,
+    };
+
+    expect(msg.durationMs).toBe(0);
+  });
+
+  test("durationMs accepts large values", () => {
+    const msg: ChatMessage = {
+      id: "test",
+      role: "assistant",
+      content: "Response",
+      timestamp: new Date().toISOString(),
+      durationMs: 300000, // 5 minutes
+    };
+
+    expect(msg.durationMs).toBe(300000);
+  });
 });
 
 describe("ChatAppProps interface", () => {

@@ -265,3 +265,46 @@ Created the format utilities module with `formatDuration` and `formatTimestamp` 
 
 ### Next Feature
 The next highest priority feature is: "Add timestamp tracking to messages"
+
+---
+
+## 2026-02-01 - Feature: Add timestamp tracking to messages
+
+### Summary
+Added timestamp tracking to assistant messages to capture generation duration and model information. This enables displaying timing information in the UI for verbose mode.
+
+### Changes Made
+- Enhanced `ChatMessage` interface with:
+  - `durationMs?: number` - Duration in milliseconds for message generation
+  - `modelId?: string` - Model ID used for the message
+- Added `streamingStartRef` to track when streaming starts
+- Modified streaming flow in `sendMessage`:
+  - Set `streamingStartRef.current = Date.now()` when streaming begins
+  - Calculate duration in `handleComplete` using `Date.now() - streamingStartRef.current`
+  - Update message with `durationMs` and `modelId` from props
+  - Reset `streamingStartRef.current` to null after calculation
+- Added `model` to `sendMessage` useCallback dependency array
+
+### Files Modified
+- `src/ui/chat.tsx` - ChatMessage interface and streaming flow updates
+- `tests/ui/chat.test.ts` - Added 5 new tests for durationMs and modelId fields
+
+### Test Results
+- All 79 chat tests pass (222 expect() calls)
+- All 794 UI tests pass (1940 expect() calls)
+- New tests cover: durationMs property, modelId property, combined usage, zero/large values
+
+### Data Flow
+```
+sendMessage called
+  → streamingStartRef.current = Date.now()
+  → Create placeholder assistant message
+  → Stream chunks...
+  → handleComplete called
+    → durationMs = Date.now() - streamingStartRef.current
+    → Update message with { streaming: false, durationMs, modelId: model }
+    → streamingStartRef.current = null
+```
+
+### Next Feature
+The next highest priority feature is: "Create TimestampDisplay component for right-aligned timestamp and model"

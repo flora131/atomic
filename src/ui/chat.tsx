@@ -19,6 +19,7 @@ import { copyToClipboard, pasteFromClipboard } from "../utils/clipboard.ts";
 import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplete.tsx";
 import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
 import { ToolResult } from "./components/tool-result.tsx";
+import { TimestampDisplay } from "./components/timestamp-display.tsx";
 import {
   UserQuestionDialog,
   type UserQuestion,
@@ -532,6 +533,15 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
 
         {/* Message content with bullet prefix */}
         {contentElement}
+
+        {/* Timestamp display in verbose mode (only for completed assistant messages) */}
+        {verboseMode && !message.streaming && (
+          <TimestampDisplay
+            timestamp={message.timestamp}
+            durationMs={message.durationMs}
+            modelId={message.modelId}
+          />
+        )}
       </box>
     );
   }

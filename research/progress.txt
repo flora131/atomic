@@ -200,3 +200,30 @@ ChatApp (verboseMode state)
 
 ### Next Feature
 The next highest priority feature is: "Implement Ctrl+O keyboard shortcut to toggle verbose mode"
+
+---
+
+## 2026-02-01 - Feature: Implement Ctrl+O keyboard shortcut to toggle verbose mode
+
+### Summary
+Added Ctrl+O keyboard shortcut to toggle verbose mode in the ChatApp. This allows users to quickly expand/collapse all tool outputs and show/hide timestamps.
+
+### Changes Made
+- Added Ctrl+O handler in useKeyboard callback after clipboard handlers
+- Handler calls `setVerboseMode((prev) => !prev)` to toggle state
+- Added `setVerboseMode` to the useCallback dependency array
+
+### Files Modified
+- `src/ui/chat.tsx` - Added Ctrl+O keyboard handler
+- `tests/ui/chat.test.ts` - Added 7 new tests for Ctrl+O functionality
+
+### Test Results
+- All 74 chat tests pass (213 expect() calls)
+- All 740 UI tests pass (1870 expect() calls)
+- New tests cover: key event structure, toggle logic, multiple toggles, distinct from other shortcuts, state propagation
+
+### Notes
+- Also marked "Enhance ToolResult to respect verboseMode prop" as complete since it was already implemented in a previous commit
+
+### Next Feature
+The next highest priority feature is: "Create format utilities for duration and timestamp display"

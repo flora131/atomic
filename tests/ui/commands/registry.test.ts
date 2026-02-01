@@ -177,17 +177,17 @@ describe("CommandRegistry", () => {
       expect(matches[0]?.name).toBe("help");
     });
 
-    test("sorts by category priority (builtin > workflow > skill > custom)", () => {
+    test("sorts by category priority (workflow > skill > builtin > custom)", () => {
       const matches = registry.search("a");
 
-      // "approve" (builtin) should come before "atomic" (workflow) and "api-test" (custom)
+      // "atomic" (workflow) should come before "approve" (builtin) and "api-test" (custom)
       const names = matches.map((c) => c.name);
       const approveIndex = names.indexOf("approve");
       const atomicIndex = names.indexOf("atomic");
       const apiTestIndex = names.indexOf("api-test");
 
-      expect(approveIndex).toBeLessThan(atomicIndex);
-      expect(atomicIndex).toBeLessThan(apiTestIndex);
+      expect(atomicIndex).toBeLessThan(approveIndex);
+      expect(approveIndex).toBeLessThan(apiTestIndex);
     });
 
     test("sorts alphabetically within same category", () => {
@@ -270,9 +270,9 @@ describe("CommandRegistry", () => {
       const all = registry.all();
       const names = all.map((c) => c.name);
 
-      // Builtin commands first, then workflow
-      expect(names.indexOf("beta")).toBeLessThan(names.indexOf("alpha"));
-      expect(names.indexOf("zulu")).toBeLessThan(names.indexOf("alpha"));
+      // Workflow commands first, then builtin (per spec section 5.3: workflow > skill > builtin)
+      expect(names.indexOf("alpha")).toBeLessThan(names.indexOf("beta"));
+      expect(names.indexOf("alpha")).toBeLessThan(names.indexOf("zulu"));
       // Alphabetical within builtin
       expect(names.indexOf("beta")).toBeLessThan(names.indexOf("zulu"));
     });

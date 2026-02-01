@@ -16,7 +16,7 @@ import type {
   KeyBinding,
 } from "@opentui/core";
 import { copyToClipboard, pasteFromClipboard } from "../utils/clipboard.ts";
-import { Autocomplete } from "./components/autocomplete.tsx";
+import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplete.tsx";
 import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
 import { ToolResult } from "./components/tool-result.tsx";
 import {
@@ -445,38 +445,90 @@ export function AtomicHeader({
 
 /**
  * Renders a single chat message with role-based styling.
- * Clean, minimal design with Atomic branding.
+ * Clean, minimal design matching the reference UI:
+ * - User messages: highlighted inline box with just the text
+ * - Assistant messages: bullet point (●) prefix, no header
  * Includes tool results for assistant messages that contain tool calls.
  */
 export function MessageBubble({ message, isLast, syntaxStyle }: MessageBubbleProps): React.ReactNode {
-  const roleLabel = message.role === "user" ? "You" : message.role === "assistant" ? "Atomic" : "System";
-  const roleColor = message.role === "user" ? USER_SKY : message.role === "assistant" ? ATOMIC_PINK : "#FBBF24";
-  const timestamp = formatTimestamp(message.timestamp);
-
   // Show loading animation only before any content arrives
   const showLoadingAnimation = message.streaming && !message.content.trim();
 
   // Check if message has tool calls
   const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
 
-  // Render content based on role and syntaxStyle availability
-  const contentElement = showLoadingAnimation ? (
-    <text marginTop={0}>
-      <LoadingIndicator speed={120} />
-    </text>
-  ) : message.role === "assistant" && syntaxStyle ? (
-    <markdown
-      content={message.content}
-      syntaxStyle={syntaxStyle}
-      streaming={message.streaming}
-      marginTop={0}
-    />
-  ) : (
-    <text marginTop={0} wrapMode="word">
-      {message.content}
-    </text>
-  );
+  // User message: highlighted inline box with just the text (no header/timestamp)
+  if (message.role === "user") {
+    return (
+      <box
+        flexDirection="column"
+        marginBottom={isLast ? 0 : 1}
+        paddingLeft={1}
+        paddingRight={1}
+      >
+        <text>
+          <span style={{ bg: "#3A3A4A", fg: "#E0E0E0" }}> {message.content} </span>
+        </text>
+      </box>
+    );
+  }
 
+  // Assistant message: bullet point prefix, no header/timestamp
+  if (message.role === "assistant") {
+    // Render content based on syntaxStyle availability
+    // Loading animation shows without bullet; bullet appears only with content
+    const contentElement = showLoadingAnimation ? (
+      <text>
+        <span style={{ fg: ATOMIC_PINK }}>  </span>
+        <LoadingIndicator speed={120} />
+      </text>
+    ) : syntaxStyle ? (
+      <box flexDirection="row" alignItems="flex-start">
+        <text style={{ fg: ATOMIC_PINK }}>● </text>
+        <box flexGrow={1}>
+          <markdown
+            content={message.content}
+            syntaxStyle={syntaxStyle}
+            streaming={message.streaming}
+          />
+        </box>
+      </box>
+    ) : (
+      <text wrapMode="word">
+        <span style={{ fg: ATOMIC_PINK }}>● </span>
+        {message.content}
+      </text>
+    );
+
+    return (
+      <box
+        flexDirection="column"
+        marginBottom={isLast ? 0 : 1}
+        paddingLeft={1}
+        paddingRight={1}
+      >
+        {/* Tool results for assistant messages */}
+        {hasToolCalls && (
+          <box flexDirection="column" marginBottom={1}>
+            {message.toolCalls!.map((toolCall) => (
+              <ToolResult
+                key={toolCall.id}
+                toolName={toolCall.toolName}
+                input={toolCall.input}
+                output={toolCall.output}
+                status={toolCall.status}
+              />
+            ))}
+          </box>
+        )}
+
+        {/* Message content with bullet prefix */}
+        {contentElement}
+      </box>
+    );
+  }
+
+  // System message: keep with header for visibility (yellow)
   return (
     <box
       flexDirection="column"
@@ -484,33 +536,8 @@ export function MessageBubble({ message, isLast, syntaxStyle }: MessageBubblePro
       paddingLeft={1}
       paddingRight={1}
     >
-      {/* Message header with role and timestamp */}
-      <box flexDirection="row" gap={1}>
-        <text style={{ fg: roleColor, attributes: 1 }}>
-          {roleLabel}
-        </text>
-        <text style={{ fg: MUTED_LAVENDER, attributes: 2 }}>
-          {timestamp}
-        </text>
-      </box>
-
-      {/* Tool results for assistant messages */}
-      {hasToolCalls && (
-        <box flexDirection="column" marginTop={1} marginBottom={1}>
-          {message.toolCalls!.map((toolCall) => (
-            <ToolResult
-              key={toolCall.id}
-              toolName={toolCall.toolName}
-              input={toolCall.input}
-              output={toolCall.output}
-              status={toolCall.status}
-            />
-          ))}
-        </box>
-      )}
-
-      {/* Message content */}
-      {contentElement}
+      <text style={{ fg: "#FBBF24", attributes: 1 }}>System</text>
+      <text wrapMode="word">{message.content}</text>
     </box>
   );
 }
@@ -681,14 +708,14 @@ export function ChatApp({
     // Remove from pending questions
     streamingState.removePendingQuestion();
 
-    // If cancelled, add system message
+    // If cancelled, add assistant message
     if (answer.cancelled) {
-      const msg = createMessage("system", "User cancelled the question.");
+      const msg = createMessage("assistant", "User cancelled the question.");
       setMessages((prev) => [...prev, msg]);
     } else {
-      // Add system message with selected options
+      // Add assistant message with selected options
       const selectedLabels = answer.selected.join(", ");
-      const msg = createMessage("system", `User selected: ${selectedLabels}`);
+      const msg = createMessage("assistant", `User selected: ${selectedLabels}`);
       setMessages((prev) => [...prev, msg]);
 
       // Update workflow state if this was spec approval
@@ -813,6 +840,11 @@ export function ChatApp({
       // Execute the command (may be sync or async)
       const result = await Promise.resolve(command.execute(args, context));
 
+      // Handle clearMessages flag
+      if (result.clearMessages) {
+        setMessages([]);
+      }
+
       // Apply state updates if present
       if (result.stateUpdate) {
         updateWorkflowState({
@@ -834,16 +866,16 @@ export function ChatApp({
         }
       }
 
-      // Display message if present
+      // Display message if present (as assistant message, not system)
       if (result.message) {
-        addMessage("system", result.message);
+        addMessage("assistant", result.message);
       }
 
       return result.success;
     } catch (error) {
-      // Handle execution error
+      // Handle execution error (as assistant message, not system)
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
-      addMessage("system", `Error executing /${commandName}: ${errorMessage}`);
+      addMessage("assistant", `Error executing /${commandName}: ${errorMessage}`);
       return false;
     }
   }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState]);
@@ -924,7 +956,12 @@ export function ChatApp({
     }
   }, []);
 
-  // Handle keyboard events for exit, clipboard, and autocomplete detection
+  // Get current autocomplete suggestions count for navigation
+  const autocompleteSuggestions = workflowState.showAutocomplete
+    ? globalRegistry.search(workflowState.autocompleteInput)
+    : [];
+
+  // Handle keyboard events for exit, clipboard, and autocomplete navigation
   useKeyboard(
     useCallback(
       (event: KeyEvent) => {
@@ -939,6 +976,58 @@ export function ChatApp({
             return;
           }
           onExit?.();
+          return;
+        }
+
+        // Autocomplete navigation: Up arrow - navigate up
+        if (event.name === "up" && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
+          const newIndex = navigateUp(workflowState.selectedSuggestionIndex, autocompleteSuggestions.length);
+          updateWorkflowState({ selectedSuggestionIndex: newIndex });
+          return;
+        }
+
+        // Autocomplete navigation: Down arrow - navigate down
+        if (event.name === "down" && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
+          const newIndex = navigateDown(workflowState.selectedSuggestionIndex, autocompleteSuggestions.length);
+          updateWorkflowState({ selectedSuggestionIndex: newIndex });
+          return;
+        }
+
+        // Autocomplete: Tab - complete the selected command
+        if (event.name === "tab" && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
+          const selectedCommand = autocompleteSuggestions[workflowState.selectedSuggestionIndex];
+          if (selectedCommand && textareaRef.current) {
+            // Clear textarea and insert completed command
+            textareaRef.current.gotoBufferHome();
+            textareaRef.current.gotoBufferEnd({ select: true });
+            textareaRef.current.deleteChar();
+            textareaRef.current.insertText(`/${selectedCommand.name} `);
+            updateWorkflowState({
+              showAutocomplete: false,
+              autocompleteInput: "",
+              selectedSuggestionIndex: 0,
+            });
+          }
+          return;
+        }
+
+        // Autocomplete: Enter - execute the selected command immediately
+        if (event.name === "return" && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
+          const selectedCommand = autocompleteSuggestions[workflowState.selectedSuggestionIndex];
+          if (selectedCommand && textareaRef.current) {
+            // Clear textarea
+            textareaRef.current.gotoBufferHome();
+            textareaRef.current.gotoBufferEnd({ select: true });
+            textareaRef.current.deleteChar();
+            // Hide autocomplete
+            updateWorkflowState({
+              showAutocomplete: false,
+              autocompleteInput: "",
+              selectedSuggestionIndex: 0,
+            });
+            // Execute the command
+            void executeCommand(selectedCommand.name, "");
+          }
           return;
         }
 
@@ -979,7 +1068,7 @@ export function ChatApp({
           handleInputChange(value);
         }, 0);
       },
-      [onExit, handleCopy, handlePaste, workflowState.showAutocomplete, updateWorkflowState, handleInputChange]
+      [onExit, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand]
     )
   );
 
@@ -1088,11 +1177,6 @@ export function ChatApp({
     </>
   ) : null;
 
-  // Status text
-  const statusText = isStreaming
-    ? "Assistant is typing..."
-    : `${messages.length} message${messages.length === 1 ? "" : "s"}`;
-
   return (
     <box
       flexDirection="column"
@@ -1117,66 +1201,52 @@ export function ChatApp({
         featureProgress={workflowState.featureProgress}
       />
 
-      {/* Input Area - bordered box with prompt on same line */}
-      <box
-        border
-        borderStyle="rounded"
-        borderColor={ATOMIC_PINK_DIM}
-        paddingLeft={1}
-        paddingRight={1}
-        marginLeft={1}
-        marginRight={1}
-        flexShrink={0}
-        flexDirection="row"
-        alignItems="center"
-      >
-        <text style={{ fg: ATOMIC_PINK }}>›{" "}</text>
-        <textarea
-          ref={textareaRef}
-          placeholder={isStreaming ? "Waiting for response..." : placeholder}
-          focused={inputFocused && !isStreaming}
-          keyBindings={textareaKeyBindings}
-          onSubmit={handleSubmit}
-          flexGrow={1}
-        />
-      </box>
-
-      {/* Autocomplete dropdown for slash commands */}
-      <box marginLeft={1} marginRight={1}>
-        <Autocomplete
-          input={workflowState.autocompleteInput}
-          visible={workflowState.showAutocomplete}
-          selectedIndex={workflowState.selectedSuggestionIndex}
-          onSelect={handleAutocompleteSelect}
-          onIndexChange={handleAutocompleteIndexChange}
-        />
-      </box>
-
-      {/* Message History - clean display below input */}
+      {/* Main content area - scrollable when content overflows */}
+      {/* Messages and input flow together; scrolls when needed */}
       <scrollbox
         flexGrow={1}
         stickyScroll={true}
-        stickyStart="bottom"
         viewportCulling={true}
         paddingLeft={1}
         paddingRight={1}
-        paddingTop={1}
-        marginTop={1}
       >
+        {/* Messages */}
         {messageContent}
-      </scrollbox>
 
-      {/* Status Bar - minimal */}
-      <box paddingLeft={2} paddingRight={1} paddingBottom={1} flexDirection="row" gap={1}>
-        {isStreaming ? (
-          <text style={{ fg: DIM_BLUE, attributes: 2 }}>
-            <LoadingIndicator speed={100} />
-            <span> thinking</span>
-          </text>
-        ) : (
-          <text style={{ fg: DIM_BLUE, attributes: 2 }}>{statusText}</text>
-        )}
-      </box>
+        {/* Input Area - flows after messages, margin only when there are messages */}
+        <box
+          border
+          borderStyle="rounded"
+          borderColor={ATOMIC_PINK_DIM}
+          paddingLeft={1}
+          paddingRight={1}
+          marginTop={messages.length > 0 ? 1 : 0}
+          flexDirection="row"
+          alignItems="center"
+        >
+          <text style={{ fg: ATOMIC_PINK }}>›{" "}</text>
+          <textarea
+            ref={textareaRef}
+            placeholder={messages.length === 0 ? placeholder : ""}
+            focused={inputFocused && !isStreaming}
+            keyBindings={textareaKeyBindings}
+            onSubmit={handleSubmit}
+            flexGrow={1}
+            height={1}
+          />
+        </box>
+
+        {/* Autocomplete dropdown for slash commands - appears below input */}
+        <box>
+          <Autocomplete
+            input={workflowState.autocompleteInput}
+            visible={workflowState.showAutocomplete}
+            selectedIndex={workflowState.selectedSuggestionIndex}
+            onSelect={handleAutocompleteSelect}
+            onIndexChange={handleAutocompleteIndexChange}
+          />
+        </box>
+      </scrollbox>
 
       {/* User Question Dialog - for HITL interactions */}
       {activeQuestion && (

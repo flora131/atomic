@@ -57,3 +57,15 @@ export {
   getErrorColor,
   type ToolResultProps,
 } from "./tool-result.tsx";
+
+// ============================================================================
+// QUEUE INDICATOR COMPONENT
+// ============================================================================
+
+export {
+  QueueIndicator,
+  formatQueueCount,
+  getQueueIcon,
+  truncateContent,
+  type QueueIndicatorProps,
+} from "./queue-indicator.tsx";

@@ -712,3 +712,92 @@ The test is marked as PASS because:
 
 ### Next Feature
 The next highest priority feature is: "E2E test: Verify atomic chat with Copilot agent (-a copilot)"
+
+---
+
+## 2026-02-01 - Feature List Update: Added OpenCode Support Features
+
+### Summary
+Added 10 new features to the feature list to implement full OpenCode agent support. These features will enable the `atomic chat -a opencode` command to work with the OpenCode AI coding agent.
+
+### Research Conducted
+Used DeepWiki MCP to research the `anomalyco/opencode` repository:
+- OpenCode is an open-source AI coding agent running as local HTTP server (port 1337)
+- Uses SSE (Server-Sent Events) for real-time streaming via `/global/event` endpoint
+- Provides `@opencode-ai/sdk` package for integration
+- Supports 75+ LLM providers through Models.dev
+- Built-in tools: read, write, edit, bash, glob, grep, task
+- Agent modes: build (full access), plan (read-only), general (complex searches)
+
+### Features Added to feature-list.json
+1. **Install and configure @opencode-ai/sdk dependency** - Add SDK package and verify exports
+2. **Create OpenCode client adapter** - Implement client with connect, disconnect, health check
+3. **Implement SSE streaming handler** - Subscribe to /global/event for real-time updates
+4. **Create OpenCode agent adapter** - Implement AgentAdapter interface for OpenCode
+5. **Integrate into agent registry** - Register 'opencode' in agent factory
+6. **Implement tool call mapping** - Map OpenCode tools to atomic format
+7. **Add health check and auto-start** - Check /global/health before sending messages
+8. **Support multi-session capability** - Session persistence and switching
+9. **Add OpenCode branding** - UI indicators for OpenCode agent
+10. **Add unit tests** - Test coverage for all OpenCode components
+
+### Updated E2E Test Entry
+Updated "E2E test: Verify atomic chat with OpenCode agent" to:
+- Changed `passes: true` to `passes: false`
+- Updated notes to indicate blocking on implementation features
+
+### Files Modified
+- `research/feature-list.json` - Added 10 OpenCode features, updated E2E test entry
+
+### Next Steps
+Implement the OpenCode features in order, starting with SDK installation
+
+---
+
+## 2026-02-01 - Feature: Install and configure @opencode-ai/sdk dependency
+
+### Summary
+Installed the `@opencode-ai/sdk` package (version 1.1.48) and verified that all SDK exports are accessible. Created comprehensive tests to validate the SDK installation.
+
+### Changes Made
+- Added `@opencode-ai/sdk: ^1.1.48` to package.json dependencies
+- Verified SDK exports:
+  - `createOpencodeClient` function for creating clients
+  - `OpencodeClient` class for the client instance
+  - All required namespaces: `session`, `global`, `event`
+  - Session methods: `create`, `get`, `list`, `prompt`, `summarize`, `messages`
+  - Global methods: `health`, `event`
+  - Event methods: `subscribe` (SSE streaming)
+
+### Files Modified
+- `package.json` - Added @opencode-ai/sdk dependency
+- `tests/sdk/opencode-client.test.ts` - Added 9 SDK installation verification tests
+
+### Test Results
+- 9 new SDK installation tests pass
+- All 42 opencode-client tests pass (68 expect() calls)
+- SDK package version: 1.1.48
+
+### SDK API Summary
+The SDK provides a typed client for interacting with OpenCode server:
+```typescript
+import { createOpencodeClient } from "@opencode-ai/sdk/v2/client";
+
+const client = createOpencodeClient({
+  baseUrl: "http://localhost:4096",
+});
+
+// Session management
+await client.session.create({ title: "New Session" });
+await client.session.prompt({ sessionID, parts: [{ type: "text", text: "Hello" }] });
+await client.session.summarize({ sessionID });
+
+// Health check
+await client.global.health();
+
+// SSE event streaming
+const events = await client.event.subscribe();
+```
+
+### Next Feature
+The next highest priority feature is: "Create OpenCode client adapter implementing AgentAdapter interface"

@@ -237,6 +237,140 @@
     "passes": true
   },
   {
+    "category": "functional",
+    "description": "Install and configure @opencode-ai/sdk dependency",
+    "steps": [
+      "Add @opencode-ai/sdk package to package.json dependencies",
+      "Run pnpm install to install the SDK",
+      "Verify SDK exports are accessible (createOpencodeClient)",
+      "Add SDK types to TypeScript configuration if needed",
+      "Document SDK version requirements in README or docs"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Create OpenCode client adapter implementing AgentAdapter interface",
+    "steps": [
+      "Create new file src/agents/opencode/client.ts",
+      "Import createOpencodeClient from @opencode-ai/sdk",
+      "Define OpenCodeClientOptions interface with port, host, and timeout options",
+      "Implement OpenCodeClient class with connect, disconnect, and health check methods",
+      "Implement session management (create, list, get current session)",
+      "Handle connection errors and retry logic",
+      "Export client class and types"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Implement SSE streaming handler for OpenCode responses",
+    "steps": [
+      "Create new file src/agents/opencode/streaming.ts",
+      "Subscribe to /global/event SSE endpoint for real-time updates",
+      "Parse SSE events and convert to atomic message format",
+      "Handle text delta events for streaming text",
+      "Handle tool use events and convert to atomic ToolCall format",
+      "Handle tool result events",
+      "Handle session completion events",
+      "Implement reconnection logic for SSE disconnects"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Create OpenCode agent adapter implementing AgentAdapter interface",
+    "steps": [
+      "Create new file src/agents/opencode/adapter.ts",
+      "Import OpenCodeClient and streaming handler",
+      "Implement AgentAdapter interface with sendMessage method",
+      "Map atomic message format to OpenCode prompt format",
+      "Map OpenCode responses back to atomic ChatMessage format",
+      "Handle tool calls and results through the adapter",
+      "Support agent modes (build, plan, general)",
+      "Export adapter as default export"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Integrate OpenCode adapter into agent registry",
+    "steps": [
+      "Update src/agents/registry.ts to import OpenCode adapter",
+      "Add 'opencode' to AgentType union type",
+      "Register OpenCode adapter in the agent factory",
+      "Add OpenCode configuration options to agent config",
+      "Verify -a opencode flag selects OpenCode adapter correctly",
+      "Add fallback error handling if OpenCode server not running"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Implement OpenCode tool call mapping",
+    "steps": [
+      "Create new file src/agents/opencode/tools.ts",
+      "Map OpenCode built-in tools (read, write, edit, bash, glob, grep, task) to atomic format",
+      "Handle tool input/output serialization",
+      "Map tool results back to OpenCode expected format",
+      "Support custom tool extensions if available",
+      "Add unit tests for tool mapping functions"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Add OpenCode server health check and auto-start",
+    "steps": [
+      "Implement health check to /global/health endpoint before sending messages",
+      "Display user-friendly error if OpenCode server not running",
+      "Optionally prompt user to start OpenCode server",
+      "Add --opencode-port flag to specify custom port (default 1337)",
+      "Add --opencode-host flag to specify custom host (default localhost)",
+      "Cache health check result to avoid repeated checks"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Support OpenCode multi-session capability",
+    "steps": [
+      "Add session ID tracking to OpenCode adapter",
+      "Implement session persistence across chat restarts",
+      "Add /sessions command to list active OpenCode sessions",
+      "Add /session <id> command to switch between sessions",
+      "Store session ID in atomic config for continuity",
+      "Handle session expiration and cleanup"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Add OpenCode branding and status indicators",
+    "steps": [
+      "Create OpenCode-specific header/branding for chat UI",
+      "Display OpenCode connection status in footer",
+      "Show active session ID when connected",
+      "Display OpenCode version info when available",
+      "Add visual distinction between OpenCode and other agents"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Add unit tests for OpenCode adapter",
+    "steps": [
+      "Create tests/agents/opencode/client.test.ts",
+      "Create tests/agents/opencode/adapter.test.ts",
+      "Create tests/agents/opencode/streaming.test.ts",
+      "Create tests/agents/opencode/tools.test.ts",
+      "Mock SDK responses for unit testing",
+      "Test error handling and edge cases",
+      "Verify message format conversions"
+    ],
+    "passes": false
+  },
+  {
     "category": "e2e",
     "description": "E2E test: Create dummy temp project with atomic init",
     "steps": [
@@ -280,8 +414,8 @@
       "Exit chat gracefully with Ctrl+C or /exit command",
       "Capture and log test results"
     ],
-    "passes": true,
-    "notes": "EXPECTED FAILURE: OpenCode SDK (@opencode-ai/sdk/v2/client) not yet available. The client is a placeholder implementation. Error: 'No SDK client factory provided'."
+    "passes": false,
+    "notes": "BLOCKED: Requires OpenCode implementation features to be completed first. Dependencies: Install @opencode-ai/sdk, Create OpenCode client adapter, Implement SSE streaming handler, Create OpenCode agent adapter, Integrate into agent registry."
   },
   {
     "category": "e2e",

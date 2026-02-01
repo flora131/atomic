@@ -222,7 +222,7 @@
       "Test multiple queued messages process sequentially",
       "Test queue indicator updates correctly"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

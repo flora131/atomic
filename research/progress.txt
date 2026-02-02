@@ -355,3 +355,29 @@
 ### Files Modified
 - src/ui/commands/skill-commands.ts - Added registerBuiltinSkills(), createBuiltinSkillCommand(), builtinSkillCommands
 - tests/ui/commands/skill-commands.test.ts - Added builtinSkillCommands and registerBuiltinSkills tests
+
+## 2026-02-02 - Refactor: Remove disk-based skill loading
+
+### Completed
+- Removed SKILL_SEARCH_PATHS constant (was searching .claude/commands, .opencode/command, .github/commands)
+- Removed loadSkillPrompt() function that loaded skill prompts from disk
+- Removed stripFrontmatter() function that stripped YAML frontmatter from markdown files
+- Removed fs imports (existsSync, readFileSync) and path import (join)
+- Simplified createSkillCommand() to:
+  - First check for builtin skill with embedded prompt
+  - Fallback to sending slash command to agent's native skill system
+  - No more intermediate disk-based loading
+- Updated module docstring to reflect new architecture
+- Updated exports to remove loadSkillPrompt and stripFrontmatter
+
+### Rationale
+- All core skills are now defined as builtins with embedded prompts
+- Disk-based skill loading was legacy fallback that's no longer needed
+- Reduces file system dependencies
+- Simplifies the skill command execution flow
+
+### Test Results
+- All skill-commands tests pass (108 tests)
+
+### Files Modified
+- src/ui/commands/skill-commands.ts - Removed disk-based skill loading code

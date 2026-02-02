@@ -73,6 +73,11 @@ export interface CommandContextState {
   specApproved?: boolean;
   /** Feedback from spec rejection */
   feedback?: string | null;
+  /** Ralph-specific workflow configuration */
+  ralphConfig?: {
+    yolo: boolean;
+    userPrompt: string;
+  };
 }
 
 /**

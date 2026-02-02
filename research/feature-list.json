@@ -771,7 +771,7 @@
         "Pass prompt to workflow state",
         "If --yolo without prompt, show error message"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

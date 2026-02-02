@@ -1228,3 +1228,59 @@ Added file system operations for Ralph session persistence to ralph-session.ts.
 - src/workflows/ralph-session.ts - Added appendProgress() function
 - src/workflows/index.ts - Added appendProgress export
 - tests/workflows/ralph-session.test.ts - Added appendProgress tests
+
+## 2026-02-02 - Feature Implementation: Create src/graph/nodes/ralph-nodes.ts file
+
+### Completed
+- Created src/graph/nodes/ralph-nodes.ts file with:
+  - RalphWorkflowState interface extending BaseState:
+    - BaseState fields: executionId, lastUpdated, outputs
+    - Ralph session identity: ralphSessionId, ralphSessionDir
+    - Session configuration: yolo, maxIterations, sourceFeatureListPath, userPrompt
+    - Feature tracking: features, currentFeatureIndex, completedFeatures, currentFeature
+    - Execution tracking: iteration, sessionStatus
+    - Control flow flags: shouldContinue, allFeaturesPassing, maxIterationsReached, yoloComplete
+    - PR artifacts: prUrl, prBranch
+    - Context tracking: contextWindowUsage
+  - isRalphWorkflowState() type guard function
+  - CreateRalphStateOptions interface for factory configuration
+  - createRalphWorkflowState() factory function with default values
+  - sessionToWorkflowState() to convert RalphSession to RalphWorkflowState
+  - workflowStateToSession() to convert RalphWorkflowState to RalphSession
+  - Re-exports of all ralph-session.ts types and functions for convenience
+
+### Tests Added (48 tests)
+- RalphWorkflowState tests:
+  - createRalphWorkflowState creates default state with all required fields
+  - Accepts custom session ID, execution ID, yolo mode, max iterations
+  - Accepts unlimited iterations (0)
+  - Accepts source feature list path and initial features
+  - Generates unique session and execution IDs
+- isRalphWorkflowState tests:
+  - Returns true for valid state and factory-created state
+  - Returns false for null, undefined, non-object, empty object
+  - Returns false for missing required fields
+  - Returns false for invalid sessionStatus or non-boolean yolo
+- State conversion tests:
+  - sessionToWorkflowState converts correctly
+  - Generates new execution ID and accepts custom
+  - Sets shouldContinue based on session status
+  - Calculates allFeaturesPassing from features
+  - Calculates maxIterationsReached from session
+  - Sets currentFeature from features array
+  - workflowStateToSession converts correctly
+  - Updates lastUpdated timestamp
+  - Round-trip conversions preserve data
+- Re-exported function tests (all ralph-session.ts functions work)
+- File system re-export tests (createSessionDirectory, save/load, appendLog, appendProgress)
+- Integration tests:
+  - Full workflow: create state -> save session -> resume
+  - Yolo mode workflow
+
+### Test Results
+- All 48 tests pass
+- 149 expect() calls
+
+### Files Created
+- src/graph/nodes/ralph-nodes.ts - RalphWorkflowState interface and factory functions
+- tests/graph/nodes/ralph-nodes.test.ts - Comprehensive tests

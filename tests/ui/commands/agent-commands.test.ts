@@ -918,6 +918,11 @@ describe("BUILTIN_AGENTS array", () => {
     const analyzer = BUILTIN_AGENTS.find((a) => a.name === "codebase-analyzer");
     expect(analyzer).toBeDefined();
   });
+
+  test("contains codebase-locator agent", () => {
+    const locator = BUILTIN_AGENTS.find((a) => a.name === "codebase-locator");
+    expect(locator).toBeDefined();
+  });
 });
 
 describe("codebase-analyzer builtin agent", () => {
@@ -972,6 +977,67 @@ describe("codebase-analyzer builtin agent", () => {
   });
 });
 
+describe("codebase-locator builtin agent", () => {
+  const locator = BUILTIN_AGENTS.find((a) => a.name === "codebase-locator");
+
+  test("exists in BUILTIN_AGENTS", () => {
+    expect(locator).toBeDefined();
+  });
+
+  test("has correct name", () => {
+    expect(locator!.name).toBe("codebase-locator");
+  });
+
+  test("has appropriate description", () => {
+    expect(locator!.description).toContain("Locates");
+    expect(locator!.description).toContain("files");
+  });
+
+  test("has tools array with navigation tools", () => {
+    expect(locator!.tools).toBeDefined();
+    expect(locator!.tools).toContain("Glob");
+    expect(locator!.tools).toContain("Grep");
+    expect(locator!.tools).toContain("Read");
+    expect(locator!.tools).toContain("LS");
+    expect(locator!.tools).toContain("Bash");
+    expect(locator!.tools).toContain("NotebookRead");
+  });
+
+  test("has haiku model for speed", () => {
+    expect(locator!.model).toBe("haiku");
+  });
+
+  test("has comprehensive system prompt", () => {
+    expect(locator!.prompt.length).toBeGreaterThan(500);
+    expect(locator!.prompt).toContain("navigation");
+    expect(locator!.prompt).toContain("locate");
+  });
+
+  test("prompt includes navigation strategy steps", () => {
+    expect(locator!.prompt).toContain("Understand the Target");
+    expect(locator!.prompt).toContain("Quick Pattern Matching");
+    expect(locator!.prompt).toContain("Content Search");
+    expect(locator!.prompt).toContain("Directory Exploration");
+    expect(locator!.prompt).toContain("Verification");
+  });
+
+  test("prompt includes common file patterns", () => {
+    expect(locator!.prompt).toContain("components");
+    expect(locator!.prompt).toContain("services");
+    expect(locator!.prompt).toContain("utils");
+  });
+
+  test("prompt includes output format guidelines", () => {
+    expect(locator!.prompt).toContain("Primary Matches");
+    expect(locator!.prompt).toContain("Related Files");
+    expect(locator!.prompt).toContain("Directory Structure");
+  });
+
+  test("has builtin source", () => {
+    expect(locator!.source).toBe("builtin");
+  });
+});
+
 describe("getBuiltinAgent", () => {
   test("finds agent by exact name", () => {
     const agent = getBuiltinAgent("codebase-analyzer");
@@ -996,5 +1062,18 @@ describe("getBuiltinAgent", () => {
   test("returns undefined for empty string", () => {
     const agent = getBuiltinAgent("");
     expect(agent).toBeUndefined();
+  });
+
+  test("finds codebase-locator by name", () => {
+    const agent = getBuiltinAgent("codebase-locator");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("codebase-locator");
+    expect(agent!.model).toBe("haiku");
+  });
+
+  test("finds codebase-locator case-insensitively", () => {
+    const agent = getBuiltinAgent("CODEBASE-LOCATOR");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("codebase-locator");
   });
 });

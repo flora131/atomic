@@ -491,3 +491,38 @@ export async function appendLog(
   // Use appendFile to add to the log (creates file if doesn't exist)
   await appendFile(logPath, line, "utf-8");
 }
+
+/**
+ * Append a progress entry to the session progress.txt file.
+ *
+ * Progress entries track feature implementation status with timestamps and
+ * visual status indicators:
+ * - ✓ for passing features
+ * - ✗ for failing features
+ *
+ * @param sessionDir - Path to the session directory
+ * @param feature - The feature that was processed
+ * @param passed - Whether the feature passed (true) or failed (false)
+ *
+ * @example
+ * ```typescript
+ * await appendProgress(".ralph/sessions/abc123/", feature, true);
+ * // Appends: "[2026-02-02T10:30:00.000Z] ✓ Add user authentication"
+ *
+ * await appendProgress(".ralph/sessions/abc123/", feature, false);
+ * // Appends: "[2026-02-02T10:30:00.000Z] ✗ Add user authentication"
+ * ```
+ */
+export async function appendProgress(
+  sessionDir: string,
+  feature: RalphFeature,
+  passed: boolean
+): Promise<void> {
+  const progressPath = join(sessionDir, "progress.txt");
+  const timestamp = new Date().toISOString();
+  const statusEmoji = passed ? "✓" : "✗";
+  const line = `[${timestamp}] ${statusEmoji} ${feature.name}\n`;
+
+  // Use appendFile to add to the progress file (creates file if doesn't exist)
+  await appendFile(progressPath, line, "utf-8");
+}

@@ -642,11 +642,37 @@ export class ClaudeAgentClient implements CodingAgentClient {
         toolUseID: string | undefined,
         _options: { signal: AbortSignal }
       ): Promise<HookJSONOutput> => {
+        // Map hook input to the expected event data format
+        // The HookInput has fields like tool_name, tool_input, tool_result
+        // but the UI expects toolName, toolInput, toolResult
+        const hookInput = input as Record<string, unknown>;
+        const eventData: Record<string, unknown> = {
+          hookInput: input,
+          toolUseID,
+        };
+
+        // Map tool-related fields for tool.start and tool.complete events
+        if (hookInput.tool_name) {
+          eventData.toolName = hookInput.tool_name;
+        }
+        if (hookInput.tool_input !== undefined) {
+          eventData.toolInput = hookInput.tool_input;
+        }
+        // PostToolUse hook provides tool_response (not tool_result)
+        if (hookInput.tool_response !== undefined) {
+          eventData.toolResult = hookInput.tool_response;
+        }
+        // PostToolUse hook means success, PostToolUseFailure means failure
+        eventData.success = hookEvent !== "PostToolUseFailure";
+        if (hookInput.error) {
+          eventData.error = hookInput.error;
+        }
+
         const event: AgentEvent<T> = {
           type: eventType,
           sessionId: input.session_id,
           timestamp: new Date().toISOString(),
-          data: { hookInput: input, toolUseID } as unknown as AgentEvent<T>["data"],
+          data: eventData as AgentEvent<T>["data"],
         };
 
         try {

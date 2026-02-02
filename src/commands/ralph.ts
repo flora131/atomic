@@ -33,8 +33,6 @@ import { createCopilotClient } from "../sdk/copilot-client.ts";
 import type { CodingAgentClient } from "../sdk/types.ts";
 import type { AgentType } from "../utils/telemetry/types.ts";
 
-// Configuration imports
-import { isGraphEngineEnabled } from "../config/ralph.ts";
 
 // ============================================================================
 // Types
@@ -747,151 +745,13 @@ export async function ralphStop(): Promise<number> {
 /**
  * Setup the Ralph loop
  *
+ * Graph engine is the only execution mode (hook-based execution was removed).
+ *
  * @param options - Configuration options for the Ralph loop
  */
 export async function ralphSetup(options: RalphSetupOptions): Promise<number> {
-  // Check for graph engine feature flag (see src/config/ralph.ts)
-  if (isGraphEngineEnabled()) {
-    console.log("🔧 Graph engine mode enabled via ATOMIC_USE_GRAPH_ENGINE\n");
-    return executeGraphWorkflow(options);
-  }
-
-  // Destructure options with defaults
-  const {
-    prompt,
-    maxIterations = 0,
-    completionPromise,
-    featureList: featureListPath = "research/feature-list.json",
-  } = options;
-
-  // Join all prompt parts with spaces
-  const userPrompt = prompt.join(" ");
-
-  // Use user prompt if provided, otherwise use default
-  let fullPrompt: string;
-  if (userPrompt) {
-    fullPrompt = userPrompt;
-  } else {
-    fullPrompt = DEFAULT_PROMPT;
-
-    // Verify feature list exists when using default prompt
-    const featureListExists = await fileExists(featureListPath);
-    if (!featureListExists) {
-      console.error(`❌ Error: Feature list not found at: ${featureListPath}`);
-      console.error("");
-      console.error(
-        "   The default /implement-feature prompt requires a feature list to work.",
-      );
-      console.error("");
-      console.error("   To fix this, either:");
-      console.error("     1. Create the feature list: /create-feature-list");
-      console.error("     2. Specify a different path: --feature-list <path>");
-      console.error("     3. Use a custom prompt instead");
-      return 1;
-    }
-  }
-
-  // Create state file for stop hook (markdown with YAML frontmatter)
-  await mkdir(".claude", { recursive: true });
-
-  // Quote completion promise for YAML if it contains special chars or is defined
-  let completionPromiseYaml: string;
-  if (completionPromise !== undefined) {
-    completionPromiseYaml = `"${completionPromise}"`;
-  } else {
-    completionPromiseYaml = "null";
-  }
-
-  // Get current UTC timestamp
-  const startedAt = new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
-
-  const stateFileContent = `---
-active: true
-iteration: 1
-max_iterations: ${maxIterations}
-completion_promise: ${completionPromiseYaml}
-feature_list_path: ${featureListPath}
-started_at: "${startedAt}"
----
-
-${fullPrompt}
-`;
-
-  // Write state file with locking
-  try {
-    await withLock(RALPH_STATE_FILE, async () => {
-      await writeFile(RALPH_STATE_FILE, stateFileContent);
-    }, { timeoutMs: 5000 });
-  } catch {
-    // Fallback: write without lock if lock acquisition fails
-    await writeFile(RALPH_STATE_FILE, stateFileContent);
-  }
-
-  // Output setup message
-  const maxIterationsDisplay =
-    maxIterations > 0 ? String(maxIterations) : "unlimited";
-  let completionPromiseDisplay: string;
-  if (completionPromise !== undefined) {
-    completionPromiseDisplay = `${completionPromise} (ONLY output when TRUE - do not lie!)`;
-  } else {
-    completionPromiseDisplay = "none (runs forever)";
-  }
-
-  console.log(`🔄 Ralph loop activated in this session!
-
-Iteration: 1
-Max iterations: ${maxIterationsDisplay}
-Completion promise: ${completionPromiseDisplay}
-
-The stop hook is now active. When you try to exit, the SAME PROMPT will be
-fed back to you. You'll see your previous work in files, creating a
-self-referential loop where you iteratively improve on the same task.
-
-To monitor: head -10 .claude/ralph-loop.local.md
-
-⚠️  WARNING: This loop cannot be stopped manually! It will run indefinitely
-    unless you set --max-iterations or --completion-promise or --feature-list.
-
-🔄`);
-
-  // Output the initial prompt info
-  if (userPrompt) {
-    console.log("");
-    console.log(`Custom prompt: ${userPrompt}`);
-  } else {
-    console.log("");
-    console.log("Using default prompt:");
-    console.log(DEFAULT_PROMPT);
-  }
-
-  // Display completion promise requirements if set
-  if (completionPromise !== undefined) {
-    console.log("");
-    console.log("═══════════════════════════════════════════════════════════");
-    console.log("CRITICAL - Ralph Loop Completion Promise");
-    console.log("═══════════════════════════════════════════════════════════");
-    console.log("");
-    console.log("To complete this loop, output this EXACT text:");
-    console.log(`  <promise>${completionPromise}</promise>`);
-    console.log("");
-    console.log("STRICT REQUIREMENTS (DO NOT VIOLATE):");
-    console.log("  ✓ Use <promise> XML tags EXACTLY as shown above");
-    console.log("  ✓ The statement MUST be completely and unequivocally TRUE");
-    console.log("  ✓ Do NOT output false statements to exit the loop");
-    console.log("  ✓ Do NOT lie even if you think you should exit");
-    console.log("");
-    console.log("IMPORTANT - Do not circumvent the loop:");
-    console.log("  Even if you believe you're stuck, the task is impossible,");
-    console.log("  or you've been running too long - you MUST NOT output a");
-    console.log("  false promise statement. The loop is designed to continue");
-    console.log("  until the promise is GENUINELY TRUE. Trust the process.");
-    console.log("");
-    console.log("  If the loop should stop, the promise statement will become");
-    console.log("  true naturally. Do not force it by lying.");
-    console.log("═══════════════════════════════════════════════════════════");
-  }
-
-  return 0;
+  // Graph engine is now the only execution mode
+  return executeGraphWorkflow(options);
 }
 
 

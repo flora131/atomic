@@ -1662,3 +1662,42 @@ Added file system operations for Ralph session persistence to ralph-session.ts.
 ### Files Modified
 - src/graph/nodes/ralph-nodes.ts - Added CREATE_PR_PROMPT, CreatePRNodeConfig, createPRNode(), extractPRUrl(), extractBranchName(), processCreatePRResult()
 - tests/graph/nodes/ralph-nodes.test.ts - Added comprehensive createPRNode and processCreatePRResult tests
+
+## 2026-02-02 - Refactor: Remove isGraphEngineEnabled() Feature Flag
+
+### Completed
+- Removed isGraphEngineEnabled() function from src/config/ralph.ts
+- Removed RALPH_ENV_VARS.ATOMIC_USE_GRAPH_ENGINE constant
+- Removed useGraphEngine field from RalphConfig interface
+- Removed useGraphEngine option from LoadRalphConfigOptions interface
+- Updated loadRalphConfig() to no longer include useGraphEngine
+- Updated describeRalphConfig() to no longer reference execution mode
+- Updated RALPH_DEFAULTS to remove useGraphEngine (was false)
+- Updated src/config/index.ts to remove isGraphEngineEnabled export
+- Updated src/commands/ralph.ts:
+  - Removed import of isGraphEngineEnabled
+  - Simplified ralphSetup() to always use executeGraphWorkflow() (graph engine is now the only mode)
+- Updated tests/config/ralph.test.ts:
+  - Removed isGraphEngineEnabled test suite (7 tests)
+  - Updated RALPH_ENV_VARS test to verify empty object
+  - Updated RALPH_DEFAULTS tests to remove useGraphEngine
+  - Updated loadRalphConfig tests to remove useGraphEngine references
+  - Updated describeRalphConfig tests to remove execution mode references
+  - Updated type tests to remove useGraphEngine
+  - Updated integration tests to remove isGraphEngineEnabled references
+
+### Rationale
+- Graph engine is now the only execution mode
+- Hook-based execution was legacy and no longer needed
+- Simplifies the codebase by removing conditional execution paths
+- Part of the transition to SDK-native workflow execution
+
+### Test Results
+- All 34 ralph config tests pass
+- 53 expect() calls
+
+### Files Modified
+- src/config/ralph.ts - Removed isGraphEngineEnabled(), ATOMIC_USE_GRAPH_ENGINE, useGraphEngine
+- src/config/index.ts - Removed isGraphEngineEnabled export
+- src/commands/ralph.ts - Removed import and simplified ralphSetup()
+- tests/config/ralph.test.ts - Updated tests to remove feature flag references

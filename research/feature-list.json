@@ -614,7 +614,7 @@
         "Append final completion to progress.txt",
         "Return state with prUrl and prBranch"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "refactor",

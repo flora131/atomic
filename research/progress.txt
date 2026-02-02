@@ -1576,3 +1576,89 @@ Added file system operations for Ralph session persistence to ralph-session.ts.
 ### Files Modified
 - src/graph/nodes/ralph-nodes.ts - Added CheckCompletionNodeConfig interface and checkCompletionNode() function
 - tests/graph/nodes/ralph-nodes.test.ts - Added comprehensive checkCompletionNode tests
+
+## 2026-02-02 - Feature Implementation: createPRNode() for Creating PR with Session Metadata
+
+### Completed
+- Implemented createPRNode() factory function in ralph-nodes.ts
+  - Returns NodeDefinition with type 'tool'
+  - Accepts CreatePRNodeConfig with options:
+    - id: string (required)
+    - name?: string (default: "create-pr")
+    - description?: string
+    - baseBranch?: string (default: "main")
+    - titleTemplate?: string (supports $SESSION_ID, $FEATURE_COUNT placeholders)
+    - promptTemplate?: string (overrides default CREATE_PR_PROMPT)
+
+- Added CREATE_PR_PROMPT constant:
+  - Contains instructions for agent to create PR
+  - Supports placeholders: $SESSION_ID, $COMPLETED_FEATURES, $TOTAL_FEATURES, $PASSING_FEATURES, $BASE_BRANCH
+  - Includes gh CLI instructions for PR creation
+  - Instructs agent to output PR_URL on its own line
+
+- Helper functions for PR result processing:
+  - extractPRUrl(output): Extracts PR URL from agent output
+    - Looks for PR_URL: marker first
+    - Falls back to GitHub PR URL pattern
+  - extractBranchName(output): Extracts branch name from output
+
+- processCreatePRResult() helper function:
+  - Extracts PR URL and branch from agent output
+  - Updates session status to 'completed'
+  - Sets shouldContinue to false
+  - Saves session to disk
+  - Appends final completion to progress.txt
+  - Logs create-pr-result action
+
+### Tests Added (32 new tests)
+- CREATE_PR_PROMPT tests:
+  - Contains session ID placeholder
+  - Contains completed features placeholder
+  - Contains base branch placeholder
+  - Contains gh CLI instructions
+  - Contains PR_URL output format instruction
+
+- extractPRUrl tests:
+  - Extracts PR URL from PR_URL: marker
+  - Extracts PR URL from GitHub PR pattern
+  - Prefers PR_URL marker over raw URL
+  - Returns undefined when no PR URL found
+  - Handles multiline output
+
+- extractBranchName tests:
+  - Extracts branch name from output
+  - Extracts branch name with quotes
+  - Returns undefined when no branch found
+
+- Node creation tests:
+  - Creates a NodeDefinition with correct properties
+  - Accepts custom name and description
+  - Accepts custom base branch
+
+- Execute function tests:
+  - Builds prompt with session ID
+  - Builds prompt with completed features
+  - Builds prompt with base branch
+  - Builds prompt with feature counts
+  - Stores title in outputs when titleTemplate provided
+  - Logs create-pr-start action
+  - Uses custom prompt template
+
+- processCreatePRResult tests:
+  - Extracts PR URL from agent output
+  - Sets sessionStatus to completed
+  - Sets shouldContinue to false
+  - Saves session to disk
+  - Appends to progress.txt
+  - Logs create-pr-result action
+  - Handles output without PR URL
+  - Marks progress as failing when no PR URL
+  - Extracts branch name when present
+
+### Test Results
+- All 174 tests pass (142 original + 32 new)
+- 393 expect() calls
+
+### Files Modified
+- src/graph/nodes/ralph-nodes.ts - Added CREATE_PR_PROMPT, CreatePRNodeConfig, createPRNode(), extractPRUrl(), extractBranchName(), processCreatePRResult()
+- tests/graph/nodes/ralph-nodes.test.ts - Added comprehensive createPRNode and processCreatePRResult tests

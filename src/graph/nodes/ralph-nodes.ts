@@ -1359,3 +1359,292 @@ export function initRalphSessionNode<TState extends RalphWorkflowState = RalphWo
     },
   };
 }
+
+// ============================================================================
+// CREATE PR NODE
+// ============================================================================
+
+/**
+ * Default prompt template for creating a pull request.
+ *
+ * Placeholders:
+ * - $SESSION_ID: The Ralph session ID
+ * - $COMPLETED_FEATURES: JSON array of completed feature names
+ * - $TOTAL_FEATURES: Total number of features
+ * - $PASSING_FEATURES: Number of passing features
+ * - $BASE_BRANCH: The base branch to merge into
+ */
+export const CREATE_PR_PROMPT = `
+Create a pull request for the Ralph session $SESSION_ID.
+
+## Completed Features
+$COMPLETED_FEATURES
+
+## Summary
+- Total features: $TOTAL_FEATURES
+- Passing features: $PASSING_FEATURES
+
+## Instructions
+1. Review the changes made during this session
+2. Create a descriptive PR title summarizing the work done
+3. Write a comprehensive PR description that:
+   - Lists the features implemented
+   - Describes any notable changes or decisions
+   - Mentions any known issues or follow-up work needed
+4. Create the PR targeting the $BASE_BRANCH branch
+5. Return the PR URL
+
+Use the gh CLI to create the PR:
+\`\`\`bash
+gh pr create --title "TITLE" --body "BODY" --base $BASE_BRANCH
+\`\`\`
+
+After creating the PR, output the PR URL on its own line in this format:
+PR_URL: https://github.com/...
+`;
+
+/**
+ * Configuration options for createPRNode.
+ */
+export interface CreatePRNodeConfig {
+  /** Unique identifier for the node */
+  id: string;
+
+  /** Human-readable name for the node */
+  name?: string;
+
+  /** Description of what the node does */
+  description?: string;
+
+  /** Base branch to merge into (default: "main") */
+  baseBranch?: string;
+
+  /** Custom title template (supports $SESSION_ID, $FEATURE_COUNT placeholders) */
+  titleTemplate?: string;
+
+  /** Custom PR prompt (overrides CREATE_PR_PROMPT) */
+  promptTemplate?: string;
+}
+
+/**
+ * Extract PR URL from agent output.
+ *
+ * Looks for patterns like:
+ * - PR_URL: https://github.com/...
+ * - https://github.com/.../pull/123
+ *
+ * @param output - The agent's output text
+ * @returns The PR URL if found, undefined otherwise
+ */
+export function extractPRUrl(output: string): string | undefined {
+  // First, try to find explicit PR_URL marker
+  const prUrlMatch = output.match(/PR_URL:\s*(https:\/\/[^\s]+)/i);
+  if (prUrlMatch) {
+    return prUrlMatch[1];
+  }
+
+  // Fall back to finding any GitHub PR URL
+  const githubPrMatch = output.match(/(https:\/\/github\.com\/[^/]+\/[^/]+\/pull\/\d+)/);
+  if (githubPrMatch) {
+    return githubPrMatch[1];
+  }
+
+  return undefined;
+}
+
+/**
+ * Extract branch name from agent output or git.
+ *
+ * @param output - The agent's output text
+ * @returns The branch name if found, undefined otherwise
+ */
+export function extractBranchName(output: string): string | undefined {
+  // Look for branch name patterns in output
+  const branchMatch = output.match(/branch[:\s]+['"]?([a-zA-Z0-9/_-]+)['"]?/i);
+  if (branchMatch) {
+    return branchMatch[1];
+  }
+
+  return undefined;
+}
+
+/**
+ * Create a node that creates a pull request with session metadata.
+ *
+ * This node handles:
+ * - Building a PR prompt with completed features summary
+ * - Preparing state for agent to create the PR
+ * - Extracting PR URL from agent output (via processCreatePRResult)
+ * - Updating session with PR metadata
+ * - Marking the session as completed
+ *
+ * Note: The actual PR creation is performed by an agent node that follows
+ * this node. Use processCreatePRResult() to handle the agent's output.
+ *
+ * @param config - Node configuration
+ * @returns A NodeDefinition for creating pull requests
+ *
+ * @example
+ * ```typescript
+ * // Create a PR node
+ * const prNode = createPRNode({
+ *   id: "create-pr",
+ *   baseBranch: "main",
+ *   titleTemplate: "feat: Ralph session $SESSION_ID",
+ * });
+ *
+ * // Use in a workflow after all features are implemented
+ * graph<RalphWorkflowState>()
+ *   .start(initNode)
+ *   .loop({ ... })
+ *   .then(prNode)
+ *   .then(agentNode)  // Agent creates the actual PR
+ *   .then(processResultNode)  // Process PR result
+ *   .compile();
+ * ```
+ */
+export function createPRNode<TState extends RalphWorkflowState = RalphWorkflowState>(
+  config: CreatePRNodeConfig
+): NodeDefinition<TState> {
+  const {
+    id,
+    name = "create-pr",
+    description = "Create a pull request with session metadata",
+    baseBranch = "main",
+    titleTemplate,
+    promptTemplate = CREATE_PR_PROMPT,
+  } = config;
+
+  return {
+    id,
+    type: "tool",
+    name,
+    description,
+    execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
+      const state = ctx.state as RalphWorkflowState;
+      const sessionDir = state.ralphSessionDir;
+      const now = new Date().toISOString();
+
+      // Build completed features list
+      const completedFeatures = state.features
+        .filter((f) => f.status === "passing")
+        .map((f) => f.name);
+
+      const totalFeatures = state.features.length;
+      const passingFeatures = completedFeatures.length;
+
+      // Build the PR prompt with placeholders replaced
+      let prPrompt = promptTemplate
+        .replace(/\$SESSION_ID/g, state.ralphSessionId)
+        .replace(/\$COMPLETED_FEATURES/g, JSON.stringify(completedFeatures, null, 2))
+        .replace(/\$TOTAL_FEATURES/g, String(totalFeatures))
+        .replace(/\$PASSING_FEATURES/g, String(passingFeatures))
+        .replace(/\$BASE_BRANCH/g, baseBranch);
+
+      // Build title if template provided
+      let prTitle: string | undefined;
+      if (titleTemplate) {
+        prTitle = titleTemplate
+          .replace(/\$SESSION_ID/g, state.ralphSessionId)
+          .replace(/\$FEATURE_COUNT/g, String(passingFeatures));
+      }
+
+      // Log the PR creation action
+      await appendLog(sessionDir, "agent-calls", {
+        action: "create-pr-start",
+        sessionId: state.ralphSessionId,
+        iteration: state.iteration,
+        baseBranch,
+        completedFeatures: completedFeatures.length,
+        totalFeatures,
+        titleTemplate: prTitle,
+      });
+
+      // Return state with PR prompt in outputs
+      // The actual PR creation is handled by a separate agentNode
+      return {
+        stateUpdate: {
+          lastUpdated: now,
+          outputs: {
+            ...state.outputs,
+            [`${id}_prompt`]: prPrompt,
+            [`${id}_baseBranch`]: baseBranch,
+            ...(prTitle ? { [`${id}_title`]: prTitle } : {}),
+          },
+        } as Partial<TState>,
+      };
+    },
+  };
+}
+
+/**
+ * Process the results of a PR creation agent call.
+ *
+ * This is a helper function that extracts the PR URL from agent output,
+ * updates session state, and marks the session as completed.
+ *
+ * @param state - Current workflow state (after agent execution)
+ * @param agentOutput - The agent's output text
+ * @returns Updated state with PR metadata
+ */
+export async function processCreatePRResult(
+  state: RalphWorkflowState,
+  agentOutput: string
+): Promise<Partial<RalphWorkflowState>> {
+  const sessionDir = state.ralphSessionDir;
+  const now = new Date().toISOString();
+
+  // Extract PR URL from agent output
+  const prUrl = extractPRUrl(agentOutput);
+  const prBranch = extractBranchName(agentOutput);
+
+  // Build updated state
+  const updatedState: Partial<RalphWorkflowState> = {
+    prUrl,
+    prBranch,
+    sessionStatus: "completed",
+    shouldContinue: false,
+    lastUpdated: now,
+  };
+
+  // Save session with updated state
+  const session = workflowStateToSession({
+    ...state,
+    ...updatedState,
+  } as RalphWorkflowState);
+  await saveSession(sessionDir, session);
+
+  // Append final completion to progress.txt
+  const completedCount = state.features.filter((f) => f.status === "passing").length;
+  const totalCount = state.features.length;
+
+  // Create a pseudo-feature for the PR completion
+  const prFeature: RalphFeature = {
+    id: "session-complete",
+    name: `Session Complete (${completedCount}/${totalCount} features)`,
+    description: prUrl ? `PR: ${prUrl}` : "Session completed",
+    status: prUrl ? "passing" : "failing",
+  };
+  await appendProgress(sessionDir, prFeature, !!prUrl);
+
+  // Log the PR result
+  await appendLog(sessionDir, "agent-calls", {
+    action: "create-pr-result",
+    sessionId: state.ralphSessionId,
+    iteration: state.iteration,
+    prUrl,
+    prBranch,
+    success: !!prUrl,
+    completedFeatures: completedCount,
+    totalFeatures: totalCount,
+  });
+
+  // Log completion message
+  if (prUrl) {
+    console.log(`Pull request created: ${prUrl}`);
+  } else {
+    console.log("Session completed (no PR URL extracted from output)");
+  }
+
+  return updatedState;
+}

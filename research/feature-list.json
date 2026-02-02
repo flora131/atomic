@@ -97,7 +97,7 @@
         "Embed full prompt for explaining code functionality",
         "Include $ARGUMENTS placeholder for code path/selection"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

@@ -636,6 +636,35 @@ describe("BUILTIN_SKILLS", () => {
     expect(ghPr?.prompt).toContain("## Changes");
     expect(ghPr?.prompt).toContain("## Testing");
   });
+
+  test("contains explain-code skill", () => {
+    const explainCode = BUILTIN_SKILLS.find((s) => s.name === "explain-code");
+    expect(explainCode).toBeDefined();
+    expect(explainCode?.description).toBe("Explain code functionality in detail");
+    expect(explainCode?.aliases).toContain("explain");
+    expect(explainCode?.prompt).toBeDefined();
+    expect(explainCode?.prompt.length).toBeGreaterThan(100);
+  });
+
+  test("explain-code skill has $ARGUMENTS placeholder", () => {
+    const explainCode = BUILTIN_SKILLS.find((s) => s.name === "explain-code");
+    expect(explainCode?.prompt).toContain("$ARGUMENTS");
+  });
+
+  test("explain-code skill includes explanation structure", () => {
+    const explainCode = BUILTIN_SKILLS.find((s) => s.name === "explain-code");
+    expect(explainCode?.prompt).toContain("Overview");
+    expect(explainCode?.prompt).toContain("Control Flow");
+    expect(explainCode?.prompt).toContain("Data Flow");
+    expect(explainCode?.prompt).toContain("Error Handling");
+  });
+
+  test("explain-code skill includes input types", () => {
+    const explainCode = BUILTIN_SKILLS.find((s) => s.name === "explain-code");
+    expect(explainCode?.prompt).toContain("File Path");
+    expect(explainCode?.prompt).toContain("Function or Class Name");
+    expect(explainCode?.prompt).toContain("Conceptual Query");
+  });
 });
 
 describe("getBuiltinSkill", () => {
@@ -658,9 +687,9 @@ describe("getBuiltinSkill", () => {
   });
 
   test("returns undefined for non-builtin skill", () => {
-    // explain-code is in SKILL_DEFINITIONS but not BUILTIN_SKILLS yet
-    const explainCode = getBuiltinSkill("explain-code");
-    expect(explainCode).toBeUndefined();
+    // ralph skills are in SKILL_DEFINITIONS but not BUILTIN_SKILLS
+    const ralphLoop = getBuiltinSkill("ralph:ralph-loop");
+    expect(ralphLoop).toBeUndefined();
   });
 
   test("finds create-gh-pr builtin skill by name", () => {
@@ -726,6 +755,18 @@ describe("getBuiltinSkill", () => {
   test("returns undefined for unknown skill", () => {
     expect(getBuiltinSkill("unknown-skill")).toBeUndefined();
     expect(getBuiltinSkill("")).toBeUndefined();
+  });
+
+  test("finds explain-code builtin skill by name", () => {
+    const explainCode = getBuiltinSkill("explain-code");
+    expect(explainCode).toBeDefined();
+    expect(explainCode?.name).toBe("explain-code");
+  });
+
+  test("finds explain-code builtin skill by alias", () => {
+    const byAlias = getBuiltinSkill("explain");
+    expect(byAlias).toBeDefined();
+    expect(byAlias?.name).toBe("explain-code");
   });
 });
 
@@ -1020,6 +1061,55 @@ describe("builtin skill execution", () => {
     expect(sentMessages).toHaveLength(1);
     // Should have expanded $ARGUMENTS with the provided args
     expect(sentMessages[0]).toContain("Add user authentication");
+    expect(sentMessages[0]).not.toContain("$ARGUMENTS");
+    expect(sentMessages[0]).not.toContain("[no arguments provided]");
+  });
+
+  test("explain-code command uses embedded prompt", () => {
+    const explainCodeCmd = skillCommands.find((c) => c.name === "explain-code");
+    expect(explainCodeCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = explainCodeCmd!.execute("", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should use embedded prompt with explanation structure
+    expect(sentMessages[0]).toContain("Explain Code");
+    expect(sentMessages[0]).toContain("[no arguments provided]");
+  });
+
+  test("explain-code command expands $ARGUMENTS with provided args", () => {
+    const explainCodeCmd = skillCommands.find((c) => c.name === "explain-code");
+    expect(explainCodeCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = explainCodeCmd!.execute("src/utils/parser.ts:10-50", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should have expanded $ARGUMENTS with the provided args
+    expect(sentMessages[0]).toContain("src/utils/parser.ts:10-50");
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });

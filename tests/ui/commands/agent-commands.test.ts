@@ -9,6 +9,7 @@ import type {
   AgentDefinition,
   AgentSource,
   AgentModel,
+  AgentFrontmatter,
 } from "../../../src/ui/commands/agent-commands.ts";
 
 // ============================================================================
@@ -145,6 +146,119 @@ describe("AgentModel type", () => {
   test("supports haiku model", () => {
     const model: AgentModel = "haiku";
     expect(model).toBe("haiku");
+  });
+});
+
+describe("AgentFrontmatter interface", () => {
+  test("Claude format with tools as string array", () => {
+    const frontmatter: AgentFrontmatter = {
+      name: "codebase-analyzer",
+      description: "Analyzes codebase implementation details",
+      tools: ["Glob", "Grep", "Read", "LS", "Bash"],
+      model: "opus",
+    };
+
+    expect(frontmatter.name).toBe("codebase-analyzer");
+    expect(frontmatter.description).toBe("Analyzes codebase implementation details");
+    expect(Array.isArray(frontmatter.tools)).toBe(true);
+    expect(frontmatter.tools).toContain("Glob");
+    expect(frontmatter.model).toBe("opus");
+    expect(frontmatter.mode).toBeUndefined();
+  });
+
+  test("OpenCode format with tools as Record<string, boolean>", () => {
+    const frontmatter: AgentFrontmatter = {
+      name: "code-writer",
+      description: "Writes and edits code",
+      tools: {
+        glob: true,
+        grep: true,
+        read: true,
+        write: true,
+        edit: true,
+        bash: false,
+      },
+      model: "anthropic/claude-3-sonnet",
+      mode: "subagent",
+    };
+
+    expect(frontmatter.name).toBe("code-writer");
+    expect(frontmatter.description).toBe("Writes and edits code");
+    expect(Array.isArray(frontmatter.tools)).toBe(false);
+    expect((frontmatter.tools as Record<string, boolean>).glob).toBe(true);
+    expect((frontmatter.tools as Record<string, boolean>).bash).toBe(false);
+    expect(frontmatter.model).toBe("anthropic/claude-3-sonnet");
+    expect(frontmatter.mode).toBe("subagent");
+  });
+
+  test("OpenCode format with mode field", () => {
+    const subagentFrontmatter: AgentFrontmatter = {
+      description: "A sub-agent",
+      mode: "subagent",
+    };
+
+    expect(subagentFrontmatter.mode).toBe("subagent");
+
+    const primaryFrontmatter: AgentFrontmatter = {
+      description: "A primary agent",
+      mode: "primary",
+    };
+
+    expect(primaryFrontmatter.mode).toBe("primary");
+  });
+
+  test("frontmatter with optional name field omitted", () => {
+    // Name can be derived from filename in some SDKs
+    const frontmatter: AgentFrontmatter = {
+      description: "An agent without explicit name",
+      tools: ["Read", "Write"],
+      model: "sonnet",
+    };
+
+    expect(frontmatter.name).toBeUndefined();
+    expect(frontmatter.description).toBe("An agent without explicit name");
+  });
+
+  test("frontmatter with only required description field", () => {
+    const minimalFrontmatter: AgentFrontmatter = {
+      description: "Minimal agent frontmatter",
+    };
+
+    expect(minimalFrontmatter.description).toBe("Minimal agent frontmatter");
+    expect(minimalFrontmatter.name).toBeUndefined();
+    expect(minimalFrontmatter.tools).toBeUndefined();
+    expect(minimalFrontmatter.model).toBeUndefined();
+    expect(minimalFrontmatter.mode).toBeUndefined();
+  });
+
+  test("Copilot format with tools as string array", () => {
+    const frontmatter: AgentFrontmatter = {
+      name: "copilot-agent",
+      description: "A Copilot agent",
+      tools: ["search", "file_read", "file_write"],
+      model: "gpt-4",
+    };
+
+    expect(frontmatter.name).toBe("copilot-agent");
+    expect(Array.isArray(frontmatter.tools)).toBe(true);
+    expect(frontmatter.tools).toHaveLength(3);
+    expect(frontmatter.model).toBe("gpt-4");
+  });
+
+  test("frontmatter with all optional fields", () => {
+    const fullFrontmatter: AgentFrontmatter = {
+      name: "full-agent",
+      description: "An agent with all fields",
+      tools: ["Read", "Write", "Edit"],
+      model: "opus",
+      mode: "subagent",
+    };
+
+    expect(fullFrontmatter.name).toBe("full-agent");
+    expect(fullFrontmatter.description).toBe("An agent with all fields");
+    expect(fullFrontmatter.tools).toEqual(["Read", "Write", "Edit"]);
+    expect(fullFrontmatter.model).toBe("opus");
+    expect(fullFrontmatter.mode).toBe("subagent");
   });
 });
 

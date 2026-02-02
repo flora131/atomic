@@ -1410,3 +1410,100 @@ describe("getBuiltinAgent for codebase-research-locator", () => {
     expect(agent!.name).toBe("codebase-research-locator");
   });
 });
+
+// ============================================================================
+// DEBUGGER BUILTIN AGENT TESTS
+// ============================================================================
+
+describe("BUILTIN_AGENTS array - debugger", () => {
+  test("contains debugger agent", () => {
+    const debuggerAgent = BUILTIN_AGENTS.find((a) => a.name === "debugger");
+    expect(debuggerAgent).toBeDefined();
+  });
+});
+
+describe("debugger builtin agent", () => {
+  const debuggerAgent = BUILTIN_AGENTS.find((a) => a.name === "debugger");
+
+  test("exists in BUILTIN_AGENTS", () => {
+    expect(debuggerAgent).toBeDefined();
+  });
+
+  test("has correct name", () => {
+    expect(debuggerAgent!.name).toBe("debugger");
+  });
+
+  test("has appropriate description", () => {
+    expect(debuggerAgent!.description).toContain("Debugging");
+    expect(debuggerAgent!.description).toContain("errors");
+  });
+
+  test("has tools array with debugging tools", () => {
+    expect(debuggerAgent!.tools).toBeDefined();
+    expect(debuggerAgent!.tools).toContain("Bash");
+    expect(debuggerAgent!.tools).toContain("Task");
+    expect(debuggerAgent!.tools).toContain("AskUserQuestion");
+    expect(debuggerAgent!.tools).toContain("Edit");
+    expect(debuggerAgent!.tools).toContain("Glob");
+    expect(debuggerAgent!.tools).toContain("Grep");
+    expect(debuggerAgent!.tools).toContain("Read");
+    expect(debuggerAgent!.tools).toContain("Write");
+    expect(debuggerAgent!.tools).toContain("WebFetch");
+    expect(debuggerAgent!.tools).toContain("WebSearch");
+  });
+
+  test("has sonnet model", () => {
+    expect(debuggerAgent!.model).toBe("sonnet");
+  });
+
+  test("has comprehensive system prompt", () => {
+    expect(debuggerAgent!.prompt.length).toBeGreaterThan(500);
+    expect(debuggerAgent!.prompt).toContain("debugging");
+    expect(debuggerAgent!.prompt).toContain("error");
+  });
+
+  test("prompt includes debugging process steps", () => {
+    expect(debuggerAgent!.prompt).toContain("Understand the Problem");
+    expect(debuggerAgent!.prompt).toContain("Reproduce the Issue");
+    expect(debuggerAgent!.prompt).toContain("Gather Evidence");
+    expect(debuggerAgent!.prompt).toContain("Form Hypotheses");
+    expect(debuggerAgent!.prompt).toContain("Test Hypotheses");
+    expect(debuggerAgent!.prompt).toContain("Implement Fix");
+    expect(debuggerAgent!.prompt).toContain("Verify Fix");
+    expect(debuggerAgent!.prompt).toContain("Document Findings");
+  });
+
+  test("prompt includes debug report format", () => {
+    expect(debuggerAgent!.prompt).toContain("Debug Report");
+    expect(debuggerAgent!.prompt).toContain("Error Summary");
+    expect(debuggerAgent!.prompt).toContain("Root Cause");
+    expect(debuggerAgent!.prompt).toContain("Investigation Steps");
+    expect(debuggerAgent!.prompt).toContain("Fix Applied");
+  });
+
+  test("prompt includes common debugging patterns", () => {
+    expect(debuggerAgent!.prompt).toContain("Test Failures");
+    expect(debuggerAgent!.prompt).toContain("Runtime Errors");
+    expect(debuggerAgent!.prompt).toContain("Type Errors");
+    expect(debuggerAgent!.prompt).toContain("Build/Compile Errors");
+  });
+
+  test("has builtin source", () => {
+    expect(debuggerAgent!.source).toBe("builtin");
+  });
+});
+
+describe("getBuiltinAgent for debugger", () => {
+  test("finds debugger by name", () => {
+    const agent = getBuiltinAgent("debugger");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("debugger");
+    expect(agent!.model).toBe("sonnet");
+  });
+
+  test("finds debugger case-insensitively", () => {
+    const agent = getBuiltinAgent("DEBUGGER");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("debugger");
+  });
+});

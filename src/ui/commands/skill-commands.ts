@@ -1284,20 +1284,80 @@ function createSkillCommand(metadata: SkillMetadata): CommandDefinition {
 }
 
 // ============================================================================
+// BUILTIN SKILL COMMAND FACTORY
+// ============================================================================
+
+/**
+ * Create a command definition for a builtin skill with embedded prompt.
+ *
+ * @param skill - Builtin skill with embedded prompt
+ * @returns Command definition for the skill
+ */
+function createBuiltinSkillCommand(skill: BuiltinSkill): CommandDefinition {
+  return {
+    name: skill.name,
+    description: skill.description,
+    category: "skill",
+    aliases: skill.aliases,
+    hidden: skill.hidden,
+    execute: (args: string, context: CommandContext): CommandResult => {
+      const skillArgs = args.trim();
+      // Use the embedded prompt directly and expand $ARGUMENTS
+      const expandedPrompt = expandArguments(skill.prompt, skillArgs);
+      context.sendMessage(expandedPrompt);
+      return {
+        success: true,
+      };
+    },
+  };
+}
+
+// ============================================================================
 // REGISTRATION
 // ============================================================================
 
 /**
- * Skill commands created from definitions.
+ * Skill commands created from definitions (legacy disk-based fallback).
  */
 export const skillCommands: CommandDefinition[] = SKILL_DEFINITIONS.map(
   createSkillCommand
 );
 
 /**
+ * Builtin skill commands created from BUILTIN_SKILLS array.
+ */
+export const builtinSkillCommands: CommandDefinition[] = BUILTIN_SKILLS.map(
+  createBuiltinSkillCommand
+);
+
+/**
+ * Register all builtin skills with the global registry.
+ *
+ * This function registers skills from BUILTIN_SKILLS array directly,
+ * using their embedded prompts. Call this during application initialization.
+ *
+ * @example
+ * ```typescript
+ * import { registerBuiltinSkills } from "./skill-commands";
+ *
+ * // In app initialization
+ * registerBuiltinSkills();
+ * ```
+ */
+export function registerBuiltinSkills(): void {
+  for (const command of builtinSkillCommands) {
+    // Skip if already registered (idempotent)
+    if (!globalRegistry.has(command.name)) {
+      globalRegistry.register(command);
+    }
+  }
+}
+
+/**
  * Register all skill commands with the global registry.
  *
  * Call this function during application initialization.
+ * This registers both builtin skills and legacy disk-based skills.
  *
  * @example
  * ```typescript
@@ -1308,8 +1368,12 @@ export const skillCommands: CommandDefinition[] = SKILL_DEFINITIONS.map(
  * ```
  */
 export function registerSkillCommands(): void {
+  // First register builtin skills (they take priority)
+  registerBuiltinSkills();
+
+  // Then register legacy skill definitions (for skills not in BUILTIN_SKILLS)
   for (const command of skillCommands) {
-    // Skip if already registered (idempotent)
+    // Skip if already registered (builtin skills take priority)
     if (!globalRegistry.has(command.name)) {
       globalRegistry.register(command);
     }

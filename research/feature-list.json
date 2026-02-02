@@ -111,7 +111,7 @@
         "Check if command already exists before registering",
         "Call globalRegistry.register() for each skill"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -123,7 +123,7 @@
         "Use regex /\\$ARGUMENTS/g for global replacement",
         "Pass expanded prompt to context.sendMessage()"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "refactor",

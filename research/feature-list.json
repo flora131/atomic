@@ -166,7 +166,7 @@
         "Add mode?: string field (OpenCode only: 'subagent' | 'primary')",
         "Export the interface"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

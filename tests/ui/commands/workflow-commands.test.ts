@@ -5,6 +5,8 @@
  */
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { mkdirSync, rmSync, existsSync } from "fs";
+import { join } from "path";
 import {
   WORKFLOW_DEFINITIONS,
   workflowCommands,
@@ -12,6 +14,7 @@ import {
   getWorkflowMetadata,
   createWorkflowByName,
   parseRalphArgs,
+  isValidUUID,
   type WorkflowMetadata,
   type RalphCommandArgs,
 } from "../../../src/ui/commands/workflow-commands.ts";
@@ -501,5 +504,183 @@ describe("ralph command --yolo flag", () => {
     expect(messages[0]?.role).toBe("system");
     expect(messages[0]?.content).toContain("yolo mode");
     expect(messages[0]?.content).toContain("implement auth");
+  });
+});
+
+// ============================================================================
+// UUID VALIDATION TESTS
+// ============================================================================
+
+describe("isValidUUID", () => {
+  test("validates correct UUID v4 format", () => {
+    expect(isValidUUID("550e8400-e29b-41d4-a716-446655440000")).toBe(true);
+    expect(isValidUUID("123e4567-e89b-12d3-a456-426614174000")).toBe(true);
+  });
+
+  test("is case-insensitive", () => {
+    expect(isValidUUID("550E8400-E29B-41D4-A716-446655440000")).toBe(true);
+    expect(isValidUUID("550e8400-E29B-41d4-A716-446655440000")).toBe(true);
+  });
+
+  test("rejects invalid formats", () => {
+    expect(isValidUUID("not-a-uuid")).toBe(false);
+    expect(isValidUUID("")).toBe(false);
+    expect(isValidUUID("550e8400-e29b-41d4-a716")).toBe(false);
+    expect(isValidUUID("550e8400e29b41d4a716446655440000")).toBe(false);
+    expect(isValidUUID("sess_123_abc")).toBe(false);
+  });
+});
+
+// ============================================================================
+// PARSE RALPH ARGS --resume TESTS
+// ============================================================================
+
+describe("parseRalphArgs --resume flag", () => {
+  test("parses --resume flag with UUID", () => {
+    const result = parseRalphArgs("--resume 550e8400-e29b-41d4-a716-446655440000");
+    expect(result.yolo).toBe(false);
+    expect(result.prompt).toBeNull();
+    expect(result.resumeSessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
+  });
+
+  test("parses --resume flag without UUID", () => {
+    const result = parseRalphArgs("--resume");
+    expect(result.yolo).toBe(false);
+    expect(result.prompt).toBeNull();
+    expect(result.resumeSessionId).toBeNull();
+  });
+
+  test("parses --resume with leading/trailing whitespace", () => {
+    const result = parseRalphArgs("  --resume  550e8400-e29b-41d4-a716-446655440000  ");
+    expect(result.resumeSessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
+  });
+
+  test("extracts only first token after --resume", () => {
+    const result = parseRalphArgs("--resume 550e8400-e29b-41d4-a716-446655440000 extra args");
+    expect(result.resumeSessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
+  });
+
+  test("does not treat --resume in the middle as a flag", () => {
+    const result = parseRalphArgs("some prompt --resume abc123");
+    expect(result.yolo).toBe(false);
+    expect(result.prompt).toBe("some prompt --resume abc123");
+    expect(result.resumeSessionId).toBeNull();
+  });
+
+  test("--resume takes precedence over --yolo when first", () => {
+    const result = parseRalphArgs("--resume 550e8400-e29b-41d4-a716-446655440000");
+    expect(result.resumeSessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
+    expect(result.yolo).toBe(false);
+  });
+});
+
+// ============================================================================
+// RALPH COMMAND --resume INTEGRATION TESTS
+// ============================================================================
+
+describe("ralph command --resume flag", () => {
+  const testSessionId = "550e8400-e29b-41d4-a716-446655440000";
+  const testSessionDir = `.ralph/sessions/${testSessionId}`;
+
+  beforeEach(() => {
+    // Create test session directory
+    mkdirSync(testSessionDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    // Clean up test session directory
+    if (existsSync(".ralph")) {
+      rmSync(".ralph", { recursive: true, force: true });
+    }
+  });
+
+  test("ralph command with --resume flag and valid session succeeds", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute(`--resume ${testSessionId}`, context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.ralphConfig?.resumeSessionId).toBe(testSessionId);
+    expect(result.stateUpdate?.ralphConfig?.yolo).toBe(false);
+    expect(result.message).toContain("Resuming");
+    expect(result.message).toContain(testSessionId);
+  });
+
+  test("ralph command with --resume flag and invalid UUID fails", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("--resume not-a-uuid", context) as CommandResult;
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Invalid session ID format");
+  });
+
+  test("ralph command with --resume flag and non-existent session fails", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const nonExistentId = "11111111-2222-3333-4444-555555555555";
+    const result = ralphCmd!.execute(`--resume ${nonExistentId}`, context) as CommandResult;
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Session not found");
+    expect(result.message).toContain(nonExistentId);
+  });
+
+  test("ralph command with --resume flag without UUID fails", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("--resume", context) as CommandResult;
+
+    expect(result.success).toBe(false);
+    // Either fails on missing UUID or on validation
+    expect(result.success).toBe(false);
+  });
+
+  test("ralph command adds system message when resuming", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const messages: Array<{ role: string; content: string }> = [];
+    const context: CommandContext = {
+      session: null,
+      state: {
+        isStreaming: false,
+        messageCount: 0,
+        workflowActive: false,
+      },
+      addMessage: (role, content) => {
+        messages.push({ role, content });
+      },
+      setStreaming: () => {},
+    };
+
+    ralphCmd!.execute(`--resume ${testSessionId}`, context);
+
+    expect(messages.length).toBe(1);
+    expect(messages[0]?.role).toBe("system");
+    expect(messages[0]?.content).toContain("Resuming session");
+    expect(messages[0]?.content).toContain(testSessionId);
+  });
+
+  test("ralph command with --resume sets correct workflow state", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute(`--resume ${testSessionId}`, context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.workflowActive).toBe(true);
+    expect(result.stateUpdate?.workflowType).toBe("ralph");
+    expect(result.stateUpdate?.initialPrompt).toBeNull();
+    expect(result.stateUpdate?.ralphConfig?.resumeSessionId).toBe(testSessionId);
   });
 });

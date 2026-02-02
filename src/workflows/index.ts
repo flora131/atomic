@@ -35,6 +35,7 @@ export {
   loadSession,
   loadSessionIfExists,
   appendLog,
+  appendProgress,
 } from "./ralph-session.ts";
 
 // Atomic workflow exports

@@ -502,7 +502,7 @@
         "Append to {sessionDir}/progress.txt",
         "Use fs.appendFile"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

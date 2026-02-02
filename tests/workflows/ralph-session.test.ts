@@ -22,6 +22,7 @@ import {
   loadSession,
   loadSessionIfExists,
   appendLog,
+  appendProgress,
   SESSION_SUBDIRECTORIES,
   type RalphFeature,
   type RalphSession,
@@ -647,6 +648,158 @@ describe("File System Operations", () => {
         expect(entry.timestamp).toBeDefined();
         expect(entry.timestamp >= before).toBe(true);
         expect(entry.timestamp <= after).toBe(true);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+  });
+
+  describe("appendProgress", () => {
+    test("creates progress.txt and appends passing entry with checkmark", async () => {
+      const sessionId = `test-progress-pass-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const feature = createRalphFeature({
+          id: "feat-001",
+          name: "Add user authentication",
+          description: "Implement JWT auth",
+          status: "passing",
+        });
+
+        await appendProgress(sessionDir, feature, true);
+
+        const progressPath = join(sessionDir, "progress.txt");
+        const content = await readFile(progressPath, "utf-8");
+
+        // Verify content format: [timestamp] ✓ feature.name
+        expect(content).toContain("✓");
+        expect(content).toContain("Add user authentication");
+        expect(content).toMatch(/\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\]/);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("appends failing entry with X mark", async () => {
+      const sessionId = `test-progress-fail-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const feature = createRalphFeature({
+          id: "feat-002",
+          name: "Add payment processing",
+          description: "Implement Stripe integration",
+          status: "failing",
+          error: "Test failed",
+        });
+
+        await appendProgress(sessionDir, feature, false);
+
+        const progressPath = join(sessionDir, "progress.txt");
+        const content = await readFile(progressPath, "utf-8");
+
+        // Verify content format: [timestamp] ✗ feature.name
+        expect(content).toContain("✗");
+        expect(content).toContain("Add payment processing");
+        expect(content).toMatch(/\[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\]/);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("appends multiple entries in order", async () => {
+      const sessionId = `test-progress-multi-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const feature1 = createRalphFeature({
+          id: "feat-001",
+          name: "First feature",
+          description: "First",
+        });
+        const feature2 = createRalphFeature({
+          id: "feat-002",
+          name: "Second feature",
+          description: "Second",
+        });
+        const feature3 = createRalphFeature({
+          id: "feat-003",
+          name: "Third feature",
+          description: "Third",
+        });
+
+        await appendProgress(sessionDir, feature1, true);
+        await appendProgress(sessionDir, feature2, false);
+        await appendProgress(sessionDir, feature3, true);
+
+        const progressPath = join(sessionDir, "progress.txt");
+        const content = await readFile(progressPath, "utf-8");
+        const lines = content.trim().split("\n");
+
+        expect(lines.length).toBe(3);
+        expect(lines[0]).toContain("✓");
+        expect(lines[0]).toContain("First feature");
+        expect(lines[1]).toContain("✗");
+        expect(lines[1]).toContain("Second feature");
+        expect(lines[2]).toContain("✓");
+        expect(lines[2]).toContain("Third feature");
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("timestamp is in ISO format", async () => {
+      const sessionId = `test-progress-timestamp-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const feature = createRalphFeature({
+          id: "feat-001",
+          name: "Test feature",
+          description: "Test",
+        });
+
+        const before = new Date().toISOString();
+        await appendProgress(sessionDir, feature, true);
+        const after = new Date().toISOString();
+
+        const progressPath = join(sessionDir, "progress.txt");
+        const content = await readFile(progressPath, "utf-8");
+
+        // Extract timestamp from the line
+        const match = content.match(/\[([^\]]+)\]/);
+        expect(match).not.toBeNull();
+
+        const timestamp = match![1];
+        expect(timestamp >= before).toBe(true);
+        expect(timestamp <= after).toBe(true);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("creates progress.txt file if it doesn't exist", async () => {
+      const sessionId = `test-progress-create-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const progressPath = join(sessionDir, "progress.txt");
+
+        // Verify file doesn't exist yet
+        await expect(stat(progressPath)).rejects.toThrow();
+
+        const feature = createRalphFeature({
+          id: "feat-001",
+          name: "New feature",
+          description: "Test",
+        });
+
+        await appendProgress(sessionDir, feature, true);
+
+        // Now the file should exist
+        const fileStat = await stat(progressPath);
+        expect(fileStat.isFile()).toBe(true);
       } finally {
         await cleanupDir(sessionDir);
       }

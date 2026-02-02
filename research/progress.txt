@@ -1085,3 +1085,62 @@ all SDK clients, even when using bypass permission mode.
 
 ### Files Created
 - tests/sdk/ask-user-question-hitl.test.ts - Comprehensive HITL integration tests
+
+## 2026-02-02 - Feature Implementation: RalphSession and RalphFeature interfaces
+
+### Overview
+Created src/workflows/ralph-session.ts with core interfaces and helper functions
+for Ralph loop session management.
+
+### Interfaces Created
+
+#### RalphFeature Interface
+- id: string - Unique identifier
+- name: string - Short descriptive name
+- description: string - Detailed description
+- acceptanceCriteria?: string[] - List of acceptance criteria
+- status: 'pending' | 'in_progress' | 'passing' | 'failing'
+- implementedAt?: string - ISO timestamp when implemented
+- error?: string - Error message if failing
+
+#### RalphSession Interface
+- sessionId: string - UUID v4 identifier
+- sessionDir: string - Path to .ralph/sessions/{sessionId}/
+- createdAt: string - ISO timestamp
+- lastUpdated: string - ISO timestamp
+- yolo: boolean - True = no feature list (autonomous exploration)
+- maxIterations: number - Max iterations before stopping
+- sourceFeatureListPath?: string - Path to source feature-list.json
+- features: RalphFeature[] - List of features to implement
+- currentFeatureIndex: number - Index of current feature
+- completedFeatures: string[] - List of completed feature IDs
+- iteration: number - Current iteration number
+- status: 'running' | 'paused' | 'completed' | 'failed'
+- prUrl?: string - Pull request URL
+- prBranch?: string - Git branch name
+
+### Helper Functions
+- generateSessionId(): string - Generates UUID v4 session ID
+- getSessionDir(sessionId): string - Returns session directory path
+- createRalphSession(options): RalphSession - Creates new session with defaults
+- createRalphFeature(options): RalphFeature - Creates new feature with defaults
+- isRalphSession(value): boolean - Type guard for RalphSession
+- isRalphFeature(value): boolean - Type guard for RalphFeature
+
+### Tests Created
+- tests/workflows/ralph-session.test.ts with 31 tests:
+  - RalphFeature creation and validation tests
+  - RalphSession creation and validation tests
+  - generateSessionId() UUID generation tests
+  - getSessionDir() path generation tests
+  - Type guard validation tests
+  - Integration workflow simulation test
+
+### Test Results
+- All 31 tests pass
+- 87 expect() calls
+
+### Files Created/Modified
+- src/workflows/ralph-session.ts - New file with interfaces and helpers
+- src/workflows/index.ts - Updated to export ralph-session module
+- tests/workflows/ralph-session.test.ts - New test file

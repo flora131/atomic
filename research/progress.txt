@@ -181,3 +181,42 @@
 ### Files Modified
 - src/ui/commands/skill-commands.ts - Added create-feature-list to BUILTIN_SKILLS array
 - tests/ui/commands/skill-commands.test.ts - Added create-feature-list tests
+
+## 2026-02-02 - Feature Implementation: Implement-Feature Skill as Builtin
+
+### Completed
+- Added implement-feature skill to BUILTIN_SKILLS array in skill-commands.ts
+  - Set name to 'implement-feature'
+  - Set description to 'Implement next feature from list'
+  - Set aliases to ['impl']
+  - Embedded comprehensive prompt for implementing features from feature-list.json
+  - Included complete implementation process:
+    - Load feature list and identify next feature
+    - Review feature context (description, steps, category)
+    - Implement each step
+    - Write tests for new functionality
+    - Update feature status (passes: true) after completion
+  - Added feature categories explanation (functional, refactor, test, documentation, ui, e2e)
+  - Included progress tracking instructions for research/progress.txt
+  - Included error handling guidelines
+  - Included $ARGUMENTS placeholder for specific feature targeting
+
+### Tests Added
+- BUILTIN_SKILLS tests:
+  - contains implement-feature skill with correct fields
+  - implement-feature skill has $ARGUMENTS placeholder
+  - implement-feature skill includes implementation process
+  - implement-feature skill includes feature categories
+- getBuiltinSkill tests:
+  - finds implement-feature builtin skill by name
+  - finds implement-feature builtin skill by alias
+- builtin skill execution tests:
+  - implement-feature command uses embedded prompt
+  - implement-feature command expands $ARGUMENTS with provided args
+
+### Test Results
+- All skill-commands tests pass (81 tests)
+
+### Files Modified
+- src/ui/commands/skill-commands.ts - Added implement-feature to BUILTIN_SKILLS array
+- tests/ui/commands/skill-commands.test.ts - Added implement-feature tests

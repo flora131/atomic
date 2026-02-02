@@ -431,6 +431,40 @@ export {
 };
 
 // ============================================================================
+// YOLO MODE CONSTANTS
+// ============================================================================
+
+/**
+ * Completion instruction appended to yolo mode prompts.
+ *
+ * This instruction tells the agent to output "COMPLETE" when the task is finished.
+ * The EXTREMELY_IMPORTANT tag ensures the agent pays attention to this instruction.
+ */
+export const YOLO_COMPLETION_INSTRUCTION = `
+
+<EXTREMELY_IMPORTANT>
+When you have COMPLETELY finished the task to the best of your ability, you MUST output the following on its own line:
+
+COMPLETE
+
+This signals that you are done with the task. Only output COMPLETE when you are truly finished.
+If you encounter blockers, errors, or need more iterations, do NOT output COMPLETE.
+Continue working until the task is genuinely complete, then output COMPLETE.
+</EXTREMELY_IMPORTANT>
+`;
+
+/**
+ * Check if agent output contains the completion signal.
+ *
+ * @param output - The agent's output text
+ * @returns True if the output contains "COMPLETE" as a standalone word
+ */
+export function checkYoloCompletion(output: string): boolean {
+  // Look for COMPLETE on its own line or as a standalone word
+  return /\bCOMPLETE\b/.test(output);
+}
+
+// ============================================================================
 // IMPLEMENT FEATURE NODE
 // ============================================================================
 
@@ -449,6 +483,9 @@ export interface ImplementFeatureNodeConfig {
 
   /** Optional: prompt template for implementing features */
   promptTemplate?: string;
+
+  /** Optional: user prompt for yolo mode (can also come from state.userPrompt) */
+  prompt?: string;
 }
 
 /**
@@ -493,6 +530,7 @@ export function implementFeatureNode<TState extends RalphWorkflowState = RalphWo
     name = "implement-feature",
     description = "Find and prepare the next pending feature for implementation",
     promptTemplate,
+    prompt: configPrompt,
   } = config;
 
   return {
@@ -503,6 +541,49 @@ export function implementFeatureNode<TState extends RalphWorkflowState = RalphWo
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
       const state = ctx.state as RalphWorkflowState;
       const sessionDir = state.ralphSessionDir;
+
+      // =========================================
+      // YOLO MODE EXECUTION
+      // =========================================
+      if (state.yolo) {
+        // Get user prompt from config or state
+        const userPrompt = configPrompt ?? state.userPrompt;
+
+        if (!userPrompt) {
+          throw new Error("Yolo mode requires a prompt");
+        }
+
+        // Append completion instruction to prompt
+        const yoloPrompt = userPrompt + YOLO_COMPLETION_INSTRUCTION;
+
+        // Log the yolo agent call
+        await appendLog(sessionDir, "agent-calls", {
+          action: "yolo",
+          sessionId: state.ralphSessionId,
+          iteration: state.iteration,
+          yolo: true,
+          promptLength: yoloPrompt.length,
+        });
+
+        // Return state with yolo prompt in outputs
+        // The actual agent execution is handled by a separate agentNode
+        return {
+          stateUpdate: {
+            shouldContinue: true,
+            yoloComplete: false,
+            lastUpdated: new Date().toISOString(),
+            outputs: {
+              ...state.outputs,
+              [`${id}_prompt`]: yoloPrompt,
+              [`${id}_yolo`]: true,
+            },
+          } as Partial<TState>,
+        };
+      }
+
+      // =========================================
+      // FEATURE-LIST MODE EXECUTION
+      // =========================================
 
       // Find the next pending feature
       const pendingFeatureIndex = state.features.findIndex(
@@ -711,6 +792,88 @@ export async function processFeatureImplementationResult(
     nextIteration,
     maxIterationsReached,
   });
+
+  return updatedState;
+}
+
+/**
+ * Process the results of a yolo mode agent call.
+ *
+ * This is a helper function that processes agent output in yolo mode,
+ * checking for the COMPLETE signal and updating state accordingly.
+ *
+ * @param state - Current workflow state (after agent execution)
+ * @param agentOutput - The agent's output text
+ * @returns Updated state with yolo completion results applied
+ */
+export async function processYoloResult(
+  state: RalphWorkflowState,
+  agentOutput: string
+): Promise<Partial<RalphWorkflowState>> {
+  const sessionDir = state.ralphSessionDir;
+  const now = new Date().toISOString();
+
+  // Check if agent output contains COMPLETE
+  const isComplete = checkYoloCompletion(agentOutput);
+
+  // Increment iteration
+  const nextIteration = state.iteration + 1;
+
+  // Check if max iterations reached (0 means unlimited)
+  const maxIterationsReached =
+    state.maxIterations > 0 && nextIteration >= state.maxIterations;
+
+  // Determine if we should continue
+  // Stop if: complete OR max iterations reached
+  const shouldContinue = !isComplete && !maxIterationsReached;
+
+  // Build updated state
+  const updatedState: Partial<RalphWorkflowState> = {
+    iteration: nextIteration,
+    yoloComplete: isComplete,
+    maxIterationsReached,
+    shouldContinue,
+    sessionStatus: isComplete ? "completed" : state.sessionStatus,
+    lastUpdated: now,
+  };
+
+  // Save session with updated state
+  const session = workflowStateToSession({
+    ...state,
+    ...updatedState,
+  } as RalphWorkflowState);
+  await saveSession(sessionDir, session);
+
+  // Create a pseudo-feature for progress tracking
+  const yoloFeature: RalphFeature = {
+    id: `yolo-iteration-${state.iteration}`,
+    name: `Yolo Iteration ${state.iteration}`,
+    description: "Yolo mode iteration",
+    status: isComplete ? "passing" : "in_progress",
+  };
+
+  // Append to progress.txt
+  await appendProgress(sessionDir, yoloFeature, isComplete);
+
+  // Log the result
+  await appendLog(sessionDir, "agent-calls", {
+    action: "yolo-result",
+    sessionId: state.ralphSessionId,
+    iteration: state.iteration,
+    yolo: true,
+    isComplete,
+    nextIteration,
+    maxIterationsReached,
+    shouldContinue,
+    outputContainsComplete: isComplete,
+  });
+
+  // Log completion message if complete
+  if (isComplete) {
+    console.log("Task completed! Agent signaled COMPLETE.");
+  } else if (maxIterationsReached) {
+    console.log(`Max iterations (${state.maxIterations}) reached.`);
+  }
 
   return updatedState;
 }

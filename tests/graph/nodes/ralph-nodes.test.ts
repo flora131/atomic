@@ -30,6 +30,11 @@ import {
   processFeatureImplementationResult,
   type ImplementFeatureOutputConfig,
 
+  // Yolo mode functions
+  processYoloResult,
+  checkYoloCompletion,
+  YOLO_COMPLETION_INSTRUCTION,
+
   // Re-exported functions
   generateSessionId,
   getSessionDir,
@@ -1775,5 +1780,435 @@ describe("processFeatureImplementationResult", () => {
     expect(entry.action).toBe("implement-feature-result");
     expect(entry.featureId).toBe("f1");
     expect(entry.passed).toBe(true);
+  });
+});
+
+// ============================================================================
+// YOLO MODE TESTS
+// ============================================================================
+
+describe("Yolo Mode", () => {
+  const testSessionId = "yolo-test-" + Date.now();
+  const testSessionDir = getSessionDir(testSessionId);
+
+  /**
+   * Create a mock ExecutionContext for yolo mode testing.
+   */
+  function createYoloMockContext(
+    overrides: Partial<RalphWorkflowState> = {}
+  ): ExecutionContext<RalphWorkflowState> {
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      yolo: true,
+      userPrompt: "Build a snake game in Rust",
+    });
+    return {
+      state: { ...state, ...overrides },
+      config: {} as GraphConfig<RalphWorkflowState>,
+      errors: [] as ExecutionError[],
+    };
+  }
+
+  beforeEach(async () => {
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  afterEach(async () => {
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  describe("YOLO_COMPLETION_INSTRUCTION", () => {
+    test("contains EXTREMELY_IMPORTANT tag", async () => {
+      const { YOLO_COMPLETION_INSTRUCTION } = await import(
+        "../../../src/graph/nodes/ralph-nodes.ts"
+      );
+      expect(YOLO_COMPLETION_INSTRUCTION).toContain("EXTREMELY_IMPORTANT");
+    });
+
+    test("contains COMPLETE instruction", async () => {
+      const { YOLO_COMPLETION_INSTRUCTION } = await import(
+        "../../../src/graph/nodes/ralph-nodes.ts"
+      );
+      expect(YOLO_COMPLETION_INSTRUCTION).toContain("COMPLETE");
+    });
+
+    test("instructs to only output COMPLETE when truly finished", async () => {
+      const { YOLO_COMPLETION_INSTRUCTION } = await import(
+        "../../../src/graph/nodes/ralph-nodes.ts"
+      );
+      expect(YOLO_COMPLETION_INSTRUCTION).toContain(
+        "Only output COMPLETE when you are truly finished"
+      );
+    });
+  });
+
+  describe("checkYoloCompletion", () => {
+    test("returns true when output contains COMPLETE", async () => {
+      const { checkYoloCompletion } = await import(
+        "../../../src/graph/nodes/ralph-nodes.ts"
+      );
+      expect(checkYoloCompletion("Task is done. COMPLETE")).toBe(true);
+    });
+
+    test("returns true when COMPLETE is on its own line", async () => {
+      const { checkYoloCompletion } = await import(
+        "../../../src/graph/nodes/ralph-nodes.ts"
+      );
+      expect(checkYoloCompletion("Task is done.\nCOMPLETE\nDone.")).toBe(true);
+    });
+
+    test("returns false when output does not contain COMPLETE", async () => {
+      const { checkYoloCompletion } = await import(
+        "../../../src/graph/nodes/ralph-nodes.ts"
+      );
+      expect(checkYoloCompletion("Still working on it...")).toBe(false);
+    });
+
+    test("returns false for partial match (COMPLETED)", async () => {
+      const { checkYoloCompletion } = await import(
+        "../../../src/graph/nodes/ralph-nodes.ts"
+      );
+      // \bCOMPLETE\b does NOT match COMPLETED because the "D" breaks the word boundary
+      // The regex requires COMPLETE to be a standalone word
+      expect(checkYoloCompletion("COMPLETED")).toBe(false);
+    });
+
+    test("returns false for lowercase complete", async () => {
+      const { checkYoloCompletion } = await import(
+        "../../../src/graph/nodes/ralph-nodes.ts"
+      );
+      expect(checkYoloCompletion("complete")).toBe(false);
+    });
+
+    test("returns true when COMPLETE appears in the middle of text", async () => {
+      const { checkYoloCompletion } = await import(
+        "../../../src/graph/nodes/ralph-nodes.ts"
+      );
+      expect(checkYoloCompletion("I have finished the task. COMPLETE. Thank you.")).toBe(true);
+    });
+  });
+
+  describe("implementFeatureNode yolo mode", () => {
+    test("throws error when yolo mode has no prompt", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = implementFeatureNode({ id: "impl-yolo" });
+      const ctx = createYoloMockContext({
+        userPrompt: undefined,
+      });
+
+      await expect(node.execute(ctx)).rejects.toThrow("Yolo mode requires a prompt");
+    });
+
+    test("uses userPrompt from state in yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = implementFeatureNode({ id: "impl-yolo" });
+      const ctx = createYoloMockContext({
+        userPrompt: "Build a todo app",
+      });
+
+      const result = await node.execute(ctx);
+
+      const prompt = result.stateUpdate!.outputs!["impl-yolo_prompt"] as string;
+      expect(prompt).toContain("Build a todo app");
+    });
+
+    test("uses prompt from config in yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = implementFeatureNode({
+        id: "impl-yolo",
+        prompt: "Build a calculator",
+      });
+      const ctx = createYoloMockContext({
+        userPrompt: undefined, // No state prompt
+      });
+
+      const result = await node.execute(ctx);
+
+      const prompt = result.stateUpdate!.outputs!["impl-yolo_prompt"] as string;
+      expect(prompt).toContain("Build a calculator");
+    });
+
+    test("config prompt takes precedence over state prompt", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = implementFeatureNode({
+        id: "impl-yolo",
+        prompt: "Config prompt",
+      });
+      const ctx = createYoloMockContext({
+        userPrompt: "State prompt",
+      });
+
+      const result = await node.execute(ctx);
+
+      const prompt = result.stateUpdate!.outputs!["impl-yolo_prompt"] as string;
+      expect(prompt).toContain("Config prompt");
+      expect(prompt).not.toContain("State prompt");
+    });
+
+    test("appends COMPLETION_INSTRUCTION to prompt in yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = implementFeatureNode({ id: "impl-yolo" });
+      const ctx = createYoloMockContext({
+        userPrompt: "Build something",
+      });
+
+      const result = await node.execute(ctx);
+
+      const prompt = result.stateUpdate!.outputs!["impl-yolo_prompt"] as string;
+      expect(prompt).toContain("EXTREMELY_IMPORTANT");
+      expect(prompt).toContain("output the following on its own line");
+      expect(prompt).toContain("COMPLETE");
+    });
+
+    test("sets yolo flag in outputs", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = implementFeatureNode({ id: "impl-yolo" });
+      const ctx = createYoloMockContext();
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.outputs!["impl-yolo_yolo"]).toBe(true);
+    });
+
+    test("sets shouldContinue to true in yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = implementFeatureNode({ id: "impl-yolo" });
+      const ctx = createYoloMockContext();
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.shouldContinue).toBe(true);
+    });
+
+    test("sets yoloComplete to false initially", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = implementFeatureNode({ id: "impl-yolo" });
+      const ctx = createYoloMockContext();
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.yoloComplete).toBe(false);
+    });
+
+    test("logs yolo action to agent-calls.jsonl", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = implementFeatureNode({ id: "impl-yolo" });
+      const ctx = createYoloMockContext();
+
+      await node.execute(ctx);
+
+      const logPath = `${testSessionDir}logs/agent-calls.jsonl`;
+      const content = await readFile(logPath, "utf-8");
+      const entry = JSON.parse(content.trim());
+      expect(entry.action).toBe("yolo");
+      expect(entry.yolo).toBe(true);
+      expect(entry.iteration).toBeDefined();
+    });
+  });
+
+  describe("processYoloResult", () => {
+    const { processYoloResult } = require("../../../src/graph/nodes/ralph-nodes.ts");
+
+    test("sets yoloComplete to true when output contains COMPLETE", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const state = createRalphWorkflowState({
+        sessionId: testSessionId,
+        yolo: true,
+      });
+
+      const result = await processYoloResult(state, "Task done. COMPLETE");
+
+      expect(result.yoloComplete).toBe(true);
+    });
+
+    test("sets yoloComplete to false when output does not contain COMPLETE", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const state = createRalphWorkflowState({
+        sessionId: testSessionId,
+        yolo: true,
+      });
+
+      const result = await processYoloResult(state, "Still working...");
+
+      expect(result.yoloComplete).toBe(false);
+    });
+
+    test("sets shouldContinue to false when COMPLETE detected", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const state = createRalphWorkflowState({
+        sessionId: testSessionId,
+        yolo: true,
+      });
+
+      const result = await processYoloResult(state, "COMPLETE");
+
+      expect(result.shouldContinue).toBe(false);
+    });
+
+    test("sets shouldContinue to true when not complete", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const state = createRalphWorkflowState({
+        sessionId: testSessionId,
+        yolo: true,
+      });
+
+      const result = await processYoloResult(state, "Working on it...");
+
+      expect(result.shouldContinue).toBe(true);
+    });
+
+    test("increments iteration", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const state = createRalphWorkflowState({
+        sessionId: testSessionId,
+        yolo: true,
+      });
+      state.iteration = 5;
+
+      const result = await processYoloResult(state, "Still going...");
+
+      expect(result.iteration).toBe(6);
+    });
+
+    test("detects max iterations reached", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const state = createRalphWorkflowState({
+        sessionId: testSessionId,
+        yolo: true,
+        maxIterations: 10,
+      });
+      state.iteration = 9; // Will become 10 after increment
+
+      const result = await processYoloResult(state, "Working...");
+
+      expect(result.maxIterationsReached).toBe(true);
+      expect(result.shouldContinue).toBe(false);
+    });
+
+    test("unlimited iterations when maxIterations is 0", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const state = createRalphWorkflowState({
+        sessionId: testSessionId,
+        yolo: true,
+        maxIterations: 0,
+      });
+      state.iteration = 1000;
+
+      const result = await processYoloResult(state, "Still going...");
+
+      expect(result.maxIterationsReached).toBe(false);
+      expect(result.shouldContinue).toBe(true);
+    });
+
+    test("sets sessionStatus to completed when COMPLETE detected", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const state = createRalphWorkflowState({
+        sessionId: testSessionId,
+        yolo: true,
+      });
+
+      const result = await processYoloResult(state, "COMPLETE");
+
+      expect(result.sessionStatus).toBe("completed");
+    });
+
+    test("saves session to disk", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const state = createRalphWorkflowState({
+        sessionId: testSessionId,
+        yolo: true,
+      });
+      state.iteration = 3;
+
+      await processYoloResult(state, "Working...");
+
+      const sessionPath = `${testSessionDir}session.json`;
+      const content = await readFile(sessionPath, "utf-8");
+      const session = JSON.parse(content);
+      expect(session.iteration).toBe(4); // Incremented from 3
+    });
+
+    test("appends to progress.txt", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const state = createRalphWorkflowState({
+        sessionId: testSessionId,
+        yolo: true,
+      });
+      state.iteration = 1;
+
+      await processYoloResult(state, "COMPLETE");
+
+      const progressPath = `${testSessionDir}progress.txt`;
+      const content = await readFile(progressPath, "utf-8");
+      expect(content).toContain("✓");
+      expect(content).toContain("Yolo Iteration 1");
+    });
+
+    test("appends failure mark when not complete", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const state = createRalphWorkflowState({
+        sessionId: testSessionId,
+        yolo: true,
+      });
+      state.iteration = 1;
+
+      await processYoloResult(state, "Still working...");
+
+      const progressPath = `${testSessionDir}progress.txt`;
+      const content = await readFile(progressPath, "utf-8");
+      expect(content).toContain("✗");
+      expect(content).toContain("Yolo Iteration 1");
+    });
+
+    test("logs yolo-result to agent-calls.jsonl", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const state = createRalphWorkflowState({
+        sessionId: testSessionId,
+        yolo: true,
+      });
+      state.iteration = 2;
+
+      await processYoloResult(state, "COMPLETE");
+
+      const logPath = `${testSessionDir}logs/agent-calls.jsonl`;
+      const content = await readFile(logPath, "utf-8");
+      const entry = JSON.parse(content.trim());
+      expect(entry.action).toBe("yolo-result");
+      expect(entry.yolo).toBe(true);
+      expect(entry.isComplete).toBe(true);
+      expect(entry.iteration).toBe(2);
+      expect(entry.shouldContinue).toBe(false);
+    });
   });
 });

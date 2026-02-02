@@ -270,7 +270,7 @@
         "Write comprehensive system prompt for web research",
         "Set source to 'builtin'"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

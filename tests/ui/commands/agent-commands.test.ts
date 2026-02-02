@@ -928,6 +928,11 @@ describe("BUILTIN_AGENTS array", () => {
     const patternFinder = BUILTIN_AGENTS.find((a) => a.name === "codebase-pattern-finder");
     expect(patternFinder).toBeDefined();
   });
+
+  test("contains codebase-online-researcher agent", () => {
+    const researcher = BUILTIN_AGENTS.find((a) => a.name === "codebase-online-researcher");
+    expect(researcher).toBeDefined();
+  });
 });
 
 describe("codebase-analyzer builtin agent", () => {
@@ -1094,6 +1099,19 @@ describe("getBuiltinAgent", () => {
     expect(agent).toBeDefined();
     expect(agent!.name).toBe("codebase-pattern-finder");
   });
+
+  test("finds codebase-online-researcher by name", () => {
+    const agent = getBuiltinAgent("codebase-online-researcher");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("codebase-online-researcher");
+    expect(agent!.model).toBe("sonnet");
+  });
+
+  test("finds codebase-online-researcher case-insensitively", () => {
+    const agent = getBuiltinAgent("CODEBASE-ONLINE-RESEARCHER");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("codebase-online-researcher");
+  });
 });
 
 describe("codebase-pattern-finder builtin agent", () => {
@@ -1157,5 +1175,68 @@ describe("codebase-pattern-finder builtin agent", () => {
 
   test("has builtin source", () => {
     expect(patternFinder!.source).toBe("builtin");
+  });
+});
+
+describe("codebase-online-researcher builtin agent", () => {
+  const researcher = BUILTIN_AGENTS.find((a) => a.name === "codebase-online-researcher");
+
+  test("exists in BUILTIN_AGENTS", () => {
+    expect(researcher).toBeDefined();
+  });
+
+  test("has correct name", () => {
+    expect(researcher!.name).toBe("codebase-online-researcher");
+  });
+
+  test("has appropriate description", () => {
+    expect(researcher!.description).toContain("Researches");
+    expect(researcher!.description).toContain("web");
+  });
+
+  test("has tools array with web research tools", () => {
+    expect(researcher!.tools).toBeDefined();
+    expect(researcher!.tools).toContain("Glob");
+    expect(researcher!.tools).toContain("Grep");
+    expect(researcher!.tools).toContain("Read");
+    expect(researcher!.tools).toContain("LS");
+    expect(researcher!.tools).toContain("WebFetch");
+    expect(researcher!.tools).toContain("WebSearch");
+    expect(researcher!.tools).toContain("mcp__deepwiki__ask_question");
+  });
+
+  test("has sonnet model", () => {
+    expect(researcher!.model).toBe("sonnet");
+  });
+
+  test("has comprehensive system prompt", () => {
+    expect(researcher!.prompt.length).toBeGreaterThan(500);
+    expect(researcher!.prompt).toContain("research");
+    expect(researcher!.prompt).toContain("web");
+  });
+
+  test("prompt includes research strategy steps", () => {
+    expect(researcher!.prompt).toContain("Understand the Research Goal");
+    expect(researcher!.prompt).toContain("Check Local Context First");
+    expect(researcher!.prompt).toContain("Search the Web");
+    expect(researcher!.prompt).toContain("Fetch Specific Resources");
+    expect(researcher!.prompt).toContain("Query Repository Documentation");
+  });
+
+  test("prompt includes output format guidelines", () => {
+    expect(researcher!.prompt).toContain("Summary");
+    expect(researcher!.prompt).toContain("Key Findings");
+    expect(researcher!.prompt).toContain("Sources");
+    expect(researcher!.prompt).toContain("Code Examples");
+    expect(researcher!.prompt).toContain("Recommendations");
+    expect(researcher!.prompt).toContain("Caveats");
+  });
+
+  test("prompt mentions DeepWiki tool", () => {
+    expect(researcher!.prompt).toContain("mcp__deepwiki__ask_question");
+  });
+
+  test("has builtin source", () => {
+    expect(researcher!.source).toBe("builtin");
   });
 });

@@ -735,3 +735,48 @@
 ### Files Modified
 - src/ui/commands/agent-commands.ts - Added codebase-pattern-finder to BUILTIN_AGENTS array
 - tests/ui/commands/agent-commands.test.ts - Added codebase-pattern-finder tests
+
+## 2026-02-02 - Feature Implementation: codebase-online-researcher Builtin Agent
+
+### Completed
+- Added codebase-online-researcher agent to BUILTIN_AGENTS array in agent-commands.ts
+  - name: 'codebase-online-researcher'
+  - description: 'Researches questions using web sources for modern, online-only information.'
+  - tools: ['Glob', 'Grep', 'Read', 'LS', 'WebFetch', 'WebSearch', 'mcp__deepwiki__ask_question']
+  - model: 'sonnet' (balanced performance for thorough research)
+  - source: 'builtin'
+  - Comprehensive system prompt including:
+    - Research Strategy section covering:
+      - Understand the Research Goal
+      - Check Local Context First
+      - Search the Web
+      - Fetch Specific Resources
+      - Query Repository Documentation
+    - Output format guidelines (Summary, Key Findings, Sources, Code Examples, Recommendations, Caveats)
+    - Guidelines for verifying information across multiple sources
+    - Integration with DeepWiki for GitHub repository documentation
+
+### Tests Added (13 new tests)
+- codebase-online-researcher builtin agent tests:
+  - exists in BUILTIN_AGENTS
+  - has correct name
+  - has appropriate description
+  - has tools array with web research tools
+  - has sonnet model
+  - has comprehensive system prompt
+  - prompt includes research strategy steps
+  - prompt includes output format guidelines
+  - prompt mentions DeepWiki tool
+  - has builtin source
+- BUILTIN_AGENTS array tests:
+  - contains codebase-online-researcher agent
+- getBuiltinAgent tests:
+  - finds codebase-online-researcher by name
+  - finds codebase-online-researcher case-insensitively
+
+### Test Results
+- All agent-commands tests pass (140 tests)
+
+### Files Modified
+- src/ui/commands/agent-commands.ts - Added codebase-online-researcher to BUILTIN_AGENTS array
+- tests/ui/commands/agent-commands.test.ts - Added codebase-online-researcher tests

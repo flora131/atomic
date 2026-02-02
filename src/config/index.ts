@@ -9,8 +9,10 @@
 export {
   type RalphConfig,
   type LoadRalphConfigOptions,
+  type RalphWorkflowConfig,
   RALPH_ENV_VARS,
   RALPH_DEFAULTS,
+  RALPH_CONFIG,
   loadRalphConfig,
   describeRalphConfig,
 } from "./ralph.ts";

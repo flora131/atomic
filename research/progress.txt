@@ -1701,3 +1701,34 @@ Added file system operations for Ralph session persistence to ralph-session.ts.
 - src/config/index.ts - Removed isGraphEngineEnabled export
 - src/commands/ralph.ts - Removed import and simplified ralphSetup()
 - tests/config/ralph.test.ts - Updated tests to remove feature flag references
+
+## 2026-02-02 - Feature Implementation: RALPH_CONFIG Constant
+
+### Completed
+- Added RalphWorkflowConfig interface in src/config/ralph.ts
+  - maxIterations: number (default 100)
+  - checkpointing: boolean (default true)
+- Added RALPH_CONFIG constant with default configuration
+  - maxIterations: 100 - Provides reasonable limit to prevent infinite loops
+  - checkpointing: true - Enables workflow resumption after interruption
+  - Note: autoApproveSpec intentionally not included - spec approval is manual
+- Updated src/config/index.ts to export RalphWorkflowConfig and RALPH_CONFIG
+
+### Tests Added
+- RALPH_CONFIG tests:
+  - maxIterations defaults to 100
+  - checkpointing defaults to true
+  - does not include autoApproveSpec (spec approval is manual)
+  - has only maxIterations and checkpointing properties
+- RalphWorkflowConfig type tests:
+  - is properly typed
+  - RALPH_CONFIG conforms to RalphWorkflowConfig
+
+### Test Results
+- All 40 ralph config tests pass (34 original + 6 new)
+- 61 expect() calls
+
+### Files Modified
+- src/config/ralph.ts - Added RalphWorkflowConfig interface and RALPH_CONFIG constant
+- src/config/index.ts - Added RalphWorkflowConfig and RALPH_CONFIG exports
+- tests/config/ralph.test.ts - Added RALPH_CONFIG and RalphWorkflowConfig tests

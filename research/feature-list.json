@@ -627,7 +627,7 @@
         "Remove any code that checks isGraphEngineEnabled()",
         "Graph engine is now the only execution mode"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

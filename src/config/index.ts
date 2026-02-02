@@ -11,7 +11,6 @@ export {
   type LoadRalphConfigOptions,
   RALPH_ENV_VARS,
   RALPH_DEFAULTS,
-  isGraphEngineEnabled,
   loadRalphConfig,
   describeRalphConfig,
 } from "./ralph.ts";

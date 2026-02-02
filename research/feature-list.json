@@ -242,7 +242,7 @@
         "Write comprehensive system prompt for finding files and components",
         "Set source to 'builtin'"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

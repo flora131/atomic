@@ -49,7 +49,7 @@
         "Embed full prompt for generating technical specifications",
         "Include reference to research directory for context"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

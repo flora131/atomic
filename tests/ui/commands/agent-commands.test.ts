@@ -1323,3 +1323,90 @@ describe("getBuiltinAgent for codebase-research-analyzer", () => {
     expect(agent!.name).toBe("codebase-research-analyzer");
   });
 });
+
+// ============================================================================
+// CODEBASE-RESEARCH-LOCATOR BUILTIN AGENT TESTS
+// ============================================================================
+
+describe("BUILTIN_AGENTS array - codebase-research-locator", () => {
+  test("contains codebase-research-locator agent", () => {
+    const researchLocator = BUILTIN_AGENTS.find((a) => a.name === "codebase-research-locator");
+    expect(researchLocator).toBeDefined();
+  });
+});
+
+describe("codebase-research-locator builtin agent", () => {
+  const researchLocator = BUILTIN_AGENTS.find((a) => a.name === "codebase-research-locator");
+
+  test("exists in BUILTIN_AGENTS", () => {
+    expect(researchLocator).toBeDefined();
+  });
+
+  test("has correct name", () => {
+    expect(researchLocator!.name).toBe("codebase-research-locator");
+  });
+
+  test("has appropriate description", () => {
+    expect(researchLocator!.description).toContain("Discovers");
+    expect(researchLocator!.description).toContain("research");
+  });
+
+  test("has tools array with research locator tools", () => {
+    expect(researchLocator!.tools).toBeDefined();
+    expect(researchLocator!.tools).toContain("Read");
+    expect(researchLocator!.tools).toContain("Grep");
+    expect(researchLocator!.tools).toContain("Glob");
+    expect(researchLocator!.tools).toContain("LS");
+    expect(researchLocator!.tools).toContain("Bash");
+  });
+
+  test("has haiku model for speed", () => {
+    expect(researchLocator!.model).toBe("haiku");
+  });
+
+  test("has comprehensive system prompt", () => {
+    expect(researchLocator!.prompt.length).toBeGreaterThan(500);
+    expect(researchLocator!.prompt).toContain("research");
+    expect(researchLocator!.prompt).toContain("document");
+  });
+
+  test("prompt includes document discovery strategy steps", () => {
+    expect(researchLocator!.prompt).toContain("Understand the Search Goal");
+    expect(researchLocator!.prompt).toContain("Quick Directory Survey");
+    expect(researchLocator!.prompt).toContain("Pattern-Based Search");
+    expect(researchLocator!.prompt).toContain("Content Verification");
+    expect(researchLocator!.prompt).toContain("Provide Targeted Results");
+  });
+
+  test("prompt includes common research document types", () => {
+    expect(researchLocator!.prompt).toContain("progress.txt");
+    expect(researchLocator!.prompt).toContain("feature-list.json");
+    expect(researchLocator!.prompt).toContain("spec.md");
+    expect(researchLocator!.prompt).toContain("architecture.md");
+  });
+
+  test("prompt includes output format guidelines", () => {
+    expect(researchLocator!.prompt).toContain("Primary Matches");
+    expect(researchLocator!.prompt).toContain("Related Documents");
+    expect(researchLocator!.prompt).toContain("Document Structure");
+  });
+
+  test("has builtin source", () => {
+    expect(researchLocator!.source).toBe("builtin");
+  });
+});
+
+describe("getBuiltinAgent for codebase-research-locator", () => {
+  test("finds codebase-research-locator by name", () => {
+    const agent = getBuiltinAgent("codebase-research-locator");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("codebase-research-locator");
+    expect(agent!.model).toBe("haiku");
+  });
+
+  test("finds codebase-research-locator case-insensitively", () => {
+    const agent = getBuiltinAgent("CODEBASE-RESEARCH-LOCATOR");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("codebase-research-locator");
+  });
+});

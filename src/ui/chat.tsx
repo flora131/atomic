@@ -185,6 +185,18 @@ export type OnToolComplete = (
 ) => void;
 
 /**
+ * Permission/HITL request callback signature.
+ */
+export type OnPermissionRequest = (
+  requestId: string,
+  toolName: string,
+  question: string,
+  options: Array<{ label: string; value: string; description?: string }>,
+  respond: (answer: string | string[]) => void,
+  header?: string
+) => void;
+
+/**
  * Props for the ChatApp component.
  */
 export interface ChatAppProps {
@@ -226,6 +238,16 @@ export interface ChatAppProps {
    * Called with a function that should be invoked when a tool completes.
    */
   registerToolCompleteHandler?: (handler: OnToolComplete) => void;
+  /**
+   * Register callback to receive permission/HITL requests.
+   * Called with a function that should be invoked when permission is needed.
+   */
+  registerPermissionRequestHandler?: (handler: OnPermissionRequest) => void;
+  /**
+   * Register callback to receive Ctrl+C warning visibility changes.
+   * Called with a function that sets whether to show the warning.
+   */
+  registerCtrlCWarningHandler?: (handler: (show: boolean) => void) => void;
 }
 
 /**
@@ -302,6 +324,10 @@ export interface MessageBubbleProps {
   syntaxStyle?: SyntaxStyle;
   /** Whether verbose mode is enabled (shows timestamps) */
   verboseMode?: boolean;
+  /** Whether to hide AskUserQuestion tool output (when dialog is active) */
+  hideAskUserQuestion?: boolean;
+  /** Whether to hide loading indicator (when question dialog is active) */
+  hideLoading?: boolean;
 }
 
 // ============================================================================
@@ -528,9 +554,13 @@ export function AtomicHeader({
  * - Assistant messages: bullet point (●) prefix, no header
  * Includes tool results for assistant messages that contain tool calls.
  */
-export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false }: MessageBubbleProps): React.ReactNode {
-  // Show loading animation only before any content arrives
-  const showLoadingAnimation = message.streaming && !message.content.trim();
+export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false, hideAskUserQuestion = false, hideLoading = false }: MessageBubbleProps): React.ReactNode {
+  // Show loading animation only before any content arrives, and not when question dialog is active
+  const showLoadingAnimation = message.streaming && !message.content.trim() && !hideLoading;
+
+  // Hide the entire message when question dialog is active and there's no content yet
+  // This prevents showing a stray "●" bullet before the dialog
+  const hideEntireMessage = hideLoading && message.streaming && !message.content.trim();
 
   // Check if message has tool calls
   const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
@@ -555,11 +585,14 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
   if (message.role === "assistant") {
     // Render content based on syntaxStyle availability
     // Loading animation shows without bullet; bullet appears only with content
+    // Use same row structure as content for consistent alignment
     const contentElement = showLoadingAnimation ? (
-      <text>
-        <span style={{ fg: ATOMIC_PINK }}>  </span>
-        <LoadingIndicator speed={120} />
-      </text>
+      <box flexDirection="row" alignItems="flex-start">
+        <text style={{ fg: ATOMIC_PINK }}>● </text>
+        <text>
+          <LoadingIndicator speed={120} />
+        </text>
+      </box>
     ) : syntaxStyle ? (
       <box flexDirection="row" alignItems="flex-start">
         <text style={{ fg: ATOMIC_PINK }}>● </text>
@@ -588,21 +621,30 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
         {/* Tool results for assistant messages */}
         {hasToolCalls && (
           <box flexDirection="column" marginBottom={1}>
-            {message.toolCalls!.map((toolCall) => (
-              <ToolResult
-                key={toolCall.id}
-                toolName={toolCall.toolName}
-                input={toolCall.input}
-                output={toolCall.output}
-                status={toolCall.status}
-                verboseMode={verboseMode}
-              />
-            ))}
+            {message.toolCalls!
+              .filter((toolCall) => {
+                // Hide HITL tools - the UI shows the dialog directly
+                // AskUserQuestion is used by Claude, "question" is used by OpenCode
+                if (toolCall.toolName === "AskUserQuestion" || toolCall.toolName === "question") {
+                  return false;
+                }
+                return true;
+              })
+              .map((toolCall) => (
+                <ToolResult
+                  key={toolCall.id}
+                  toolName={toolCall.toolName}
+                  input={toolCall.input}
+                  output={toolCall.output}
+                  status={toolCall.status}
+                  verboseMode={verboseMode}
+                />
+              ))}
           </box>
         )}
 
-        {/* Message content with bullet prefix */}
-        {contentElement}
+        {/* Message content with bullet prefix - hidden when question dialog is active and no content */}
+        {!hideEntireMessage && contentElement}
 
         {/* Timestamp display in verbose mode (only for completed assistant messages) */}
         {verboseMode && !message.streaming && (
@@ -666,6 +708,8 @@ export function ChatApp({
   suggestion: _suggestion,
   registerToolStartHandler,
   registerToolCompleteHandler,
+  registerPermissionRequestHandler,
+  registerCtrlCWarningHandler,
 }: ChatAppProps): React.ReactNode {
   // title and suggestion are deprecated, kept for backwards compatibility
   void _title;
@@ -678,6 +722,10 @@ export function ChatApp({
 
   // Workflow chat state (autocomplete, workflow execution, approval)
   const [workflowState, setWorkflowState] = useState<WorkflowChatState>(defaultWorkflowChatState);
+
+  // Ctrl+C double-press state for exit confirmation (controlled by parent via signal handler)
+  const [ctrlCPressed, setCtrlCPressed] = useState(false);
+  const ctrlCTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Streaming state hook for tool executions and pending questions
   const streamingState = useStreamingState();
@@ -795,53 +843,112 @@ export function ChatApp({
     }
   }, [registerToolCompleteHandler, handleToolComplete]);
 
+  // Cleanup Ctrl+C timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (ctrlCTimeoutRef.current) {
+        clearTimeout(ctrlCTimeoutRef.current);
+      }
+    };
+  }, []);
+
   /**
    * Handle human_input_required signal.
    * Shows UserQuestionDialog for HITL interactions.
+   * Simplified: directly set activeQuestion, don't use pending queue for active display.
    */
   const handleHumanInputRequired = useCallback((question: UserQuestion) => {
-    // Add to pending questions queue
-    streamingState.addPendingQuestion(question);
-
-    // Show the question dialog if not already showing one
-    if (!activeQuestion) {
+    // Only add to queue if there's already an active question
+    // Otherwise, show directly
+    if (activeQuestion) {
+      streamingState.addPendingQuestion(question);
+    } else {
       setActiveQuestion(question);
     }
   }, [streamingState, activeQuestion]);
 
+  // Store the respond callback for permission requests
+  const permissionRespondRef = useRef<((answer: string | string[]) => void) | null>(null);
+
+  /**
+   * Handle permission/HITL request from SDK.
+   * Converts the SDK event to a UserQuestion and shows the dialog.
+   */
+  const handlePermissionRequest = useCallback((
+    _requestId: string,
+    toolName: string,
+    question: string,
+    options: Array<{ label: string; value: string; description?: string }>,
+    respond: (answer: string | string[]) => void,
+    header?: string
+  ) => {
+    // Store the respond callback
+    permissionRespondRef.current = respond;
+
+    // Convert to UserQuestion format
+    // Use provided header, fall back to toolName if no header
+    const userQuestion: UserQuestion = {
+      header: header || toolName,
+      question,
+      options: options.map(opt => ({
+        label: opt.label,
+        value: opt.value,
+        description: opt.description,
+      })),
+      multiSelect: false,
+    };
+
+    // Show the question dialog
+    handleHumanInputRequired(userQuestion);
+  }, [handleHumanInputRequired]);
+
+  // Register permission request handler with parent component
+  useEffect(() => {
+    if (registerPermissionRequestHandler) {
+      registerPermissionRequestHandler(handlePermissionRequest);
+    }
+  }, [registerPermissionRequestHandler, handlePermissionRequest]);
+
+  // Register Ctrl+C warning handler with parent component
+  useEffect(() => {
+    if (registerCtrlCWarningHandler) {
+      registerCtrlCWarningHandler(setCtrlCPressed);
+    }
+  }, [registerCtrlCWarningHandler]);
+
   /**
    * Handle user answering a question from UserQuestionDialog.
+   * Claude Code behavior: Just respond and continue streaming, no "User selected" messages.
    */
   const handleQuestionAnswer = useCallback((answer: QuestionAnswer) => {
-    // Clear active question
+    // Clear active question first
     setActiveQuestion(null);
 
-    // Remove from pending questions
+    // Remove from pending questions queue
     streamingState.removePendingQuestion();
 
-    // If cancelled, add assistant message
-    if (answer.cancelled) {
-      const msg = createMessage("assistant", "User cancelled the question.");
-      setMessages((prev) => [...prev, msg]);
-    } else {
-      // Add assistant message with selected options
-      const selectedLabels = answer.selected.join(", ");
-      const msg = createMessage("assistant", `User selected: ${selectedLabels}`);
-      setMessages((prev) => [...prev, msg]);
-
-      // Update workflow state if this was spec approval
-      if (answer.selected.includes("Approve")) {
-        updateWorkflowState({ specApproved: true, pendingApproval: false });
-      } else if (answer.selected.includes("Reject")) {
-        updateWorkflowState({ specApproved: false, pendingApproval: false });
+    // If there's a permission respond callback, call it
+    if (permissionRespondRef.current) {
+      if (answer.cancelled) {
+        // For cancellation, send a deny response
+        permissionRespondRef.current("deny");
+      } else {
+        // Send the selected values
+        permissionRespondRef.current(answer.selected);
       }
+      permissionRespondRef.current = null;
     }
 
-    // Check if there are more pending questions
-    const nextQuestion = streamingState.state.pendingQuestions[0];
-    if (nextQuestion) {
-      setActiveQuestion(nextQuestion);
+    // Update workflow state if this was spec approval
+    const selectedArray = Array.isArray(answer.selected) ? answer.selected : [answer.selected];
+    if (selectedArray.includes("Approve")) {
+      updateWorkflowState({ specApproved: true, pendingApproval: false });
+    } else if (selectedArray.includes("Reject")) {
+      updateWorkflowState({ specApproved: false, pendingApproval: false });
     }
+
+    // Don't add "User selected" messages - Claude Code doesn't show these
+    // The streaming response continues automatically after the callback
   }, [streamingState, updateWorkflowState]);
 
   /**
@@ -1085,6 +1192,13 @@ export function ChatApp({
   useKeyboard(
     useCallback(
       (event: KeyEvent) => {
+        // Skip ALL keyboard handling when question dialog is active
+        // The dialog component handles its own keyboard events via its own useKeyboard hook
+        if (activeQuestion) {
+          // Don't call stopPropagation - let the event continue to the dialog's handler
+          return;
+        }
+
         // ESC key - hide autocomplete or exit
         if (event.name === "escape") {
           if (workflowState.showAutocomplete) {
@@ -1163,15 +1277,33 @@ export function ChatApp({
           return;
         }
 
-        // Ctrl+C - exit only if no selection (otherwise it's a copy intent)
+        // Ctrl+C - double-press to exit, single press shows warning
+        // Handled as keyboard event since exitOnCtrlC is disabled in renderer
         if (event.ctrl && event.name === "c") {
           const textarea = textareaRef.current;
           // If textarea has selection, copy instead of exit
           if (textarea?.hasSelection()) {
             void handleCopy();
-          } else {
-            onExit?.();
+            return;
           }
+
+          // If already pressed once, exit
+          if (ctrlCPressed) {
+            setCtrlCPressed(false);
+            onExit?.();
+            return;
+          }
+
+          // First press - show warning and set timeout
+          setCtrlCPressed(true);
+          // Clear after 1 second
+          if (ctrlCTimeoutRef.current) {
+            clearTimeout(ctrlCTimeoutRef.current);
+          }
+          ctrlCTimeoutRef.current = setTimeout(() => {
+            setCtrlCPressed(false);
+            ctrlCTimeoutRef.current = null;
+          }, 1000);
           return;
         }
 
@@ -1188,7 +1320,7 @@ export function ChatApp({
           handleInputChange(value);
         }, 0);
       },
-      [onExit, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand]
+      [onExit, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand, activeQuestion, ctrlCPressed]
     )
   );
 
@@ -1339,7 +1471,7 @@ export function ChatApp({
       {/* Truncation indicator - shows how many messages are hidden */}
       {hiddenMessageCount > 0 && (
         <box marginBottom={1} paddingLeft={1}>
-          <text style={{ fg: MUTED_LAVENDER, attr: "dim" }}>
+          <text style={{ fg: MUTED_LAVENDER }}>
             ↑ {hiddenMessageCount} earlier message{hiddenMessageCount !== 1 ? "s" : ""} hidden
           </text>
         </box>
@@ -1351,6 +1483,8 @@ export function ChatApp({
           isLast={index === visibleMessages.length - 1}
           syntaxStyle={syntaxStyle}
           verboseMode={verboseMode}
+          hideAskUserQuestion={activeQuestion !== null}
+          hideLoading={activeQuestion !== null}
         />
       ))}
     </>
@@ -1393,28 +1527,39 @@ export function ChatApp({
         {/* Messages */}
         {messageContent}
 
-        {/* Input Area - flows after messages, margin only when there are messages */}
-        <box
-          border
-          borderStyle="rounded"
-          borderColor={ATOMIC_PINK_DIM}
-          paddingLeft={1}
-          paddingRight={1}
-          marginTop={messages.length > 0 ? 1 : 0}
-          flexDirection="row"
-          alignItems="center"
-        >
-          <text style={{ fg: ATOMIC_PINK }}>›{" "}</text>
-          <textarea
-            ref={textareaRef}
-            placeholder={messages.length === 0 ? placeholder : ""}
-            focused={inputFocused && !isStreaming}
-            keyBindings={textareaKeyBindings}
-            onSubmit={handleSubmit}
-            flexGrow={1}
-            height={1}
+        {/* User Question Dialog - inline within chat flow like Claude Code */}
+        {activeQuestion && (
+          <UserQuestionDialog
+            question={activeQuestion}
+            onAnswer={handleQuestionAnswer}
+            visible={true}
           />
-        </box>
+        )}
+
+        {/* Input Area - hidden when question dialog is active (Claude Code behavior) */}
+        {!activeQuestion && (
+          <box
+            border
+            borderStyle="rounded"
+            borderColor={ATOMIC_PINK_DIM}
+            paddingLeft={1}
+            paddingRight={1}
+            marginTop={messages.length > 0 ? 1 : 0}
+            flexDirection="row"
+            alignItems="center"
+          >
+            <text style={{ fg: ATOMIC_PINK }}>❯{" "}</text>
+            <textarea
+              ref={textareaRef}
+              placeholder={messages.length === 0 ? placeholder : ""}
+              focused={inputFocused && !isStreaming}
+              keyBindings={textareaKeyBindings}
+              onSubmit={handleSubmit}
+              flexGrow={1}
+              height={1}
+            />
+          </box>
+        )}
 
         {/* Autocomplete dropdown for slash commands - appears below input */}
         <box>
@@ -1426,17 +1571,17 @@ export function ChatApp({
             onIndexChange={handleAutocompleteIndexChange}
           />
         </box>
+
+        {/* Ctrl+C warning message */}
+        {ctrlCPressed && (
+          <box marginTop={1}>
+            <text style={{ fg: MUTED_LAVENDER }}>
+              Press Ctrl-C again to exit
+            </text>
+          </box>
+        )}
       </scrollbox>
 
-
-      {/* User Question Dialog - for HITL interactions */}
-      {activeQuestion && (
-        <UserQuestionDialog
-          question={activeQuestion}
-          onAnswer={handleQuestionAnswer}
-          visible={true}
-        />
-      )}
     </box>
   );
 }

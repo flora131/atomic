@@ -116,7 +116,7 @@ export function QueueIndicator({
     <box flexDirection="column" gap={0}>
       <box flexDirection="row" gap={1}>
         <text style={{ fg: theme.colors.accent }}>{icon}</text>
-        <text style={{ fg: theme.colors.foreground, bold: true }}>
+        <text style={{ fg: theme.colors.foreground, attributes: 1 }}>
           {countText}
         </text>
       </box>

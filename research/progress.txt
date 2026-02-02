@@ -831,3 +831,57 @@
 ### Files Modified
 - src/ui/commands/agent-commands.ts - Added codebase-research-analyzer to BUILTIN_AGENTS array
 - tests/ui/commands/agent-commands.test.ts - Added codebase-research-analyzer tests
+
+## 2026-02-02 - Feature Implementation: codebase-research-locator Builtin Agent
+
+### Completed
+- Added codebase-research-locator agent to BUILTIN_AGENTS array in agent-commands.ts
+  - name: 'codebase-research-locator'
+  - description: 'Discovers relevant documents in research/ directory for metadata storage.'
+  - tools: ['Read', 'Grep', 'Glob', 'LS', 'Bash']
+  - model: 'haiku' (optimized for speed)
+  - source: 'builtin'
+  - Comprehensive system prompt including:
+    - Document Discovery Strategy section covering:
+      - Understand the Search Goal
+      - Quick Directory Survey
+      - Pattern-Based Search
+      - Content Verification
+      - Provide Targeted Results
+    - Common Research Document Types explaining:
+      - research/progress.txt
+      - research/feature-list.json
+      - research/spec.md
+      - research/architecture.md
+      - research/patterns.md
+      - research/data-models.md
+      - research/dependencies.md
+      - research/entry-points.md
+      - research/tech-stack.md
+    - Output format guidelines (Primary Matches, Related Documents, Document Structure)
+    - Guidelines for fast, efficient research document discovery
+
+### Tests Added (13 new tests)
+- codebase-research-locator builtin agent tests:
+  - exists in BUILTIN_AGENTS
+  - has correct name
+  - has appropriate description
+  - has tools array with research locator tools
+  - has haiku model for speed
+  - has comprehensive system prompt
+  - prompt includes document discovery strategy steps
+  - prompt includes common research document types
+  - prompt includes output format guidelines
+  - has builtin source
+- BUILTIN_AGENTS array tests:
+  - contains codebase-research-locator agent
+- getBuiltinAgent tests:
+  - finds codebase-research-locator by name
+  - finds codebase-research-locator case-insensitively
+
+### Test Results
+- All agent-commands tests pass (166 tests)
+
+### Files Modified
+- src/ui/commands/agent-commands.ts - Added codebase-research-locator to BUILTIN_AGENTS array
+- tests/ui/commands/agent-commands.test.ts - Added codebase-research-locator tests

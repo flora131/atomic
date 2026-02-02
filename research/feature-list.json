@@ -533,7 +533,7 @@
         "Save session.json",
         "Return updated state with session fields"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

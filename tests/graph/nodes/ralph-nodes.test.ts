@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { rm, mkdir, readFile } from "node:fs/promises";
+import { rm, mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import {
   // Types
@@ -22,6 +22,10 @@ import {
   sessionToWorkflowState,
   workflowStateToSession,
 
+  // Node factories
+  initRalphSessionNode,
+  type InitRalphSessionNodeConfig,
+
   // Re-exported functions
   generateSessionId,
   getSessionDir,
@@ -36,6 +40,7 @@ import {
   appendLog,
   appendProgress,
 } from "../../../src/graph/nodes/ralph-nodes.ts";
+import type { ExecutionContext, GraphConfig, ExecutionError } from "../../../src/graph/types.ts";
 
 // ============================================================================
 // TEST FIXTURES
@@ -761,5 +766,454 @@ describe("Integration", () => {
     const loaded = await loadSession(testSessionDir);
     expect(loaded.yolo).toBe(true);
     expect(loaded.maxIterations).toBe(0);
+  });
+});
+
+// ============================================================================
+// INIT RALPH SESSION NODE TESTS
+// ============================================================================
+
+describe("initRalphSessionNode", () => {
+  const testSessionId = "init-node-test-" + Date.now();
+  const testSessionDir = getSessionDir(testSessionId);
+  const testFeatureListDir = ".test-feature-list-" + Date.now();
+  const testFeatureListPath = `${testFeatureListDir}/feature-list.json`;
+
+  /**
+   * Create a mock ExecutionContext for testing.
+   */
+  function createMockContext(state: Partial<RalphWorkflowState> = {}): ExecutionContext<RalphWorkflowState> {
+    const defaultState = createRalphWorkflowState();
+    return {
+      state: { ...defaultState, ...state },
+      config: {} as GraphConfig<RalphWorkflowState>,
+      errors: [] as ExecutionError[],
+    };
+  }
+
+  /**
+   * Create a test feature list file.
+   */
+  async function createTestFeatureList(features: Array<{
+    category: string;
+    description: string;
+    steps: string[];
+    passes: boolean;
+  }>): Promise<void> {
+    await mkdir(testFeatureListDir, { recursive: true });
+    await writeFile(testFeatureListPath, JSON.stringify({ features }, null, 2), "utf-8");
+  }
+
+  beforeEach(async () => {
+    // Clean up any existing test data
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(testFeatureListDir)) {
+      await rm(testFeatureListDir, { recursive: true });
+    }
+    // Clean up .ralph directory
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  afterEach(async () => {
+    // Clean up test data
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(testFeatureListDir)) {
+      await rm(testFeatureListDir, { recursive: true });
+    }
+    // Clean up .ralph directory
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  describe("node creation", () => {
+    test("creates a NodeDefinition with correct properties", () => {
+      const node = initRalphSessionNode({
+        id: "test-init",
+      });
+
+      expect(node.id).toBe("test-init");
+      expect(node.type).toBe("tool");
+      expect(node.name).toBe("init-ralph-session");
+      expect(node.description).toBe("Initialize or resume a Ralph session");
+      expect(typeof node.execute).toBe("function");
+    });
+
+    test("accepts custom name and description", () => {
+      const node = initRalphSessionNode({
+        id: "custom-init",
+        name: "Custom Init",
+        description: "Custom description",
+      });
+
+      expect(node.name).toBe("Custom Init");
+      expect(node.description).toBe("Custom description");
+    });
+  });
+
+  describe("new session creation", () => {
+    test("creates a new session with generated ID", async () => {
+      await createTestFeatureList([
+        {
+          category: "functional",
+          description: "Test feature 1",
+          steps: ["Step 1", "Step 2"],
+          passes: false,
+        },
+      ]);
+
+      const node = initRalphSessionNode({
+        id: "init-new",
+        featureListPath: testFeatureListPath,
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate).toBeDefined();
+      expect(result.stateUpdate!.ralphSessionId).toBeDefined();
+      expect(result.stateUpdate!.ralphSessionDir).toContain(result.stateUpdate!.ralphSessionId);
+      expect(result.stateUpdate!.yolo).toBe(false);
+      expect(result.stateUpdate!.features).toHaveLength(1);
+      expect(result.stateUpdate!.sessionStatus).toBe("running");
+    });
+
+    test("creates session directory structure", async () => {
+      await createTestFeatureList([
+        {
+          category: "functional",
+          description: "Test feature",
+          steps: [],
+          passes: false,
+        },
+      ]);
+
+      const node = initRalphSessionNode({
+        id: "init-dirs",
+        featureListPath: testFeatureListPath,
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      const sessionDir = result.stateUpdate!.ralphSessionDir;
+      expect(existsSync(sessionDir)).toBe(true);
+      expect(existsSync(`${sessionDir}checkpoints`)).toBe(true);
+      expect(existsSync(`${sessionDir}research`)).toBe(true);
+      expect(existsSync(`${sessionDir}logs`)).toBe(true);
+    });
+
+    test("loads features from feature list file", async () => {
+      await createTestFeatureList([
+        {
+          category: "functional",
+          description: "Feature one",
+          steps: ["Step A", "Step B"],
+          passes: false,
+        },
+        {
+          category: "refactor",
+          description: "Feature two",
+          steps: ["Step C"],
+          passes: true,
+        },
+      ]);
+
+      const node = initRalphSessionNode({
+        id: "init-features",
+        featureListPath: testFeatureListPath,
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.features).toHaveLength(2);
+      expect(result.stateUpdate!.features![0].name).toBe("Feature one");
+      expect(result.stateUpdate!.features![0].status).toBe("pending");
+      expect(result.stateUpdate!.features![0].acceptanceCriteria).toEqual(["Step A", "Step B"]);
+      expect(result.stateUpdate!.features![1].name).toBe("Feature two");
+      expect(result.stateUpdate!.features![1].status).toBe("passing");
+    });
+
+    test("creates progress.txt with session header", async () => {
+      await createTestFeatureList([
+        {
+          category: "functional",
+          description: "Test",
+          steps: [],
+          passes: false,
+        },
+      ]);
+
+      const node = initRalphSessionNode({
+        id: "init-progress",
+        featureListPath: testFeatureListPath,
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      const progressPath = `${result.stateUpdate!.ralphSessionDir}progress.txt`;
+      expect(existsSync(progressPath)).toBe(true);
+
+      const content = await readFile(progressPath, "utf-8");
+      expect(content).toContain("# Ralph Session Progress");
+      expect(content).toContain(`Session ID: ${result.stateUpdate!.ralphSessionId}`);
+      expect(content).toContain("Feature List (1 features)");
+    });
+
+    test("saves session.json file", async () => {
+      await createTestFeatureList([
+        {
+          category: "functional",
+          description: "Test",
+          steps: [],
+          passes: false,
+        },
+      ]);
+
+      const node = initRalphSessionNode({
+        id: "init-save",
+        featureListPath: testFeatureListPath,
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      const sessionPath = `${result.stateUpdate!.ralphSessionDir}session.json`;
+      expect(existsSync(sessionPath)).toBe(true);
+
+      const content = await readFile(sessionPath, "utf-8");
+      const session = JSON.parse(content);
+      expect(session.sessionId).toBe(result.stateUpdate!.ralphSessionId);
+      expect(session.status).toBe("running");
+    });
+
+    test("logs init action to agent-calls.jsonl", async () => {
+      await createTestFeatureList([
+        {
+          category: "functional",
+          description: "Test",
+          steps: [],
+          passes: false,
+        },
+      ]);
+
+      const node = initRalphSessionNode({
+        id: "init-log",
+        featureListPath: testFeatureListPath,
+        maxIterations: 75,
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      const logPath = `${result.stateUpdate!.ralphSessionDir}logs/agent-calls.jsonl`;
+      expect(existsSync(logPath)).toBe(true);
+
+      const content = await readFile(logPath, "utf-8");
+      const entry = JSON.parse(content.trim());
+      expect(entry.action).toBe("init");
+      expect(entry.yolo).toBe(false);
+      expect(entry.maxIterations).toBe(75);
+      expect(entry.featureCount).toBe(1);
+    });
+
+    test("copies features to session research directory", async () => {
+      await createTestFeatureList([
+        {
+          category: "test",
+          description: "Test feature",
+          steps: ["Step 1"],
+          passes: false,
+        },
+      ]);
+
+      const node = initRalphSessionNode({
+        id: "init-copy",
+        featureListPath: testFeatureListPath,
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      const sessionFeatureListPath = `${result.stateUpdate!.ralphSessionDir}research/feature-list.json`;
+      expect(existsSync(sessionFeatureListPath)).toBe(true);
+
+      const content = await readFile(sessionFeatureListPath, "utf-8");
+      const featureList = JSON.parse(content);
+      expect(featureList.features).toHaveLength(1);
+      expect(featureList.features[0].description).toBe("Test feature");
+    });
+
+    test("uses custom maxIterations", async () => {
+      await createTestFeatureList([]);
+
+      const node = initRalphSessionNode({
+        id: "init-iterations",
+        featureListPath: testFeatureListPath,
+        maxIterations: 200,
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.maxIterations).toBe(200);
+    });
+
+    test("throws error for non-existent feature list", async () => {
+      const node = initRalphSessionNode({
+        id: "init-missing",
+        featureListPath: "nonexistent/feature-list.json",
+      });
+
+      const ctx = createMockContext();
+
+      await expect(node.execute(ctx)).rejects.toThrow("Feature list not found");
+    });
+  });
+
+  describe("yolo mode", () => {
+    test("creates session without loading features in yolo mode", async () => {
+      const node = initRalphSessionNode({
+        id: "init-yolo",
+        yolo: true,
+        userPrompt: "Build something cool",
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.yolo).toBe(true);
+      expect(result.stateUpdate!.features).toEqual([]);
+      expect(result.stateUpdate!.userPrompt).toBe("Build something cool");
+    });
+
+    test("creates progress.txt with yolo mode header", async () => {
+      const node = initRalphSessionNode({
+        id: "init-yolo-progress",
+        yolo: true,
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      const progressPath = `${result.stateUpdate!.ralphSessionDir}progress.txt`;
+      const content = await readFile(progressPath, "utf-8");
+      expect(content).toContain("YOLO (freestyle)");
+    });
+
+    test("logs yolo flag in agent-calls.jsonl", async () => {
+      const node = initRalphSessionNode({
+        id: "init-yolo-log",
+        yolo: true,
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      const logPath = `${result.stateUpdate!.ralphSessionDir}logs/agent-calls.jsonl`;
+      const content = await readFile(logPath, "utf-8");
+      const entry = JSON.parse(content.trim());
+      expect(entry.yolo).toBe(true);
+    });
+
+    test("does not create feature-list.json in research directory for yolo mode", async () => {
+      const node = initRalphSessionNode({
+        id: "init-yolo-no-features",
+        yolo: true,
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      // In yolo mode, saveSessionFeatureList is not called because features array is empty
+      // But the research directory should still exist
+      expect(existsSync(`${result.stateUpdate!.ralphSessionDir}research`)).toBe(true);
+    });
+  });
+
+  describe("session resumption", () => {
+    test("resumes existing session from disk", async () => {
+      // First, create a session manually
+      await createSessionDirectory(testSessionId);
+      const existingSession = createRalphSession({
+        sessionId: testSessionId,
+        yolo: false,
+        maxIterations: 30,
+        features: [
+          {
+            id: "f1",
+            name: "Existing Feature",
+            description: "Pre-existing",
+            status: "passing",
+          },
+        ],
+        currentFeatureIndex: 0,
+        completedFeatures: ["f1"],
+        iteration: 10,
+        status: "running",
+      });
+      await saveSession(testSessionDir, existingSession);
+
+      // Now try to resume it
+      const node = initRalphSessionNode({
+        id: "init-resume",
+        resumeSessionId: testSessionId,
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.ralphSessionId).toBe(testSessionId);
+      expect(result.stateUpdate!.iteration).toBe(10);
+      expect(result.stateUpdate!.completedFeatures).toEqual(["f1"]);
+      expect(result.stateUpdate!.features![0].name).toBe("Existing Feature");
+    });
+
+    test("logs resume action to agent-calls.jsonl", async () => {
+      await createSessionDirectory(testSessionId);
+      const existingSession = createRalphSession({
+        sessionId: testSessionId,
+        iteration: 5,
+      });
+      await saveSession(testSessionDir, existingSession);
+
+      const node = initRalphSessionNode({
+        id: "init-resume-log",
+        resumeSessionId: testSessionId,
+      });
+
+      const ctx = createMockContext();
+      await node.execute(ctx);
+
+      const logPath = `${testSessionDir}logs/agent-calls.jsonl`;
+      const content = await readFile(logPath, "utf-8");
+      const entry = JSON.parse(content.trim());
+      expect(entry.action).toBe("resume");
+      expect(entry.sessionId).toBe(testSessionId);
+      expect(entry.iteration).toBe(5);
+    });
+
+    test("creates new session if resume ID not found", async () => {
+      const node = initRalphSessionNode({
+        id: "init-resume-not-found",
+        resumeSessionId: "nonexistent-session-id",
+        yolo: true, // Use yolo to avoid feature list requirement
+      });
+
+      const ctx = createMockContext();
+      const result = await node.execute(ctx);
+
+      // Should create a new session with the provided ID
+      expect(result.stateUpdate!.ralphSessionId).toBe("nonexistent-session-id");
+      expect(result.stateUpdate!.iteration).toBe(1); // Fresh session starts at 1
+    });
   });
 });

@@ -513,6 +513,37 @@ describe("BUILTIN_SKILLS", () => {
     expect(research?.prompt).toContain("Document what EXISTS");
     expect(research?.prompt).toContain("Be objective and factual");
   });
+
+  test("contains create-spec skill", () => {
+    const spec = BUILTIN_SKILLS.find((s) => s.name === "create-spec");
+    expect(spec).toBeDefined();
+    expect(spec?.description).toBe("Generate technical specification from research");
+    expect(spec?.aliases).toContain("spec");
+    expect(spec?.prompt).toBeDefined();
+    expect(spec?.prompt.length).toBeGreaterThan(100);
+  });
+
+  test("create-spec skill has $ARGUMENTS placeholder", () => {
+    const spec = BUILTIN_SKILLS.find((s) => s.name === "create-spec");
+    expect(spec?.prompt).toContain("$ARGUMENTS");
+  });
+
+  test("create-spec skill includes spec structure sections", () => {
+    const spec = BUILTIN_SKILLS.find((s) => s.name === "create-spec");
+    expect(spec?.prompt).toContain("research/spec.md");
+    expect(spec?.prompt).toContain("Technical Approach");
+    expect(spec?.prompt).toContain("Component Design");
+    expect(spec?.prompt).toContain("Data Model Changes");
+    expect(spec?.prompt).toContain("Testing Strategy");
+    expect(spec?.prompt).toContain("Implementation Order");
+  });
+
+  test("create-spec skill references research directory", () => {
+    const spec = BUILTIN_SKILLS.find((s) => s.name === "create-spec");
+    expect(spec?.prompt).toContain("research/architecture.md");
+    expect(spec?.prompt).toContain("research/patterns.md");
+    expect(spec?.prompt).toContain("research/tech-stack.md");
+  });
 });
 
 describe("getBuiltinSkill", () => {
@@ -535,9 +566,21 @@ describe("getBuiltinSkill", () => {
   });
 
   test("returns undefined for non-builtin skill", () => {
-    // create-spec is in SKILL_DEFINITIONS but not BUILTIN_SKILLS yet
+    // create-feature-list is in SKILL_DEFINITIONS but not BUILTIN_SKILLS yet
+    const featureList = getBuiltinSkill("create-feature-list");
+    expect(featureList).toBeUndefined();
+  });
+
+  test("finds create-spec builtin skill by name", () => {
     const spec = getBuiltinSkill("create-spec");
-    expect(spec).toBeUndefined();
+    expect(spec).toBeDefined();
+    expect(spec?.name).toBe("create-spec");
+  });
+
+  test("finds create-spec builtin skill by alias", () => {
+    const byAlias = getBuiltinSkill("spec");
+    expect(byAlias).toBeDefined();
+    expect(byAlias?.name).toBe("create-spec");
   });
 
   test("finds research-codebase builtin skill by name", () => {
@@ -653,6 +696,55 @@ describe("builtin skill execution", () => {
     expect(sentMessages).toHaveLength(1);
     // Should have expanded $ARGUMENTS with the provided args
     expect(sentMessages[0]).toContain("authentication module");
+    expect(sentMessages[0]).not.toContain("$ARGUMENTS");
+    expect(sentMessages[0]).not.toContain("[no arguments provided]");
+  });
+
+  test("create-spec command uses embedded prompt", () => {
+    const specCmd = skillCommands.find((c) => c.name === "create-spec");
+    expect(specCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = specCmd!.execute("", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should use embedded prompt with spec structure
+    expect(sentMessages[0]).toContain("research/spec.md");
+    expect(sentMessages[0]).toContain("[no arguments provided]");
+  });
+
+  test("create-spec command expands $ARGUMENTS with provided args", () => {
+    const specCmd = skillCommands.find((c) => c.name === "create-spec");
+    expect(specCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = specCmd!.execute("add user authentication", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should have expanded $ARGUMENTS with the provided args
+    expect(sentMessages[0]).toContain("add user authentication");
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });

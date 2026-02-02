@@ -102,3 +102,45 @@
 ### Files Modified
 - src/ui/commands/skill-commands.ts - Added research-codebase to BUILTIN_SKILLS array
 - tests/ui/commands/skill-commands.test.ts - Added research-codebase tests
+
+## 2026-02-02 - Feature Implementation: Create-Spec Skill as Builtin
+
+### Completed
+- Added create-spec skill to BUILTIN_SKILLS array in skill-commands.ts
+  - Set name to 'create-spec'
+  - Set description to 'Generate technical specification from research'
+  - Set aliases to ['spec']
+  - Embedded comprehensive prompt for generating technical specifications
+  - Included instructions for creating research/spec.md with sections:
+    - Overview - Feature summary and goals
+    - Technical Approach - Design decisions and alternatives
+    - Component Design - Module interfaces and dependencies
+    - Data Model Changes - Types and schema changes
+    - API Changes - Endpoints and breaking changes
+    - Integration Points - System integration details
+    - Error Handling - Error scenarios and recovery
+    - Testing Strategy - Test requirements
+    - Implementation Order - Suggested sequence
+    - Open Questions - Unresolved decisions
+  - Referenced research directory artifacts as input sources
+  - Included $ARGUMENTS placeholder for feature/refactor description
+
+### Tests Added
+- BUILTIN_SKILLS tests:
+  - contains create-spec skill with correct fields
+  - create-spec skill has $ARGUMENTS placeholder
+  - create-spec skill includes spec structure sections
+  - create-spec skill references research directory
+- getBuiltinSkill tests:
+  - finds create-spec builtin skill by name
+  - finds create-spec builtin skill by alias
+- builtin skill execution tests:
+  - create-spec command uses embedded prompt
+  - create-spec command expands $ARGUMENTS with provided args
+
+### Test Results
+- All skill-commands tests pass (65 tests)
+
+### Files Modified
+- src/ui/commands/skill-commands.ts - Added create-spec to BUILTIN_SKILLS array
+- tests/ui/commands/skill-commands.test.ts - Added create-spec tests

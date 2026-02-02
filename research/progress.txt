@@ -1782,3 +1782,53 @@ The Ralph workflow follows this sequence:
 - src/workflows/ralph.ts - Created with createRalphWorkflow() function
 - src/workflows/index.ts - Added Ralph workflow exports
 - tests/workflows/ralph.test.ts - Created with 36 tests
+
+## 2026-02-02 - Feature Implementation: clearContextNode Placement at Start of Loop Iterations
+
+### Completed
+- Extended GraphBuilder.loop() to accept array of nodes for multi-node loop bodies
+  - loop() now accepts `NodeDefinition<TState> | NodeDefinition<TState>[]`
+  - Body nodes are chained together in sequence within each iteration
+  - Loop continue edge points to first body node (ensures ALL body nodes run each iteration)
+  - Added validation for empty body array (throws error)
+
+- Updated createRalphWorkflow() to place clearContextNode inside the loop
+  - Previous structure: init -> clear -> loop(implement) -> check -> pr
+  - New structure: init -> loop(clear, implement) -> check -> pr
+  - clearContextNode now runs at START of EACH iteration, not just before the loop
+  - This prevents context window overflow across multiple iterations
+  - Each iteration starts with fresh context while preserving state
+
+### Benefits of New Structure
+1. **Prevent context window overflow**: Context cleared at each iteration start
+2. **Fresh context per iteration**: Each iteration begins with clean slate
+3. **Reduced token costs**: No accumulating conversation history
+4. **State preservation**: Workflow state survives context clearing
+
+### Tests Added
+- GraphBuilder loop() with array tests (6 tests):
+  - creates loop with array of body nodes
+  - chains body nodes together in sequence
+  - loop continue edge points to first body node
+  - last body node connects to loop_check
+  - throws error for empty body array
+  - single node array works same as single node
+
+- Ralph workflow clearContextNode placement tests (6 tests):
+  - clearContextNode is inside the loop, not before it
+  - clearContextNode chains to implementFeatureNode
+  - implementFeatureNode connects to loop_check
+  - loop continue edge points to clearContextNode (first in loop body)
+  - loop structure: start -> clear -> implement -> check
+  - init node does NOT connect directly to clearContextNode
+
+### Test Results
+- All 52 builder tests pass (46 original + 6 new)
+- All 42 ralph workflow tests pass (36 original + 6 new)
+- All 620 graph/workflow tests pass
+
+### Files Modified
+- src/graph/builder.ts - Extended loop() to accept array of nodes
+- src/workflows/ralph.ts - Updated to place clearContextNode inside loop
+- tests/graph/builder.test.ts - Added loop array tests
+- tests/workflows/ralph.test.ts - Added clearContextNode placement tests

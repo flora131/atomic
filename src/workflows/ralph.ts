@@ -7,9 +7,17 @@
  *
  * Workflow:
  * 1. Initialize Ralph session
- * 2. Clear context (for fresh start)
- * 3. Loop: Implement feature (which handles check completion internally)
+ * 2. Loop:
+ *    a. Clear context (at start of each iteration to prevent overflow)
+ *    b. Implement feature
+ * 3. Check completion after loop exits
  * 4. Create pull request
+ *
+ * The clearContextNode is placed at the start of EACH loop iteration to:
+ * - Prevent context window overflow
+ * - Start each iteration with fresh context
+ * - Reduce token costs
+ * - Reset conversation history while preserving state
  *
  * Reference: Feature - Implement createRalphWorkflow() function
  */
@@ -146,13 +154,14 @@ function createPRNodeInstance() {
  *
  * The workflow implements a simplified Ralph loop:
  * 1. Initialize session (load or resume)
- * 2. Clear context for fresh start
- * 3. Loop: Implement feature until shouldContinue is false
- * 4. Create pull request when done
+ * 2. Loop: Clear context -> Implement feature (until shouldContinue is false)
+ * 3. Create pull request when done
  *
- * Note: The clearContextNode is placed before the loop to ensure
- * the first iteration starts with a fresh context. Subsequent iterations
- * rely on the implementFeatureNode to manage context appropriately.
+ * The clearContextNode is placed at the START of each loop iteration to:
+ * - Prevent context window overflow
+ * - Start each iteration with a fresh context
+ * - Reduce token costs
+ * - Reset conversation history while preserving state
  *
  * @param config - Optional workflow configuration
  * @returns Compiled graph ready for execution
@@ -203,26 +212,27 @@ export function createRalphWorkflow(
   const prNode = createPRNodeInstance();
 
   // Build the workflow graph
-  // Sequence: init -> clear -> loop(implement) -> check -> createPR
-  // The loop contains only the implement node; check completion is
-  // handled inside the implement node by setting shouldContinue
+  // Sequence: init -> loop(clear, implement) -> check -> createPR
+  // The loop contains clearContextNode FIRST to clear context at the start
+  // of each iteration, followed by implementFeatureNode
   const builder = graph<RalphWorkflowState>()
     // Phase 1: Initialize session
     .start(initNode)
-    // Phase 2: Clear context before starting loop
-    .then(clearNode)
-    // Phase 3: Feature implementation loop
-    // Loop until shouldContinue is false (set by checkCompletionNode logic in implement)
+    // Phase 2: Feature implementation loop with context clearing
+    // clearContextNode runs at the START of each iteration to:
+    // - Prevent context window overflow
+    // - Start each iteration with fresh context
+    // - Reduce token costs
     .loop(
-      implementNode,
+      [clearNode, implementNode],
       {
         until: (state) => !state.shouldContinue,
         maxIterations,
       }
     )
-    // Phase 4: Check completion after loop exits
+    // Phase 3: Check completion after loop exits
     .then(checkNode)
-    // Phase 5: Create pull request
+    // Phase 4: Create pull request
     .then(prNode)
     .end();
 

@@ -436,11 +436,34 @@ export class GraphBuilder<TState extends BaseState = BaseState> {
   /**
    * Add a loop construct.
    *
-   * @param bodyNode - The node to execute in each iteration
+   * The loop body can be a single node or an array of nodes that execute
+   * sequentially within each iteration. When the loop continues, execution
+   * returns to the first node in the body.
+   *
+   * @param bodyNodes - The node(s) to execute in each iteration
    * @param config - Loop configuration with exit condition
    * @returns this for chaining
+   *
+   * @example
+   * ```typescript
+   * // Single node loop
+   * builder.loop(processNode, { until: (s) => s.done });
+   *
+   * // Multi-node loop (e.g., clear context then process)
+   * builder.loop([clearContextNode, processNode], { until: (s) => s.done });
+   * ```
    */
-  loop(bodyNode: NodeDefinition<TState>, config: LoopConfig<TState>): this {
+  loop(
+    bodyNodes: NodeDefinition<TState> | NodeDefinition<TState>[],
+    config: LoopConfig<TState>
+  ): this {
+    // Normalize to array
+    const bodyNodeArray = Array.isArray(bodyNodes) ? bodyNodes : [bodyNodes];
+
+    if (bodyNodeArray.length === 0) {
+      throw new Error("Loop body must contain at least one node");
+    }
+
     const loopStartId = this.generateNodeId("loop_start");
     const loopCheckId = this.generateNodeId("loop_check");
     const maxIterations = config.maxIterations ?? 100;
@@ -476,8 +499,11 @@ export class GraphBuilder<TState extends BaseState = BaseState> {
       };
     });
 
+    // Add all nodes to the graph
     this.addNode(loopStartNode);
-    this.addNode(bodyNode);
+    for (const node of bodyNodeArray) {
+      this.addNode(node);
+    }
     this.addNode(loopCheckNode);
 
     // Connect current to loop start
@@ -487,14 +513,24 @@ export class GraphBuilder<TState extends BaseState = BaseState> {
       this.startNodeId = loopStartId;
     }
 
-    // Loop structure: start -> body -> check -> (continue to body OR exit)
-    this.addEdge(loopStartId, bodyNode.id);
-    this.addEdge(bodyNode.id, loopCheckId);
+    // Get first and last body nodes
+    const firstBodyNode = bodyNodeArray[0];
+    const lastBodyNode = bodyNodeArray[bodyNodeArray.length - 1];
+
+    // Chain body nodes together: node1 -> node2 -> ... -> nodeN
+    for (let i = 0; i < bodyNodeArray.length - 1; i++) {
+      this.addEdge(bodyNodeArray[i].id, bodyNodeArray[i + 1].id);
+    }
+
+    // Loop structure: start -> first body -> ... -> last body -> check -> (continue to first body OR exit)
+    this.addEdge(loopStartId, firstBodyNode.id);
+    this.addEdge(lastBodyNode.id, loopCheckId);
 
     // Continue loop if condition not met and under max iterations
+    // Return to the FIRST body node when continuing
     this.addEdge(
       loopCheckId,
-      bodyNode.id,
+      firstBodyNode.id,
       (state) => {
         const iterationKey = `${loopStartId}_iteration`;
         const currentIteration = (state.outputs[iterationKey] as number) ?? 0;

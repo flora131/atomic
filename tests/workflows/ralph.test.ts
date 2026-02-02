@@ -312,3 +312,135 @@ describe("Ralph workflow integration", () => {
     expect(workflow.startNode).toBe(RALPH_NODE_IDS.INIT_SESSION);
   });
 });
+
+// ============================================================================
+// clearContextNode Loop Placement Tests
+// ============================================================================
+
+describe("clearContextNode loop placement", () => {
+  test("clearContextNode is inside the loop, not before it", () => {
+    const workflow = createRalphWorkflow();
+
+    // Find the loop_start node (entry point to loop)
+    const loopStartNode = Array.from(workflow.nodes.keys()).find((id) =>
+      id.includes("loop_start")
+    );
+    expect(loopStartNode).toBeDefined();
+
+    // clearContextNode should be connected from loop_start (first node in loop body)
+    const edgeFromLoopStart = workflow.edges.find(
+      (e) => e.from === loopStartNode && e.to === RALPH_NODE_IDS.CLEAR_CONTEXT
+    );
+    expect(edgeFromLoopStart).toBeDefined();
+  });
+
+  test("clearContextNode chains to implementFeatureNode", () => {
+    const workflow = createRalphWorkflow();
+
+    // clearContextNode should be connected to implementFeatureNode
+    const edgeToImplement = workflow.edges.find(
+      (e) =>
+        e.from === RALPH_NODE_IDS.CLEAR_CONTEXT &&
+        e.to === RALPH_NODE_IDS.IMPLEMENT_FEATURE
+    );
+    expect(edgeToImplement).toBeDefined();
+  });
+
+  test("implementFeatureNode connects to loop_check", () => {
+    const workflow = createRalphWorkflow();
+
+    // Find the loop_check node
+    const loopCheckNode = Array.from(workflow.nodes.keys()).find((id) =>
+      id.includes("loop_check")
+    );
+    expect(loopCheckNode).toBeDefined();
+
+    // implementFeatureNode should connect to loop_check
+    const edgeToLoopCheck = workflow.edges.find(
+      (e) => e.from === RALPH_NODE_IDS.IMPLEMENT_FEATURE && e.to === loopCheckNode
+    );
+    expect(edgeToLoopCheck).toBeDefined();
+  });
+
+  test("loop continue edge points to clearContextNode (first in loop body)", () => {
+    const workflow = createRalphWorkflow();
+
+    // Find the loop-continue edge
+    const continueEdge = workflow.edges.find((e) => e.label === "loop-continue");
+    expect(continueEdge).toBeDefined();
+
+    // The continue edge should point to clearContextNode, not implementFeatureNode
+    // This ensures clearContextNode runs at the START of each iteration
+    expect(continueEdge?.to).toBe(RALPH_NODE_IDS.CLEAR_CONTEXT);
+  });
+
+  test("loop structure: start -> clear -> implement -> check", () => {
+    const workflow = createRalphWorkflow();
+
+    // Find the loop nodes
+    const loopStartNode = Array.from(workflow.nodes.keys()).find((id) =>
+      id.includes("loop_start")
+    );
+    const loopCheckNode = Array.from(workflow.nodes.keys()).find((id) =>
+      id.includes("loop_check")
+    );
+
+    // Verify the complete chain:
+    // 1. loop_start -> clear-context
+    const startToClear = workflow.edges.find(
+      (e) => e.from === loopStartNode && e.to === RALPH_NODE_IDS.CLEAR_CONTEXT
+    );
+    expect(startToClear).toBeDefined();
+
+    // 2. clear-context -> implement-feature
+    const clearToImplement = workflow.edges.find(
+      (e) =>
+        e.from === RALPH_NODE_IDS.CLEAR_CONTEXT &&
+        e.to === RALPH_NODE_IDS.IMPLEMENT_FEATURE
+    );
+    expect(clearToImplement).toBeDefined();
+
+    // 3. implement-feature -> loop_check
+    const implementToCheck = workflow.edges.find(
+      (e) => e.from === RALPH_NODE_IDS.IMPLEMENT_FEATURE && e.to === loopCheckNode
+    );
+    expect(implementToCheck).toBeDefined();
+
+    // 4. loop_check -> clear-context (continue edge)
+    const continueEdge = workflow.edges.find(
+      (e) =>
+        e.from === loopCheckNode &&
+        e.to === RALPH_NODE_IDS.CLEAR_CONTEXT &&
+        e.label === "loop-continue"
+    );
+    expect(continueEdge).toBeDefined();
+  });
+
+  test("init node does NOT connect directly to clearContextNode", () => {
+    const workflow = createRalphWorkflow();
+
+    // Before the fix, init connected directly to clear, then clear to loop
+    // After the fix, init connects to loop_start, and clear is inside the loop
+    // So there should be NO direct edge from init to clear
+    // Instead: init -> loop_start -> clear -> implement -> loop_check -> clear (continue)
+
+    // Find the loop_start node
+    const loopStartNode = Array.from(workflow.nodes.keys()).find((id) =>
+      id.includes("loop_start")
+    );
+    expect(loopStartNode).toBeDefined();
+
+    // init should connect to loop_start, not directly to clear
+    const initToLoopStart = workflow.edges.find(
+      (e) => e.from === RALPH_NODE_IDS.INIT_SESSION && e.to === loopStartNode
+    );
+    expect(initToLoopStart).toBeDefined();
+
+    // There should be no edge from init directly to clear
+    const initToClear = workflow.edges.find(
+      (e) =>
+        e.from === RALPH_NODE_IDS.INIT_SESSION && e.to === RALPH_NODE_IDS.CLEAR_CONTEXT
+    );
+    expect(initToClear).toBeUndefined();
+  });
+});

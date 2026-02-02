@@ -381,3 +381,40 @@
 
 ### Files Modified
 - src/ui/commands/skill-commands.ts - Removed disk-based skill loading code
+
+## 2026-02-02 - Feature Implementation: AgentDefinition Interface
+
+### Completed
+- Created new file src/ui/commands/agent-commands.ts
+- Defined AgentSource type: 'builtin' | 'project' | 'user' | 'atomic'
+- Defined AgentModel type: 'sonnet' | 'opus' | 'haiku'
+- Defined AgentDefinition interface with fields:
+  - name: string (unique identifier, becomes slash command)
+  - description: string (when to use this agent)
+  - tools?: string[] (allowed tools, inherits all if omitted)
+  - model?: AgentModel (model override)
+  - prompt: string (system prompt content)
+  - source: AgentSource (for conflict resolution)
+- Added comprehensive JSDoc documentation for all types and fields
+- Exported all types and interfaces
+
+### Tests Added
+- AgentDefinition interface tests:
+  - valid AgentDefinition has all required fields
+  - AgentDefinition supports optional tools array
+  - AgentDefinition supports optional model field
+  - AgentDefinition with all optional fields
+  - AgentDefinition without optional fields
+- AgentSource type tests (builtin, project, user, atomic)
+- AgentModel type tests (sonnet, opus, haiku)
+- Example agent definition tests:
+  - codebase-analyzer agent definition is valid
+  - codebase-locator agent definition is valid
+  - debugger agent definition is valid
+
+### Test Results
+- All agent-commands tests pass (15 tests)
+
+### Files Created
+- src/ui/commands/agent-commands.ts - AgentDefinition interface and related types
+- tests/ui/commands/agent-commands.test.ts - Tests for AgentDefinition interface

@@ -144,3 +144,40 @@
 ### Files Modified
 - src/ui/commands/skill-commands.ts - Added create-spec to BUILTIN_SKILLS array
 - tests/ui/commands/skill-commands.test.ts - Added create-spec tests
+
+## 2026-02-02 - Feature Implementation: Create-Feature-List Skill as Builtin
+
+### Completed
+- Added create-feature-list skill to BUILTIN_SKILLS array in skill-commands.ts
+  - Set name to 'create-feature-list'
+  - Set description to 'Break spec into implementable tasks'
+  - Set aliases to ['features']
+  - Embedded comprehensive prompt for creating feature-list.json
+  - Included JSON schema for feature list format with fields:
+    - category (functional, refactor, test, documentation, ui, e2e)
+    - description (brief description of the feature)
+    - steps (ordered list of implementation steps)
+    - passes (boolean for test status, initially false)
+  - Added instructions for creating research/progress.txt
+  - Included feature breakdown guidelines and ordering rules
+  - Included $ARGUMENTS placeholder for focused breakdown
+
+### Tests Added
+- BUILTIN_SKILLS tests:
+  - contains create-feature-list skill with correct fields
+  - create-feature-list skill has $ARGUMENTS placeholder
+  - create-feature-list skill includes JSON schema
+  - create-feature-list skill includes feature categories
+- getBuiltinSkill tests:
+  - finds create-feature-list builtin skill by name
+  - finds create-feature-list builtin skill by alias
+- builtin skill execution tests:
+  - create-feature-list command uses embedded prompt
+  - create-feature-list command expands $ARGUMENTS with provided args
+
+### Test Results
+- All skill-commands tests pass (73 tests)
+
+### Files Modified
+- src/ui/commands/skill-commands.ts - Added create-feature-list to BUILTIN_SKILLS array
+- tests/ui/commands/skill-commands.test.ts - Added create-feature-list tests

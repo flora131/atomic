@@ -61,7 +61,7 @@
         "Embed full prompt for creating feature-list.json",
         "Include JSON schema for feature list format"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

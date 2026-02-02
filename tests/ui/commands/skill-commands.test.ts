@@ -544,6 +544,38 @@ describe("BUILTIN_SKILLS", () => {
     expect(spec?.prompt).toContain("research/patterns.md");
     expect(spec?.prompt).toContain("research/tech-stack.md");
   });
+
+  test("contains create-feature-list skill", () => {
+    const featureList = BUILTIN_SKILLS.find((s) => s.name === "create-feature-list");
+    expect(featureList).toBeDefined();
+    expect(featureList?.description).toBe("Break spec into implementable tasks");
+    expect(featureList?.aliases).toContain("features");
+    expect(featureList?.prompt).toBeDefined();
+    expect(featureList?.prompt.length).toBeGreaterThan(100);
+  });
+
+  test("create-feature-list skill has $ARGUMENTS placeholder", () => {
+    const featureList = BUILTIN_SKILLS.find((s) => s.name === "create-feature-list");
+    expect(featureList?.prompt).toContain("$ARGUMENTS");
+  });
+
+  test("create-feature-list skill includes JSON schema", () => {
+    const featureList = BUILTIN_SKILLS.find((s) => s.name === "create-feature-list");
+    expect(featureList?.prompt).toContain("research/feature-list.json");
+    expect(featureList?.prompt).toContain("research/progress.txt");
+    expect(featureList?.prompt).toContain("category");
+    expect(featureList?.prompt).toContain("description");
+    expect(featureList?.prompt).toContain("steps");
+    expect(featureList?.prompt).toContain("passes");
+  });
+
+  test("create-feature-list skill includes feature categories", () => {
+    const featureList = BUILTIN_SKILLS.find((s) => s.name === "create-feature-list");
+    expect(featureList?.prompt).toContain("functional");
+    expect(featureList?.prompt).toContain("refactor");
+    expect(featureList?.prompt).toContain("test");
+    expect(featureList?.prompt).toContain("documentation");
+  });
 });
 
 describe("getBuiltinSkill", () => {
@@ -566,9 +598,21 @@ describe("getBuiltinSkill", () => {
   });
 
   test("returns undefined for non-builtin skill", () => {
-    // create-feature-list is in SKILL_DEFINITIONS but not BUILTIN_SKILLS yet
+    // implement-feature is in SKILL_DEFINITIONS but not BUILTIN_SKILLS yet
+    const implFeature = getBuiltinSkill("implement-feature");
+    expect(implFeature).toBeUndefined();
+  });
+
+  test("finds create-feature-list builtin skill by name", () => {
     const featureList = getBuiltinSkill("create-feature-list");
-    expect(featureList).toBeUndefined();
+    expect(featureList).toBeDefined();
+    expect(featureList?.name).toBe("create-feature-list");
+  });
+
+  test("finds create-feature-list builtin skill by alias", () => {
+    const byAlias = getBuiltinSkill("features");
+    expect(byAlias).toBeDefined();
+    expect(byAlias?.name).toBe("create-feature-list");
   });
 
   test("finds create-spec builtin skill by name", () => {
@@ -745,6 +789,55 @@ describe("builtin skill execution", () => {
     expect(sentMessages).toHaveLength(1);
     // Should have expanded $ARGUMENTS with the provided args
     expect(sentMessages[0]).toContain("add user authentication");
+    expect(sentMessages[0]).not.toContain("$ARGUMENTS");
+    expect(sentMessages[0]).not.toContain("[no arguments provided]");
+  });
+
+  test("create-feature-list command uses embedded prompt", () => {
+    const featureListCmd = skillCommands.find((c) => c.name === "create-feature-list");
+    expect(featureListCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = featureListCmd!.execute("", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should use embedded prompt with feature list structure
+    expect(sentMessages[0]).toContain("research/feature-list.json");
+    expect(sentMessages[0]).toContain("[no arguments provided]");
+  });
+
+  test("create-feature-list command expands $ARGUMENTS with provided args", () => {
+    const featureListCmd = skillCommands.find((c) => c.name === "create-feature-list");
+    expect(featureListCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = featureListCmd!.execute("auth-module", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should have expanded $ARGUMENTS with the provided args
+    expect(sentMessages[0]).toContain("auth-module");
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });

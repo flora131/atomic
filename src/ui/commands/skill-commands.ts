@@ -419,6 +419,176 @@ Suggested sequence for implementation:
 /create-spec implement caching for API responses
 \`\`\``,
   },
+  {
+    name: "create-feature-list",
+    description: "Break spec into implementable tasks",
+    aliases: ["features"],
+    prompt: `# Create Feature List
+
+Break down the specification into implementable tasks: $ARGUMENTS
+
+## Purpose
+
+This skill transforms a technical specification into a structured list of implementable features. Each feature is atomic, testable, and ordered by dependency and priority.
+
+## Prerequisites
+
+Before running this skill, ensure:
+1. The \`research/spec.md\` exists with a technical specification from \`/create-spec\`
+2. You understand the overall architecture and approach
+
+## Input Sources
+
+Read and analyze:
+- \`research/spec.md\` - The technical specification to break down
+- \`research/architecture.md\` - Understand component boundaries
+- \`research/patterns.md\` - Follow established conventions
+
+## Output Structure
+
+Create two files:
+
+### 1. research/feature-list.json
+
+A JSON file with the following schema:
+
+\`\`\`json
+{
+  "features": [
+    {
+      "category": "functional" | "refactor" | "test" | "documentation" | "ui" | "e2e",
+      "description": "Brief description of the feature",
+      "steps": [
+        "Step 1: Specific action",
+        "Step 2: Another action",
+        "..."
+      ],
+      "passes": false
+    }
+  ]
+}
+\`\`\`
+
+### 2. research/progress.txt
+
+Initialize or update the progress file:
+
+\`\`\`
+# Progress Log
+
+## [Date] - Project: [Name]
+
+### Overview
+- Total features: N
+- Completed: 0
+- Remaining: N
+
+### Next Up
+- Feature 1 description
+\`\`\`
+
+## Feature Breakdown Guidelines
+
+### Ordering Rules
+1. **Foundation first**: Types, interfaces, schemas
+2. **Dependencies**: Features that others depend on come first
+3. **Core logic**: Business logic before integration
+4. **Integration**: Connect components together
+5. **Tests**: Unit tests, then integration tests
+6. **Documentation**: After implementation is stable
+
+### Feature Sizing
+- Each feature should be completable in a single focused session
+- If a feature has more than 5-7 steps, consider splitting it
+- Each feature should be independently testable
+
+### Categories Explained
+- **functional**: New functionality or behavior
+- **refactor**: Code restructuring without behavior change
+- **test**: Test suite additions
+- **documentation**: README, inline docs, API docs
+- **ui**: User interface components
+- **e2e**: End-to-end integration features
+
+### Step Writing
+Each step should be:
+- **Specific**: "Add UserService class to src/services/" not "Create service"
+- **Verifiable**: Can be checked for completion
+- **Atomic**: One clear action per step
+
+## JSON Schema
+
+\`\`\`typescript
+interface FeatureList {
+  features: Feature[];
+}
+
+interface Feature {
+  /** Category of the feature */
+  category: "functional" | "refactor" | "test" | "documentation" | "ui" | "e2e";
+  /** Brief description of what this feature accomplishes */
+  description: string;
+  /** Ordered list of implementation steps */
+  steps: string[];
+  /** Whether all tests for this feature pass (initially false) */
+  passes: boolean;
+}
+\`\`\`
+
+## Example Output
+
+\`\`\`json
+{
+  "features": [
+    {
+      "category": "functional",
+      "description": "Create UserRepository interface for data access abstraction",
+      "steps": [
+        "Define UserRepository interface in src/repositories/types.ts",
+        "Add CRUD method signatures: create, findById, findByEmail, update, delete",
+        "Export interface from repositories index"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement InMemoryUserRepository for testing",
+      "steps": [
+        "Create InMemoryUserRepository class implementing UserRepository",
+        "Implement all CRUD methods using Map storage",
+        "Add to dependency injection container"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Add unit tests for UserRepository implementations",
+      "steps": [
+        "Create tests/repositories/user-repository.test.ts",
+        "Test all CRUD operations",
+        "Test edge cases: not found, duplicate email"
+      ],
+      "passes": false
+    }
+  ]
+}
+\`\`\`
+
+## Guidelines
+
+- Start simple - foundation features first
+- Each feature should have clear acceptance criteria via its steps
+- Don't skip tests - include them as separate features
+- Group related features but keep them atomic
+- The \`passes\` field starts as \`false\` and is set to \`true\` after tests pass
+
+## Example Usage
+
+\`\`\`
+/create-feature-list                    # Break down research/spec.md
+/create-feature-list auth-module        # Focus on auth portion of spec
+\`\`\``,
+  },
 ];
 
 // ============================================================================

@@ -727,6 +727,174 @@ If you encounter issues:
 /implement-feature 3                    # Implement feature at index 3
 \`\`\``,
   },
+  {
+    name: "create-gh-pr",
+    description: "Push and create pull request",
+    aliases: ["pr"],
+    prompt: `# Create GitHub Pull Request
+
+Push changes and create a pull request: $ARGUMENTS
+
+## Purpose
+
+This skill commits any unstaged changes, pushes to the remote repository, and creates a GitHub pull request with a well-formatted description.
+
+## Prerequisites
+
+- Git repository with a remote configured
+- GitHub CLI (\`gh\`) installed and authenticated
+- Changes ready to commit (staged or unstaged)
+
+## Process
+
+### 1. Check Repository State
+
+\`\`\`bash
+# Check current branch
+git branch --show-current
+
+# Check remote tracking
+git remote -v
+
+# Check for uncommitted changes
+git status --porcelain
+\`\`\`
+
+### 2. Commit Changes (if any)
+
+If there are uncommitted changes:
+\`\`\`bash
+# Stage all changes
+git add -A
+
+# Create commit with conventional format
+git commit -m "feat: description of changes"
+\`\`\`
+
+### 3. Push to Remote
+
+\`\`\`bash
+# Push current branch (create upstream if needed)
+git push -u origin HEAD
+\`\`\`
+
+### 4. Create Pull Request
+
+\`\`\`bash
+# Create PR with gh CLI
+gh pr create --title "PR Title" --body "PR Description"
+\`\`\`
+
+## PR Template
+
+Use this format for the PR body:
+
+\`\`\`markdown
+## Summary
+
+Brief description of what this PR accomplishes.
+
+## Changes
+
+- Change 1
+- Change 2
+- Change 3
+
+## Testing
+
+- [ ] Unit tests pass
+- [ ] Integration tests pass
+- [ ] Manual testing completed
+
+## Related Issues
+
+Closes #issue_number (if applicable)
+\`\`\`
+
+## gh CLI Commands Reference
+
+### Create PR
+\`\`\`bash
+# Basic PR creation
+gh pr create --title "Title" --body "Body"
+
+# Create draft PR
+gh pr create --draft --title "Title" --body "Body"
+
+# Create PR with specific base branch
+gh pr create --base main --title "Title" --body "Body"
+
+# Create PR and open in browser
+gh pr create --web
+\`\`\`
+
+### View PR
+\`\`\`bash
+# View current branch's PR
+gh pr view
+
+# View specific PR
+gh pr view 123
+
+# View PR in browser
+gh pr view --web
+\`\`\`
+
+### List PRs
+\`\`\`bash
+# List open PRs
+gh pr list
+
+# List your PRs
+gh pr list --author @me
+\`\`\`
+
+## Guidelines
+
+### PR Title
+- Use conventional commit format: \`type(scope): description\`
+- Keep under 72 characters
+- Be specific about what changed
+
+### PR Description
+- Summarize the purpose of the changes
+- List key modifications
+- Include testing information
+- Reference related issues
+
+### Branch Naming
+- Use descriptive branch names
+- Format: \`type/description\` (e.g., \`feat/user-auth\`, \`fix/login-bug\`)
+
+## Error Handling
+
+### No Remote Configured
+\`\`\`bash
+git remote add origin https://github.com/user/repo.git
+\`\`\`
+
+### Authentication Issues
+\`\`\`bash
+gh auth login
+\`\`\`
+
+### PR Already Exists
+\`\`\`bash
+# View existing PR
+gh pr view
+
+# Update existing PR
+gh pr edit --title "New Title" --body "New Body"
+\`\`\`
+
+## Example Usage
+
+\`\`\`
+/create-gh-pr                           # Create PR with auto-generated description
+/create-gh-pr "Add user authentication" # Create PR with specific title
+/create-gh-pr --draft                   # Create draft PR
+\`\`\``,
+  },
 ];
 
 // ============================================================================

@@ -136,7 +136,7 @@
         "Remove any fs.readFile calls for skill loading",
         "Remove fallback behavior for missing skills"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

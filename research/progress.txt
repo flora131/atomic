@@ -885,3 +885,62 @@
 ### Files Modified
 - src/ui/commands/agent-commands.ts - Added codebase-research-locator to BUILTIN_AGENTS array
 - tests/ui/commands/agent-commands.test.ts - Added codebase-research-locator tests
+
+## 2026-02-02 - Feature Implementation: debugger Builtin Agent
+
+### Completed
+- Added debugger agent to BUILTIN_AGENTS array in agent-commands.ts
+  - name: 'debugger'
+  - description: 'Debugging specialist for errors, test failures, and unexpected behavior.'
+  - tools: ['Bash', 'Task', 'AskUserQuestion', 'Edit', 'Glob', 'Grep', 'Read', 'Write', 'WebFetch', 'WebSearch']
+  - model: 'sonnet' (balanced performance for systematic debugging)
+  - source: 'builtin'
+  - Comprehensive system prompt including:
+    - Debugging Process section (8 steps):
+      - Understand the Problem
+      - Reproduce the Issue
+      - Gather Evidence
+      - Form Hypotheses
+      - Test Hypotheses
+      - Implement Fix
+      - Verify Fix
+      - Document Findings
+    - Debug Report Format template with sections:
+      - Error Summary
+      - Error Details (Type, Location, Error Message)
+      - Root Cause
+      - Investigation Steps
+      - Fix Applied
+      - Verification
+      - Recommendations
+    - Common Debugging Patterns section:
+      - Test Failures
+      - Runtime Errors
+      - Type Errors
+      - Build/Compile Errors
+    - Guidelines for systematic debugging approach
+
+### Tests Added (13 new tests)
+- debugger builtin agent tests:
+  - exists in BUILTIN_AGENTS
+  - has correct name
+  - has appropriate description
+  - has tools array with debugging tools
+  - has sonnet model
+  - has comprehensive system prompt
+  - prompt includes debugging process steps
+  - prompt includes debug report format
+  - prompt includes common debugging patterns
+  - has builtin source
+- BUILTIN_AGENTS array tests:
+  - contains debugger agent
+- getBuiltinAgent tests:
+  - finds debugger by name
+  - finds debugger case-insensitively
+
+### Test Results
+- All agent-commands tests pass (179 tests)
+
+### Files Modified
+- src/ui/commands/agent-commands.ts - Added debugger to BUILTIN_AGENTS array
+- tests/ui/commands/agent-commands.test.ts - Added debugger tests

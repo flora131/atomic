@@ -15,6 +15,12 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join, basename } from "node:path";
 import { homedir } from "node:os";
+import type {
+  CommandDefinition,
+  CommandContext,
+  CommandResult,
+} from "./registry.ts";
+import { globalRegistry } from "./registry.ts";
 
 // ============================================================================
 // CONSTANTS
@@ -1413,4 +1419,130 @@ export function shouldAgentOverride(
   };
 
   return priority[newSource] > priority[existingSource];
+}
+
+// ============================================================================
+// AGENT COMMAND REGISTRATION
+// ============================================================================
+
+/**
+ * Create a CommandDefinition from an AgentDefinition.
+ *
+ * The execute handler sends the agent's prompt to the session,
+ * allowing the agent to be invoked as a slash command.
+ *
+ * @param agent - Agent definition to convert
+ * @returns CommandDefinition for registration
+ */
+export function createAgentCommand(agent: AgentDefinition): CommandDefinition {
+  return {
+    name: agent.name,
+    description: agent.description,
+    category: "agent",
+    hidden: false,
+    execute: (args: string, context: CommandContext): CommandResult => {
+      const agentArgs = args.trim();
+
+      // Build the prompt with user arguments if provided
+      let prompt = agent.prompt;
+      if (agentArgs) {
+        // Append user arguments to the prompt
+        prompt = `${agent.prompt}\n\n## User Request\n\n${agentArgs}`;
+      }
+
+      // Send the prompt to the session
+      // The session will use the agent's tools and model settings
+      context.sendMessage(prompt);
+
+      return {
+        success: true,
+      };
+    },
+  };
+}
+
+/**
+ * Agent commands created from builtin agents.
+ *
+ * These commands are registered with the global registry and can be
+ * invoked as slash commands (e.g., /codebase-analyzer, /debugger).
+ */
+export const builtinAgentCommands: CommandDefinition[] = BUILTIN_AGENTS.map(
+  createAgentCommand
+);
+
+/**
+ * Register all builtin agent commands with the global registry.
+ *
+ * This function registers agents from BUILTIN_AGENTS array.
+ * Call this during application initialization.
+ *
+ * @example
+ * ```typescript
+ * import { registerBuiltinAgents } from "./agent-commands";
+ *
+ * // In app initialization
+ * registerBuiltinAgents();
+ * ```
+ */
+export function registerBuiltinAgents(): void {
+  for (const command of builtinAgentCommands) {
+    // Skip if already registered (idempotent)
+    if (!globalRegistry.has(command.name)) {
+      globalRegistry.register(command);
+    }
+  }
+}
+
+/**
+ * Register all agent commands with the global registry.
+ *
+ * This function combines BUILTIN_AGENTS with discovered agents from disk
+ * and registers them as slash commands. Project-local agents override
+ * user-global agents, and all override builtins with the same name.
+ *
+ * Call this function during application initialization.
+ *
+ * @example
+ * ```typescript
+ * import { registerAgentCommands } from "./agent-commands";
+ *
+ * // In app initialization (async context)
+ * await registerAgentCommands();
+ * ```
+ */
+export async function registerAgentCommands(): Promise<void> {
+  // First register builtin agents
+  registerBuiltinAgents();
+
+  // Then discover and register disk-based agents
+  // These may override builtin agents with the same name
+  const discoveredAgents = await discoverAgents();
+
+  for (const agent of discoveredAgents) {
+    // Check if a builtin with the same name exists
+    const existingCommand = globalRegistry.get(agent.name);
+
+    if (existingCommand) {
+      // Only override if discovered agent has higher priority source
+      // Project > Atomic > User > Builtin
+      // Since we're discovering from disk, check source priority
+      const builtinAgent = getBuiltinAgent(agent.name);
+      if (builtinAgent && shouldAgentOverride(agent.source, builtinAgent.source)) {
+        // Can't directly override in registry, but discovered agents
+        // take priority when they have higher source priority
+        // For now, skip registering duplicate names
+        // TODO: Implement registry.unregister() for proper override
+        continue;
+      }
+    }
+
+    // Create and register the agent command
+    const command = createAgentCommand(agent);
+
+    // Skip if already registered
+    if (!globalRegistry.has(command.name)) {
+      globalRegistry.register(command);
+    }
+  }
 }

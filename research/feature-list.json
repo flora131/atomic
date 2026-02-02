@@ -331,7 +331,7 @@
         "Check if command exists before registering",
         "Call globalRegistry.register() for each agent"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

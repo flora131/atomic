@@ -87,6 +87,8 @@ interface CopilotSessionState {
   outputTokens: number;
   isClosed: boolean;
   unsubscribe: () => void;
+  /** Maps toolCallId to toolName for tool.execution_complete events */
+  toolCallIdToName: Map<string, string>;
 }
 
 /**
@@ -196,6 +198,7 @@ export class CopilotClient implements CodingAgentClient {
       outputTokens: 0,
       isClosed: false,
       unsubscribe,
+      toolCallIdToName: new Map(),
     };
 
     this.sessions.set(sessionId, state);
@@ -240,12 +243,24 @@ export class CopilotClient implements CodingAgentClient {
             }
 
             // Set up event handler to collect streaming events
+            // Use a queue-based approach to handle race conditions:
+            // - Events may fire before we're ready to consume them
+            // - We need to ensure no events are lost between send() and the while loop
             const chunks: AgentMessage[] = [];
             let resolveChunk: (() => void) | null = null;
             let done = false;
 
             // Track if we've yielded streaming deltas to avoid duplicating content
             let hasYieldedDeltas = false;
+
+            // Helper to notify the consumer that new data is available
+            const notifyConsumer = () => {
+              if (resolveChunk) {
+                const resolve = resolveChunk;
+                resolveChunk = null;
+                resolve();
+              }
+            };
 
             const eventHandler = (event: SdkSessionEvent) => {
               if (event.type === "assistant.message_delta") {
@@ -255,7 +270,7 @@ export class CopilotClient implements CodingAgentClient {
                   content: event.data.deltaContent,
                   role: "assistant",
                 });
-                resolveChunk?.();
+                notifyConsumer();
               } else if (event.type === "assistant.reasoning_delta") {
                 hasYieldedDeltas = true;
                 chunks.push({
@@ -263,7 +278,7 @@ export class CopilotClient implements CodingAgentClient {
                   content: event.data.deltaContent,
                   role: "assistant",
                 });
-                resolveChunk?.();
+                notifyConsumer();
               } else if (event.type === "assistant.message") {
                 // Only yield the complete message if we haven't streamed deltas
                 // (deltas already contain the full content incrementally)
@@ -276,21 +291,33 @@ export class CopilotClient implements CodingAgentClient {
                       messageId: event.data.messageId,
                     },
                   });
+                  notifyConsumer();
                 }
-                done = true;
-                resolveChunk?.();
+                // Reset hasYieldedDeltas for the next turn (after tool execution)
+                hasYieldedDeltas = false;
+                // Don't set done = true here - wait for session.idle
+                // Tool execution may cause multiple assistant.message events
               } else if (event.type === "session.idle") {
                 done = true;
-                resolveChunk?.();
+                notifyConsumer();
               } else if (event.type === "tool.execution_start") {
+                // Track toolCallId -> toolName mapping for the complete event
+                if (event.data.toolCallId && event.data.toolName) {
+                  state.toolCallIdToName.set(event.data.toolCallId, event.data.toolName);
+                }
                 self.emitEvent("tool.start", sessionId, {
                   toolName: event.data.toolName,
                   toolInput: event.data.arguments,
                 });
               } else if (event.type === "tool.execution_complete") {
+                // Look up the actual tool name from the toolCallId
+                const toolName = state.toolCallIdToName.get(event.data.toolCallId) ?? event.data.toolCallId;
+                // Clean up the mapping
+                state.toolCallIdToName.delete(event.data.toolCallId);
                 self.emitEvent("tool.complete", sessionId, {
-                  toolName: event.data.toolCallId,
+                  toolName,
                   success: event.data.success,
+                  toolResult: event.data.result?.content,
                   error: event.data.error?.message,
                 });
               }
@@ -299,24 +326,29 @@ export class CopilotClient implements CodingAgentClient {
             const unsub = state.sdkSession.on(eventHandler);
 
             try {
-              // Send the message (non-blocking)
+              // Send the message (non-blocking - returns immediately)
+              // Events will start arriving via eventHandler
               await state.sdkSession.send({ prompt: message });
 
               // Yield chunks as they arrive
-              while (!done) {
+              // The loop continues until done is true AND all chunks are consumed
+              while (!done || chunks.length > 0) {
                 if (chunks.length > 0) {
                   yield chunks.shift()!;
-                } else {
-                  // Wait for next chunk
+                } else if (!done) {
+                  // Wait for next chunk or completion
+                  // Set up the resolver BEFORE checking the condition again
+                  // to avoid race conditions where events fire between check and wait
                   await new Promise<void>((resolve) => {
                     resolveChunk = resolve;
+                    // If done became true or chunks arrived while we were setting up,
+                    // resolve immediately to re-check the condition
+                    if (done || chunks.length > 0) {
+                      resolveChunk = null;
+                      resolve();
+                    }
                   });
                 }
-              }
-
-              // Yield any remaining chunks
-              while (chunks.length > 0) {
-                yield chunks.shift()!;
               }
             } finally {
               unsub();
@@ -398,19 +430,28 @@ export class CopilotClient implements CodingAgentClient {
           };
           break;
         case "tool.execution_start":
+          // Track toolCallId -> toolName mapping for the complete event
+          if (state && event.data.toolCallId && event.data.toolName) {
+            state.toolCallIdToName.set(event.data.toolCallId, event.data.toolName);
+          }
           eventData = {
             toolName: event.data.toolName,
             toolInput: event.data.arguments,
           };
           break;
-        case "tool.execution_complete":
+        case "tool.execution_complete": {
+          // Look up the actual tool name from the toolCallId
+          const toolName = state?.toolCallIdToName.get(event.data.toolCallId) ?? event.data.toolCallId;
+          // Clean up the mapping
+          state?.toolCallIdToName.delete(event.data.toolCallId);
           eventData = {
-            toolName: event.data.toolCallId,
+            toolName,
             success: event.data.success,
             toolResult: event.data.result?.content,
             error: event.data.error?.message,
           };
           break;
+        }
         case "subagent.started":
           eventData = {
             subagentId: event.data.toolCallId,
@@ -474,12 +515,32 @@ export class CopilotClient implements CodingAgentClient {
   }
 
   /**
+   * Create a permission handler that auto-approves all operations.
+   * Similar to Claude Code's default behavior.
+   *
+   * TODO: Add HITL permission prompts for destructive operations (write, shell)
+   * by emitting permission.requested events and waiting for user response.
+   */
+  private createHITLPermissionHandler(_sessionId: string): CopilotPermissionHandler {
+    return async (_request: SdkPermissionRequest) => {
+      // Auto-approve all operations for now
+      return { kind: "approved" };
+    };
+  }
+
+  /**
    * Create a new agent session
    */
   async createSession(config: SessionConfig = {}): Promise<Session> {
     if (!this.isRunning || !this.sdkClient) {
       throw new Error("Client not started. Call start() first.");
     }
+
+    // Generate a session ID for permission handler events
+    const tentativeSessionId = config.sessionId ?? `copilot_${Date.now()}`;
+
+    // Use provided permission handler or create HITL handler that emits events
+    const permissionHandler = this.permissionHandler ?? this.createHITLPermissionHandler(tentativeSessionId);
 
     const sdkConfig: SdkSessionConfig = {
       sessionId: config.sessionId,
@@ -490,7 +551,7 @@ export class CopilotClient implements CodingAgentClient {
       availableTools: config.tools,
       streaming: true,
       tools: this.registeredTools.map((t) => this.convertTool(t)),
-      onPermissionRequest: this.permissionHandler || undefined,
+      onPermissionRequest: permissionHandler,
     };
 
     const sdkSession = await this.sdkClient.createSession(sdkConfig);
@@ -513,10 +574,13 @@ export class CopilotClient implements CodingAgentClient {
 
     // Try to resume session from SDK
     try {
+      // Use provided permission handler or create HITL handler that emits events
+      const permissionHandler = this.permissionHandler ?? this.createHITLPermissionHandler(sessionId);
+
       const resumeConfig: SdkResumeSessionConfig = {
         streaming: true,
         tools: this.registeredTools.map((t) => this.convertTool(t)),
-        onPermissionRequest: this.permissionHandler || undefined,
+        onPermissionRequest: permissionHandler,
       };
       const sdkSession = await this.sdkClient.resumeSession(sessionId, resumeConfig);
       return this.wrapSession(sdkSession, {});

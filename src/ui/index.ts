@@ -10,7 +10,7 @@
 import React from "react";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { createRoot, type Root } from "@opentui/react";
-import { ChatApp, type OnToolStart, type OnToolComplete, type OnPermissionRequest as ChatOnPermissionRequest } from "./chat.tsx";
+import { ChatApp, type OnToolStart, type OnToolComplete, type OnPermissionRequest as ChatOnPermissionRequest, type OnInterrupt } from "./chat.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
 import { initializeCommandsAsync } from "./commands/index.ts";
 import type {
@@ -68,7 +68,8 @@ export type OnPermissionRequest = (
   toolName: string,
   question: string,
   options: Array<{ label: string; value: string; description?: string }>,
-  respond: (answer: string | string[]) => void
+  respond: (answer: string | string[]) => void,
+  header?: string
 ) => void;
 
 /**
@@ -89,9 +90,13 @@ interface ChatUIState {
   permissionRequestHandler: OnPermissionRequest | null;
   /** Tool ID counter for generating unique IDs */
   toolIdCounter: number;
-  /** Ctrl+C press state for double-press exit */
+  /** Interrupt counter for double-press exit (shared between signal and UI) */
+  interruptCount: number;
+  /** Interrupt timeout ID */
+  interruptTimeout: ReturnType<typeof setTimeout> | null;
+  /** Ctrl+C press state for double-press exit (deprecated, kept for signal handler compat) */
   ctrlCPressed: boolean;
-  /** Ctrl+C timeout ID */
+  /** Ctrl+C timeout ID (deprecated, kept for signal handler compat) */
   ctrlCTimeout: ReturnType<typeof setTimeout> | null;
   /** Callback to show Ctrl+C warning in UI */
   showCtrlCWarning: ((show: boolean) => void) | null;
@@ -99,6 +104,10 @@ interface ChatUIState {
   toolEventsViaHooks: boolean;
   /** Set of active tool names (for deduplication) */
   activeToolNames: Set<string>;
+  /** AbortController for the current stream (to interrupt on Escape/Ctrl+C) */
+  streamAbortController: AbortController | null;
+  /** Whether streaming is currently active */
+  isStreaming: boolean;
 }
 
 // ============================================================================
@@ -159,11 +168,15 @@ export async function startChatUI(
     toolCompleteHandler: null,
     permissionRequestHandler: null,
     toolIdCounter: 0,
+    interruptCount: 0,
+    interruptTimeout: null,
     ctrlCPressed: false,
     ctrlCTimeout: null,
     showCtrlCWarning: null,
     toolEventsViaHooks: false,
     activeToolNames: new Set(),
+    streamAbortController: null,
+    isStreaming: false,
   };
 
   // Create a promise that resolves when the UI exits
@@ -278,7 +291,7 @@ export async function startChatUI(
 
     // Subscribe to tool.complete events
     const unsubComplete = client.on("tool.complete", (event) => {
-      const data = event.data as { toolName?: string; toolResult?: unknown; success?: boolean; error?: string };
+      const data = event.data as { toolName?: string; toolResult?: unknown; success?: boolean; error?: string; toolInput?: Record<string, unknown> };
       if (state.toolCompleteHandler) {
         // Try to find the tool ID from our map, or use the counter
         const toolId = data.toolName
@@ -289,7 +302,8 @@ export async function startChatUI(
           toolId,
           data.toolResult,
           data.success ?? true,
-          data.error
+          data.error,
+          data.toolInput // Pass input to update if it wasn't available at start
         );
 
         // Clean up tracking
@@ -333,6 +347,7 @@ export async function startChatUI(
   /**
    * Handle streaming a message response from the agent.
    * Handles text, tool_use, and tool_result messages from the stream.
+   * Supports interruption via AbortController (Escape/Ctrl+C during streaming).
    */
   async function handleStreamMessage(
     content: string,
@@ -355,11 +370,20 @@ export async function startChatUI(
       }
     }
 
+    // Create AbortController for this stream so it can be interrupted
+    state.streamAbortController = new AbortController();
+    state.isStreaming = true;
+
     try {
       // Stream the response
       const stream = state.session.stream(content);
 
       for await (const message of stream) {
+        // Check if stream was aborted
+        if (state.streamAbortController?.signal.aborted) {
+          break;
+        }
+
         // Handle text content
         if (message.type === "text" && typeof message.content === "string") {
           onChunk(message.content);
@@ -394,7 +418,15 @@ export async function startChatUI(
       state.messageCount++;
       onComplete();
     } catch (error) {
+      // Ignore AbortError - this is expected when user interrupts
+      if (error instanceof Error && error.name === "AbortError") {
+        // Stream was intentionally aborted
+      }
       onComplete();
+    } finally {
+      // Clear streaming state
+      state.streamAbortController = null;
+      state.isStreaming = false;
     }
   }
 
@@ -405,35 +437,62 @@ export async function startChatUI(
     await cleanup();
   }
 
-  // Set up signal handlers for cleanup
-  // Ctrl+C (SIGINT) requires double-press to exit
-  const sigintHandler = () => {
-    if (state.ctrlCPressed) {
-      // Second press - actually exit
-      if (state.ctrlCTimeout) {
-        clearTimeout(state.ctrlCTimeout);
-        state.ctrlCTimeout = null;
+  /**
+   * Handle interrupt request (from signal or UI).
+   * If streaming, abort the stream. If idle, use double-press to exit.
+   */
+  function handleInterrupt(): void {
+    // If streaming, abort the current operation
+    if (state.isStreaming && state.streamAbortController) {
+      state.streamAbortController.abort();
+      // Reset interrupt state
+      state.interruptCount = 0;
+      if (state.interruptTimeout) {
+        clearTimeout(state.interruptTimeout);
+        state.interruptTimeout = null;
       }
-      state.ctrlCPressed = false;
+      if (state.showCtrlCWarning) {
+        state.showCtrlCWarning(false);
+      }
+      return;
+    }
+
+    // Not streaming: use double-press logic to exit
+    state.interruptCount++;
+    if (state.interruptCount >= 2) {
+      // Double press - exit
+      state.interruptCount = 0;
+      if (state.interruptTimeout) {
+        clearTimeout(state.interruptTimeout);
+        state.interruptTimeout = null;
+      }
       if (state.showCtrlCWarning) {
         state.showCtrlCWarning(false);
       }
       void cleanup();
-    } else {
-      // First press - show warning
-      state.ctrlCPressed = true;
-      if (state.showCtrlCWarning) {
-        state.showCtrlCWarning(true);
-      }
-      // Clear warning after 1 second
-      state.ctrlCTimeout = setTimeout(() => {
-        state.ctrlCPressed = false;
-        state.ctrlCTimeout = null;
-        if (state.showCtrlCWarning) {
-          state.showCtrlCWarning(false);
-        }
-      }, 1000);
+      return;
     }
+
+    // First press - show warning and set timeout
+    if (state.showCtrlCWarning) {
+      state.showCtrlCWarning(true);
+    }
+    if (state.interruptTimeout) {
+      clearTimeout(state.interruptTimeout);
+    }
+    state.interruptTimeout = setTimeout(() => {
+      state.interruptCount = 0;
+      state.interruptTimeout = null;
+      if (state.showCtrlCWarning) {
+        state.showCtrlCWarning(false);
+      }
+    }, 1000);
+  }
+
+  // Set up signal handlers for cleanup
+  // Ctrl+C (SIGINT) uses the unified interrupt handler
+  const sigintHandler = () => {
+    handleInterrupt();
   };
 
   const sigtermHandler = () => {
@@ -450,6 +509,13 @@ export async function startChatUI(
     if (state.ctrlCTimeout) {
       clearTimeout(state.ctrlCTimeout);
     }
+    if (state.interruptTimeout) {
+      clearTimeout(state.interruptTimeout);
+    }
+    // Abort any ongoing stream
+    if (state.streamAbortController) {
+      state.streamAbortController.abort();
+    }
   });
 
   try {
@@ -459,13 +525,13 @@ export async function startChatUI(
     await initializeCommandsAsync();
 
     // Create the CLI renderer with:
-    // - mouse mode disabled to allow native terminal text selection/copy
-    // - useAlternateScreen: false so CLI output persists after exit (inline mode)
+    // - mouse mode enabled for scroll wheel support
+    // - useAlternateScreen: true to prevent scrollbox from corrupting terminal output
     // - exitOnCtrlC: false to allow double-press Ctrl+C behavior
     // - useKittyKeyboard: with disambiguate so Ctrl+C is received as keyboard event
     state.renderer = await createCliRenderer({
-      useMouse: false,
-      useAlternateScreen: false,
+      useMouse: true,
+      useAlternateScreen: true,
       exitOnCtrlC: false,
       useKittyKeyboard: { disambiguate: true },
     });
@@ -491,6 +557,19 @@ export async function startChatUI(
       state.showCtrlCWarning = handler;
     };
 
+    /**
+     * Handle interrupt request from the UI (Escape/Ctrl+C during streaming).
+     * This is called by ChatApp when user presses interrupt keys.
+     */
+    const handleInterruptFromUI = () => {
+      handleInterrupt();
+    };
+
+    /**
+     * Get the current session for slash commands like /compact.
+     */
+    const getSession = () => state.session;
+
     state.root.render(
       React.createElement(
         ThemeProvider,
@@ -507,10 +586,12 @@ export async function startChatUI(
             onSendMessage: handleSendMessage,
             onStreamMessage: handleStreamMessage,
             onExit: handleExit,
+            onInterrupt: handleInterruptFromUI,
             registerToolStartHandler,
             registerToolCompleteHandler,
             registerPermissionRequestHandler,
             registerCtrlCWarningHandler,
+            getSession,
           }),
         }
       )
@@ -635,6 +716,7 @@ export {
   type WorkflowChatState,
   type OnToolStart,
   type OnToolComplete,
+  type OnInterrupt,
   defaultWorkflowChatState,
 } from "./chat.tsx";
 export {

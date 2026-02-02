@@ -420,18 +420,24 @@ export class OpenCodeClient implements CodingAgentClient {
           });
         } else if (part?.type === "tool") {
           const toolState = part?.state as Record<string, unknown> | undefined;
-          if (toolState?.status === "pending") {
+          const toolName = (part?.tool as string) ?? "";
+          const toolInput = (toolState?.input as Record<string, unknown>) ?? {};
+
+          // Emit tool.start for pending or running status
+          // OpenCode sends "pending" first, then "running" with more complete input
+          if (toolState?.status === "pending" || toolState?.status === "running") {
             this.emitEvent("tool.start", partSessionId, {
-              toolName: (part?.tool as string) ?? "",
-              toolInput: toolState?.input,
+              toolName,
+              toolInput,
             });
           } else if (
             toolState?.status === "completed" ||
             toolState?.status === "error"
           ) {
             this.emitEvent("tool.complete", partSessionId, {
-              toolName: (part?.tool as string) ?? "",
+              toolName,
               toolResult: toolState?.output,
+              toolInput, // Also include input in complete event for UI update
               success: toolState?.status === "completed",
             });
           }
@@ -753,6 +759,10 @@ export class OpenCodeClient implements CodingAgentClient {
                 throw new Error(`Failed to send message: ${result.error}`);
               }
 
+              // Track if we already yielded text content from direct response
+              // to avoid duplicating with SSE deltas
+              let yieldedTextFromResponse = false;
+
               // If we got a direct response (no SSE streaming), yield it
               // This handles cases where the SDK returns immediately
               if (result.data?.parts) {
@@ -760,6 +770,7 @@ export class OpenCodeClient implements CodingAgentClient {
                 for (const part of parts) {
                   if (part.type === "text" && part.text) {
                     totalOutputChars += part.text.length;
+                    yieldedTextFromResponse = true;
                     yield {
                       type: "text" as const,
                       content: part.text,
@@ -826,19 +837,26 @@ export class OpenCodeClient implements CodingAgentClient {
                 }
               }
 
-              // Yield any SSE deltas that arrived
-              while (!streamDone || deltaQueue.length > 0) {
-                if (deltaQueue.length > 0) {
-                  yield deltaQueue.shift()!;
-                } else if (!streamDone) {
-                  // Wait for next delta or completion
-                  await new Promise<void>((resolve) => {
-                    resolveNext = resolve;
-                    // Add a timeout to prevent infinite waiting
-                    setTimeout(resolve, 30000);
-                  });
-                  resolveNext = null;
+              // Yield any SSE deltas that arrived, but skip if we already yielded text from direct response
+              // This prevents duplication when OpenCode returns content both in direct response AND via SSE
+              if (!yieldedTextFromResponse) {
+                while (!streamDone || deltaQueue.length > 0) {
+                  if (deltaQueue.length > 0) {
+                    yield deltaQueue.shift()!;
+                  } else if (!streamDone) {
+                    // Wait for next delta or completion
+                    await new Promise<void>((resolve) => {
+                      resolveNext = resolve;
+                      // Add a timeout to prevent infinite waiting
+                      setTimeout(resolve, 30000);
+                    });
+                    resolveNext = null;
+                  }
                 }
+              } else {
+                // Clear the delta queue since we already have the response
+                deltaQueue.length = 0;
+                streamDone = true;
               }
 
               // Check for stream error

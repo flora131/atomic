@@ -331,6 +331,44 @@ export const clearCommand: CommandDefinition = {
   },
 };
 
+/**
+ * /compact - Compact the context to reduce token usage.
+ *
+ * Calls the session's summarize() method to compact the conversation
+ * context, then clears the visible messages.
+ */
+export const compactCommand: CommandDefinition = {
+  name: "compact",
+  description: "Compact context to reduce token usage",
+  category: "builtin",
+  execute: async (_args: string, context: CommandContext): Promise<CommandResult> => {
+    if (!context.session) {
+      return {
+        success: false,
+        message: "No active session. Send a message first to start a session.",
+      };
+    }
+
+    try {
+      // Call the session's summarize method to compact context
+      await context.session.summarize();
+
+      // Clear visible messages after context compaction
+      return {
+        success: true,
+        message: "Context compacted successfully.",
+        clearMessages: true,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      return {
+        success: false,
+        message: `Failed to compact context: ${errorMessage}`,
+      };
+    }
+  },
+};
+
 // ============================================================================
 // REGISTRATION
 // ============================================================================
@@ -345,6 +383,7 @@ export const builtinCommands: CommandDefinition[] = [
   rejectCommand,
   themeCommand,
   clearCommand,
+  compactCommand,
 ];
 
 /**

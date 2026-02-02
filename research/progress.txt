@@ -1732,3 +1732,53 @@ Added file system operations for Ralph session persistence to ralph-session.ts.
 - src/config/ralph.ts - Added RalphWorkflowConfig interface and RALPH_CONFIG constant
 - src/config/index.ts - Added RalphWorkflowConfig and RALPH_CONFIG exports
 - tests/config/ralph.test.ts - Added RALPH_CONFIG and RalphWorkflowConfig tests
+
+## 2026-02-02 - Feature Implementation: createRalphWorkflow() function
+
+### Completed
+- Created src/workflows/ralph.ts with:
+  - RALPH_NODE_IDS constant with 5 node IDs
+  - CreateRalphWorkflowConfig interface for workflow configuration
+  - createRalphWorkflow() function that builds the workflow graph
+  - createTestRalphWorkflow() function for testing with minimal config
+  - Re-export of RalphWorkflowState type
+
+### Workflow Structure
+The Ralph workflow follows this sequence:
+1. init-session: Initialize or resume Ralph session
+2. clear-context: Clear context window before loop
+3. Loop: implement-feature (until shouldContinue is false)
+4. check-completion: Final check after loop exits
+5. create-pr: Create pull request with session metadata
+
+### Configuration Options
+- maxIterations: Maximum loop iterations (default: 100 from RALPH_CONFIG)
+- checkpointing: Enable workflow resumption (default: true from RALPH_CONFIG)
+- checkpointDir: Checkpoint storage directory
+- featureListPath: Path to feature-list.json
+- yolo: Enable yolo mode (no feature list)
+- userPrompt: User prompt for yolo mode
+
+### Updated Exports
+- src/workflows/index.ts now exports:
+  - createRalphWorkflow
+  - createTestRalphWorkflow
+  - RALPH_NODE_IDS
+  - CreateRalphWorkflowConfig
+  - RalphWorkflowState
+
+### Tests Added (36 tests)
+- RALPH_NODE_IDS constant tests
+- createRalphWorkflow tests (various configs)
+- createTestRalphWorkflow tests
+- CreateRalphWorkflowConfig type tests
+- Integration tests (node presence, workflow structure)
+
+### Test Results
+- All 140 workflow tests pass (104 original + 36 new)
+- 322 expect() calls
+
+### Files Modified
+- src/workflows/ralph.ts - Created with createRalphWorkflow() function
+- src/workflows/index.ts - Added Ralph workflow exports
+- tests/workflows/ralph.test.ts - Created with 36 tests

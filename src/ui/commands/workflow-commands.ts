@@ -30,6 +30,9 @@ import {
   generateRalphSessionId,
   getRalphSessionPaths,
 } from "../../config/ralph.ts";
+import {
+  getSessionDir,
+} from "../../workflows/ralph-session.ts";
 
 // ============================================================================
 // RALPH COMMAND PARSING
@@ -43,13 +46,16 @@ export interface RalphCommandArgs {
   yolo: boolean;
   /** User prompt (required for --yolo mode) */
   prompt: string | null;
+  /** Session ID to resume (from --resume flag) */
+  resumeSessionId: string | null;
 }
 
 /**
- * Parse /ralph command arguments for --yolo flag.
+ * Parse /ralph command arguments for --yolo and --resume flags.
  *
  * Supported formats:
  *   /ralph --yolo <prompt>     - Run in yolo mode with the given prompt
+ *   /ralph --resume <uuid>     - Resume a previous session
  *   /ralph <prompt>            - Normal mode with feature list
  *
  * @param args - Raw argument string from the command
@@ -57,13 +63,28 @@ export interface RalphCommandArgs {
  *
  * @example
  * parseRalphArgs("--yolo implement auth")
- * // => { yolo: true, prompt: "implement auth" }
+ * // => { yolo: true, prompt: "implement auth", resumeSessionId: null }
+ *
+ * parseRalphArgs("--resume abc123-def456")
+ * // => { yolo: false, prompt: null, resumeSessionId: "abc123-def456" }
  *
  * parseRalphArgs("my feature")
- * // => { yolo: false, prompt: "my feature" }
+ * // => { yolo: false, prompt: "my feature", resumeSessionId: null }
  */
 export function parseRalphArgs(args: string): RalphCommandArgs {
   const trimmed = args.trim();
+
+  // Check for --resume flag
+  if (trimmed.startsWith("--resume")) {
+    // Extract everything after --resume as the session ID
+    const afterFlag = trimmed.slice("--resume".length).trim();
+    const sessionId = afterFlag.length > 0 ? afterFlag.split(/\s+/)[0] ?? null : null;
+    return {
+      yolo: false,
+      prompt: null,
+      resumeSessionId: sessionId,
+    };
+  }
 
   // Check for --yolo flag
   if (trimmed.startsWith("--yolo")) {
@@ -72,6 +93,7 @@ export function parseRalphArgs(args: string): RalphCommandArgs {
     return {
       yolo: true,
       prompt: afterFlag.length > 0 ? afterFlag : null,
+      resumeSessionId: null,
     };
   }
 
@@ -79,7 +101,23 @@ export function parseRalphArgs(args: string): RalphCommandArgs {
   return {
     yolo: false,
     prompt: trimmed.length > 0 ? trimmed : null,
+    resumeSessionId: null,
   };
+}
+
+/**
+ * Validate if a string is a valid UUID v4 format.
+ *
+ * @param uuid - The string to validate
+ * @returns True if the string is a valid UUID v4 format
+ *
+ * @example
+ * isValidUUID("550e8400-e29b-41d4-a716-446655440000") // true
+ * isValidUUID("not-a-uuid") // false
+ */
+export function isValidUUID(uuid: string): boolean {
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  return uuidRegex.test(uuid);
 }
 
 // ============================================================================
@@ -478,8 +516,9 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
 /**
  * Create a specialized command definition for the ralph workflow.
  *
- * Handles --yolo flag parsing:
+ * Handles --yolo and --resume flag parsing:
  *   /ralph --yolo <prompt>     - Run in yolo mode with the given prompt
+ *   /ralph --resume <uuid>     - Resume a previous session
  *   /ralph <prompt>            - Normal mode with feature list
  *
  * @param metadata - Ralph workflow metadata
@@ -503,6 +542,52 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
       // Parse ralph-specific flags
       const parsed = parseRalphArgs(args);
 
+      // Handle --resume flag
+      if (parsed.resumeSessionId !== null) {
+        // Validate UUID format
+        if (!isValidUUID(parsed.resumeSessionId)) {
+          return {
+            success: false,
+            message: `Invalid session ID format. Expected a UUID (e.g., 550e8400-e29b-41d4-a716-446655440000).\nUsage: /ralph --resume <uuid>`,
+          };
+        }
+
+        // Check if session exists
+        const sessionDir = getSessionDir(parsed.resumeSessionId);
+        if (!existsSync(sessionDir)) {
+          return {
+            success: false,
+            message: `Session not found: ${parsed.resumeSessionId}\nDirectory does not exist: ${sessionDir}`,
+          };
+        }
+
+        // Log resuming session
+        context.addMessage(
+          "system",
+          `Resuming session: ${parsed.resumeSessionId}`
+        );
+
+        // Return success with state updates and resume config
+        return {
+          success: true,
+          message: `Resuming Ralph session ${parsed.resumeSessionId}...`,
+          stateUpdate: {
+            workflowActive: true,
+            workflowType: metadata.name,
+            initialPrompt: null,
+            pendingApproval: false,
+            specApproved: undefined,
+            feedback: null,
+            // Ralph-specific config with resumeSessionId
+            ralphConfig: {
+              yolo: false,
+              userPrompt: null,
+              resumeSessionId: parsed.resumeSessionId,
+            },
+          },
+        };
+      }
+
       // Yolo mode requires a prompt
       if (parsed.yolo && !parsed.prompt) {
         return {
@@ -515,7 +600,7 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
       if (!parsed.prompt) {
         return {
           success: false,
-          message: `Please provide a prompt for the ralph workflow.\nUsage: /ralph <your task description>\n       /ralph --yolo <your task description>`,
+          message: `Please provide a prompt for the ralph workflow.\nUsage: /ralph <your task description>\n       /ralph --yolo <your task description>\n       /ralph --resume <uuid>`,
         };
       }
 

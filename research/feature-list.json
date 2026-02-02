@@ -383,7 +383,7 @@
         "Verify human_input_required event is emitted",
         "Verify workflow state includes __waitingForInput: true"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

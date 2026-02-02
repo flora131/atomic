@@ -25,3 +25,40 @@
 ### Files Modified
 - src/ui/commands/skill-commands.ts - Added BuiltinSkill interface
 - tests/ui/commands/skill-commands.test.ts - Added BuiltinSkill tests
+
+## 2026-02-02 - Feature Implementation: Commit Skill as Builtin
+
+### Completed
+- Added BUILTIN_SKILLS array with commit skill in skill-commands.ts
+  - Set name to 'commit'
+  - Set description to 'Create well-formatted commits with conventional commit format'
+  - Set aliases to ['ci']
+  - Embedded full conventional commit prompt with git commands and guidelines
+  - Included $ARGUMENTS placeholder for user arguments
+- Added getBuiltinSkill() helper function to look up builtin skills by name/alias
+- Updated createSkillCommand() to check builtin skills first before disk-based loading
+- Priority order: builtin skill > disk-based skill > slash command fallback
+
+### Tests Added
+- BUILTIN_SKILLS tests:
+  - contains commit skill with correct fields
+  - commit skill has $ARGUMENTS placeholder
+  - commit skill includes conventional commit guidelines
+  - commit skill includes git commands
+  - all builtin skills have required fields
+- getBuiltinSkill tests:
+  - finds builtin skill by name
+  - finds builtin skill by alias
+  - is case-insensitive
+  - returns undefined for non-builtin skill
+  - returns undefined for unknown skill
+- builtin skill execution tests:
+  - commit command uses embedded prompt
+  - commit command expands $ARGUMENTS with provided args
+
+### Test Results
+- All skill-commands tests pass (49 tests)
+
+### Files Modified
+- src/ui/commands/skill-commands.ts - Added BUILTIN_SKILLS array and getBuiltinSkill()
+- tests/ui/commands/skill-commands.test.ts - Added BUILTIN_SKILLS and execution tests

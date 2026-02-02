@@ -8,8 +8,10 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import {
   type RalphConfig,
   type LoadRalphConfigOptions,
+  type RalphWorkflowConfig,
   RALPH_ENV_VARS,
   RALPH_DEFAULTS,
+  RALPH_CONFIG,
   AGENT_STATE_DIRS,
   loadRalphConfig,
   describeRalphConfig,
@@ -91,6 +93,43 @@ describe("AGENT_STATE_DIRS", () => {
 
   test("defines copilot directory", () => {
     expect(AGENT_STATE_DIRS.copilot).toBe(".github");
+  });
+});
+
+describe("RALPH_CONFIG", () => {
+  test("maxIterations defaults to 100", () => {
+    expect(RALPH_CONFIG.maxIterations).toBe(100);
+  });
+
+  test("checkpointing defaults to true", () => {
+    expect(RALPH_CONFIG.checkpointing).toBe(true);
+  });
+
+  test("does not include autoApproveSpec (spec approval is manual)", () => {
+    expect("autoApproveSpec" in RALPH_CONFIG).toBe(false);
+  });
+
+  test("has only maxIterations and checkpointing properties", () => {
+    const keys = Object.keys(RALPH_CONFIG);
+    expect(keys).toEqual(["maxIterations", "checkpointing"]);
+  });
+});
+
+describe("RalphWorkflowConfig type", () => {
+  test("is properly typed", () => {
+    const config: RalphWorkflowConfig = {
+      maxIterations: 50,
+      checkpointing: false,
+    };
+
+    expect(typeof config.maxIterations).toBe("number");
+    expect(typeof config.checkpointing).toBe("boolean");
+  });
+
+  test("RALPH_CONFIG conforms to RalphWorkflowConfig", () => {
+    const config: RalphWorkflowConfig = RALPH_CONFIG;
+    expect(config.maxIterations).toBe(100);
+    expect(config.checkpointing).toBe(true);
   });
 });
 

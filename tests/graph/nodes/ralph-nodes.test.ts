@@ -25,6 +25,10 @@ import {
   // Node factories
   initRalphSessionNode,
   type InitRalphSessionNodeConfig,
+  implementFeatureNode,
+  type ImplementFeatureNodeConfig,
+  processFeatureImplementationResult,
+  type ImplementFeatureOutputConfig,
 
   // Re-exported functions
   generateSessionId,
@@ -1215,5 +1219,561 @@ describe("initRalphSessionNode", () => {
       expect(result.stateUpdate!.ralphSessionId).toBe("nonexistent-session-id");
       expect(result.stateUpdate!.iteration).toBe(1); // Fresh session starts at 1
     });
+  });
+});
+
+// ============================================================================
+// IMPLEMENT FEATURE NODE TESTS
+// ============================================================================
+
+describe("implementFeatureNode", () => {
+  const testSessionId = "implement-node-test-" + Date.now();
+  const testSessionDir = getSessionDir(testSessionId);
+
+  /**
+   * Create a mock ExecutionContext for testing with features.
+   */
+  function createImplementMockContext(
+    features: RalphFeature[],
+    overrides: Partial<RalphWorkflowState> = {}
+  ): ExecutionContext<RalphWorkflowState> {
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features,
+    });
+    return {
+      state: { ...state, ...overrides },
+      config: {} as GraphConfig<RalphWorkflowState>,
+      errors: [] as ExecutionError[],
+    };
+  }
+
+  beforeEach(async () => {
+    // Clean up any existing test data
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    // Clean up .ralph directory
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  afterEach(async () => {
+    // Clean up test data
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    // Clean up .ralph directory
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  describe("node creation", () => {
+    test("creates a NodeDefinition with correct properties", () => {
+      const node = implementFeatureNode({
+        id: "test-implement",
+      });
+
+      expect(node.id).toBe("test-implement");
+      expect(node.type).toBe("tool");
+      expect(node.name).toBe("implement-feature");
+      expect(node.description).toBe("Find and prepare the next pending feature for implementation");
+      expect(typeof node.execute).toBe("function");
+    });
+
+    test("accepts custom name and description", () => {
+      const node = implementFeatureNode({
+        id: "custom-implement",
+        name: "Custom Implement",
+        description: "Custom description",
+      });
+
+      expect(node.name).toBe("Custom Implement");
+      expect(node.description).toBe("Custom description");
+    });
+  });
+
+  describe("finding pending features", () => {
+    test("finds the first pending feature", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+        { id: "f2", name: "Feature 2", description: "Desc 2", status: "pending" },
+        { id: "f3", name: "Feature 3", description: "Desc 3", status: "pending" },
+      ];
+
+      const node = implementFeatureNode({ id: "impl" });
+      const ctx = createImplementMockContext(features);
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate).toBeDefined();
+      expect(result.stateUpdate!.currentFeatureIndex).toBe(1);
+      expect(result.stateUpdate!.currentFeature).toBeDefined();
+      expect(result.stateUpdate!.currentFeature!.id).toBe("f2");
+      expect(result.stateUpdate!.currentFeature!.status).toBe("in_progress");
+    });
+
+    test("marks feature as in_progress", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+      ];
+
+      const node = implementFeatureNode({ id: "impl" });
+      const ctx = createImplementMockContext(features);
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.features![0].status).toBe("in_progress");
+    });
+
+    test("sets shouldContinue to true when pending feature found", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+      ];
+
+      const node = implementFeatureNode({ id: "impl" });
+      const ctx = createImplementMockContext(features);
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.shouldContinue).toBe(true);
+      expect(result.stateUpdate!.allFeaturesPassing).toBe(false);
+    });
+  });
+
+  describe("no pending features", () => {
+    test("sets allFeaturesPassing to true when all features are passing", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+        { id: "f2", name: "Feature 2", description: "Desc 2", status: "passing" },
+      ];
+
+      const node = implementFeatureNode({ id: "impl" });
+      const ctx = createImplementMockContext(features);
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.allFeaturesPassing).toBe(true);
+      expect(result.stateUpdate!.shouldContinue).toBe(false);
+      expect(result.stateUpdate!.currentFeature).toBeNull();
+    });
+
+    test("sets shouldContinue to true when some features are failing", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+        { id: "f2", name: "Feature 2", description: "Desc 2", status: "failing" },
+      ];
+
+      const node = implementFeatureNode({ id: "impl" });
+      const ctx = createImplementMockContext(features);
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.allFeaturesPassing).toBe(false);
+      expect(result.stateUpdate!.shouldContinue).toBe(true); // Continue because there are failing features
+    });
+
+    test("logs completion check to agent-calls.jsonl", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+      ];
+
+      const node = implementFeatureNode({ id: "impl" });
+      const ctx = createImplementMockContext(features);
+      await node.execute(ctx);
+
+      const logPath = `${testSessionDir}logs/agent-calls.jsonl`;
+      const content = await readFile(logPath, "utf-8");
+      const entry = JSON.parse(content.trim());
+      expect(entry.action).toBe("implement-feature-check");
+      expect(entry.result).toBe("no_pending_features");
+      expect(entry.allFeaturesPassing).toBe(true);
+    });
+  });
+
+  describe("prompt template", () => {
+    test("builds prompt from template with placeholders", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        {
+          id: "f1",
+          name: "Add Login",
+          description: "Implement user login",
+          acceptanceCriteria: ["Users can enter email", "Users can enter password"],
+          status: "pending",
+        },
+      ];
+
+      const node = implementFeatureNode({
+        id: "impl",
+        promptTemplate: "Feature: {{name}}\nDescription: {{description}}\nCriteria:\n- {{acceptanceCriteria}}",
+      });
+
+      const ctx = createImplementMockContext(features);
+      const result = await node.execute(ctx);
+
+      const prompt = result.stateUpdate!.outputs!["impl_prompt"] as string;
+      expect(prompt).toContain("Feature: Add Login");
+      expect(prompt).toContain("Description: Implement user login");
+      expect(prompt).toContain("Users can enter email");
+    });
+
+    test("stores prompt in outputs with node id suffix", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature", description: "Desc", status: "pending" },
+      ];
+
+      const node = implementFeatureNode({
+        id: "my-impl-node",
+        promptTemplate: "Implement: {{description}}",
+      });
+
+      const ctx = createImplementMockContext(features);
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.outputs).toBeDefined();
+      expect(result.stateUpdate!.outputs!["my-impl-node_prompt"]).toBe("Implement: Desc");
+    });
+  });
+
+  describe("session persistence", () => {
+    test("saves session with updated feature status", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+      ];
+
+      const node = implementFeatureNode({ id: "impl" });
+      const ctx = createImplementMockContext(features);
+      await node.execute(ctx);
+
+      const sessionPath = `${testSessionDir}session.json`;
+      const content = await readFile(sessionPath, "utf-8");
+      const session = JSON.parse(content);
+      expect(session.features[0].status).toBe("in_progress");
+    });
+
+    test("updates session feature-list.json", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+      ];
+
+      const node = implementFeatureNode({ id: "impl" });
+      const ctx = createImplementMockContext(features);
+      await node.execute(ctx);
+
+      const featureListPath = `${testSessionDir}research/feature-list.json`;
+      const content = await readFile(featureListPath, "utf-8");
+      const featureList = JSON.parse(content);
+      expect(featureList.features[0].passes).toBe(false); // in_progress is not passing
+    });
+
+    test("logs agent call start to agent-calls.jsonl", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+      ];
+
+      const node = implementFeatureNode({ id: "impl" });
+      const ctx = createImplementMockContext(features);
+      await node.execute(ctx);
+
+      const logPath = `${testSessionDir}logs/agent-calls.jsonl`;
+      const content = await readFile(logPath, "utf-8");
+      const entry = JSON.parse(content.trim());
+      expect(entry.action).toBe("implement-feature-start");
+      expect(entry.featureId).toBe("f1");
+      expect(entry.featureName).toBe("Feature 1");
+    });
+  });
+});
+
+// ============================================================================
+// PROCESS FEATURE IMPLEMENTATION RESULT TESTS
+// ============================================================================
+
+describe("processFeatureImplementationResult", () => {
+  const testSessionId = "process-result-test-" + Date.now();
+  const testSessionDir = getSessionDir(testSessionId);
+
+  beforeEach(async () => {
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  afterEach(async () => {
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  test("updates feature to passing status when passed=true", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const feature: RalphFeature = {
+      id: "f1",
+      name: "Test Feature",
+      description: "Test",
+      status: "in_progress",
+    };
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [feature],
+    });
+    state.currentFeature = feature;
+    state.currentFeatureIndex = 0;
+
+    const result = await processFeatureImplementationResult(state, true);
+
+    expect(result.features![0].status).toBe("passing");
+    expect(result.features![0].implementedAt).toBeDefined();
+  });
+
+  test("updates feature to failing status when passed=false", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const feature: RalphFeature = {
+      id: "f1",
+      name: "Test Feature",
+      description: "Test",
+      status: "in_progress",
+    };
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [feature],
+    });
+    state.currentFeature = feature;
+    state.currentFeatureIndex = 0;
+
+    const result = await processFeatureImplementationResult(state, false);
+
+    expect(result.features![0].status).toBe("failing");
+    expect(result.features![0].implementedAt).toBeUndefined();
+  });
+
+  test("adds feature to completedFeatures when passing", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const feature: RalphFeature = {
+      id: "f1",
+      name: "Test Feature",
+      description: "Test",
+      status: "in_progress",
+    };
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [feature],
+    });
+    state.currentFeature = feature;
+    state.currentFeatureIndex = 0;
+
+    const result = await processFeatureImplementationResult(state, true);
+
+    expect(result.completedFeatures).toContain("f1");
+  });
+
+  test("does not add feature to completedFeatures when failing", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const feature: RalphFeature = {
+      id: "f1",
+      name: "Test Feature",
+      description: "Test",
+      status: "in_progress",
+    };
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [feature],
+    });
+    state.currentFeature = feature;
+    state.currentFeatureIndex = 0;
+
+    const result = await processFeatureImplementationResult(state, false);
+
+    expect(result.completedFeatures).not.toContain("f1");
+  });
+
+  test("increments iteration", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const feature: RalphFeature = {
+      id: "f1",
+      name: "Test Feature",
+      description: "Test",
+      status: "in_progress",
+    };
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [feature],
+    });
+    state.currentFeature = feature;
+    state.currentFeatureIndex = 0;
+    state.iteration = 5;
+
+    const result = await processFeatureImplementationResult(state, true);
+
+    expect(result.iteration).toBe(6);
+  });
+
+  test("detects max iterations reached", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const feature: RalphFeature = {
+      id: "f1",
+      name: "Test Feature",
+      description: "Test",
+      status: "in_progress",
+    };
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [feature],
+      maxIterations: 10,
+    });
+    state.currentFeature = feature;
+    state.currentFeatureIndex = 0;
+    state.iteration = 9; // After increment will be 10 (>= maxIterations)
+
+    const result = await processFeatureImplementationResult(state, true);
+
+    expect(result.maxIterationsReached).toBe(true);
+    expect(result.shouldContinue).toBe(false);
+  });
+
+  test("clears currentFeature after processing", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const feature: RalphFeature = {
+      id: "f1",
+      name: "Test Feature",
+      description: "Test",
+      status: "in_progress",
+    };
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [feature],
+    });
+    state.currentFeature = feature;
+    state.currentFeatureIndex = 0;
+
+    const result = await processFeatureImplementationResult(state, true);
+
+    expect(result.currentFeature).toBeNull();
+  });
+
+  test("returns empty object if no current feature", async () => {
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+    });
+    state.currentFeature = null;
+
+    const result = await processFeatureImplementationResult(state, true);
+
+    expect(result).toEqual({});
+  });
+
+  test("saves session to disk", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const feature: RalphFeature = {
+      id: "f1",
+      name: "Test Feature",
+      description: "Test",
+      status: "in_progress",
+    };
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [feature],
+    });
+    state.currentFeature = feature;
+    state.currentFeatureIndex = 0;
+
+    await processFeatureImplementationResult(state, true);
+
+    const sessionPath = `${testSessionDir}session.json`;
+    const content = await readFile(sessionPath, "utf-8");
+    const session = JSON.parse(content);
+    expect(session.features[0].status).toBe("passing");
+  });
+
+  test("appends to progress.txt", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const feature: RalphFeature = {
+      id: "f1",
+      name: "Test Feature",
+      description: "Test",
+      status: "in_progress",
+    };
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [feature],
+    });
+    state.currentFeature = feature;
+    state.currentFeatureIndex = 0;
+
+    await processFeatureImplementationResult(state, true);
+
+    const progressPath = `${testSessionDir}progress.txt`;
+    const content = await readFile(progressPath, "utf-8");
+    expect(content).toContain("✓ Test Feature");
+  });
+
+  test("logs result to agent-calls.jsonl", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const feature: RalphFeature = {
+      id: "f1",
+      name: "Test Feature",
+      description: "Test",
+      status: "in_progress",
+    };
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [feature],
+    });
+    state.currentFeature = feature;
+    state.currentFeatureIndex = 0;
+
+    await processFeatureImplementationResult(state, true);
+
+    const logPath = `${testSessionDir}logs/agent-calls.jsonl`;
+    const content = await readFile(logPath, "utf-8");
+    const entry = JSON.parse(content.trim());
+    expect(entry.action).toBe("implement-feature-result");
+    expect(entry.featureId).toBe("f1");
+    expect(entry.passed).toBe(true);
   });
 });

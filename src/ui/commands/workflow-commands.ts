@@ -32,6 +32,57 @@ import {
 } from "../../config/ralph.ts";
 
 // ============================================================================
+// RALPH COMMAND PARSING
+// ============================================================================
+
+/**
+ * Parsed arguments for the /ralph command.
+ */
+export interface RalphCommandArgs {
+  /** Whether --yolo flag is present */
+  yolo: boolean;
+  /** User prompt (required for --yolo mode) */
+  prompt: string | null;
+}
+
+/**
+ * Parse /ralph command arguments for --yolo flag.
+ *
+ * Supported formats:
+ *   /ralph --yolo <prompt>     - Run in yolo mode with the given prompt
+ *   /ralph <prompt>            - Normal mode with feature list
+ *
+ * @param args - Raw argument string from the command
+ * @returns Parsed RalphCommandArgs
+ *
+ * @example
+ * parseRalphArgs("--yolo implement auth")
+ * // => { yolo: true, prompt: "implement auth" }
+ *
+ * parseRalphArgs("my feature")
+ * // => { yolo: false, prompt: "my feature" }
+ */
+export function parseRalphArgs(args: string): RalphCommandArgs {
+  const trimmed = args.trim();
+
+  // Check for --yolo flag
+  if (trimmed.startsWith("--yolo")) {
+    // Extract everything after --yolo as the prompt
+    const afterFlag = trimmed.slice("--yolo".length).trim();
+    return {
+      yolo: true,
+      prompt: afterFlag.length > 0 ? afterFlag : null,
+    };
+  }
+
+  // Normal mode - entire args string is the prompt
+  return {
+    yolo: false,
+    prompt: trimmed.length > 0 ? trimmed : null,
+  };
+}
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
@@ -372,6 +423,11 @@ export const WORKFLOW_DEFINITIONS = BUILTIN_WORKFLOW_DEFINITIONS;
  * @returns Command definition for the workflow
  */
 function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
+  // Use specialized handler for ralph workflow
+  if (metadata.name === "ralph") {
+    return createRalphCommand(metadata);
+  }
+
   return {
     name: metadata.name,
     description: metadata.description,
@@ -413,6 +469,81 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
           pendingApproval: false,
           specApproved: undefined,
           feedback: null,
+        },
+      };
+    },
+  };
+}
+
+/**
+ * Create a specialized command definition for the ralph workflow.
+ *
+ * Handles --yolo flag parsing:
+ *   /ralph --yolo <prompt>     - Run in yolo mode with the given prompt
+ *   /ralph <prompt>            - Normal mode with feature list
+ *
+ * @param metadata - Ralph workflow metadata
+ * @returns Command definition with flag parsing
+ */
+function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
+  return {
+    name: metadata.name,
+    description: metadata.description,
+    category: "workflow",
+    aliases: metadata.aliases,
+    execute: (args: string, context: CommandContext): CommandResult => {
+      // Check if already in a workflow
+      if (context.state.workflowActive) {
+        return {
+          success: false,
+          message: `A workflow is already active (${context.state.workflowType}). Use /status to check progress.`,
+        };
+      }
+
+      // Parse ralph-specific flags
+      const parsed = parseRalphArgs(args);
+
+      // Yolo mode requires a prompt
+      if (parsed.yolo && !parsed.prompt) {
+        return {
+          success: false,
+          message: `--yolo flag requires a prompt.\nUsage: /ralph --yolo <your task description>`,
+        };
+      }
+
+      // Normal mode also requires a prompt (for now - could be optional with feature list)
+      if (!parsed.prompt) {
+        return {
+          success: false,
+          message: `Please provide a prompt for the ralph workflow.\nUsage: /ralph <your task description>\n       /ralph --yolo <your task description>`,
+        };
+      }
+
+      // Build the mode indicator for the message
+      const modeStr = parsed.yolo ? " (yolo mode)" : "";
+
+      // Add a system message indicating workflow start
+      context.addMessage(
+        "system",
+        `Starting **ralph** workflow${modeStr}...\n\nPrompt: "${parsed.prompt}"`
+      );
+
+      // Return success with state updates and workflow config
+      return {
+        success: true,
+        message: `Workflow **ralph** initialized${modeStr}. Starting implementation...`,
+        stateUpdate: {
+          workflowActive: true,
+          workflowType: metadata.name,
+          initialPrompt: parsed.prompt,
+          pendingApproval: false,
+          specApproved: undefined,
+          feedback: null,
+          // Ralph-specific config
+          ralphConfig: {
+            yolo: parsed.yolo,
+            userPrompt: parsed.prompt,
+          },
         },
       };
     },

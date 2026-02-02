@@ -1936,3 +1936,53 @@ The Ralph workflow follows this sequence:
 - src/ui/commands/workflow-commands.ts - Added ralph to BUILTIN_WORKFLOW_DEFINITIONS
 - tests/ui/commands/workflow-commands.test.ts - Updated tests for ralph separation
 - research/feature-list.json - Marked feature as passes: true
+
+## 2026-02-02 - Feature Implementation: Implement --yolo flag parsing for /ralph command
+
+### Completed
+- Added parseRalphArgs() function in workflow-commands.ts
+  - Parses --yolo flag from command args string
+  - Returns RalphCommandArgs interface: { yolo: boolean, prompt: string | null }
+  - --yolo flag must be at start of args (e.g., "--yolo implement auth")
+  - If --yolo in middle of args, treated as part of prompt (normal mode)
+
+- Added RalphCommandArgs interface
+  - yolo: boolean - Whether --yolo flag is present
+  - prompt: string | null - User prompt (required for --yolo mode)
+
+- Created specialized createRalphCommand() function
+  - Handles ralph-specific flag parsing
+  - Validates --yolo requires a prompt
+  - Passes yolo and userPrompt to workflow config via ralphConfig state
+  - Shows "(yolo mode)" in success messages when --yolo is used
+
+- Added ralphConfig to CommandContextState interface
+  - New optional field: ralphConfig?: { yolo: boolean; userPrompt: string }
+  - Stores ralph-specific configuration for workflow execution
+
+### Tests Added
+- parseRalphArgs tests (8 tests):
+  - parses --yolo flag with prompt
+  - parses --yolo flag without prompt
+  - parses --yolo with leading/trailing whitespace
+  - parses normal mode with prompt
+  - parses empty args as normal mode with null prompt
+  - parses whitespace-only args as null prompt
+  - does not treat --yolo in the middle as a flag
+  - handles multiline prompts after --yolo
+
+- ralph command --yolo flag tests (5 tests):
+  - ralph command with --yolo flag and prompt succeeds
+  - ralph command with --yolo flag without prompt fails
+  - ralph command without flags requires prompt
+  - ralph command without flags uses normal mode
+  - ralph command adds system message with yolo indicator
+
+### Test Results
+- All 45 workflow-commands tests pass
+
+### Files Modified
+- src/ui/commands/workflow-commands.ts - Added parseRalphArgs(), createRalphCommand(), RalphCommandArgs
+- src/ui/commands/registry.ts - Added ralphConfig to CommandContextState
+- tests/ui/commands/workflow-commands.test.ts - Added parseRalphArgs and --yolo flag tests
+- research/feature-list.json - Marked feature 52 as passes: true

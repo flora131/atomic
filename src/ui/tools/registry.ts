@@ -58,12 +58,14 @@ export interface ToolRenderer {
 /**
  * Renderer for the Read tool.
  * Displays file path and file contents.
+ * Handles both Claude SDK (file_path) and OpenCode (path, filePath) parameter names.
  */
 export const readToolRenderer: ToolRenderer = {
   icon: "📄",
 
   getTitle(props: ToolRenderProps): string {
-    const filePath = props.input.file_path as string | undefined;
+    // Handle multiple parameter name conventions
+    const filePath = (props.input.file_path ?? props.input.path ?? props.input.filePath) as string | undefined;
     if (!filePath) return "Read file";
     // Show just the filename if path is long
     const parts = filePath.split("/");
@@ -72,7 +74,8 @@ export const readToolRenderer: ToolRenderer = {
   },
 
   render(props: ToolRenderProps): ToolRenderResult {
-    const filePath = (props.input.file_path as string) || "unknown";
+    // Handle multiple parameter name conventions
+    const filePath = (props.input.file_path ?? props.input.path ?? props.input.filePath ?? "unknown") as string;
     // Handle output which may be a string or an object (from tool response)
     let content: string | undefined;
     if (typeof props.output === "string") {
@@ -124,19 +127,22 @@ export const readToolRenderer: ToolRenderer = {
 /**
  * Renderer for the Edit tool.
  * Displays file path and diff of changes.
+ * Handles both Claude SDK (file_path) and OpenCode (path, filePath) parameter names.
  */
 export const editToolRenderer: ToolRenderer = {
   icon: "✏️",
 
   getTitle(props: ToolRenderProps): string {
-    const filePath = props.input.file_path as string | undefined;
+    // Handle multiple parameter name conventions
+    const filePath = (props.input.file_path ?? props.input.path ?? props.input.filePath) as string | undefined;
     if (!filePath) return "Edit file";
     const parts = filePath.split("/");
     return parts[parts.length - 1] || filePath;
   },
 
   render(props: ToolRenderProps): ToolRenderResult {
-    const filePath = (props.input.file_path as string) || "unknown";
+    // Handle multiple parameter name conventions
+    const filePath = (props.input.file_path ?? props.input.path ?? props.input.filePath ?? "unknown") as string;
     const oldString = (props.input.old_string as string) || "";
     const newString = (props.input.new_string as string) || "";
 
@@ -175,12 +181,14 @@ export const editToolRenderer: ToolRenderer = {
 /**
  * Renderer for the Bash tool.
  * Displays command and output.
+ * Handles both Claude SDK (command) and OpenCode (cmd) parameter names.
  */
 export const bashToolRenderer: ToolRenderer = {
   icon: "💻",
 
   getTitle(props: ToolRenderProps): string {
-    const command = props.input.command as string | undefined;
+    // Handle multiple parameter name conventions
+    const command = (props.input.command ?? props.input.cmd) as string | undefined;
     if (!command) return "Run command";
     // Truncate long commands
     const maxLen = 50;
@@ -191,7 +199,8 @@ export const bashToolRenderer: ToolRenderer = {
   },
 
   render(props: ToolRenderProps): ToolRenderResult {
-    const command = (props.input.command as string) || "";
+    // Handle multiple parameter name conventions
+    const command = (props.input.command ?? props.input.cmd ?? "") as string;
     // Handle output which may be a string or object
     let output: string | undefined;
     if (typeof props.output === "string") {
@@ -243,19 +252,22 @@ export const bashToolRenderer: ToolRenderer = {
 /**
  * Renderer for the Write tool.
  * Displays file path and status.
+ * Handles both Claude SDK (file_path) and OpenCode (path, filePath) parameter names.
  */
 export const writeToolRenderer: ToolRenderer = {
   icon: "📝",
 
   getTitle(props: ToolRenderProps): string {
-    const filePath = props.input.file_path as string | undefined;
+    // Handle multiple parameter name conventions (Claude: file_path, OpenCode: path/filePath)
+    const filePath = (props.input.file_path ?? props.input.path ?? props.input.filePath) as string | undefined;
     if (!filePath) return "Write file";
     const parts = filePath.split("/");
     return parts[parts.length - 1] || filePath;
   },
 
   render(props: ToolRenderProps): ToolRenderResult {
-    const filePath = (props.input.file_path as string) || "unknown";
+    // Handle multiple parameter name conventions (Claude: file_path, OpenCode: path/filePath)
+    const filePath = (props.input.file_path ?? props.input.path ?? props.input.filePath ?? "unknown") as string;
     const contentStr = (props.input.content as string) || "";
     const isSuccess = props.output !== undefined;
 

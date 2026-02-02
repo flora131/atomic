@@ -7,7 +7,7 @@
  * Reference: Feature 15 - Implement terminal chat UI
  */
 
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { useKeyboard } from "@opentui/react";
 import type {
   KeyEvent,
@@ -15,6 +15,7 @@ import type {
   TextareaRenderable,
   KeyBinding,
 } from "@opentui/core";
+import { MacOSScrollAccel } from "@opentui/core";
 import { copyToClipboard, pasteFromClipboard } from "../utils/clipboard.ts";
 import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplete.tsx";
 import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
@@ -176,12 +177,18 @@ export type OnToolStart = (
 
 /**
  * Tool complete event callback signature.
+ * @param toolId - The tool call ID
+ * @param output - The tool output
+ * @param success - Whether the tool execution succeeded
+ * @param error - Error message if failed
+ * @param input - The tool input parameters (may be more complete than at start time)
  */
 export type OnToolComplete = (
   toolId: string,
   output: unknown,
   success: boolean,
-  error?: string
+  error?: string,
+  input?: Record<string, unknown>
 ) => void;
 
 /**
@@ -195,6 +202,12 @@ export type OnPermissionRequest = (
   respond: (answer: string | string[]) => void,
   header?: string
 ) => void;
+
+/**
+ * Callback signature for interrupt handler.
+ * Called when user presses Escape or Ctrl+C during streaming to abort.
+ */
+export type OnInterrupt = () => void;
 
 /**
  * Props for the ChatApp component.
@@ -212,6 +225,11 @@ export interface ChatAppProps {
   ) => void | Promise<void>;
   /** Callback when user exits the chat */
   onExit?: () => void | Promise<void>;
+  /**
+   * Callback when user interrupts streaming (single Escape/Ctrl+C during streaming).
+   * Called to abort the current operation. If not streaming, double press exits.
+   */
+  onInterrupt?: OnInterrupt;
   /** Placeholder text for input */
   placeholder?: string;
   /** Title for the chat window (deprecated, use header props instead) */
@@ -248,6 +266,11 @@ export interface ChatAppProps {
    * Called with a function that sets whether to show the warning.
    */
   registerCtrlCWarningHandler?: (handler: (show: boolean) => void) => void;
+  /**
+   * Callback to get the current session for slash commands.
+   * Returns null if no session is active yet.
+   */
+  getSession?: () => import("../sdk/types.ts").Session | null;
 }
 
 /**
@@ -379,10 +402,11 @@ export function formatTimestamp(isoString: string): string {
 
 /**
  * Maximum number of messages to display in the chat UI.
- * Older messages beyond this limit are truncated for performance.
- * Adjust this value based on terminal size and performance needs.
+ * Set to Infinity to show all messages (no truncation).
+ * The scrollbox handles large message counts efficiently.
+ * Messages are only cleared by /clear or /compact commands.
  */
-export const MAX_VISIBLE_MESSAGES = 10;
+export const MAX_VISIBLE_MESSAGES = Infinity;
 
 // ============================================================================
 // LOADING INDICATOR COMPONENT
@@ -516,7 +540,7 @@ export function AtomicHeader({
   workingDir = "~/",
 }: AtomicHeaderProps): React.ReactNode {
   return (
-    <box flexDirection="row" alignItems="flex-start" marginBottom={1} marginLeft={1}>
+    <box flexDirection="row" alignItems="flex-start" marginBottom={1} marginLeft={1} flexShrink={0}>
       {/* Block letter logo with gradient */}
       <box flexDirection="column" marginRight={3}>
         {ATOMIC_BLOCK_LOGO.map((line, i) => (
@@ -698,6 +722,7 @@ export function ChatApp({
   onSendMessage,
   onStreamMessage,
   onExit,
+  onInterrupt,
   placeholder = "Type a message...",
   title: _title,
   syntaxStyle,
@@ -710,6 +735,7 @@ export function ChatApp({
   registerToolCompleteHandler,
   registerPermissionRequestHandler,
   registerCtrlCWarningHandler,
+  getSession,
 }: ChatAppProps): React.ReactNode {
   // title and suggestion are deprecated, kept for backwards compatibility
   void _title;
@@ -723,7 +749,12 @@ export function ChatApp({
   // Workflow chat state (autocomplete, workflow execution, approval)
   const [workflowState, setWorkflowState] = useState<WorkflowChatState>(defaultWorkflowChatState);
 
-  // Ctrl+C double-press state for exit confirmation (controlled by parent via signal handler)
+  // Interrupt counter for double-press exit (unified for Escape and Ctrl+C)
+  // OpenCode behavior: single press interrupts streaming, double press exits when idle
+  const [interruptCount, setInterruptCount] = useState(0);
+  const interruptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Separate state for showing Ctrl+C warning (controlled by parent via signal handler)
   const [ctrlCPressed, setCtrlCPressed] = useState(false);
   const ctrlCTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -743,6 +774,12 @@ export function ChatApp({
   const streamingMessageIdRef = useRef<string | null>(null);
   // Ref to track when streaming started for duration calculation
   const streamingStartRef = useRef<number | null>(null);
+  // Ref for scrollbox to enable programmatic scrolling
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const scrollboxRef = useRef<any>(null);
+
+  // Create macOS-style scroll acceleration for smooth mouse wheel scrolling
+  const scrollAcceleration = useMemo(() => new MacOSScrollAccel(), []);
 
   /**
    * Update workflow state with partial values.
@@ -790,12 +827,14 @@ export function ChatApp({
   /**
    * Handle tool execution complete event.
    * Updates streaming state and tool call status in message.
+   * Also updates input if it wasn't available at start time (OpenCode sends input with complete event).
    */
   const handleToolComplete = useCallback((
     toolId: string,
     output: unknown,
     success: boolean,
-    error?: string
+    error?: string,
+    input?: Record<string, unknown>
   ) => {
     // Update streaming state
     if (success) {
@@ -814,8 +853,13 @@ export function ChatApp({
               ...msg,
               toolCalls: msg.toolCalls.map((tc) => {
                 if (tc.id === toolId) {
+                  // Merge input if provided and current input is empty
+                  const updatedInput = (input && Object.keys(tc.input).length === 0)
+                    ? input
+                    : tc.input;
                   return {
                     ...tc,
+                    input: updatedInput,
                     output,
                     status: success ? "completed" as const : "error" as const,
                   };
@@ -843,11 +887,14 @@ export function ChatApp({
     }
   }, [registerToolCompleteHandler, handleToolComplete]);
 
-  // Cleanup Ctrl+C timeout on unmount
+  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (ctrlCTimeoutRef.current) {
         clearTimeout(ctrlCTimeoutRef.current);
+      }
+      if (interruptTimeoutRef.current) {
+        clearTimeout(interruptTimeoutRef.current);
       }
     };
   }, []);
@@ -1051,7 +1098,7 @@ export function ChatApp({
     };
 
     const context: CommandContext = {
-      session: null, // Session will be passed from parent in production
+      session: getSession?.() ?? null,
       state: contextState,
       addMessage,
       setStreaming: setIsStreaming,
@@ -1199,8 +1246,9 @@ export function ChatApp({
           return;
         }
 
-        // ESC key - hide autocomplete or exit
+        // ESC key - interrupt streaming, hide autocomplete, or double-press to exit
         if (event.name === "escape") {
+          // First, hide autocomplete if visible
           if (workflowState.showAutocomplete) {
             updateWorkflowState({
               showAutocomplete: false,
@@ -1209,7 +1257,60 @@ export function ChatApp({
             });
             return;
           }
-          onExit?.();
+
+          // If streaming, interrupt (abort) the current operation
+          if (isStreaming) {
+            onInterrupt?.();
+            // Reset interrupt counter after interrupting
+            setInterruptCount(0);
+            if (interruptTimeoutRef.current) {
+              clearTimeout(interruptTimeoutRef.current);
+              interruptTimeoutRef.current = null;
+            }
+            return;
+          }
+
+          // Not streaming: use double-press to exit
+          const newCount = interruptCount + 1;
+          if (newCount >= 2) {
+            // Double press - exit
+            setInterruptCount(0);
+            if (interruptTimeoutRef.current) {
+              clearTimeout(interruptTimeoutRef.current);
+              interruptTimeoutRef.current = null;
+            }
+            setCtrlCPressed(false);
+            onExit?.();
+            return;
+          }
+
+          // First press - show warning and set timeout
+          setInterruptCount(newCount);
+          setCtrlCPressed(true);
+          if (interruptTimeoutRef.current) {
+            clearTimeout(interruptTimeoutRef.current);
+          }
+          interruptTimeoutRef.current = setTimeout(() => {
+            setInterruptCount(0);
+            setCtrlCPressed(false);
+            interruptTimeoutRef.current = null;
+          }, 1000);
+          return;
+        }
+
+        // PageUp - scroll messages up
+        if (event.name === "pageup") {
+          if (scrollboxRef.current) {
+            scrollboxRef.current.scrollBy(-scrollboxRef.current.height / 2);
+          }
+          return;
+        }
+
+        // PageDown - scroll messages down
+        if (event.name === "pagedown") {
+          if (scrollboxRef.current) {
+            scrollboxRef.current.scrollBy(scrollboxRef.current.height / 2);
+          }
           return;
         }
 
@@ -1277,32 +1378,53 @@ export function ChatApp({
           return;
         }
 
-        // Ctrl+C - double-press to exit, single press shows warning
+        // Ctrl+C - interrupt streaming, or double-press to exit when idle
         // Handled as keyboard event since exitOnCtrlC is disabled in renderer
         if (event.ctrl && event.name === "c") {
           const textarea = textareaRef.current;
-          // If textarea has selection, copy instead of exit
+          // If textarea has selection, copy instead of interrupt/exit
           if (textarea?.hasSelection()) {
             void handleCopy();
             return;
           }
 
-          // If already pressed once, exit
-          if (ctrlCPressed) {
+          // If streaming, interrupt (abort) the current operation
+          if (isStreaming) {
+            onInterrupt?.();
+            // Reset interrupt counter after interrupting
+            setInterruptCount(0);
+            if (interruptTimeoutRef.current) {
+              clearTimeout(interruptTimeoutRef.current);
+              interruptTimeoutRef.current = null;
+            }
+            setCtrlCPressed(false);
+            return;
+          }
+
+          // Not streaming: use double-press to exit
+          const newCount = interruptCount + 1;
+          if (newCount >= 2) {
+            // Double press - exit
+            setInterruptCount(0);
+            if (interruptTimeoutRef.current) {
+              clearTimeout(interruptTimeoutRef.current);
+              interruptTimeoutRef.current = null;
+            }
             setCtrlCPressed(false);
             onExit?.();
             return;
           }
 
           // First press - show warning and set timeout
+          setInterruptCount(newCount);
           setCtrlCPressed(true);
-          // Clear after 1 second
-          if (ctrlCTimeoutRef.current) {
-            clearTimeout(ctrlCTimeoutRef.current);
+          if (interruptTimeoutRef.current) {
+            clearTimeout(interruptTimeoutRef.current);
           }
-          ctrlCTimeoutRef.current = setTimeout(() => {
+          interruptTimeoutRef.current = setTimeout(() => {
+            setInterruptCount(0);
             setCtrlCPressed(false);
-            ctrlCTimeoutRef.current = null;
+            interruptTimeoutRef.current = null;
           }, 1000);
           return;
         }
@@ -1320,7 +1442,7 @@ export function ChatApp({
           handleInputChange(value);
         }, 0);
       },
-      [onExit, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand, activeQuestion, ctrlCPressed]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand, activeQuestion, ctrlCPressed]
     )
   );
 
@@ -1515,19 +1637,23 @@ export function ChatApp({
       />
 
       {/* Main content area - scrollable when content overflows */}
-      {/* Messages and input flow together; scrolls when needed */}
+      {/* stickyStart="bottom" keeps input visible, user can scroll up */}
+      {/* ref enables PageUp/PageDown keyboard navigation */}
       <scrollbox
+        ref={scrollboxRef}
         flexGrow={1}
         stickyScroll={true}
         stickyStart="bottom"
         viewportCulling={false}
         paddingLeft={1}
         paddingRight={1}
+        scrollbarOptions={{ visible: false }}
+        scrollAcceleration={scrollAcceleration}
       >
         {/* Messages */}
         {messageContent}
 
-        {/* User Question Dialog - inline within chat flow like Claude Code */}
+        {/* User Question Dialog - inline within chat flow */}
         {activeQuestion && (
           <UserQuestionDialog
             question={activeQuestion}
@@ -1536,7 +1662,8 @@ export function ChatApp({
           />
         )}
 
-        {/* Input Area - hidden when question dialog is active (Claude Code behavior) */}
+        {/* Input Area - inside scrollbox, flows after messages */}
+        {/* Hidden when question dialog is active (Claude Code behavior) */}
         {!activeQuestion && (
           <box
             border
@@ -1561,16 +1688,18 @@ export function ChatApp({
           </box>
         )}
 
-        {/* Autocomplete dropdown for slash commands - appears below input */}
-        <box>
-          <Autocomplete
-            input={workflowState.autocompleteInput}
-            visible={workflowState.showAutocomplete}
-            selectedIndex={workflowState.selectedSuggestionIndex}
-            onSelect={handleAutocompleteSelect}
-            onIndexChange={handleAutocompleteIndexChange}
-          />
-        </box>
+        {/* Autocomplete dropdown for slash commands - inside scrollbox */}
+        {workflowState.showAutocomplete && (
+          <box>
+            <Autocomplete
+              input={workflowState.autocompleteInput}
+              visible={workflowState.showAutocomplete}
+              selectedIndex={workflowState.selectedSuggestionIndex}
+              onSelect={handleAutocompleteSelect}
+              onIndexChange={handleAutocompleteIndexChange}
+            />
+          </box>
+        )}
 
         {/* Ctrl+C warning message */}
         {ctrlCPressed && (

@@ -37,6 +37,26 @@ export interface SkillMetadata {
   hidden?: boolean;
 }
 
+/**
+ * Built-in skill definition with embedded prompt content.
+ *
+ * Unlike SkillMetadata which loads prompts from disk, BuiltinSkill
+ * embeds the full prompt content directly, making skills self-contained
+ * and not dependent on external files.
+ */
+export interface BuiltinSkill {
+  /** Skill name (without leading slash) - used as command name */
+  name: string;
+  /** Human-readable description of what the skill does */
+  description: string;
+  /** Alternative command names for the skill */
+  aliases?: string[];
+  /** Full prompt content (supports $ARGUMENTS placeholder) */
+  prompt: string;
+  /** Whether this skill is hidden from autocomplete */
+  hidden?: boolean;
+}
+
 // ============================================================================
 // SKILL DEFINITIONS
 // ============================================================================

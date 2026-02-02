@@ -1,0 +1,27 @@
+# Progress Log
+
+## 2026-02-02 - Feature Implementation: BuiltinSkill Interface
+
+### Completed
+- Created BuiltinSkill interface in skill-commands.ts
+  - Added name: string field (skill name without leading slash)
+  - Added description: string field (human-readable description)
+  - Added aliases?: string[] field (alternative command names)
+  - Added prompt: string field (full prompt content with $ARGUMENTS support)
+  - Added hidden?: boolean field (hide from autocomplete)
+  - Exported the interface for use in other modules
+
+### Tests Added
+- Added test suite for BuiltinSkill interface:
+  - Valid BuiltinSkill has all required fields
+  - BuiltinSkill supports optional aliases
+  - BuiltinSkill supports optional hidden flag
+  - BuiltinSkill with all optional fields
+
+### Test Results
+- All skill-commands tests pass (37 tests)
+- Note: Some pre-existing test failures in other modules (builtin-commands count mismatch)
+
+### Files Modified
+- src/ui/commands/skill-commands.ts - Added BuiltinSkill interface
+- tests/ui/commands/skill-commands.test.ts - Added BuiltinSkill tests

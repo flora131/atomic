@@ -228,7 +228,7 @@
         "Write comprehensive system prompt for analyzing code implementation",
         "Set source to 'builtin'"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

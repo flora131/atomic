@@ -589,3 +589,59 @@
 ### Files Modified
 - src/ui/commands/agent-commands.ts - Added imports, interfaces, and all implementation functions
 - tests/ui/commands/agent-commands.test.ts - Added comprehensive tests for all new functions
+
+## 2026-02-02 - Feature Implementation: BUILTIN_AGENTS with codebase-analyzer
+
+### Completed
+- Created BUILTIN_AGENTS array in agent-commands.ts
+  - Array of AgentDefinition objects for always-available agents
+  - Agents can be overridden by project-local or user-global agents
+
+- Added codebase-analyzer builtin agent:
+  - name: 'codebase-analyzer'
+  - description: 'Analyzes codebase implementation details. Call when you need to find detailed information about specific components.'
+  - tools: ['Glob', 'Grep', 'NotebookRead', 'Read', 'LS', 'Bash']
+  - model: 'opus' (highest capability for thorough analysis)
+  - source: 'builtin'
+  - Comprehensive system prompt including:
+    - Capabilities section listing all available tools
+    - 7-step analysis process (Understand Request, Gather Context, Analyze Structure, Trace Data Flow, Identify Patterns, Document Dependencies, Provide Insights)
+    - Output format guidelines (Overview, Architecture, Key Components, Data Flow, Dependencies, Patterns, Notable Details)
+    - Best practices and guidelines
+
+- Implemented getBuiltinAgent() helper function:
+  - Looks up builtin agent by name
+  - Case-insensitive matching
+  - Returns AgentDefinition or undefined
+
+### Tests Added (18 new tests)
+- BUILTIN_AGENTS array tests:
+  - is an array
+  - contains at least one agent
+  - all agents have required fields
+  - all agents have unique names
+  - contains codebase-analyzer agent
+
+- codebase-analyzer builtin agent tests:
+  - exists in BUILTIN_AGENTS
+  - has correct name
+  - has appropriate description
+  - has tools array with analysis tools
+  - has opus model
+  - has comprehensive system prompt
+  - prompt includes analysis process steps
+  - prompt includes output format guidelines
+  - has builtin source
+
+- getBuiltinAgent tests:
+  - finds agent by exact name
+  - finds agent case-insensitively
+  - returns undefined for non-existent agent
+  - returns undefined for empty string
+
+### Test Results
+- All agent-commands tests pass (101 tests)
+
+### Files Modified
+- src/ui/commands/agent-commands.ts - Added BUILTIN_AGENTS array and getBuiltinAgent() function
+- tests/ui/commands/agent-commands.test.ts - Added BUILTIN_AGENTS and getBuiltinAgent tests

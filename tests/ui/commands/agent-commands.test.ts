@@ -15,6 +15,8 @@ import type {
 import {
   AGENT_DISCOVERY_PATHS,
   GLOBAL_AGENT_PATHS,
+  BUILTIN_AGENTS,
+  getBuiltinAgent,
   parseMarkdownFrontmatter,
   normalizeModel,
   normalizeTools,
@@ -877,5 +879,122 @@ Local prompt.`
       expect(agent).toHaveProperty("prompt");
       expect(agent).toHaveProperty("source");
     }
+  });
+});
+
+// ============================================================================
+// BUILTIN AGENTS TESTS
+// ============================================================================
+
+describe("BUILTIN_AGENTS array", () => {
+  test("is an array", () => {
+    expect(Array.isArray(BUILTIN_AGENTS)).toBe(true);
+  });
+
+  test("contains at least one agent", () => {
+    expect(BUILTIN_AGENTS.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("all agents have required fields", () => {
+    for (const agent of BUILTIN_AGENTS) {
+      expect(agent).toHaveProperty("name");
+      expect(agent).toHaveProperty("description");
+      expect(agent).toHaveProperty("prompt");
+      expect(agent).toHaveProperty("source");
+      expect(typeof agent.name).toBe("string");
+      expect(typeof agent.description).toBe("string");
+      expect(typeof agent.prompt).toBe("string");
+      expect(agent.source).toBe("builtin");
+    }
+  });
+
+  test("all agents have unique names", () => {
+    const names = BUILTIN_AGENTS.map((a) => a.name);
+    const uniqueNames = new Set(names);
+    expect(uniqueNames.size).toBe(names.length);
+  });
+
+  test("contains codebase-analyzer agent", () => {
+    const analyzer = BUILTIN_AGENTS.find((a) => a.name === "codebase-analyzer");
+    expect(analyzer).toBeDefined();
+  });
+});
+
+describe("codebase-analyzer builtin agent", () => {
+  const analyzer = BUILTIN_AGENTS.find((a) => a.name === "codebase-analyzer");
+
+  test("exists in BUILTIN_AGENTS", () => {
+    expect(analyzer).toBeDefined();
+  });
+
+  test("has correct name", () => {
+    expect(analyzer!.name).toBe("codebase-analyzer");
+  });
+
+  test("has appropriate description", () => {
+    expect(analyzer!.description).toContain("Analyzes");
+    expect(analyzer!.description).toContain("codebase");
+  });
+
+  test("has tools array with analysis tools", () => {
+    expect(analyzer!.tools).toBeDefined();
+    expect(analyzer!.tools).toContain("Glob");
+    expect(analyzer!.tools).toContain("Grep");
+    expect(analyzer!.tools).toContain("Read");
+    expect(analyzer!.tools).toContain("LS");
+    expect(analyzer!.tools).toContain("Bash");
+  });
+
+  test("has opus model", () => {
+    expect(analyzer!.model).toBe("opus");
+  });
+
+  test("has comprehensive system prompt", () => {
+    expect(analyzer!.prompt.length).toBeGreaterThan(500);
+    expect(analyzer!.prompt).toContain("analysis");
+    expect(analyzer!.prompt).toContain("code");
+  });
+
+  test("prompt includes analysis process steps", () => {
+    expect(analyzer!.prompt).toContain("Understand the Request");
+    expect(analyzer!.prompt).toContain("Gather Context");
+    expect(analyzer!.prompt).toContain("Analyze Structure");
+  });
+
+  test("prompt includes output format guidelines", () => {
+    expect(analyzer!.prompt).toContain("Overview");
+    expect(analyzer!.prompt).toContain("Architecture");
+    expect(analyzer!.prompt).toContain("Key Components");
+  });
+
+  test("has builtin source", () => {
+    expect(analyzer!.source).toBe("builtin");
+  });
+});
+
+describe("getBuiltinAgent", () => {
+  test("finds agent by exact name", () => {
+    const agent = getBuiltinAgent("codebase-analyzer");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("codebase-analyzer");
+  });
+
+  test("finds agent case-insensitively", () => {
+    const agent1 = getBuiltinAgent("CODEBASE-ANALYZER");
+    const agent2 = getBuiltinAgent("Codebase-Analyzer");
+    expect(agent1).toBeDefined();
+    expect(agent2).toBeDefined();
+    expect(agent1!.name).toBe("codebase-analyzer");
+    expect(agent2!.name).toBe("codebase-analyzer");
+  });
+
+  test("returns undefined for non-existent agent", () => {
+    const agent = getBuiltinAgent("non-existent-agent");
+    expect(agent).toBeUndefined();
+  });
+
+  test("returns undefined for empty string", () => {
+    const agent = getBuiltinAgent("");
+    expect(agent).toBeUndefined();
   });
 });

@@ -13,6 +13,34 @@
  */
 
 // ============================================================================
+// CONSTANTS
+// ============================================================================
+
+/**
+ * Project-local directories to search for agent definition files.
+ * These paths are relative to the project root.
+ * Files in these directories override user-global agents with the same name.
+ */
+export const AGENT_DISCOVERY_PATHS = [
+  ".claude/agents",
+  ".opencode/agents",
+  ".github/agents",
+  ".atomic/agents",
+] as const;
+
+/**
+ * User-global directories to search for agent definition files.
+ * These paths use ~ to represent the user's home directory.
+ * Project-local agents take precedence over user-global agents.
+ */
+export const GLOBAL_AGENT_PATHS = [
+  "~/.claude/agents",
+  "~/.opencode/agents",
+  "~/.copilot/agents",
+  "~/.atomic/agents",
+] as const;
+
+// ============================================================================
 // TYPES
 // ============================================================================
 

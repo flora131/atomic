@@ -6,7 +6,28 @@
  *
  * Available Workflows:
  * - Atomic (Ralph) workflow: Full feature implementation cycle
+ *
+ * Session Management:
+ * - RalphSession: Session state for Ralph loop execution
+ * - RalphFeature: Feature definition for implementation tracking
  */
+
+// Ralph session types and utilities
+export {
+  // Interfaces
+  type RalphSession,
+  type RalphFeature,
+
+  // Factory functions
+  generateSessionId,
+  getSessionDir,
+  createRalphSession,
+  createRalphFeature,
+
+  // Type guards
+  isRalphSession,
+  isRalphFeature,
+} from "./ralph-session.ts";
 
 // Atomic workflow exports
 export {

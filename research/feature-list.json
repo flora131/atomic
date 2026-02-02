@@ -407,7 +407,7 @@
         "Add prBranch?: string field",
         "Export the interface"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -423,7 +423,7 @@
         "Add error?: string field (error message if failing)",
         "Export the interface"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -435,7 +435,7 @@
         "Format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
         "Export the function"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

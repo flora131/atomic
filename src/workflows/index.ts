@@ -27,6 +27,14 @@ export {
   // Type guards
   isRalphSession,
   isRalphFeature,
+
+  // File system operations
+  SESSION_SUBDIRECTORIES,
+  createSessionDirectory,
+  saveSession,
+  loadSession,
+  loadSessionIfExists,
+  appendLog,
 } from "./ralph-session.ts";
 
 // Atomic workflow exports

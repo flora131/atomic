@@ -1832,3 +1832,73 @@ The Ralph workflow follows this sequence:
 - src/workflows/ralph.ts - Updated to place clearContextNode inside loop
 - tests/graph/builder.test.ts - Added loop array tests
 - tests/workflows/ralph.test.ts - Added clearContextNode placement tests
+
+## 2026-02-02 - Feature Implementation: RalphExecutor Class
+
+### Completed
+- Created src/workflows/ralph-executor.ts with RalphExecutor class
+  - Manages workflow execution lifecycle with interrupt handling
+  - Private fields: abortController, sessionDir, sessionId, sigintHandler, stdinHandler
+  - Constructor initializes AbortController
+
+- Implemented setupInterruptHandlers() method
+  - SIGINT handler (Ctrl+C): Calls handleInterrupt() on signal
+  - Esc key handler (TTY mode only): Checks for 0x1b keycode
+  - Sets raw mode on stdin for key detection
+  - Tracks handler setup state for cleanup
+
+- Implemented handleInterrupt() method
+  - Logs "Stopping Ralph execution..."
+  - Signals abort via abortController.abort()
+  - Loads session state if sessionDir exists
+  - Sets session.status to "paused"
+  - Updates session.lastUpdated timestamp
+  - Saves session state to disk
+  - Logs resume instructions with session ID
+  - Calls cleanup() and process.exit(0)
+
+- Implemented run() method
+  - Resets AbortController for each run
+  - Sets up interrupt handlers
+  - Returns RalphExecutorResult with state, completed, interrupted, error fields
+  - Handles execution errors gracefully
+
+- Implemented cleanup() method
+  - Removes SIGINT handler from process
+  - Removes stdin data handler
+  - Restores TTY mode (setRawMode false)
+  - Idempotent (safe to call multiple times)
+
+- Implemented helper methods
+  - signal getter: Returns AbortSignal
+  - aborted getter: Returns whether execution was aborted
+  - setSession(): Sets session ID and directory for interrupt handling
+
+- Created factory function
+  - createRalphExecutor(): Creates new RalphExecutor instance
+
+- Exported types
+  - RalphExecutorRunOptions: Options for run() method
+  - RalphExecutorResult: Result of workflow execution
+
+### Tests Added (20 tests)
+- RalphExecutor constructor tests
+- signal and aborted property tests
+- setSession() tests
+- cleanup() idempotency tests
+- run() method tests (returns result, accepts initial state, resets abort controller)
+- createRalphExecutor() factory tests
+- Type tests for RalphExecutorRunOptions and RalphExecutorResult
+- Integration tests (executor with workflow, yolo mode, multiple executors)
+
+### Test Results
+- All 20 ralph-executor tests pass
+- All 166 workflow tests pass
+
+### Files Created
+- src/workflows/ralph-executor.ts - RalphExecutor class
+- tests/workflows/ralph-executor.test.ts - RalphExecutor tests
+
+### Files Modified
+- src/workflows/index.ts - Added RalphExecutor exports
+- research/feature-list.json - Marked 5 related features as passes: true

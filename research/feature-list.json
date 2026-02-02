@@ -1,0 +1,1809 @@
+{
+  "features": [
+    {
+      "category": "functional",
+      "description": "Create BuiltinSkill interface in skill-commands.ts",
+      "steps": [
+        "Define BuiltinSkill interface with name: string field",
+        "Add description: string field for human-readable description",
+        "Add aliases?: string[] field for alternative command names",
+        "Add prompt: string field for embedded prompt content",
+        "Add hidden?: boolean field to hide from autocomplete",
+        "Export the interface for use in other modules"
+      ],
+      "passes": true
+    },
+    {
+      "category": "functional",
+      "description": "Implement /commit skill as built-in with embedded prompt",
+      "steps": [
+        "Add commit skill to BUILTIN_SKILLS array",
+        "Set name to 'commit'",
+        "Set description to 'Create well-formatted commits with conventional commit format'",
+        "Set aliases to ['ci']",
+        "Embed full prompt content including git status, git diff, commit message guidelines",
+        "Include $ARGUMENTS placeholder for user arguments"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement /research-codebase skill as built-in with embedded prompt",
+      "steps": [
+        "Add research-codebase skill to BUILTIN_SKILLS array",
+        "Set name to 'research-codebase'",
+        "Set description to 'Document codebase as-is with research directory'",
+        "Set aliases to ['research']",
+        "Embed full prompt for analyzing and documenting codebase",
+        "Include instructions for creating research/ directory artifacts"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement /create-spec skill as built-in with embedded prompt",
+      "steps": [
+        "Add create-spec skill to BUILTIN_SKILLS array",
+        "Set name to 'create-spec'",
+        "Set description to 'Generate technical specification from research'",
+        "Embed full prompt for generating technical specifications",
+        "Include reference to research directory for context"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement /create-feature-list skill as built-in with embedded prompt",
+      "steps": [
+        "Add create-feature-list skill to BUILTIN_SKILLS array",
+        "Set name to 'create-feature-list'",
+        "Set description to 'Break spec into implementable tasks'",
+        "Embed full prompt for creating feature-list.json",
+        "Include JSON schema for feature list format"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement /implement-feature skill as built-in with embedded prompt",
+      "steps": [
+        "Add implement-feature skill to BUILTIN_SKILLS array",
+        "Set name to 'implement-feature'",
+        "Set description to 'Implement next feature from list'",
+        "Embed full prompt for implementing features from feature-list.json",
+        "Include instructions for updating feature status after implementation"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement /create-gh-pr skill as built-in with embedded prompt",
+      "steps": [
+        "Add create-gh-pr skill to BUILTIN_SKILLS array",
+        "Set name to 'create-gh-pr'",
+        "Set description to 'Push and create pull request'",
+        "Embed full prompt for creating GitHub PRs",
+        "Include gh CLI commands and PR template format"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement /explain-code skill as built-in with embedded prompt",
+      "steps": [
+        "Add explain-code skill to BUILTIN_SKILLS array",
+        "Set name to 'explain-code'",
+        "Set description to 'Explain code section in detail'",
+        "Embed full prompt for explaining code functionality",
+        "Include $ARGUMENTS placeholder for code path/selection"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement registerBuiltinSkills() function to register all skills with globalRegistry",
+      "steps": [
+        "Create registerBuiltinSkills() function in skill-commands.ts",
+        "Iterate over BUILTIN_SKILLS array",
+        "For each skill, create CommandDefinition object",
+        "Set category to 'skill'",
+        "Implement execute handler that expands $ARGUMENTS and sends message",
+        "Check if command already exists before registering",
+        "Call globalRegistry.register() for each skill"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement $ARGUMENTS placeholder expansion in skill prompts",
+      "steps": [
+        "In skill execute handler, get args parameter",
+        "Replace all occurrences of $ARGUMENTS with args value",
+        "If args is empty, replace with '[no arguments provided]'",
+        "Use regex /\\$ARGUMENTS/g for global replacement",
+        "Pass expanded prompt to context.sendMessage()"
+      ],
+      "passes": false
+    },
+    {
+      "category": "refactor",
+      "description": "Remove SKILL_SEARCH_PATHS constant and disk-based skill loading",
+      "steps": [
+        "Locate SKILL_SEARCH_PATHS constant at skill-commands.ts:126-133",
+        "Remove the constant definition",
+        "Remove any code that iterates over SKILL_SEARCH_PATHS",
+        "Remove loadSkillPrompt() function",
+        "Remove any fs.readFile calls for skill loading",
+        "Remove fallback behavior for missing skills"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Create src/ui/commands/agent-commands.ts file with AgentDefinition interface",
+      "steps": [
+        "Create new file src/ui/commands/agent-commands.ts",
+        "Define AgentDefinition interface",
+        "Add name: string field (unique identifier, becomes slash command)",
+        "Add description: string field (when to use this agent)",
+        "Add tools?: string[] field (allowed tools, inherits all if omitted)",
+        "Add model?: string field (model override: sonnet, opus, haiku)",
+        "Add prompt: string field (system prompt content)",
+        "Add source: 'builtin' | 'project' | 'user' | 'atomic' field",
+        "Export the interface"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define AgentFrontmatter interface for parsing markdown frontmatter across SDKs",
+      "steps": [
+        "Define AgentFrontmatter interface in agent-commands.ts",
+        "Add name: string field (Claude: name, OpenCode: filename, Copilot: name)",
+        "Add description: string field (all SDKs)",
+        "Add tools?: string[] | Record<string, boolean> (Claude: array, OpenCode: object)",
+        "Add model?: string field (Claude: sonnet|opus|haiku, OpenCode: provider/model)",
+        "Add mode?: string field (OpenCode only: 'subagent' | 'primary')",
+        "Export the interface"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define AGENT_DISCOVERY_PATHS and GLOBAL_AGENT_PATHS constants",
+      "steps": [
+        "Define AGENT_DISCOVERY_PATHS array with project-local agent directories",
+        "Include '.claude/agents' path",
+        "Include '.opencode/agents' path",
+        "Include '.github/agents' path",
+        "Include '.atomic/agents' path",
+        "Define GLOBAL_AGENT_PATHS array with user-global agent directories",
+        "Include '~/.claude/agents' path",
+        "Include '~/.opencode/agents' path",
+        "Include '~/.copilot/agents' path",
+        "Include '~/.atomic/agents' path",
+        "Export both constants"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement discoverAgents() function to scan directories and parse agent files",
+      "steps": [
+        "Create async discoverAgents() function returning Promise<AgentDefinition[]>",
+        "Scan AGENT_DISCOVERY_PATHS for .md files",
+        "Scan GLOBAL_AGENT_PATHS for .md files (expand ~ to home directory)",
+        "For each discovered file, read content",
+        "Parse YAML frontmatter from file",
+        "Extract prompt content after frontmatter",
+        "Call parseAgentFrontmatter() to normalize",
+        "Determine source based on which path matched",
+        "Return array of AgentDefinition objects"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement parseAgentFrontmatter() to normalize frontmatter across SDK formats",
+      "steps": [
+        "Create parseAgentFrontmatter(frontmatter: AgentFrontmatter, source: string): AgentDefinition",
+        "Extract name from frontmatter.name or filename",
+        "Extract description from frontmatter.description",
+        "Normalize tools: if Record<string, boolean>, convert to string[] of enabled tools",
+        "Normalize model: map 'provider/model' format to 'sonnet'|'opus'|'haiku'",
+        "Handle OpenCode mode field (ignore if 'primary')",
+        "Return normalized AgentDefinition"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define BUILTIN_AGENTS array with codebase-analyzer agent",
+      "steps": [
+        "Add codebase-analyzer to BUILTIN_AGENTS array",
+        "Set name to 'codebase-analyzer'",
+        "Set description: 'Analyzes codebase implementation details. Call when you need to find detailed information about specific components.'",
+        "Set tools to ['Glob', 'Grep', 'NotebookRead', 'Read', 'LS', 'Bash']",
+        "Set model to 'opus'",
+        "Write comprehensive system prompt for analyzing code implementation",
+        "Set source to 'builtin'"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define BUILTIN_AGENTS array with codebase-locator agent",
+      "steps": [
+        "Add codebase-locator to BUILTIN_AGENTS array",
+        "Set name to 'codebase-locator'",
+        "Set description: 'Locates files, directories, and components relevant to a feature or task. A Super Grep/Glob/LS tool.'",
+        "Set tools to ['Glob', 'Grep', 'NotebookRead', 'Read', 'LS', 'Bash']",
+        "Set model to 'haiku'",
+        "Write comprehensive system prompt for finding files and components",
+        "Set source to 'builtin'"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define BUILTIN_AGENTS array with codebase-pattern-finder agent",
+      "steps": [
+        "Add codebase-pattern-finder to BUILTIN_AGENTS array",
+        "Set name to 'codebase-pattern-finder'",
+        "Set description: 'Finds similar implementations, usage examples, or existing patterns that can be modeled after.'",
+        "Set tools to ['Glob', 'Grep', 'NotebookRead', 'Read', 'LS', 'Bash']",
+        "Set model to 'sonnet'",
+        "Write comprehensive system prompt for finding code patterns",
+        "Set source to 'builtin'"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define BUILTIN_AGENTS array with codebase-online-researcher agent",
+      "steps": [
+        "Add codebase-online-researcher to BUILTIN_AGENTS array",
+        "Set name to 'codebase-online-researcher'",
+        "Set description: 'Researches questions using web sources for modern, online-only information.'",
+        "Set tools to ['Glob', 'Grep', 'Read', 'LS', 'WebFetch', 'WebSearch', 'mcp__deepwiki__ask_question']",
+        "Set model to 'sonnet'",
+        "Write comprehensive system prompt for web research",
+        "Set source to 'builtin'"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define BUILTIN_AGENTS array with codebase-research-analyzer agent",
+      "steps": [
+        "Add codebase-research-analyzer to BUILTIN_AGENTS array",
+        "Set name to 'codebase-research-analyzer'",
+        "Set description: 'Deep dive on research topics in the research/ directory.'",
+        "Set tools to ['Read', 'Grep', 'Glob', 'LS', 'Bash']",
+        "Set model to 'sonnet'",
+        "Write comprehensive system prompt for analyzing research documents",
+        "Set source to 'builtin'"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define BUILTIN_AGENTS array with codebase-research-locator agent",
+      "steps": [
+        "Add codebase-research-locator to BUILTIN_AGENTS array",
+        "Set name to 'codebase-research-locator'",
+        "Set description: 'Discovers relevant documents in research/ directory for metadata storage.'",
+        "Set tools to ['Read', 'Grep', 'Glob', 'LS', 'Bash']",
+        "Set model to 'haiku'",
+        "Write comprehensive system prompt for finding research documents",
+        "Set source to 'builtin'"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define BUILTIN_AGENTS array with debugger agent",
+      "steps": [
+        "Add debugger to BUILTIN_AGENTS array",
+        "Set name to 'debugger'",
+        "Set description: 'Debugging specialist for errors, test failures, and unexpected behavior.'",
+        "Set tools to ['Bash', 'Task', 'AskUserQuestion', 'Edit', 'Glob', 'Grep', 'Read', 'Write', 'WebFetch', 'WebSearch']",
+        "Set model to 'sonnet'",
+        "Write comprehensive system prompt for debugging",
+        "Set source to 'builtin'"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement registerAgentCommands() function to register agents as slash commands",
+      "steps": [
+        "Create async registerAgentCommands() function",
+        "Combine BUILTIN_AGENTS with discovered agents from discoverAgents()",
+        "For each agent, create CommandDefinition object",
+        "Set name to agent.name",
+        "Set description to agent.description",
+        "Set category to 'agent'",
+        "Set hidden to false",
+        "Implement execute handler that calls context.spawnSubagent()",
+        "Pass agent.prompt as systemPrompt, agent.tools, agent.model",
+        "Set permissionMode to 'bypassPermissions'",
+        "Check if command exists before registering",
+        "Call globalRegistry.register() for each agent"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Configure Claude SDK to bypass tool permissions",
+      "steps": [
+        "Open src/sdk/claude-client.ts",
+        "Locate createSession() call",
+        "Add permissionMode: 'bypassPermissions' to options",
+        "Add allowDangerouslySkipPermissions: true to options",
+        "Verify all agent session creation uses these options",
+        "Add comment noting AskUserQuestion is the only HITL exception"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Configure OpenCode SDK to bypass tool permissions",
+      "steps": [
+        "Open src/sdk/opencode-client.ts",
+        "Locate createSession() call",
+        "Add permission: { default: 'allow' } to configuration",
+        "Remove any 'ask' rules from permission configuration",
+        "Verify all agent session creation uses this configuration",
+        "Add comment noting all tools auto-execute"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Configure Copilot SDK to bypass tool permissions",
+      "steps": [
+        "Open src/sdk/copilot-client.ts",
+        "Locate createSession() call",
+        "Ensure NO PermissionHandler is registered",
+        "Remove any existing permission handlers",
+        "This defaults to --allow-all mode",
+        "Add comment noting all tools execute without prompts"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Verify AskUserQuestion still pauses for human input across all SDKs",
+      "steps": [
+        "Create integration test for AskUserQuestion tool",
+        "Test with Claude SDK - verify execution pauses",
+        "Test with OpenCode SDK - verify execution pauses",
+        "Test with Copilot SDK - verify execution pauses",
+        "Verify human_input_required event is emitted",
+        "Verify workflow state includes __waitingForInput: true"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Create src/workflows/ralph-session.ts with RalphSession interface",
+      "steps": [
+        "Create new file src/workflows/ralph-session.ts",
+        "Define RalphSession interface",
+        "Add sessionId: string field (unique identifier)",
+        "Add sessionDir: string field (path to .ralph/sessions/{sessionId}/)",
+        "Add createdAt: string field (ISO timestamp)",
+        "Add lastUpdated: string field (ISO timestamp)",
+        "Add yolo: boolean field (true = no feature-list)",
+        "Add maxIterations: number field",
+        "Add sourceFeatureListPath?: string field",
+        "Add features: RalphFeature[] field",
+        "Add currentFeatureIndex: number field",
+        "Add completedFeatures: string[] field",
+        "Add iteration: number field",
+        "Add status: 'running' | 'paused' | 'completed' | 'failed' field",
+        "Add prUrl?: string field",
+        "Add prBranch?: string field",
+        "Export the interface"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define RalphFeature interface in ralph-session.ts",
+      "steps": [
+        "Define RalphFeature interface",
+        "Add id: string field",
+        "Add name: string field",
+        "Add description: string field",
+        "Add acceptanceCriteria?: string[] field",
+        "Add status: 'pending' | 'in_progress' | 'passing' | 'failing' field",
+        "Add implementedAt?: string field (ISO timestamp)",
+        "Add error?: string field (error message if failing)",
+        "Export the interface"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement generateSessionId() using crypto.randomUUID()",
+      "steps": [
+        "Create generateSessionId() function",
+        "Use crypto.randomUUID() to generate UUID v4",
+        "Return the UUID string",
+        "Format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        "Export the function"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement createSessionDirectory() to create .ralph/sessions/{uuid}/ structure",
+      "steps": [
+        "Create async createSessionDirectory(sessionId: string) function",
+        "Create .ralph/ directory if not exists",
+        "Create .ralph/sessions/ directory if not exists",
+        "Create .ralph/sessions/{sessionId}/ directory",
+        "Create checkpoints/ subdirectory",
+        "Create research/ subdirectory",
+        "Create logs/ subdirectory",
+        "Return the session directory path",
+        "Use fs.mkdir with recursive: true option"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement loadSession() and saveSession() for session state persistence",
+      "steps": [
+        "Create async loadSession(sessionPath: string): Promise<RalphSession>",
+        "Read session.json file from sessionPath",
+        "Parse JSON content",
+        "Return RalphSession object",
+        "Create async saveSession(sessionDir: string, session: RalphSession): Promise<void>",
+        "Update session.lastUpdated to current ISO timestamp",
+        "Stringify session to JSON with 2-space indent",
+        "Write to {sessionDir}/session.json"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement loadSessionIfExists() for checking if session can be resumed",
+      "steps": [
+        "Create async loadSessionIfExists(sessionDir: string): Promise<RalphSession | null>",
+        "Try to read {sessionDir}/session.json",
+        "If file exists, parse and return RalphSession",
+        "If file not found (ENOENT), return null",
+        "Catch any errors and return null"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement appendLog() for logging agent calls to session logs",
+      "steps": [
+        "Create async appendLog(sessionDir: string, logName: string, entry: Record<string, unknown>): Promise<void>",
+        "Construct log file path: {sessionDir}/logs/{logName}.jsonl",
+        "Stringify entry to JSON",
+        "Append JSON line with newline to log file",
+        "Use fs.appendFile for atomic append"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement appendProgress() for updating session progress.txt",
+      "steps": [
+        "Create async appendProgress(sessionDir: string, feature: RalphFeature, passed: boolean): Promise<void>",
+        "Construct status emoji: passed ? '✓' : '✗'",
+        "Format progress line: [{timestamp}] {status} {feature.name}",
+        "Append to {sessionDir}/progress.txt",
+        "Use fs.appendFile"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Create src/graph/nodes/ralph-nodes.ts file",
+      "steps": [
+        "Create new file src/graph/nodes/ralph-nodes.ts",
+        "Import NodeDefinition, WorkflowState from '../types'",
+        "Import session management functions from ralph-session.ts",
+        "Import crypto for UUID generation",
+        "Define RalphWorkflowState interface extending WorkflowState"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement initRalphSessionNode() for initializing Ralph sessions",
+      "steps": [
+        "Create initRalphSessionNode<TState extends RalphWorkflowState>(name: string, options?: {...})",
+        "Accept options: featureListPath?, yolo?, resumeSessionId?",
+        "Return NodeDefinition with type 'ralph_init'",
+        "In execute: generate or use resumeSessionId for sessionId",
+        "Log 'Started Ralph session: {sessionId}'",
+        "Check if session exists (resume case) via loadSessionIfExists()",
+        "If resuming, return existing session state",
+        "Create new session directory structure",
+        "If NOT yolo, read and copy features from sourceFeatureListPath",
+        "Initialize progress.txt with session header",
+        "Save session.json",
+        "Return updated state with session fields"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement implementFeatureNode() for feature-list mode execution",
+      "steps": [
+        "Create implementFeatureNode<TState extends RalphWorkflowState>(name: string, options?: {...})",
+        "Return NodeDefinition with type 'ralph_implement'",
+        "In execute: load session from session.json",
+        "If NOT yolo mode: find next feature with status 'pending'",
+        "If no pending features, return allFeaturesPassing: true",
+        "Mark feature as 'in_progress' and save session",
+        "Log agent call to agent-calls.jsonl",
+        "Execute agent with IMPLEMENT_FEATURE_PROMPT",
+        "Replace $FEATURE placeholder with JSON feature",
+        "Check if feature passes via checkFeaturePassing()",
+        "Update feature status to 'passing' or 'failing'",
+        "Set implementedAt timestamp",
+        "Add to completedFeatures if passing",
+        "Increment iteration and save session",
+        "Update session's feature-list.json",
+        "Append to progress.txt",
+        "Return updated state"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement implementFeatureNode() for yolo mode with completion promise",
+      "steps": [
+        "In implementFeatureNode execute, check if session.yolo is true",
+        "Get userPrompt from options.prompt or state.userPrompt",
+        "If no prompt, throw error: 'Yolo mode requires a prompt'",
+        "Define COMPLETION_INSTRUCTION string with EXTREMELY_IMPORTANT tag",
+        "Append completion instruction to prompt",
+        "Log agent call to agent-calls.jsonl with action: 'yolo'",
+        "Execute agent with modified prompt",
+        "Check if agent output includes 'COMPLETE'",
+        "Increment iteration and update session status if complete",
+        "Save session",
+        "Append to progress.txt with status emoji",
+        "Return state with yoloComplete flag"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement checkCompletionNode() for determining loop exit conditions",
+      "steps": [
+        "Create checkCompletionNode<TState extends RalphWorkflowState>(name: string)",
+        "Return NodeDefinition with type 'ralph_check'",
+        "In execute: load session from session.json",
+        "Check maxIterations: maxReached = maxIterations > 0 && iteration >= maxIterations",
+        "If yolo mode: check yoloComplete or session.status === 'completed'",
+        "If complete, log 'Task completed! Agent signaled COMPLETE.'",
+        "If maxReached, log max iterations message",
+        "Return yoloComplete, maxIterationsReached, shouldContinue flags",
+        "If feature-list mode: check all features have status 'passing'",
+        "Update session status to 'completed' if all passing",
+        "Return allFeaturesPassing, maxIterationsReached, shouldContinue flags"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement createPRNode() for creating PR with session metadata",
+      "steps": [
+        "Create createPRNode<TState extends RalphWorkflowState>(name: string, options?: {...})",
+        "Accept options: baseBranch?, titleTemplate?",
+        "Return NodeDefinition with type 'ralph_pr'",
+        "In execute: load session from session.json",
+        "Execute agent with CREATE_PR_PROMPT",
+        "Replace $COMPLETED_FEATURES with JSON of completed features",
+        "Replace $SESSION_ID with session ID",
+        "Extract prUrl and branch from result",
+        "Update session with prUrl, prBranch",
+        "Set session.status to 'completed'",
+        "Save session",
+        "Append final completion to progress.txt",
+        "Return state with prUrl and prBranch"
+      ],
+      "passes": false
+    },
+    {
+      "category": "refactor",
+      "description": "Remove isGraphEngineEnabled() feature flag from src/config/ralph.ts",
+      "steps": [
+        "Open src/config/ralph.ts",
+        "Locate isGraphEngineEnabled() function at lines 237-239",
+        "Remove the function definition",
+        "Remove RALPH_ENV_VARS.ATOMIC_USE_GRAPH_ENGINE constant if exists",
+        "Remove any code that checks isGraphEngineEnabled()",
+        "Graph engine is now the only execution mode"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define RALPH_CONFIG constant with default configuration",
+      "steps": [
+        "In src/config/ralph.ts, define RALPH_CONFIG object",
+        "Set maxIterations: 100 (default)",
+        "Set checkpointing: true (default)",
+        "Do NOT include autoApproveSpec (spec approval is manual)",
+        "Export the constant"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement createRalphWorkflow() function in src/workflows/ralph.ts",
+      "steps": [
+        "Create src/workflows/ralph.ts file if not exists",
+        "Import graph from '../graph/builder'",
+        "Import all Ralph node factories from '../graph/nodes/ralph-nodes'",
+        "Import clearContextNode from '../graph/nodes'",
+        "Define RalphWorkflowConfig interface with optional fields",
+        "Create createRalphWorkflow(config?: RalphWorkflowConfig) function",
+        "Build graph using fluent API",
+        "Start with initRalphSessionNode('init-session', {...})",
+        "Add loop with clearContextNode, implementFeatureNode, checkCompletionNode",
+        "Set loop until: (state) => !state.shouldContinue",
+        "Set maxIterations from config or default 100",
+        "Then add createPRNode('create-pr', {...})",
+        "End graph",
+        "Compile with checkpointing and dynamic checkpointDir",
+        "Return compiled graph"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement clearContextNode placement at start of loop iterations",
+      "steps": [
+        "Ensure clearContextNode is first node in loop",
+        "Purpose: prevent context window overflow",
+        "Purpose: start each iteration with fresh context",
+        "Purpose: reduce token costs",
+        "Node resets conversation history while preserving state"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Create src/workflows/ralph-executor.ts with RalphExecutor class",
+      "steps": [
+        "Create new file src/workflows/ralph-executor.ts",
+        "Import CompiledGraph, RalphWorkflowConfig types",
+        "Import session management functions",
+        "Define RalphExecutor class",
+        "Add private abortController: AbortController field",
+        "Add private sessionDir: string | null field",
+        "Create constructor that initializes abortController",
+        "Call setupInterruptHandlers() in constructor"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement SIGINT handler for Ctrl+C in RalphExecutor",
+      "steps": [
+        "In setupInterruptHandlers() method",
+        "Add process.on('SIGINT', () => this.handleInterrupt())",
+        "This handles Ctrl+C key combination",
+        "Handler triggers graceful shutdown"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement stdin handler for Esc key in RalphExecutor",
+      "steps": [
+        "In setupInterruptHandlers() method",
+        "Check if process.stdin.isTTY",
+        "If TTY, call process.stdin.setRawMode(true)",
+        "Add process.stdin.on('data', (data) => {...})",
+        "Check if data[0] === 0x1b (Esc key code)",
+        "If Esc pressed, call this.handleInterrupt()"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement handleInterrupt() method in RalphExecutor",
+      "steps": [
+        "Create async handleInterrupt() method",
+        "Log 'Stopping Ralph execution...'",
+        "Call this.abortController.abort() to signal abort",
+        "If sessionDir exists, load session from session.json",
+        "Set session.status to 'paused'",
+        "Update session.lastUpdated",
+        "Save session",
+        "Save checkpoint via saveCheckpoint()",
+        "Log 'Paused Ralph session: {sessionId}'",
+        "Log 'Resume with: /ralph --resume {sessionId}'",
+        "Call process.exit(0)"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement run() method in RalphExecutor",
+      "steps": [
+        "Create async run(workflow: CompiledGraph, config: RalphWorkflowConfig) method",
+        "Call workflow.run() with config and abortController.signal",
+        "Store result.ralphSessionDir in this.sessionDir",
+        "Implement execution loop that respects abort signal",
+        "Handle workflow completion",
+        "Handle workflow errors"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Update BUILTIN_WORKFLOW_DEFINITIONS in workflow-commands.ts with /ralph command",
+      "steps": [
+        "Open src/ui/commands/workflow-commands.ts",
+        "Locate BUILTIN_WORKFLOW_DEFINITIONS array",
+        "Add ralph workflow entry",
+        "Set name to 'ralph'",
+        "Set description to 'Start the Ralph autonomous implementation workflow'",
+        "Set createWorkflow to createRalphWorkflow function",
+        "Do NOT add aliases (only /ralph)"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement --yolo flag parsing for /ralph command",
+      "steps": [
+        "In /ralph command execute handler, parse args string",
+        "Check for --yolo flag presence",
+        "If --yolo present, extract prompt argument after flag",
+        "Prompt is required for --yolo mode",
+        "Pass yolo: true to workflow config",
+        "Pass prompt to workflow state",
+        "If --yolo without prompt, show error message"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement --resume flag parsing for /ralph command",
+      "steps": [
+        "In /ralph command execute handler, check for --resume flag",
+        "Extract UUID value after --resume",
+        "Validate UUID format",
+        "Check if session exists at .ralph/sessions/{uuid}/",
+        "If not exists, show error 'Session not found'",
+        "Pass resumeSessionId to workflow config",
+        "Log 'Resuming session: {uuid}'"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement --max-iterations flag parsing for /ralph command",
+      "steps": [
+        "In /ralph command execute handler, check for --max-iterations flag",
+        "Extract number value after --max-iterations",
+        "Validate it's a non-negative integer",
+        "Default to 100 if not specified",
+        "0 means infinite iterations",
+        "Pass maxIterations to workflow config"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement --feature-list flag parsing for /ralph command",
+      "steps": [
+        "In /ralph command execute handler, check for --feature-list flag",
+        "Extract path value after --feature-list",
+        "Default to 'research/feature-list.json'",
+        "Validate file exists at specified path",
+        "If not exists and not --yolo, show error",
+        "Pass featureListPath to workflow config"
+      ],
+      "passes": false
+    },
+    {
+      "category": "refactor",
+      "description": "Remove /atomic command registration",
+      "steps": [
+        "Search for /atomic command registration in workflow-commands.ts",
+        "Remove the command definition",
+        "Remove any aliases pointing to /atomic",
+        "Update any references to /atomic in codebase",
+        "Replaced by /ralph"
+      ],
+      "passes": false
+    },
+    {
+      "category": "refactor",
+      "description": "Remove /ralph:ralph-loop command registration",
+      "steps": [
+        "Search for /ralph:ralph-loop command",
+        "Remove hook-based Ralph loop registration",
+        "Remove associated handler code",
+        "Replaced by SDK-native /ralph workflow"
+      ],
+      "passes": false
+    },
+    {
+      "category": "refactor",
+      "description": "Remove /ralph:cancel-ralph command registration",
+      "steps": [
+        "Search for /ralph:cancel-ralph command",
+        "Remove the command registration",
+        "Remove associated handler code",
+        "No longer needed - use Ctrl+C or Esc instead"
+      ],
+      "passes": false
+    },
+    {
+      "category": "refactor",
+      "description": "Remove /ralph:ralph-help command registration",
+      "steps": [
+        "Search for /ralph:ralph-help command",
+        "Remove the command registration",
+        "Help is now integrated into /help command",
+        "Update /help to include Ralph workflow info"
+      ],
+      "passes": false
+    },
+    {
+      "category": "refactor",
+      "description": "Remove /approve command registration",
+      "steps": [
+        "Search for /approve command in builtin-commands.ts",
+        "Remove the command registration",
+        "Remove associated handler code",
+        "Spec approval is now manual before workflow start"
+      ],
+      "passes": false
+    },
+    {
+      "category": "refactor",
+      "description": "Remove /reject command registration",
+      "steps": [
+        "Search for /reject command in builtin-commands.ts",
+        "Remove the command registration",
+        "Remove associated handler code",
+        "Spec rejection is now manual before workflow start"
+      ],
+      "passes": false
+    },
+    {
+      "category": "refactor",
+      "description": "Remove /status command registration",
+      "steps": [
+        "Search for /status command in builtin-commands.ts",
+        "Remove the command registration",
+        "Remove associated handler code",
+        "Progress tracked via research/progress.txt instead"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define CUSTOM_WORKFLOW_SEARCH_PATHS constant for custom workflow discovery",
+      "steps": [
+        "In src/ui/commands/workflow-commands.ts",
+        "Define CUSTOM_WORKFLOW_SEARCH_PATHS array",
+        "Add '.atomic/workflows' for project-local workflows",
+        "Add '~/.atomic/workflows' for user-global workflows",
+        "Export the constant"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement discoverWorkflowFiles() to find .ts files in search paths",
+      "steps": [
+        "Create async discoverWorkflowFiles(): Promise<{path: string, source: 'local'|'global'}[]>",
+        "Iterate over CUSTOM_WORKFLOW_SEARCH_PATHS",
+        "Expand ~ to home directory for global paths",
+        "Check if directory exists",
+        "List all .ts files in directory",
+        "Determine source based on path (local vs global)",
+        "Return array of {path, source} objects"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement loadWorkflowsFromDisk() to dynamically import workflow modules",
+      "steps": [
+        "Create async loadWorkflowsFromDisk(): Promise<void>",
+        "Call discoverWorkflowFiles() to get file list",
+        "Create Map<string, WorkflowMetadata> for deduplication",
+        "For each discovered file, try dynamic import",
+        "Extract module.name or use basename as name",
+        "Extract module.description or empty string",
+        "Extract module.aliases or empty array",
+        "Get module.default as createWorkflow function",
+        "Get module.defaultConfig or empty object",
+        "Create WorkflowMetadata object",
+        "If local, override global with same name",
+        "Add to loadedWorkflows Map",
+        "Register each workflow with globalRegistry"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Validate required exports in custom workflow files",
+      "steps": [
+        "In loadWorkflowsFromDisk(), after import",
+        "Check if module.default is a function",
+        "If not, log warning and skip workflow",
+        "Validate createWorkflow returns CompiledGraph",
+        "Handle export validation errors gracefully"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement local workflow override of global workflows",
+      "steps": [
+        "In loadWorkflowsFromDisk(), track workflow sources",
+        "When workflow with same name exists",
+        "If new workflow is 'local' and existing is 'global', replace",
+        "If both are same source, use first encountered",
+        "Log when override happens for debugging"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Create workflowRegistry Map for workflow lookup",
+      "steps": [
+        "In workflow-commands.ts, create module-level workflowRegistry",
+        "Type: Map<string, WorkflowMetadata>",
+        "Populate during loadWorkflowsFromDisk()",
+        "Include built-in workflows",
+        "Export for use by resolveWorkflowRef()"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement resolveWorkflowRef() for subgraph workflow lookup",
+      "steps": [
+        "Create resolveWorkflowRef(name: string): CompiledGraph<WorkflowState> | null",
+        "Check resolutionStack for circular dependency",
+        "If name in stack, throw circular dependency error",
+        "Add name to resolutionStack",
+        "Look up name in workflowRegistry",
+        "If not found, return null",
+        "Call createWorkflow with defaultConfig",
+        "Remove name from resolutionStack in finally block",
+        "Return compiled graph"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Create resolutionStack Set for circular dependency detection",
+      "steps": [
+        "In workflow-commands.ts, create module-level resolutionStack",
+        "Type: Set<string>",
+        "Used to track current resolution chain",
+        "Cleared after each resolution completes"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement circular dependency detection in resolveWorkflowRef()",
+      "steps": [
+        "At start of resolveWorkflowRef(), check resolutionStack.has(name)",
+        "If true, construct error message showing dependency chain",
+        "Format: 'Circular workflow dependency detected: A -> B -> A'",
+        "Use [...resolutionStack, name].join(' -> ')",
+        "Throw Error with message",
+        "This prevents infinite recursion in subgraph composition"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Update subgraphNode() to accept workflow name string",
+      "steps": [
+        "In src/graph/nodes.ts, update subgraphNode() signature",
+        "Accept second parameter as string | CompiledGraph",
+        "If string, call resolveWorkflowRef() to get graph",
+        "If graph is null, throw error 'Workflow not found: {name}'",
+        "If CompiledGraph, use directly",
+        "Execute subgraph and return result"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Update askUserNode() in src/graph/nodes.ts to emit human_input_required event",
+      "steps": [
+        "Locate askUserNode() function in src/graph/nodes.ts",
+        "Update execute handler to emit event",
+        "Generate requestId using crypto.randomUUID()",
+        "Call context.emit('human_input_required', {...})",
+        "Include requestId, question, header, options in event data",
+        "Set state.__waitingForInput to true",
+        "Set state.__waitNodeId to node name",
+        "Return updated state"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define AskUserOptions interface for askUserNode",
+      "steps": [
+        "Define AskUserOptions interface in graph/nodes.ts",
+        "Add question: string field (the question to ask)",
+        "Add header?: string field (short label for UI)",
+        "Add options?: {label: string, description: string}[] field",
+        "Export the interface"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement handleAskUserQuestion() in src/ui/chat.tsx",
+      "steps": [
+        "Create handleAskUserQuestion callback in chat.tsx",
+        "Accept AskUserQuestionEventData parameter",
+        "Call setActiveQuestion() with question data",
+        "Include requestId, question, options",
+        "Create respond callback function",
+        "If workflowState.workflowActive, call workflowExecutor.resumeWith()",
+        "Else call session.respond() for standalone agent",
+        "Clear activeQuestion after response",
+        "Add to useCallback dependency array"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Wire handleAskUserQuestion to human_input_required event",
+      "steps": [
+        "In chat.tsx, add event listener for human_input_required",
+        "When event received, call handleAskUserQuestion()",
+        "Ensure listener is set up during component mount",
+        "Clean up listener on unmount"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define CommandDefinition interface in registry.ts",
+      "steps": [
+        "In src/ui/commands/registry.ts, define CommandDefinition interface",
+        "Add name: string field (primary command name without slash)",
+        "Add description: string field (human-readable description)",
+        "Add category: CommandCategory field",
+        "Add aliases?: string[] field (alternative names)",
+        "Add hidden?: boolean field (hide from autocomplete)",
+        "Add execute: (args, context) => CommandResult | Promise<CommandResult>",
+        "Export the interface"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define CommandCategory type in registry.ts",
+      "steps": [
+        "Define CommandCategory type",
+        "Include 'builtin' for /help, /clear",
+        "Include 'skill' for /commit, /research, etc.",
+        "Include 'workflow' for /ralph",
+        "Include 'agent' for sub-agent commands",
+        "Include 'custom' for user-defined commands",
+        "Export the type"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define CommandContext interface in registry.ts",
+      "steps": [
+        "Define CommandContext interface",
+        "Add session: Session | null field",
+        "Add state: CommandContextState field",
+        "Add addMessage: (role, content) => void method",
+        "Add setStreaming: (streaming) => void method",
+        "Add sendMessage: (content) => void method",
+        "Add spawnSubagent: (options) => Promise<result> method",
+        "Export the interface"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define CommandResult interface in registry.ts",
+      "steps": [
+        "Define CommandResult interface",
+        "Add success: boolean field",
+        "Add message?: string field",
+        "Add clearMessages?: boolean field",
+        "Add stateUpdate?: Partial<CommandContextState> field",
+        "Export the interface"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define WorkflowMetadata interface in workflow-commands.ts",
+      "steps": [
+        "Define WorkflowMetadata interface",
+        "Add name: string field",
+        "Add description: string field",
+        "Add aliases?: string[] field",
+        "Add createWorkflow: (config?) => CompiledGraph<WorkflowState> field",
+        "Add defaultConfig?: Record<string, unknown> field",
+        "Add source?: 'builtin' | 'global' | 'local' field",
+        "Export the interface"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Define RalphWorkflowState interface in graph/annotation.ts",
+      "steps": [
+        "In src/graph/annotation.ts, define RalphWorkflowState interface",
+        "Extend BaseState",
+        "Add executionId: string field",
+        "Add lastUpdated: string field (ISO timestamp)",
+        "Add outputs: Record<string, unknown> field",
+        "Add researchDoc: string field",
+        "Add specDoc: string field",
+        "Add specApproved: boolean field",
+        "Add featureList: Feature[] field",
+        "Add currentFeature: Feature | null field",
+        "Add allFeaturesPassing: boolean field",
+        "Add contextWindowUsage: ContextWindowUsage | null field",
+        "Add iteration: number field",
+        "Add prUrl: string | null field",
+        "Add debugReports: DebugReport[] field",
+        "Add Ralph-specific fields: ralphSessionId, ralphSessionDir, yolo, etc.",
+        "Export the interface"
+      ],
+      "passes": false
+    },
+    {
+      "category": "refactor",
+      "description": "Remove explicit hooks module from src/",
+      "steps": [
+        "Search for hooks-related files in src/",
+        "Identify any hooks parsing code",
+        "Identify any hooks validation code",
+        "Identify any hooks execution code",
+        "Remove these files/modules",
+        "Hooks are passthrough to underlying SDKs",
+        "Claude SDK handles .claude/settings.json hooks natively",
+        "OpenCode SDK handles hooks natively",
+        "Copilot SDK handles hooks natively"
+      ],
+      "passes": false
+    },
+    {
+      "category": "refactor",
+      "description": "Remove hook-based Ralph loop implementation files",
+      "steps": [
+        "Identify Ralph hook-based loop files",
+        "Search for files related to hook-based Ralph execution",
+        "Remove these files",
+        "Replaced by SDK-native workflow execution",
+        "Update any imports that reference removed files"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Update /help command to include Ralph workflow and sub-agent info",
+      "steps": [
+        "Locate /help command implementation",
+        "Add section for /ralph workflow",
+        "Document --yolo, --resume, --max-iterations, --feature-list flags",
+        "Add section for sub-agent commands",
+        "List all built-in sub-agents with descriptions",
+        "Remove references to removed commands"
+      ],
+      "passes": false
+    },
+    {
+      "category": "ui",
+      "description": "Display session UUID when /ralph starts",
+      "steps": [
+        "In /ralph command handler, after session creation",
+        "Output 'Started Ralph session: {uuid}'",
+        "Use console.log or context.addMessage()",
+        "Make UUID easily copy-able for resumption"
+      ],
+      "passes": false
+    },
+    {
+      "category": "ui",
+      "description": "Display current feature being implemented in feature-list mode",
+      "steps": [
+        "During Ralph workflow execution",
+        "When implementFeatureNode starts, display feature name",
+        "Format: 'Implementing: {feature.name}'",
+        "Show feature description if available"
+      ],
+      "passes": false
+    },
+    {
+      "category": "ui",
+      "description": "Display iteration count and max iterations during Ralph execution",
+      "steps": [
+        "During Ralph workflow execution",
+        "Display current iteration number",
+        "Display max iterations (or 'infinite' if 0)",
+        "Format: 'Iteration {current}/{max}' or 'Iteration {current}/∞'"
+      ],
+      "passes": false
+    },
+    {
+      "category": "ui",
+      "description": "Display session status (running, paused, completed, failed)",
+      "steps": [
+        "Add status indicator to Ralph execution UI",
+        "Show 'Running' during active execution",
+        "Show 'Paused' after interrupt",
+        "Show 'Completed' after successful finish",
+        "Show 'Failed' on unrecoverable error"
+      ],
+      "passes": false
+    },
+    {
+      "category": "ui",
+      "description": "Display resume command on interrupt",
+      "steps": [
+        "In handleInterrupt(), after saving session",
+        "Display 'Paused Ralph session: {uuid}'",
+        "Display 'Resume with: /ralph --resume {uuid}'",
+        "Make command copy-able"
+      ],
+      "passes": false
+    },
+    {
+      "category": "ui",
+      "description": "Display completed features count during Ralph execution",
+      "steps": [
+        "Track completed features in UI state",
+        "Display 'Features: {completed}/{total} completed'",
+        "Update after each feature completes"
+      ],
+      "passes": false
+    },
+    {
+      "category": "ui",
+      "description": "Display PR URL on workflow completion",
+      "steps": [
+        "After createPRNode completes, extract prUrl",
+        "Display 'Pull request created: {prUrl}'",
+        "Make URL clickable in terminal if supported"
+      ],
+      "passes": false
+    },
+    {
+      "category": "ui",
+      "description": "Add visual indicator for yolo mode vs feature-list mode",
+      "steps": [
+        "At start of Ralph execution, check mode",
+        "If yolo, display 'Mode: Freestyle (yolo)'",
+        "If feature-list, display 'Mode: Feature list ({count} features)'"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement workflow telemetry for start, node transitions, completion events",
+      "steps": [
+        "Add telemetry hooks to graph executor",
+        "Log 'workflow.start' event with workflow name, config",
+        "Log 'workflow.node.enter' event with node name",
+        "Log 'workflow.node.exit' event with node name, duration",
+        "Log 'workflow.complete' event with success status, duration",
+        "Log 'workflow.error' event on failures",
+        "Use existing telemetry system"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement debug reports accumulation in workflow state",
+      "steps": [
+        "In RalphWorkflowState, use debugReports: DebugReport[] field",
+        "Configure with Reducers.concat for accumulation",
+        "Each node can append debug info to state.debugReports",
+        "Reports persist across iterations",
+        "Available for inspection after workflow completes"
+      ],
+      "passes": false
+    },
+    {
+      "category": "functional",
+      "description": "Implement checkpointing to session directory",
+      "steps": [
+        "Configure checkpoint directory in workflow compile options",
+        "Use dynamic checkpointDir: (state) => `${state.ralphSessionDir}/checkpoints`",
+        "Save checkpoint after each node completion",
+        "Name checkpoints sequentially: node-001.json, node-002.json",
+        "Include full state in checkpoint",
+        "Allow resumption from any checkpoint"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Unit test: Command registration and lookup",
+      "steps": [
+        "Test globalRegistry.register() adds command",
+        "Test globalRegistry.has() returns true for registered command",
+        "Test globalRegistry.get() returns correct CommandDefinition",
+        "Test alias registration and lookup",
+        "Test duplicate registration is prevented"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Unit test: Skill prompt expansion with $ARGUMENTS",
+      "steps": [
+        "Test $ARGUMENTS replaced with args value",
+        "Test empty args replaced with '[no arguments provided]'",
+        "Test multiple $ARGUMENTS occurrences all replaced",
+        "Test special characters in args handled correctly"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Unit test: Workflow loading from multiple search paths",
+      "steps": [
+        "Create test workflows in .atomic/workflows/ and ~/.atomic/workflows/",
+        "Test discoverWorkflowFiles() finds both",
+        "Test loadWorkflowsFromDisk() loads both",
+        "Test local overrides global with same name",
+        "Test invalid workflow files are skipped with warning"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Unit test: Subgraph node execution",
+      "steps": [
+        "Create parent workflow with subgraph node",
+        "Create child workflow",
+        "Test subgraph node executes child workflow",
+        "Test state passes through correctly",
+        "Test subgraph result merged into parent state"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Unit test: Circular dependency detection",
+      "steps": [
+        "Create workflow A that references workflow B",
+        "Create workflow B that references workflow A",
+        "Test resolveWorkflowRef('A') throws circular dependency error",
+        "Test error message includes full dependency chain",
+        "Test non-circular dependencies work correctly"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Unit test: Sub-agent discovery from agent directories",
+      "steps": [
+        "Create test agent files in .claude/agents/",
+        "Create test agent files in .opencode/agents/",
+        "Create test agent files in .github/agents/",
+        "Test discoverAgents() finds all agents",
+        "Test agents from all paths are discovered"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Unit test: Agent frontmatter parsing across SDK formats",
+      "steps": [
+        "Test Claude format: tools as string array",
+        "Test OpenCode format: tools as Record<string, boolean>",
+        "Test model normalization: 'anthropic/claude-3-sonnet' -> 'sonnet'",
+        "Test missing optional fields use defaults",
+        "Test invalid frontmatter handled gracefully"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Unit test: Session directory creation",
+      "steps": [
+        "Test createSessionDirectory() creates .ralph/sessions/{uuid}/",
+        "Test all subdirectories created: checkpoints/, research/, logs/",
+        "Test session.json initialized correctly",
+        "Test progress.txt initialized with header",
+        "Test feature-list.json copied when not yolo mode"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Unit test: Session state serialization/deserialization",
+      "steps": [
+        "Create RalphSession object with all fields",
+        "Test saveSession() writes valid JSON",
+        "Test loadSession() reads and parses correctly",
+        "Test loadSessionIfExists() returns null for missing session",
+        "Test lastUpdated updated on save"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Integration test: Full workflow execution with mock SDK",
+      "steps": [
+        "Create mock SDK client",
+        "Create test workflow with multiple nodes",
+        "Execute workflow end-to-end",
+        "Verify all nodes executed in order",
+        "Verify state transitions correctly",
+        "Verify final state contains expected values"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Integration test: AskUserQuestion node pauses and resumes",
+      "steps": [
+        "Create workflow with askUserNode",
+        "Execute workflow until AskUserQuestion",
+        "Verify execution pauses",
+        "Verify __waitingForInput is true",
+        "Verify human_input_required event emitted",
+        "Simulate user response",
+        "Verify workflow resumes",
+        "Verify user answer available in state"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Integration test: Checkpoint save/restore to session directory",
+      "steps": [
+        "Execute Ralph workflow with checkpointing enabled",
+        "Verify checkpoints saved to session directory",
+        "Interrupt workflow mid-execution",
+        "Create new workflow execution with resume",
+        "Verify state restored from checkpoint",
+        "Verify execution continues from checkpoint"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Integration test: Context window management with clearContextNode",
+      "steps": [
+        "Create workflow with loop containing clearContextNode",
+        "Execute multiple loop iterations",
+        "Verify context cleared at start of each iteration",
+        "Verify state preserved across context clears",
+        "Verify workflow completes successfully"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Integration test: Permission bypass configuration per SDK",
+      "steps": [
+        "Test Claude SDK with permissionMode: 'bypassPermissions'",
+        "Test OpenCode SDK with permission: { default: 'allow' }",
+        "Test Copilot SDK with no PermissionHandler",
+        "Verify all tools execute without prompts",
+        "Verify AskUserQuestion still pauses"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Integration test: Concurrent Ralph sessions with independent artifacts",
+      "steps": [
+        "Start Ralph session 1",
+        "Start Ralph session 2 concurrently",
+        "Verify different UUIDs generated",
+        "Verify separate session directories created",
+        "Verify sessions don't interfere with each other",
+        "Verify each session has independent feature list copy"
+      ],
+      "passes": false
+    },
+    {
+      "category": "test",
+      "description": "Integration test: Session resume with --resume flag",
+      "steps": [
+        "Start Ralph session",
+        "Execute partway through",
+        "Interrupt with Ctrl+C",
+        "Verify session marked as 'paused'",
+        "Resume with /ralph --resume {uuid}",
+        "Verify execution continues from checkpoint",
+        "Verify no duplicate work done"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: /ralph command starts workflow with feature-list",
+      "steps": [
+        "Create temp folder for test",
+        "Create research/feature-list.json with test features",
+        "Run /ralph command",
+        "Verify workflow starts",
+        "Verify session UUID displayed",
+        "Verify session directory created",
+        "Verify features loaded from file"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: /ralph generates random UUID for session ID",
+      "steps": [
+        "Run /ralph multiple times",
+        "Collect session UUIDs",
+        "Verify all UUIDs are unique",
+        "Verify UUID format is valid v4"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: /ralph --resume resumes paused session",
+      "steps": [
+        "Start /ralph session",
+        "Interrupt with Ctrl+C",
+        "Note session UUID",
+        "Run /ralph --resume {uuid}",
+        "Verify 'Resuming existing session' message",
+        "Verify execution continues"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: /ralph --yolo runs without feature-list",
+      "steps": [
+        "Run /ralph --yolo 'build snake game in rust'",
+        "Verify no feature-list.json required",
+        "Verify session marked as yolo mode",
+        "Verify agent receives prompt with task"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: /ralph --yolo appends completion promise instruction",
+      "steps": [
+        "Run /ralph --yolo 'test task'",
+        "Intercept agent prompt",
+        "Verify EXTREMELY_IMPORTANT tag present",
+        "Verify 'output: COMPLETE' instruction present"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: /ralph --yolo exits when agent outputs COMPLETE",
+      "steps": [
+        "Run /ralph --yolo with mock agent",
+        "Configure agent to output 'COMPLETE' after task",
+        "Verify workflow exits after COMPLETE",
+        "Verify session status is 'completed'"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: /ralph --yolo --max-iterations 0 runs until COMPLETE",
+      "steps": [
+        "Run /ralph --yolo --max-iterations 0 'complex task'",
+        "Verify no iteration limit enforced",
+        "Verify workflow continues until COMPLETE",
+        "Verify session tracks unlimited iterations"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: Session artifacts saved to .ralph/sessions/{uuid}/",
+      "steps": [
+        "Run /ralph session",
+        "Verify .ralph/sessions/{uuid}/ directory created",
+        "Verify session.json exists and valid",
+        "Verify progress.txt exists",
+        "Verify logs/ directory exists",
+        "Verify checkpoints/ directory exists"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: Ctrl+C stops execution and marks session as paused",
+      "steps": [
+        "Start /ralph session",
+        "Send SIGINT (Ctrl+C) signal",
+        "Verify 'Stopping Ralph execution...' message",
+        "Verify session.json status is 'paused'",
+        "Verify checkpoint saved",
+        "Verify resume command displayed"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: Esc stops execution and marks session as paused",
+      "steps": [
+        "Start /ralph session in TTY mode",
+        "Send Esc key (0x1b)",
+        "Verify 'Stopping Ralph execution...' message",
+        "Verify session.json status is 'paused'",
+        "Verify checkpoint saved"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: Concurrent sessions don't interfere",
+      "steps": [
+        "Start session 1 in terminal 1",
+        "Start session 2 in terminal 2",
+        "Both work on different features",
+        "Verify no file conflicts",
+        "Verify no state corruption",
+        "Both complete independently"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: All tools auto-execute without prompts",
+      "steps": [
+        "Run /ralph with workflow that uses various tools",
+        "Verify Bash commands execute without prompt",
+        "Verify file edits execute without prompt",
+        "Verify web searches execute without prompt",
+        "Only AskUserQuestion pauses"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: Sub-agent invocation /codebase-analyzer",
+      "steps": [
+        "Run /codebase-analyzer 'analyze authentication flow'",
+        "Verify agent spawned with correct system prompt",
+        "Verify agent has access to specified tools",
+        "Verify agent uses opus model",
+        "Verify result returned"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: Sub-agent invocation /codebase-locator",
+      "steps": [
+        "Run /codebase-locator 'find routing files'",
+        "Verify agent spawned correctly",
+        "Verify agent uses haiku model",
+        "Verify files located and returned"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: Sub-agent invocation /debugger",
+      "steps": [
+        "Run /debugger 'fix TypeError in parser.ts'",
+        "Verify agent spawned with debugging prompt",
+        "Verify agent has access to Edit, Write tools",
+        "Verify agent can analyze and fix issue"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: Run all functionality in opencode mode",
+      "steps": [
+        "Configure Atomic for opencode backend",
+        "Run /ralph workflow",
+        "Run sub-agent commands",
+        "Verify all features work in opencode mode",
+        "Verify permission bypass configured correctly"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: Run all functionality in copilot mode",
+      "steps": [
+        "Configure Atomic for copilot backend",
+        "Run /ralph workflow",
+        "Run sub-agent commands",
+        "Verify all features work in copilot mode",
+        "Verify permission bypass configured correctly"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: Run all functionality in claude mode",
+      "steps": [
+        "Configure Atomic for claude backend",
+        "Run /ralph workflow",
+        "Run sub-agent commands",
+        "Verify all features work in claude mode",
+        "Verify permission bypass configured correctly"
+      ],
+      "passes": false
+    },
+    {
+      "category": "e2e",
+      "description": "E2E test: Build snake game in Rust using /ralph --yolo",
+      "steps": [
+        "Create temp folder for test",
+        "Run /ralph --yolo 'build a snake game in rust with crossterm for terminal rendering'",
+        "Verify Cargo.toml created",
+        "Verify src/main.rs created with game logic",
+        "Verify game compiles with cargo build",
+        "Verify basic game functionality"
+      ],
+      "passes": false
+    },
+    {
+      "category": "documentation",
+      "description": "Document workflow composition patterns",
+      "steps": [
+        "Create documentation for subgraph node usage",
+        "Document how to reference workflows by name",
+        "Document circular dependency error handling",
+        "Provide examples of parent-child workflow composition",
+        "Document state passing between workflows"
+      ],
+      "passes": false
+    },
+    {
+      "category": "documentation",
+      "description": "Document custom workflow file format",
+      "steps": [
+        "Document required exports: name, description, default function",
+        "Document optional exports: aliases, defaultConfig",
+        "Document .atomic/workflows/ and ~/.atomic/workflows/ locations",
+        "Document local vs global workflow precedence",
+        "Provide example custom workflow file"
+      ],
+      "passes": false
+    },
+    {
+      "category": "documentation",
+      "description": "Add migration notes for removed commands",
+      "steps": [
+        "Document /atomic replaced by /ralph",
+        "Document /ralph:* hook-based commands removed",
+        "Document /approve, /reject, /status removed",
+        "Explain spec approval is now manual before workflow",
+        "Explain progress tracking via progress.txt"
+      ],
+      "passes": false
+    }
+  ]
+}

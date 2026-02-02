@@ -428,6 +428,131 @@ describe("loop()", () => {
 
     expect(compiled.nodes.has("body")).toBe(true);
   });
+
+  test("creates loop with array of body nodes", () => {
+    const clearNode = createTestNode("clear");
+    const processNode = createTestNode("process");
+    const loopConfig: LoopConfig<TestState> = {
+      until: (state) => state.counter >= 5,
+      maxIterations: 10,
+    };
+
+    const compiled = graph<TestState>()
+      .start(createTestNode("start"))
+      .loop([clearNode, processNode], loopConfig)
+      .end()
+      .compile();
+
+    // Both body nodes should be in the graph
+    expect(compiled.nodes.has("clear")).toBe(true);
+    expect(compiled.nodes.has("process")).toBe(true);
+
+    // Should have loop_start and loop_check nodes
+    const nodeIds = Array.from(compiled.nodes.keys());
+    expect(nodeIds.some((id) => id.includes("loop_start"))).toBe(true);
+    expect(nodeIds.some((id) => id.includes("loop_check"))).toBe(true);
+  });
+
+  test("chains body nodes together in sequence", () => {
+    const node1 = createTestNode("first");
+    const node2 = createTestNode("second");
+    const node3 = createTestNode("third");
+    const loopConfig: LoopConfig<TestState> = {
+      until: (state) => state.counter >= 3,
+    };
+
+    const compiled = graph<TestState>()
+      .start(createTestNode("start"))
+      .loop([node1, node2, node3], loopConfig)
+      .end()
+      .compile();
+
+    // Should have edges between body nodes in sequence
+    expect(compiled.edges.some((e) => e.from === "first" && e.to === "second")).toBe(true);
+    expect(compiled.edges.some((e) => e.from === "second" && e.to === "third")).toBe(true);
+  });
+
+  test("loop continue edge points to first body node", () => {
+    const clearNode = createTestNode("clear");
+    const processNode = createTestNode("process");
+    const loopConfig: LoopConfig<TestState> = {
+      until: (state) => state.counter >= 3,
+    };
+
+    const compiled = graph<TestState>()
+      .start(createTestNode("start"))
+      .loop([clearNode, processNode], loopConfig)
+      .then(createTestNode("after-loop"))
+      .end()
+      .compile();
+
+    // Find the loop-continue edge
+    const continueEdge = compiled.edges.find((e) => e.label === "loop-continue");
+    expect(continueEdge).toBeDefined();
+
+    // It should point to the first body node (clear)
+    expect(continueEdge?.to).toBe("clear");
+  });
+
+  test("last body node connects to loop_check", () => {
+    const clearNode = createTestNode("clear");
+    const processNode = createTestNode("process");
+    const loopConfig: LoopConfig<TestState> = {
+      until: (state) => state.counter >= 3,
+    };
+
+    const compiled = graph<TestState>()
+      .start(createTestNode("start"))
+      .loop([clearNode, processNode], loopConfig)
+      .end()
+      .compile();
+
+    // Last body node (process) should connect to loop_check
+    const loopCheckNodeId = Array.from(compiled.nodes.keys()).find((id) =>
+      id.includes("loop_check")
+    );
+    expect(loopCheckNodeId).toBeDefined();
+
+    const edgeToLoopCheck = compiled.edges.find(
+      (e) => e.from === "process" && e.to === loopCheckNodeId
+    );
+    expect(edgeToLoopCheck).toBeDefined();
+  });
+
+  test("throws error for empty body array", () => {
+    const loopConfig: LoopConfig<TestState> = {
+      until: (state) => state.counter >= 3,
+    };
+
+    expect(() => {
+      graph<TestState>().start(createTestNode("start")).loop([], loopConfig);
+    }).toThrow("Loop body must contain at least one node");
+  });
+
+  test("single node array works same as single node", () => {
+    const bodyNode = createTestNode("body");
+    const loopConfig: LoopConfig<TestState> = {
+      until: (state) => state.counter >= 3,
+    };
+
+    // Single node (not in array)
+    const compiled1 = graph<TestState>()
+      .start(createTestNode("start"))
+      .loop(bodyNode, loopConfig)
+      .end()
+      .compile();
+
+    // Single node in array
+    const compiled2 = graph<TestState>()
+      .start(createTestNode("start2"))
+      .loop([createTestNode("body")], loopConfig)
+      .end()
+      .compile();
+
+    // Both should have the body node
+    expect(compiled1.nodes.has("body")).toBe(true);
+    expect(compiled2.nodes.has("body")).toBe(true);
+  });
 });
 
 // ============================================================================

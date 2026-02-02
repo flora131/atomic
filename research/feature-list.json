@@ -673,7 +673,7 @@
         "Purpose: reduce token costs",
         "Node resets conversation history while preserving state"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

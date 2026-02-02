@@ -589,6 +589,144 @@ interface Feature {
 /create-feature-list auth-module        # Focus on auth portion of spec
 \`\`\``,
   },
+  {
+    name: "implement-feature",
+    description: "Implement next feature from list",
+    aliases: ["impl"],
+    prompt: `# Implement Feature
+
+Implement the next feature from the feature list: $ARGUMENTS
+
+## Purpose
+
+This skill implements a single feature from \`research/feature-list.json\`, following the defined steps and updating the feature status upon completion.
+
+## Prerequisites
+
+Before running this skill, ensure:
+1. \`research/feature-list.json\` exists with features to implement
+2. You understand the codebase architecture from \`research/\` artifacts
+3. The development environment is ready
+
+## Process
+
+### 1. Load Feature List
+Read \`research/feature-list.json\` and identify the next feature to implement:
+- If \`$ARGUMENTS\` specifies a feature description or index, use that
+- Otherwise, find the first feature where \`passes: false\`
+
+### 2. Review Feature Context
+For the selected feature:
+- Read its \`description\` to understand the goal
+- Review its \`steps\` array for implementation guidance
+- Check \`category\` to understand the type of work
+
+### 3. Implement Each Step
+For each step in the feature:
+1. Understand what needs to be done
+2. Find relevant existing code patterns
+3. Implement the change
+4. Verify it works (quick test or visual check)
+
+### 4. Write Tests
+After implementation:
+- Create unit tests for new functions/classes
+- Add integration tests if the feature connects components
+- Run existing tests to ensure no regressions
+
+### 5. Update Feature Status
+After all tests pass:
+1. Update the feature's \`passes\` field to \`true\` in \`research/feature-list.json\`
+2. Append progress to \`research/progress.txt\`
+
+## Implementation Guidelines
+
+### Code Quality
+- Follow existing code patterns and conventions
+- Keep functions small and focused (single responsibility)
+- Add appropriate error handling
+- Include TypeScript types for all new code
+
+### Testing Requirements
+- Each new function should have at least one test
+- Test both success and error cases
+- Use descriptive test names that explain what is being tested
+
+### Documentation
+- Add JSDoc comments for public functions
+- Update relevant documentation if behavior changes
+- Include inline comments for complex logic only
+
+## Feature Categories
+
+### functional
+New features or behavior:
+- Implement new APIs, components, or utilities
+- Add new user-facing functionality
+
+### refactor
+Code restructuring:
+- Improve code organization without changing behavior
+- Extract common patterns into utilities
+- Rename for clarity
+
+### test
+Test additions:
+- Unit tests for existing code
+- Integration tests
+- End-to-end tests
+
+### documentation
+Documentation updates:
+- README updates
+- API documentation
+- Code comments
+
+### ui
+User interface work:
+- Component creation
+- Styling changes
+- User interaction improvements
+
+### e2e
+End-to-end features:
+- Full workflow implementation
+- Cross-component integration
+
+## Progress Tracking
+
+Update \`research/progress.txt\` with:
+
+\`\`\`
+## [Date] - Feature: [Description]
+
+### Implemented
+- Step 1 completed
+- Step 2 completed
+- ...
+
+### Tests Added
+- test_name: description
+
+### Files Modified
+- path/to/file.ts - what changed
+\`\`\`
+
+## Error Handling
+
+If you encounter issues:
+1. Don't modify the feature's \`passes\` status
+2. Document the issue in \`research/progress.txt\`
+3. Add any discovered bugs as new features with high priority
+
+## Example Usage
+
+\`\`\`
+/implement-feature                      # Implement next pending feature
+/implement-feature UserRepository       # Implement specific feature by name
+/implement-feature 3                    # Implement feature at index 3
+\`\`\``,
+  },
 ];
 
 // ============================================================================

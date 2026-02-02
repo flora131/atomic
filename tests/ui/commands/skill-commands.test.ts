@@ -576,6 +576,38 @@ describe("BUILTIN_SKILLS", () => {
     expect(featureList?.prompt).toContain("test");
     expect(featureList?.prompt).toContain("documentation");
   });
+
+  test("contains implement-feature skill", () => {
+    const implFeature = BUILTIN_SKILLS.find((s) => s.name === "implement-feature");
+    expect(implFeature).toBeDefined();
+    expect(implFeature?.description).toBe("Implement next feature from list");
+    expect(implFeature?.aliases).toContain("impl");
+    expect(implFeature?.prompt).toBeDefined();
+    expect(implFeature?.prompt.length).toBeGreaterThan(100);
+  });
+
+  test("implement-feature skill has $ARGUMENTS placeholder", () => {
+    const implFeature = BUILTIN_SKILLS.find((s) => s.name === "implement-feature");
+    expect(implFeature?.prompt).toContain("$ARGUMENTS");
+  });
+
+  test("implement-feature skill includes implementation process", () => {
+    const implFeature = BUILTIN_SKILLS.find((s) => s.name === "implement-feature");
+    expect(implFeature?.prompt).toContain("research/feature-list.json");
+    expect(implFeature?.prompt).toContain("research/progress.txt");
+    expect(implFeature?.prompt).toContain("passes");
+    expect(implFeature?.prompt).toContain("Write Tests");
+  });
+
+  test("implement-feature skill includes feature categories", () => {
+    const implFeature = BUILTIN_SKILLS.find((s) => s.name === "implement-feature");
+    expect(implFeature?.prompt).toContain("functional");
+    expect(implFeature?.prompt).toContain("refactor");
+    expect(implFeature?.prompt).toContain("test");
+    expect(implFeature?.prompt).toContain("documentation");
+    expect(implFeature?.prompt).toContain("ui");
+    expect(implFeature?.prompt).toContain("e2e");
+  });
 });
 
 describe("getBuiltinSkill", () => {
@@ -598,9 +630,21 @@ describe("getBuiltinSkill", () => {
   });
 
   test("returns undefined for non-builtin skill", () => {
-    // implement-feature is in SKILL_DEFINITIONS but not BUILTIN_SKILLS yet
+    // create-gh-pr is in SKILL_DEFINITIONS but not BUILTIN_SKILLS yet
+    const ghPr = getBuiltinSkill("create-gh-pr");
+    expect(ghPr).toBeUndefined();
+  });
+
+  test("finds implement-feature builtin skill by name", () => {
     const implFeature = getBuiltinSkill("implement-feature");
-    expect(implFeature).toBeUndefined();
+    expect(implFeature).toBeDefined();
+    expect(implFeature?.name).toBe("implement-feature");
+  });
+
+  test("finds implement-feature builtin skill by alias", () => {
+    const byAlias = getBuiltinSkill("impl");
+    expect(byAlias).toBeDefined();
+    expect(byAlias?.name).toBe("implement-feature");
   });
 
   test("finds create-feature-list builtin skill by name", () => {
@@ -838,6 +882,55 @@ describe("builtin skill execution", () => {
     expect(sentMessages).toHaveLength(1);
     // Should have expanded $ARGUMENTS with the provided args
     expect(sentMessages[0]).toContain("auth-module");
+    expect(sentMessages[0]).not.toContain("$ARGUMENTS");
+    expect(sentMessages[0]).not.toContain("[no arguments provided]");
+  });
+
+  test("implement-feature command uses embedded prompt", () => {
+    const implFeatureCmd = skillCommands.find((c) => c.name === "implement-feature");
+    expect(implFeatureCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = implFeatureCmd!.execute("", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should use embedded prompt with implementation process
+    expect(sentMessages[0]).toContain("research/feature-list.json");
+    expect(sentMessages[0]).toContain("[no arguments provided]");
+  });
+
+  test("implement-feature command expands $ARGUMENTS with provided args", () => {
+    const implFeatureCmd = skillCommands.find((c) => c.name === "implement-feature");
+    expect(implFeatureCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = implFeatureCmd!.execute("UserRepository", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should have expanded $ARGUMENTS with the provided args
+    expect(sentMessages[0]).toContain("UserRepository");
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });

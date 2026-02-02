@@ -688,7 +688,7 @@
         "Create constructor that initializes abortController",
         "Call setupInterruptHandlers() in constructor"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -699,7 +699,7 @@
         "This handles Ctrl+C key combination",
         "Handler triggers graceful shutdown"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -712,7 +712,7 @@
         "Check if data[0] === 0x1b (Esc key code)",
         "If Esc pressed, call this.handleInterrupt()"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -730,7 +730,7 @@
         "Log 'Resume with: /ralph --resume {sessionId}'",
         "Call process.exit(0)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -743,7 +743,7 @@
         "Handle workflow completion",
         "Handle workflow errors"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

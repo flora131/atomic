@@ -85,3 +85,14 @@ export {
   // State type
   type RalphWorkflowState,
 } from "./ralph.ts";
+
+// Ralph executor exports
+export {
+  // Executor class
+  RalphExecutor,
+  createRalphExecutor,
+
+  // Types
+  type RalphExecutorRunOptions,
+  type RalphExecutorResult,
+} from "./ralph-executor.ts";

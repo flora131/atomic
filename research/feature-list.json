@@ -785,7 +785,7 @@
         "Pass resumeSessionId to workflow config",
         "Log 'Resuming session: {uuid}'"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

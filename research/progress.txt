@@ -1986,3 +1986,46 @@ The Ralph workflow follows this sequence:
 - src/ui/commands/registry.ts - Added ralphConfig to CommandContextState
 - tests/ui/commands/workflow-commands.test.ts - Added parseRalphArgs and --yolo flag tests
 - research/feature-list.json - Marked feature 52 as passes: true
+
+## 2026-02-02 - Feature Implementation: --resume Flag for /ralph Command
+
+### Completed
+- Added resumeSessionId field to RalphCommandArgs interface
+- Updated parseRalphArgs() to parse --resume <uuid> flag
+  - Extracts first token after --resume as session ID
+  - Returns null if no UUID provided
+- Added isValidUUID() helper function for UUID v4 format validation
+- Updated createRalphCommand() to handle --resume flag:
+  - Validates UUID format (returns error for invalid format)
+  - Checks if session exists at .ralph/sessions/{uuid}/
+  - Returns 'Session not found' error if directory doesn't exist
+  - Passes resumeSessionId to workflow config
+  - Logs 'Resuming session: {uuid}' via system message
+- Added import for getSessionDir from workflows/ralph-session.ts
+
+### Tests Added
+- isValidUUID tests:
+  - validates correct UUID v4 format
+  - is case-insensitive
+  - rejects invalid formats
+- parseRalphArgs --resume flag tests:
+  - parses --resume flag with UUID
+  - parses --resume flag without UUID
+  - parses --resume with leading/trailing whitespace
+  - extracts only first token after --resume
+  - does not treat --resume in the middle as a flag
+  - --resume takes precedence over --yolo when first
+- ralph command --resume integration tests:
+  - ralph command with --resume flag and valid session succeeds
+  - ralph command with --resume flag and invalid UUID fails
+  - ralph command with --resume flag and non-existent session fails
+  - ralph command with --resume flag without UUID fails
+  - ralph command adds system message when resuming
+  - ralph command with --resume sets correct workflow state
+
+### Test Results
+- All workflow-commands tests pass (60 tests)
+
+### Files Modified
+- src/ui/commands/workflow-commands.ts - Added --resume flag support
+- tests/ui/commands/workflow-commands.test.ts - Added --resume flag tests

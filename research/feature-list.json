@@ -594,7 +594,7 @@
         "Update session status to 'completed' if all passing",
         "Return allFeaturesPassing, maxIterationsReached, shouldContinue flags"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

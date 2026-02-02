@@ -46,6 +46,218 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 // ============================================================================
+// CHECK COMPLETION NODE
+// ============================================================================
+
+/**
+ * Configuration options for checkCompletionNode.
+ */
+export interface CheckCompletionNodeConfig {
+  /** Unique identifier for the node */
+  id: string;
+
+  /** Human-readable name for the node */
+  name?: string;
+
+  /** Description of what the node does */
+  description?: string;
+}
+
+/**
+ * Create a node that checks if the Ralph workflow should continue or exit.
+ *
+ * This node handles:
+ * - Checking if max iterations have been reached
+ * - In yolo mode: checking if the agent signaled COMPLETE
+ * - In feature-list mode: checking if all features are passing
+ * - Updating session status to 'completed' when done
+ * - Logging completion status
+ *
+ * The node should be placed at the end of each loop iteration to determine
+ * if the workflow should continue or exit.
+ *
+ * @param config - Node configuration
+ * @returns A NodeDefinition for checking completion
+ *
+ * @example
+ * ```typescript
+ * // Create a completion check node
+ * const checkNode = checkCompletionNode({
+ *   id: "check-completion",
+ *   name: "Check Completion",
+ * });
+ *
+ * // Use in a workflow loop
+ * graph<RalphWorkflowState>()
+ *   .start(initNode)
+ *   .loop({
+ *     body: [implementNode, agentNode, processResultNode, checkNode],
+ *     until: (state) => !state.shouldContinue,
+ *   })
+ *   .then(createPRNode)
+ *   .compile();
+ * ```
+ */
+export function checkCompletionNode<TState extends RalphWorkflowState = RalphWorkflowState>(
+  config: CheckCompletionNodeConfig
+): NodeDefinition<TState> {
+  const {
+    id,
+    name = "check-completion",
+    description = "Check if the Ralph workflow should continue or exit",
+  } = config;
+
+  return {
+    id,
+    type: "tool",
+    name,
+    description,
+    execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
+      const state = ctx.state as RalphWorkflowState;
+      const sessionDir = state.ralphSessionDir;
+      const now = new Date().toISOString();
+
+      // =========================================
+      // CHECK MAX ITERATIONS
+      // =========================================
+      const maxIterationsReached =
+        state.maxIterations > 0 && state.iteration >= state.maxIterations;
+
+      // =========================================
+      // YOLO MODE COMPLETION CHECK
+      // =========================================
+      if (state.yolo) {
+        // In yolo mode, check if the agent signaled completion or session is already completed
+        const isComplete = state.yoloComplete || state.sessionStatus === "completed";
+
+        // Determine if we should continue
+        const shouldContinue = !isComplete && !maxIterationsReached;
+
+        // Log completion status
+        await appendLog(sessionDir, "agent-calls", {
+          action: "check-completion",
+          sessionId: state.ralphSessionId,
+          iteration: state.iteration,
+          mode: "yolo",
+          yoloComplete: state.yoloComplete,
+          maxIterationsReached,
+          shouldContinue,
+        });
+
+        // Log completion message if complete
+        if (isComplete) {
+          console.log("Task completed! Agent signaled COMPLETE.");
+        } else if (maxIterationsReached) {
+          console.log(`Max iterations (${state.maxIterations}) reached.`);
+        }
+
+        // Update session status if complete or max iterations reached
+        let sessionStatus = state.sessionStatus;
+        if (isComplete || maxIterationsReached) {
+          sessionStatus = "completed";
+        }
+
+        // Build updated state
+        const updatedState: Partial<RalphWorkflowState> = {
+          yoloComplete: isComplete,
+          maxIterationsReached,
+          shouldContinue,
+          sessionStatus,
+          lastUpdated: now,
+        };
+
+        // Save session with updated state if completing
+        if (!shouldContinue) {
+          const session = workflowStateToSession({
+            ...state,
+            ...updatedState,
+          } as RalphWorkflowState);
+          await saveSession(sessionDir, session);
+        }
+
+        return {
+          stateUpdate: updatedState as Partial<TState>,
+        };
+      }
+
+      // =========================================
+      // FEATURE-LIST MODE COMPLETION CHECK
+      // =========================================
+
+      // Check if all features are passing
+      const allFeaturesPassing = state.features.every((f) => f.status === "passing");
+
+      // Check if there are any pending features left
+      const hasPendingFeatures = state.features.some((f) => f.status === "pending");
+
+      // Check if there are any failing features
+      const hasFailingFeatures = state.features.some((f) => f.status === "failing");
+
+      // Determine if we should continue:
+      // - Continue if there are pending features and we haven't hit max iterations
+      // - Continue if there are failing features (they might need retry) and we haven't hit max iterations
+      // - Stop if all features are passing
+      // - Stop if max iterations reached
+      const shouldContinue =
+        !allFeaturesPassing && !maxIterationsReached && (hasPendingFeatures || hasFailingFeatures);
+
+      // Log completion status
+      await appendLog(sessionDir, "agent-calls", {
+        action: "check-completion",
+        sessionId: state.ralphSessionId,
+        iteration: state.iteration,
+        mode: "feature-list",
+        totalFeatures: state.features.length,
+        passingFeatures: state.features.filter((f) => f.status === "passing").length,
+        pendingFeatures: state.features.filter((f) => f.status === "pending").length,
+        failingFeatures: state.features.filter((f) => f.status === "failing").length,
+        allFeaturesPassing,
+        maxIterationsReached,
+        shouldContinue,
+      });
+
+      // Log completion message
+      if (allFeaturesPassing) {
+        console.log("All features passing! Workflow complete.");
+      } else if (maxIterationsReached) {
+        console.log(`Max iterations (${state.maxIterations}) reached.`);
+        const passing = state.features.filter((f) => f.status === "passing").length;
+        const total = state.features.length;
+        console.log(`Features completed: ${passing}/${total}`);
+      }
+
+      // Update session status if complete or max iterations reached
+      let sessionStatus = state.sessionStatus;
+      if (allFeaturesPassing || maxIterationsReached) {
+        sessionStatus = "completed";
+      }
+
+      // Build updated state
+      const updatedState: Partial<RalphWorkflowState> = {
+        allFeaturesPassing,
+        maxIterationsReached,
+        shouldContinue,
+        sessionStatus,
+        lastUpdated: now,
+      };
+
+      // Save session with updated state if completing
+      if (!shouldContinue) {
+        const session = workflowStateToSession({
+          ...state,
+          ...updatedState,
+        } as RalphWorkflowState);
+        await saveSession(sessionDir, session);
+      }
+
+      return {
+        stateUpdate: updatedState as Partial<TState>,
+      };
+    },
+  };
+}
+
+// ============================================================================
 // RALPH WORKFLOW STATE
 // ============================================================================
 

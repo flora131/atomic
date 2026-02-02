@@ -1497,3 +1497,82 @@ Added file system operations for Ralph session persistence to ralph-session.ts.
 ### Files Modified
 - src/graph/nodes/ralph-nodes.ts - Added yolo mode support, YOLO_COMPLETION_INSTRUCTION, checkYoloCompletion(), processYoloResult()
 - tests/graph/nodes/ralph-nodes.test.ts - Added comprehensive yolo mode tests
+
+## 2026-02-02 - Feature Implementation: checkCompletionNode() for Determining Loop Exit
+
+### Completed
+- Implemented checkCompletionNode() factory function in ralph-nodes.ts
+  - Returns NodeDefinition with type 'tool'
+  - Accepts CheckCompletionNodeConfig with options:
+    - id: string (required)
+    - name?: string (default: "check-completion")
+    - description?: string
+
+- Yolo mode completion check:
+  - Checks if yoloComplete flag is true
+  - Checks if sessionStatus is already 'completed'
+  - Logs 'Task completed! Agent signaled COMPLETE.' when complete
+  - Logs max iterations message when limit reached
+  - Updates sessionStatus to 'completed' when done
+  - Saves session to disk when completing
+
+- Feature-list mode completion check:
+  - Checks if all features have status 'passing'
+  - Checks for pending and failing features
+  - Logs 'All features passing! Workflow complete.' when done
+  - Logs 'Max iterations (N) reached.' with features completed count
+  - Updates sessionStatus to 'completed' when done
+  - Saves session to disk when completing
+
+- Max iterations handling:
+  - maxIterations > 0: Stops when iteration >= maxIterations
+  - maxIterations = 0: Unlimited iterations
+  - Sets maxIterationsReached flag appropriately
+
+- Control flow flags returned:
+  - shouldContinue: Whether the workflow loop should continue
+  - allFeaturesPassing: Whether all features are passing (feature-list mode)
+  - yoloComplete: Whether yolo mode task is complete
+  - maxIterationsReached: Whether max iterations limit was hit
+  - sessionStatus: Updated session status ('running' or 'completed')
+
+### Tests Added (22 new tests)
+- Node creation tests:
+  - Creates a NodeDefinition with correct properties
+  - Accepts custom name and description
+
+- Yolo mode completion check tests:
+  - Sets shouldContinue to false when yoloComplete is true
+  - Sets shouldContinue to false when sessionStatus is completed
+  - Sets shouldContinue to true when not complete in yolo mode
+  - Sets shouldContinue to false when max iterations reached in yolo mode
+  - Updates sessionStatus to completed when done in yolo mode
+  - Logs check-completion action in yolo mode
+  - Saves session when completing in yolo mode
+
+- Feature-list mode completion check tests:
+  - Sets allFeaturesPassing to true when all features are passing
+  - Sets shouldContinue to true when some features are pending
+  - Sets shouldContinue to true when some features are failing
+  - Sets shouldContinue to false when max iterations reached
+  - Updates sessionStatus to completed when all features passing
+  - Updates sessionStatus to completed when max iterations reached
+  - Logs check-completion action in feature-list mode
+  - Saves session when completing in feature-list mode
+  - Does not save session when continuing in feature-list mode
+
+- Unlimited iterations tests:
+  - maxIterations 0 means unlimited in yolo mode
+  - maxIterations 0 means unlimited in feature-list mode
+
+- Edge cases tests:
+  - Handles empty features array in feature-list mode
+  - Handles mixed feature statuses correctly
+
+### Test Results
+- All 142 tests pass (120 original + 22 new)
+- 342 expect() calls
+
+### Files Modified
+- src/graph/nodes/ralph-nodes.ts - Added CheckCompletionNodeConfig interface and checkCompletionNode() function
+- tests/graph/nodes/ralph-nodes.test.ts - Added comprehensive checkCompletionNode tests

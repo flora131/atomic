@@ -11,7 +11,9 @@ import {
   registerWorkflowCommands,
   getWorkflowMetadata,
   createWorkflowByName,
+  parseRalphArgs,
   type WorkflowMetadata,
+  type RalphCommandArgs,
 } from "../../../src/ui/commands/workflow-commands.ts";
 import {
   globalRegistry,
@@ -364,5 +366,140 @@ describe("WorkflowMetadata interface", () => {
         }
       }
     }
+  });
+});
+
+// ============================================================================
+// PARSE RALPH ARGS TESTS
+// ============================================================================
+
+describe("parseRalphArgs", () => {
+  test("parses --yolo flag with prompt", () => {
+    const result = parseRalphArgs("--yolo implement auth");
+    expect(result.yolo).toBe(true);
+    expect(result.prompt).toBe("implement auth");
+  });
+
+  test("parses --yolo flag without prompt", () => {
+    const result = parseRalphArgs("--yolo");
+    expect(result.yolo).toBe(true);
+    expect(result.prompt).toBeNull();
+  });
+
+  test("parses --yolo with leading/trailing whitespace", () => {
+    const result = parseRalphArgs("  --yolo  implement auth  ");
+    expect(result.yolo).toBe(true);
+    expect(result.prompt).toBe("implement auth");
+  });
+
+  test("parses normal mode with prompt", () => {
+    const result = parseRalphArgs("my feature");
+    expect(result.yolo).toBe(false);
+    expect(result.prompt).toBe("my feature");
+  });
+
+  test("parses empty args as normal mode with null prompt", () => {
+    const result = parseRalphArgs("");
+    expect(result.yolo).toBe(false);
+    expect(result.prompt).toBeNull();
+  });
+
+  test("parses whitespace-only args as null prompt", () => {
+    const result = parseRalphArgs("   ");
+    expect(result.yolo).toBe(false);
+    expect(result.prompt).toBeNull();
+  });
+
+  test("does not treat --yolo in the middle as a flag", () => {
+    const result = parseRalphArgs("implement --yolo auth");
+    expect(result.yolo).toBe(false);
+    expect(result.prompt).toBe("implement --yolo auth");
+  });
+
+  test("handles multiline prompts after --yolo", () => {
+    const result = parseRalphArgs("--yolo implement\nauthentication");
+    expect(result.yolo).toBe(true);
+    expect(result.prompt).toBe("implement\nauthentication");
+  });
+});
+
+// ============================================================================
+// RALPH COMMAND --yolo INTEGRATION TESTS
+// ============================================================================
+
+describe("ralph command --yolo flag", () => {
+  test("ralph command with --yolo flag and prompt succeeds", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("--yolo implement auth", context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.initialPrompt).toBe("implement auth");
+    expect(result.stateUpdate?.ralphConfig?.yolo).toBe(true);
+    expect(result.stateUpdate?.ralphConfig?.userPrompt).toBe("implement auth");
+    expect(result.message).toContain("yolo mode");
+  });
+
+  test("ralph command with --yolo flag without prompt fails", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("--yolo", context) as CommandResult;
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("--yolo flag requires a prompt");
+  });
+
+  test("ralph command without flags requires prompt", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("", context) as CommandResult;
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("provide a prompt");
+  });
+
+  test("ralph command without flags uses normal mode", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("my feature prompt", context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.initialPrompt).toBe("my feature prompt");
+    expect(result.stateUpdate?.ralphConfig?.yolo).toBe(false);
+    expect(result.message).not.toContain("yolo mode");
+  });
+
+  test("ralph command adds system message with yolo indicator", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const messages: Array<{ role: string; content: string }> = [];
+    const context: CommandContext = {
+      session: null,
+      state: {
+        isStreaming: false,
+        messageCount: 0,
+        workflowActive: false,
+      },
+      addMessage: (role, content) => {
+        messages.push({ role, content });
+      },
+      setStreaming: () => {},
+    };
+
+    ralphCmd!.execute("--yolo implement auth", context);
+
+    expect(messages.length).toBe(1);
+    expect(messages[0]?.role).toBe("system");
+    expect(messages[0]?.content).toContain("yolo mode");
+    expect(messages[0]?.content).toContain("implement auth");
   });
 });

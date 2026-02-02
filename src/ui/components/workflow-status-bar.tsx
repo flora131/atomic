@@ -137,7 +137,7 @@ function StatusItem({
       {separator && (
         <text style={{ fg: separatorColor }}> │ </text>
       )}
-      <text style={{ fg: color, bold }}>{text}</text>
+      <text style={{ fg: color, attributes: 1 }}>{text}</text>
     </>
   );
 }
@@ -192,7 +192,6 @@ export function WorkflowStatusBar({
       flexDirection="row"
       borderStyle="single"
       borderColor={theme.colors.border}
-      style={{ bg: theme.colors.background }}
       paddingLeft={1}
       paddingRight={1}
       marginLeft={1}

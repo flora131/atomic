@@ -9,7 +9,9 @@ import {
   SKILL_DEFINITIONS,
   BUILTIN_SKILLS,
   skillCommands,
+  builtinSkillCommands,
   registerSkillCommands,
+  registerBuiltinSkills,
   getSkillMetadata,
   getBuiltinSkill,
   isRalphSkill,
@@ -195,6 +197,122 @@ describe("skillCommands", () => {
   });
 });
 
+describe("builtinSkillCommands", () => {
+  test("has correct number of commands", () => {
+    expect(builtinSkillCommands.length).toBe(BUILTIN_SKILLS.length);
+  });
+
+  test("all commands have skill category", () => {
+    for (const cmd of builtinSkillCommands) {
+      expect(cmd.category).toBe("skill");
+    }
+  });
+
+  test("each command has matching builtin skill", () => {
+    for (const cmd of builtinSkillCommands) {
+      const builtin = BUILTIN_SKILLS.find((s) => s.name === cmd.name);
+      expect(builtin).toBeDefined();
+      expect(cmd.description).toBe(builtin?.description);
+    }
+  });
+
+  test("commands use embedded prompts directly", () => {
+    const commitCmd = builtinSkillCommands.find((c) => c.name === "commit");
+    expect(commitCmd).toBeDefined();
+
+    const context = createMockContext({ session: null });
+    const result = commitCmd!.execute("test args", context);
+
+    expect(result.success).toBe(true);
+    expect(context.sentMessages).toHaveLength(1);
+    // Should contain content from embedded prompt
+    expect(context.sentMessages[0]).toContain("Conventional Commits");
+    expect(context.sentMessages[0]).toContain("test args");
+  });
+});
+
+describe("registerBuiltinSkills", () => {
+  beforeEach(() => {
+    globalRegistry.clear();
+  });
+
+  afterEach(() => {
+    globalRegistry.clear();
+  });
+
+  test("registers all builtin skills", () => {
+    registerBuiltinSkills();
+
+    expect(globalRegistry.has("commit")).toBe(true);
+    expect(globalRegistry.has("research-codebase")).toBe(true);
+    expect(globalRegistry.has("create-spec")).toBe(true);
+    expect(globalRegistry.has("create-feature-list")).toBe(true);
+    expect(globalRegistry.has("implement-feature")).toBe(true);
+    expect(globalRegistry.has("create-gh-pr")).toBe(true);
+    expect(globalRegistry.has("explain-code")).toBe(true);
+  });
+
+  test("registers builtin skill aliases", () => {
+    registerBuiltinSkills();
+
+    expect(globalRegistry.has("ci")).toBe(true); // commit alias
+    expect(globalRegistry.has("research")).toBe(true); // research-codebase alias
+    expect(globalRegistry.has("spec")).toBe(true); // create-spec alias
+    expect(globalRegistry.has("features")).toBe(true); // create-feature-list alias
+    expect(globalRegistry.has("impl")).toBe(true); // implement-feature alias
+    expect(globalRegistry.has("pr")).toBe(true); // create-gh-pr alias
+    expect(globalRegistry.has("explain")).toBe(true); // explain-code alias
+  });
+
+  test("is idempotent", () => {
+    registerBuiltinSkills();
+    registerBuiltinSkills();
+
+    // Should not throw and should still have correct count
+    expect(globalRegistry.size()).toBe(BUILTIN_SKILLS.length);
+  });
+
+  test("registered commands use embedded prompts", () => {
+    registerBuiltinSkills();
+
+    const commitCmd = globalRegistry.get("commit");
+    expect(commitCmd).toBeDefined();
+
+    const context = createMockContext({ session: null });
+    const result = commitCmd!.execute("", context);
+
+    expect(result.success).toBe(true);
+    expect(context.sentMessages).toHaveLength(1);
+    // Should use embedded prompt, not disk-based
+    expect(context.sentMessages[0]).toContain("Conventional Commits");
+  });
+
+  test("expands $ARGUMENTS in registered commands", () => {
+    registerBuiltinSkills();
+
+    const commitCmd = globalRegistry.get("commit");
+    expect(commitCmd).toBeDefined();
+
+    const context = createMockContext({ session: null });
+    commitCmd!.execute("my commit message", context);
+
+    expect(context.sentMessages[0]).toContain("my commit message");
+    expect(context.sentMessages[0]).not.toContain("$ARGUMENTS");
+  });
+
+  test("replaces empty args with placeholder", () => {
+    registerBuiltinSkills();
+
+    const commitCmd = globalRegistry.get("commit");
+    expect(commitCmd).toBeDefined();
+
+    const context = createMockContext({ session: null });
+    commitCmd!.execute("", context);
+
+    expect(context.sentMessages[0]).toContain("[no arguments provided]");
+  });
+});
+
 describe("registerSkillCommands", () => {
   beforeEach(() => {
     globalRegistry.clear();
@@ -253,6 +371,21 @@ describe("registerSkillCommands", () => {
 
     expect(byCi?.name).toBe("commit");
     expect(byCommit?.name).toBe("commit");
+  });
+
+  test("builtin skills take priority over legacy skills", () => {
+    registerSkillCommands();
+
+    // commit exists in both BUILTIN_SKILLS and SKILL_DEFINITIONS
+    // The registered command should use the builtin prompt
+    const commitCmd = globalRegistry.get("commit");
+    expect(commitCmd).toBeDefined();
+
+    const context = createMockContext({ session: null });
+    commitCmd!.execute("", context);
+
+    // Should use embedded prompt (has "Conventional Commits")
+    expect(context.sentMessages[0]).toContain("Conventional Commits");
   });
 });
 

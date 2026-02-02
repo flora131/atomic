@@ -305,3 +305,53 @@
 ### Files Modified
 - src/ui/commands/skill-commands.ts - Added explain-code to BUILTIN_SKILLS array
 - tests/ui/commands/skill-commands.test.ts - Added explain-code tests
+
+## 2026-02-02 - Feature Implementation: registerBuiltinSkills() and $ARGUMENTS expansion
+
+### Completed
+- Created `registerBuiltinSkills()` function in skill-commands.ts
+  - Iterates over BUILTIN_SKILLS array
+  - Creates CommandDefinition for each builtin skill
+  - Sets category to 'skill'
+  - Implements execute handler that directly uses embedded prompt
+  - Checks if command already exists before registering (idempotent)
+  - Calls globalRegistry.register() for each skill
+- Created `createBuiltinSkillCommand()` factory function
+  - Takes BuiltinSkill with embedded prompt
+  - Returns CommandDefinition with execute handler
+  - Uses embedded prompt directly (no disk lookup needed)
+- Created `builtinSkillCommands` array
+  - Maps BUILTIN_SKILLS through createBuiltinSkillCommand()
+  - Exported for testing and direct access
+- Updated `registerSkillCommands()` to call `registerBuiltinSkills()` first
+  - Builtin skills take priority over legacy disk-based skills
+  - Legacy skills only registered if not already registered
+
+### $ARGUMENTS Expansion
+- Execute handler expands $ARGUMENTS placeholder using expandArguments()
+- Empty args replaced with '[no arguments provided]'
+- Uses regex /\$ARGUMENTS/g for global replacement
+- Passes expanded prompt to context.sendMessage()
+
+### Tests Added
+- builtinSkillCommands tests:
+  - has correct number of commands
+  - all commands have skill category
+  - each command has matching builtin skill
+  - commands use embedded prompts directly
+- registerBuiltinSkills tests:
+  - registers all builtin skills
+  - registers builtin skill aliases
+  - is idempotent
+  - registered commands use embedded prompts
+  - expands $ARGUMENTS in registered commands
+  - replaces empty args with placeholder
+- registerSkillCommands tests:
+  - builtin skills take priority over legacy skills
+
+### Test Results
+- All skill-commands tests pass (108 tests)
+
+### Files Modified
+- src/ui/commands/skill-commands.ts - Added registerBuiltinSkills(), createBuiltinSkillCommand(), builtinSkillCommands
+- tests/ui/commands/skill-commands.test.ts - Added builtinSkillCommands and registerBuiltinSkills tests

@@ -690,3 +690,48 @@
 ### Files Modified
 - src/ui/commands/agent-commands.ts - Added codebase-locator to BUILTIN_AGENTS array
 - tests/ui/commands/agent-commands.test.ts - Added codebase-locator tests
+
+## 2026-02-02 - Feature Implementation: codebase-pattern-finder Builtin Agent
+
+### Completed
+- Added codebase-pattern-finder agent to BUILTIN_AGENTS array in agent-commands.ts
+  - name: 'codebase-pattern-finder'
+  - description: 'Finds similar implementations, usage examples, or existing patterns that can be modeled after.'
+  - tools: ['Glob', 'Grep', 'NotebookRead', 'Read', 'LS', 'Bash']
+  - model: 'sonnet' (balanced performance for thorough pattern analysis)
+  - source: 'builtin'
+  - Comprehensive system prompt including:
+    - Pattern Finding Strategy section covering:
+      - Understand the Request
+      - Search for Similar Structures
+      - Identify Code Patterns
+      - Analyze Found Examples
+      - Extract Actionable Insights
+    - Pattern categories (Structural, Naming, Implementation, API, Error Handling, Testing)
+    - Output format guidelines (Pattern Summary, Best Examples, Implementation Details, Usage Guidelines, Variations, Related Patterns)
+    - Guidelines for finding concrete, working examples
+
+### Tests Added (13 new tests)
+- codebase-pattern-finder builtin agent tests:
+  - exists in BUILTIN_AGENTS
+  - has correct name
+  - has appropriate description
+  - has tools array with pattern finding tools
+  - has sonnet model
+  - has comprehensive system prompt
+  - prompt includes pattern finding strategy steps
+  - prompt includes pattern categories
+  - prompt includes output format guidelines
+  - has builtin source
+- BUILTIN_AGENTS array tests:
+  - contains codebase-pattern-finder agent
+- getBuiltinAgent tests:
+  - finds codebase-pattern-finder by name
+  - finds codebase-pattern-finder case-insensitively
+
+### Test Results
+- All agent-commands tests pass (127 tests)
+
+### Files Modified
+- src/ui/commands/agent-commands.ts - Added codebase-pattern-finder to BUILTIN_AGENTS array
+- tests/ui/commands/agent-commands.test.ts - Added codebase-pattern-finder tests

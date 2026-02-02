@@ -484,7 +484,8 @@ export class HookManager {
       case "tool.after":
         return {
           toolName: input.tool_name as string,
-          toolResult: input.tool_result,
+          // PostToolUse hook provides tool_response, external hooks may use tool_result
+          toolResult: input.tool_response ?? input.tool_result,
           success: true,
         } as ToolAfterEventData;
       case "tool.error":

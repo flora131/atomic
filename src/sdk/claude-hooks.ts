@@ -201,7 +201,8 @@ export function createPostToolUseHook(
     try {
       if (onComplete) {
         const toolName = (input as Record<string, unknown>).tool_name as string;
-        const toolResult = (input as Record<string, unknown>).tool_result;
+        // PostToolUse hook provides tool_response (not tool_result)
+        const toolResult = (input as Record<string, unknown>).tool_response;
         await onComplete(toolName, toolResult);
       }
       return { continue: true };

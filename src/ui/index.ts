@@ -95,6 +95,10 @@ interface ChatUIState {
   ctrlCTimeout: ReturnType<typeof setTimeout> | null;
   /** Callback to show Ctrl+C warning in UI */
   showCtrlCWarning: ((show: boolean) => void) | null;
+  /** Whether tool events are being received via hooks (to avoid duplicates from stream) */
+  toolEventsViaHooks: boolean;
+  /** Set of active tool names (for deduplication) */
+  activeToolNames: Set<string>;
 }
 
 // ============================================================================
@@ -158,6 +162,8 @@ export async function startChatUI(
     ctrlCPressed: false,
     ctrlCTimeout: null,
     showCtrlCWarning: null,
+    toolEventsViaHooks: false,
+    activeToolNames: new Set(),
   };
 
   // Create a promise that resolves when the UI exits
@@ -246,10 +252,20 @@ export async function startChatUI(
     // Map tool names to IDs for SDKs that don't provide IDs
     const toolNameToId = new Map<string, string>();
 
+    // Mark that we're receiving tool events via hooks
+    // This prevents duplicate tool events from stream processing
+    state.toolEventsViaHooks = true;
+
     // Subscribe to tool.start events
     const unsubStart = client.on("tool.start", (event) => {
       const data = event.data as { toolName?: string; toolInput?: unknown };
       if (state.toolStartHandler && data.toolName) {
+        // Check for duplicate tool starts (same tool already running)
+        if (state.activeToolNames.has(data.toolName)) {
+          return; // Skip duplicate
+        }
+        state.activeToolNames.add(data.toolName);
+
         const toolId = `tool_${++state.toolIdCounter}`;
         toolNameToId.set(data.toolName, toolId);
         state.toolStartHandler(
@@ -276,9 +292,10 @@ export async function startChatUI(
           data.error
         );
 
-        // Clean up the map entry
+        // Clean up tracking
         if (data.toolName) {
           toolNameToId.delete(data.toolName);
+          state.activeToolNames.delete(data.toolName);
         }
       }
     });
@@ -325,10 +342,12 @@ export async function startChatUI(
     // Create session if needed and subscribe to tool events
     if (!state.session) {
       try {
-        state.session = await client.createSession(sessionConfig);
-        // Subscribe to tool events (both start and complete)
+        // IMPORTANT: Subscribe to tool events BEFORE creating the session
+        // This ensures hooks are registered before the SDK options are built
         const unsubscribe = subscribeToToolEvents();
         state.cleanupHandlers.push(unsubscribe);
+
+        state.session = await client.createSession(sessionConfig);
       } catch (error) {
         console.error("Failed to create session:", error);
         onComplete();
@@ -346,7 +365,8 @@ export async function startChatUI(
           onChunk(message.content);
         }
         // Handle tool_use content - notify UI of tool invocation
-        else if (message.type === "tool_use" && message.content) {
+        // Skip if we're getting tool events from hooks to avoid duplicates
+        else if (message.type === "tool_use" && message.content && !state.toolEventsViaHooks) {
           const toolContent = message.content as { name?: string; input?: Record<string, unknown> };
           if (state.toolStartHandler && toolContent.name) {
             const toolId = `tool_${++state.toolIdCounter}`;
@@ -358,7 +378,8 @@ export async function startChatUI(
           }
         }
         // Handle tool_result content - notify UI of tool completion
-        else if (message.type === "tool_result") {
+        // Skip if we're getting tool events from hooks to avoid duplicates
+        else if (message.type === "tool_result" && !state.toolEventsViaHooks) {
           if (state.toolCompleteHandler) {
             const toolId = `tool_${state.toolIdCounter}`;
             state.toolCompleteHandler(

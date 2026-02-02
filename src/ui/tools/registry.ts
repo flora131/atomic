@@ -73,7 +73,36 @@ export const readToolRenderer: ToolRenderer = {
 
   render(props: ToolRenderProps): ToolRenderResult {
     const filePath = (props.input.file_path as string) || "unknown";
-    const content = props.output as string | undefined;
+    // Handle output which may be a string or an object (from tool response)
+    let content: string | undefined;
+    if (typeof props.output === "string") {
+      // Try parsing as JSON if it looks like JSON (Claude SDK response)
+      try {
+        const parsed = JSON.parse(props.output);
+        // Handle nested Claude SDK response format: { type: "text", file: { filePath, content } }
+        if (parsed.file && typeof parsed.file.content === "string") {
+          content = parsed.file.content;
+        } else if (typeof parsed.content === "string") {
+          content = parsed.content;
+        } else if (typeof parsed === "string") {
+          content = parsed;
+        } else {
+          content = props.output;
+        }
+      } catch {
+        content = props.output;
+      }
+    } else if (props.output && typeof props.output === "object") {
+      // Tool response might be wrapped in an object with content field
+      const output = props.output as Record<string, unknown>;
+      // Handle nested Claude SDK response format: { type: "text", file: { filePath, content } }
+      if (output.file && typeof output.file === "object") {
+        const file = output.file as Record<string, unknown>;
+        content = typeof file.content === "string" ? file.content : undefined;
+      } else {
+        content = typeof output.content === "string" ? output.content : JSON.stringify(props.output, null, 2);
+      }
+    }
 
     // Detect language from file extension
     const ext = filePath.split(".").pop()?.toLowerCase() || "";
@@ -163,7 +192,33 @@ export const bashToolRenderer: ToolRenderer = {
 
   render(props: ToolRenderProps): ToolRenderResult {
     const command = (props.input.command as string) || "";
-    const output = props.output as string | undefined;
+    // Handle output which may be a string or object
+    let output: string | undefined;
+    if (typeof props.output === "string") {
+      // Try parsing as JSON if it looks like JSON
+      try {
+        const parsed = JSON.parse(props.output);
+        if (parsed.stdout) {
+          output = parsed.stdout;
+        } else if (parsed.output) {
+          output = parsed.output;
+        } else {
+          output = props.output;
+        }
+      } catch {
+        output = props.output;
+      }
+    } else if (props.output && typeof props.output === "object") {
+      const out = props.output as Record<string, unknown>;
+      // Extract stdout from bash tool response
+      if (typeof out.stdout === "string") {
+        output = out.stdout;
+      } else if (typeof out.output === "string") {
+        output = out.output;
+      } else {
+        output = JSON.stringify(props.output, null, 2);
+      }
+    }
 
     const content: string[] = [];
     content.push(`$ ${command}`);
@@ -254,7 +309,35 @@ export const globToolRenderer: ToolRenderer = {
   render(props: ToolRenderProps): ToolRenderResult {
     const pattern = (props.input.pattern as string) || "";
     const path = (props.input.path as string) || ".";
-    const files = props.output as string[] | string | undefined;
+    // Handle output which may be an array, string, or object
+    let files: string[] | string | undefined;
+    if (Array.isArray(props.output)) {
+      files = props.output as string[];
+    } else if (typeof props.output === "string") {
+      // Try parsing as JSON if it looks like JSON (Claude SDK response)
+      try {
+        const parsed = JSON.parse(props.output);
+        if (Array.isArray(parsed.matches)) {
+          files = parsed.matches as string[];
+        } else if (Array.isArray(parsed)) {
+          files = parsed as string[];
+        } else if (typeof parsed.content === "string") {
+          files = parsed.content;
+        } else {
+          files = props.output;
+        }
+      } catch {
+        files = props.output;
+      }
+    } else if (props.output && typeof props.output === "object") {
+      // Tool response might be wrapped in an object
+      const out = props.output as Record<string, unknown>;
+      if (Array.isArray(out.matches)) {
+        files = out.matches as string[];
+      } else if (typeof out.content === "string") {
+        files = out.content;
+      }
+    }
 
     const content: string[] = [];
     content.push(`Pattern: ${pattern}`);
@@ -270,7 +353,19 @@ export const globToolRenderer: ToolRenderer = {
         content.push(`  ... (${files.length - 20} more files)`);
       }
     } else if (typeof files === "string") {
-      content.push(files);
+      // Parse newline-separated file list
+      const fileList = files.split("\n").filter(f => f.trim());
+      if (fileList.length > 0) {
+        content.push(`Found ${fileList.length} file(s):`);
+        for (const file of fileList.slice(0, 20)) {
+          content.push(`  ${file}`);
+        }
+        if (fileList.length > 20) {
+          content.push(`  ... (${fileList.length - 20} more files)`);
+        }
+      } else {
+        content.push(files);
+      }
     } else {
       content.push("(no results)");
     }
@@ -302,7 +397,26 @@ export const grepToolRenderer: ToolRenderer = {
   render(props: ToolRenderProps): ToolRenderResult {
     const pattern = (props.input.pattern as string) || "";
     const path = (props.input.path as string) || ".";
-    const output = props.output as string | undefined;
+    // Handle output which may be a string or object
+    let output: string | undefined;
+    if (typeof props.output === "string") {
+      // Try parsing as JSON if it looks like JSON (Claude SDK response)
+      try {
+        const parsed = JSON.parse(props.output);
+        if (typeof parsed.content === "string") {
+          output = parsed.content;
+        } else if (typeof parsed === "string") {
+          output = parsed;
+        } else {
+          output = props.output;
+        }
+      } catch {
+        output = props.output;
+      }
+    } else if (props.output && typeof props.output === "object") {
+      const out = props.output as Record<string, unknown>;
+      output = typeof out.content === "string" ? out.content : JSON.stringify(props.output, null, 2);
+    }
 
     const content: string[] = [];
     content.push(`Pattern: ${pattern}`);

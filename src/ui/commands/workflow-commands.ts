@@ -19,7 +19,12 @@ import type {
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
 import { createAtomicWorkflow, type AtomicWorkflowConfig } from "../../workflows/atomic.ts";
-import type { CompiledGraph } from "../../graph/types.ts";
+import {
+  createRalphWorkflow,
+  type CreateRalphWorkflowConfig,
+  type RalphWorkflowState,
+} from "../../workflows/ralph.ts";
+import type { CompiledGraph, BaseState } from "../../graph/types.ts";
 import type { AtomicWorkflowState } from "../../graph/annotation.ts";
 import {
   generateRalphSessionId,
@@ -33,7 +38,7 @@ import {
 /**
  * Metadata for a workflow command definition.
  */
-export interface WorkflowMetadata {
+export interface WorkflowMetadata<TState extends BaseState = AtomicWorkflowState> {
   /** Command name (without leading slash) */
   name: string;
   /** Human-readable description */
@@ -41,7 +46,7 @@ export interface WorkflowMetadata {
   /** Alternative names for the command */
   aliases?: string[];
   /** Function to create the workflow graph */
-  createWorkflow: (config?: Record<string, unknown>) => CompiledGraph<AtomicWorkflowState>;
+  createWorkflow: (config?: Record<string, unknown>) => CompiledGraph<TState>;
   /** Optional default configuration */
   defaultConfig?: Record<string, unknown>;
   /** Source: built-in, global (~/.atomic/workflows), or local (.atomic/workflows) */
@@ -310,22 +315,41 @@ export function getAllWorkflows(): WorkflowMetadata[] {
  * Built-in workflow definitions.
  * These can be overridden by local or global workflows with the same name.
  */
-const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata[] = [
+const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata<BaseState>[] = [
   {
     name: "atomic",
-    description: "Start the Atomic (Ralph) workflow for feature implementation",
-    aliases: ["ralph", "loop"],
+    description: "Start the Atomic workflow for feature implementation with research/spec phases",
+    aliases: ["loop"],
     createWorkflow: (config?: Record<string, unknown>) => {
       const atomicConfig: AtomicWorkflowConfig = {
         maxIterations: typeof config?.maxIterations === "number" ? config.maxIterations : undefined,
         checkpointing: typeof config?.checkpointing === "boolean" ? config.checkpointing : true,
         autoApproveSpec: typeof config?.autoApproveSpec === "boolean" ? config.autoApproveSpec : false,
       };
-      return createAtomicWorkflow(atomicConfig);
+      return createAtomicWorkflow(atomicConfig) as CompiledGraph<BaseState>;
     },
     defaultConfig: {
       checkpointing: true,
       autoApproveSpec: false,
+    },
+    source: "builtin",
+  },
+  {
+    name: "ralph",
+    description: "Start the Ralph autonomous implementation workflow",
+    createWorkflow: (config?: Record<string, unknown>) => {
+      const ralphConfig: CreateRalphWorkflowConfig = {
+        maxIterations: typeof config?.maxIterations === "number" ? config.maxIterations : undefined,
+        checkpointing: typeof config?.checkpointing === "boolean" ? config.checkpointing : true,
+        featureListPath: typeof config?.featureListPath === "string" ? config.featureListPath : undefined,
+        yolo: typeof config?.yolo === "boolean" ? config.yolo : false,
+        userPrompt: typeof config?.userPrompt === "string" ? config.userPrompt : undefined,
+      };
+      return createRalphWorkflow(ralphConfig) as CompiledGraph<BaseState>;
+    },
+    defaultConfig: {
+      checkpointing: true,
+      yolo: false,
     },
     source: "builtin",
   },

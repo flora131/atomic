@@ -418,3 +418,40 @@
 ### Files Created
 - src/ui/commands/agent-commands.ts - AgentDefinition interface and related types
 - tests/ui/commands/agent-commands.test.ts - Tests for AgentDefinition interface
+
+## 2026-02-02 - Feature Implementation: AgentFrontmatter Interface
+
+### Completed
+- Added AgentFrontmatter interface in agent-commands.ts
+  - Interface handles different SDK frontmatter formats for agent markdown files
+  - Added name?: string field (optional, can be derived from filename in some SDKs)
+  - Added description: string field (required by all SDKs)
+  - Added tools?: string[] | Record<string, boolean> field
+    - Claude: array of tool names
+    - OpenCode: Record<string, boolean> with tool names as keys
+    - Copilot: array of tool names
+  - Added model?: string field
+    - Claude: "sonnet" | "opus" | "haiku"
+    - OpenCode: "provider/model" format (e.g., "anthropic/claude-3-sonnet")
+    - Copilot: string model identifier
+  - Added mode?: "subagent" | "primary" field (OpenCode-specific)
+  - Added comprehensive JSDoc documentation with examples for each SDK format
+  - Exported the interface
+
+### Tests Added
+- AgentFrontmatter interface tests:
+  - Claude format with tools as string array
+  - OpenCode format with tools as Record<string, boolean>
+  - OpenCode format with mode field
+  - frontmatter with optional name field omitted
+  - frontmatter with only required description field
+  - Copilot format with tools as string array
+  - frontmatter with all optional fields
+
+### Test Results
+- All agent-commands tests pass (22 tests)
+- Note: Pre-existing test failures in builtin-commands module remain (count mismatch)
+
+### Files Modified
+- src/ui/commands/agent-commands.ts - Added AgentFrontmatter interface
+- tests/ui/commands/agent-commands.test.ts - Added AgentFrontmatter tests

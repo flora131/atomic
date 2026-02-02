@@ -1353,3 +1353,67 @@ Added file system operations for Ralph session persistence to ralph-session.ts.
 ### Files Modified
 - src/graph/nodes/ralph-nodes.ts - Added initRalphSessionNode() and helper functions
 - tests/graph/nodes/ralph-nodes.test.ts - Added initRalphSessionNode tests
+
+## 2026-02-02 - Feature Implementation: implementFeatureNode() for Feature-List Mode
+
+### Completed
+- Implemented implementFeatureNode() factory function in ralph-nodes.ts
+  - Returns NodeDefinition with type 'tool'
+  - Accepts ImplementFeatureNodeConfig with options:
+    - id: string (required)
+    - name?: string (default: "implement-feature")
+    - description?: string
+    - promptTemplate?: string (supports {{id}}, {{name}}, {{description}}, {{acceptanceCriteria}} placeholders)
+
+- Execute function handles:
+  1. Finds next feature with status 'pending'
+  2. If no pending features:
+     - Checks if all features are 'passing'
+     - Sets allFeaturesPassing flag
+     - Sets shouldContinue: false if all pass, true if some failing
+     - Logs completion check to agent-calls.jsonl
+  3. If pending feature found:
+     - Marks feature as 'in_progress'
+     - Updates currentFeatureIndex and currentFeature
+     - Saves session to session.json
+     - Updates session's feature-list.json
+     - Logs agent call start
+     - Builds prompt from template if provided
+
+- Implemented processFeatureImplementationResult() helper function:
+  - Processes results after agent execution
+  - Updates feature status to 'passing' or 'failing'
+  - Sets implementedAt timestamp if passing
+  - Adds to completedFeatures if passing
+  - Increments iteration
+  - Checks maxIterations reached
+  - Saves session and updates feature-list.json
+  - Appends to progress.txt
+  - Logs result to agent-calls.jsonl
+
+### Tests Added (24 new tests)
+- implementFeatureNode tests:
+  - Node creation (2 tests)
+  - Finding pending features (3 tests)
+  - No pending features handling (3 tests)
+  - Prompt template (2 tests)
+  - Session persistence (3 tests)
+
+- processFeatureImplementationResult tests:
+  - Updates feature to passing/failing status (2 tests)
+  - Adds/doesn't add to completedFeatures (2 tests)
+  - Increments iteration (1 test)
+  - Detects max iterations reached (1 test)
+  - Clears currentFeature (1 test)
+  - Returns empty if no current feature (1 test)
+  - Saves session to disk (1 test)
+  - Appends to progress.txt (1 test)
+  - Logs result (1 test)
+
+### Test Results
+- All 90 tests pass (66 original + 24 new)
+- 253 expect() calls
+
+### Files Modified
+- src/graph/nodes/ralph-nodes.ts - Added implementFeatureNode(), processFeatureImplementationResult(), and types
+- tests/graph/nodes/ralph-nodes.test.ts - Added implementFeatureNode and processFeatureImplementationResult tests

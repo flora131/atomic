@@ -24,7 +24,7 @@
         "Embed full prompt content including git status, git diff, commit message guidelines",
         "Include $ARGUMENTS placeholder for user arguments"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

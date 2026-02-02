@@ -7,9 +7,11 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import {
   SKILL_DEFINITIONS,
+  BUILTIN_SKILLS,
   skillCommands,
   registerSkillCommands,
   getSkillMetadata,
+  getBuiltinSkill,
   isRalphSkill,
   getRalphSkills,
   getCoreSkills,
@@ -439,5 +441,129 @@ describe("BuiltinSkill interface", () => {
     expect(fullSkill.prompt).toBe("Execute: $ARGUMENTS");
     expect(fullSkill.aliases).toEqual(["fs", "full"]);
     expect(fullSkill.hidden).toBe(false);
+  });
+});
+
+describe("BUILTIN_SKILLS", () => {
+  test("contains commit skill", () => {
+    const commit = BUILTIN_SKILLS.find((s) => s.name === "commit");
+    expect(commit).toBeDefined();
+    expect(commit?.description).toBe("Create well-formatted commits with conventional commit format");
+    expect(commit?.aliases).toContain("ci");
+    expect(commit?.prompt).toBeDefined();
+    expect(commit?.prompt.length).toBeGreaterThan(100);
+  });
+
+  test("commit skill has $ARGUMENTS placeholder", () => {
+    const commit = BUILTIN_SKILLS.find((s) => s.name === "commit");
+    expect(commit?.prompt).toContain("$ARGUMENTS");
+  });
+
+  test("commit skill includes conventional commit guidelines", () => {
+    const commit = BUILTIN_SKILLS.find((s) => s.name === "commit");
+    expect(commit?.prompt).toContain("Conventional Commits");
+    expect(commit?.prompt).toContain("feat:");
+    expect(commit?.prompt).toContain("fix:");
+    expect(commit?.prompt).toContain("BREAKING CHANGE");
+  });
+
+  test("commit skill includes git commands", () => {
+    const commit = BUILTIN_SKILLS.find((s) => s.name === "commit");
+    expect(commit?.prompt).toContain("git status");
+    expect(commit?.prompt).toContain("git diff");
+    expect(commit?.prompt).toContain("git log");
+  });
+
+  test("all builtin skills have required fields", () => {
+    for (const skill of BUILTIN_SKILLS) {
+      expect(typeof skill.name).toBe("string");
+      expect(skill.name.length).toBeGreaterThan(0);
+      expect(typeof skill.description).toBe("string");
+      expect(skill.description.length).toBeGreaterThan(0);
+      expect(typeof skill.prompt).toBe("string");
+      expect(skill.prompt.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("getBuiltinSkill", () => {
+  test("finds builtin skill by name", () => {
+    const commit = getBuiltinSkill("commit");
+    expect(commit).toBeDefined();
+    expect(commit?.name).toBe("commit");
+  });
+
+  test("finds builtin skill by alias", () => {
+    const byAlias = getBuiltinSkill("ci");
+    expect(byAlias).toBeDefined();
+    expect(byAlias?.name).toBe("commit");
+  });
+
+  test("is case-insensitive", () => {
+    expect(getBuiltinSkill("COMMIT")?.name).toBe("commit");
+    expect(getBuiltinSkill("Commit")?.name).toBe("commit");
+    expect(getBuiltinSkill("CI")?.name).toBe("commit");
+  });
+
+  test("returns undefined for non-builtin skill", () => {
+    // research-codebase is in SKILL_DEFINITIONS but not BUILTIN_SKILLS yet
+    const research = getBuiltinSkill("research-codebase");
+    expect(research).toBeUndefined();
+  });
+
+  test("returns undefined for unknown skill", () => {
+    expect(getBuiltinSkill("unknown-skill")).toBeUndefined();
+    expect(getBuiltinSkill("")).toBeUndefined();
+  });
+});
+
+describe("builtin skill execution", () => {
+  test("commit command uses embedded prompt", () => {
+    const commitCmd = skillCommands.find((c) => c.name === "commit");
+    expect(commitCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = commitCmd!.execute("", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should use embedded prompt, not disk-based or slash command fallback
+    expect(sentMessages[0]).toContain("Conventional Commits");
+    expect(sentMessages[0]).toContain("[no arguments provided]");
+  });
+
+  test("commit command expands $ARGUMENTS with provided args", () => {
+    const commitCmd = skillCommands.find((c) => c.name === "commit");
+    expect(commitCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = commitCmd!.execute("-m 'Fix bug in parser'", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should have expanded $ARGUMENTS with the provided args
+    expect(sentMessages[0]).toContain("-m 'Fix bug in parser'");
+    expect(sentMessages[0]).not.toContain("$ARGUMENTS");
+    expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });
 });

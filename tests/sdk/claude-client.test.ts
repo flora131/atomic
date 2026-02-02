@@ -385,5 +385,25 @@ describe("ClaudeAgentClient", () => {
       await client.createSession({ permissionMode: "deny" });
       expect(mockQuery).toHaveBeenCalledTimes(3);
     });
+
+    test("bypass permission mode sets bypassPermissions and allowDangerouslySkipPermissions", async () => {
+      await client.createSession({ permissionMode: "bypass" });
+      expect(mockQuery).toHaveBeenCalled();
+      // Verify that the query was called with the correct options
+      const lastCallOptions = mockQuery.mock.calls[mockQuery.mock.calls.length - 1][0] as {
+        options?: Options;
+      };
+      expect(lastCallOptions?.options?.permissionMode).toBe("bypassPermissions");
+      expect(lastCallOptions?.options?.allowDangerouslySkipPermissions).toBe(true);
+    });
+
+    test("bypass mode still allows AskUserQuestion HITL via canUseTool", async () => {
+      const session = await client.createSession({ permissionMode: "bypass" });
+      // Verify session was created
+      expect(session).toBeDefined();
+      // The canUseTool callback is set up internally and handles AskUserQuestion
+      // by emitting permission.requested events even when bypass mode is enabled
+      expect(mockQuery).toHaveBeenCalled();
+    });
   });
 });

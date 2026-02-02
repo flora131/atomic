@@ -275,13 +275,21 @@ export class ClaudeAgentClient implements CodingAgentClient {
     }
 
     // Map permission mode
+    // Note: When using "bypass" mode, all tools auto-execute without prompts
+    // EXCEPT for AskUserQuestion which is handled by canUseTool callback above.
     if (config.permissionMode) {
       const permissionMap: Record<string, Options["permissionMode"]> = {
         auto: "acceptEdits",
         prompt: "default",
         deny: "dontAsk",
+        bypass: "bypassPermissions",
       };
       options.permissionMode = permissionMap[config.permissionMode];
+
+      // When bypassing permissions, we need to set the safety flag
+      if (config.permissionMode === "bypass") {
+        options.allowDangerouslySkipPermissions = true;
+      }
     }
 
     // Resume session if sessionId provided

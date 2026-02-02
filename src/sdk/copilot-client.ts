@@ -11,6 +11,14 @@
  *
  * Uses the official @github/copilot-sdk package for communication with
  * the GitHub Copilot CLI server via JSON-RPC.
+ *
+ * Permission Configuration:
+ * By default, CopilotClient auto-approves all tool operations (bypass mode).
+ * All tools execute without prompts - file edits, bash commands, etc.
+ * This is equivalent to Copilot CLI's --allow-all mode.
+ *
+ * To implement custom permission handling, call setPermissionHandler()
+ * with a custom CopilotPermissionHandler before creating sessions.
  */
 
 import {
@@ -515,15 +523,23 @@ export class CopilotClient implements CodingAgentClient {
   }
 
   /**
-   * Create a permission handler that auto-approves all operations.
-   * Similar to Claude Code's default behavior.
+   * Create a permission handler that auto-approves all operations (bypass mode).
+   * All tools execute without prompts, similar to Claude Code's bypass permission mode.
    *
-   * TODO: Add HITL permission prompts for destructive operations (write, shell)
-   * by emitting permission.requested events and waiting for user response.
+   * Note: This enables full autonomous agent execution. All file edits, bash
+   * commands, and other tool operations are automatically approved without
+   * user confirmation. Only AskUserQuestion-style tools that explicitly
+   * request user input will pause for response.
+   *
+   * To implement HITL (Human-in-the-Loop) approval prompts for specific tools:
+   * 1. Call setPermissionHandler() with a custom handler
+   * 2. Check request.toolName for specific tools (e.g., "write", "bash")
+   * 3. Emit permission.requested event and await response
+   * 4. Return { kind: "approved" } or { kind: "denied-interactively-by-user" }
    */
   private createHITLPermissionHandler(_sessionId: string): CopilotPermissionHandler {
     return async (_request: SdkPermissionRequest) => {
-      // Auto-approve all operations for now
+      // Auto-approve all operations - all tools execute without prompts
       return { kind: "approved" };
     };
   }

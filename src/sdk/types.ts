@@ -9,8 +9,16 @@ import type { AgentType } from "../utils/telemetry/types.ts";
 
 /**
  * Permission modes for tool execution approval
+ *
+ * - "auto": Auto-accept file edits and filesystem operations
+ * - "prompt": Default mode, requires user approval for tool execution
+ * - "deny": Deny all tool executions
+ * - "bypass": Bypass all permission checks (all tools auto-execute)
+ *
+ * Note: When using "bypass" mode, AskUserQuestion tool is the only exception
+ * that still pauses for human input.
  */
-export type PermissionMode = "auto" | "prompt" | "deny";
+export type PermissionMode = "auto" | "prompt" | "deny" | "bypass";
 
 /**
  * Configuration for MCP (Model Context Protocol) servers

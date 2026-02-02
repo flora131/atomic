@@ -895,6 +895,162 @@ gh pr edit --title "New Title" --body "New Body"
 /create-gh-pr --draft                   # Create draft PR
 \`\`\``,
   },
+  {
+    name: "explain-code",
+    description: "Explain code functionality in detail",
+    aliases: ["explain"],
+    prompt: `# Explain Code
+
+Explain the following code in detail: $ARGUMENTS
+
+## Purpose
+
+This skill provides a detailed explanation of code functionality. It breaks down complex code into understandable parts, explains the purpose of each section, and describes how the code works together.
+
+## What to Explain
+
+When analyzing code, cover these aspects:
+
+### 1. Overview
+- What is the overall purpose of this code?
+- What problem does it solve?
+- Where does it fit in the larger system?
+
+### 2. Structure Analysis
+- What are the main components (functions, classes, modules)?
+- How are they organized?
+- What is the dependency structure?
+
+### 3. Control Flow
+- What is the execution order?
+- What are the entry points?
+- What conditions determine different paths?
+
+### 4. Data Flow
+- What inputs does the code accept?
+- How is data transformed?
+- What outputs are produced?
+
+### 5. Key Algorithms
+- What algorithms or patterns are used?
+- Why were these approaches chosen?
+- What is the time/space complexity?
+
+### 6. Error Handling
+- How are errors detected?
+- What error recovery mechanisms exist?
+- What happens on failure?
+
+### 7. Side Effects
+- Does the code modify external state?
+- Does it interact with I/O, databases, or network?
+- What are the implications of these side effects?
+
+### 8. Dependencies
+- What external libraries or modules are used?
+- Why were these dependencies chosen?
+- How do they integrate with the code?
+
+## Explanation Format
+
+Structure your explanation as follows:
+
+\`\`\`markdown
+## Summary
+[1-2 sentence overview of what the code does]
+
+## Detailed Breakdown
+
+### [Section/Function Name]
+[Explain purpose, inputs, outputs, and logic]
+
+### [Next Section/Function]
+[Continue with each major part]
+
+## Key Concepts
+- [Important concept 1]
+- [Important concept 2]
+
+## Potential Improvements
+- [Optional: suggestions for better code]
+
+## Common Questions
+- [Q: Anticipated question?]
+  A: [Answer]
+\`\`\`
+
+## Guidelines
+
+- **Be Clear**: Use simple language to explain complex concepts
+- **Be Thorough**: Cover all important aspects of the code
+- **Use Examples**: Illustrate concepts with concrete examples when helpful
+- **Show Line References**: Reference specific lines (e.g., \`file.ts:42\`) when explaining
+- **Explain Why**: Don't just describe what the code does, explain why it does it that way
+- **Note Patterns**: Identify and explain design patterns, idioms, or conventions used
+- **Highlight Gotchas**: Point out non-obvious behavior or edge cases
+
+## Input Types
+
+This command accepts various forms of input:
+
+### File Path
+\`\`\`
+/explain-code src/utils/parser.ts
+\`\`\`
+
+### File Path with Line Range
+\`\`\`
+/explain-code src/utils/parser.ts:10-50
+\`\`\`
+
+### Function or Class Name
+\`\`\`
+/explain-code parseConfig function
+/explain-code UserService class
+\`\`\`
+
+### Code Selection
+When text is selected in an editor, the selection is automatically included.
+
+### Conceptual Query
+\`\`\`
+/explain-code how does authentication work in this codebase
+/explain-code what is the data flow from API to database
+\`\`\`
+
+## Example Output
+
+For a function like:
+\`\`\`typescript
+function debounce<T extends (...args: any[]) => any>(
+  fn: T,
+  delay: number
+): (...args: Parameters<T>) => void {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => fn(...args), delay);
+  };
+}
+\`\`\`
+
+The explanation would cover:
+- **Summary**: A utility that delays function execution until after a pause in calls
+- **Generic Type Parameter**: Ensures type safety with any function signature
+- **Closure**: Uses closure to maintain \`timeoutId\` state across calls
+- **Timeout Reset**: Each call clears the previous timeout, restarting the delay
+- **Use Case**: Prevents excessive API calls during rapid user input
+
+## Example Usage
+
+\`\`\`
+/explain-code                           # Explain selected code or prompt for input
+/explain-code src/index.ts              # Explain entire file
+/explain-code src/api/routes.ts:20-80   # Explain specific lines
+/explain-code handleSubmit              # Explain a specific function
+/explain-code how does caching work     # Conceptual explanation
+\`\`\``,
+  },
 ];
 
 // ============================================================================

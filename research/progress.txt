@@ -259,3 +259,49 @@
 ### Files Modified
 - src/ui/commands/skill-commands.ts - Added create-gh-pr to BUILTIN_SKILLS array
 - tests/ui/commands/skill-commands.test.ts - Added create-gh-pr tests
+
+## 2026-02-02 - Feature Implementation: Explain-Code Skill as Builtin
+
+### Completed
+- Added explain-code skill to BUILTIN_SKILLS array in skill-commands.ts
+  - Set name to 'explain-code'
+  - Set description to 'Explain code functionality in detail'
+  - Set aliases to ['explain']
+  - Embedded comprehensive prompt for explaining code functionality
+  - Included explanation structure covering:
+    - Overview - What the code does
+    - Structure Analysis - Components and organization
+    - Control Flow - Execution order and paths
+    - Data Flow - Inputs, transformations, outputs
+    - Key Algorithms - Patterns and complexity
+    - Error Handling - Detection and recovery
+    - Side Effects - External state modifications
+    - Dependencies - External libraries used
+  - Supported input types:
+    - File Path (e.g., src/utils/parser.ts)
+    - File Path with Line Range (e.g., src/utils/parser.ts:10-50)
+    - Function or Class Name
+    - Code Selection
+    - Conceptual Query
+  - Included $ARGUMENTS placeholder for code path/selection
+  - Added guidelines for clear, thorough explanations
+
+### Tests Added
+- BUILTIN_SKILLS tests:
+  - contains explain-code skill with correct fields
+  - explain-code skill has $ARGUMENTS placeholder
+  - explain-code skill includes explanation structure
+  - explain-code skill includes input types
+- getBuiltinSkill tests:
+  - finds explain-code builtin skill by name
+  - finds explain-code builtin skill by alias
+- builtin skill execution tests:
+  - explain-code command uses embedded prompt
+  - explain-code command expands $ARGUMENTS with provided args
+
+### Test Results
+- All skill-commands tests pass (97 tests)
+
+### Files Modified
+- src/ui/commands/skill-commands.ts - Added explain-code to BUILTIN_SKILLS array
+- tests/ui/commands/skill-commands.test.ts - Added explain-code tests

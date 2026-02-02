@@ -73,7 +73,7 @@
         "Embed full prompt for implementing features from feature-list.json",
         "Include instructions for updating feature status after implementation"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

@@ -608,6 +608,34 @@ describe("BUILTIN_SKILLS", () => {
     expect(implFeature?.prompt).toContain("ui");
     expect(implFeature?.prompt).toContain("e2e");
   });
+
+  test("contains create-gh-pr skill", () => {
+    const ghPr = BUILTIN_SKILLS.find((s) => s.name === "create-gh-pr");
+    expect(ghPr).toBeDefined();
+    expect(ghPr?.description).toBe("Push and create pull request");
+    expect(ghPr?.aliases).toContain("pr");
+    expect(ghPr?.prompt).toBeDefined();
+    expect(ghPr?.prompt.length).toBeGreaterThan(100);
+  });
+
+  test("create-gh-pr skill has $ARGUMENTS placeholder", () => {
+    const ghPr = BUILTIN_SKILLS.find((s) => s.name === "create-gh-pr");
+    expect(ghPr?.prompt).toContain("$ARGUMENTS");
+  });
+
+  test("create-gh-pr skill includes gh CLI commands", () => {
+    const ghPr = BUILTIN_SKILLS.find((s) => s.name === "create-gh-pr");
+    expect(ghPr?.prompt).toContain("gh pr create");
+    expect(ghPr?.prompt).toContain("gh pr view");
+    expect(ghPr?.prompt).toContain("git push");
+  });
+
+  test("create-gh-pr skill includes PR template format", () => {
+    const ghPr = BUILTIN_SKILLS.find((s) => s.name === "create-gh-pr");
+    expect(ghPr?.prompt).toContain("## Summary");
+    expect(ghPr?.prompt).toContain("## Changes");
+    expect(ghPr?.prompt).toContain("## Testing");
+  });
 });
 
 describe("getBuiltinSkill", () => {
@@ -630,9 +658,21 @@ describe("getBuiltinSkill", () => {
   });
 
   test("returns undefined for non-builtin skill", () => {
-    // create-gh-pr is in SKILL_DEFINITIONS but not BUILTIN_SKILLS yet
+    // explain-code is in SKILL_DEFINITIONS but not BUILTIN_SKILLS yet
+    const explainCode = getBuiltinSkill("explain-code");
+    expect(explainCode).toBeUndefined();
+  });
+
+  test("finds create-gh-pr builtin skill by name", () => {
     const ghPr = getBuiltinSkill("create-gh-pr");
-    expect(ghPr).toBeUndefined();
+    expect(ghPr).toBeDefined();
+    expect(ghPr?.name).toBe("create-gh-pr");
+  });
+
+  test("finds create-gh-pr builtin skill by alias", () => {
+    const byAlias = getBuiltinSkill("pr");
+    expect(byAlias).toBeDefined();
+    expect(byAlias?.name).toBe("create-gh-pr");
   });
 
   test("finds implement-feature builtin skill by name", () => {
@@ -931,6 +971,55 @@ describe("builtin skill execution", () => {
     expect(sentMessages).toHaveLength(1);
     // Should have expanded $ARGUMENTS with the provided args
     expect(sentMessages[0]).toContain("UserRepository");
+    expect(sentMessages[0]).not.toContain("$ARGUMENTS");
+    expect(sentMessages[0]).not.toContain("[no arguments provided]");
+  });
+
+  test("create-gh-pr command uses embedded prompt", () => {
+    const ghPrCmd = skillCommands.find((c) => c.name === "create-gh-pr");
+    expect(ghPrCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = ghPrCmd!.execute("", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should use embedded prompt with gh CLI commands
+    expect(sentMessages[0]).toContain("gh pr create");
+    expect(sentMessages[0]).toContain("[no arguments provided]");
+  });
+
+  test("create-gh-pr command expands $ARGUMENTS with provided args", () => {
+    const ghPrCmd = skillCommands.find((c) => c.name === "create-gh-pr");
+    expect(ghPrCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = ghPrCmd!.execute("Add user authentication", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should have expanded $ARGUMENTS with the provided args
+    expect(sentMessages[0]).toContain("Add user authentication");
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });

@@ -85,7 +85,7 @@
         "Embed full prompt for creating GitHub PRs",
         "Include gh CLI commands and PR template format"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

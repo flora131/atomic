@@ -1053,3 +1053,35 @@ Implemented permission bypass configuration for all three SDK clients (Claude, O
 - src/sdk/opencode-client.ts - Added permission documentation in module docstring
 - src/sdk/copilot-client.ts - Updated documentation for bypass behavior
 - tests/sdk/claude-client.test.ts - Added bypass mode tests
+
+## 2026-02-02 - Feature Implementation: AskUserQuestion HITL Integration Tests
+
+### Overview
+Created comprehensive integration tests to verify that the AskUserQuestion tool
+correctly pauses agent execution and emits permission.requested events across
+all SDK clients, even when using bypass permission mode.
+
+### Tests Added
+- tests/sdk/ask-user-question-hitl.test.ts with 8 tests:
+  - permission.requested event is emitted when AskUserQuestion tool is called
+  - AskUserQuestion works in default permission mode
+  - AskUserQuestion works in auto permission mode
+  - multiSelect option is correctly passed through
+  - non-AskUserQuestion tools auto-approve in bypass mode
+  - respond callback resolves with user answer
+  - empty questions array defaults to yes/no options
+  - permission.requested event has correct structure
+
+### Key Verifications
+- AskUserQuestion tool emits permission.requested event regardless of permission mode
+- Event includes: requestId, toolName, question, header, options, multiSelect, respond callback
+- respond callback correctly collects user answer and allows execution to continue
+- Non-AskUserQuestion tools auto-approve in bypass mode without emitting events
+- Event structure matches PermissionRequestedEventData interface
+
+### Test Results
+- All 8 tests pass
+- 48 expect() calls
+
+### Files Created
+- tests/sdk/ask-user-question-hitl.test.ts - Comprehensive HITL integration tests

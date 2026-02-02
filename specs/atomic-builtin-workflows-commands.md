@@ -23,12 +23,14 @@ This RFC proposes consolidating all slash commands, skills, and workflows as bui
 ### 1.1 Key Design Decisions
 
 **No Tool Approval Flow:**
+
 - All tool calls execute automatically without user permission prompts
 - The ONLY exception is `AskUserQuestion` which explicitly pauses for human input
 - This is achieved via `permissionMode: 'bypassPermissions'` in Claude SDK, `permission: { default: 'allow' }` in OpenCode, and `--allow-all` mode in Copilot SDK
 - Rationale: Atomic workflows are designed for autonomous execution; permission prompts break flow and prevent overnight runs
 
 **No `/approve` or `/status` Commands:**
+
 - Removed: `/approve`, `/reject`, `/status` commands
 - Spec approval happens BEFORE workflow execution, not during
 - Users review and approve specs manually in the research directory before running `/ralph`
@@ -152,6 +154,7 @@ The Atomic CLI uses **built-in commands exclusively**. All skills, commands, and
 5. **Custom workflows** - Loaded from `.atomic/workflows/` (local) and `~/.atomic/workflows/` (global)
 
 **Removed Commands:**
+
 - ~~`/atomic`~~ - Replaced by `/ralph`
 - ~~`/ralph:ralph-loop`~~ - Hook-based, replaced by SDK-native `/ralph`
 - ~~`/ralph:cancel-ralph`~~ - Hook-based, no longer needed
@@ -289,16 +292,16 @@ We adopt a **Registry + Factory + Graph** pattern:
 
 ### 4.3 Key Components
 
-| Component          | Responsibility                 | File Location                          | Key Changes                           |
-| ------------------ | ------------------------------ | -------------------------------------- | ------------------------------------- |
-| Built-in Skills    | Define all skills as constants | `src/ui/commands/skill-commands.ts`    | Remove disk loading, embed prompts    |
-| Built-in Workflows | Ralph workflow                 | `src/workflows/ralph.ts`               | Remove hook-based mode, SDK-native    |
-| Workflow Loader    | Load custom `.ts` workflows    | `src/ui/commands/workflow-commands.ts` | Add subgraph resolution               |
-| Subgraph Node      | Compose workflows              | `src/graph/nodes.ts:846-941`           | Enable recursive references           |
-| Wait Node          | HITL support (AskUserQuestion) | `src/graph/nodes.ts:675-710`           | Only for explicit user questions      |
-| Clear Context Node | Reset context window           | `src/graph/nodes.ts`                   | Clear context at loop boundaries      |
-| Sub-agent Registry | Discover and register agents   | `src/ui/commands/agent-commands.ts`    | New file for agent slash commands     |
-| Permission Bypass  | Auto-approve all tools         | `src/sdk/*-client.ts`                  | Configure SDK permission modes        |
+| Component          | Responsibility                 | File Location                          | Key Changes                        |
+| ------------------ | ------------------------------ | -------------------------------------- | ---------------------------------- |
+| Built-in Skills    | Define all skills as constants | `src/ui/commands/skill-commands.ts`    | Remove disk loading, embed prompts |
+| Built-in Workflows | Ralph workflow                 | `src/workflows/ralph.ts`               | Remove hook-based mode, SDK-native |
+| Workflow Loader    | Load custom `.ts` workflows    | `src/ui/commands/workflow-commands.ts` | Add subgraph resolution            |
+| Subgraph Node      | Compose workflows              | `src/graph/nodes.ts:846-941`           | Enable recursive references        |
+| Wait Node          | HITL support (AskUserQuestion) | `src/graph/nodes.ts:675-710`           | Only for explicit user questions   |
+| Clear Context Node | Reset context window           | `src/graph/nodes.ts`                   | Clear context at loop boundaries   |
+| Sub-agent Registry | Discover and register agents   | `src/ui/commands/agent-commands.ts`    | New file for agent slash commands  |
+| Permission Bypass  | Auto-approve all tools         | `src/sdk/*-client.ts`                  | Configure SDK permission modes     |
 
 ## 5. Detailed Design
 
@@ -803,6 +806,7 @@ export function createRalphWorkflow(
 ```
 
 **Note:** There is NO `.if()/.else()/.endif()` for spec approval. The workflow runs straight through:
+
 1. Verify prerequisites (spec + feature-list exist) - OR run without feature-list
 2. Loop through features until all pass
 3. Create PR
@@ -812,6 +816,7 @@ export function createRalphWorkflow(
 Ralph workflows use custom node factories that handle session isolation and feature-list checking. Multiple Ralph sessions can run concurrently on the same branch. Each session stores all its artifacts in a dedicated folder.
 
 **Session Directory Structure:**
+
 ```
 .ralph/
 └── sessions/
@@ -834,6 +839,7 @@ Ralph workflows use custom node factories that handle session isolation and feat
 **Session ID Generation:**
 
 Session IDs are always **random UUIDs** to prevent naming conflicts:
+
 - Format: `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (standard UUID v4)
 - Generated automatically when `/ralph` is invoked
 - Displayed at session start for reference
@@ -854,10 +860,12 @@ Session IDs are always **random UUIDs** to prevent naming conflicts:
 **Stopping Ralph Execution:**
 
 Ralph can be stopped gracefully with a single keypress:
+
 - **Ctrl+C** - Stop execution, save checkpoint
 - **Esc** - Stop execution, save checkpoint
 
 Both actions:
+
 1. Interrupt the current agent call
 2. Save session state to `.ralph/sessions/{id}/session.json`
 3. Save checkpoint for potential resumption
@@ -871,30 +879,30 @@ Both actions:
 
 export interface RalphSession {
   // Identity
-  sessionId: string;           // Unique session identifier
-  sessionDir: string;          // Path to .ralph/sessions/{sessionId}/
+  sessionId: string; // Unique session identifier
+  sessionDir: string; // Path to .ralph/sessions/{sessionId}/
 
   // Timestamps
-  createdAt: string;           // ISO timestamp
-  lastUpdated: string;         // ISO timestamp
+  createdAt: string; // ISO timestamp
+  lastUpdated: string; // ISO timestamp
 
   // Configuration
-  yolo: boolean;               // true = no feature-list, false = uses feature-list
-  maxIterations: number;       // Configured max iterations
+  yolo: boolean; // true = no feature-list, false = uses feature-list
+  maxIterations: number; // Configured max iterations
   sourceFeatureListPath?: string; // Original feature-list.json path (if not yolo)
 
   // Feature tracking (session-scoped copy)
-  features: RalphFeature[];    // Features for this session
+  features: RalphFeature[]; // Features for this session
   currentFeatureIndex: number; // Current feature being implemented
   completedFeatures: string[]; // Feature IDs completed
 
   // Progress
-  iteration: number;           // Current loop iteration
-  status: 'running' | 'paused' | 'completed' | 'failed';
+  iteration: number; // Current loop iteration
+  status: "running" | "paused" | "completed" | "failed";
 
   // Output
-  prUrl?: string;              // Created PR URL (if any)
-  prBranch?: string;           // Branch name for PR
+  prUrl?: string; // Created PR URL (if any)
+  prBranch?: string; // Branch name for PR
 }
 
 export interface RalphFeature {
@@ -902,31 +910,36 @@ export interface RalphFeature {
   name: string;
   description: string;
   acceptanceCriteria?: string[];
-  status: 'pending' | 'in_progress' | 'passing' | 'failing';
-  implementedAt?: string;      // ISO timestamp when completed
-  error?: string;              // Error message if failing
+  status: "pending" | "in_progress" | "passing" | "failing";
+  implementedAt?: string; // ISO timestamp when completed
+  error?: string; // Error message if failing
 }
 ```
 
 **Session Artifacts:**
 
-| Artifact | Path | Description |
-|----------|------|-------------|
-| Session state | `session.json` | Current session metadata and progress |
-| Feature list | `feature-list.json` | Session's copy of features (immutable after start) |
-| Progress | `progress.txt` | Human-readable progress summary |
-| Checkpoints | `checkpoints/*.json` | Workflow state checkpoints for resumption |
-| Research | `research/` | Any research docs generated during session |
-| Logs | `logs/agent-calls.jsonl` | All agent calls and responses |
-| Errors | `logs/errors.log` | Error logs for debugging |
+| Artifact      | Path                     | Description                                        |
+| ------------- | ------------------------ | -------------------------------------------------- |
+| Session state | `session.json`           | Current session metadata and progress              |
+| Feature list  | `feature-list.json`      | Session's copy of features (immutable after start) |
+| Progress      | `progress.txt`           | Human-readable progress summary                    |
+| Checkpoints   | `checkpoints/*.json`     | Workflow state checkpoints for resumption          |
+| Research      | `research/`              | Any research docs generated during session         |
+| Logs          | `logs/agent-calls.jsonl` | All agent calls and responses                      |
+| Errors        | `logs/errors.log`        | Error logs for debugging                           |
 
 **Custom Node Factories:**
 
 ```typescript
 // src/graph/nodes/ralph-nodes.ts
 
-import { NodeDefinition, WorkflowState } from '../types';
-import { readFeatureList, updateFeatureList, createSession, loadSession } from '../utils/ralph-session';
+import { NodeDefinition, WorkflowState } from "../types";
+import {
+  readFeatureList,
+  updateFeatureList,
+  createSession,
+  loadSession,
+} from "../utils/ralph-session";
 
 /**
  * Node that initializes a Ralph session.
@@ -938,13 +951,13 @@ export function initRalphSessionNode<TState extends RalphWorkflowState>(
   name: string,
   options: {
     featureListPath?: string; // Default: 'research/feature-list.json'
-    yolo?: boolean;           // true = no feature-list (default: false)
+    yolo?: boolean; // true = no feature-list (default: false)
     resumeSessionId?: string; // Optional: UUID of session to resume
-  } = {}
+  } = {},
 ): NodeDefinition<TState> {
   return {
     id: name,
-    type: 'ralph_init',
+    type: "ralph_init",
     execute: async (state, context) => {
       // Always use UUID - either resume existing or generate new
       const sessionId = options.resumeSessionId || crypto.randomUUID();
@@ -974,7 +987,8 @@ export function initRalphSessionNode<TState extends RalphWorkflowState>(
       await context.mkdir(`${sessionDir}/logs`);
 
       const yolo = options.yolo ?? false;
-      const sourceFeatureListPath = options.featureListPath || 'research/feature-list.json';
+      const sourceFeatureListPath =
+        options.featureListPath || "research/feature-list.json";
 
       // Create session
       const session: RalphSession = {
@@ -988,7 +1002,7 @@ export function initRalphSessionNode<TState extends RalphWorkflowState>(
         currentFeatureIndex: 0,
         completedFeatures: [],
         iteration: 0,
-        status: 'running',
+        status: "running",
       };
 
       // If NOT yolo, copy features into session
@@ -997,15 +1011,15 @@ export function initRalphSessionNode<TState extends RalphWorkflowState>(
         const featureList = await readFeatureList(sourceFeatureListPath);
 
         // Copy features into session (session owns its own copy)
-        session.features = featureList.features.map(f => ({
+        session.features = featureList.features.map((f) => ({
           ...f,
-          status: 'pending' as const,
+          status: "pending" as const,
         }));
 
         // Save session's copy of feature-list
         await context.writeFile(
           `${sessionDir}/feature-list.json`,
-          JSON.stringify({ features: session.features }, null, 2)
+          JSON.stringify({ features: session.features }, null, 2),
         );
       }
 
@@ -1013,16 +1027,16 @@ export function initRalphSessionNode<TState extends RalphWorkflowState>(
       await context.writeFile(
         `${sessionDir}/progress.txt`,
         `# Ralph Session: ${sessionId}\n` +
-        `Created: ${session.createdAt}\n` +
-        `Mode: ${yolo ? 'yolo (freestyle)' : 'feature-list'}\n` +
-        `Features: ${session.features.length}\n\n` +
-        `## Progress\n`
+          `Created: ${session.createdAt}\n` +
+          `Mode: ${yolo ? "yolo (freestyle)" : "feature-list"}\n` +
+          `Features: ${session.features.length}\n\n` +
+          `## Progress\n`,
       );
 
       // Save session state
       await context.writeFile(
         `${sessionDir}/session.json`,
-        JSON.stringify(session, null, 2)
+        JSON.stringify(session, null, 2),
       );
 
       return {
@@ -1047,18 +1061,20 @@ export function implementFeatureNode<TState extends RalphWorkflowState>(
   name: string,
   options: {
     prompt?: string; // Used in yolo mode
-  } = {}
+  } = {},
 ): NodeDefinition<TState> {
   return {
     id: name,
-    type: 'ralph_implement',
+    type: "ralph_implement",
     execute: async (state, context) => {
       const sessionDir = state.ralphSessionDir;
       const session = await loadSession(`${sessionDir}/session.json`);
 
       if (!session.yolo) {
         // Feature-list mode: Get next feature to implement
-        const nextFeature = session.features.find(f => f.status === 'pending');
+        const nextFeature = session.features.find(
+          (f) => f.status === "pending",
+        );
 
         if (!nextFeature) {
           // All features complete
@@ -1069,31 +1085,34 @@ export function implementFeatureNode<TState extends RalphWorkflowState>(
         }
 
         // Mark as in_progress
-        nextFeature.status = 'in_progress';
+        nextFeature.status = "in_progress";
         await saveSession(sessionDir, session);
 
         // Log the agent call
-        await appendLog(sessionDir, 'agent-calls', {
+        await appendLog(sessionDir, "agent-calls", {
           timestamp: new Date().toISOString(),
           feature: nextFeature.id,
-          action: 'implement',
+          action: "implement",
         });
 
         // Execute agent to implement feature
         const result = await context.runAgent({
-          prompt: IMPLEMENT_FEATURE_PROMPT.replace('$FEATURE', JSON.stringify(nextFeature)),
-          permissionMode: 'bypassPermissions',
+          prompt: IMPLEMENT_FEATURE_PROMPT.replace(
+            "$FEATURE",
+            JSON.stringify(nextFeature),
+          ),
+          permissionMode: "bypassPermissions",
         });
 
         // Check if feature is now passing (tests pass, etc.)
         const isPassing = await checkFeaturePassing(nextFeature, context);
-        nextFeature.status = isPassing ? 'passing' : 'failing';
+        nextFeature.status = isPassing ? "passing" : "failing";
         nextFeature.implementedAt = new Date().toISOString();
 
         if (isPassing) {
           session.completedFeatures.push(nextFeature.id);
         } else {
-          nextFeature.error = result.error || 'Feature tests not passing';
+          nextFeature.error = result.error || "Feature tests not passing";
         }
 
         session.iteration++;
@@ -1103,7 +1122,7 @@ export function implementFeatureNode<TState extends RalphWorkflowState>(
         // Update session's feature-list.json
         await context.writeFile(
           `${sessionDir}/feature-list.json`,
-          JSON.stringify({ features: session.features }, null, 2)
+          JSON.stringify({ features: session.features }, null, 2),
         );
 
         // Update progress.txt
@@ -1113,15 +1132,18 @@ export function implementFeatureNode<TState extends RalphWorkflowState>(
           ...state,
           currentFeature: nextFeature,
           iteration: session.iteration,
-          allFeaturesPassing: session.features.every(f => f.status === 'passing'),
+          allFeaturesPassing: session.features.every(
+            (f) => f.status === "passing",
+          ),
         };
-
       } else {
         // Yolo mode - use provided prompt (required for yolo)
         const userPrompt = options.prompt || state.userPrompt;
 
         if (!userPrompt) {
-          throw new Error('Yolo mode requires a prompt. Use: /ralph --yolo "your task"');
+          throw new Error(
+            'Yolo mode requires a prompt. Use: /ralph --yolo "your task"',
+          );
         }
 
         // Append completion promise instruction to the prompt
@@ -1133,36 +1155,37 @@ export function implementFeatureNode<TState extends RalphWorkflowState>(
         const promptWithCompletion = userPrompt + COMPLETION_INSTRUCTION;
 
         // Log the agent call
-        await appendLog(sessionDir, 'agent-calls', {
+        await appendLog(sessionDir, "agent-calls", {
           timestamp: new Date().toISOString(),
-          action: 'yolo',
+          action: "yolo",
           prompt: userPrompt, // Log original prompt without instruction
         });
 
         // Execute the task
         const result = await context.runAgent({
           prompt: promptWithCompletion,
-          permissionMode: 'bypassPermissions',
+          permissionMode: "bypassPermissions",
         });
 
         // Check if agent signaled completion
-        const isComplete = result.output?.includes('COMPLETE') ||
-                          result.text?.includes('COMPLETE');
+        const isComplete =
+          result.output?.includes("COMPLETE") ||
+          result.text?.includes("COMPLETE");
 
         session.iteration++;
         session.lastUpdated = new Date().toISOString();
 
         if (isComplete) {
-          session.status = 'completed';
+          session.status = "completed";
         }
 
         await saveSession(sessionDir, session);
 
         // Update progress.txt
-        const statusEmoji = isComplete ? '✓ COMPLETE' : '→';
+        const statusEmoji = isComplete ? "✓ COMPLETE" : "→";
         await context.appendFile(
           `${sessionDir}/progress.txt`,
-          `\n[${new Date().toISOString()}] ${statusEmoji} Iteration ${session.iteration}: ${userPrompt.slice(0, 50)}...\n`
+          `\n[${new Date().toISOString()}] ${statusEmoji} Iteration ${session.iteration}: ${userPrompt.slice(0, 50)}...\n`,
         );
 
         return {
@@ -1184,25 +1207,25 @@ export function implementFeatureNode<TState extends RalphWorkflowState>(
  * - Both modes: max iterations reached (if maxIterations > 0)
  */
 export function checkCompletionNode<TState extends RalphWorkflowState>(
-  name: string
+  name: string,
 ): NodeDefinition<TState> {
   return {
     id: name,
-    type: 'ralph_check',
+    type: "ralph_check",
     execute: async (state, context) => {
       const sessionDir = state.ralphSessionDir;
       const session = await loadSession(`${sessionDir}/session.json`);
 
       // Check max iterations (0 = infinite)
-      const maxReached = session.maxIterations > 0 &&
-                        session.iteration >= session.maxIterations;
+      const maxReached =
+        session.maxIterations > 0 && session.iteration >= session.maxIterations;
 
       if (session.yolo) {
         // Yolo mode: check for completion promise or max iterations
-        const isComplete = state.yoloComplete || session.status === 'completed';
+        const isComplete = state.yoloComplete || session.status === "completed";
 
         if (isComplete) {
-          console.log('Task completed! Agent signaled COMPLETE.');
+          console.log("Task completed! Agent signaled COMPLETE.");
         } else if (maxReached) {
           console.log(`Max iterations (${session.maxIterations}) reached.`);
         }
@@ -1216,13 +1239,13 @@ export function checkCompletionNode<TState extends RalphWorkflowState>(
       }
 
       // Feature-list mode: check if all features pass
-      const allPassing = session.features.every(f => f.status === 'passing');
+      const allPassing = session.features.every((f) => f.status === "passing");
 
       // Update session status
       if (allPassing) {
-        session.status = 'completed';
+        session.status = "completed";
         await saveSession(sessionDir, session);
-        console.log('All features passing!');
+        console.log("All features passing!");
       } else if (maxReached) {
         console.log(`Max iterations (${session.maxIterations}) reached.`);
       }
@@ -1246,29 +1269,26 @@ export function createPRNode<TState extends RalphWorkflowState>(
   options: {
     baseBranch?: string;
     titleTemplate?: string;
-  } = {}
+  } = {},
 ): NodeDefinition<TState> {
   return {
     id: name,
-    type: 'ralph_pr',
+    type: "ralph_pr",
     execute: async (state, context) => {
       const sessionDir = state.ralphSessionDir;
       const session = await loadSession(`${sessionDir}/session.json`);
 
       const result = await context.runAgent({
         prompt: CREATE_PR_PROMPT.replace(
-          '$COMPLETED_FEATURES',
-          JSON.stringify(session.completedFeatures)
-        ).replace(
-          '$SESSION_ID',
-          session.sessionId
-        ),
-        permissionMode: 'bypassPermissions',
+          "$COMPLETED_FEATURES",
+          JSON.stringify(session.completedFeatures),
+        ).replace("$SESSION_ID", session.sessionId),
+        permissionMode: "bypassPermissions",
       });
 
       session.prUrl = result.prUrl;
       session.prBranch = result.branch;
-      session.status = 'completed';
+      session.status = "completed";
       session.lastUpdated = new Date().toISOString();
       await saveSession(sessionDir, session);
 
@@ -1276,9 +1296,9 @@ export function createPRNode<TState extends RalphWorkflowState>(
       await context.appendFile(
         `${sessionDir}/progress.txt`,
         `\n## Completed\n` +
-        `PR: ${result.prUrl}\n` +
-        `Branch: ${result.branch}\n` +
-        `Completed at: ${session.lastUpdated}\n`
+          `PR: ${result.prUrl}\n` +
+          `Branch: ${result.branch}\n` +
+          `Completed at: ${session.lastUpdated}\n`,
       );
 
       return {
@@ -1296,34 +1316,38 @@ export function createPRNode<TState extends RalphWorkflowState>(
 ```typescript
 // src/workflows/ralph.ts
 
-import { graph } from '../graph/builder';
+import { graph } from "../graph/builder";
 import {
   initRalphSessionNode,
   implementFeatureNode,
   checkCompletionNode,
   createPRNode,
-} from '../graph/nodes/ralph-nodes';
-import { clearContextNode } from '../graph/nodes';
+} from "../graph/nodes/ralph-nodes";
+import { clearContextNode } from "../graph/nodes";
 
 export function createRalphWorkflow(config: RalphWorkflowConfig = {}) {
   return graph<RalphWorkflowState>()
-    .start(initRalphSessionNode('init-session', {
-      resumeSessionId: config.resumeSessionId, // Optional: UUID to resume
-      yolo: config.yolo ?? false,              // Default: uses feature-list
-      featureListPath: config.featureListPath,
-    }))
+    .start(
+      initRalphSessionNode("init-session", {
+        resumeSessionId: config.resumeSessionId, // Optional: UUID to resume
+        yolo: config.yolo ?? false, // Default: uses feature-list
+        featureListPath: config.featureListPath,
+      }),
+    )
     .loop(
-      clearContextNode('clear-before-feature'),
-      implementFeatureNode('implement-feature'),
-      checkCompletionNode('check-completion'),
+      clearContextNode("clear-before-feature"),
+      implementFeatureNode("implement-feature"),
+      checkCompletionNode("check-completion"),
       {
         until: (state) => !state.shouldContinue,
         maxIterations: config.maxIterations ?? 100,
-      }
+      },
     )
-    .then(createPRNode('create-pr', {
-      baseBranch: config.baseBranch,
-    }))
+    .then(
+      createPRNode("create-pr", {
+        baseBranch: config.baseBranch,
+      }),
+    )
     .end()
     .compile({
       checkpointing: config.checkpointing ?? true,
@@ -1333,9 +1357,11 @@ export function createRalphWorkflow(config: RalphWorkflowConfig = {}) {
 }
 
 // Helper: Session management utilities
-export async function loadSessionIfExists(sessionDir: string): Promise<RalphSession | null> {
+export async function loadSessionIfExists(
+  sessionDir: string,
+): Promise<RalphSession | null> {
   try {
-    const content = await fs.readFile(`${sessionDir}/session.json`, 'utf-8');
+    const content = await fs.readFile(`${sessionDir}/session.json`, "utf-8");
     return JSON.parse(content);
   } catch {
     return null;
@@ -1343,38 +1369,41 @@ export async function loadSessionIfExists(sessionDir: string): Promise<RalphSess
 }
 
 export async function loadSession(sessionPath: string): Promise<RalphSession> {
-  const content = await fs.readFile(sessionPath, 'utf-8');
+  const content = await fs.readFile(sessionPath, "utf-8");
   return JSON.parse(content);
 }
 
-export async function saveSession(sessionDir: string, session: RalphSession): Promise<void> {
+export async function saveSession(
+  sessionDir: string,
+  session: RalphSession,
+): Promise<void> {
   session.lastUpdated = new Date().toISOString();
   await fs.writeFile(
     `${sessionDir}/session.json`,
-    JSON.stringify(session, null, 2)
+    JSON.stringify(session, null, 2),
   );
 }
 
 export async function appendLog(
   sessionDir: string,
   logName: string,
-  entry: Record<string, unknown>
+  entry: Record<string, unknown>,
 ): Promise<void> {
   await fs.appendFile(
     `${sessionDir}/logs/${logName}.jsonl`,
-    JSON.stringify(entry) + '\n'
+    JSON.stringify(entry) + "\n",
   );
 }
 
 export async function appendProgress(
   sessionDir: string,
   feature: RalphFeature,
-  passed: boolean
+  passed: boolean,
 ): Promise<void> {
-  const status = passed ? '✓' : '✗';
+  const status = passed ? "✓" : "✗";
   await fs.appendFile(
     `${sessionDir}/progress.txt`,
-    `[${new Date().toISOString()}] ${status} ${feature.name}\n`
+    `[${new Date().toISOString()}] ${status} ${feature.name}\n`,
   );
 }
 ```
@@ -1397,13 +1426,14 @@ export class RalphExecutor {
 
   private setupInterruptHandlers(): void {
     // Ctrl+C handler
-    process.on('SIGINT', () => this.handleInterrupt());
+    process.on("SIGINT", () => this.handleInterrupt());
 
     // Esc key handler (for TUI)
     if (process.stdin.isTTY) {
       process.stdin.setRawMode(true);
-      process.stdin.on('data', (data) => {
-        if (data[0] === 0x1b) { // Esc key
+      process.stdin.on("data", (data) => {
+        if (data[0] === 0x1b) {
+          // Esc key
           this.handleInterrupt();
         }
       });
@@ -1411,7 +1441,7 @@ export class RalphExecutor {
   }
 
   private async handleInterrupt(): Promise<void> {
-    console.log('\nStopping Ralph execution...');
+    console.log("\nStopping Ralph execution...");
 
     // Signal abort to current agent call
     this.abortController.abort();
@@ -1419,7 +1449,7 @@ export class RalphExecutor {
     // Save session state as paused
     if (this.sessionDir) {
       const session = await loadSession(`${this.sessionDir}/session.json`);
-      session.status = 'paused';
+      session.status = "paused";
       session.lastUpdated = new Date().toISOString();
       await saveSession(this.sessionDir, session);
 
@@ -1433,7 +1463,10 @@ export class RalphExecutor {
     process.exit(0);
   }
 
-  async run(workflow: CompiledGraph, config: RalphWorkflowConfig): Promise<void> {
+  async run(
+    workflow: CompiledGraph,
+    config: RalphWorkflowConfig,
+  ): Promise<void> {
     const result = await workflow.run({
       config,
       signal: this.abortController.signal,
@@ -1449,21 +1482,21 @@ export class RalphExecutor {
 
 **Interrupt Behavior:**
 
-| Action | Behavior |
-|--------|----------|
-| First Ctrl+C | Graceful stop: save checkpoint, mark session as `'paused'` |
-| First Esc | Same as Ctrl+C |
-| During agent call | Abort current call, save partial progress |
-| Between iterations | Stop before next iteration starts |
+| Action             | Behavior                                                   |
+| ------------------ | ---------------------------------------------------------- |
+| First Ctrl+C       | Graceful stop: save checkpoint, mark session as `'paused'` |
+| First Esc          | Same as Ctrl+C                                             |
+| During agent call  | Abort current call, save partial progress                  |
+| Between iterations | Stop before next iteration starts                          |
 
 **Session Status Values:**
 
-| Status | Description |
-|--------|-------------|
-| `'running'` | Session is actively executing |
-| `'paused'` | Stopped by user (Ctrl+C/Esc), can be resumed |
-| `'completed'` | All features implemented, PR created |
-| `'failed'` | Unrecoverable error occurred |
+| Status        | Description                                  |
+| ------------- | -------------------------------------------- |
+| `'running'`   | Session is actively executing                |
+| `'paused'`    | Stopped by user (Ctrl+C/Esc), can be resumed |
+| `'completed'` | All features implemented, PR created         |
+| `'failed'`    | Unrecoverable error occurred                 |
 
 **Concurrent Session Support:**
 
@@ -1488,11 +1521,11 @@ Multiple Ralph sessions can run concurrently because:
 
 **Command Flags:**
 
-| Flag | Description |
-|------|-------------|
-| `--yolo` | Run without feature-list (freestyle mode). Requires a prompt argument. |
-| `--resume <uuid>` | Resume a paused session by its UUID. |
-| `--max-iterations <n>` | Maximum iterations before stopping (default: 100, 0 = infinite) |
+| Flag                    | Description                                                              |
+| ----------------------- | ------------------------------------------------------------------------ |
+| `--yolo`                | Run without feature-list (freestyle mode). Requires a prompt argument.   |
+| `--resume <uuid>`       | Resume a paused session by its UUID.                                     |
+| `--max-iterations <n>`  | Maximum iterations before stopping (default: 100, 0 = infinite)          |
 | `--feature-list <path>` | Custom path to feature-list.json (default: `research/feature-list.json`) |
 
 **Yolo Mode Completion Promise:**
@@ -1504,18 +1537,19 @@ In `--yolo` mode, Ralph automatically appends a completion instruction to your p
 ```
 
 This allows the agent to signal when the task is done, enabling:
+
 - **Infinite iterations** (`--max-iterations 0`) without getting stuck
 - **Natural exit** when the agent determines the task is complete
 - **No manual intervention** needed to stop the loop
 
 **Exit Conditions:**
 
-| Mode | Exit When |
-|------|-----------|
+| Mode         | Exit When                            |
+| ------------ | ------------------------------------ |
 | Feature-list | All features have status `'passing'` |
-| Yolo | Agent outputs `COMPLETE` in response |
-| Both | Max iterations reached (if > 0) |
-| Both | User presses Ctrl+C or Esc |
+| Yolo         | Agent outputs `COMPLETE` in response |
+| Both         | Max iterations reached (if > 0)      |
+| Both         | User presses Ctrl+C or Esc           |
 
 **Stopping and Resuming:**
 
@@ -1710,13 +1744,14 @@ export function resolveWorkflowRef(
 
 #### 5.7.1 When AskUserQuestion is Used
 
-| Use Case | Example |
-|----------|---------|
-| Explicit workflow questions | "Which branch should I create the PR against?" |
-| Ambiguous requirements | "The spec mentions 'authentication' - do you want OAuth or JWT?" |
-| Design decisions during execution | "Found 3 similar patterns - which one should I follow?" |
+| Use Case                          | Example                                                          |
+| --------------------------------- | ---------------------------------------------------------------- |
+| Explicit workflow questions       | "Which branch should I create the PR against?"                   |
+| Ambiguous requirements            | "The spec mentions 'authentication' - do you want OAuth or JWT?" |
+| Design decisions during execution | "Found 3 similar patterns - which one should I follow?"          |
 
 **NOT Used For:**
+
 - Tool approvals (auto-approved via `bypassPermissions`)
 - Spec review (done manually before workflow starts)
 - Feature list approval (done manually before workflow starts)
@@ -1958,20 +1993,27 @@ export interface RalphWorkflowState extends BaseState {
   - [ ] Session resume with `--session <id>`
 
 - **End-to-End Tests**:
-  - [ ] `/ralph` command starts workflow (uses feature-list by default)
-  - [ ] `/ralph` generates random UUID for session ID
-  - [ ] `/ralph --resume <uuid>` resumes paused session
-  - [ ] `/ralph --yolo "task"` runs without feature-list
-  - [ ] `/ralph --yolo` appends completion promise instruction to prompt
-  - [ ] `/ralph --yolo` exits when agent outputs "COMPLETE"
-  - [ ] `/ralph --yolo --max-iterations 0` runs infinitely until COMPLETE
-  - [ ] Session artifacts saved to `.ralph/sessions/{uuid}/`
-  - [ ] Ctrl+C stops execution gracefully and marks session as `'paused'`
-  - [ ] Esc stops execution gracefully and marks session as `'paused'`
-  - [ ] Paused sessions can be resumed with `--resume`
-  - [ ] Sub-agent invocation: `/codebase-analyzer "analyze X"`
-  - [ ] Concurrent sessions don't interfere with each other
-  - [ ] All tools auto-execute (no permission prompts except AskUserQuestion)
+
+DO NOT use `tmux` directly but instead rely on the `tmux-cli` command with your `tmux-cli` skill for usage details.
+
+ALL OF THE FUNCTIONALIY MUST WORK IN `opencode`, `copilot`, and `claude` agent modes.
+
+The test should be in a temp folder to build the snake game in rust
+
+- [ ] `/ralph` command starts workflow (uses feature-list by default)
+- [ ] `/ralph` generates random UUID for session ID
+- [ ] `/ralph --resume <uuid>` resumes paused session
+- [ ] `/ralph --yolo "task"` runs without feature-list
+- [ ] `/ralph --yolo` appends completion promise instruction to prompt
+- [ ] `/ralph --yolo` exits when agent outputs "COMPLETE"
+- [ ] `/ralph --yolo --max-iterations 0` runs infinitely until COMPLETE
+- [ ] Session artifacts saved to `.ralph/sessions/{uuid}/`
+- [ ] Ctrl+C stops execution gracefully and marks session as `'paused'`
+- [ ] Esc stops execution gracefully and marks session as `'paused'`
+- [ ] Paused sessions can be resumed with `--resume`
+- [ ] Sub-agent invocation: `/codebase-analyzer "analyze X"`
+- [ ] Concurrent sessions don't interfere with each other
+- [ ] All tools auto-execute (no permission prompts except AskUserQuestion)
 
 ## 9. Open Questions / Unresolved Issues
 
@@ -2048,6 +2090,7 @@ Based on dependencies and risk, the recommended implementation order:
 | SDK Clients       | `src/sdk/*-client.ts`                  | Permission bypass configuration per SDK                               |
 
 **Files to Remove:**
+
 - Any explicit hooks module in `src/` - Hooks are handled natively by the underlying SDK
 - `src/config/ralph.ts` `isGraphEngineEnabled()` - Graph engine is now the only mode
 - Hook-based Ralph loop files - Replaced by SDK-native workflow execution

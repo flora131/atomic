@@ -639,7 +639,7 @@
         "Do NOT include autoApproveSpec (spec approval is manual)",
         "Export the constant"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

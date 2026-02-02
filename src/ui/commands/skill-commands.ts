@@ -315,6 +315,110 @@ Analyze external dependencies:
 /research-codebase src/api             # Focus on specific directory
 \`\`\``,
   },
+  {
+    name: "create-spec",
+    description: "Generate technical specification from research",
+    aliases: ["spec"],
+    prompt: `# Create Technical Specification
+
+Generate a technical specification for: $ARGUMENTS
+
+## Purpose
+
+This skill creates a detailed technical specification document based on the research directory artifacts. The spec serves as a blueprint for implementation, translating high-level requirements into actionable technical decisions.
+
+## Prerequisites
+
+Before running this skill, ensure:
+1. The \`research/\` directory exists with documentation from \`/research-codebase\`
+2. You have clear requirements or goals for the feature/refactor
+
+## Input Sources
+
+Read and synthesize information from:
+- \`research/architecture.md\` - Understand existing system design
+- \`research/patterns.md\` - Follow established conventions
+- \`research/tech-stack.md\` - Use existing technologies
+- \`research/data-models.md\` - Understand data structures
+- \`research/entry-points.md\` - Identify integration points
+
+## Output Structure
+
+Create \`research/spec.md\` with the following sections:
+
+### 1. Overview
+- Feature/refactor summary (1-2 paragraphs)
+- Goals and success criteria
+- Out of scope items
+
+### 2. Technical Approach
+- High-level architecture changes
+- Key design decisions with rationale
+- Alternative approaches considered and why rejected
+
+### 3. Component Design
+For each component/module affected:
+- Purpose and responsibility
+- Public interface (functions, methods, types)
+- Internal implementation notes
+- Dependencies (what it needs)
+- Dependents (what uses it)
+
+### 4. Data Model Changes
+- New types/interfaces
+- Schema changes (if applicable)
+- Migration strategy (if applicable)
+
+### 5. API Changes
+- New endpoints or methods
+- Request/response formats
+- Breaking changes (if any)
+
+### 6. Integration Points
+- How new code integrates with existing system
+- Event flows and data flows
+- External service interactions
+
+### 7. Error Handling
+- Expected error scenarios
+- Error recovery strategies
+- User-facing error messages
+
+### 8. Testing Strategy
+- Unit test requirements
+- Integration test requirements
+- Edge cases to cover
+
+### 9. Implementation Order
+Suggested sequence for implementation:
+1. Foundation (types, interfaces)
+2. Core logic
+3. Integration
+4. Tests
+5. Documentation
+
+### 10. Open Questions
+- Unresolved technical decisions
+- Items needing stakeholder input
+- Risks and mitigations
+
+## Guidelines
+
+- Be specific and actionable
+- Include code snippets for complex interfaces
+- Reference existing code patterns when applicable
+- Keep the spec focused on HOW, not just WHAT
+- Flag any assumptions being made
+- Estimate relative complexity (simple/medium/complex) for each component
+
+## Example Usage
+
+\`\`\`
+/create-spec add user authentication
+/create-spec refactor database layer to use repository pattern
+/create-spec implement caching for API responses
+\`\`\``,
+  },
 ];
 
 // ============================================================================

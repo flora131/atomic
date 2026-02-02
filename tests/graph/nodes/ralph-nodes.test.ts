@@ -31,6 +31,12 @@ import {
   type ImplementFeatureOutputConfig,
   checkCompletionNode,
   type CheckCompletionNodeConfig,
+  createPRNode,
+  type CreatePRNodeConfig,
+  processCreatePRResult,
+  extractPRUrl,
+  extractBranchName,
+  CREATE_PR_PROMPT,
 
   // Yolo mode functions
   processYoloResult,
@@ -2689,5 +2695,431 @@ describe("checkCompletionNode", () => {
       expect(result.stateUpdate!.allFeaturesPassing).toBe(false);
       expect(result.stateUpdate!.shouldContinue).toBe(true);
     });
+  });
+});
+
+// ============================================================================
+// CREATE PR NODE TESTS
+// ============================================================================
+
+describe("createPRNode", () => {
+  const testSessionId = "create-pr-test-" + Date.now();
+  const testSessionDir = getSessionDir(testSessionId);
+
+  /**
+   * Create a mock ExecutionContext for testing.
+   */
+  function createPRMockContext(
+    overrides: Partial<RalphWorkflowState> = {}
+  ): ExecutionContext<RalphWorkflowState> {
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+        { id: "f2", name: "Feature 2", description: "Desc 2", status: "passing" },
+        { id: "f3", name: "Feature 3", description: "Desc 3", status: "pending" },
+      ],
+    });
+    return {
+      state: { ...state, ...overrides },
+      config: {} as GraphConfig<RalphWorkflowState>,
+      errors: [] as ExecutionError[],
+    };
+  }
+
+  beforeEach(async () => {
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  afterEach(async () => {
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  describe("CREATE_PR_PROMPT", () => {
+    test("contains session ID placeholder", () => {
+      expect(CREATE_PR_PROMPT).toContain("$SESSION_ID");
+    });
+
+    test("contains completed features placeholder", () => {
+      expect(CREATE_PR_PROMPT).toContain("$COMPLETED_FEATURES");
+    });
+
+    test("contains base branch placeholder", () => {
+      expect(CREATE_PR_PROMPT).toContain("$BASE_BRANCH");
+    });
+
+    test("contains gh CLI instructions", () => {
+      expect(CREATE_PR_PROMPT).toContain("gh pr create");
+    });
+
+    test("contains PR_URL output format instruction", () => {
+      expect(CREATE_PR_PROMPT).toContain("PR_URL:");
+    });
+  });
+
+  describe("extractPRUrl", () => {
+    test("extracts PR URL from PR_URL: marker", () => {
+      const output = "Done! PR_URL: https://github.com/owner/repo/pull/123";
+      expect(extractPRUrl(output)).toBe("https://github.com/owner/repo/pull/123");
+    });
+
+    test("extracts PR URL from GitHub PR pattern", () => {
+      const output = "Created PR at https://github.com/owner/repo/pull/456";
+      expect(extractPRUrl(output)).toBe("https://github.com/owner/repo/pull/456");
+    });
+
+    test("prefers PR_URL marker over raw URL", () => {
+      const output = "https://github.com/other/repo/pull/1\nPR_URL: https://github.com/owner/repo/pull/999";
+      expect(extractPRUrl(output)).toBe("https://github.com/owner/repo/pull/999");
+    });
+
+    test("returns undefined when no PR URL found", () => {
+      const output = "No PR was created due to errors";
+      expect(extractPRUrl(output)).toBeUndefined();
+    });
+
+    test("handles multiline output", () => {
+      const output = `
+Creating pull request...
+Done!
+PR_URL: https://github.com/test/project/pull/42
+Thanks for using Ralph!
+      `;
+      expect(extractPRUrl(output)).toBe("https://github.com/test/project/pull/42");
+    });
+  });
+
+  describe("extractBranchName", () => {
+    test("extracts branch name from output", () => {
+      const output = "Pushed to branch: feature/my-feature";
+      expect(extractBranchName(output)).toBe("feature/my-feature");
+    });
+
+    test("extracts branch name with quotes", () => {
+      const output = "Branch: 'main'";
+      expect(extractBranchName(output)).toBe("main");
+    });
+
+    test("returns undefined when no branch found", () => {
+      const output = "PR created successfully";
+      expect(extractBranchName(output)).toBeUndefined();
+    });
+  });
+
+  describe("node creation", () => {
+    test("creates a NodeDefinition with correct properties", () => {
+      const node = createPRNode({
+        id: "test-pr",
+      });
+
+      expect(node.id).toBe("test-pr");
+      expect(node.type).toBe("tool");
+      expect(node.name).toBe("create-pr");
+      expect(node.description).toBe("Create a pull request with session metadata");
+      expect(typeof node.execute).toBe("function");
+    });
+
+    test("accepts custom name and description", () => {
+      const node = createPRNode({
+        id: "custom-pr",
+        name: "Custom PR",
+        description: "Custom description",
+      });
+
+      expect(node.name).toBe("Custom PR");
+      expect(node.description).toBe("Custom description");
+    });
+
+    test("accepts custom base branch", () => {
+      const node = createPRNode({
+        id: "pr-develop",
+        baseBranch: "develop",
+      });
+
+      expect(node).toBeDefined();
+    });
+  });
+
+  describe("execute function", () => {
+    test("builds prompt with session ID", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = createPRNode({ id: "pr" });
+      const ctx = createPRMockContext();
+      const result = await node.execute(ctx);
+
+      const prompt = result.stateUpdate!.outputs!["pr_prompt"] as string;
+      expect(prompt).toContain(testSessionId);
+    });
+
+    test("builds prompt with completed features", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = createPRNode({ id: "pr" });
+      const ctx = createPRMockContext();
+      const result = await node.execute(ctx);
+
+      const prompt = result.stateUpdate!.outputs!["pr_prompt"] as string;
+      expect(prompt).toContain("Feature 1");
+      expect(prompt).toContain("Feature 2");
+      // Feature 3 is pending, should not be in completed features
+    });
+
+    test("builds prompt with base branch", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = createPRNode({ id: "pr", baseBranch: "develop" });
+      const ctx = createPRMockContext();
+      const result = await node.execute(ctx);
+
+      const prompt = result.stateUpdate!.outputs!["pr_prompt"] as string;
+      expect(prompt).toContain("develop");
+      expect(result.stateUpdate!.outputs!["pr_baseBranch"]).toBe("develop");
+    });
+
+    test("builds prompt with feature counts", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = createPRNode({ id: "pr" });
+      const ctx = createPRMockContext();
+      const result = await node.execute(ctx);
+
+      const prompt = result.stateUpdate!.outputs!["pr_prompt"] as string;
+      // 2 passing out of 3 total
+      expect(prompt).toContain("Total features: 3");
+      expect(prompt).toContain("Passing features: 2");
+    });
+
+    test("stores title in outputs when titleTemplate provided", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = createPRNode({
+        id: "pr",
+        titleTemplate: "feat: Ralph session $SESSION_ID ($FEATURE_COUNT features)",
+      });
+      const ctx = createPRMockContext();
+      const result = await node.execute(ctx);
+
+      const title = result.stateUpdate!.outputs!["pr_title"] as string;
+      expect(title).toContain(testSessionId);
+      expect(title).toContain("2 features");
+    });
+
+    test("logs create-pr-start action", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = createPRNode({ id: "pr" });
+      const ctx = createPRMockContext();
+      await node.execute(ctx);
+
+      const logPath = `${testSessionDir}logs/agent-calls.jsonl`;
+      const content = await readFile(logPath, "utf-8");
+      const entry = JSON.parse(content.trim());
+      expect(entry.action).toBe("create-pr-start");
+      expect(entry.completedFeatures).toBe(2);
+      expect(entry.totalFeatures).toBe(3);
+    });
+
+    test("uses custom prompt template", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const customPrompt = "Create a PR for session $SESSION_ID with $PASSING_FEATURES features";
+      const node = createPRNode({
+        id: "pr",
+        promptTemplate: customPrompt,
+      });
+      const ctx = createPRMockContext();
+      const result = await node.execute(ctx);
+
+      const prompt = result.stateUpdate!.outputs!["pr_prompt"] as string;
+      expect(prompt).toContain(testSessionId);
+      expect(prompt).toContain("2 features");
+    });
+  });
+});
+
+// ============================================================================
+// PROCESS CREATE PR RESULT TESTS
+// ============================================================================
+
+describe("processCreatePRResult", () => {
+  const testSessionId = "process-pr-test-" + Date.now();
+  const testSessionDir = getSessionDir(testSessionId);
+
+  beforeEach(async () => {
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  afterEach(async () => {
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  test("extracts PR URL from agent output", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [
+        { id: "f1", name: "Feature 1", description: "Desc", status: "passing" },
+      ],
+    });
+
+    const result = await processCreatePRResult(
+      state,
+      "Created PR: PR_URL: https://github.com/owner/repo/pull/123"
+    );
+
+    expect(result.prUrl).toBe("https://github.com/owner/repo/pull/123");
+  });
+
+  test("sets sessionStatus to completed", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [],
+    });
+
+    const result = await processCreatePRResult(state, "PR_URL: https://github.com/test/pull/1");
+
+    expect(result.sessionStatus).toBe("completed");
+  });
+
+  test("sets shouldContinue to false", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [],
+    });
+
+    const result = await processCreatePRResult(state, "Done");
+
+    expect(result.shouldContinue).toBe(false);
+  });
+
+  test("saves session to disk", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [
+        { id: "f1", name: "Feature", description: "Desc", status: "passing" },
+      ],
+    });
+
+    await processCreatePRResult(state, "PR_URL: https://github.com/test/pull/42");
+
+    const sessionPath = `${testSessionDir}session.json`;
+    const content = await readFile(sessionPath, "utf-8");
+    const session = JSON.parse(content);
+    expect(session.status).toBe("completed");
+    expect(session.prUrl).toBe("https://github.com/test/pull/42");
+  });
+
+  test("appends to progress.txt", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [
+        { id: "f1", name: "Feature", description: "Desc", status: "passing" },
+      ],
+    });
+
+    await processCreatePRResult(state, "PR_URL: https://github.com/test/pull/1");
+
+    const progressPath = `${testSessionDir}progress.txt`;
+    const content = await readFile(progressPath, "utf-8");
+    expect(content).toContain("Session Complete");
+    expect(content).toContain("1/1 features");
+    expect(content).toContain("✓");
+  });
+
+  test("logs create-pr-result action", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [
+        { id: "f1", name: "Feature 1", description: "Desc", status: "passing" },
+        { id: "f2", name: "Feature 2", description: "Desc", status: "passing" },
+      ],
+    });
+
+    await processCreatePRResult(state, "PR_URL: https://github.com/test/pull/100");
+
+    const logPath = `${testSessionDir}logs/agent-calls.jsonl`;
+    const content = await readFile(logPath, "utf-8");
+    const entry = JSON.parse(content.trim());
+    expect(entry.action).toBe("create-pr-result");
+    expect(entry.prUrl).toBe("https://github.com/test/pull/100");
+    expect(entry.success).toBe(true);
+    expect(entry.completedFeatures).toBe(2);
+  });
+
+  test("handles output without PR URL", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [],
+    });
+
+    const result = await processCreatePRResult(state, "Error: Could not create PR");
+
+    expect(result.prUrl).toBeUndefined();
+    expect(result.sessionStatus).toBe("completed"); // Still completes the session
+  });
+
+  test("marks progress as failing when no PR URL", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [],
+    });
+
+    await processCreatePRResult(state, "Error creating PR");
+
+    const progressPath = `${testSessionDir}progress.txt`;
+    const content = await readFile(progressPath, "utf-8");
+    expect(content).toContain("✗");
+  });
+
+  test("extracts branch name when present", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [],
+    });
+
+    const result = await processCreatePRResult(
+      state,
+      "Pushed to branch: feature/my-work\nPR_URL: https://github.com/test/pull/1"
+    );
+
+    expect(result.prBranch).toBe("feature/my-work");
   });
 });

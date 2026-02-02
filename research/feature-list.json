@@ -184,7 +184,7 @@
         "Include '~/.atomic/agents' path",
         "Export both constants"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

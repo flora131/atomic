@@ -11,6 +11,10 @@ import type {
   AgentModel,
   AgentFrontmatter,
 } from "../../../src/ui/commands/agent-commands.ts";
+import {
+  AGENT_DISCOVERY_PATHS,
+  GLOBAL_AGENT_PATHS,
+} from "../../../src/ui/commands/agent-commands.ts";
 
 // ============================================================================
 // TESTS
@@ -316,5 +320,62 @@ When analyzing code:
     expect(debugger_agent.tools).toContain("Edit");
     expect(debugger_agent.tools).toContain("Write");
     expect(debugger_agent.model).toBe("sonnet");
+  });
+});
+
+describe("AGENT_DISCOVERY_PATHS constant", () => {
+  test("contains .claude/agents path", () => {
+    expect(AGENT_DISCOVERY_PATHS).toContain(".claude/agents");
+  });
+
+  test("contains .opencode/agents path", () => {
+    expect(AGENT_DISCOVERY_PATHS).toContain(".opencode/agents");
+  });
+
+  test("contains .github/agents path", () => {
+    expect(AGENT_DISCOVERY_PATHS).toContain(".github/agents");
+  });
+
+  test("contains .atomic/agents path", () => {
+    expect(AGENT_DISCOVERY_PATHS).toContain(".atomic/agents");
+  });
+
+  test("has 4 project-local paths", () => {
+    expect(AGENT_DISCOVERY_PATHS).toHaveLength(4);
+  });
+
+  test("all paths are relative (no leading slash or tilde)", () => {
+    for (const path of AGENT_DISCOVERY_PATHS) {
+      expect(path.startsWith("/")).toBe(false);
+      expect(path.startsWith("~")).toBe(false);
+    }
+  });
+});
+
+describe("GLOBAL_AGENT_PATHS constant", () => {
+  test("contains ~/.claude/agents path", () => {
+    expect(GLOBAL_AGENT_PATHS).toContain("~/.claude/agents");
+  });
+
+  test("contains ~/.opencode/agents path", () => {
+    expect(GLOBAL_AGENT_PATHS).toContain("~/.opencode/agents");
+  });
+
+  test("contains ~/.copilot/agents path", () => {
+    expect(GLOBAL_AGENT_PATHS).toContain("~/.copilot/agents");
+  });
+
+  test("contains ~/.atomic/agents path", () => {
+    expect(GLOBAL_AGENT_PATHS).toContain("~/.atomic/agents");
+  });
+
+  test("has 4 user-global paths", () => {
+    expect(GLOBAL_AGENT_PATHS).toHaveLength(4);
+  });
+
+  test("all paths start with ~ for home directory expansion", () => {
+    for (const path of GLOBAL_AGENT_PATHS) {
+      expect(path.startsWith("~")).toBe(true);
+    }
   });
 });

@@ -455,3 +455,41 @@
 ### Files Modified
 - src/ui/commands/agent-commands.ts - Added AgentFrontmatter interface
 - tests/ui/commands/agent-commands.test.ts - Added AgentFrontmatter tests
+
+## 2026-02-02 - Feature Implementation: Agent Discovery Path Constants
+
+### Completed
+- Added AGENT_DISCOVERY_PATHS constant in agent-commands.ts
+  - Project-local directories to search for agent definition files
+  - Includes: `.claude/agents`, `.opencode/agents`, `.github/agents`, `.atomic/agents`
+  - Paths are relative to project root
+  - Files in these directories override user-global agents
+- Added GLOBAL_AGENT_PATHS constant in agent-commands.ts
+  - User-global directories to search for agent definition files
+  - Includes: `~/.claude/agents`, `~/.opencode/agents`, `~/.copilot/agents`, `~/.atomic/agents`
+  - Use ~ for home directory expansion
+  - Project-local agents take precedence over user-global
+- Exported both constants for use by discoverAgents()
+
+### Tests Added
+- AGENT_DISCOVERY_PATHS tests:
+  - contains .claude/agents path
+  - contains .opencode/agents path
+  - contains .github/agents path
+  - contains .atomic/agents path
+  - has 4 project-local paths
+  - all paths are relative (no leading slash or tilde)
+- GLOBAL_AGENT_PATHS tests:
+  - contains ~/.claude/agents path
+  - contains ~/.opencode/agents path
+  - contains ~/.copilot/agents path
+  - contains ~/.atomic/agents path
+  - has 4 user-global paths
+  - all paths start with ~ for home directory expansion
+
+### Test Results
+- All agent-commands tests pass (34 tests)
+
+### Files Modified
+- src/ui/commands/agent-commands.ts - Added AGENT_DISCOVERY_PATHS and GLOBAL_AGENT_PATHS constants
+- tests/ui/commands/agent-commands.test.ts - Added path constant tests

@@ -645,3 +645,48 @@
 ### Files Modified
 - src/ui/commands/agent-commands.ts - Added BUILTIN_AGENTS array and getBuiltinAgent() function
 - tests/ui/commands/agent-commands.test.ts - Added BUILTIN_AGENTS and getBuiltinAgent tests
+
+## 2026-02-02 - Feature Implementation: codebase-locator Builtin Agent
+
+### Completed
+- Added codebase-locator agent to BUILTIN_AGENTS array in agent-commands.ts
+  - name: 'codebase-locator'
+  - description: 'Locates files, directories, and components relevant to a feature or task. A Super Grep/Glob/LS tool.'
+  - tools: ['Glob', 'Grep', 'NotebookRead', 'Read', 'LS', 'Bash']
+  - model: 'haiku' (optimized for speed)
+  - source: 'builtin'
+  - Comprehensive system prompt including:
+    - Navigation Strategy section covering:
+      - Understand the Target
+      - Quick Pattern Matching
+      - Content Search
+      - Directory Exploration
+      - Verification
+    - Common file patterns for components, services, utils, tests, config
+    - Output format guidelines (Primary Matches, Related Files, Directory Structure)
+    - Guidelines for efficient searching
+
+### Tests Added (13 new tests)
+- codebase-locator builtin agent tests:
+  - exists in BUILTIN_AGENTS
+  - has correct name
+  - has appropriate description
+  - has tools array with navigation tools
+  - has haiku model for speed
+  - has comprehensive system prompt
+  - prompt includes navigation strategy steps
+  - prompt includes common file patterns
+  - prompt includes output format guidelines
+  - has builtin source
+- BUILTIN_AGENTS array tests:
+  - contains codebase-locator agent
+- getBuiltinAgent tests:
+  - finds codebase-locator by name
+  - finds codebase-locator case-insensitively
+
+### Test Results
+- All agent-commands tests pass (114 tests)
+
+### Files Modified
+- src/ui/commands/agent-commands.ts - Added codebase-locator to BUILTIN_AGENTS array
+- tests/ui/commands/agent-commands.test.ts - Added codebase-locator tests

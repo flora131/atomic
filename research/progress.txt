@@ -1902,3 +1902,37 @@ The Ralph workflow follows this sequence:
 ### Files Modified
 - src/workflows/index.ts - Added RalphExecutor exports
 - research/feature-list.json - Marked 5 related features as passes: true
+
+## 2026-02-02 - Feature Implementation: Add /ralph Command to BUILTIN_WORKFLOW_DEFINITIONS
+
+### Completed
+- Added /ralph as a standalone workflow command in BUILTIN_WORKFLOW_DEFINITIONS
+  - Name: "ralph"
+  - Description: "Start the Ralph autonomous implementation workflow"
+  - Uses createRalphWorkflow() function (separate from atomic workflow)
+  - Supports configuration: maxIterations, checkpointing, featureListPath, yolo, userPrompt
+  - No aliases (only accessible via /ralph)
+
+- Updated atomic workflow
+  - Removed "ralph" from aliases (ralph is now separate)
+  - Kept "loop" as alias for atomic
+  - Updated description to clarify it includes research/spec phases
+
+- Made WorkflowMetadata generic
+  - Interface now supports different state types: WorkflowMetadata<TState extends BaseState>
+  - Allows type-safe workflow definitions for different workflow states
+
+### Tests Updated
+- Updated WORKFLOW_DEFINITIONS tests for ralph being separate workflow
+- Added tests for ralph workflow definition
+- Added tests for ralph command metadata
+- Updated alias tests to reflect ralph is no longer an alias
+- Updated getWorkflowMetadata tests for ralph as separate workflow
+
+### Test Results
+- All 32 workflow-commands tests pass
+
+### Files Modified
+- src/ui/commands/workflow-commands.ts - Added ralph to BUILTIN_WORKFLOW_DEFINITIONS
+- tests/ui/commands/workflow-commands.test.ts - Updated tests for ralph separation
+- research/feature-list.json - Marked feature as passes: true

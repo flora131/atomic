@@ -923,6 +923,11 @@ describe("BUILTIN_AGENTS array", () => {
     const locator = BUILTIN_AGENTS.find((a) => a.name === "codebase-locator");
     expect(locator).toBeDefined();
   });
+
+  test("contains codebase-pattern-finder agent", () => {
+    const patternFinder = BUILTIN_AGENTS.find((a) => a.name === "codebase-pattern-finder");
+    expect(patternFinder).toBeDefined();
+  });
 });
 
 describe("codebase-analyzer builtin agent", () => {
@@ -1075,5 +1080,82 @@ describe("getBuiltinAgent", () => {
     const agent = getBuiltinAgent("CODEBASE-LOCATOR");
     expect(agent).toBeDefined();
     expect(agent!.name).toBe("codebase-locator");
+  });
+
+  test("finds codebase-pattern-finder by name", () => {
+    const agent = getBuiltinAgent("codebase-pattern-finder");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("codebase-pattern-finder");
+    expect(agent!.model).toBe("sonnet");
+  });
+
+  test("finds codebase-pattern-finder case-insensitively", () => {
+    const agent = getBuiltinAgent("CODEBASE-PATTERN-FINDER");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("codebase-pattern-finder");
+  });
+});
+
+describe("codebase-pattern-finder builtin agent", () => {
+  const patternFinder = BUILTIN_AGENTS.find((a) => a.name === "codebase-pattern-finder");
+
+  test("exists in BUILTIN_AGENTS", () => {
+    expect(patternFinder).toBeDefined();
+  });
+
+  test("has correct name", () => {
+    expect(patternFinder!.name).toBe("codebase-pattern-finder");
+  });
+
+  test("has appropriate description", () => {
+    expect(patternFinder!.description).toContain("Finds");
+    expect(patternFinder!.description).toContain("patterns");
+  });
+
+  test("has tools array with pattern finding tools", () => {
+    expect(patternFinder!.tools).toBeDefined();
+    expect(patternFinder!.tools).toContain("Glob");
+    expect(patternFinder!.tools).toContain("Grep");
+    expect(patternFinder!.tools).toContain("Read");
+    expect(patternFinder!.tools).toContain("LS");
+    expect(patternFinder!.tools).toContain("Bash");
+    expect(patternFinder!.tools).toContain("NotebookRead");
+  });
+
+  test("has sonnet model", () => {
+    expect(patternFinder!.model).toBe("sonnet");
+  });
+
+  test("has comprehensive system prompt", () => {
+    expect(patternFinder!.prompt.length).toBeGreaterThan(500);
+    expect(patternFinder!.prompt).toContain("pattern");
+    expect(patternFinder!.prompt).toContain("code");
+  });
+
+  test("prompt includes pattern finding strategy steps", () => {
+    expect(patternFinder!.prompt).toContain("Understand the Request");
+    expect(patternFinder!.prompt).toContain("Search for Similar Structures");
+    expect(patternFinder!.prompt).toContain("Identify Code Patterns");
+    expect(patternFinder!.prompt).toContain("Analyze Found Examples");
+    expect(patternFinder!.prompt).toContain("Extract Actionable Insights");
+  });
+
+  test("prompt includes pattern categories", () => {
+    expect(patternFinder!.prompt).toContain("Structural Patterns");
+    expect(patternFinder!.prompt).toContain("Naming Conventions");
+    expect(patternFinder!.prompt).toContain("Implementation Patterns");
+    expect(patternFinder!.prompt).toContain("Error Handling");
+  });
+
+  test("prompt includes output format guidelines", () => {
+    expect(patternFinder!.prompt).toContain("Pattern Summary");
+    expect(patternFinder!.prompt).toContain("Best Examples");
+    expect(patternFinder!.prompt).toContain("Implementation Details");
+    expect(patternFinder!.prompt).toContain("Usage Guidelines");
+    expect(patternFinder!.prompt).toContain("Variations");
+  });
+
+  test("has builtin source", () => {
+    expect(patternFinder!.source).toBe("builtin");
   });
 });

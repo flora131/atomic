@@ -557,7 +557,7 @@
         "Append to progress.txt",
         "Return updated state"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

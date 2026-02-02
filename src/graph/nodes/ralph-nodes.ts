@@ -41,6 +41,9 @@ import {
   appendLog,
   appendProgress,
 } from "../../workflows/ralph-session.ts";
+import { readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 
 // ============================================================================
 // RALPH WORKFLOW STATE
@@ -428,12 +431,293 @@ export {
 };
 
 // ============================================================================
-// INIT RALPH SESSION NODE
+// IMPLEMENT FEATURE NODE
 // ============================================================================
 
-import { readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+/**
+ * Configuration options for implementFeatureNode.
+ */
+export interface ImplementFeatureNodeConfig {
+  /** Unique identifier for the node */
+  id: string;
+
+  /** Human-readable name for the node */
+  name?: string;
+
+  /** Description of what the node does */
+  description?: string;
+
+  /** Optional: prompt template for implementing features */
+  promptTemplate?: string;
+}
+
+/**
+ * Create a node that prepares state for implementing the next pending feature.
+ *
+ * This node handles:
+ * - Finding the next feature with status 'pending'
+ * - If no pending features, setting allFeaturesPassing: true
+ * - Marking the feature as 'in_progress' and saving the session
+ * - Logging the agent call to agent-calls.jsonl
+ * - Preparing state for agent execution (actual agent call is handled by agentNode)
+ *
+ * The node should be followed by an agentNode that performs the actual implementation,
+ * and then a node that processes the results using the outputMapper pattern.
+ *
+ * @param config - Node configuration
+ * @returns A NodeDefinition for implementing features
+ *
+ * @example
+ * ```typescript
+ * // Create a node for feature implementation
+ * const implementNode = implementFeatureNode({
+ *   id: "implement-feature",
+ *   name: "Implement Next Feature",
+ *   promptTemplate: "Implement the following feature: {{description}}",
+ * });
+ *
+ * // Use in a workflow
+ * graph<RalphWorkflowState>()
+ *   .start(initNode)
+ *   .then(implementNode)
+ *   .then(agentNode)  // Actual agent execution
+ *   .then(checkResultsNode)  // Process results
+ *   .compile();
+ * ```
+ */
+export function implementFeatureNode<TState extends RalphWorkflowState = RalphWorkflowState>(
+  config: ImplementFeatureNodeConfig
+): NodeDefinition<TState> {
+  const {
+    id,
+    name = "implement-feature",
+    description = "Find and prepare the next pending feature for implementation",
+    promptTemplate,
+  } = config;
+
+  return {
+    id,
+    type: "tool",
+    name,
+    description,
+    execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
+      const state = ctx.state as RalphWorkflowState;
+      const sessionDir = state.ralphSessionDir;
+
+      // Find the next pending feature
+      const pendingFeatureIndex = state.features.findIndex(
+        (f) => f.status === "pending"
+      );
+
+      // If no pending features, all features are complete
+      if (pendingFeatureIndex === -1) {
+        // Check if all features are passing
+        const allPassing = state.features.every((f) => f.status === "passing");
+
+        // Log the completion check
+        await appendLog(sessionDir, "agent-calls", {
+          action: "implement-feature-check",
+          sessionId: state.ralphSessionId,
+          iteration: state.iteration,
+          result: "no_pending_features",
+          allFeaturesPassing: allPassing,
+        });
+
+        return {
+          stateUpdate: {
+            allFeaturesPassing: allPassing,
+            shouldContinue: !allPassing, // Continue if there are failing features
+            currentFeature: null,
+            currentFeatureIndex: state.currentFeatureIndex,
+            lastUpdated: new Date().toISOString(),
+          } as Partial<TState>,
+        };
+      }
+
+      // Get the pending feature (we know it exists since findIndex returned a valid index)
+      const feature = state.features[pendingFeatureIndex]!;
+
+      // Mark feature as in_progress
+      const updatedFeatures = [...state.features];
+      const inProgressFeature: RalphFeature = {
+        id: feature.id,
+        name: feature.name,
+        description: feature.description,
+        acceptanceCriteria: feature.acceptanceCriteria,
+        status: "in_progress",
+        implementedAt: feature.implementedAt,
+        error: feature.error,
+      };
+      updatedFeatures[pendingFeatureIndex] = inProgressFeature;
+
+      // Build the prompt for the agent if template is provided
+      let agentPrompt: string | undefined;
+      if (promptTemplate) {
+        agentPrompt = promptTemplate
+          .replace(/\{\{id\}\}/g, feature.id)
+          .replace(/\{\{name\}\}/g, feature.name)
+          .replace(/\{\{description\}\}/g, feature.description)
+          .replace(
+            /\{\{acceptanceCriteria\}\}/g,
+            feature.acceptanceCriteria?.join("\n- ") ?? ""
+          );
+      }
+
+      // Create updated state
+      const updatedState: Partial<RalphWorkflowState> = {
+        features: updatedFeatures,
+        currentFeatureIndex: pendingFeatureIndex,
+        currentFeature: inProgressFeature,
+        shouldContinue: true,
+        allFeaturesPassing: false,
+        lastUpdated: new Date().toISOString(),
+      };
+
+      // Save the session with updated feature status
+      const session = workflowStateToSession({
+        ...state,
+        ...updatedState,
+      } as RalphWorkflowState);
+      await saveSession(sessionDir, session);
+
+      // Update the session's feature-list.json
+      await saveSessionFeatureList(sessionDir, updatedFeatures);
+
+      // Log the agent call
+      await appendLog(sessionDir, "agent-calls", {
+        action: "implement-feature-start",
+        sessionId: state.ralphSessionId,
+        iteration: state.iteration,
+        featureId: feature.id,
+        featureName: feature.name,
+        featureIndex: pendingFeatureIndex,
+        prompt: agentPrompt,
+      });
+
+      // Add the agent prompt to outputs if generated
+      if (agentPrompt) {
+        return {
+          stateUpdate: {
+            ...updatedState,
+            outputs: {
+              ...state.outputs,
+              [`${id}_prompt`]: agentPrompt,
+            },
+          } as Partial<TState>,
+        };
+      }
+
+      return {
+        stateUpdate: updatedState as Partial<TState>,
+      };
+    },
+  };
+}
+
+/**
+ * Configuration for the output mapper after agent execution.
+ * This is used by nodes that process the agent's implementation results.
+ */
+export interface ImplementFeatureOutputConfig {
+  /** Function to check if the feature implementation passes (external check) */
+  checkFeaturePassing?: (state: RalphWorkflowState) => Promise<boolean>;
+}
+
+/**
+ * Process the results of a feature implementation agent call.
+ *
+ * This is a helper function that can be used in an outputMapper or as a
+ * standalone processing step after agent execution.
+ *
+ * @param state - Current workflow state (after agent execution)
+ * @param passed - Whether the feature implementation passes
+ * @returns Updated state with feature results applied
+ */
+export async function processFeatureImplementationResult(
+  state: RalphWorkflowState,
+  passed: boolean
+): Promise<Partial<RalphWorkflowState>> {
+  const sessionDir = state.ralphSessionDir;
+  const currentFeature = state.currentFeature;
+
+  if (!currentFeature) {
+    // No feature being implemented, return unchanged
+    return {};
+  }
+
+  const featureIndex = state.currentFeatureIndex;
+  const updatedFeatures = [...state.features];
+  const now = new Date().toISOString();
+
+  // Update feature status based on result
+  if (passed) {
+    updatedFeatures[featureIndex] = {
+      ...currentFeature,
+      status: "passing" as const,
+      implementedAt: now,
+    };
+  } else {
+    updatedFeatures[featureIndex] = {
+      ...currentFeature,
+      status: "failing" as const,
+    };
+  }
+
+  // Build completed features list
+  const completedFeatures = passed
+    ? [...state.completedFeatures, currentFeature.id]
+    : state.completedFeatures;
+
+  // Increment iteration
+  const nextIteration = state.iteration + 1;
+
+  // Check if max iterations reached
+  const maxIterationsReached =
+    state.maxIterations > 0 && nextIteration >= state.maxIterations;
+
+  // Build updated state
+  const updatedState: Partial<RalphWorkflowState> = {
+    features: updatedFeatures,
+    completedFeatures,
+    iteration: nextIteration,
+    currentFeature: null,
+    maxIterationsReached,
+    shouldContinue: !maxIterationsReached,
+    lastUpdated: now,
+  };
+
+  // Save session with updated state
+  const session = workflowStateToSession({
+    ...state,
+    ...updatedState,
+  } as RalphWorkflowState);
+  await saveSession(sessionDir, session);
+
+  // Update the session's feature-list.json
+  await saveSessionFeatureList(sessionDir, updatedFeatures);
+
+  // Append to progress.txt
+  await appendProgress(sessionDir, currentFeature, passed);
+
+  // Log the result
+  await appendLog(sessionDir, "agent-calls", {
+    action: "implement-feature-result",
+    sessionId: state.ralphSessionId,
+    iteration: state.iteration,
+    featureId: currentFeature.id,
+    featureName: currentFeature.name,
+    passed,
+    implementedAt: passed ? now : undefined,
+    nextIteration,
+    maxIterationsReached,
+  });
+
+  return updatedState;
+}
+
+// ============================================================================
+// INIT RALPH SESSION NODE
+// ============================================================================
 
 /**
  * Feature list JSON structure from research/feature-list.json

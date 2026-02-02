@@ -780,3 +780,54 @@
 ### Files Modified
 - src/ui/commands/agent-commands.ts - Added codebase-online-researcher to BUILTIN_AGENTS array
 - tests/ui/commands/agent-commands.test.ts - Added codebase-online-researcher tests
+
+## 2026-02-02 - Feature Implementation: codebase-research-analyzer Builtin Agent
+
+### Completed
+- Added codebase-research-analyzer agent to BUILTIN_AGENTS array in agent-commands.ts
+  - name: 'codebase-research-analyzer'
+  - description: 'Deep dive on research topics in the research/ directory.'
+  - tools: ['Read', 'Grep', 'Glob', 'LS', 'Bash']
+  - model: 'sonnet' (balanced performance for thorough research analysis)
+  - source: 'builtin'
+  - Comprehensive system prompt including:
+    - Research Analysis Strategy section covering:
+      - Survey the Research Landscape
+      - Understand the Context
+      - Deep Dive Analysis
+      - Extract Insights
+      - Synthesize Knowledge
+    - Document Types section explaining:
+      - research/progress.txt
+      - research/feature-list.json
+      - research/spec.md
+      - research/architecture.md
+      - research/patterns.md
+      - research/data-models.md
+    - Output format guidelines (Research Overview, Key Findings, Current State, Gaps Identified, Recommendations, Cross-References, Open Questions)
+    - Guidelines for thorough, citation-based analysis
+
+### Tests Added (13 new tests)
+- codebase-research-analyzer builtin agent tests:
+  - exists in BUILTIN_AGENTS
+  - has correct name
+  - has appropriate description
+  - has tools array with research analysis tools
+  - has sonnet model
+  - has comprehensive system prompt
+  - prompt includes research analysis strategy steps
+  - prompt includes document types
+  - prompt includes output format guidelines
+  - has builtin source
+- BUILTIN_AGENTS array tests:
+  - contains codebase-research-analyzer agent
+- getBuiltinAgent tests:
+  - finds codebase-research-analyzer by name
+  - finds codebase-research-analyzer case-insensitively
+
+### Test Results
+- All agent-commands tests pass (153 tests)
+
+### Files Modified
+- src/ui/commands/agent-commands.ts - Added codebase-research-analyzer to BUILTIN_AGENTS array
+- tests/ui/commands/agent-commands.test.ts - Added codebase-research-analyzer tests

@@ -933,6 +933,11 @@ describe("BUILTIN_AGENTS array", () => {
     const researcher = BUILTIN_AGENTS.find((a) => a.name === "codebase-online-researcher");
     expect(researcher).toBeDefined();
   });
+
+  test("contains codebase-research-analyzer agent", () => {
+    const researchAnalyzer = BUILTIN_AGENTS.find((a) => a.name === "codebase-research-analyzer");
+    expect(researchAnalyzer).toBeDefined();
+  });
 });
 
 describe("codebase-analyzer builtin agent", () => {
@@ -1238,5 +1243,83 @@ describe("codebase-online-researcher builtin agent", () => {
 
   test("has builtin source", () => {
     expect(researcher!.source).toBe("builtin");
+  });
+});
+
+describe("codebase-research-analyzer builtin agent", () => {
+  const researchAnalyzer = BUILTIN_AGENTS.find((a) => a.name === "codebase-research-analyzer");
+
+  test("exists in BUILTIN_AGENTS", () => {
+    expect(researchAnalyzer).toBeDefined();
+  });
+
+  test("has correct name", () => {
+    expect(researchAnalyzer!.name).toBe("codebase-research-analyzer");
+  });
+
+  test("has appropriate description", () => {
+    expect(researchAnalyzer!.description).toContain("Deep dive");
+    expect(researchAnalyzer!.description).toContain("research");
+  });
+
+  test("has tools array with research analysis tools", () => {
+    expect(researchAnalyzer!.tools).toBeDefined();
+    expect(researchAnalyzer!.tools).toContain("Read");
+    expect(researchAnalyzer!.tools).toContain("Grep");
+    expect(researchAnalyzer!.tools).toContain("Glob");
+    expect(researchAnalyzer!.tools).toContain("LS");
+    expect(researchAnalyzer!.tools).toContain("Bash");
+  });
+
+  test("has sonnet model", () => {
+    expect(researchAnalyzer!.model).toBe("sonnet");
+  });
+
+  test("has comprehensive system prompt", () => {
+    expect(researchAnalyzer!.prompt.length).toBeGreaterThan(500);
+    expect(researchAnalyzer!.prompt).toContain("research");
+    expect(researchAnalyzer!.prompt).toContain("analysis");
+  });
+
+  test("prompt includes research analysis strategy steps", () => {
+    expect(researchAnalyzer!.prompt).toContain("Survey the Research Landscape");
+    expect(researchAnalyzer!.prompt).toContain("Understand the Context");
+    expect(researchAnalyzer!.prompt).toContain("Deep Dive Analysis");
+    expect(researchAnalyzer!.prompt).toContain("Extract Insights");
+    expect(researchAnalyzer!.prompt).toContain("Synthesize Knowledge");
+  });
+
+  test("prompt includes document types", () => {
+    expect(researchAnalyzer!.prompt).toContain("research/progress.txt");
+    expect(researchAnalyzer!.prompt).toContain("research/feature-list.json");
+    expect(researchAnalyzer!.prompt).toContain("research/spec.md");
+    expect(researchAnalyzer!.prompt).toContain("research/architecture.md");
+  });
+
+  test("prompt includes output format guidelines", () => {
+    expect(researchAnalyzer!.prompt).toContain("Research Overview");
+    expect(researchAnalyzer!.prompt).toContain("Key Findings");
+    expect(researchAnalyzer!.prompt).toContain("Current State");
+    expect(researchAnalyzer!.prompt).toContain("Gaps Identified");
+    expect(researchAnalyzer!.prompt).toContain("Recommendations");
+  });
+
+  test("has builtin source", () => {
+    expect(researchAnalyzer!.source).toBe("builtin");
+  });
+});
+
+describe("getBuiltinAgent for codebase-research-analyzer", () => {
+  test("finds codebase-research-analyzer by name", () => {
+    const agent = getBuiltinAgent("codebase-research-analyzer");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("codebase-research-analyzer");
+    expect(agent!.model).toBe("sonnet");
+  });
+
+  test("finds codebase-research-analyzer case-insensitively", () => {
+    const agent = getBuiltinAgent("CODEBASE-RESEARCH-ANALYZER");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("codebase-research-analyzer");
   });
 });

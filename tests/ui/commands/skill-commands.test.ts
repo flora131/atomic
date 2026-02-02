@@ -14,6 +14,7 @@ import {
   getRalphSkills,
   getCoreSkills,
   type SkillMetadata,
+  type BuiltinSkill,
 } from "../../../src/ui/commands/skill-commands.ts";
 import {
   globalRegistry,
@@ -375,5 +376,68 @@ describe("SkillMetadata interface", () => {
         }
       }
     }
+  });
+});
+
+describe("BuiltinSkill interface", () => {
+  test("valid BuiltinSkill has all required fields", () => {
+    const skill: BuiltinSkill = {
+      name: "test-skill",
+      description: "A test skill",
+      prompt: "Do something with $ARGUMENTS",
+    };
+
+    expect(skill.name).toBe("test-skill");
+    expect(skill.description).toBe("A test skill");
+    expect(skill.prompt).toContain("$ARGUMENTS");
+  });
+
+  test("BuiltinSkill supports optional aliases", () => {
+    const skillWithAliases: BuiltinSkill = {
+      name: "commit",
+      description: "Create a git commit",
+      prompt: "Create a commit with message: $ARGUMENTS",
+      aliases: ["ci", "co"],
+    };
+
+    expect(skillWithAliases.aliases).toBeDefined();
+    expect(skillWithAliases.aliases).toContain("ci");
+    expect(skillWithAliases.aliases).toContain("co");
+  });
+
+  test("BuiltinSkill supports optional hidden flag", () => {
+    const hiddenSkill: BuiltinSkill = {
+      name: "internal-skill",
+      description: "An internal skill",
+      prompt: "Do internal things",
+      hidden: true,
+    };
+
+    expect(hiddenSkill.hidden).toBe(true);
+
+    const visibleSkill: BuiltinSkill = {
+      name: "visible-skill",
+      description: "A visible skill",
+      prompt: "Do visible things",
+      hidden: false,
+    };
+
+    expect(visibleSkill.hidden).toBe(false);
+  });
+
+  test("BuiltinSkill with all optional fields", () => {
+    const fullSkill: BuiltinSkill = {
+      name: "full-skill",
+      description: "A fully-configured skill",
+      prompt: "Execute: $ARGUMENTS",
+      aliases: ["fs", "full"],
+      hidden: false,
+    };
+
+    expect(fullSkill.name).toBe("full-skill");
+    expect(fullSkill.description).toBe("A fully-configured skill");
+    expect(fullSkill.prompt).toBe("Execute: $ARGUMENTS");
+    expect(fullSkill.aliases).toEqual(["fs", "full"]);
+    expect(fullSkill.hidden).toBe(false);
   });
 });

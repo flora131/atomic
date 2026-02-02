@@ -221,6 +221,100 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 - If suggesting multiple commits, it will help you stage and commit the changes separately
 - Always reviews the commit diff to ensure the message matches the changes`,
   },
+  {
+    name: "research-codebase",
+    description: "Document codebase as-is with research directory for historical context",
+    aliases: ["research"],
+    prompt: `# Research Codebase
+
+Document the codebase structure and patterns: $ARGUMENTS
+
+## Purpose
+
+This skill analyzes and documents an existing codebase to create a comprehensive research directory that serves as historical context for future development. The research artifacts help new contributors understand the codebase quickly and provide a foundation for planning changes.
+
+## Output Structure
+
+Create a \`research/\` directory with the following artifacts:
+
+### 1. research/architecture.md
+Document the high-level architecture:
+- System overview and purpose
+- Key architectural patterns used (MVC, microservices, etc.)
+- Component boundaries and responsibilities
+- Data flow between components
+- External dependencies and integrations
+
+### 2. research/directory-structure.md
+Map the directory structure with explanations:
+- Root-level directories and their purposes
+- Key subdirectories and their contents
+- Configuration file locations
+- Test directory organization
+- Build/output directories
+
+### 3. research/tech-stack.md
+Catalog the technology stack:
+- Programming languages and versions
+- Frameworks and libraries with versions
+- Build tools and task runners
+- Testing frameworks
+- Development dependencies vs production dependencies
+
+### 4. research/entry-points.md
+Identify entry points and execution flows:
+- Application entry points (main files)
+- CLI entry points (if applicable)
+- API entry points and routes
+- Event handlers and listeners
+- Startup and initialization sequences
+
+### 5. research/patterns.md
+Document coding patterns and conventions:
+- File naming conventions
+- Code organization patterns
+- Error handling patterns
+- Logging conventions
+- API design patterns
+
+### 6. research/data-models.md
+Document data structures and schemas:
+- Database schemas (if applicable)
+- TypeScript/JavaScript interfaces and types
+- Configuration schemas
+- API request/response schemas
+
+### 7. research/dependencies.md
+Analyze external dependencies:
+- Critical dependencies and their purposes
+- Dependency relationships
+- Potential upgrade considerations
+- Security considerations
+
+## Process
+
+1. **Explore**: Use Glob and Grep to scan the codebase structure
+2. **Analyze**: Read key files to understand patterns and architecture
+3. **Document**: Create clear, concise documentation in the research directory
+4. **Verify**: Ensure all artifacts are accurate and complete
+
+## Guidelines
+
+- Document what EXISTS, not what should exist
+- Be objective and factual
+- Note any technical debt or inconsistencies observed
+- Include file references (e.g., \`src/index.ts:42\`) where relevant
+- Keep each document focused and scannable
+- Use markdown formatting for readability
+
+## Example Usage
+
+\`\`\`
+/research-codebase                     # Full codebase analysis
+/research-codebase authentication      # Focus on auth-related code
+/research-codebase src/api             # Focus on specific directory
+\`\`\``,
+  },
 ];
 
 // ============================================================================

@@ -484,6 +484,35 @@ describe("BUILTIN_SKILLS", () => {
       expect(skill.prompt.length).toBeGreaterThan(0);
     }
   });
+
+  test("contains research-codebase skill", () => {
+    const research = BUILTIN_SKILLS.find((s) => s.name === "research-codebase");
+    expect(research).toBeDefined();
+    expect(research?.description).toBe("Document codebase as-is with research directory for historical context");
+    expect(research?.aliases).toContain("research");
+    expect(research?.prompt).toBeDefined();
+    expect(research?.prompt.length).toBeGreaterThan(100);
+  });
+
+  test("research-codebase skill has $ARGUMENTS placeholder", () => {
+    const research = BUILTIN_SKILLS.find((s) => s.name === "research-codebase");
+    expect(research?.prompt).toContain("$ARGUMENTS");
+  });
+
+  test("research-codebase skill includes research directory structure", () => {
+    const research = BUILTIN_SKILLS.find((s) => s.name === "research-codebase");
+    expect(research?.prompt).toContain("research/architecture.md");
+    expect(research?.prompt).toContain("research/directory-structure.md");
+    expect(research?.prompt).toContain("research/tech-stack.md");
+    expect(research?.prompt).toContain("research/entry-points.md");
+    expect(research?.prompt).toContain("research/patterns.md");
+  });
+
+  test("research-codebase skill includes documentation guidelines", () => {
+    const research = BUILTIN_SKILLS.find((s) => s.name === "research-codebase");
+    expect(research?.prompt).toContain("Document what EXISTS");
+    expect(research?.prompt).toContain("Be objective and factual");
+  });
 });
 
 describe("getBuiltinSkill", () => {
@@ -506,9 +535,21 @@ describe("getBuiltinSkill", () => {
   });
 
   test("returns undefined for non-builtin skill", () => {
-    // research-codebase is in SKILL_DEFINITIONS but not BUILTIN_SKILLS yet
+    // create-spec is in SKILL_DEFINITIONS but not BUILTIN_SKILLS yet
+    const spec = getBuiltinSkill("create-spec");
+    expect(spec).toBeUndefined();
+  });
+
+  test("finds research-codebase builtin skill by name", () => {
     const research = getBuiltinSkill("research-codebase");
-    expect(research).toBeUndefined();
+    expect(research).toBeDefined();
+    expect(research?.name).toBe("research-codebase");
+  });
+
+  test("finds research-codebase builtin skill by alias", () => {
+    const byAlias = getBuiltinSkill("research");
+    expect(byAlias).toBeDefined();
+    expect(byAlias?.name).toBe("research-codebase");
   });
 
   test("returns undefined for unknown skill", () => {
@@ -563,6 +604,55 @@ describe("builtin skill execution", () => {
     expect(sentMessages).toHaveLength(1);
     // Should have expanded $ARGUMENTS with the provided args
     expect(sentMessages[0]).toContain("-m 'Fix bug in parser'");
+    expect(sentMessages[0]).not.toContain("$ARGUMENTS");
+    expect(sentMessages[0]).not.toContain("[no arguments provided]");
+  });
+
+  test("research-codebase command uses embedded prompt", () => {
+    const researchCmd = skillCommands.find((c) => c.name === "research-codebase");
+    expect(researchCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = researchCmd!.execute("", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should use embedded prompt with research directory structure
+    expect(sentMessages[0]).toContain("research/architecture.md");
+    expect(sentMessages[0]).toContain("[no arguments provided]");
+  });
+
+  test("research-codebase command expands $ARGUMENTS with provided args", () => {
+    const researchCmd = skillCommands.find((c) => c.name === "research-codebase");
+    expect(researchCmd).toBeDefined();
+
+    const sentMessages: string[] = [];
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+    };
+
+    const result = researchCmd!.execute("authentication module", context);
+
+    expect(result.success).toBe(true);
+    expect(sentMessages).toHaveLength(1);
+    // Should have expanded $ARGUMENTS with the provided args
+    expect(sentMessages[0]).toContain("authentication module");
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });

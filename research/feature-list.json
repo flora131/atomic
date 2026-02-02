@@ -37,7 +37,7 @@
         "Embed full prompt for analyzing and documenting codebase",
         "Include instructions for creating research/ directory artifacts"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

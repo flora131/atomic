@@ -62,3 +62,43 @@
 ### Files Modified
 - src/ui/commands/skill-commands.ts - Added BUILTIN_SKILLS array and getBuiltinSkill()
 - tests/ui/commands/skill-commands.test.ts - Added BUILTIN_SKILLS and execution tests
+
+## 2026-02-02 - Feature Implementation: Research-Codebase Skill as Builtin
+
+### Completed
+- Added research-codebase skill to BUILTIN_SKILLS array in skill-commands.ts
+  - Set name to 'research-codebase'
+  - Set description to 'Document codebase as-is with research directory for historical context'
+  - Set aliases to ['research']
+  - Embedded comprehensive prompt for analyzing and documenting codebase
+  - Included instructions for creating research/ directory artifacts:
+    - research/architecture.md - High-level architecture documentation
+    - research/directory-structure.md - Directory structure mapping
+    - research/tech-stack.md - Technology stack catalog
+    - research/entry-points.md - Entry points and execution flows
+    - research/patterns.md - Coding patterns and conventions
+    - research/data-models.md - Data structures and schemas
+    - research/dependencies.md - External dependencies analysis
+  - Included $ARGUMENTS placeholder for focused analysis (e.g., specific modules)
+  - Added guidelines for objective, factual documentation
+
+### Tests Added
+- BUILTIN_SKILLS tests:
+  - contains research-codebase skill with correct fields
+  - research-codebase skill has $ARGUMENTS placeholder
+  - research-codebase skill includes research directory structure
+  - research-codebase skill includes documentation guidelines
+- getBuiltinSkill tests:
+  - finds research-codebase builtin skill by name
+  - finds research-codebase builtin skill by alias
+- builtin skill execution tests:
+  - research-codebase command uses embedded prompt
+  - research-codebase command expands $ARGUMENTS with provided args
+
+### Test Results
+- All skill-commands tests pass (57 tests)
+- Note: Pre-existing test failures in builtin-commands module remain (count mismatch)
+
+### Files Modified
+- src/ui/commands/skill-commands.ts - Added research-codebase to BUILTIN_SKILLS array
+- tests/ui/commands/skill-commands.test.ts - Added research-codebase tests

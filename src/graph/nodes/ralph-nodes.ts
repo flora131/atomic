@@ -426,3 +426,277 @@ export {
   appendLog,
   appendProgress,
 };
+
+// ============================================================================
+// INIT RALPH SESSION NODE
+// ============================================================================
+
+import { readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
+/**
+ * Feature list JSON structure from research/feature-list.json
+ */
+interface FeatureListJson {
+  features: Array<{
+    category: string;
+    description: string;
+    steps: string[];
+    passes: boolean;
+  }>;
+}
+
+/**
+ * Configuration options for initRalphSessionNode.
+ */
+export interface InitRalphSessionNodeConfig {
+  /** Unique identifier for the node */
+  id: string;
+
+  /** Human-readable name for the node */
+  name?: string;
+
+  /** Description of what the node does */
+  description?: string;
+
+  /** Path to the feature list file (default: "research/feature-list.json") */
+  featureListPath?: string;
+
+  /** Whether to run in yolo mode (no feature list) */
+  yolo?: boolean;
+
+  /** Session ID to resume from (auto-generates new ID if not provided) */
+  resumeSessionId?: string;
+
+  /** Maximum iterations (default: 50, 0 = unlimited) */
+  maxIterations?: number;
+
+  /** User prompt for yolo mode */
+  userPrompt?: string;
+}
+
+/**
+ * Load features from a feature-list.json file and convert to RalphFeature format.
+ *
+ * @param featureListPath - Path to the feature-list.json file
+ * @returns Array of RalphFeature objects
+ */
+async function loadFeaturesFromFile(featureListPath: string): Promise<RalphFeature[]> {
+  if (!existsSync(featureListPath)) {
+    throw new Error(`Feature list not found: ${featureListPath}`);
+  }
+
+  const content = await readFile(featureListPath, "utf-8");
+  const featureList = JSON.parse(content) as FeatureListJson;
+
+  if (!featureList.features || !Array.isArray(featureList.features)) {
+    throw new Error(`Invalid feature list format in ${featureListPath}`);
+  }
+
+  // Convert feature-list.json format to RalphFeature format
+  return featureList.features.map((f, index) => ({
+    id: `feat-${String(index + 1).padStart(3, "0")}`,
+    name: f.description.substring(0, 60), // Use first 60 chars of description as name
+    description: f.description,
+    acceptanceCriteria: f.steps,
+    status: f.passes ? "passing" : "pending",
+    implementedAt: f.passes ? new Date().toISOString() : undefined,
+  } as RalphFeature));
+}
+
+/**
+ * Initialize the session progress.txt file with a header.
+ *
+ * @param sessionDir - Path to the session directory
+ * @param sessionId - Session ID
+ * @param yolo - Whether the session is in yolo mode
+ * @param featureCount - Number of features (0 for yolo mode)
+ */
+async function initializeProgressFile(
+  sessionDir: string,
+  sessionId: string,
+  yolo: boolean,
+  featureCount: number
+): Promise<void> {
+  const timestamp = new Date().toISOString();
+  const mode = yolo ? "YOLO (freestyle)" : `Feature List (${featureCount} features)`;
+
+  const header = `# Ralph Session Progress
+# Session ID: ${sessionId}
+# Started: ${timestamp}
+# Mode: ${mode}
+# ====================================
+
+`;
+
+  const progressPath = join(sessionDir, "progress.txt");
+  await writeFile(progressPath, header, "utf-8");
+}
+
+/**
+ * Copy features to the session's local feature-list.json.
+ *
+ * @param sessionDir - Path to the session directory
+ * @param features - Features to save
+ */
+async function saveSessionFeatureList(
+  sessionDir: string,
+  features: RalphFeature[]
+): Promise<void> {
+  const featureListPath = join(sessionDir, "research", "feature-list.json");
+
+  // Convert RalphFeature format back to feature-list.json format
+  const featureList: FeatureListJson = {
+    features: features.map((f) => ({
+      category: "functional", // Default category
+      description: f.description,
+      steps: f.acceptanceCriteria ?? [],
+      passes: f.status === "passing",
+    })),
+  };
+
+  await writeFile(featureListPath, JSON.stringify(featureList, null, 2), "utf-8");
+}
+
+/**
+ * Create a node that initializes or resumes a Ralph session.
+ *
+ * This node handles:
+ * - Creating a new session with a unique ID
+ * - Resuming an existing session from disk
+ * - Loading features from a feature-list.json file
+ * - Creating the session directory structure
+ * - Initializing progress tracking files
+ *
+ * @param config - Node configuration
+ * @returns A NodeDefinition for initializing Ralph sessions
+ *
+ * @example
+ * ```typescript
+ * // Create a node for starting a new session
+ * const initNode = initRalphSessionNode({
+ *   id: "init-session",
+ *   featureListPath: "research/feature-list.json",
+ *   maxIterations: 100,
+ * });
+ *
+ * // Create a node for resuming an existing session
+ * const resumeNode = initRalphSessionNode({
+ *   id: "resume-session",
+ *   resumeSessionId: "abc123-def456",
+ * });
+ *
+ * // Create a node for yolo mode
+ * const yoloNode = initRalphSessionNode({
+ *   id: "yolo-session",
+ *   yolo: true,
+ *   userPrompt: "Build a snake game in Rust",
+ * });
+ * ```
+ */
+export function initRalphSessionNode<TState extends RalphWorkflowState = RalphWorkflowState>(
+  config: InitRalphSessionNodeConfig
+): NodeDefinition<TState> {
+  const {
+    id,
+    name = "init-ralph-session",
+    description = "Initialize or resume a Ralph session",
+    featureListPath = "research/feature-list.json",
+    yolo = false,
+    resumeSessionId,
+    maxIterations = 50,
+    userPrompt,
+  } = config;
+
+  return {
+    id,
+    type: "tool",
+    name,
+    description,
+    execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
+      const sessionId = resumeSessionId ?? generateSessionId();
+      const sessionDir = getSessionDir(sessionId);
+
+      // Check if we're resuming an existing session
+      if (resumeSessionId) {
+        const existingSession = await loadSessionIfExists(sessionDir);
+
+        if (existingSession) {
+          // Resume existing session
+          console.log(`Resuming Ralph session: ${sessionId}`);
+
+          // Convert session to workflow state
+          const resumedState = sessionToWorkflowState(existingSession, ctx.state.executionId);
+
+          // Log the resume action
+          await appendLog(sessionDir, "agent-calls", {
+            action: "resume",
+            sessionId,
+            iteration: existingSession.iteration,
+          });
+
+          return {
+            stateUpdate: {
+              ...resumedState,
+              lastUpdated: new Date().toISOString(),
+            } as Partial<TState>,
+          };
+        } else {
+          // Session not found, create new
+          console.log(`Session ${sessionId} not found, creating new session`);
+        }
+      }
+
+      // Create new session
+      console.log(`Started Ralph session: ${sessionId}`);
+
+      // Create session directory structure
+      await createSessionDirectory(sessionId);
+
+      // Load features if not in yolo mode
+      let features: RalphFeature[] = [];
+      if (!yolo) {
+        features = await loadFeaturesFromFile(featureListPath);
+
+        // Copy features to session directory
+        await saveSessionFeatureList(sessionDir, features);
+      }
+
+      // Create the session state
+      const newState = createRalphWorkflowState({
+        executionId: ctx.state.executionId,
+        sessionId,
+        yolo,
+        maxIterations,
+        sourceFeatureListPath: yolo ? undefined : featureListPath,
+        userPrompt,
+        features,
+      });
+
+      // Initialize progress.txt with session header
+      await initializeProgressFile(sessionDir, sessionId, yolo, features.length);
+
+      // Save session.json
+      const session = workflowStateToSession(newState);
+      await saveSession(sessionDir, session);
+
+      // Log the init action
+      await appendLog(sessionDir, "agent-calls", {
+        action: "init",
+        sessionId,
+        yolo,
+        maxIterations,
+        featureCount: features.length,
+        sourceFeatureListPath: yolo ? undefined : featureListPath,
+      });
+
+      return {
+        stateUpdate: {
+          ...newState,
+          lastUpdated: new Date().toISOString(),
+        } as Partial<TState>,
+      };
+    },
+  };
+}

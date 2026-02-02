@@ -1284,3 +1284,72 @@ Added file system operations for Ralph session persistence to ralph-session.ts.
 ### Files Created
 - src/graph/nodes/ralph-nodes.ts - RalphWorkflowState interface and factory functions
 - tests/graph/nodes/ralph-nodes.test.ts - Comprehensive tests
+
+## 2026-02-02 - Feature Implementation: initRalphSessionNode() Function
+
+### Completed
+- Implemented initRalphSessionNode() factory function in ralph-nodes.ts
+  - Returns NodeDefinition with type 'tool'
+  - Accepts InitRalphSessionNodeConfig with options:
+    - id: string (required)
+    - name?: string (default: "init-ralph-session")
+    - description?: string
+    - featureListPath?: string (default: "research/feature-list.json")
+    - yolo?: boolean (default: false)
+    - resumeSessionId?: string (for resuming existing sessions)
+    - maxIterations?: number (default: 50)
+    - userPrompt?: string (for yolo mode)
+
+- Execute function handles three scenarios:
+  1. Resume existing session (if resumeSessionId provided and session exists)
+  2. Create new session with feature list (if not yolo mode)
+  3. Create new session in yolo mode (no features loaded)
+
+- Session initialization includes:
+  - Creating session directory structure (.ralph/sessions/{sessionId}/)
+  - Loading features from feature-list.json (converts to RalphFeature format)
+  - Creating progress.txt with session header
+  - Saving session.json for persistence
+  - Copying features to session's research/feature-list.json
+  - Logging init/resume actions to agent-calls.jsonl
+
+- Helper functions added:
+  - loadFeaturesFromFile(): Loads and converts feature-list.json to RalphFeature[]
+  - initializeProgressFile(): Creates progress.txt with session header
+  - saveSessionFeatureList(): Copies features to session directory
+  - FeatureListJson interface: Type for feature-list.json structure
+
+### Tests Added (18 new tests)
+- Node creation tests:
+  - creates NodeDefinition with correct properties
+  - accepts custom name and description
+
+- New session creation tests:
+  - creates session with generated ID
+  - creates session directory structure
+  - loads features from feature list file
+  - creates progress.txt with session header
+  - saves session.json file
+  - logs init action to agent-calls.jsonl
+  - copies features to session research directory
+  - uses custom maxIterations
+  - throws error for non-existent feature list
+
+- Yolo mode tests:
+  - creates session without loading features
+  - creates progress.txt with yolo mode header
+  - logs yolo flag in agent-calls.jsonl
+  - does not create feature-list.json in research directory
+
+- Session resumption tests:
+  - resumes existing session from disk
+  - logs resume action to agent-calls.jsonl
+  - creates new session if resume ID not found
+
+### Test Results
+- All 66 tests pass (48 original + 18 new)
+- 204 expect() calls
+
+### Files Modified
+- src/graph/nodes/ralph-nodes.ts - Added initRalphSessionNode() and helper functions
+- tests/graph/nodes/ralph-nodes.test.ts - Added initRalphSessionNode tests

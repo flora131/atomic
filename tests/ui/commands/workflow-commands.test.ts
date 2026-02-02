@@ -64,8 +64,38 @@ describe("WORKFLOW_DEFINITIONS", () => {
 
   test("atomic has correct aliases", () => {
     const atomic = WORKFLOW_DEFINITIONS.find((w) => w.name === "atomic");
-    expect(atomic?.aliases).toContain("ralph");
     expect(atomic?.aliases).toContain("loop");
+  });
+
+  test("ralph workflow is defined separately", () => {
+    const ralph = WORKFLOW_DEFINITIONS.find((w) => w.name === "ralph");
+    expect(ralph).toBeDefined();
+    expect(ralph?.description).toContain("Ralph");
+    expect(ralph?.description).toContain("autonomous");
+  });
+
+  test("ralph createWorkflow returns a compiled graph", () => {
+    const ralph = WORKFLOW_DEFINITIONS.find((w) => w.name === "ralph");
+    expect(ralph).toBeDefined();
+
+    const graph = ralph!.createWorkflow();
+    expect(graph).toBeDefined();
+    expect(graph.nodes).toBeInstanceOf(Map);
+    expect(Array.isArray(graph.edges)).toBe(true);
+    expect(typeof graph.startNode).toBe("string");
+  });
+
+  test("ralph createWorkflow accepts configuration", () => {
+    const ralph = WORKFLOW_DEFINITIONS.find((w) => w.name === "ralph");
+    expect(ralph).toBeDefined();
+
+    const graph = ralph!.createWorkflow({
+      maxIterations: 50,
+      checkpointing: true,
+      yolo: true,
+      userPrompt: "Test prompt",
+    });
+    expect(graph).toBeDefined();
   });
 
   test("atomic createWorkflow returns a compiled graph", () => {
@@ -97,8 +127,15 @@ describe("workflowCommands", () => {
     const atomicCmd = workflowCommands.find((c) => c.name === "atomic");
     expect(atomicCmd).toBeDefined();
     expect(atomicCmd?.category).toBe("workflow");
-    expect(atomicCmd?.aliases).toContain("ralph");
     expect(atomicCmd?.aliases).toContain("loop");
+  });
+
+  test("ralph command has correct metadata", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+    expect(ralphCmd?.category).toBe("workflow");
+    // ralph has no aliases, it's a standalone command
+    expect(ralphCmd?.aliases).toBeUndefined();
   });
 
   test("atomic command requires a prompt", () => {
@@ -194,10 +231,12 @@ describe("registerWorkflowCommands", () => {
     expect(globalRegistry.has("atomic")).toBe(true);
   });
 
-  test("registers workflow aliases", () => {
+  test("registers workflow and aliases", () => {
     registerWorkflowCommands();
 
+    // ralph is now a separate workflow, not an alias
     expect(globalRegistry.has("ralph")).toBe(true);
+    // loop is an alias of atomic
     expect(globalRegistry.has("loop")).toBe(true);
   });
 
@@ -228,7 +267,9 @@ describe("registerWorkflowCommands", () => {
     const byLoop = globalRegistry.get("loop");
     const byAtomic = globalRegistry.get("atomic");
 
-    expect(byRalph?.name).toBe("atomic");
+    // ralph is now a separate workflow command, not an alias
+    expect(byRalph?.name).toBe("ralph");
+    // loop is still an alias of atomic
     expect(byLoop?.name).toBe("atomic");
     expect(byAtomic?.name).toBe("atomic");
   });
@@ -242,17 +283,19 @@ describe("getWorkflowMetadata", () => {
   });
 
   test("finds workflow by alias", () => {
+    // ralph is now a separate workflow, not an alias
     const byRalph = getWorkflowMetadata("ralph");
     const byLoop = getWorkflowMetadata("loop");
 
-    expect(byRalph?.name).toBe("atomic");
+    expect(byRalph?.name).toBe("ralph");
     expect(byLoop?.name).toBe("atomic");
   });
 
   test("is case-insensitive", () => {
     expect(getWorkflowMetadata("ATOMIC")?.name).toBe("atomic");
     expect(getWorkflowMetadata("Atomic")?.name).toBe("atomic");
-    expect(getWorkflowMetadata("RALPH")?.name).toBe("atomic");
+    // ralph is now a separate workflow
+    expect(getWorkflowMetadata("RALPH")?.name).toBe("ralph");
   });
 
   test("returns undefined for unknown workflow", () => {

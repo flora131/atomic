@@ -757,7 +757,7 @@
         "Set createWorkflow to createRalphWorkflow function",
         "Do NOT add aliases (only /ralph)"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

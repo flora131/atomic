@@ -220,3 +220,42 @@
 ### Files Modified
 - src/ui/commands/skill-commands.ts - Added implement-feature to BUILTIN_SKILLS array
 - tests/ui/commands/skill-commands.test.ts - Added implement-feature tests
+
+## 2026-02-02 - Feature Implementation: Create-GH-PR Skill as Builtin
+
+### Completed
+- Added create-gh-pr skill to BUILTIN_SKILLS array in skill-commands.ts
+  - Set name to 'create-gh-pr'
+  - Set description to 'Push and create pull request'
+  - Set aliases to ['pr']
+  - Embedded comprehensive prompt for creating GitHub PRs
+  - Included complete PR workflow:
+    - Check repository state (branch, remote, uncommitted changes)
+    - Commit changes if needed
+    - Push to remote with upstream tracking
+    - Create PR using gh CLI
+  - Added PR template format with Summary, Changes, Testing sections
+  - Included gh CLI commands reference (create, view, list PRs)
+  - Added guidelines for PR title, description, and branch naming
+  - Included error handling for common issues
+  - Included $ARGUMENTS placeholder for PR title
+
+### Tests Added
+- BUILTIN_SKILLS tests:
+  - contains create-gh-pr skill with correct fields
+  - create-gh-pr skill has $ARGUMENTS placeholder
+  - create-gh-pr skill includes gh CLI commands
+  - create-gh-pr skill includes PR template format
+- getBuiltinSkill tests:
+  - finds create-gh-pr builtin skill by name
+  - finds create-gh-pr builtin skill by alias
+- builtin skill execution tests:
+  - create-gh-pr command uses embedded prompt
+  - create-gh-pr command expands $ARGUMENTS with provided args
+
+### Test Results
+- All skill-commands tests pass (89 tests)
+
+### Files Modified
+- src/ui/commands/skill-commands.ts - Added create-gh-pr to BUILTIN_SKILLS array
+- tests/ui/commands/skill-commands.test.ts - Added create-gh-pr tests

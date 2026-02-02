@@ -451,7 +451,7 @@
         "Return the session directory path",
         "Use fs.mkdir with recursive: true option"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -466,7 +466,7 @@
         "Stringify session to JSON with 2-space indent",
         "Write to {sessionDir}/session.json"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -478,7 +478,7 @@
         "If file not found (ENOENT), return null",
         "Catch any errors and return null"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -490,7 +490,7 @@
         "Append JSON line with newline to log file",
         "Use fs.appendFile for atomic append"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

@@ -1144,3 +1144,58 @@ for Ralph loop session management.
 - src/workflows/ralph-session.ts - New file with interfaces and helpers
 - src/workflows/index.ts - Updated to export ralph-session module
 - tests/workflows/ralph-session.test.ts - New test file
+
+## 2026-02-02 - Feature Implementation: Session File System Operations
+
+### Overview
+Added file system operations for Ralph session persistence to ralph-session.ts.
+
+### Functions Implemented
+
+#### createSessionDirectory(sessionId)
+- Creates .ralph/sessions/{sessionId}/ directory structure
+- Creates subdirectories: checkpoints/, research/, logs/
+- Uses fs.mkdir with recursive: true for idempotent creation
+- Returns the session directory path
+
+#### saveSession(sessionDir, session)
+- Saves RalphSession to {sessionDir}/session.json
+- Updates lastUpdated timestamp before saving
+- Uses JSON.stringify with 2-space indentation
+
+#### loadSession(sessionDir)
+- Loads RalphSession from {sessionDir}/session.json
+- Validates loaded data with isRalphSession type guard
+- Throws error if file doesn't exist or data is invalid
+
+#### loadSessionIfExists(sessionDir)
+- Safe wrapper around loadSession
+- Returns RalphSession if exists, null otherwise
+- Catches all errors (file not found, invalid JSON, etc.)
+
+#### appendLog(sessionDir, logName, entry)
+- Appends log entry to {sessionDir}/logs/{logName}.jsonl
+- Uses NDJSON format (newline-delimited JSON)
+- Automatically adds timestamp to each entry
+
+### Constants Added
+- SESSION_SUBDIRECTORIES: ["checkpoints", "research", "logs"]
+
+### Tests Added
+- 11 new tests for file system operations:
+  - createSessionDirectory creates all subdirectories
+  - createSessionDirectory is idempotent
+  - saveSession and loadSession roundtrip
+  - loadSession throws for non-existent/invalid data
+  - loadSessionIfExists returns session or null
+  - appendLog creates files and appends entries
+  - appendLog adds timestamps automatically
+
+### Test Results
+- All 42 tests pass (31 original + 11 new)
+- 119 expect() calls
+
+### Files Modified
+- src/workflows/ralph-session.ts - Added fs imports and file operations
+- src/workflows/index.ts - Added exports for new functions
+- tests/workflows/ralph-session.test.ts - Added file system tests

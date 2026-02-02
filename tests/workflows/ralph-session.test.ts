@@ -9,7 +9,7 @@
  * - Type guards for validation
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import {
   generateSessionId,
   getSessionDir,
@@ -17,6 +17,12 @@ import {
   createRalphFeature,
   isRalphFeature,
   isRalphSession,
+  createSessionDirectory,
+  saveSession,
+  loadSession,
+  loadSessionIfExists,
+  appendLog,
+  SESSION_SUBDIRECTORIES,
   type RalphFeature,
   type RalphSession,
 } from "../../src/workflows/ralph-session.ts";
@@ -412,5 +418,238 @@ describe("Integration", () => {
     for (const feature of completedSession.features) {
       expect(isRalphFeature(feature)).toBe(true);
     }
+  });
+});
+
+describe("File System Operations", () => {
+  // Import node modules
+  const { rm, stat, readFile, writeFile } = require("node:fs/promises");
+  const { join } = require("node:path");
+
+  // Helper to clean up test directories after each test
+  async function cleanupDir(dir: string) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+
+  // Clean up .ralph directory after all tests
+  afterAll(async () => {
+    try {
+      await rm(".ralph", { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+  });
+
+  describe("SESSION_SUBDIRECTORIES", () => {
+    test("contains expected subdirectories", () => {
+      expect(SESSION_SUBDIRECTORIES).toContain("checkpoints");
+      expect(SESSION_SUBDIRECTORIES).toContain("research");
+      expect(SESSION_SUBDIRECTORIES).toContain("logs");
+      expect(SESSION_SUBDIRECTORIES.length).toBe(3);
+    });
+  });
+
+  describe("createSessionDirectory", () => {
+    test("creates session directory with all subdirectories", async () => {
+      const sessionId = `test-create-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        // Verify main directory was created
+        const dirStat = await stat(sessionDir);
+        expect(dirStat.isDirectory()).toBe(true);
+
+        // Verify subdirectories were created
+        for (const subdir of SESSION_SUBDIRECTORIES) {
+          const subdirPath = join(sessionDir, subdir);
+          const subdirStat = await stat(subdirPath);
+          expect(subdirStat.isDirectory()).toBe(true);
+        }
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("is idempotent (can be called multiple times)", async () => {
+      const sessionId = `test-idempotent-${Date.now()}`;
+
+      try {
+        // Call twice
+        const dir1 = await createSessionDirectory(sessionId);
+        const dir2 = await createSessionDirectory(sessionId);
+
+        expect(dir1).toBe(dir2);
+
+        const dirStat = await stat(dir1);
+        expect(dirStat.isDirectory()).toBe(true);
+      } finally {
+        await cleanupDir(getSessionDir(sessionId));
+      }
+    });
+  });
+
+  describe("saveSession and loadSession", () => {
+    test("saves and loads session correctly", async () => {
+      const sessionId = `test-save-load-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const originalSession = createRalphSession({
+          sessionId,
+          sessionDir,
+          yolo: true,
+          maxIterations: 25,
+          features: [
+            createRalphFeature({
+              id: "feat-001",
+              name: "Test feature",
+              description: "A test feature",
+            }),
+          ],
+        });
+
+        // Save the session
+        await saveSession(sessionDir, originalSession);
+
+        // Load it back
+        const loadedSession = await loadSession(sessionDir);
+
+        // Verify loaded data matches (except lastUpdated which is updated on save)
+        expect(loadedSession.sessionId).toBe(originalSession.sessionId);
+        expect(loadedSession.yolo).toBe(originalSession.yolo);
+        expect(loadedSession.maxIterations).toBe(originalSession.maxIterations);
+        expect(loadedSession.features.length).toBe(1);
+        expect(loadedSession.features[0].name).toBe("Test feature");
+
+        // lastUpdated should be updated
+        expect(loadedSession.lastUpdated).toBeDefined();
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("loadSession throws for non-existent session", async () => {
+      const nonExistentDir = ".ralph/sessions/non-existent-session/";
+      await expect(loadSession(nonExistentDir)).rejects.toThrow();
+    });
+
+    test("loadSession throws for invalid session data", async () => {
+      const sessionId = `test-invalid-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        // Write invalid JSON
+        await writeFile(join(sessionDir, "session.json"), '{"invalid": true}', "utf-8");
+
+        await expect(loadSession(sessionDir)).rejects.toThrow("Invalid session data");
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+  });
+
+  describe("loadSessionIfExists", () => {
+    test("returns session when it exists", async () => {
+      const sessionId = `test-exists-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const session = createRalphSession({ sessionId, sessionDir });
+        await saveSession(sessionDir, session);
+
+        const loaded = await loadSessionIfExists(sessionDir);
+        expect(loaded).not.toBeNull();
+        expect(loaded?.sessionId).toBe(sessionId);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("returns null when session doesn't exist", async () => {
+      const nonExistentDir = ".ralph/sessions/does-not-exist-session/";
+
+      const result = await loadSessionIfExists(nonExistentDir);
+      expect(result).toBeNull();
+    });
+
+    test("returns null for invalid session data", async () => {
+      const sessionId = `test-invalid-exists-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        // Write invalid JSON
+        await writeFile(join(sessionDir, "session.json"), '{"not": "valid"}', "utf-8");
+
+        const result = await loadSessionIfExists(sessionDir);
+        expect(result).toBeNull();
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+  });
+
+  describe("appendLog", () => {
+    test("creates log file and appends entries", async () => {
+      const sessionId = `test-log-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        // Append first entry
+        await appendLog(sessionDir, "test-log", {
+          action: "test",
+          value: 1,
+        });
+
+        // Append second entry
+        await appendLog(sessionDir, "test-log", {
+          action: "test2",
+          value: 2,
+        });
+
+        // Read and verify log file
+        const logPath = join(sessionDir, "logs", "test-log.jsonl");
+        const content = await readFile(logPath, "utf-8");
+        const lines = content.trim().split("\n");
+
+        expect(lines.length).toBe(2);
+
+        const entry1 = JSON.parse(lines[0]);
+        expect(entry1.action).toBe("test");
+        expect(entry1.value).toBe(1);
+        expect(entry1.timestamp).toBeDefined();
+
+        const entry2 = JSON.parse(lines[1]);
+        expect(entry2.action).toBe("test2");
+        expect(entry2.value).toBe(2);
+        expect(entry2.timestamp).toBeDefined();
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("automatically adds timestamp to log entries", async () => {
+      const sessionId = `test-log-timestamp-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const before = new Date().toISOString();
+        await appendLog(sessionDir, "timestamp-test", { data: "test" });
+        const after = new Date().toISOString();
+
+        const logPath = join(sessionDir, "logs", "timestamp-test.jsonl");
+        const content = await readFile(logPath, "utf-8");
+        const entry = JSON.parse(content.trim());
+
+        expect(entry.timestamp).toBeDefined();
+        expect(entry.timestamp >= before).toBe(true);
+        expect(entry.timestamp <= after).toBe(true);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
   });
 });

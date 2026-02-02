@@ -11,6 +11,9 @@
  * Reference: Feature list - Create src/workflows/ralph-session.ts
  */
 
+import { mkdir, writeFile, readFile, appendFile } from "node:fs/promises";
+import { join } from "node:path";
+
 // ============================================================================
 // RALPH FEATURE INTERFACE
 // ============================================================================
@@ -319,4 +322,172 @@ export function isRalphSession(value: unknown): value is RalphSession {
     (obj.prUrl === undefined || typeof obj.prUrl === "string") &&
     (obj.prBranch === undefined || typeof obj.prBranch === "string")
   );
+}
+
+// ============================================================================
+// FILE SYSTEM OPERATIONS
+// ============================================================================
+
+/**
+ * Session directory subdirectories created for each session.
+ */
+export const SESSION_SUBDIRECTORIES = [
+  "checkpoints",
+  "research",
+  "logs",
+] as const;
+
+/**
+ * Create the session directory structure for a Ralph session.
+ *
+ * Creates the following directory structure:
+ * ```
+ * .ralph/
+ * └── sessions/
+ *     └── {sessionId}/
+ *         ├── checkpoints/   # Graph checkpoints for resumption
+ *         ├── research/      # Research documents and specs
+ *         └── logs/          # Agent call logs
+ * ```
+ *
+ * @param sessionId - The session ID (UUID)
+ * @returns The path to the created session directory
+ *
+ * @example
+ * ```typescript
+ * const sessionDir = await createSessionDirectory("abc123-def456");
+ * // Creates .ralph/sessions/abc123-def456/ with subdirectories
+ * // Returns ".ralph/sessions/abc123-def456/"
+ * ```
+ */
+export async function createSessionDirectory(sessionId: string): Promise<string> {
+  const sessionDir = getSessionDir(sessionId);
+
+  // Create the main session directory (creates .ralph/sessions/{sessionId}/ recursively)
+  await mkdir(sessionDir, { recursive: true });
+
+  // Create subdirectories
+  for (const subdir of SESSION_SUBDIRECTORIES) {
+    await mkdir(join(sessionDir, subdir), { recursive: true });
+  }
+
+  return sessionDir;
+}
+
+/**
+ * Save a RalphSession to disk as session.json.
+ *
+ * Updates the lastUpdated timestamp before saving.
+ *
+ * @param sessionDir - Path to the session directory
+ * @param session - The session to save
+ *
+ * @example
+ * ```typescript
+ * const session = createRalphSession({ sessionId: "abc123" });
+ * await saveSession(".ralph/sessions/abc123/", session);
+ * ```
+ */
+export async function saveSession(
+  sessionDir: string,
+  session: RalphSession
+): Promise<void> {
+  const updatedSession: RalphSession = {
+    ...session,
+    lastUpdated: new Date().toISOString(),
+  };
+
+  const sessionPath = join(sessionDir, "session.json");
+  const content = JSON.stringify(updatedSession, null, 2);
+  await writeFile(sessionPath, content, "utf-8");
+}
+
+/**
+ * Load a RalphSession from disk.
+ *
+ * @param sessionDir - Path to the session directory
+ * @returns The loaded session
+ * @throws Error if the session file doesn't exist or is invalid
+ *
+ * @example
+ * ```typescript
+ * const session = await loadSession(".ralph/sessions/abc123/");
+ * console.log(session.status); // "running"
+ * ```
+ */
+export async function loadSession(sessionDir: string): Promise<RalphSession> {
+  const sessionPath = join(sessionDir, "session.json");
+  const content = await readFile(sessionPath, "utf-8");
+  const session = JSON.parse(content) as unknown;
+
+  if (!isRalphSession(session)) {
+    throw new Error(`Invalid session data in ${sessionPath}`);
+  }
+
+  return session;
+}
+
+/**
+ * Load a RalphSession if it exists, otherwise return null.
+ *
+ * This is useful for checking if a session can be resumed.
+ *
+ * @param sessionDir - Path to the session directory
+ * @returns The session if it exists, null otherwise
+ *
+ * @example
+ * ```typescript
+ * const session = await loadSessionIfExists(".ralph/sessions/abc123/");
+ * if (session) {
+ *   console.log("Resuming session:", session.sessionId);
+ * } else {
+ *   console.log("No existing session found");
+ * }
+ * ```
+ */
+export async function loadSessionIfExists(
+  sessionDir: string
+): Promise<RalphSession | null> {
+  try {
+    return await loadSession(sessionDir);
+  } catch (error) {
+    // Return null for any error (file not found, invalid JSON, etc.)
+    // This makes the function safe to use for checking existence
+    return null;
+  }
+}
+
+/**
+ * Append a log entry to a session log file.
+ *
+ * Log entries are appended as newline-delimited JSON (NDJSON format).
+ * Each entry gets a timestamp field automatically added.
+ *
+ * @param sessionDir - Path to the session directory
+ * @param logName - Name of the log file (without extension)
+ * @param entry - The log entry data
+ *
+ * @example
+ * ```typescript
+ * await appendLog(".ralph/sessions/abc123/", "agent-calls", {
+ *   tool: "Bash",
+ *   input: { command: "ls -la" },
+ *   output: "file1.txt\nfile2.txt"
+ * });
+ * ```
+ */
+export async function appendLog(
+  sessionDir: string,
+  logName: string,
+  entry: Record<string, unknown>
+): Promise<void> {
+  const logPath = join(sessionDir, "logs", `${logName}.jsonl`);
+  const logEntry = {
+    ...entry,
+    timestamp: new Date().toISOString(),
+  };
+  const line = JSON.stringify(logEntry) + "\n";
+
+  // Use appendFile to add to the log (creates file if doesn't exist)
+  await appendFile(logPath, line, "utf-8");
 }

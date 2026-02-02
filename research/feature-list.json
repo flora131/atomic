@@ -152,7 +152,7 @@
         "Add source: 'builtin' | 'project' | 'user' | 'atomic' field",
         "Export the interface"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

@@ -1010,3 +1010,46 @@
 - src/ui/commands/registry.ts - Added 'agent' to CommandCategory type and priority
 - src/ui/commands/agent-commands.ts - Added imports, createAgentCommand(), builtinAgentCommands, registerBuiltinAgents(), registerAgentCommands()
 - tests/ui/commands/agent-commands.test.ts - Added registration tests
+
+## 2026-02-02 - Feature Implementation: Configure SDK Permission Bypass
+
+### Overview
+Implemented permission bypass configuration for all three SDK clients (Claude, OpenCode, Copilot) to allow all tools to auto-execute without prompts.
+
+### Claude SDK Changes
+- Added "bypass" option to PermissionMode type in types.ts
+- Updated buildSdkOptions() in claude-client.ts to handle bypass mode:
+  - Maps "bypass" to SDK's "bypassPermissions"
+  - Sets `allowDangerouslySkipPermissions: true` when bypass mode is used
+- Added comprehensive documentation comment explaining permission modes
+- Note: AskUserQuestion tool still pauses for human input via canUseTool callback
+
+### OpenCode SDK Changes
+- OpenCode permissions are configured via opencode.json files, not SDK options
+- Added comprehensive documentation in module docstring explaining:
+  - How to create opencode.json with `"permission": "allow"` for full bypass
+  - Config file locations (project root, global ~/.config/opencode/, OPENCODE_CONFIG env)
+  - Non-interactive/CLI mode auto-approves by default
+- question.asked events still emitted for user-initiated questions
+
+### Copilot SDK Changes
+- Copilot already auto-approves all operations via createHITLPermissionHandler()
+- Updated documentation to clarify this is bypass mode behavior
+- Added detailed JSDoc explaining how to implement custom permission handling
+- setPermissionHandler() can be used for custom HITL approval flows
+
+### Tests Added
+- Claude client tests:
+  - bypass permission mode sets bypassPermissions and allowDangerouslySkipPermissions
+  - bypass mode still allows AskUserQuestion HITL via canUseTool
+
+### Test Results
+- All claude-client tests pass (30 tests)
+- All types tests pass (29 tests)
+
+### Files Modified
+- src/sdk/types.ts - Added "bypass" to PermissionMode type with documentation
+- src/sdk/claude-client.ts - Updated buildSdkOptions() for bypass mode
+- src/sdk/opencode-client.ts - Added permission documentation in module docstring
+- src/sdk/copilot-client.ts - Updated documentation for bypass behavior
+- tests/sdk/claude-client.test.ts - Added bypass mode tests

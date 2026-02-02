@@ -10,7 +10,7 @@
 import React from "react";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { createRoot, type Root } from "@opentui/react";
-import { ChatApp, type OnToolStart, type OnToolComplete } from "./chat.tsx";
+import { ChatApp, type OnToolStart, type OnToolComplete, type OnPermissionRequest as ChatOnPermissionRequest } from "./chat.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
 import { initializeCommandsAsync } from "./commands/index.ts";
 import type {
@@ -61,6 +61,17 @@ export interface ChatUIResult {
 }
 
 /**
+ * Handler for permission/HITL requests
+ */
+export type OnPermissionRequest = (
+  requestId: string,
+  toolName: string,
+  question: string,
+  options: Array<{ label: string; value: string; description?: string }>,
+  respond: (answer: string | string[]) => void
+) => void;
+
+/**
  * Internal state for managing the chat UI lifecycle.
  */
 interface ChatUIState {
@@ -74,8 +85,16 @@ interface ChatUIState {
   toolStartHandler: OnToolStart | null;
   /** Registered handler for tool complete events */
   toolCompleteHandler: OnToolComplete | null;
+  /** Registered handler for permission/HITL requests */
+  permissionRequestHandler: OnPermissionRequest | null;
   /** Tool ID counter for generating unique IDs */
   toolIdCounter: number;
+  /** Ctrl+C press state for double-press exit */
+  ctrlCPressed: boolean;
+  /** Ctrl+C timeout ID */
+  ctrlCTimeout: ReturnType<typeof setTimeout> | null;
+  /** Callback to show Ctrl+C warning in UI */
+  showCtrlCWarning: ((show: boolean) => void) | null;
 }
 
 // ============================================================================
@@ -134,7 +153,11 @@ export async function startChatUI(
     cleanupHandlers: [],
     toolStartHandler: null,
     toolCompleteHandler: null,
+    permissionRequestHandler: null,
     toolIdCounter: 0,
+    ctrlCPressed: false,
+    ctrlCTimeout: null,
+    showCtrlCWarning: null,
   };
 
   // Create a promise that resolves when the UI exits
@@ -214,26 +237,80 @@ export async function startChatUI(
   }
 
   /**
-   * Subscribe to tool.complete events from the client.
-   * Tool start comes from stream messages, tool complete comes from events.
+   * Subscribe to tool events from the client.
+   * Handles both tool.start and tool.complete events from all SDK types.
+   * This is necessary for SDKs like OpenCode that emit tool events via SSE
+   * rather than through the message stream.
    */
-  function subscribeToToolCompleteEvents(): () => void {
-    // Subscribe to tool.complete events (Claude SDK uses hooks for this)
+  function subscribeToToolEvents(): () => void {
+    // Map tool names to IDs for SDKs that don't provide IDs
+    const toolNameToId = new Map<string, string>();
+
+    // Subscribe to tool.start events
+    const unsubStart = client.on("tool.start", (event) => {
+      const data = event.data as { toolName?: string; toolInput?: unknown };
+      if (state.toolStartHandler && data.toolName) {
+        const toolId = `tool_${++state.toolIdCounter}`;
+        toolNameToId.set(data.toolName, toolId);
+        state.toolStartHandler(
+          toolId,
+          data.toolName,
+          (data.toolInput as Record<string, unknown>) ?? {}
+        );
+      }
+    });
+
+    // Subscribe to tool.complete events
     const unsubComplete = client.on("tool.complete", (event) => {
-      const data = event.data as { toolResult?: unknown; success?: boolean; error?: string };
+      const data = event.data as { toolName?: string; toolResult?: unknown; success?: boolean; error?: string };
       if (state.toolCompleteHandler) {
-        // Use the current tool ID (should match the last tool_use)
-        const toolId = `tool_${state.toolIdCounter}`;
+        // Try to find the tool ID from our map, or use the counter
+        const toolId = data.toolName
+          ? (toolNameToId.get(data.toolName) ?? `tool_${state.toolIdCounter}`)
+          : `tool_${state.toolIdCounter}`;
+
         state.toolCompleteHandler(
           toolId,
           data.toolResult,
           data.success ?? true,
           data.error
         );
+
+        // Clean up the map entry
+        if (data.toolName) {
+          toolNameToId.delete(data.toolName);
+        }
       }
     });
 
-    return unsubComplete;
+    // Subscribe to permission.requested events for HITL
+    const unsubPermission = client.on("permission.requested", (event) => {
+      const data = event.data as {
+        requestId?: string;
+        toolName?: string;
+        question?: string;
+        header?: string;
+        options?: Array<{ label: string; value: string; description?: string }>;
+        respond?: (answer: string | string[]) => void;
+      };
+
+      if (state.permissionRequestHandler && data.question && data.options && data.respond) {
+        state.permissionRequestHandler(
+          data.requestId ?? `perm_${Date.now()}`,
+          data.toolName ?? "Unknown Tool",
+          data.question,
+          data.options,
+          data.respond,
+          data.header
+        );
+      }
+    });
+
+    return () => {
+      unsubStart();
+      unsubComplete();
+      unsubPermission();
+    };
   }
 
   /**
@@ -249,8 +326,8 @@ export async function startChatUI(
     if (!state.session) {
       try {
         state.session = await client.createSession(sessionConfig);
-        // Subscribe to tool complete events (Claude uses hooks for this)
-        const unsubscribe = subscribeToToolCompleteEvents();
+        // Subscribe to tool events (both start and complete)
+        const unsubscribe = subscribeToToolEvents();
         state.cleanupHandlers.push(unsubscribe);
       } catch (error) {
         console.error("Failed to create session:", error);
@@ -308,8 +385,34 @@ export async function startChatUI(
   }
 
   // Set up signal handlers for cleanup
+  // Ctrl+C (SIGINT) requires double-press to exit
   const sigintHandler = () => {
-    void cleanup();
+    if (state.ctrlCPressed) {
+      // Second press - actually exit
+      if (state.ctrlCTimeout) {
+        clearTimeout(state.ctrlCTimeout);
+        state.ctrlCTimeout = null;
+      }
+      state.ctrlCPressed = false;
+      if (state.showCtrlCWarning) {
+        state.showCtrlCWarning(false);
+      }
+      void cleanup();
+    } else {
+      // First press - show warning
+      state.ctrlCPressed = true;
+      if (state.showCtrlCWarning) {
+        state.showCtrlCWarning(true);
+      }
+      // Clear warning after 1 second
+      state.ctrlCTimeout = setTimeout(() => {
+        state.ctrlCPressed = false;
+        state.ctrlCTimeout = null;
+        if (state.showCtrlCWarning) {
+          state.showCtrlCWarning(false);
+        }
+      }, 1000);
+    }
   };
 
   const sigtermHandler = () => {
@@ -323,6 +426,9 @@ export async function startChatUI(
   state.cleanupHandlers.push(() => {
     process.off("SIGINT", sigintHandler);
     process.off("SIGTERM", sigtermHandler);
+    if (state.ctrlCTimeout) {
+      clearTimeout(state.ctrlCTimeout);
+    }
   });
 
   try {
@@ -334,9 +440,13 @@ export async function startChatUI(
     // Create the CLI renderer with:
     // - mouse mode disabled to allow native terminal text selection/copy
     // - useAlternateScreen: false so CLI output persists after exit (inline mode)
+    // - exitOnCtrlC: false to allow double-press Ctrl+C behavior
+    // - useKittyKeyboard: with disambiguate so Ctrl+C is received as keyboard event
     state.renderer = await createCliRenderer({
       useMouse: false,
       useAlternateScreen: false,
+      exitOnCtrlC: false,
+      useKittyKeyboard: { disambiguate: true },
     });
 
     // Create React root
@@ -350,6 +460,14 @@ export async function startChatUI(
 
     const registerToolCompleteHandler = (handler: OnToolComplete) => {
       state.toolCompleteHandler = handler;
+    };
+
+    const registerPermissionRequestHandler = (handler: ChatOnPermissionRequest) => {
+      state.permissionRequestHandler = handler;
+    };
+
+    const registerCtrlCWarningHandler = (handler: (show: boolean) => void) => {
+      state.showCtrlCWarning = handler;
     };
 
     state.root.render(
@@ -370,6 +488,8 @@ export async function startChatUI(
             onExit: handleExit,
             registerToolStartHandler,
             registerToolCompleteHandler,
+            registerPermissionRequestHandler,
+            registerCtrlCWarningHandler,
           }),
         }
       )

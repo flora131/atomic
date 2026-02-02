@@ -239,7 +239,8 @@ export type EventType =
   | "tool.start"
   | "tool.complete"
   | "subagent.start"
-  | "subagent.complete";
+  | "subagent.complete"
+  | "permission.requested";
 
 /**
  * Base event data shared by all events
@@ -342,6 +343,40 @@ export interface SubagentCompleteEventData extends BaseEventData {
 }
 
 /**
+ * Option for a permission request
+ */
+export interface PermissionOption {
+  /** Display label for the option */
+  label: string;
+  /** Value to return when selected */
+  value: string;
+  /** Optional description */
+  description?: string;
+}
+
+/**
+ * Event data for permission.requested events (HITL)
+ */
+export interface PermissionRequestedEventData extends BaseEventData {
+  /** Unique request identifier */
+  requestId: string;
+  /** Tool requesting permission */
+  toolName: string;
+  /** Tool input that requires permission */
+  toolInput?: unknown;
+  /** Question/prompt for the user */
+  question: string;
+  /** Header/label for the question dialog (e.g., "Color", "Auth method") */
+  header?: string;
+  /** Available options to choose from */
+  options: PermissionOption[];
+  /** Whether multiple options can be selected */
+  multiSelect?: boolean;
+  /** Callback to provide the answer */
+  respond?: (answer: string | string[]) => void;
+}
+
+/**
  * Map of event types to their corresponding data types
  */
 export interface EventDataMap {
@@ -354,6 +389,7 @@ export interface EventDataMap {
   "tool.complete": ToolCompleteEventData;
   "subagent.start": SubagentStartEventData;
   "subagent.complete": SubagentCompleteEventData;
+  "permission.requested": PermissionRequestedEventData;
 }
 
 /**

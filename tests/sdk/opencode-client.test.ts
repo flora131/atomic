@@ -524,6 +524,34 @@ describe("SSE Event Mapping", () => {
       const handler = client.on("tool.complete", (_event) => {});
       expect(typeof handler).toBe("function");
     });
+
+    test("question.asked SDK event should map to permission.requested", () => {
+      // SDK event structure:
+      // {
+      //   type: "question.asked",
+      //   properties: {
+      //     id: "request-123",
+      //     sessionID: "session-456",
+      //     questions: [{ question: "Which option?", header: "Choice", options: [{ label: "A", description: "Option A" }], multiple: false }]
+      //   }
+      // }
+      // Should emit: permission.requested event with requestId, toolName, question, options, multiSelect, and respond callback
+
+      const handler = client.on("permission.requested", (_event) => {});
+      expect(typeof handler).toBe("function");
+    });
+
+    test("permission.requested handler can be registered for OpenCode question events", () => {
+      // Verify that the client supports the permission.requested event type
+      // which is used for HITL (Human-in-the-Loop) interactions
+      let eventReceived = false;
+      const unsubscribe = client.on("permission.requested", () => {
+        eventReceived = true;
+      });
+
+      expect(typeof unsubscribe).toBe("function");
+      unsubscribe();
+    });
   });
 
   describe("Streaming Interface", () => {

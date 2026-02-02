@@ -438,7 +438,84 @@ export class OpenCodeClient implements CodingAgentClient {
         }
         break;
       }
+
+      case "question.asked": {
+        // Handle HITL (Human-in-the-Loop) question requests from OpenCode
+        // Map OpenCode's question format to our unified permission.requested event
+        this.handleQuestionAsked(properties);
+        break;
+      }
     }
+  }
+
+  /**
+   * Handle OpenCode's question.asked event (HITL)
+   * Maps the OpenCode question format to our unified permission.requested event
+   */
+  private handleQuestionAsked(properties: Record<string, unknown> | undefined): void {
+    if (!properties) return;
+
+    const requestId = properties.id as string;
+    const sessionId = properties.sessionID as string;
+    const questions = properties.questions as Array<{
+      question: string;
+      header?: string;
+      options: Array<{ label: string; description?: string }>;
+      multiple?: boolean;
+      custom?: boolean;
+    }> | undefined;
+
+    if (!requestId || !questions || questions.length === 0) return;
+
+    // OpenCode can ask multiple questions at once, but our UI handles one at a time
+    // For now, we'll process the first question and queue any additional ones
+    const firstQuestion = questions[0];
+    if (!firstQuestion) return;
+
+    // Map OpenCode question format to our unified format
+    const options = firstQuestion.options.map((opt) => ({
+      label: opt.label,
+      value: opt.label, // OpenCode uses labels as values
+      description: opt.description,
+    }));
+
+    // Create a respond callback that calls the OpenCode SDK
+    const respond = (answer: string | string[]) => {
+      // Convert answer to the format expected by OpenCode SDK
+      // OpenCode expects Array<QuestionAnswer> where QuestionAnswer = Array<string>
+      const answers = Array.isArray(answer) ? [answer] : [[answer]];
+
+      if (this.sdkClient) {
+        // Check if the answer indicates rejection (user cancelled)
+        if (answer === "deny" || (Array.isArray(answer) && answer.includes("deny"))) {
+          this.sdkClient.question.reject({
+            requestID: requestId,
+            directory: this.clientOptions.directory,
+          }).catch((error) => {
+            console.error("Failed to reject question:", error);
+          });
+        } else {
+          this.sdkClient.question.reply({
+            requestID: requestId,
+            directory: this.clientOptions.directory,
+            answers,
+          }).catch((error) => {
+            console.error("Failed to reply to question:", error);
+          });
+        }
+      }
+    };
+
+    // Emit permission.requested event to show the dialog
+    this.emitEvent("permission.requested", sessionId ?? "", {
+      requestId,
+      toolName: "question",
+      question: firstQuestion.question,
+      header: firstQuestion.header,
+      options,
+      multiSelect: firstQuestion.multiple ?? false,
+      respond,
+    });
   }
 
   /**
@@ -697,13 +774,44 @@ export class OpenCodeClient implements CodingAgentClient {
                   } else if (part.type === "tool") {
                     const toolPart = part as Record<string, unknown>;
                     const toolState = toolPart.state as Record<string, unknown> | undefined;
+                    const toolName = toolPart.tool as string;
+
+                    // Yield tool_use message for pending/running tools
+                    if (toolState?.status === "pending" || toolState?.status === "running") {
+                      yield {
+                        type: "tool_use" as const,
+                        content: {
+                          name: toolName,
+                          input: toolState?.input ?? {},
+                        },
+                        role: "assistant" as const,
+                        metadata: {
+                          toolId: toolPart.id as string,
+                        },
+                      };
+                    }
+
+                    // Yield tool_result message for completed tools
                     if (toolState?.status === "completed" && toolState?.output) {
                       yield {
                         type: "tool_result" as const,
                         content: toolState.output,
                         role: "assistant" as const,
                         metadata: {
-                          toolName: toolPart.tool as string,
+                          toolName,
+                        },
+                      };
+                    }
+
+                    // Yield error message for failed tools
+                    if (toolState?.status === "error") {
+                      yield {
+                        type: "tool_result" as const,
+                        content: { error: toolState?.error ?? "Tool execution failed" },
+                        role: "assistant" as const,
+                        metadata: {
+                          toolName,
+                          error: true,
                         },
                       };
                     }

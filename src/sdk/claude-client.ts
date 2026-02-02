@@ -182,13 +182,75 @@ export class ClaudeAgentClient implements CodingAgentClient {
   /**
    * Build SDK options from session config
    */
-  private buildSdkOptions(config: SessionConfig): Options {
+  private buildSdkOptions(config: SessionConfig, sessionId?: string): Options {
     const options: Options = {
       model: config.model,
       maxTurns: config.maxTurns,
       maxBudgetUsd: config.maxBudgetUsd,
       hooks: this.buildNativeHooks(),
       includePartialMessages: true,
+    };
+
+    // Add canUseTool callback for HITL (Human-in-the-loop) interactions
+    // This handles AskUserQuestion and other tools requiring user approval
+    options.canUseTool = async (
+      toolName: string,
+      toolInput: Record<string, unknown>,
+      _options: { signal: AbortSignal }
+    ) => {
+      // Handle AskUserQuestion tool - this is the primary HITL mechanism
+      if (toolName === "AskUserQuestion") {
+        const input = toolInput as {
+          questions?: Array<{
+            header?: string;
+            question: string;
+            options?: Array<{ label: string; description?: string }>;
+            multiSelect?: boolean;
+          }>;
+        };
+
+        if (input.questions && input.questions.length > 0) {
+          // Process each question and collect answers
+          const answers: Record<string, string> = {};
+
+          for (const q of input.questions) {
+            // Create a promise that will be resolved when user responds
+            const responsePromise = new Promise<string | string[]>((resolve) => {
+              // Emit permission.requested event with question data
+              this.emitEvent("permission.requested", sessionId ?? "", {
+                requestId: `ask_${Date.now()}`,
+                toolName: "AskUserQuestion",
+                toolInput: q,
+                question: q.question,
+                header: q.header,
+                options: q.options?.map((opt) => ({
+                  label: opt.label,
+                  value: opt.label,
+                  description: opt.description,
+                })) ?? [
+                  { label: "Yes", value: "yes", description: "Approve" },
+                  { label: "No", value: "no", description: "Deny" },
+                ],
+                multiSelect: q.multiSelect ?? false,
+                respond: resolve,
+              });
+            });
+
+            // Wait for user response
+            const response = await responsePromise;
+            answers[q.question] = Array.isArray(response) ? response.join(", ") : response;
+          }
+
+          // Return allow with updated input including answers
+          return {
+            behavior: "allow" as const,
+            updatedInput: { ...input, answers },
+          };
+        }
+      }
+
+      // For other tools, allow by default (they'll use the SDK's permission system)
+      return { behavior: "allow" as const, updatedInput: toolInput };
     };
 
     // Add MCP servers if configured
@@ -259,7 +321,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
         }
 
         // Build options with resume if we have an SDK session ID
-        const options = this.buildSdkOptions(config);
+        const options = this.buildSdkOptions(config, sessionId);
         if (state.sdkSessionId) {
           options.resume = state.sdkSessionId;
         }
@@ -305,7 +367,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
       stream: (message: string): AsyncIterable<AgentMessage> => {
         // Capture references for the async generator
-        const buildOptions = () => this.buildSdkOptions(config);
+        const buildOptions = () => this.buildSdkOptions(config, sessionId);
         const processMsg = (msg: SDKMessage) =>
           this.processMessage(msg, sessionId, state);
         // Capture SDK session ID for resume
@@ -507,7 +569,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
     // Create initial query with system prompt if provided
     const prompt = config.systemPrompt ?? "";
-    const options = this.buildSdkOptions({ ...config, sessionId });
+    const options = this.buildSdkOptions({ ...config, sessionId }, sessionId);
 
     const queryInstance = query({ prompt, options });
 

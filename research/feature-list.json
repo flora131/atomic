@@ -344,7 +344,7 @@
         "Verify all agent session creation uses these options",
         "Add comment noting AskUserQuestion is the only HITL exception"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -357,7 +357,7 @@
         "Verify all agent session creation uses this configuration",
         "Add comment noting all tools auto-execute"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -370,7 +370,7 @@
         "This defaults to --allow-all mode",
         "Add comment noting all tools execute without prompts"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

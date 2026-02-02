@@ -10,6 +10,26 @@
  * - Context compaction via summarize()
  * - Event subscription
  * - Health checks and connection management
+ *
+ * Permission Configuration:
+ * OpenCode permissions are configured via opencode.json files, not SDK options.
+ * To bypass all permission prompts (all tools auto-execute), create an opencode.json:
+ *
+ * ```json
+ * {
+ *   "$schema": "https://opencode.ai/config.json",
+ *   "permission": "allow"
+ * }
+ * ```
+ *
+ * Config locations (in order of precedence):
+ * - Project root: opencode.json
+ * - Global: ~/.config/opencode/opencode.json
+ * - Env var: OPENCODE_CONFIG path
+ *
+ * Note: When running in non-interactive/CLI mode, OpenCode auto-approves all
+ * permissions by default. The question.asked events are still emitted for
+ * user-initiated questions (like AskUserQuestion tool).
  */
 
 import type {

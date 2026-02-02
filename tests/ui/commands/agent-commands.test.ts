@@ -28,7 +28,12 @@ import {
   parseAgentFile,
   discoverAgents,
   shouldAgentOverride,
+  createAgentCommand,
+  builtinAgentCommands,
+  registerBuiltinAgents,
+  registerAgentCommands,
 } from "../../../src/ui/commands/agent-commands.ts";
+import { globalRegistry } from "../../../src/ui/commands/registry.ts";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -1505,5 +1510,300 @@ describe("getBuiltinAgent for debugger", () => {
     const agent = getBuiltinAgent("DEBUGGER");
     expect(agent).toBeDefined();
     expect(agent!.name).toBe("debugger");
+  });
+});
+
+// ============================================================================
+// AGENT COMMAND REGISTRATION TESTS
+// ============================================================================
+
+describe("createAgentCommand", () => {
+  test("creates CommandDefinition from AgentDefinition", () => {
+    const agent: AgentDefinition = {
+      name: "test-agent",
+      description: "A test agent",
+      prompt: "You are a test agent.",
+      source: "builtin",
+    };
+
+    const command = createAgentCommand(agent);
+
+    expect(command.name).toBe("test-agent");
+    expect(command.description).toBe("A test agent");
+    expect(command.category).toBe("agent");
+    expect(command.hidden).toBe(false);
+    expect(typeof command.execute).toBe("function");
+  });
+
+  test("creates CommandDefinition for agent with all fields", () => {
+    const agent: AgentDefinition = {
+      name: "full-agent",
+      description: "A fully configured agent",
+      tools: ["Glob", "Grep", "Read"],
+      model: "opus",
+      prompt: "You are a full agent.",
+      source: "builtin",
+    };
+
+    const command = createAgentCommand(agent);
+
+    expect(command.name).toBe("full-agent");
+    expect(command.description).toBe("A fully configured agent");
+    expect(command.category).toBe("agent");
+  });
+
+  test("execute handler calls sendMessage with agent prompt", () => {
+    const agent: AgentDefinition = {
+      name: "message-agent",
+      description: "Agent that sends message",
+      prompt: "You are a helpful agent.",
+      source: "builtin",
+    };
+
+    const command = createAgentCommand(agent);
+
+    let sentMessage = "";
+    const mockContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content: string) => {
+        sentMessage = content;
+      },
+    };
+
+    const result = command.execute("", mockContext);
+
+    expect(result.success).toBe(true);
+    expect(sentMessage).toBe("You are a helpful agent.");
+  });
+
+  test("execute handler appends user args to prompt", () => {
+    const agent: AgentDefinition = {
+      name: "args-agent",
+      description: "Agent with args",
+      prompt: "You are a helpful agent.",
+      source: "builtin",
+    };
+
+    const command = createAgentCommand(agent);
+
+    let sentMessage = "";
+    const mockContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content: string) => {
+        sentMessage = content;
+      },
+    };
+
+    const result = command.execute("analyze the login flow", mockContext);
+
+    expect(result.success).toBe(true);
+    expect(sentMessage).toContain("You are a helpful agent.");
+    expect(sentMessage).toContain("## User Request");
+    expect(sentMessage).toContain("analyze the login flow");
+  });
+
+  test("execute handler trims user args", () => {
+    const agent: AgentDefinition = {
+      name: "trim-agent",
+      description: "Agent that trims args",
+      prompt: "Test prompt.",
+      source: "builtin",
+    };
+
+    const command = createAgentCommand(agent);
+
+    let sentMessage = "";
+    const mockContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content: string) => {
+        sentMessage = content;
+      },
+    };
+
+    // Empty whitespace args should not append User Request section
+    command.execute("   ", mockContext);
+    expect(sentMessage).toBe("Test prompt.");
+    expect(sentMessage).not.toContain("## User Request");
+  });
+});
+
+describe("builtinAgentCommands", () => {
+  test("is an array", () => {
+    expect(Array.isArray(builtinAgentCommands)).toBe(true);
+  });
+
+  test("has same length as BUILTIN_AGENTS", () => {
+    expect(builtinAgentCommands.length).toBe(BUILTIN_AGENTS.length);
+  });
+
+  test("all commands have agent category", () => {
+    for (const command of builtinAgentCommands) {
+      expect(command.category).toBe("agent");
+    }
+  });
+
+  test("all commands have execute function", () => {
+    for (const command of builtinAgentCommands) {
+      expect(typeof command.execute).toBe("function");
+    }
+  });
+
+  test("each command corresponds to a builtin agent", () => {
+    for (const command of builtinAgentCommands) {
+      const agent = BUILTIN_AGENTS.find((a) => a.name === command.name);
+      expect(agent).toBeDefined();
+      expect(command.description).toBe(agent!.description);
+    }
+  });
+
+  test("includes codebase-analyzer command", () => {
+    const command = builtinAgentCommands.find((c) => c.name === "codebase-analyzer");
+    expect(command).toBeDefined();
+    expect(command!.category).toBe("agent");
+  });
+
+  test("includes debugger command", () => {
+    const command = builtinAgentCommands.find((c) => c.name === "debugger");
+    expect(command).toBeDefined();
+    expect(command!.category).toBe("agent");
+  });
+});
+
+describe("registerBuiltinAgents", () => {
+  beforeAll(() => {
+    // Clear registry before tests
+    globalRegistry.clear();
+  });
+
+  afterAll(() => {
+    // Clean up after tests
+    globalRegistry.clear();
+  });
+
+  test("registers all builtin agents", () => {
+    globalRegistry.clear();
+    registerBuiltinAgents();
+
+    for (const agent of BUILTIN_AGENTS) {
+      expect(globalRegistry.has(agent.name)).toBe(true);
+    }
+  });
+
+  test("registered commands have agent category", () => {
+    globalRegistry.clear();
+    registerBuiltinAgents();
+
+    for (const agent of BUILTIN_AGENTS) {
+      const command = globalRegistry.get(agent.name);
+      expect(command).toBeDefined();
+      expect(command!.category).toBe("agent");
+    }
+  });
+
+  test("is idempotent", () => {
+    globalRegistry.clear();
+
+    // Register twice
+    registerBuiltinAgents();
+    const countAfterFirst = globalRegistry.size();
+
+    registerBuiltinAgents();
+    const countAfterSecond = globalRegistry.size();
+
+    expect(countAfterSecond).toBe(countAfterFirst);
+  });
+
+  test("registered commands can be executed", () => {
+    globalRegistry.clear();
+    registerBuiltinAgents();
+
+    const command = globalRegistry.get("codebase-analyzer");
+    expect(command).toBeDefined();
+
+    let sentMessage = "";
+    const mockContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content: string) => {
+        sentMessage = content;
+      },
+    };
+
+    const result = command!.execute("test args", mockContext);
+
+    expect(result.success).toBe(true);
+    expect(sentMessage.length).toBeGreaterThan(0);
+  });
+});
+
+describe("registerAgentCommands", () => {
+  const testLocalDir = "/tmp/test-register-agents-" + Date.now();
+  const testLocalAgentDir = join(testLocalDir, ".atomic", "agents");
+
+  beforeAll(() => {
+    // Create local test directory structure
+    mkdirSync(testLocalAgentDir, { recursive: true });
+
+    writeFileSync(
+      join(testLocalAgentDir, "custom-agent.md"),
+      `---
+name: custom-agent
+description: A custom agent for testing
+---
+You are a custom agent.`
+    );
+
+    // Change to test directory for discovery
+    process.chdir(testLocalDir);
+    globalRegistry.clear();
+  });
+
+  afterAll(() => {
+    process.chdir("/tmp");
+    rmSync(testLocalDir, { recursive: true, force: true });
+    globalRegistry.clear();
+  });
+
+  test("registers all builtin agents", async () => {
+    globalRegistry.clear();
+    await registerAgentCommands();
+
+    for (const agent of BUILTIN_AGENTS) {
+      expect(globalRegistry.has(agent.name)).toBe(true);
+    }
+  });
+
+  test("discovers and registers custom agents from disk", async () => {
+    globalRegistry.clear();
+    await registerAgentCommands();
+
+    const customAgent = globalRegistry.get("custom-agent");
+    expect(customAgent).toBeDefined();
+    expect(customAgent!.category).toBe("agent");
+    expect(customAgent!.description).toBe("A custom agent for testing");
+  });
+
+  test("is idempotent", async () => {
+    globalRegistry.clear();
+
+    // Register twice
+    await registerAgentCommands();
+    const countAfterFirst = globalRegistry.size();
+
+    await registerAgentCommands();
+    const countAfterSecond = globalRegistry.size();
+
+    expect(countAfterSecond).toBe(countAfterFirst);
   });
 });

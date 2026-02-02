@@ -92,7 +92,7 @@ export interface CommandResult {
 /**
  * Command category for grouping and display.
  */
-export type CommandCategory = "builtin" | "workflow" | "skill" | "custom";
+export type CommandCategory = "builtin" | "workflow" | "skill" | "agent" | "custom";
 
 /**
  * Definition of a slash command.
@@ -292,8 +292,9 @@ export class CommandRegistry {
     const categoryPriority: Record<CommandCategory, number> = {
       workflow: 0,
       skill: 1,
-      builtin: 2,
-      custom: 3,
+      agent: 2,
+      builtin: 3,
+      custom: 4,
     };
 
     return commands.sort((a, b) => {

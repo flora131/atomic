@@ -944,3 +944,69 @@
 ### Files Modified
 - src/ui/commands/agent-commands.ts - Added debugger to BUILTIN_AGENTS array
 - tests/ui/commands/agent-commands.test.ts - Added debugger tests
+
+## 2026-02-02 - Feature Implementation: registerAgentCommands() Function
+
+### Completed
+- Added 'agent' to CommandCategory type in registry.ts
+  - Updated type definition to include: "builtin" | "workflow" | "skill" | "agent" | "custom"
+  - Updated categoryPriority sort order: workflow > skill > agent > builtin > custom
+
+- Implemented createAgentCommand() function in agent-commands.ts
+  - Takes AgentDefinition and returns CommandDefinition
+  - Sets category to 'agent'
+  - Sets hidden to false
+  - Execute handler sends agent prompt via context.sendMessage()
+  - Appends user arguments with "## User Request" section
+
+- Created builtinAgentCommands array
+  - Maps BUILTIN_AGENTS through createAgentCommand()
+  - Exported for testing and direct access
+
+- Implemented registerBuiltinAgents() function
+  - Iterates over builtinAgentCommands
+  - Checks if command exists before registering (idempotent)
+  - Registers each agent with globalRegistry
+
+- Implemented registerAgentCommands() async function
+  - First calls registerBuiltinAgents() to register builtins
+  - Then calls discoverAgents() to find disk-based agents
+  - Handles source priority (project > atomic > user > builtin)
+  - Registers discovered agents that don't conflict with builtins
+
+### Tests Added (19 new tests)
+- createAgentCommand tests:
+  - creates CommandDefinition from AgentDefinition
+  - creates CommandDefinition for agent with all fields
+  - execute handler calls sendMessage with agent prompt
+  - execute handler appends user args to prompt
+  - execute handler trims user args
+
+- builtinAgentCommands tests:
+  - is an array
+  - has same length as BUILTIN_AGENTS
+  - all commands have agent category
+  - all commands have execute function
+  - each command corresponds to a builtin agent
+  - includes codebase-analyzer command
+  - includes debugger command
+
+- registerBuiltinAgents tests:
+  - registers all builtin agents
+  - registered commands have agent category
+  - is idempotent
+  - registered commands can be executed
+
+- registerAgentCommands tests:
+  - registers all builtin agents
+  - discovers and registers custom agents from disk
+  - is idempotent
+
+### Test Results
+- All agent-commands tests pass (198 tests)
+- All registry tests pass (35 tests)
+
+### Files Modified
+- src/ui/commands/registry.ts - Added 'agent' to CommandCategory type and priority
+- src/ui/commands/agent-commands.ts - Added imports, createAgentCommand(), builtinAgentCommands, registerBuiltinAgents(), registerAgentCommands()
+- tests/ui/commands/agent-commands.test.ts - Added registration tests

@@ -284,7 +284,7 @@
         "Write comprehensive system prompt for analyzing research documents",
         "Set source to 'builtin'"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

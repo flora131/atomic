@@ -493,3 +493,99 @@
 ### Files Modified
 - src/ui/commands/agent-commands.ts - Added AGENT_DISCOVERY_PATHS and GLOBAL_AGENT_PATHS constants
 - tests/ui/commands/agent-commands.test.ts - Added path constant tests
+
+## 2026-02-02 - Feature Implementation: discoverAgents() and parseAgentFrontmatter()
+
+### Completed
+- Implemented discoverAgents() function in agent-commands.ts
+  - Async function returning Promise<AgentDefinition[]>
+  - Scans AGENT_DISCOVERY_PATHS for project-local .md files
+  - Scans GLOBAL_AGENT_PATHS for user-global .md files (with ~ expansion)
+  - Parses YAML frontmatter and body content from each file
+  - Uses parseAgentFrontmatter() to normalize across SDK formats
+  - Determines source based on which path matched
+  - Project-local agents override user-global agents with same name
+  - Returns array of AgentDefinition objects
+
+- Implemented parseAgentFrontmatter() function
+  - Normalizes frontmatter from Claude, OpenCode, and Copilot formats
+  - Extracts name from frontmatter.name or derives from filename
+  - Extracts description with fallback default
+  - Normalizes tools: converts Record<string, boolean> to string[] of enabled tools
+  - Normalizes model: maps 'provider/model' format to 'sonnet'|'opus'|'haiku'
+  - Returns normalized AgentDefinition
+
+- Implemented helper functions:
+  - parseMarkdownFrontmatter(): Parses YAML frontmatter from markdown content
+    - Handles simple key-value pairs, arrays (Claude format), and objects (OpenCode format)
+    - Returns frontmatter object and body content
+  - normalizeModel(): Converts various model formats to AgentModel type
+  - normalizeTools(): Converts tool formats to string array
+  - expandTildePath(): Expands ~ in paths to home directory
+  - determineAgentSource(): Determines agent source based on discovery path
+  - discoverAgentFilesInPath(): Discovers .md files in a single directory
+  - discoverAgentFiles(): Discovers all agent files from all search paths
+  - parseAgentFile(): Parses a single agent file into AgentDefinition
+  - shouldAgentOverride(): Determines if new agent should override existing based on source priority
+
+- Added DiscoveredAgentFile interface for tracking discovered files with metadata
+
+### Tests Added (49 new tests)
+- parseMarkdownFrontmatter tests:
+  - parses simple frontmatter with string values
+  - parses frontmatter with array values (Claude format)
+  - parses frontmatter with object values (OpenCode format)
+  - parses frontmatter with boolean values
+  - parses frontmatter with numeric values
+  - returns null for content without frontmatter
+  - returns null for invalid frontmatter format
+  - handles empty body after frontmatter
+  - handles multiline body content
+
+- normalizeModel tests:
+  - returns undefined for undefined input
+  - returns direct match for sonnet/opus/haiku (case-insensitive)
+  - extracts model from OpenCode format (anthropic/claude-3-*)
+  - returns undefined for unknown model
+
+- normalizeTools tests:
+  - returns undefined for undefined input
+  - passes through array format (Claude/Copilot)
+  - converts object format to array (OpenCode)
+  - returns empty array when all tools are disabled
+
+- parseAgentFrontmatter tests:
+  - creates AgentDefinition with all fields
+  - uses filename as name when not in frontmatter
+  - uses default description when not in frontmatter
+  - normalizes OpenCode tools format
+  - normalizes OpenCode model format
+  - trims body content
+
+- Path utilities tests:
+  - expandTildePath: expands ~/, standalone ~, preserves absolute/relative paths
+  - determineAgentSource: correctly identifies user, atomic, project sources
+  - shouldAgentOverride: correct priority ordering
+
+- discoverAgentFilesInPath tests:
+  - discovers .md files in directory
+  - ignores non-.md files
+  - assigns correct source to discovered files
+  - returns empty array for non-existent directory
+
+- parseAgentFile tests:
+  - parses agent with full frontmatter
+  - parses agent without frontmatter
+  - returns null for non-existent file
+
+- discoverAgents tests:
+  - discovers agents from local directories
+  - returns array of AgentDefinition objects
+
+### Test Results
+- All agent-commands tests pass (83 tests)
+- Note: Pre-existing test failures in builtin-commands and tool-result modules remain
+
+### Files Modified
+- src/ui/commands/agent-commands.ts - Added imports, interfaces, and all implementation functions
+- tests/ui/commands/agent-commands.test.ts - Added comprehensive tests for all new functions

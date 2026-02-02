@@ -4,17 +4,32 @@
  * Verifies agent definition interfaces and type constraints.
  */
 
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import type {
   AgentDefinition,
   AgentSource,
   AgentModel,
   AgentFrontmatter,
+  DiscoveredAgentFile,
 } from "../../../src/ui/commands/agent-commands.ts";
 import {
   AGENT_DISCOVERY_PATHS,
   GLOBAL_AGENT_PATHS,
+  parseMarkdownFrontmatter,
+  normalizeModel,
+  normalizeTools,
+  parseAgentFrontmatter,
+  expandTildePath,
+  determineAgentSource,
+  discoverAgentFilesInPath,
+  discoverAgentFiles,
+  parseAgentFile,
+  discoverAgents,
+  shouldAgentOverride,
 } from "../../../src/ui/commands/agent-commands.ts";
+import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
 
 // ============================================================================
 // TESTS
@@ -376,6 +391,491 @@ describe("GLOBAL_AGENT_PATHS constant", () => {
   test("all paths start with ~ for home directory expansion", () => {
     for (const path of GLOBAL_AGENT_PATHS) {
       expect(path.startsWith("~")).toBe(true);
+    }
+  });
+});
+
+// ============================================================================
+// FRONTMATTER PARSING TESTS
+// ============================================================================
+
+describe("parseMarkdownFrontmatter", () => {
+  test("parses simple frontmatter with string values", () => {
+    const content = `---
+name: test-agent
+description: A test agent
+---
+This is the body content.`;
+
+    const result = parseMarkdownFrontmatter(content);
+    expect(result).not.toBeNull();
+    expect(result!.frontmatter.name).toBe("test-agent");
+    expect(result!.frontmatter.description).toBe("A test agent");
+    expect(result!.body).toBe("This is the body content.");
+  });
+
+  test("parses frontmatter with array values (Claude format)", () => {
+    const content = `---
+name: analyzer
+tools:
+  - Glob
+  - Grep
+  - Read
+---
+System prompt here.`;
+
+    const result = parseMarkdownFrontmatter(content);
+    expect(result).not.toBeNull();
+    expect(result!.frontmatter.name).toBe("analyzer");
+    expect(result!.frontmatter.tools).toEqual(["Glob", "Grep", "Read"]);
+  });
+
+  test("parses frontmatter with object values (OpenCode format)", () => {
+    const content = `---
+name: code-writer
+tools:
+  glob: true
+  grep: true
+  write: false
+---
+You write code.`;
+
+    const result = parseMarkdownFrontmatter(content);
+    expect(result).not.toBeNull();
+    expect(result!.frontmatter.name).toBe("code-writer");
+    expect(result!.frontmatter.tools).toEqual({ glob: true, grep: true, write: false });
+  });
+
+  test("parses frontmatter with boolean values", () => {
+    const content = `---
+name: hidden-agent
+hidden: true
+---
+Secret agent.`;
+
+    const result = parseMarkdownFrontmatter(content);
+    expect(result).not.toBeNull();
+    expect(result!.frontmatter.hidden).toBe(true);
+  });
+
+  test("parses frontmatter with numeric values", () => {
+    const content = `---
+name: agent
+priority: 42
+---
+Body.`;
+
+    const result = parseMarkdownFrontmatter(content);
+    expect(result).not.toBeNull();
+    expect(result!.frontmatter.priority).toBe(42);
+  });
+
+  test("returns null for content without frontmatter", () => {
+    const content = "Just regular markdown content without frontmatter.";
+    const result = parseMarkdownFrontmatter(content);
+    expect(result).toBeNull();
+  });
+
+  test("returns null for invalid frontmatter format", () => {
+    const content = `---
+name: agent
+Missing closing delimiter`;
+    const result = parseMarkdownFrontmatter(content);
+    expect(result).toBeNull();
+  });
+
+  test("handles empty body after frontmatter", () => {
+    const content = `---
+name: agent
+---
+`;
+    const result = parseMarkdownFrontmatter(content);
+    expect(result).not.toBeNull();
+    expect(result!.frontmatter.name).toBe("agent");
+    expect(result!.body).toBe("");
+  });
+
+  test("handles multiline body content", () => {
+    const content = `---
+name: agent
+---
+Line 1
+Line 2
+
+Line 4`;
+    const result = parseMarkdownFrontmatter(content);
+    expect(result).not.toBeNull();
+    expect(result!.body).toBe("Line 1\nLine 2\n\nLine 4");
+  });
+});
+
+describe("normalizeModel", () => {
+  test("returns undefined for undefined input", () => {
+    expect(normalizeModel(undefined)).toBeUndefined();
+  });
+
+  test("returns direct match for sonnet", () => {
+    expect(normalizeModel("sonnet")).toBe("sonnet");
+    expect(normalizeModel("SONNET")).toBe("sonnet");
+    expect(normalizeModel("Sonnet")).toBe("sonnet");
+  });
+
+  test("returns direct match for opus", () => {
+    expect(normalizeModel("opus")).toBe("opus");
+    expect(normalizeModel("OPUS")).toBe("opus");
+  });
+
+  test("returns direct match for haiku", () => {
+    expect(normalizeModel("haiku")).toBe("haiku");
+    expect(normalizeModel("HAIKU")).toBe("haiku");
+  });
+
+  test("extracts sonnet from OpenCode format", () => {
+    expect(normalizeModel("anthropic/claude-3-sonnet")).toBe("sonnet");
+    expect(normalizeModel("anthropic/claude-3.5-sonnet")).toBe("sonnet");
+  });
+
+  test("extracts opus from OpenCode format", () => {
+    expect(normalizeModel("anthropic/claude-3-opus")).toBe("opus");
+  });
+
+  test("extracts haiku from OpenCode format", () => {
+    expect(normalizeModel("anthropic/claude-3-haiku")).toBe("haiku");
+  });
+
+  test("returns undefined for unknown model", () => {
+    expect(normalizeModel("gpt-4")).toBeUndefined();
+    expect(normalizeModel("unknown-model")).toBeUndefined();
+  });
+});
+
+describe("normalizeTools", () => {
+  test("returns undefined for undefined input", () => {
+    expect(normalizeTools(undefined)).toBeUndefined();
+  });
+
+  test("passes through array format (Claude/Copilot)", () => {
+    const tools = ["Glob", "Grep", "Read"];
+    expect(normalizeTools(tools)).toEqual(["Glob", "Grep", "Read"]);
+  });
+
+  test("converts object format to array (OpenCode)", () => {
+    const tools = { glob: true, grep: true, write: false, bash: true };
+    const normalized = normalizeTools(tools);
+    expect(normalized).toContain("glob");
+    expect(normalized).toContain("grep");
+    expect(normalized).toContain("bash");
+    expect(normalized).not.toContain("write");
+  });
+
+  test("returns empty array when all tools are disabled", () => {
+    const tools = { glob: false, grep: false };
+    expect(normalizeTools(tools)).toEqual([]);
+  });
+});
+
+describe("parseAgentFrontmatter", () => {
+  test("creates AgentDefinition with all fields", () => {
+    const frontmatter = {
+      name: "test-agent",
+      description: "A test agent",
+      tools: ["Glob", "Grep"],
+      model: "opus",
+    };
+    const body = "You are a test agent.";
+    const source: AgentSource = "builtin";
+    const filename = "test-agent";
+
+    const result = parseAgentFrontmatter(frontmatter, body, source, filename);
+
+    expect(result.name).toBe("test-agent");
+    expect(result.description).toBe("A test agent");
+    expect(result.tools).toEqual(["Glob", "Grep"]);
+    expect(result.model).toBe("opus");
+    expect(result.prompt).toBe("You are a test agent.");
+    expect(result.source).toBe("builtin");
+  });
+
+  test("uses filename as name when not in frontmatter", () => {
+    const frontmatter = {
+      description: "An agent",
+    };
+    const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "my-agent");
+    expect(result.name).toBe("my-agent");
+  });
+
+  test("uses default description when not in frontmatter", () => {
+    const frontmatter = {};
+    const result = parseAgentFrontmatter(frontmatter, "prompt", "user", "analyzer");
+    expect(result.description).toBe("Agent: analyzer");
+  });
+
+  test("normalizes OpenCode tools format", () => {
+    const frontmatter = {
+      description: "Agent",
+      tools: { glob: true, grep: false, read: true },
+    };
+    const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "agent");
+    expect(result.tools).toContain("glob");
+    expect(result.tools).toContain("read");
+    expect(result.tools).not.toContain("grep");
+  });
+
+  test("normalizes OpenCode model format", () => {
+    const frontmatter = {
+      description: "Agent",
+      model: "anthropic/claude-3-opus",
+    };
+    const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "agent");
+    expect(result.model).toBe("opus");
+  });
+
+  test("trims body content", () => {
+    const frontmatter = { description: "Agent" };
+    const body = "  \n  Trimmed content  \n  ";
+    const result = parseAgentFrontmatter(frontmatter, body, "project", "agent");
+    expect(result.prompt).toBe("Trimmed content");
+  });
+});
+
+// ============================================================================
+// PATH UTILITIES TESTS
+// ============================================================================
+
+describe("expandTildePath", () => {
+  test("expands ~/ to home directory", () => {
+    const result = expandTildePath("~/.claude/agents");
+    expect(result).toBe(join(homedir(), ".claude/agents"));
+  });
+
+  test("expands standalone ~ to home directory", () => {
+    const result = expandTildePath("~");
+    expect(result).toBe(homedir());
+  });
+
+  test("returns absolute path unchanged", () => {
+    const result = expandTildePath("/usr/local/bin");
+    expect(result).toBe("/usr/local/bin");
+  });
+
+  test("returns relative path unchanged", () => {
+    const result = expandTildePath(".claude/agents");
+    expect(result).toBe(".claude/agents");
+  });
+});
+
+describe("determineAgentSource", () => {
+  test("returns user for global paths with ~", () => {
+    expect(determineAgentSource("~/.claude/agents")).toBe("user");
+    expect(determineAgentSource("~/.opencode/agents")).toBe("user");
+    expect(determineAgentSource("~/.copilot/agents")).toBe("user");
+  });
+
+  test("returns atomic for global .atomic paths", () => {
+    expect(determineAgentSource("~/.atomic/agents")).toBe("atomic");
+  });
+
+  test("returns project for local non-atomic paths", () => {
+    expect(determineAgentSource(".claude/agents")).toBe("project");
+    expect(determineAgentSource(".opencode/agents")).toBe("project");
+    expect(determineAgentSource(".github/agents")).toBe("project");
+  });
+
+  test("returns atomic for local .atomic paths", () => {
+    expect(determineAgentSource(".atomic/agents")).toBe("atomic");
+  });
+});
+
+describe("shouldAgentOverride", () => {
+  test("project overrides all other sources", () => {
+    expect(shouldAgentOverride("project", "atomic")).toBe(true);
+    expect(shouldAgentOverride("project", "user")).toBe(true);
+    expect(shouldAgentOverride("project", "builtin")).toBe(true);
+  });
+
+  test("atomic overrides user and builtin", () => {
+    expect(shouldAgentOverride("atomic", "user")).toBe(true);
+    expect(shouldAgentOverride("atomic", "builtin")).toBe(true);
+  });
+
+  test("user overrides only builtin", () => {
+    expect(shouldAgentOverride("user", "builtin")).toBe(true);
+  });
+
+  test("lower priority does not override higher", () => {
+    expect(shouldAgentOverride("builtin", "project")).toBe(false);
+    expect(shouldAgentOverride("user", "project")).toBe(false);
+    expect(shouldAgentOverride("atomic", "project")).toBe(false);
+    expect(shouldAgentOverride("builtin", "atomic")).toBe(false);
+  });
+
+  test("same priority does not override", () => {
+    expect(shouldAgentOverride("project", "project")).toBe(false);
+    expect(shouldAgentOverride("atomic", "atomic")).toBe(false);
+    expect(shouldAgentOverride("user", "user")).toBe(false);
+    expect(shouldAgentOverride("builtin", "builtin")).toBe(false);
+  });
+});
+
+// ============================================================================
+// AGENT DISCOVERY TESTS
+// ============================================================================
+
+describe("discoverAgentFilesInPath", () => {
+  const testDir = "/tmp/test-agent-discovery-" + Date.now();
+
+  beforeAll(() => {
+    mkdirSync(testDir, { recursive: true });
+    writeFileSync(join(testDir, "agent1.md"), "# Agent 1");
+    writeFileSync(join(testDir, "agent2.md"), "# Agent 2");
+    writeFileSync(join(testDir, "readme.txt"), "Not an agent");
+  });
+
+  afterAll(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  test("discovers .md files in directory", () => {
+    const files = discoverAgentFilesInPath(testDir, "project");
+    expect(files).toHaveLength(2);
+    expect(files.map((f) => f.filename)).toContain("agent1");
+    expect(files.map((f) => f.filename)).toContain("agent2");
+  });
+
+  test("ignores non-.md files", () => {
+    const files = discoverAgentFilesInPath(testDir, "project");
+    expect(files.map((f) => f.filename)).not.toContain("readme");
+  });
+
+  test("assigns correct source to discovered files", () => {
+    const files = discoverAgentFilesInPath(testDir, "user");
+    for (const file of files) {
+      expect(file.source).toBe("user");
+    }
+  });
+
+  test("returns empty array for non-existent directory", () => {
+    const files = discoverAgentFilesInPath("/non/existent/path", "project");
+    expect(files).toEqual([]);
+  });
+});
+
+describe("parseAgentFile", () => {
+  const testDir = "/tmp/test-parse-agent-" + Date.now();
+
+  beforeAll(() => {
+    mkdirSync(testDir, { recursive: true });
+
+    // Full agent with frontmatter
+    writeFileSync(
+      join(testDir, "full-agent.md"),
+      `---
+name: my-analyzer
+description: Analyzes code
+tools:
+  - Glob
+  - Grep
+model: opus
+---
+You are a code analyzer.`
+    );
+
+    // Agent without frontmatter
+    writeFileSync(join(testDir, "simple-agent.md"), "You are a simple agent.");
+
+    // Invalid file
+    writeFileSync(join(testDir, "invalid.md"), "---\nname: broken");
+  });
+
+  afterAll(() => {
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  test("parses agent with full frontmatter", () => {
+    const file: DiscoveredAgentFile = {
+      path: join(testDir, "full-agent.md"),
+      source: "project",
+      filename: "full-agent",
+    };
+
+    const agent = parseAgentFile(file);
+    expect(agent).not.toBeNull();
+    expect(agent!.name).toBe("my-analyzer");
+    expect(agent!.description).toBe("Analyzes code");
+    expect(agent!.tools).toEqual(["Glob", "Grep"]);
+    expect(agent!.model).toBe("opus");
+    expect(agent!.prompt).toBe("You are a code analyzer.");
+    expect(agent!.source).toBe("project");
+  });
+
+  test("parses agent without frontmatter", () => {
+    const file: DiscoveredAgentFile = {
+      path: join(testDir, "simple-agent.md"),
+      source: "user",
+      filename: "simple-agent",
+    };
+
+    const agent = parseAgentFile(file);
+    expect(agent).not.toBeNull();
+    expect(agent!.name).toBe("simple-agent");
+    expect(agent!.description).toBe("Agent: simple-agent");
+    expect(agent!.prompt).toBe("You are a simple agent.");
+    expect(agent!.source).toBe("user");
+  });
+
+  test("returns null for non-existent file", () => {
+    const file: DiscoveredAgentFile = {
+      path: join(testDir, "does-not-exist.md"),
+      source: "project",
+      filename: "does-not-exist",
+    };
+
+    const agent = parseAgentFile(file);
+    expect(agent).toBeNull();
+  });
+});
+
+describe("discoverAgents", () => {
+  const testLocalDir = "/tmp/test-discover-agents-local-" + Date.now();
+  const testLocalAgentDir = join(testLocalDir, ".atomic", "agents");
+
+  beforeAll(() => {
+    // Create local test directory structure
+    mkdirSync(testLocalAgentDir, { recursive: true });
+
+    writeFileSync(
+      join(testLocalAgentDir, "local-agent.md"),
+      `---
+name: local-agent
+description: A local agent
+---
+Local prompt.`
+    );
+
+    // Change to test directory for discovery
+    process.chdir(testLocalDir);
+  });
+
+  afterAll(() => {
+    process.chdir("/tmp");
+    rmSync(testLocalDir, { recursive: true, force: true });
+  });
+
+  test("discovers agents from local directories", async () => {
+    const agents = await discoverAgents();
+    const localAgent = agents.find((a) => a.name === "local-agent");
+    expect(localAgent).toBeDefined();
+    expect(localAgent!.description).toBe("A local agent");
+    expect(localAgent!.source).toBe("atomic");
+  });
+
+  test("returns array of AgentDefinition objects", async () => {
+    const agents = await discoverAgents();
+    for (const agent of agents) {
+      expect(agent).toHaveProperty("name");
+      expect(agent).toHaveProperty("description");
+      expect(agent).toHaveProperty("prompt");
+      expect(agent).toHaveProperty("source");
     }
   });
 });

@@ -12,6 +12,10 @@
  * - Atomic: Defined in .atomic/agents or ~/.atomic/agents
  */
 
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join, basename } from "node:path";
+import { homedir } from "node:os";
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -136,6 +140,18 @@ export interface AgentFrontmatter {
 }
 
 /**
+ * Discovered agent file with path and source information.
+ */
+export interface DiscoveredAgentFile {
+  /** Full path to the agent markdown file */
+  path: string;
+  /** Source type for conflict resolution */
+  source: AgentSource;
+  /** Filename without extension (used as fallback name) */
+  filename: string;
+}
+
+/**
  * Agent definition interface.
  *
  * Defines a sub-agent that can be invoked via a slash command.
@@ -197,4 +213,438 @@ export interface AgentDefinition {
    * Used for conflict resolution (project overrides user, etc.).
    */
   source: AgentSource;
+}
+
+// ============================================================================
+// FRONTMATTER PARSING
+// ============================================================================
+
+/**
+ * Parse YAML frontmatter from markdown content.
+ *
+ * Extracts the frontmatter section (between --- delimiters) and the
+ * body content (everything after the frontmatter).
+ *
+ * @param content - Raw markdown file content
+ * @returns Parsed frontmatter and body, or null if invalid format
+ */
+export function parseMarkdownFrontmatter(
+  content: string
+): { frontmatter: Record<string, unknown>; body: string } | null {
+  const frontmatterRegex = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
+  const match = content.match(frontmatterRegex);
+
+  if (!match) {
+    return null;
+  }
+
+  const yamlContent = match[1] ?? "";
+  const body = match[2] ?? "";
+
+  // Parse simple YAML (key: value pairs, arrays, and objects)
+  const frontmatter: Record<string, unknown> = {};
+
+  const lines = yamlContent.split("\n");
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i]!;
+    const trimmedLine = line.trim();
+
+    // Skip empty lines and comments
+    if (!trimmedLine || trimmedLine.startsWith("#")) {
+      i++;
+      continue;
+    }
+
+    const colonIndex = line.indexOf(":");
+    if (colonIndex <= 0) {
+      i++;
+      continue;
+    }
+
+    const key = line.slice(0, colonIndex).trim();
+    const value = line.slice(colonIndex + 1).trim();
+
+    // Check if this is an array or object (value is empty and next lines are indented)
+    if (!value && i + 1 < lines.length) {
+      const nextLine = lines[i + 1]!;
+      const isArrayItem = nextLine.match(/^\s+- /);
+      const isObjectItem = nextLine.match(/^\s+\w+:/);
+
+      if (isArrayItem) {
+        // Parse array
+        const arr: string[] = [];
+        i++;
+        while (i < lines.length) {
+          const arrLine = lines[i]!;
+          const arrMatch = arrLine.match(/^\s+- (.+)$/);
+          if (arrMatch) {
+            arr.push(arrMatch[1]!.trim());
+            i++;
+          } else if (arrLine.trim() === "" || !arrLine.startsWith(" ")) {
+            break;
+          } else {
+            i++;
+          }
+        }
+        frontmatter[key] = arr;
+        continue;
+      } else if (isObjectItem) {
+        // Parse object (for OpenCode tools format)
+        const obj: Record<string, boolean> = {};
+        i++;
+        while (i < lines.length) {
+          const objLine = lines[i]!;
+          const objMatch = objLine.match(/^\s+(\w+):\s*(true|false)$/);
+          if (objMatch) {
+            obj[objMatch[1]!] = objMatch[2] === "true";
+            i++;
+          } else if (objLine.trim() === "" || !objLine.startsWith(" ")) {
+            break;
+          } else {
+            i++;
+          }
+        }
+        frontmatter[key] = obj;
+        continue;
+      }
+    }
+
+    // Simple string/number value
+    if (value) {
+      // Try to parse as boolean
+      if (value === "true") {
+        frontmatter[key] = true;
+      } else if (value === "false") {
+        frontmatter[key] = false;
+      } else {
+        // Try to parse as number
+        const numValue = Number(value);
+        frontmatter[key] = Number.isNaN(numValue) ? value : numValue;
+      }
+    }
+
+    i++;
+  }
+
+  return { frontmatter, body };
+}
+
+/**
+ * Normalize model string to AgentModel type.
+ *
+ * Handles different SDK model formats:
+ * - Claude: "sonnet", "opus", "haiku"
+ * - OpenCode: "anthropic/claude-3-sonnet", "anthropic/claude-3-opus", etc.
+ * - Copilot: Various model strings
+ *
+ * @param model - Raw model string from frontmatter
+ * @returns Normalized AgentModel or undefined if not mappable
+ */
+export function normalizeModel(model: string | undefined): AgentModel | undefined {
+  if (!model) {
+    return undefined;
+  }
+
+  const lowerModel = model.toLowerCase();
+
+  // Direct matches
+  if (lowerModel === "sonnet" || lowerModel === "opus" || lowerModel === "haiku") {
+    return lowerModel;
+  }
+
+  // OpenCode format: "provider/model-name"
+  if (lowerModel.includes("sonnet")) {
+    return "sonnet";
+  }
+  if (lowerModel.includes("opus")) {
+    return "opus";
+  }
+  if (lowerModel.includes("haiku")) {
+    return "haiku";
+  }
+
+  // Default to sonnet for unknown models
+  return undefined;
+}
+
+/**
+ * Normalize tools from different SDK formats to string array.
+ *
+ * - Claude/Copilot: string[] → pass through
+ * - OpenCode: Record<string, boolean> → extract enabled tool names
+ *
+ * @param tools - Tools in either array or object format
+ * @returns Normalized string array of tool names
+ */
+export function normalizeTools(
+  tools: string[] | Record<string, boolean> | undefined
+): string[] | undefined {
+  if (!tools) {
+    return undefined;
+  }
+
+  if (Array.isArray(tools)) {
+    return tools;
+  }
+
+  // OpenCode format: { toolName: true/false }
+  // Only include tools that are enabled (true)
+  return Object.entries(tools)
+    .filter(([, enabled]) => enabled)
+    .map(([name]) => name);
+}
+
+/**
+ * Parse agent frontmatter and normalize to AgentDefinition.
+ *
+ * Handles different SDK frontmatter formats (Claude, OpenCode, Copilot)
+ * and normalizes them into a consistent AgentDefinition structure.
+ *
+ * @param frontmatter - Parsed frontmatter object
+ * @param body - Markdown body content (becomes the prompt)
+ * @param source - Source type for this agent
+ * @param filename - Filename without extension (fallback for name)
+ * @returns Normalized AgentDefinition
+ */
+export function parseAgentFrontmatter(
+  frontmatter: Record<string, unknown>,
+  body: string,
+  source: AgentSource,
+  filename: string
+): AgentDefinition {
+  // Extract name: use frontmatter.name or derive from filename
+  const name = (frontmatter.name as string | undefined) || filename;
+
+  // Extract description: required field
+  const description =
+    (frontmatter.description as string | undefined) || `Agent: ${name}`;
+
+  // Normalize tools from Claude array or OpenCode object format
+  const rawTools = frontmatter.tools as
+    | string[]
+    | Record<string, boolean>
+    | undefined;
+  const tools = normalizeTools(rawTools);
+
+  // Normalize model from various SDK formats
+  const rawModel = frontmatter.model as string | undefined;
+  const model = normalizeModel(rawModel);
+
+  // Use the body content as the system prompt
+  const prompt = body.trim();
+
+  return {
+    name,
+    description,
+    tools,
+    model,
+    prompt,
+    source,
+  };
+}
+
+// ============================================================================
+// AGENT DISCOVERY
+// ============================================================================
+
+/**
+ * Expand tilde (~) in path to home directory.
+ *
+ * @param path - Path that may contain ~
+ * @returns Expanded path with ~ replaced by home directory
+ */
+export function expandTildePath(path: string): string {
+  if (path.startsWith("~/")) {
+    return join(homedir(), path.slice(2));
+  }
+  if (path === "~") {
+    return homedir();
+  }
+  return path;
+}
+
+/**
+ * Determine agent source based on discovery path.
+ *
+ * @param discoveryPath - The path where the agent was discovered
+ * @returns AgentSource type for conflict resolution
+ */
+export function determineAgentSource(discoveryPath: string): AgentSource {
+  // Check if path is in global (user) location
+  if (discoveryPath.startsWith("~") || discoveryPath.includes(homedir())) {
+    // Global user paths
+    if (discoveryPath.includes(".atomic")) {
+      return "atomic";
+    }
+    return "user";
+  }
+
+  // Project-local paths
+  if (discoveryPath.includes(".atomic")) {
+    return "atomic";
+  }
+  return "project";
+}
+
+/**
+ * Discover agent files from a single directory path.
+ *
+ * @param searchPath - Directory path to search (may contain ~)
+ * @param source - Source type to assign to discovered agents
+ * @returns Array of discovered agent file information
+ */
+export function discoverAgentFilesInPath(
+  searchPath: string,
+  source: AgentSource
+): DiscoveredAgentFile[] {
+  const discovered: DiscoveredAgentFile[] = [];
+  const expandedPath = expandTildePath(searchPath);
+
+  if (!existsSync(expandedPath)) {
+    return discovered;
+  }
+
+  try {
+    const files = readdirSync(expandedPath);
+    for (const file of files) {
+      if (file.endsWith(".md")) {
+        const filename = basename(file, ".md");
+        discovered.push({
+          path: join(expandedPath, file),
+          source,
+          filename,
+        });
+      }
+    }
+  } catch {
+    // Skip directories we can't read
+  }
+
+  return discovered;
+}
+
+/**
+ * Discover agent files from all configured search paths.
+ *
+ * Searches both project-local and user-global agent directories.
+ * Returns files with their source information for priority resolution.
+ *
+ * @returns Array of discovered agent files
+ */
+export function discoverAgentFiles(): DiscoveredAgentFile[] {
+  const discovered: DiscoveredAgentFile[] = [];
+
+  // First, discover from project-local paths (higher priority)
+  for (const searchPath of AGENT_DISCOVERY_PATHS) {
+    const source = determineAgentSource(searchPath);
+    const files = discoverAgentFilesInPath(searchPath, source);
+    discovered.push(...files);
+  }
+
+  // Then, discover from user-global paths (lower priority)
+  for (const searchPath of GLOBAL_AGENT_PATHS) {
+    const source = determineAgentSource(searchPath);
+    const files = discoverAgentFilesInPath(searchPath, source);
+    discovered.push(...files);
+  }
+
+  return discovered;
+}
+
+/**
+ * Parse a single agent file into an AgentDefinition.
+ *
+ * @param file - Discovered agent file information
+ * @returns AgentDefinition or null if parsing fails
+ */
+export function parseAgentFile(file: DiscoveredAgentFile): AgentDefinition | null {
+  try {
+    const content = readFileSync(file.path, "utf-8");
+    const parsed = parseMarkdownFrontmatter(content);
+
+    if (!parsed) {
+      // No frontmatter, treat entire content as prompt with default values
+      return {
+        name: file.filename,
+        description: `Agent: ${file.filename}`,
+        prompt: content.trim(),
+        source: file.source,
+      };
+    }
+
+    return parseAgentFrontmatter(
+      parsed.frontmatter,
+      parsed.body,
+      file.source,
+      file.filename
+    );
+  } catch {
+    // Skip files we can't read or parse
+    return null;
+  }
+}
+
+/**
+ * Discover and parse all agent definitions from disk.
+ *
+ * Scans AGENT_DISCOVERY_PATHS (project-local) and GLOBAL_AGENT_PATHS (user-global)
+ * for .md files, parses their frontmatter and content, and returns normalized
+ * AgentDefinition objects.
+ *
+ * Project-local agents take precedence over user-global agents with the same name.
+ *
+ * @returns Promise resolving to array of AgentDefinition objects
+ */
+export async function discoverAgents(): Promise<AgentDefinition[]> {
+  const discoveredFiles = discoverAgentFiles();
+  const agentMap = new Map<string, AgentDefinition>();
+
+  for (const file of discoveredFiles) {
+    const agent = parseAgentFile(file);
+    if (agent) {
+      // Check for existing agent with same name
+      const existing = agentMap.get(agent.name);
+      if (existing) {
+        // Project-local agents override user-global agents
+        // Priority: project > atomic > user
+        const shouldOverride = shouldAgentOverride(agent.source, existing.source);
+        if (shouldOverride) {
+          agentMap.set(agent.name, agent);
+        }
+      } else {
+        agentMap.set(agent.name, agent);
+      }
+    }
+  }
+
+  return Array.from(agentMap.values());
+}
+
+/**
+ * Determine if a new agent source should override an existing one.
+ *
+ * Priority order (highest to lowest):
+ * 1. project - Project-local agents (.claude/agents, .opencode/agents, .github/agents)
+ * 2. atomic - Atomic-specific agents (.atomic/agents)
+ * 3. user - User-global agents (~/.claude/agents, ~/.opencode/agents, etc.)
+ * 4. builtin - Built-in agents (always lowest priority for discovery)
+ *
+ * @param newSource - Source of the new agent
+ * @param existingSource - Source of the existing agent
+ * @returns True if new agent should override existing
+ */
+export function shouldAgentOverride(
+  newSource: AgentSource,
+  existingSource: AgentSource
+): boolean {
+  const priority: Record<AgentSource, number> = {
+    project: 4,
+    atomic: 3,
+    user: 2,
+    builtin: 1,
+  };
+
+  return priority[newSource] > priority[existingSource];
 }

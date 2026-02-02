@@ -200,7 +200,7 @@
         "Determine source based on which path matched",
         "Return array of AgentDefinition objects"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -214,7 +214,7 @@
         "Handle OpenCode mode field (ignore if 'primary')",
         "Return normalized AgentDefinition"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

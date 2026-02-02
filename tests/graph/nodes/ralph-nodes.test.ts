@@ -29,6 +29,8 @@ import {
   type ImplementFeatureNodeConfig,
   processFeatureImplementationResult,
   type ImplementFeatureOutputConfig,
+  checkCompletionNode,
+  type CheckCompletionNodeConfig,
 
   // Yolo mode functions
   processYoloResult,
@@ -2209,6 +2211,483 @@ describe("Yolo Mode", () => {
       expect(entry.isComplete).toBe(true);
       expect(entry.iteration).toBe(2);
       expect(entry.shouldContinue).toBe(false);
+    });
+  });
+});
+
+// ============================================================================
+// CHECK COMPLETION NODE TESTS
+// ============================================================================
+
+describe("checkCompletionNode", () => {
+  const testSessionId = "check-completion-test-" + Date.now();
+  const testSessionDir = getSessionDir(testSessionId);
+
+  /**
+   * Create a mock ExecutionContext for testing.
+   */
+  function createCheckMockContext(
+    overrides: Partial<RalphWorkflowState> = {}
+  ): ExecutionContext<RalphWorkflowState> {
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+    });
+    return {
+      state: { ...state, ...overrides },
+      config: {} as GraphConfig<RalphWorkflowState>,
+      errors: [] as ExecutionError[],
+    };
+  }
+
+  beforeEach(async () => {
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  afterEach(async () => {
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  describe("node creation", () => {
+    test("creates a NodeDefinition with correct properties", () => {
+      const node = checkCompletionNode({
+        id: "test-check",
+      });
+
+      expect(node.id).toBe("test-check");
+      expect(node.type).toBe("tool");
+      expect(node.name).toBe("check-completion");
+      expect(node.description).toBe("Check if the Ralph workflow should continue or exit");
+      expect(typeof node.execute).toBe("function");
+    });
+
+    test("accepts custom name and description", () => {
+      const node = checkCompletionNode({
+        id: "custom-check",
+        name: "Custom Check",
+        description: "Custom description",
+      });
+
+      expect(node.name).toBe("Custom Check");
+      expect(node.description).toBe("Custom description");
+    });
+  });
+
+  describe("yolo mode completion check", () => {
+    test("sets shouldContinue to false when yoloComplete is true", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: true,
+        yoloComplete: true,
+        sessionStatus: "running",
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.shouldContinue).toBe(false);
+      expect(result.stateUpdate!.yoloComplete).toBe(true);
+    });
+
+    test("sets shouldContinue to false when sessionStatus is completed", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: true,
+        yoloComplete: false,
+        sessionStatus: "completed",
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.shouldContinue).toBe(false);
+    });
+
+    test("sets shouldContinue to true when not complete in yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: true,
+        yoloComplete: false,
+        sessionStatus: "running",
+        maxIterations: 100,
+        iteration: 5,
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.shouldContinue).toBe(true);
+    });
+
+    test("sets shouldContinue to false when max iterations reached in yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: true,
+        yoloComplete: false,
+        sessionStatus: "running",
+        maxIterations: 10,
+        iteration: 10,
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.shouldContinue).toBe(false);
+      expect(result.stateUpdate!.maxIterationsReached).toBe(true);
+    });
+
+    test("updates sessionStatus to completed when done in yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: true,
+        yoloComplete: true,
+        sessionStatus: "running",
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.sessionStatus).toBe("completed");
+    });
+
+    test("logs check-completion action in yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: true,
+        yoloComplete: false,
+        iteration: 3,
+      });
+
+      await node.execute(ctx);
+
+      const logPath = `${testSessionDir}logs/agent-calls.jsonl`;
+      const content = await readFile(logPath, "utf-8");
+      const entry = JSON.parse(content.trim());
+      expect(entry.action).toBe("check-completion");
+      expect(entry.mode).toBe("yolo");
+      expect(entry.iteration).toBe(3);
+      expect(entry.yoloComplete).toBe(false);
+    });
+
+    test("saves session when completing in yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: true,
+        yoloComplete: true,
+        sessionStatus: "running",
+        iteration: 5,
+      });
+
+      await node.execute(ctx);
+
+      const sessionPath = `${testSessionDir}session.json`;
+      const content = await readFile(sessionPath, "utf-8");
+      const session = JSON.parse(content);
+      expect(session.status).toBe("completed");
+    });
+  });
+
+  describe("feature-list mode completion check", () => {
+    test("sets allFeaturesPassing to true when all features are passing", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+        { id: "f2", name: "Feature 2", description: "Desc 2", status: "passing" },
+      ];
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: false,
+        features,
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.allFeaturesPassing).toBe(true);
+      expect(result.stateUpdate!.shouldContinue).toBe(false);
+    });
+
+    test("sets shouldContinue to true when some features are pending", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+        { id: "f2", name: "Feature 2", description: "Desc 2", status: "pending" },
+      ];
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: false,
+        features,
+        maxIterations: 100,
+        iteration: 5,
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.allFeaturesPassing).toBe(false);
+      expect(result.stateUpdate!.shouldContinue).toBe(true);
+    });
+
+    test("sets shouldContinue to true when some features are failing", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+        { id: "f2", name: "Feature 2", description: "Desc 2", status: "failing" },
+      ];
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: false,
+        features,
+        maxIterations: 100,
+        iteration: 5,
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.allFeaturesPassing).toBe(false);
+      expect(result.stateUpdate!.shouldContinue).toBe(true);
+    });
+
+    test("sets shouldContinue to false when max iterations reached", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+        { id: "f2", name: "Feature 2", description: "Desc 2", status: "pending" },
+      ];
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: false,
+        features,
+        maxIterations: 10,
+        iteration: 10,
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.maxIterationsReached).toBe(true);
+      expect(result.stateUpdate!.shouldContinue).toBe(false);
+    });
+
+    test("updates sessionStatus to completed when all features passing", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+      ];
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: false,
+        features,
+        sessionStatus: "running",
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.sessionStatus).toBe("completed");
+    });
+
+    test("updates sessionStatus to completed when max iterations reached", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+      ];
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: false,
+        features,
+        sessionStatus: "running",
+        maxIterations: 5,
+        iteration: 5,
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.sessionStatus).toBe("completed");
+    });
+
+    test("logs check-completion action in feature-list mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+        { id: "f2", name: "Feature 2", description: "Desc 2", status: "pending" },
+        { id: "f3", name: "Feature 3", description: "Desc 3", status: "failing" },
+      ];
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: false,
+        features,
+        iteration: 7,
+      });
+
+      await node.execute(ctx);
+
+      const logPath = `${testSessionDir}logs/agent-calls.jsonl`;
+      const content = await readFile(logPath, "utf-8");
+      const entry = JSON.parse(content.trim());
+      expect(entry.action).toBe("check-completion");
+      expect(entry.mode).toBe("feature-list");
+      expect(entry.iteration).toBe(7);
+      expect(entry.totalFeatures).toBe(3);
+      expect(entry.passingFeatures).toBe(1);
+      expect(entry.pendingFeatures).toBe(1);
+      expect(entry.failingFeatures).toBe(1);
+    });
+
+    test("saves session when completing in feature-list mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+      ];
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: false,
+        features,
+        sessionStatus: "running",
+        iteration: 3,
+      });
+
+      await node.execute(ctx);
+
+      const sessionPath = `${testSessionDir}session.json`;
+      const content = await readFile(sessionPath, "utf-8");
+      const session = JSON.parse(content);
+      expect(session.status).toBe("completed");
+    });
+
+    test("does not save session when continuing in feature-list mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+      ];
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: false,
+        features,
+        sessionStatus: "running",
+        maxIterations: 100,
+        iteration: 5,
+      });
+
+      await node.execute(ctx);
+
+      // Session should not be saved when continuing
+      const sessionPath = `${testSessionDir}session.json`;
+      expect(existsSync(sessionPath)).toBe(false);
+    });
+  });
+
+  describe("unlimited iterations", () => {
+    test("maxIterations 0 means unlimited in yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: true,
+        yoloComplete: false,
+        maxIterations: 0,
+        iteration: 1000,
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.maxIterationsReached).toBe(false);
+      expect(result.stateUpdate!.shouldContinue).toBe(true);
+    });
+
+    test("maxIterations 0 means unlimited in feature-list mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+      ];
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: false,
+        features,
+        maxIterations: 0,
+        iteration: 1000,
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.maxIterationsReached).toBe(false);
+      expect(result.stateUpdate!.shouldContinue).toBe(true);
+    });
+  });
+
+  describe("edge cases", () => {
+    test("handles empty features array in feature-list mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: false,
+        features: [],
+      });
+
+      const result = await node.execute(ctx);
+
+      // Empty array means all features are passing (vacuously true)
+      expect(result.stateUpdate!.allFeaturesPassing).toBe(true);
+      expect(result.stateUpdate!.shouldContinue).toBe(false);
+    });
+
+    test("handles mixed feature statuses correctly", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+        { id: "f2", name: "Feature 2", description: "Desc 2", status: "in_progress" },
+        { id: "f3", name: "Feature 3", description: "Desc 3", status: "pending" },
+        { id: "f4", name: "Feature 4", description: "Desc 4", status: "failing" },
+      ];
+
+      const node = checkCompletionNode({ id: "check" });
+      const ctx = createCheckMockContext({
+        yolo: false,
+        features,
+        maxIterations: 100,
+        iteration: 5,
+      });
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate!.allFeaturesPassing).toBe(false);
+      expect(result.stateUpdate!.shouldContinue).toBe(true);
     });
   });
 });

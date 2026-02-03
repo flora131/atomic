@@ -3365,3 +3365,65 @@ Implemented UI feedback to display the current iteration count and max iteration
 - src/graph/nodes/ralph-nodes.ts - Added console.log for iteration display
 - tests/graph/nodes/ralph-nodes.test.ts - Added 3 new tests for iteration display
 - research/feature-list.json - Updated passes to true for this feature
+
+---
+
+## 2026-02-03 - Feature Implementation: Display PR URL on workflow completion
+
+### Status: COMPLETED
+
+Implemented the display of PR URL on workflow completion with clickable terminal hyperlink support.
+
+#### Changes Made
+
+1. **Added supportsTerminalHyperlinks() function**
+   - Location: src/graph/nodes/ralph-nodes.ts (lines 718-779)
+   - Detects if terminal supports OSC 8 hyperlink escape sequences
+   - Checks for iTerm.app, Windows Terminal, VTE-based terminals, truecolor terminals, Hyper
+   - Returns false when not running in TTY mode
+
+2. **Added formatTerminalHyperlink() function**
+   - Location: src/graph/nodes/ralph-nodes.ts (lines 781-815)
+   - Formats URLs using OSC 8 escape sequence: `\x1b]8;;URL\x07TEXT\x1b]8;;\x07`
+   - Falls back to plain text when terminal doesn't support hyperlinks
+   - Supports custom display text parameter
+
+3. **Updated processCreatePRResult() to use clickable URLs**
+   - Location: src/graph/nodes/ralph-nodes.ts (line 1814-1815)
+   - Uses formatTerminalHyperlink() to make PR URLs clickable in supported terminals
+   - Displays: "Pull request created: {clickableUrl}"
+
+#### Tests Added (14 new tests in tests/graph/nodes/ralph-nodes.test.ts)
+
+**supportsTerminalHyperlinks tests (8 tests):**
+- `returns false when not running in TTY`
+- `returns true for iTerm.app terminal`
+- `returns true for Windows Terminal`
+- `returns true for VTE terminals with version >= 5000`
+- `returns false for VTE terminals with version < 5000`
+- `returns true for truecolor terminals`
+- `returns true for 24bit color terminals`
+- `returns true for xterm-256color`
+- `returns true for Hyper terminal`
+
+**formatTerminalHyperlink tests (4 tests):**
+- `returns plain URL when terminal does not support hyperlinks`
+- `returns OSC 8 formatted hyperlink when terminal supports it`
+- `uses custom display text when provided`
+- `returns custom text without formatting when not supported`
+
+**processCreatePRResult console output tests (3 tests):**
+- `displays 'Pull request created: {url}' when PR URL is extracted`
+- `displays 'Session completed (no PR URL extracted)' when no URL found`
+- `displays 'Status: Completed' after PR creation`
+
+#### Test Results
+- All 211 tests in tests/graph/nodes/ralph-nodes.test.ts pass
+- Build succeeds
+- No regressions in Ralph-related functionality
+
+#### Files Modified
+- src/graph/nodes/ralph-nodes.ts - Added terminal hyperlink support functions and updated PR URL display
+- tests/graph/nodes/ralph-nodes.test.ts - Added 14 new tests
+- research/feature-list.json - Updated passes to true for this feature
+

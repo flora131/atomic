@@ -17,6 +17,13 @@ import {
   parseRalphArgs,
   isValidUUID,
   discoverWorkflowFiles,
+  loadWorkflowsFromDisk,
+  getAllWorkflows,
+  getWorkflowFromRegistry,
+  hasWorkflow,
+  getWorkflowNames,
+  refreshWorkflowRegistry,
+  resolveWorkflowRef,
   type WorkflowMetadata,
   type RalphCommandArgs,
 } from "../../../src/ui/commands/workflow-commands.ts";
@@ -1051,5 +1058,397 @@ describe("ralph command --feature-list flag", () => {
 
     expect(messages.length).toBe(1);
     expect(messages[0]?.content).not.toContain("features:");
+  });
+});
+
+// ============================================================================
+// LOAD WORKFLOWS FROM DISK TESTS
+// ============================================================================
+
+describe("loadWorkflowsFromDisk", () => {
+  const testLocalDir = ".atomic/workflows";
+
+  afterEach(() => {
+    // Clean up test directories
+    if (existsSync(testLocalDir)) {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+  });
+
+  test("returns empty array when no workflow files exist", async () => {
+    // Ensure test directory doesn't exist
+    if (existsSync(testLocalDir)) {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+
+    const { loadWorkflowsFromDisk } = await import("../../../src/ui/commands/workflow-commands.ts");
+    const result = await loadWorkflowsFromDisk();
+
+    // May contain workflows from global dir, but should not throw
+    expect(Array.isArray(result)).toBe(true);
+  });
+
+  test("loads workflow from valid .ts file", async () => {
+    // Create test workflow directory with valid workflow
+    mkdirSync(testLocalDir, { recursive: true });
+    const testFilePath = join(testLocalDir, "test-workflow.ts");
+
+    // Create a valid workflow file with required exports
+    const workflowContent = `
+export const name = "test-workflow";
+export const description = "A test workflow";
+export const aliases = ["tw"];
+
+export default function createWorkflow(config?: Record<string, unknown>) {
+  return {
+    nodes: new Map(),
+    edges: [],
+    startNode: "start",
+  };
+}
+`;
+    require("fs").writeFileSync(testFilePath, workflowContent);
+
+    try {
+      const { loadWorkflowsFromDisk } = await import("../../../src/ui/commands/workflow-commands.ts");
+      const result = await loadWorkflowsFromDisk();
+
+      const testWorkflow = result.find(w => w.name === "test-workflow");
+      expect(testWorkflow).toBeDefined();
+      expect(testWorkflow?.description).toBe("A test workflow");
+      expect(testWorkflow?.aliases).toContain("tw");
+      expect(testWorkflow?.source).toBe("local");
+    } finally {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+  });
+
+  test("skips workflow file without default export function", async () => {
+    // Create test workflow directory with invalid workflow
+    mkdirSync(testLocalDir, { recursive: true });
+    const testFilePath = join(testLocalDir, "invalid-workflow.ts");
+
+    // Create an invalid workflow file (no default function)
+    const workflowContent = `
+export const name = "invalid-workflow";
+export const description = "An invalid workflow";
+
+// Missing default export function
+`;
+    require("fs").writeFileSync(testFilePath, workflowContent);
+
+    try {
+      const { loadWorkflowsFromDisk } = await import("../../../src/ui/commands/workflow-commands.ts");
+      const result = await loadWorkflowsFromDisk();
+
+      // Should not include the invalid workflow
+      const invalidWorkflow = result.find(w => w.name === "invalid-workflow");
+      expect(invalidWorkflow).toBeUndefined();
+    } finally {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+  });
+
+  test("uses filename as name when module.name is not defined", async () => {
+    // Create test workflow directory with workflow missing name export
+    mkdirSync(testLocalDir, { recursive: true });
+    const testFilePath = join(testLocalDir, "unnamed-workflow.ts");
+
+    // Create a workflow file without name export
+    const workflowContent = `
+export const description = "A workflow without name export";
+
+export default function createWorkflow(config?: Record<string, unknown>) {
+  return {
+    nodes: new Map(),
+    edges: [],
+    startNode: "start",
+  };
+}
+`;
+    require("fs").writeFileSync(testFilePath, workflowContent);
+
+    try {
+      const { loadWorkflowsFromDisk } = await import("../../../src/ui/commands/workflow-commands.ts");
+      const result = await loadWorkflowsFromDisk();
+
+      // Should use filename as name
+      const workflow = result.find(w => w.name === "unnamed-workflow");
+      expect(workflow).toBeDefined();
+    } finally {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+  });
+
+  test("provides default description when not exported", async () => {
+    // Create test workflow directory with workflow missing description
+    mkdirSync(testLocalDir, { recursive: true });
+    const testFilePath = join(testLocalDir, "no-desc-workflow.ts");
+
+    // Create a workflow file without description export
+    const workflowContent = `
+export const name = "no-desc-workflow";
+
+export default function createWorkflow(config?: Record<string, unknown>) {
+  return {
+    nodes: new Map(),
+    edges: [],
+    startNode: "start",
+  };
+}
+`;
+    require("fs").writeFileSync(testFilePath, workflowContent);
+
+    try {
+      const { loadWorkflowsFromDisk } = await import("../../../src/ui/commands/workflow-commands.ts");
+      const result = await loadWorkflowsFromDisk();
+
+      const workflow = result.find(w => w.name === "no-desc-workflow");
+      expect(workflow).toBeDefined();
+      expect(workflow?.description).toContain("Custom workflow");
+    } finally {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ============================================================================
+// GET ALL WORKFLOWS TESTS
+// ============================================================================
+
+describe("getAllWorkflows", () => {
+  const { getAllWorkflows } = require("../../../src/ui/commands/workflow-commands.ts");
+
+  test("returns array including built-in workflows", () => {
+    const workflows = getAllWorkflows();
+    expect(Array.isArray(workflows)).toBe(true);
+
+    // Should include built-in ralph workflow
+    const ralph = workflows.find((w: WorkflowMetadata) => w.name === "ralph");
+    expect(ralph).toBeDefined();
+  });
+
+  test("workflows have required fields", () => {
+    const workflows = getAllWorkflows();
+
+    for (const workflow of workflows) {
+      expect(typeof workflow.name).toBe("string");
+      expect(workflow.name.length).toBeGreaterThan(0);
+      expect(typeof workflow.description).toBe("string");
+      expect(typeof workflow.createWorkflow).toBe("function");
+    }
+  });
+});
+
+// ============================================================================
+// WORKFLOW LOADING PRIORITY TESTS
+// ============================================================================
+
+describe("workflow loading priority", () => {
+  const testLocalDir = ".atomic/workflows";
+
+  afterEach(() => {
+    // Clean up test directories
+    if (existsSync(testLocalDir)) {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+  });
+
+  test("local workflows marked with source 'local'", async () => {
+    // Create test workflow directory
+    mkdirSync(testLocalDir, { recursive: true });
+    const testFilePath = join(testLocalDir, "local-test.ts");
+
+    const workflowContent = `
+export const name = "local-test";
+export default function createWorkflow(config?: Record<string, unknown>) {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+    require("fs").writeFileSync(testFilePath, workflowContent);
+
+    try {
+      const { loadWorkflowsFromDisk } = await import("../../../src/ui/commands/workflow-commands.ts");
+      const result = await loadWorkflowsFromDisk();
+
+      const localWorkflow = result.find(w => w.name === "local-test");
+      expect(localWorkflow?.source).toBe("local");
+    } finally {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+  });
+
+  test("built-in workflows marked with source 'builtin'", () => {
+    const { WORKFLOW_DEFINITIONS } = require("../../../src/ui/commands/workflow-commands.ts");
+
+    const ralph = WORKFLOW_DEFINITIONS.find((w: WorkflowMetadata) => w.name === "ralph");
+    expect(ralph?.source).toBe("builtin");
+  });
+
+  test("deduplicates workflows by name (case-insensitive)", async () => {
+    // Create two workflows with similar names
+    mkdirSync(testLocalDir, { recursive: true });
+
+    const workflowContent1 = `
+export const name = "duplicate-test";
+export default function createWorkflow() {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+    const workflowContent2 = `
+export const name = "Duplicate-Test";
+export default function createWorkflow() {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+    require("fs").writeFileSync(join(testLocalDir, "dup1.ts"), workflowContent1);
+    require("fs").writeFileSync(join(testLocalDir, "dup2.ts"), workflowContent2);
+
+    try {
+      const { loadWorkflowsFromDisk } = await import("../../../src/ui/commands/workflow-commands.ts");
+      const result = await loadWorkflowsFromDisk();
+
+      // Should only have one workflow with this name (first one wins)
+      const matches = result.filter(w => w.name.toLowerCase() === "duplicate-test");
+      expect(matches.length).toBe(1);
+    } finally {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ============================================================================
+// WORKFLOW REGISTRY TESTS
+// ============================================================================
+
+describe("workflowRegistry", () => {
+  const {
+    getWorkflowFromRegistry,
+    hasWorkflow,
+    getWorkflowNames,
+    refreshWorkflowRegistry,
+  } = require("../../../src/ui/commands/workflow-commands.ts");
+
+  test("getWorkflowFromRegistry finds workflow by name", () => {
+    const workflow = getWorkflowFromRegistry("ralph");
+    expect(workflow).toBeDefined();
+    expect(workflow.name).toBe("ralph");
+  });
+
+  test("getWorkflowFromRegistry finds workflow by alias", () => {
+    const workflow = getWorkflowFromRegistry("loop");
+    expect(workflow).toBeDefined();
+    expect(workflow.name).toBe("ralph"); // loop is alias for ralph
+  });
+
+  test("getWorkflowFromRegistry is case-insensitive", () => {
+    expect(getWorkflowFromRegistry("RALPH")).toBeDefined();
+    expect(getWorkflowFromRegistry("Ralph")).toBeDefined();
+    expect(getWorkflowFromRegistry("LOOP")).toBeDefined();
+  });
+
+  test("getWorkflowFromRegistry returns undefined for unknown workflow", () => {
+    expect(getWorkflowFromRegistry("nonexistent")).toBeUndefined();
+  });
+
+  test("hasWorkflow returns true for registered workflow", () => {
+    expect(hasWorkflow("ralph")).toBe(true);
+    expect(hasWorkflow("loop")).toBe(true);
+  });
+
+  test("hasWorkflow returns false for unknown workflow", () => {
+    expect(hasWorkflow("nonexistent")).toBe(false);
+  });
+
+  test("hasWorkflow is case-insensitive", () => {
+    expect(hasWorkflow("RALPH")).toBe(true);
+    expect(hasWorkflow("Ralph")).toBe(true);
+  });
+
+  test("getWorkflowNames returns array of workflow names", () => {
+    const names = getWorkflowNames();
+    expect(Array.isArray(names)).toBe(true);
+    expect(names).toContain("ralph");
+  });
+
+  test("refreshWorkflowRegistry reinitializes registry", () => {
+    // Call refresh - should not throw
+    expect(() => refreshWorkflowRegistry()).not.toThrow();
+
+    // Registry should still work after refresh
+    expect(hasWorkflow("ralph")).toBe(true);
+  });
+});
+
+// ============================================================================
+// RESOLVE WORKFLOW REF TESTS
+// ============================================================================
+
+describe("resolveWorkflowRef", () => {
+  const { resolveWorkflowRef } = require("../../../src/ui/commands/workflow-commands.ts");
+
+  test("resolves workflow by name", () => {
+    const graph = resolveWorkflowRef("ralph");
+    expect(graph).toBeDefined();
+    expect(graph.nodes).toBeInstanceOf(Map);
+    expect(Array.isArray(graph.edges)).toBe(true);
+    expect(typeof graph.startNode).toBe("string");
+  });
+
+  test("resolves workflow by alias", () => {
+    const graph = resolveWorkflowRef("loop");
+    expect(graph).toBeDefined();
+  });
+
+  test("is case-insensitive", () => {
+    expect(resolveWorkflowRef("RALPH")).toBeDefined();
+    expect(resolveWorkflowRef("Ralph")).toBeDefined();
+  });
+
+  test("returns null for unknown workflow", () => {
+    expect(resolveWorkflowRef("nonexistent")).toBeNull();
+    expect(resolveWorkflowRef("")).toBeNull();
+  });
+
+  test("applies default config when resolving", () => {
+    // The resolved workflow should have been created with default config
+    const graph = resolveWorkflowRef("ralph");
+    expect(graph).toBeDefined();
+    // Can't directly test config, but workflow should be valid
+    expect(graph.nodes).toBeInstanceOf(Map);
+  });
+});
+
+// ============================================================================
+// CIRCULAR DEPENDENCY DETECTION TESTS
+// ============================================================================
+
+describe("circular dependency detection", () => {
+  const testLocalDir = ".atomic/workflows";
+
+  afterEach(() => {
+    if (existsSync(testLocalDir)) {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+  });
+
+  test("resolveWorkflowRef clears resolution stack after successful resolution", () => {
+    const { resolveWorkflowRef } = require("../../../src/ui/commands/workflow-commands.ts");
+
+    // First resolution
+    resolveWorkflowRef("ralph");
+
+    // Second resolution should not throw (stack was cleared)
+    expect(() => resolveWorkflowRef("ralph")).not.toThrow();
+  });
+
+  test("resolveWorkflowRef clears resolution stack after failed resolution", () => {
+    const { resolveWorkflowRef } = require("../../../src/ui/commands/workflow-commands.ts");
+
+    // Resolution of non-existent workflow
+    resolveWorkflowRef("nonexistent");
+
+    // Second resolution should not throw (stack was cleared)
+    expect(() => resolveWorkflowRef("ralph")).not.toThrow();
   });
 });

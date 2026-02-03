@@ -1260,7 +1260,7 @@
         "Show 'Completed' after successful finish",
         "Show 'Failed' on unrecoverable error"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "ui",

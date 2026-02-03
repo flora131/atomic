@@ -30,10 +30,9 @@ describe("initializeCommands", () => {
   test("registers all command types", () => {
     initializeCommands();
 
-    // Built-in commands
+    // Built-in commands (note: /approve removed - spec approval is now manual before workflow)
     expect(globalRegistry.has("help")).toBe(true);
     expect(globalRegistry.has("status")).toBe(true);
-    expect(globalRegistry.has("approve")).toBe(true);
     expect(globalRegistry.has("reject")).toBe(true);
     expect(globalRegistry.has("theme")).toBe(true);
     expect(globalRegistry.has("clear")).toBe(true);
@@ -75,7 +74,7 @@ describe("initializeCommands", () => {
     // Skill aliases
     expect(globalRegistry.has("ci")).toBe(true); // commit
     expect(globalRegistry.has("spec")).toBe(true); // create-spec
-    expect(globalRegistry.has("cancel-ralph")).toBe(true); // ralph:cancel-ralph
+    // Note: ralph-help alias removed - replaced by SDK-native /ralph workflow
   });
 
   test("all commands are retrievable after initialization", () => {
@@ -180,11 +179,11 @@ describe("parseSlashCommand", () => {
     expect(result.args).toBe("");
   });
 
-  test("handles colon in command name (ralph skills)", () => {
-    const result = parseSlashCommand("/ralph:cancel-ralph");
+  test("handles colon in command name (namespaced commands)", () => {
+    const result = parseSlashCommand("/namespace:command");
 
     expect(result.isCommand).toBe(true);
-    expect(result.name).toBe("ralph:cancel-ralph");
+    expect(result.name).toBe("namespace:command");
     expect(result.args).toBe("");
   });
 });

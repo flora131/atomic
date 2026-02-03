@@ -1,14 +1,13 @@
 /**
  * Tests for Built-in Commands
  *
- * Verifies the behavior of /help, /status, /approve, /reject, /theme, /clear commands.
+ * Verifies the behavior of /help, /status, /reject, /theme, /clear commands.
  */
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import {
   helpCommand,
   statusCommand,
-  approveCommand,
   rejectCommand,
   themeCommand,
   clearCommand,
@@ -207,7 +206,6 @@ describe("statusCommand", () => {
     const result = statusCommand.execute("", context);
 
     expect(result.message).toContain("pending approval");
-    expect(result.message).toContain("/approve");
     expect(result.message).toContain("/reject");
   });
 
@@ -378,48 +376,6 @@ describe("statusCommand", () => {
   });
 });
 
-describe("approveCommand", () => {
-  test("has correct metadata", () => {
-    expect(approveCommand.name).toBe("approve");
-    expect(approveCommand.category).toBe("builtin");
-    expect(approveCommand.aliases).toContain("ok");
-    expect(approveCommand.aliases).toContain("yes");
-  });
-
-  test("fails when no workflow active", () => {
-    const context = createMockContext({ workflowActive: false });
-    const result = approveCommand.execute("", context);
-
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("No active workflow");
-  });
-
-  test("fails when no spec pending approval", () => {
-    const context = createMockContext({
-      workflowActive: true,
-      pendingApproval: false,
-    });
-    const result = approveCommand.execute("", context);
-
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("No spec pending");
-  });
-
-  test("approves spec and updates state", () => {
-    const context = createMockContext({
-      workflowActive: true,
-      pendingApproval: true,
-    });
-    const result = approveCommand.execute("", context);
-
-    expect(result.success).toBe(true);
-    expect(result.message).toContain("approved");
-    expect(result.stateUpdate?.specApproved).toBe(true);
-    expect(result.stateUpdate?.pendingApproval).toBe(false);
-    expect(result.stateUpdate?.feedback).toBe(null);
-  });
-});
-
 describe("rejectCommand", () => {
   test("has correct metadata", () => {
     expect(rejectCommand.name).toBe("reject");
@@ -545,15 +501,14 @@ describe("builtinCommands array", () => {
   test("contains all built-in commands", () => {
     expect(builtinCommands).toContain(helpCommand);
     expect(builtinCommands).toContain(statusCommand);
-    expect(builtinCommands).toContain(approveCommand);
     expect(builtinCommands).toContain(rejectCommand);
     expect(builtinCommands).toContain(themeCommand);
     expect(builtinCommands).toContain(clearCommand);
     expect(builtinCommands).toContain(compactCommand);
   });
 
-  test("has 7 commands", () => {
-    expect(builtinCommands.length).toBe(7);
+  test("has 6 commands", () => {
+    expect(builtinCommands.length).toBe(6);
   });
 });
 
@@ -571,7 +526,6 @@ describe("registerBuiltinCommands", () => {
 
     expect(globalRegistry.has("help")).toBe(true);
     expect(globalRegistry.has("status")).toBe(true);
-    expect(globalRegistry.has("approve")).toBe(true);
     expect(globalRegistry.has("reject")).toBe(true);
     expect(globalRegistry.has("theme")).toBe(true);
     expect(globalRegistry.has("clear")).toBe(true);
@@ -583,8 +537,6 @@ describe("registerBuiltinCommands", () => {
     expect(globalRegistry.has("h")).toBe(true);
     expect(globalRegistry.has("?")).toBe(true);
     expect(globalRegistry.has("s")).toBe(true);
-    expect(globalRegistry.has("ok")).toBe(true);
-    expect(globalRegistry.has("yes")).toBe(true);
     expect(globalRegistry.has("no")).toBe(true);
     expect(globalRegistry.has("cls")).toBe(true);
     expect(globalRegistry.has("c")).toBe(true);
@@ -595,7 +547,7 @@ describe("registerBuiltinCommands", () => {
     registerBuiltinCommands();
 
     // Should not throw and should still have correct count
-    expect(globalRegistry.size()).toBe(7);
+    expect(globalRegistry.size()).toBe(6);
   });
 
   test("commands are executable after registration", async () => {

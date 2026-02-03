@@ -2,7 +2,7 @@
  * Built-in Commands for Chat UI
  *
  * Provides core slash commands for the chat interface:
- * /help, /status, /approve, /reject, /theme, /clear
+ * /help, /status, /reject, /theme, /clear
  *
  * Reference: Feature 2 - Implement built-in commands
  */
@@ -162,7 +162,7 @@ export const statusCommand: CommandDefinition = {
     lines.push("");
     if (state.pendingApproval) {
       lines.push("Spec: **pending approval**");
-      lines.push("  Use `/approve` or `/reject <feedback>` to continue");
+      lines.push("  Use `/reject <feedback>` to revise or continue manually");
     } else if (state.specApproved !== undefined) {
       lines.push(
         `Spec: ${state.specApproved ? "**approved**" : "**rejected**"}`
@@ -217,43 +217,6 @@ function createProgressBar(completed: number, total: number, width: number = 10)
   const emptyCount = width - filledCount;
   return "█".repeat(filledCount) + "░".repeat(emptyCount);
 }
-
-/**
- * /approve - Approve the current spec.
- *
- * Sets specApproved to true and clears pending state.
- */
-export const approveCommand: CommandDefinition = {
-  name: "approve",
-  description: "Approve the current spec to proceed with implementation",
-  category: "builtin",
-  aliases: ["ok", "yes"],
-  execute: (_args: string, context: CommandContext): CommandResult => {
-    if (!context.state.workflowActive) {
-      return {
-        success: false,
-        message: "No active workflow. Start a workflow first.",
-      };
-    }
-
-    if (!context.state.pendingApproval) {
-      return {
-        success: false,
-        message: "No spec pending approval.",
-      };
-    }
-
-    return {
-      success: true,
-      message: "Spec approved. Proceeding with implementation...",
-      stateUpdate: {
-        specApproved: true,
-        pendingApproval: false,
-        feedback: null,
-      },
-    };
-  },
-};
 
 /**
  * /reject - Reject the current spec with optional feedback.
@@ -399,7 +362,6 @@ export const compactCommand: CommandDefinition = {
 export const builtinCommands: CommandDefinition[] = [
   helpCommand,
   statusCommand,
-  approveCommand,
   rejectCommand,
   themeCommand,
   clearCommand,

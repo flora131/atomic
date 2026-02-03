@@ -1099,12 +1099,7 @@ export const SKILL_DEFINITIONS: SkillMetadata[] = [
     aliases: ["explain"],
   },
 
-  // Ralph skills
-  {
-    name: "ralph:ralph-loop",
-    description: "Start Ralph Loop in current session",
-    aliases: ["ralph-loop"], // Note: "loop" alias reserved for atomic workflow
-  },
+  // Ralph skills (note: ralph:ralph-loop replaced by SDK-native /ralph workflow)
   {
     name: "ralph:cancel-ralph",
     description: "Cancel active Ralph Loop",

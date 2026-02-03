@@ -834,7 +834,7 @@
         "Remove associated handler code",
         "Replaced by SDK-native /ralph workflow"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "refactor",

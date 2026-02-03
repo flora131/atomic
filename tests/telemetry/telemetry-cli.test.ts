@@ -320,16 +320,16 @@ describe("extractCommandsFromArgs", () => {
   });
 
   test("extracts namespaced commands", () => {
-    const result = extractCommandsFromArgs(["/ralph:ralph-loop"]);
-    expect(result).toEqual(["/ralph:ralph-loop"]);
+    const result = extractCommandsFromArgs(["/ralph:cancel-ralph"]);
+    expect(result).toEqual(["/ralph:cancel-ralph"]);
   });
 
   test("extracts multiple namespaced commands", () => {
     const result = extractCommandsFromArgs([
-      "/ralph:ralph-loop",
       "/ralph:cancel-ralph",
+      "/ralph:ralph-help",
     ]);
-    expect(result).toEqual(["/ralph:ralph-loop", "/ralph:cancel-ralph"]);
+    expect(result).toEqual(["/ralph:cancel-ralph", "/ralph:ralph-help"]);
   });
 
   test("handles empty args array", () => {

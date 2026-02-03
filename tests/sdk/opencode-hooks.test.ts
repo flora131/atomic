@@ -382,7 +382,7 @@ describe("OpenCode SDK Hook Handlers", () => {
         "commit",
         "create-gh-pr",
         "explain-code",
-        "ralph:ralph-loop",
+        "ralph",
         "ralph:cancel-ralph",
         "ralph:ralph-help",
       ];

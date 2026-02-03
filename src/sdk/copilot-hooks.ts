@@ -38,7 +38,7 @@ const ATOMIC_COMMANDS = [
   "/commit",
   "/create-gh-pr",
   "/explain-code",
-  "/ralph:ralph-loop",
+  "/ralph",
   "/ralph:cancel-ralph",
   "/ralph:ralph-help",
 ];

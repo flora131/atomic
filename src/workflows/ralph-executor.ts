@@ -167,6 +167,7 @@ export class RalphExecutor {
           session.lastUpdated = new Date().toISOString();
           await saveSession(this.sessionDir, session);
 
+          console.log(`Status: Paused`);
           console.log(`Paused Ralph session: ${this.sessionId}`);
           console.log(`Resume with: /ralph --resume ${this.sessionId}`);
         }

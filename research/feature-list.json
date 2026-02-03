@@ -1791,7 +1791,7 @@
         "Document local vs global workflow precedence",
         "Provide example custom workflow file"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "documentation",

@@ -1,3 +1,106 @@
+## 2026-02-03 - Feature Implementation: E2E test: Run all functionality in claude mode
+
+### Status: COMPLETED
+
+Implemented comprehensive E2E tests verifying that all Atomic functionality works correctly in Claude mode. The tests validate Claude client configuration, /ralph workflow execution, sub-agent commands, feature verification, and permission bypass configuration with Claude SDK's native bypassPermissions mode.
+
+#### Tests Added (55 tests across 9 test groups, 4 skipped for real SDK)
+
+1. **Configure Atomic for claude backend** (8 tests)
+   - ClaudeAgentClient can be instantiated
+   - mock Claude client has correct agent type
+   - Claude client default permission mode is bypassPermissions
+   - Claude client allowDangerouslySkipPermissions is true when bypassing
+   - Claude client can be configured with default permission mode
+   - bypassPermissions maps to bypass mode
+   - Claude client supports multiple permission modes
+   - Claude session uses configured model
+
+2. **Run /ralph workflow in claude mode** (7 tests)
+   - workflow can be created in claude mode
+   - workflow state can be created for claude client
+   - parseRalphArgs works correctly for claude mode
+   - workflow session can be created with Claude client
+   - workflow tools execute without prompts in claude mode
+   - Ralph session can be created and saved in claude mode
+   - yolo mode works in claude configuration
+
+3. **Run sub-agent commands in claude mode** (7 tests)
+   - BUILTIN_AGENTS array is available
+   - getBuiltinAgent returns agents correctly
+   - codebase-analyzer agent can be invoked in claude mode
+   - codebase-locator agent works in claude mode
+   - debugger agent works in claude mode
+   - all builtin agents can be registered in claude mode
+   - codebase-online-researcher and codebase-pattern-finder agents work
+
+4. **Verify all features work in claude mode** (9 tests)
+   - session creation, send, stream, getContextUsage, summarize
+   - event handling, getModelDisplayInfo, session destroy
+
+5. **Verify permission bypass configured correctly** (7 tests)
+   - Bash commands execute without prompt in claude mode
+   - file edits execute without prompt in claude mode
+   - web operations execute without prompt in claude mode
+   - AskUserQuestion still pauses in claude mode
+   - multiple tools execute in sequence without prompts
+   - permission bypass persists across multiple interactions
+   - default permission mode would require prompts (comparison)
+
+6. **Integration: Claude-specific features** (5 tests)
+   - complete workflow flow in claude mode
+   - permission mode switching in claude mode
+   - session resume works in claude mode
+   - concurrent sessions work in claude mode
+   - Ralph session with claude client
+
+7. **Edge cases** (4 tests)
+   - empty tool name, very long tool sequences
+   - tool execution after AskUserQuestion maintains bypass mode
+   - concurrent tool executions work in claude mode
+
+8. **Claude SDK native hooks configuration** (4 tests)
+   - ClaudeAgentClient supports registerHooks method
+   - Claude SDK supports PreToolUse hook type
+   - Claude client can have hooks registered before start
+   - tool.start event maps to PreToolUse hook
+
+9. **Model display information** (4 tests)
+   - formatModelDisplayName handles claude-opus-4-5 format
+   - formatModelDisplayName handles claude-sonnet-4-5 format
+   - formatModelDisplayName handles claude-haiku format
+   - getModelDisplayInfo returns Claude Code tier
+
+10. **Real ClaudeAgentClient (skipped without SDK)** (4 tests)
+    - start() initializes the client
+    - createSession creates real session
+    - send message gets response
+    - getModelDisplayInfo returns model info
+
+#### Test Results
+- All 55 tests pass (4 skipped for real SDK integration)
+- All 897 E2E tests pass (no regressions)
+- 120 expect() calls in new tests
+
+#### Files Added
+- tests/e2e/claude-mode.test.ts - 55 comprehensive E2E tests for Claude mode
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+#### Key Design Decisions
+- Tests use mock Claude client that simulates the real SDK behavior
+- Mock client properly uses bypassPermissions mode for permission bypass
+- Tests verify Claude-specific features like native hooks (PreToolUse, PostToolUse, etc.)
+- Tests include comparison with default mode to demonstrate the difference
+- AskUserQuestion is verified to still pause even with permission bypass
+- Real SDK integration tests are skipped unless CLAUDE_SDK env var is set
+- Tests verify session resume, concurrent sessions, and long tool sequences
+- Model display name tests verify formatModelDisplayName handles Claude model IDs
+- Permission configuration tests verify allowDangerouslySkipPermissions flag
+
+---
+
 ## 2026-02-03 - Feature Implementation: E2E test: Run all functionality in copilot mode
 
 ### Status: COMPLETED

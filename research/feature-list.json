@@ -1634,7 +1634,7 @@
         "Verify logs/ directory exists",
         "Verify checkpoints/ directory exists"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

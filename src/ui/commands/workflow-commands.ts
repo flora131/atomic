@@ -48,31 +48,62 @@ export interface RalphCommandArgs {
   prompt: string | null;
   /** Session ID to resume (from --resume flag) */
   resumeSessionId: string | null;
+  /** Maximum number of iterations (from --max-iterations flag) */
+  maxIterations: number;
 }
 
+/** Default max iterations if not specified */
+const DEFAULT_MAX_ITERATIONS = 100;
+
 /**
- * Parse /ralph command arguments for --yolo and --resume flags.
+ * Parse /ralph command arguments for --yolo, --resume, and --max-iterations flags.
  *
  * Supported formats:
- *   /ralph --yolo <prompt>     - Run in yolo mode with the given prompt
- *   /ralph --resume <uuid>     - Resume a previous session
- *   /ralph <prompt>            - Normal mode with feature list
+ *   /ralph --yolo <prompt>                    - Run in yolo mode with the given prompt
+ *   /ralph --resume <uuid>                    - Resume a previous session
+ *   /ralph --max-iterations <n> <prompt>      - Set max iterations
+ *   /ralph <prompt>                           - Normal mode with feature list
+ *
+ * The --max-iterations flag can be combined with --yolo:
+ *   /ralph --max-iterations 50 --yolo <prompt>
+ *   /ralph --yolo --max-iterations 50 <prompt>
  *
  * @param args - Raw argument string from the command
  * @returns Parsed RalphCommandArgs
  *
  * @example
  * parseRalphArgs("--yolo implement auth")
- * // => { yolo: true, prompt: "implement auth", resumeSessionId: null }
+ * // => { yolo: true, prompt: "implement auth", resumeSessionId: null, maxIterations: 100 }
+ *
+ * parseRalphArgs("--max-iterations 50 --yolo implement auth")
+ * // => { yolo: true, prompt: "implement auth", resumeSessionId: null, maxIterations: 50 }
  *
  * parseRalphArgs("--resume abc123-def456")
- * // => { yolo: false, prompt: null, resumeSessionId: "abc123-def456" }
+ * // => { yolo: false, prompt: null, resumeSessionId: "abc123-def456", maxIterations: 100 }
  *
  * parseRalphArgs("my feature")
- * // => { yolo: false, prompt: "my feature", resumeSessionId: null }
+ * // => { yolo: false, prompt: "my feature", resumeSessionId: null, maxIterations: 100 }
  */
 export function parseRalphArgs(args: string): RalphCommandArgs {
-  const trimmed = args.trim();
+  let trimmed = args.trim();
+  let maxIterations = DEFAULT_MAX_ITERATIONS;
+
+  // First, check for and extract --max-iterations flag anywhere in the string
+  const maxIterMatch = trimmed.match(/^(.*?)--max-iterations\s+(\d+)\s*(.*?)$/s);
+  if (maxIterMatch) {
+    const beforeFlag = maxIterMatch[1]?.trim() ?? "";
+    const iterValue = maxIterMatch[2] ?? "";
+    const afterFlag = maxIterMatch[3]?.trim() ?? "";
+    
+    // Parse the number (already validated as digits by regex)
+    const parsed = parseInt(iterValue, 10);
+    if (!isNaN(parsed) && parsed >= 0) {
+      maxIterations = parsed;
+    }
+    
+    // Reconstruct trimmed without the --max-iterations flag
+    trimmed = (beforeFlag + " " + afterFlag).trim();
+  }
 
   // Check for --resume flag
   if (trimmed.startsWith("--resume")) {
@@ -83,6 +114,7 @@ export function parseRalphArgs(args: string): RalphCommandArgs {
       yolo: false,
       prompt: null,
       resumeSessionId: sessionId,
+      maxIterations,
     };
   }
 
@@ -94,6 +126,7 @@ export function parseRalphArgs(args: string): RalphCommandArgs {
       yolo: true,
       prompt: afterFlag.length > 0 ? afterFlag : null,
       resumeSessionId: null,
+      maxIterations,
     };
   }
 
@@ -102,6 +135,7 @@ export function parseRalphArgs(args: string): RalphCommandArgs {
     yolo: false,
     prompt: trimmed.length > 0 ? trimmed : null,
     resumeSessionId: null,
+    maxIterations,
   };
 }
 
@@ -578,11 +612,13 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
             pendingApproval: false,
             specApproved: undefined,
             feedback: null,
+            maxIterations: parsed.maxIterations,
             // Ralph-specific config with resumeSessionId
             ralphConfig: {
               yolo: false,
               userPrompt: null,
               resumeSessionId: parsed.resumeSessionId,
+              maxIterations: parsed.maxIterations,
             },
           },
         };
@@ -606,17 +642,18 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
 
       // Build the mode indicator for the message
       const modeStr = parsed.yolo ? " (yolo mode)" : "";
+      const iterStr = parsed.maxIterations !== 100 ? ` (max: ${parsed.maxIterations})` : "";
 
       // Add a system message indicating workflow start
       context.addMessage(
         "system",
-        `Starting **ralph** workflow${modeStr}...\n\nPrompt: "${parsed.prompt}"`
+        `Starting **ralph** workflow${modeStr}${iterStr}...\n\nPrompt: "${parsed.prompt}"`
       );
 
       // Return success with state updates and workflow config
       return {
         success: true,
-        message: `Workflow **ralph** initialized${modeStr}. Starting implementation...`,
+        message: `Workflow **ralph** initialized${modeStr}${iterStr}. Starting implementation...`,
         stateUpdate: {
           workflowActive: true,
           workflowType: metadata.name,
@@ -624,10 +661,12 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
           pendingApproval: false,
           specApproved: undefined,
           feedback: null,
+          maxIterations: parsed.maxIterations,
           // Ralph-specific config
           ralphConfig: {
             yolo: parsed.yolo,
             userPrompt: parsed.prompt,
+            maxIterations: parsed.maxIterations,
           },
         },
       };

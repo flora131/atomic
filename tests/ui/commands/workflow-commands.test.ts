@@ -684,3 +684,153 @@ describe("ralph command --resume flag", () => {
     expect(result.stateUpdate?.ralphConfig?.resumeSessionId).toBe(testSessionId);
   });
 });
+
+// ============================================================================
+// PARSE RALPH ARGS --max-iterations TESTS
+// ============================================================================
+
+describe("parseRalphArgs --max-iterations flag", () => {
+  test("parses --max-iterations flag with number", () => {
+    const result = parseRalphArgs("--max-iterations 50 implement auth");
+    expect(result.maxIterations).toBe(50);
+    expect(result.prompt).toBe("implement auth");
+    expect(result.yolo).toBe(false);
+  });
+
+  test("defaults to 100 if --max-iterations not specified", () => {
+    const result = parseRalphArgs("implement auth");
+    expect(result.maxIterations).toBe(100);
+  });
+
+  test("parses --max-iterations 0 for infinite iterations", () => {
+    const result = parseRalphArgs("--max-iterations 0 implement auth");
+    expect(result.maxIterations).toBe(0);
+    expect(result.prompt).toBe("implement auth");
+  });
+
+  test("parses --max-iterations with --yolo flag (--max-iterations first)", () => {
+    const result = parseRalphArgs("--max-iterations 50 --yolo implement auth");
+    expect(result.maxIterations).toBe(50);
+    expect(result.yolo).toBe(true);
+    expect(result.prompt).toBe("implement auth");
+  });
+
+  test("parses --max-iterations with --yolo flag (--yolo first)", () => {
+    const result = parseRalphArgs("--yolo --max-iterations 50 implement auth");
+    expect(result.maxIterations).toBe(50);
+    expect(result.yolo).toBe(true);
+    expect(result.prompt).toBe("implement auth");
+  });
+
+  test("parses --max-iterations with leading/trailing whitespace", () => {
+    const result = parseRalphArgs("  --max-iterations  25  implement auth  ");
+    expect(result.maxIterations).toBe(25);
+    expect(result.prompt).toBe("implement auth");
+  });
+
+  test("--max-iterations with --resume flag", () => {
+    const result = parseRalphArgs("--max-iterations 75 --resume 550e8400-e29b-41d4-a716-446655440000");
+    expect(result.maxIterations).toBe(75);
+    expect(result.resumeSessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
+  });
+
+  test("does not treat --max-iterations in the middle of prompt as a flag", () => {
+    const result = parseRalphArgs("implement --max-iterations auth");
+    expect(result.maxIterations).toBe(100);
+    expect(result.prompt).toBe("implement --max-iterations auth");
+  });
+
+  test("handles large iteration numbers", () => {
+    const result = parseRalphArgs("--max-iterations 1000000 implement auth");
+    expect(result.maxIterations).toBe(1000000);
+    expect(result.prompt).toBe("implement auth");
+  });
+});
+
+// ============================================================================
+// RALPH COMMAND --max-iterations INTEGRATION TESTS
+// ============================================================================
+
+describe("ralph command --max-iterations flag", () => {
+  test("ralph command with --max-iterations sets correct state", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("--max-iterations 50 implement auth", context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.maxIterations).toBe(50);
+    expect(result.stateUpdate?.ralphConfig?.maxIterations).toBe(50);
+  });
+
+  test("ralph command with --max-iterations 0 sets infinite iterations", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("--max-iterations 0 implement auth", context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.maxIterations).toBe(0);
+    expect(result.stateUpdate?.ralphConfig?.maxIterations).toBe(0);
+  });
+
+  test("ralph command defaults maxIterations to 100", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("implement auth", context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.maxIterations).toBe(100);
+    expect(result.stateUpdate?.ralphConfig?.maxIterations).toBe(100);
+  });
+
+  test("ralph command with --max-iterations and --yolo shows both in message", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("--max-iterations 50 --yolo implement auth", context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("yolo mode");
+    expect(result.message).toContain("max: 50");
+    expect(result.stateUpdate?.ralphConfig?.yolo).toBe(true);
+    expect(result.stateUpdate?.ralphConfig?.maxIterations).toBe(50);
+  });
+
+  test("ralph command system message includes max-iterations when non-default", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const messages: Array<{ role: string; content: string }> = [];
+    const context = createMockContext();
+    context.addMessage = (role: string, content: string) => {
+      messages.push({ role, content });
+    };
+
+    ralphCmd!.execute("--max-iterations 25 implement auth", context);
+
+    expect(messages.length).toBe(1);
+    expect(messages[0]?.content).toContain("max: 25");
+  });
+
+  test("ralph command system message does not include max-iterations when default", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const messages: Array<{ role: string; content: string }> = [];
+    const context = createMockContext();
+    context.addMessage = (role: string, content: string) => {
+      messages.push({ role, content });
+    };
+
+    ralphCmd!.execute("implement auth", context);
+
+    expect(messages.length).toBe(1);
+    expect(messages[0]?.content).not.toContain("max:");
+  });
+});

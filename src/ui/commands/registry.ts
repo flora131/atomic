@@ -76,7 +76,9 @@ export interface CommandContextState {
   /** Ralph-specific workflow configuration */
   ralphConfig?: {
     yolo: boolean;
-    userPrompt: string;
+    userPrompt: string | null;
+    resumeSessionId?: string;
+    maxIterations?: number;
   };
 }
 

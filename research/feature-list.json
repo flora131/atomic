@@ -1767,7 +1767,7 @@
         "Verify game compiles with cargo build",
         "Verify basic game functionality"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "documentation",

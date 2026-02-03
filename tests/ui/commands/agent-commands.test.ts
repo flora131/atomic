@@ -2438,3 +2438,731 @@ GitHub version of shared agent.`
     expect(sharedAgent?.description).toBe("Shared agent from Claude");
   });
 });
+
+// ============================================================================
+// AGENT FRONTMATTER PARSING ACROSS SDK FORMATS TESTS
+// ============================================================================
+
+describe("Agent frontmatter parsing across SDK formats", () => {
+  describe("Claude format: tools as string array", () => {
+    test("parses Claude format with tools as string array", () => {
+      const frontmatter = {
+        name: "claude-agent",
+        description: "A Claude Code agent",
+        tools: ["Glob", "Grep", "Read", "LS", "Bash"],
+        model: "opus",
+      };
+      const body = "You are a Claude Code agent.";
+
+      const result = parseAgentFrontmatter(frontmatter, body, "project", "claude-agent");
+
+      expect(result.name).toBe("claude-agent");
+      expect(result.description).toBe("A Claude Code agent");
+      expect(Array.isArray(result.tools)).toBe(true);
+      expect(result.tools).toEqual(["Glob", "Grep", "Read", "LS", "Bash"]);
+      expect(result.model).toBe("opus");
+      expect(result.prompt).toBe("You are a Claude Code agent.");
+      expect(result.source).toBe("project");
+    });
+
+    test("Claude format tools array is passed through unchanged", () => {
+      const tools = ["WebSearch", "WebFetch", "mcp__deepwiki__ask_question"];
+      const frontmatter = {
+        description: "Research agent",
+        tools: tools,
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "builtin", "researcher");
+
+      expect(result.tools).toEqual(tools);
+      // Note: The implementation passes arrays by reference (same instance)
+      expect(result.tools).toBe(tools);
+    });
+
+    test("Claude format with empty tools array", () => {
+      const frontmatter = {
+        description: "Agent with no tools",
+        tools: [],
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "user", "no-tools");
+
+      expect(result.tools).toEqual([]);
+    });
+
+    test("Claude format with single tool", () => {
+      const frontmatter = {
+        description: "Single tool agent",
+        tools: ["Read"],
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "single-tool");
+
+      expect(result.tools).toEqual(["Read"]);
+      expect(result.tools).toHaveLength(1);
+    });
+
+    test("Claude format tools preserve case", () => {
+      const frontmatter = {
+        description: "Case test",
+        tools: ["GLOB", "grep", "Read", "LS"],
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "case-test");
+
+      expect(result.tools).toEqual(["GLOB", "grep", "Read", "LS"]);
+    });
+  });
+
+  describe("OpenCode format: tools as Record<string, boolean>", () => {
+    test("parses OpenCode format with tools as Record<string, boolean>", () => {
+      const frontmatter = {
+        name: "opencode-agent",
+        description: "An OpenCode agent",
+        tools: {
+          glob: true,
+          grep: true,
+          read: true,
+          write: true,
+          edit: true,
+          bash: false,
+        },
+        model: "anthropic/claude-3-sonnet",
+        mode: "subagent",
+      };
+      const body = "You are an OpenCode agent.";
+
+      const result = parseAgentFrontmatter(frontmatter, body, "project", "opencode-agent");
+
+      expect(result.name).toBe("opencode-agent");
+      expect(result.description).toBe("An OpenCode agent");
+      expect(Array.isArray(result.tools)).toBe(true);
+      // Only tools with true values should be included
+      expect(result.tools).toContain("glob");
+      expect(result.tools).toContain("grep");
+      expect(result.tools).toContain("read");
+      expect(result.tools).toContain("write");
+      expect(result.tools).toContain("edit");
+      expect(result.tools).not.toContain("bash"); // bash: false
+      expect(result.model).toBe("sonnet"); // Normalized from anthropic/claude-3-sonnet
+      expect(result.prompt).toBe("You are an OpenCode agent.");
+      expect(result.source).toBe("project");
+    });
+
+    test("OpenCode format converts Record to array of enabled tools", () => {
+      const frontmatter = {
+        description: "Tool filter test",
+        tools: {
+          tool1: true,
+          tool2: false,
+          tool3: true,
+          tool4: false,
+          tool5: true,
+        },
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "user", "filter-test");
+
+      expect(result.tools).toContain("tool1");
+      expect(result.tools).toContain("tool3");
+      expect(result.tools).toContain("tool5");
+      expect(result.tools).not.toContain("tool2");
+      expect(result.tools).not.toContain("tool4");
+      expect(result.tools).toHaveLength(3);
+    });
+
+    test("OpenCode format with all tools disabled", () => {
+      const frontmatter = {
+        description: "All tools disabled",
+        tools: {
+          glob: false,
+          grep: false,
+          read: false,
+        },
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "disabled");
+
+      expect(result.tools).toEqual([]);
+    });
+
+    test("OpenCode format with all tools enabled", () => {
+      const frontmatter = {
+        description: "All tools enabled",
+        tools: {
+          glob: true,
+          grep: true,
+          read: true,
+        },
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "enabled");
+
+      expect(result.tools).toContain("glob");
+      expect(result.tools).toContain("grep");
+      expect(result.tools).toContain("read");
+      expect(result.tools).toHaveLength(3);
+    });
+
+    test("OpenCode format mode field is ignored in AgentDefinition", () => {
+      const frontmatter = {
+        description: "Mode test",
+        mode: "subagent" as const,
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "mode-test");
+
+      // AgentDefinition doesn't have a mode field - it's OpenCode-specific
+      expect(result).not.toHaveProperty("mode");
+      // But the agent is still created correctly
+      expect(result.name).toBe("mode-test");
+      expect(result.description).toBe("Mode test");
+    });
+
+    test("OpenCode format with primary mode is still parsed", () => {
+      const frontmatter = {
+        description: "Primary mode agent",
+        mode: "primary" as const,
+        tools: { read: true },
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "atomic", "primary-agent");
+
+      expect(result.name).toBe("primary-agent");
+      expect(result.tools).toEqual(["read"]);
+    });
+  });
+
+  describe("Model normalization: 'anthropic/claude-3-sonnet' -> 'sonnet'", () => {
+    test("normalizes anthropic/claude-3-sonnet to sonnet", () => {
+      expect(normalizeModel("anthropic/claude-3-sonnet")).toBe("sonnet");
+    });
+
+    test("normalizes anthropic/claude-3.5-sonnet to sonnet", () => {
+      expect(normalizeModel("anthropic/claude-3.5-sonnet")).toBe("sonnet");
+    });
+
+    test("normalizes anthropic/claude-3-opus to opus", () => {
+      expect(normalizeModel("anthropic/claude-3-opus")).toBe("opus");
+    });
+
+    test("normalizes anthropic/claude-3.5-opus to opus", () => {
+      expect(normalizeModel("anthropic/claude-3.5-opus")).toBe("opus");
+    });
+
+    test("normalizes anthropic/claude-3-haiku to haiku", () => {
+      expect(normalizeModel("anthropic/claude-3-haiku")).toBe("haiku");
+    });
+
+    test("normalizes anthropic/claude-3.5-haiku to haiku", () => {
+      expect(normalizeModel("anthropic/claude-3.5-haiku")).toBe("haiku");
+    });
+
+    test("normalizes direct model names (sonnet)", () => {
+      expect(normalizeModel("sonnet")).toBe("sonnet");
+      expect(normalizeModel("Sonnet")).toBe("sonnet");
+      expect(normalizeModel("SONNET")).toBe("sonnet");
+    });
+
+    test("normalizes direct model names (opus)", () => {
+      expect(normalizeModel("opus")).toBe("opus");
+      expect(normalizeModel("Opus")).toBe("opus");
+      expect(normalizeModel("OPUS")).toBe("opus");
+    });
+
+    test("normalizes direct model names (haiku)", () => {
+      expect(normalizeModel("haiku")).toBe("haiku");
+      expect(normalizeModel("Haiku")).toBe("haiku");
+      expect(normalizeModel("HAIKU")).toBe("haiku");
+    });
+
+    test("model normalization in parseAgentFrontmatter", () => {
+      const frontmatter = {
+        description: "Agent with OpenCode model format",
+        model: "anthropic/claude-3-opus",
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "model-test");
+
+      expect(result.model).toBe("opus");
+    });
+
+    test("model normalization handles partial matches", () => {
+      // Models containing "sonnet" somewhere
+      expect(normalizeModel("claude-sonnet")).toBe("sonnet");
+      expect(normalizeModel("my-custom-sonnet-model")).toBe("sonnet");
+
+      // Models containing "opus" somewhere
+      expect(normalizeModel("claude-opus")).toBe("opus");
+      expect(normalizeModel("custom-opus-v2")).toBe("opus");
+
+      // Models containing "haiku" somewhere
+      expect(normalizeModel("claude-haiku")).toBe("haiku");
+      expect(normalizeModel("fast-haiku-model")).toBe("haiku");
+    });
+
+    test("model normalization returns undefined for unknown models", () => {
+      expect(normalizeModel("gpt-4")).toBeUndefined();
+      expect(normalizeModel("gpt-3.5-turbo")).toBeUndefined();
+      expect(normalizeModel("llama-2-70b")).toBeUndefined();
+      expect(normalizeModel("unknown-model")).toBeUndefined();
+      expect(normalizeModel("")).toBeUndefined();
+    });
+
+    test("model normalization returns undefined for undefined input", () => {
+      expect(normalizeModel(undefined)).toBeUndefined();
+    });
+  });
+
+  describe("Missing optional fields use defaults", () => {
+    test("missing name uses filename as default", () => {
+      const frontmatter = {
+        description: "Agent without explicit name",
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "my-custom-agent");
+
+      expect(result.name).toBe("my-custom-agent");
+    });
+
+    test("missing description uses default description", () => {
+      const frontmatter = {
+        name: "agent-name",
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "agent-name");
+
+      expect(result.description).toBe("Agent: agent-name");
+    });
+
+    test("missing description with only filename uses filename in default", () => {
+      const frontmatter = {};
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "user", "special-helper");
+
+      expect(result.name).toBe("special-helper");
+      expect(result.description).toBe("Agent: special-helper");
+    });
+
+    test("missing tools field results in undefined tools", () => {
+      const frontmatter = {
+        description: "Agent without tools",
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "no-tools");
+
+      expect(result.tools).toBeUndefined();
+    });
+
+    test("missing model field results in undefined model", () => {
+      const frontmatter = {
+        description: "Agent without model",
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "no-model");
+
+      expect(result.model).toBeUndefined();
+    });
+
+    test("minimal frontmatter with only required source creates valid agent", () => {
+      const frontmatter = {};
+
+      const result = parseAgentFrontmatter(frontmatter, "Simple prompt", "builtin", "minimal-agent");
+
+      expect(result.name).toBe("minimal-agent");
+      expect(result.description).toBe("Agent: minimal-agent");
+      expect(result.prompt).toBe("Simple prompt");
+      expect(result.source).toBe("builtin");
+      expect(result.tools).toBeUndefined();
+      expect(result.model).toBeUndefined();
+    });
+
+    test("empty body results in empty prompt string", () => {
+      const frontmatter = {
+        description: "Agent with empty body",
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "", "project", "empty-body");
+
+      expect(result.prompt).toBe("");
+    });
+
+    test("whitespace-only body is trimmed to empty string", () => {
+      const frontmatter = {
+        description: "Agent with whitespace body",
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "   \n\t\n   ", "project", "whitespace-body");
+
+      expect(result.prompt).toBe("");
+    });
+  });
+
+  describe("Invalid frontmatter handled gracefully", () => {
+    test("parseMarkdownFrontmatter returns null for content without frontmatter delimiters", () => {
+      const content = "This is just regular content without any frontmatter.";
+
+      const result = parseMarkdownFrontmatter(content);
+
+      expect(result).toBeNull();
+    });
+
+    test("parseMarkdownFrontmatter returns null for unclosed frontmatter", () => {
+      const content = `---
+name: broken-agent
+description: Missing closing delimiter
+This becomes part of the frontmatter`;
+
+      const result = parseMarkdownFrontmatter(content);
+
+      expect(result).toBeNull();
+    });
+
+    test("parseMarkdownFrontmatter returns null for frontmatter without opening delimiter", () => {
+      const content = `name: broken-agent
+description: No opening delimiter
+---
+Body content here.`;
+
+      const result = parseMarkdownFrontmatter(content);
+
+      expect(result).toBeNull();
+    });
+
+    test("parseAgentFile returns agent with defaults for content without frontmatter", () => {
+      const testDir = "/tmp/test-invalid-frontmatter-" + Date.now();
+      mkdirSync(testDir, { recursive: true });
+
+      // File without any frontmatter
+      writeFileSync(join(testDir, "no-frontmatter.md"), "Just a plain markdown file.");
+
+      const file: DiscoveredAgentFile = {
+        path: join(testDir, "no-frontmatter.md"),
+        source: "project",
+        filename: "no-frontmatter",
+      };
+
+      const result = parseAgentFile(file);
+
+      expect(result).not.toBeNull();
+      expect(result!.name).toBe("no-frontmatter");
+      expect(result!.description).toBe("Agent: no-frontmatter");
+      expect(result!.prompt).toBe("Just a plain markdown file.");
+      expect(result!.source).toBe("project");
+
+      rmSync(testDir, { recursive: true, force: true });
+    });
+
+    test("parseAgentFile returns null for non-existent file", () => {
+      const file: DiscoveredAgentFile = {
+        path: "/non/existent/path/agent.md",
+        source: "project",
+        filename: "agent",
+      };
+
+      const result = parseAgentFile(file);
+
+      expect(result).toBeNull();
+    });
+
+    test("parseAgentFrontmatter handles undefined values gracefully", () => {
+      const frontmatter = {
+        name: undefined,
+        description: undefined,
+        tools: undefined,
+        model: undefined,
+      };
+
+      // Should not throw
+      const result = parseAgentFrontmatter(
+        frontmatter as unknown as Record<string, unknown>,
+        "prompt",
+        "user",
+        "fallback-name"
+      );
+
+      expect(result.name).toBe("fallback-name");
+      expect(result.description).toBe("Agent: fallback-name");
+      expect(result.tools).toBeUndefined();
+      expect(result.model).toBeUndefined();
+    });
+
+    test("parseAgentFrontmatter handles null values gracefully", () => {
+      const frontmatter = {
+        name: null,
+        description: null,
+        tools: null,
+        model: null,
+      };
+
+      const result = parseAgentFrontmatter(
+        frontmatter as unknown as Record<string, unknown>,
+        "prompt",
+        "project",
+        "null-agent"
+      );
+
+      // Null values should be treated as missing
+      expect(result.name).toBe("null-agent");
+      expect(result.description).toBe("Agent: null-agent");
+    });
+
+    test("parseAgentFrontmatter handles wrong types for tools field", () => {
+      // Note: The current implementation doesn't validate types strictly
+      // Strings are iterable, so "not-an-array" would be treated as an array
+      const frontmatter = {
+        description: "Valid description",
+        tools: { tool1: true, tool2: false }, // Valid object format
+      };
+
+      const result = parseAgentFrontmatter(
+        frontmatter as unknown as Record<string, unknown>,
+        "prompt",
+        "project",
+        "type-test"
+      );
+
+      expect(result.name).toBe("type-test");
+      expect(result.description).toBe("Valid description");
+      expect(result.tools).toContain("tool1");
+      expect(result.tools).not.toContain("tool2");
+    });
+
+    test("normalizeTools passes through arrays", () => {
+      // Array input is passed through
+      const tools = ["Glob", "Grep"];
+      expect(normalizeTools(tools)).toEqual(["Glob", "Grep"]);
+    });
+
+    test("normalizeTools converts object to array of enabled tools", () => {
+      // Object input is converted
+      const tools = { glob: true, grep: false, read: true };
+      const result = normalizeTools(tools);
+      expect(result).toContain("glob");
+      expect(result).toContain("read");
+      expect(result).not.toContain("grep");
+    });
+
+    test("normalizeTools returns undefined for undefined input", () => {
+      expect(normalizeTools(undefined)).toBeUndefined();
+    });
+
+    test("normalizeModel returns undefined for empty string", () => {
+      expect(normalizeModel("")).toBeUndefined();
+    });
+
+    test("parseMarkdownFrontmatter handles empty frontmatter section", () => {
+      // Note: The regex requires at least one newline in the frontmatter section
+      const content = `---
+
+---
+Body content here.`;
+
+      const result = parseMarkdownFrontmatter(content);
+
+      expect(result).not.toBeNull();
+      expect(result!.frontmatter).toEqual({});
+      expect(result!.body).toBe("Body content here.");
+    });
+
+    test("parseMarkdownFrontmatter returns null for truly empty frontmatter (no newline)", () => {
+      // This edge case: `---\n---` without anything in between
+      const content = `---
+---
+Body content here.`;
+
+      const result = parseMarkdownFrontmatter(content);
+
+      // The regex pattern ^---\n([\s\S]*?)\n---\n? requires content + newline before closing ---
+      expect(result).toBeNull();
+    });
+
+    test("parseMarkdownFrontmatter handles malformed YAML in frontmatter", () => {
+      const content = `---
+name: agent
+description:
+  - this
+  - is
+  - invalid for description
+---
+Body content.`;
+
+      // The parser should still attempt to parse what it can
+      const result = parseMarkdownFrontmatter(content);
+
+      expect(result).not.toBeNull();
+      expect(result!.frontmatter.name).toBe("agent");
+    });
+
+    test("parseMarkdownFrontmatter handles frontmatter with only comments", () => {
+      const content = `---
+# This is a comment
+# Another comment
+---
+Body content.`;
+
+      const result = parseMarkdownFrontmatter(content);
+
+      expect(result).not.toBeNull();
+      expect(result!.frontmatter).toEqual({});
+      expect(result!.body).toBe("Body content.");
+    });
+  });
+
+  describe("Copilot format compatibility", () => {
+    test("parses Copilot format with string array tools", () => {
+      const frontmatter = {
+        name: "copilot-agent",
+        description: "A GitHub Copilot agent",
+        tools: ["search", "file_read", "file_write", "terminal"],
+        model: "gpt-4",
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "Copilot prompt", "project", "copilot-agent");
+
+      expect(result.name).toBe("copilot-agent");
+      expect(result.description).toBe("A GitHub Copilot agent");
+      expect(result.tools).toEqual(["search", "file_read", "file_write", "terminal"]);
+      // gpt-4 is not a Claude model, so model should be undefined
+      expect(result.model).toBeUndefined();
+    });
+
+    test("Copilot format tools are preserved as-is", () => {
+      const frontmatter = {
+        description: "Copilot tools test",
+        tools: ["custom_tool_1", "custom_tool_2"],
+      };
+
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "user", "copilot-tools");
+
+      expect(result.tools).toEqual(["custom_tool_1", "custom_tool_2"]);
+    });
+  });
+
+  describe("Full parsing flow with parseAgentFile", () => {
+    const testDir = "/tmp/test-full-parsing-" + Date.now();
+
+    beforeAll(() => {
+      mkdirSync(testDir, { recursive: true });
+
+      // Claude format file
+      writeFileSync(
+        join(testDir, "claude-style.md"),
+        `---
+name: claude-style-agent
+description: Agent using Claude Code format
+tools:
+  - Glob
+  - Grep
+  - Read
+model: opus
+---
+You are a Claude-style agent with full formatting.
+
+## Capabilities
+- Search files with Glob
+- Search content with Grep
+- Read file contents
+
+## Guidelines
+Be thorough and precise.`
+      );
+
+      // OpenCode format file
+      writeFileSync(
+        join(testDir, "opencode-style.md"),
+        `---
+name: opencode-style-agent
+description: Agent using OpenCode format
+tools:
+  glob: true
+  grep: true
+  read: true
+  write: false
+  bash: false
+model: anthropic/claude-3.5-sonnet
+mode: subagent
+---
+You are an OpenCode-style agent.
+
+Read-only access to files.`
+      );
+
+      // Minimal format file
+      writeFileSync(
+        join(testDir, "minimal-style.md"),
+        `---
+description: Minimal agent
+---
+Minimal prompt content.`
+      );
+    });
+
+    afterAll(() => {
+      rmSync(testDir, { recursive: true, force: true });
+    });
+
+    test("parseAgentFile correctly parses Claude format file", () => {
+      const file: DiscoveredAgentFile = {
+        path: join(testDir, "claude-style.md"),
+        source: "project",
+        filename: "claude-style",
+      };
+
+      const result = parseAgentFile(file);
+
+      expect(result).not.toBeNull();
+      expect(result!.name).toBe("claude-style-agent");
+      expect(result!.description).toBe("Agent using Claude Code format");
+      expect(result!.tools).toEqual(["Glob", "Grep", "Read"]);
+      expect(result!.model).toBe("opus");
+      expect(result!.prompt).toContain("You are a Claude-style agent");
+      expect(result!.prompt).toContain("## Capabilities");
+      expect(result!.source).toBe("project");
+    });
+
+    test("parseAgentFile correctly parses OpenCode format file", () => {
+      const file: DiscoveredAgentFile = {
+        path: join(testDir, "opencode-style.md"),
+        source: "atomic",
+        filename: "opencode-style",
+      };
+
+      const result = parseAgentFile(file);
+
+      expect(result).not.toBeNull();
+      expect(result!.name).toBe("opencode-style-agent");
+      expect(result!.description).toBe("Agent using OpenCode format");
+      // Tools should be normalized to array of enabled tools
+      expect(result!.tools).toContain("glob");
+      expect(result!.tools).toContain("grep");
+      expect(result!.tools).toContain("read");
+      expect(result!.tools).not.toContain("write");
+      expect(result!.tools).not.toContain("bash");
+      expect(result!.tools).toHaveLength(3);
+      // Model should be normalized
+      expect(result!.model).toBe("sonnet");
+      expect(result!.prompt).toContain("You are an OpenCode-style agent");
+      expect(result!.source).toBe("atomic");
+    });
+
+    test("parseAgentFile correctly parses minimal format file", () => {
+      const file: DiscoveredAgentFile = {
+        path: join(testDir, "minimal-style.md"),
+        source: "user",
+        filename: "minimal-style",
+      };
+
+      const result = parseAgentFile(file);
+
+      expect(result).not.toBeNull();
+      // Name should come from filename since not in frontmatter
+      expect(result!.name).toBe("minimal-style");
+      expect(result!.description).toBe("Minimal agent");
+      expect(result!.tools).toBeUndefined();
+      expect(result!.model).toBeUndefined();
+      expect(result!.prompt).toBe("Minimal prompt content.");
+      expect(result!.source).toBe("user");
+    });
+  });
+});

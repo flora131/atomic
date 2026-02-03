@@ -1423,7 +1423,7 @@
         "Test missing optional fields use defaults",
         "Test invalid frontmatter handled gracefully"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

@@ -1,3 +1,81 @@
+## 2026-02-03 - Feature Implementation: E2E test: /ralph --resume resumes paused session
+
+### Status: COMPLETED
+
+Implemented comprehensive E2E tests for the /ralph --resume command, validating the complete pause and resume workflow for Ralph sessions including session state preservation, command parsing, and execution continuation.
+
+#### Tests Added (40 new tests across 8 test groups)
+
+1. **Start /ralph session** (4 tests)
+   - session starts with unique UUID
+   - session UUID is different for each start
+   - session message includes UUID for later reference
+   - session directory can be created and session saved
+
+2. **Interrupt with Ctrl+C (simulated)** (3 tests)
+   - session status can be changed to paused
+   - session preserves state when paused
+   - session lastUpdated timestamp updates on pause
+
+3. **Note session UUID** (4 tests)
+   - UUID is valid v4 format
+   - UUID can be used to construct session directory path
+   - session can be found using UUID
+   - invalid UUID returns null on lookup
+
+4. **Run /ralph --resume {uuid}** (6 tests)
+   - parseRalphArgs correctly parses --resume flag
+   - parseRalphArgs handles invalid UUID format gracefully
+   - /ralph --resume with valid UUID succeeds
+   - /ralph --resume with non-existent UUID fails
+   - /ralph --resume with invalid UUID format fails
+   - /ralph --resume sets workflow state for resumption
+
+5. **Verify 'Resuming existing session' message** (3 tests)
+   - command output message contains 'Resuming'
+   - system message is added for resume
+   - different messages for new vs resumed sessions
+
+6. **Verify execution continues** (6 tests)
+   - resumed session can be loaded with preserved state
+   - session status can change from paused to running on resume
+   - pending features remain for continued execution
+   - iteration counter preserved for continued execution
+   - current feature index preserved for continued execution
+   - workflow configuration includes resumeSessionId
+
+7. **Integration: Complete resume flow** (4 tests)
+   - full pause and resume cycle preserves all session data
+   - multiple pause and resume cycles work correctly
+   - resume command respects feature list path from session
+   - resume command works for yolo mode sessions
+
+8. **Edge cases and error handling** (10 tests)
+   - handles already running workflow gracefully
+   - handles session with all features already completed
+   - handles empty features array in session
+   - handles missing session.json in existing directory
+   - handles session with completed status
+   - handles session with failed status
+   - parseRalphArgs handles --resume without UUID
+   - parseRalphArgs handles --resume with extra whitespace
+   - isValidUUID rejects various invalid formats
+   - isValidUUID accepts valid UUID formats
+
+#### Test Results
+- All 40 tests pass
+- All 175 E2E tests pass (no regressions)
+- All 402 workflow tests pass (no regressions)
+- 103 expect() calls
+
+#### Files Added
+- tests/e2e/ralph-resume.test.ts - 40 comprehensive E2E tests for /ralph --resume
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: E2E test: /ralph generates random UUID for session ID
 
 ### Status: COMPLETED

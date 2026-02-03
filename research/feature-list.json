@@ -1488,7 +1488,7 @@
         "Verify state restored from checkpoint",
         "Verify execution continues from checkpoint"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

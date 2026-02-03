@@ -1,3 +1,69 @@
+## 2026-02-03 - Feature Implementation: Integration test: Checkpoint save/restore to session directory
+
+### Status: COMPLETED
+
+Implemented comprehensive integration tests for checkpoint save/restore functionality in Ralph session directories, validating the complete checkpoint lifecycle including save, restore, and workflow resumption.
+
+#### Tests Added (30 new tests)
+
+1. **Execute Ralph workflow with checkpointing enabled**
+   - workflow executes successfully with checkpointing enabled
+   - workflow with dynamic session directory checkpointing executes successfully
+   - checkpointing does not affect workflow behavior
+
+2. **Verify checkpoints saved to session directory**
+   - checkpoints are saved to session checkpoints directory
+   - checkpoint files contain valid JSON state
+   - checkpoints use sequential naming (node-001, node-002, etc.)
+   - checkpoint state reflects execution progress
+   - dynamic session directory checkpointing saves to correct location
+
+3. **Interrupt workflow mid-execution**
+   - workflow can be interrupted via AbortController
+   - interrupted workflow saves checkpoint before stopping
+   - streaming execution allows inspection of each step
+
+4. **Create new workflow execution with resume**
+   - can load checkpoint from session directory
+   - can list available checkpoints in session directory
+   - can load specific checkpoint by label
+   - can create workflow with resumeFrom snapshot
+
+5. **Verify state restored from checkpoint**
+   - restored state matches saved state
+   - restored state has correct type information
+   - restoring from checkpoint updates internal counter
+   - session directory is preserved in restored state
+
+6. **Verify execution continues from checkpoint**
+   - execution can resume from saved checkpoint state
+   - resumed execution does not duplicate previous work
+   - new checkpoints saved after resume continue sequence
+   - workflow with resumeFrom snapshot continues execution
+
+7. **Checkpoint edge cases**
+   - handles empty checkpoints directory gracefully
+   - handles concurrent checkpoint saves
+   - checkpoint state survives JSON serialization round-trip
+   - can delete checkpoints from session directory
+   - can delete all checkpoints for an execution
+
+8. **Integration with RalphWorkflowState**
+   - can checkpoint RalphWorkflowState
+   - RalphWorkflowState features are preserved across checkpoint
+
+#### Test Results
+- All 30 tests pass
+- All 302 workflow tests pass (no regressions)
+
+#### Files Added
+- tests/workflows/checkpoint-session-integration.test.ts - 30 comprehensive integration tests for checkpoint save/restore to session directory
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Integration test: AskUserQuestion node pauses and resumes
 
 ### Status: COMPLETED

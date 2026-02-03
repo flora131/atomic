@@ -42,7 +42,14 @@ Works on macOS, Linux, and Windows.
 
 ### Deep Codebase Research & Root Cause Analysis
 
-Stop spending hours hunting through unfamiliar code. The `/research-codebase` command dispatches specialized sub-agents to do the hunting for you:
+You know the pain:
+- **Hours lost** hunting through unfamiliar code manually
+- **Agents missing key files** even when you know they're relevant
+- **Repeating yourself** — mentioning the same file over and over, only for the agent to ignore it
+- **Context window blown** before you've even started the real work
+- **Files too large to paste** — so you just... can't share the context you need
+
+The `/research-codebase` command dispatches specialized sub-agents to do the hunting for you:
 
 - Understand how authentication flows work in an unfamiliar codebase
 - Track down root causes by analyzing code paths across dozens of files

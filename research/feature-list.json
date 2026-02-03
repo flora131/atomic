@@ -1327,7 +1327,7 @@
         "Reports persist across iterations",
         "Available for inspection after workflow completes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

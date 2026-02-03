@@ -1539,7 +1539,7 @@
         "Verify execution continues from checkpoint",
         "Verify no duplicate work done"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

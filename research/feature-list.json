@@ -1803,7 +1803,7 @@
         "Explain spec approval is now manual before workflow",
         "Explain progress tracking via progress.txt"
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }

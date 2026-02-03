@@ -1659,7 +1659,7 @@
         "Verify session.json status is 'paused'",
         "Verify checkpoint saved"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

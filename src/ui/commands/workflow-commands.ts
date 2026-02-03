@@ -23,7 +23,7 @@ import {
   createRalphWorkflow,
   type CreateRalphWorkflowConfig,
   type RalphWorkflowState,
-} from "../../workflows/ralph.ts";
+} from "../../workflows/ralph/workflow.ts";
 import type { CompiledGraph, BaseState } from "../../graph/types.ts";
 import type { AtomicWorkflowState } from "../../graph/annotation.ts";
 import { setWorkflowResolver } from "../../graph/nodes.ts";
@@ -35,7 +35,7 @@ import {
 import {
   generateSessionId,
   getSessionDir,
-} from "../../workflows/ralph-session.ts";
+} from "../../workflows/ralph/session.ts";
 
 // ============================================================================
 // RALPH COMMAND PARSING

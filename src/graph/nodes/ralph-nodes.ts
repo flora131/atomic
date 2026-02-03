@@ -27,7 +27,7 @@ import type {
 import type {
   RalphSession,
   RalphFeature,
-} from "../../workflows/ralph-session.ts";
+} from "../../workflows/ralph/session.ts";
 import {
   generateSessionId,
   getSessionDir,
@@ -41,7 +41,7 @@ import {
   loadSessionIfExists,
   appendLog,
   appendProgress,
-} from "../../workflows/ralph-session.ts";
+} from "../../workflows/ralph/session.ts";
 import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";

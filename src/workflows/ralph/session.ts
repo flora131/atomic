@@ -13,7 +13,7 @@
 
 import { mkdir, writeFile, readFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { DebugReport } from "../graph/types.ts";
+import type { DebugReport } from "../../graph/types.ts";
 
 // ============================================================================
 // RALPH FEATURE INTERFACE

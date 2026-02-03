@@ -13,14 +13,14 @@
  * Reference: Feature - Create src/workflows/ralph-executor.ts with RalphExecutor class
  */
 
-import type { CompiledGraph } from "../graph/types.ts";
-import type { RalphWorkflowState } from "../graph/nodes/ralph-nodes.ts";
-import type { CreateRalphWorkflowConfig } from "./ralph.ts";
+import type { CompiledGraph } from "../../graph/types.ts";
+import type { RalphWorkflowState } from "../../graph/nodes/ralph-nodes.ts";
+import type { CreateRalphWorkflowConfig } from "./workflow.ts";
 import {
   loadSession,
   saveSession,
   loadSessionIfExists,
-} from "./ralph-session.ts";
+} from "./session.ts";
 
 // ============================================================================
 // TYPES

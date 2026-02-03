@@ -47,6 +47,10 @@ import {
   formatSessionStatus,
   type RalphSessionStatus,
 
+  // Terminal hyperlink functions
+  supportsTerminalHyperlinks,
+  formatTerminalHyperlink,
+
   // Re-exported functions
   generateSessionId,
   getSessionDir,
@@ -3604,5 +3608,260 @@ describe("processCreatePRResult", () => {
     );
 
     expect(result.prBranch).toBe("feature/my-work");
+  });
+});
+
+// ============================================================================
+// TERMINAL HYPERLINK TESTS
+// ============================================================================
+
+describe("supportsTerminalHyperlinks", () => {
+  const originalEnv = { ...process.env };
+  const originalIsTTY = process.stdout.isTTY;
+
+  afterEach(() => {
+    // Restore original environment
+    process.env = { ...originalEnv };
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: originalIsTTY,
+      writable: true,
+    });
+  });
+
+  test("returns false when not running in TTY", () => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: false,
+      writable: true,
+    });
+    expect(supportsTerminalHyperlinks()).toBe(false);
+  });
+
+  test("returns true for iTerm.app terminal", () => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      writable: true,
+    });
+    process.env.TERM_PROGRAM = "iTerm.app";
+    expect(supportsTerminalHyperlinks()).toBe(true);
+  });
+
+  test("returns true for Windows Terminal", () => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      writable: true,
+    });
+    process.env.WT_SESSION = "some-session-id";
+    expect(supportsTerminalHyperlinks()).toBe(true);
+  });
+
+  test("returns true for VTE terminals with version >= 5000", () => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      writable: true,
+    });
+    process.env.VTE_VERSION = "6000";
+    expect(supportsTerminalHyperlinks()).toBe(true);
+  });
+
+  test("returns false for VTE terminals with version < 5000", () => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      writable: true,
+    });
+    // Clear other env vars that could trigger true
+    delete process.env.TERM_PROGRAM;
+    delete process.env.WT_SESSION;
+    delete process.env.COLORTERM;
+    process.env.TERM = "dumb";
+    process.env.VTE_VERSION = "4999";
+    expect(supportsTerminalHyperlinks()).toBe(false);
+  });
+
+  test("returns true for truecolor terminals", () => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      writable: true,
+    });
+    process.env.COLORTERM = "truecolor";
+    expect(supportsTerminalHyperlinks()).toBe(true);
+  });
+
+  test("returns true for 24bit color terminals", () => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      writable: true,
+    });
+    process.env.COLORTERM = "24bit";
+    expect(supportsTerminalHyperlinks()).toBe(true);
+  });
+
+  test("returns true for xterm-256color", () => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      writable: true,
+    });
+    // Clear other env vars
+    delete process.env.TERM_PROGRAM;
+    delete process.env.WT_SESSION;
+    delete process.env.VTE_VERSION;
+    delete process.env.COLORTERM;
+    process.env.TERM = "xterm-256color";
+    expect(supportsTerminalHyperlinks()).toBe(true);
+  });
+
+  test("returns true for Hyper terminal", () => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      writable: true,
+    });
+    process.env.TERM_PROGRAM = "Hyper";
+    expect(supportsTerminalHyperlinks()).toBe(true);
+  });
+});
+
+describe("formatTerminalHyperlink", () => {
+  const originalEnv = { ...process.env };
+  const originalIsTTY = process.stdout.isTTY;
+
+  afterEach(() => {
+    // Restore original environment
+    process.env = { ...originalEnv };
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: originalIsTTY,
+      writable: true,
+    });
+  });
+
+  test("returns plain URL when terminal does not support hyperlinks", () => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: false,
+      writable: true,
+    });
+    const url = "https://github.com/owner/repo/pull/123";
+    expect(formatTerminalHyperlink(url)).toBe(url);
+  });
+
+  test("returns OSC 8 formatted hyperlink when terminal supports it", () => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      writable: true,
+    });
+    process.env.TERM_PROGRAM = "iTerm.app";
+    const url = "https://github.com/owner/repo/pull/123";
+    const result = formatTerminalHyperlink(url);
+    expect(result).toBe(`\x1b]8;;${url}\x07${url}\x1b]8;;\x07`);
+  });
+
+  test("uses custom display text when provided", () => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: true,
+      writable: true,
+    });
+    process.env.TERM_PROGRAM = "iTerm.app";
+    const url = "https://github.com/owner/repo/pull/123";
+    const text = "PR #123";
+    const result = formatTerminalHyperlink(url, text);
+    expect(result).toBe(`\x1b]8;;${url}\x07${text}\x1b]8;;\x07`);
+  });
+
+  test("returns custom text without formatting when not supported", () => {
+    Object.defineProperty(process.stdout, "isTTY", {
+      value: false,
+      writable: true,
+    });
+    const url = "https://github.com/owner/repo/pull/123";
+    const text = "PR #123";
+    expect(formatTerminalHyperlink(url, text)).toBe(text);
+  });
+});
+
+// ============================================================================
+// PR URL DISPLAY TESTS
+// ============================================================================
+
+describe("processCreatePRResult console output", () => {
+  const testSessionId = "pr-display-test-" + Date.now();
+  const testSessionDir = getSessionDir(testSessionId);
+  let logCalls: string[];
+  let originalLog: typeof console.log;
+
+  beforeEach(async () => {
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+    logCalls = [];
+    originalLog = console.log;
+    console.log = (...args: unknown[]) => {
+      logCalls.push(String(args[0]));
+    };
+  });
+
+  afterEach(async () => {
+    console.log = originalLog;
+    if (existsSync(testSessionDir)) {
+      await rm(testSessionDir, { recursive: true });
+    }
+    if (existsSync(".ralph")) {
+      await rm(".ralph", { recursive: true });
+    }
+  });
+
+  test("displays 'Pull request created: {url}' when PR URL is extracted", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [
+        { id: "f1", name: "Feature 1", description: "Desc", status: "passing" },
+      ],
+    });
+
+    const prUrl = "https://github.com/owner/repo/pull/123";
+    await processCreatePRResult(state, `PR_URL: ${prUrl}`);
+
+    expect(logCalls.length).toBeGreaterThan(0);
+    // Find the call that contains the PR URL message
+    const prMessageCall = logCalls.find((msg) =>
+      msg.includes("Pull request created:")
+    );
+    expect(prMessageCall).toBeDefined();
+    expect(prMessageCall).toContain(prUrl);
+  });
+
+  test("displays 'Session completed (no PR URL extracted)' when no URL found", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [],
+    });
+
+    await processCreatePRResult(state, "Error: Could not create PR");
+
+    expect(logCalls.length).toBeGreaterThan(0);
+    const sessionCompleteCall = logCalls.find((msg) =>
+      msg.includes("Session completed (no PR URL extracted")
+    );
+    expect(sessionCompleteCall).toBeDefined();
+  });
+
+  test("displays 'Status: Completed' after PR creation", async () => {
+    await createSessionDirectory(testSessionId);
+
+    const state = createRalphWorkflowState({
+      sessionId: testSessionId,
+      features: [],
+    });
+
+    await processCreatePRResult(state, "PR_URL: https://github.com/test/pull/1");
+
+    expect(logCalls.length).toBeGreaterThan(0);
+    const statusCall = logCalls.find((msg) =>
+      msg.includes("Status: Completed")
+    );
+    expect(statusCall).toBeDefined();
   });
 });

@@ -22,6 +22,7 @@ import type {
   ExecutionContext,
   RetryConfig,
   ContextWindowUsage,
+  DebugReport,
 } from "../types.ts";
 import type {
   RalphSession,
@@ -393,6 +394,17 @@ export interface RalphWorkflowState extends BaseState {
 
   /** Current context window usage from agent sessions */
   contextWindowUsage?: ContextWindowUsage;
+
+  // ========================================
+  // Debug Reports
+  // ========================================
+
+  /**
+   * Array of debug reports generated during execution.
+   * Reports are accumulated using Reducers.concat, persisting across iterations.
+   * Available for inspection after workflow completes.
+   */
+  debugReports: DebugReport[];
 }
 
 // ============================================================================
@@ -436,7 +448,8 @@ export function isRalphWorkflowState(value: unknown): value is RalphWorkflowStat
     typeof obj.shouldContinue === "boolean" &&
     typeof obj.allFeaturesPassing === "boolean" &&
     typeof obj.maxIterationsReached === "boolean" &&
-    typeof obj.yoloComplete === "boolean"
+    typeof obj.yoloComplete === "boolean" &&
+    Array.isArray(obj.debugReports)
   );
 }
 
@@ -537,6 +550,9 @@ export function createRalphWorkflowState(
 
     // Context tracking
     contextWindowUsage: undefined,
+
+    // Debug reports (empty array, will accumulate via Reducers.concat)
+    debugReports: [],
   };
 }
 
@@ -593,6 +609,9 @@ export function sessionToWorkflowState(
 
     // Context tracking
     contextWindowUsage: undefined,
+
+    // Debug reports (load from session or start fresh)
+    debugReports: session.debugReports ?? [],
   };
 }
 
@@ -618,6 +637,7 @@ export function workflowStateToSession(state: RalphWorkflowState): RalphSession 
     status: state.sessionStatus,
     prUrl: state.prUrl,
     prBranch: state.prBranch,
+    debugReports: state.debugReports,
   };
 }
 

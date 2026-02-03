@@ -129,6 +129,9 @@ function createTestState(): RalphWorkflowState {
 
     // Context tracking
     contextWindowUsage: undefined,
+
+    // Debug reports
+    debugReports: [],
   };
 }
 
@@ -4072,5 +4075,211 @@ describe("processCreatePRResult console output", () => {
       msg.includes("Status: Completed")
     );
     expect(statusCall).toBeDefined();
+  });
+});
+
+// ============================================================================
+// DEBUG REPORTS ACCUMULATION TESTS
+// ============================================================================
+
+describe("Debug Reports Accumulation", () => {
+  test("RalphWorkflowState includes debugReports field", () => {
+    const state = createRalphWorkflowState();
+    expect(Array.isArray(state.debugReports)).toBe(true);
+    expect(state.debugReports).toEqual([]);
+  });
+
+  test("debugReports is initialized as empty array", () => {
+    const state = createRalphWorkflowState({
+      yolo: true,
+      userPrompt: "test prompt",
+    });
+    expect(state.debugReports).toEqual([]);
+    expect(state.debugReports.length).toBe(0);
+  });
+
+  test("debugReports can be set with debug reports", () => {
+    const debugReport = {
+      errorSummary: "Test error",
+      relevantFiles: ["file1.ts", "file2.ts"],
+      suggestedFixes: ["Fix 1", "Fix 2"],
+      generatedAt: "2026-02-02T10:00:00.000Z",
+    };
+
+    // Create state by spreading in debugReports
+    const state: RalphWorkflowState = {
+      ...createRalphWorkflowState(),
+      debugReports: [debugReport],
+    };
+
+    expect(state.debugReports).toHaveLength(1);
+    expect(state.debugReports[0]?.errorSummary).toBe("Test error");
+    expect(state.debugReports[0]?.relevantFiles).toEqual(["file1.ts", "file2.ts"]);
+    expect(state.debugReports[0]?.suggestedFixes).toEqual(["Fix 1", "Fix 2"]);
+  });
+
+  test("isRalphWorkflowState validates debugReports field", () => {
+    const validState = createRalphWorkflowState();
+    expect(isRalphWorkflowState(validState)).toBe(true);
+
+    // State without debugReports should be invalid
+    const invalidState = { ...validState };
+    delete (invalidState as Record<string, unknown>).debugReports;
+    expect(isRalphWorkflowState(invalidState)).toBe(false);
+  });
+
+  test("isRalphWorkflowState accepts debugReports as array", () => {
+    const state = createRalphWorkflowState();
+    state.debugReports = [
+      {
+        errorSummary: "Error 1",
+        relevantFiles: [],
+        suggestedFixes: [],
+        generatedAt: "2026-02-02T10:00:00.000Z",
+      },
+      {
+        errorSummary: "Error 2",
+        relevantFiles: ["file.ts"],
+        suggestedFixes: ["Fix it"],
+        generatedAt: "2026-02-02T11:00:00.000Z",
+      },
+    ];
+    expect(isRalphWorkflowState(state)).toBe(true);
+    expect(state.debugReports.length).toBe(2);
+  });
+
+  test("sessionToWorkflowState preserves debugReports from session", () => {
+    const debugReport = {
+      errorSummary: "Session error",
+      relevantFiles: ["session.ts"],
+      suggestedFixes: ["Fix session"],
+      generatedAt: "2026-02-02T10:00:00.000Z",
+    };
+
+    const session = createRalphSession({
+      debugReports: [debugReport],
+    });
+
+    const state = sessionToWorkflowState(session);
+    expect(state.debugReports).toHaveLength(1);
+    expect(state.debugReports[0]?.errorSummary).toBe("Session error");
+  });
+
+  test("sessionToWorkflowState handles missing debugReports gracefully", () => {
+    const session = createRalphSession();
+    // Simulate old session without debugReports by deleting it
+    delete (session as Record<string, unknown>).debugReports;
+
+    const state = sessionToWorkflowState(session);
+    expect(Array.isArray(state.debugReports)).toBe(true);
+    expect(state.debugReports).toEqual([]);
+  });
+
+  test("workflowStateToSession includes debugReports", () => {
+    const debugReport = {
+      errorSummary: "Workflow error",
+      relevantFiles: ["workflow.ts"],
+      suggestedFixes: ["Fix workflow"],
+      generatedAt: "2026-02-02T10:00:00.000Z",
+    };
+
+    const state = createRalphWorkflowState();
+    state.debugReports = [debugReport];
+
+    const session = workflowStateToSession(state);
+    expect(session.debugReports).toHaveLength(1);
+    expect(session.debugReports?.[0]?.errorSummary).toBe("Workflow error");
+  });
+
+  test("debugReports accumulates across multiple additions (simulated concat)", () => {
+    const state = createRalphWorkflowState();
+
+    const report1 = {
+      errorSummary: "Error 1",
+      relevantFiles: ["file1.ts"],
+      suggestedFixes: ["Fix 1"],
+      generatedAt: "2026-02-02T10:00:00.000Z",
+    };
+
+    const report2 = {
+      errorSummary: "Error 2",
+      relevantFiles: ["file2.ts"],
+      suggestedFixes: ["Fix 2"],
+      generatedAt: "2026-02-02T11:00:00.000Z",
+    };
+
+    // Simulate what Reducers.concat would do
+    state.debugReports = [...state.debugReports, report1];
+    expect(state.debugReports).toHaveLength(1);
+
+    state.debugReports = [...state.debugReports, report2];
+    expect(state.debugReports).toHaveLength(2);
+
+    expect(state.debugReports[0]?.errorSummary).toBe("Error 1");
+    expect(state.debugReports[1]?.errorSummary).toBe("Error 2");
+  });
+
+  test("debugReports persists through session save and load cycle", async () => {
+    const testSessionId = generateSessionId();
+    await createSessionDirectory(testSessionId);
+
+    try {
+      const debugReport = {
+        errorSummary: "Persistent error",
+        relevantFiles: ["persist.ts"],
+        suggestedFixes: ["Fix persistence"],
+        generatedAt: "2026-02-02T10:00:00.000Z",
+      };
+
+      const originalSession = createRalphSession({
+        sessionId: testSessionId,
+        debugReports: [debugReport],
+      });
+
+      const sessionDir = getSessionDir(testSessionId);
+      await saveSession(sessionDir, originalSession);
+
+      const loadedSession = await loadSession(sessionDir);
+      expect(loadedSession.debugReports).toHaveLength(1);
+      expect(loadedSession.debugReports?.[0]?.errorSummary).toBe("Persistent error");
+    } finally {
+      // Cleanup
+      const sessionDir = getSessionDir(testSessionId);
+      if (existsSync(sessionDir)) {
+        await rm(sessionDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test("debugReports available for inspection after workflow state round-trip", () => {
+    const report1 = {
+      errorSummary: "First error",
+      relevantFiles: ["first.ts"],
+      suggestedFixes: ["First fix"],
+      generatedAt: "2026-02-02T10:00:00.000Z",
+      nodeId: "node-1",
+      executionId: "exec-1",
+    };
+
+    const report2 = {
+      errorSummary: "Second error",
+      relevantFiles: ["second.ts"],
+      suggestedFixes: ["Second fix"],
+      generatedAt: "2026-02-02T11:00:00.000Z",
+      stackTrace: "Error: Second error\n  at test.ts:10",
+    };
+
+    const state = createRalphWorkflowState();
+    state.debugReports = [report1, report2];
+
+    // Convert to session and back
+    const session = workflowStateToSession(state);
+    const restoredState = sessionToWorkflowState(session);
+
+    // Verify all debug reports are available for inspection
+    expect(restoredState.debugReports).toHaveLength(2);
+    expect(restoredState.debugReports[0]?.errorSummary).toBe("First error");
+    expect(restoredState.debugReports[0]?.nodeId).toBe("node-1");
+    expect(restoredState.debugReports[1]?.stackTrace).toContain("Error: Second error");
   });
 });

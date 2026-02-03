@@ -69,11 +69,12 @@ export type NodeId = string;
  * - `agent`: Executes an AI agent to process input and generate output
  * - `tool`: Executes a specific tool/function
  * - `decision`: Evaluates conditions to determine next node
- * - `wait`: Pauses execution for human input
+ * - `wait`: Pauses execution for human input (legacy)
+ * - `ask_user`: Pauses execution for explicit user question with structured options
  * - `subgraph`: Executes a nested graph
  * - `parallel`: Executes multiple branches concurrently
  */
-export type NodeType = "agent" | "tool" | "decision" | "wait" | "subgraph" | "parallel";
+export type NodeType = "agent" | "tool" | "decision" | "wait" | "ask_user" | "subgraph" | "parallel";
 
 // ============================================================================
 // STATE MANAGEMENT

@@ -1039,7 +1039,7 @@
         "Set state.__waitNodeId to node name",
         "Return updated state"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -1051,7 +1051,7 @@
         "Add options?: {label: string, description: string}[] field",
         "Export the interface"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

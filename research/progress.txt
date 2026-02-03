@@ -1,5 +1,95 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Workflow Registry and Resolution
+
+### Completed
+- Implemented workflowRegistry Map for workflow lookup in workflow-commands.ts
+  - Created module-level workflowRegistry: Map<string, WorkflowMetadata>
+  - Added registryInitialized flag to track initialization state
+  - Created initializeRegistry() function to populate registry from getAllWorkflows()
+  - Registry includes both built-in and dynamically loaded workflows
+  - Registry maps both primary names and aliases (case-insensitive)
+
+- Implemented resolutionStack Set for circular dependency detection
+  - Created module-level resolutionStack: Set<string>
+  - Used to track current workflow resolution chain
+  - Cleared after each resolution completes (in finally block)
+
+- Implemented resolveWorkflowRef() function for subgraph workflow lookup
+  - Function signature: resolveWorkflowRef(name: string): CompiledGraph<BaseState> | null
+  - Checks resolutionStack for circular dependency before resolution
+  - Throws Error with dependency chain on circular reference: 'Circular workflow dependency detected: A -> B -> A'
+  - Adds name to resolutionStack during resolution
+  - Looks up workflow in registry via getWorkflowFromRegistry()
+  - Creates workflow with defaultConfig
+  - Removes name from resolutionStack in finally block (always cleans up)
+  - Returns compiled graph or null if not found
+
+- Added helper functions:
+  - getWorkflowFromRegistry(name): Find workflow by name/alias
+  - hasWorkflow(name): Check if workflow exists in registry
+  - getWorkflowNames(): Get array of all workflow names
+  - refreshWorkflowRegistry(): Clear and reinitialize registry
+
+### Tests Added
+- loadWorkflowsFromDisk tests (5 tests):
+  - returns empty array when no workflow files exist
+  - loads workflow from valid .ts file
+  - skips workflow file without default export function
+  - uses filename as name when module.name is not defined
+  - provides default description when not exported
+
+- getAllWorkflows tests (2 tests):
+  - returns array including built-in workflows
+  - workflows have required fields
+
+- workflow loading priority tests (3 tests):
+  - local workflows marked with source 'local'
+  - built-in workflows marked with source 'builtin'
+  - deduplicates workflows by name (case-insensitive)
+
+- workflowRegistry tests (9 tests):
+  - getWorkflowFromRegistry finds workflow by name
+  - getWorkflowFromRegistry finds workflow by alias
+  - getWorkflowFromRegistry is case-insensitive
+  - getWorkflowFromRegistry returns undefined for unknown workflow
+  - hasWorkflow returns true for registered workflow
+  - hasWorkflow returns false for unknown workflow
+  - hasWorkflow is case-insensitive
+  - getWorkflowNames returns array of workflow names
+  - refreshWorkflowRegistry reinitializes registry
+
+- resolveWorkflowRef tests (5 tests):
+  - resolves workflow by name
+  - resolves workflow by alias
+  - is case-insensitive
+  - returns null for unknown workflow
+  - applies default config when resolving
+
+- circular dependency detection tests (2 tests):
+  - resolveWorkflowRef clears resolution stack after successful resolution
+  - resolveWorkflowRef clears resolution stack after failed resolution
+
+### Test Results
+- All workflow-commands tests pass (122 tests)
+- Total expect() calls: 299
+
+### Features Marked as Passing
+- discoverWorkflowFiles() to find .ts files in search paths
+- loadWorkflowsFromDisk() to dynamically import workflow modules
+- Validate required exports in custom workflow files
+- Local workflow override of global workflows
+- Create workflowRegistry Map for workflow lookup
+- Implement resolveWorkflowRef() for subgraph workflow lookup
+- Create resolutionStack Set for circular dependency detection
+- Implement circular dependency detection in resolveWorkflowRef()
+
+### Files Modified
+- src/ui/commands/workflow-commands.ts - Added workflowRegistry, resolutionStack, resolveWorkflowRef(), and helper functions
+- tests/ui/commands/workflow-commands.test.ts - Added 26 new tests for workflow registry and resolution
+
+---
+
 ## 2026-02-03 - Feature Implementation: CUSTOM_WORKFLOW_SEARCH_PATHS Constant
 
 ### Completed

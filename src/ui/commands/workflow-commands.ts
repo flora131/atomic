@@ -511,6 +511,154 @@ export function getAllWorkflows(): WorkflowMetadata[] {
 }
 
 // ============================================================================
+// WORKFLOW REGISTRY AND RESOLUTION
+// ============================================================================
+
+/**
+ * Registry for workflow lookup by name.
+ * Maps workflow name (lowercase) to WorkflowMetadata.
+ * Built-in workflows are included automatically.
+ * Populated during loadWorkflowsFromDisk() or on first access.
+ */
+let workflowRegistry: Map<string, WorkflowMetadata> = new Map();
+
+/**
+ * Flag to track if registry has been initialized.
+ */
+let registryInitialized = false;
+
+/**
+ * Stack to track current workflow resolution chain for circular dependency detection.
+ * Used during resolveWorkflowRef() calls.
+ */
+const resolutionStack: Set<string> = new Set();
+
+/**
+ * Initialize the workflow registry from all available workflows.
+ * Populates the registry with built-in and dynamically loaded workflows.
+ */
+function initializeRegistry(): void {
+  if (registryInitialized) {
+    return;
+  }
+
+  workflowRegistry.clear();
+  const workflows = getAllWorkflows();
+
+  for (const workflow of workflows) {
+    const lowerName = workflow.name.toLowerCase();
+    if (!workflowRegistry.has(lowerName)) {
+      workflowRegistry.set(lowerName, workflow);
+    }
+
+    // Also register aliases
+    if (workflow.aliases) {
+      for (const alias of workflow.aliases) {
+        const lowerAlias = alias.toLowerCase();
+        if (!workflowRegistry.has(lowerAlias)) {
+          workflowRegistry.set(lowerAlias, workflow);
+        }
+      }
+    }
+  }
+
+  registryInitialized = true;
+}
+
+/**
+ * Get a workflow from the registry by name or alias.
+ *
+ * @param name - Workflow name or alias (case-insensitive)
+ * @returns WorkflowMetadata if found, undefined otherwise
+ */
+export function getWorkflowFromRegistry(name: string): WorkflowMetadata | undefined {
+  initializeRegistry();
+  return workflowRegistry.get(name.toLowerCase());
+}
+
+/**
+ * Resolve a workflow reference by name and create a compiled graph.
+ * Used for subgraph composition where workflows reference other workflows by name.
+ *
+ * Includes circular dependency detection to prevent infinite recursion.
+ *
+ * @param name - Workflow name or alias to resolve
+ * @returns Compiled workflow graph, or null if not found
+ * @throws Error if circular dependency is detected
+ *
+ * @example
+ * ```typescript
+ * // Create subgraph that references another workflow by name
+ * const subgraph = resolveWorkflowRef("research-codebase");
+ * if (subgraph) {
+ *   // Use subgraph in workflow composition
+ * }
+ * ```
+ */
+export function resolveWorkflowRef(name: string): CompiledGraph<BaseState> | null {
+  const lowerName = name.toLowerCase();
+
+  // Check for circular dependency
+  if (resolutionStack.has(lowerName)) {
+    const chain = [...resolutionStack, lowerName].join(" -> ");
+    throw new Error(`Circular workflow dependency detected: ${chain}`);
+  }
+
+  // Add to resolution stack
+  resolutionStack.add(lowerName);
+
+  try {
+    // Look up workflow in registry
+    const metadata = getWorkflowFromRegistry(lowerName);
+    if (!metadata) {
+      return null;
+    }
+
+    // Create workflow with default config
+    const config = metadata.defaultConfig ?? {};
+    return metadata.createWorkflow(config) as CompiledGraph<BaseState>;
+  } finally {
+    // Always remove from stack, even if error
+    resolutionStack.delete(lowerName);
+  }
+}
+
+/**
+ * Check if a workflow exists in the registry.
+ *
+ * @param name - Workflow name or alias to check
+ * @returns True if workflow exists, false otherwise
+ */
+export function hasWorkflow(name: string): boolean {
+  initializeRegistry();
+  return workflowRegistry.has(name.toLowerCase());
+}
+
+/**
+ * Get all workflow names from the registry.
+ *
+ * @returns Array of workflow names (primary names, not aliases)
+ */
+export function getWorkflowNames(): string[] {
+  initializeRegistry();
+  const names = new Set<string>();
+  for (const workflow of workflowRegistry.values()) {
+    names.add(workflow.name);
+  }
+  return Array.from(names);
+}
+
+/**
+ * Clear and reinitialize the workflow registry.
+ * Useful after loading new workflows from disk.
+ */
+export function refreshWorkflowRegistry(): void {
+  registryInitialized = false;
+  workflowRegistry.clear();
+  initializeRegistry();
+}
+
+// ============================================================================
 // WORKFLOW DEFINITIONS
 // ============================================================================
 

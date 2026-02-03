@@ -58,7 +58,7 @@ The `/research-codebase` command dispatches specialized sub-agents to do the hun
 
 This is the fastest path to value — install, run one command, get answers.
 
-### Thorough Technical Online Research
+### Explore Multiple Implementation Approaches
 
 When you're evaluating libraries, exploring implementation approaches, or need best practices before building, Atomic's research phase pulls in external knowledge — not just your codebase — to inform the spec and implementation plan.
 

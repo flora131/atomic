@@ -1,3 +1,61 @@
+## 2026-02-03 - Feature Implementation: Integration test: AskUserQuestion node pauses and resumes
+
+### Status: COMPLETED
+
+Implemented comprehensive integration tests for AskUserQuestion node pause and resume behavior, validating the full workflow execution lifecycle with human-in-the-loop interactions.
+
+#### Tests Added (18 new tests)
+
+1. **Creating workflow with askUserNode**
+   - askUserNode can be added to workflow
+   - workflow with askUserNode has correct structure
+
+2. **Execution pauses at AskUserQuestion**
+   - workflow execution pauses when askUserNode is reached
+   - workflow streams correctly and pauses at askUserNode
+
+3. **Verify __waitingForInput is true in state**
+   - state has __waitingForInput set to true when paused
+   - state has __waitNodeId set to askUserNode id
+   - state has __askUserRequestId set (UUID format)
+
+4. **Verify human_input_required signal is emitted**
+   - askUserNode emits human_input_required signal
+   - human_input_required signal contains question data
+   - human_input_required signal requestId matches state requestId
+
+5. **Simulate user response and resume execution**
+   - workflow can be resumed from paused state using snapshot
+   - user answer is available in state after resume
+
+6. **Multiple askUserNodes in workflow**
+   - workflow with multiple askUserNodes pauses at each
+
+7. **Dynamic question based on state**
+   - askUserNode question can be dynamic based on state
+
+8. **askUserNode with structured options**
+   - options are correctly passed through in signal
+   - askUserNode without options emits signal without options array
+
+9. **Abort handling during askUserNode**
+   - workflow can be cancelled while waiting at askUserNode
+
+10. **Unique requestIds for each askUserNode execution**
+    - each askUserNode execution generates unique requestId
+
+#### Test Results
+- All 18 tests pass
+- No regressions detected
+
+#### Files Added
+- tests/workflows/askuser-node-integration.test.ts - 18 comprehensive integration tests for AskUserQuestion node pause/resume behavior
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Unit test: Session state serialization/deserialization
 
 ### Status: COMPLETED

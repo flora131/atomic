@@ -1352,7 +1352,7 @@
         "Test alias registration and lookup",
         "Test duplicate registration is prevented"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

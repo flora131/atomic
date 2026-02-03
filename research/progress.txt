@@ -3693,3 +3693,50 @@ createCheckpointer factory tests (3 new tests):
 - research/feature-list.json - Updated passes to true for this feature
 
 ---
+
+---
+
+## 2026-02-03 - Feature Verification: Unit test: Command registration and lookup
+
+### Status: COMPLETED (ALREADY IMPLEMENTED)
+
+Verified that comprehensive unit tests for command registration and lookup already exist in `tests/ui/commands/registry.test.ts`. The tests cover all required functionality.
+
+#### Test Coverage Verification
+
+1. **globalRegistry.register() adds command** - Covered in `register()` describe block (lines 51-111)
+   - Test: `adds command to registry`
+   - Test: `allows registering multiple commands`
+   - Test: `registers aliases for command`
+   - Test: `normalizes command name to lowercase`
+
+2. **globalRegistry.has() returns true for registered command** - Covered in `has()` describe block (lines 285-300)
+   - Test: `returns true for existing command`
+   - Test: `returns true for existing alias`
+   - Test: `returns false for non-existing command`
+
+3. **globalRegistry.get() returns correct CommandDefinition** - Covered in `get()` describe block (lines 113-152)
+   - Test: `retrieves command by name`
+   - Test: `retrieves command by alias`
+   - Test: `is case-insensitive`
+   - Test: `returns undefined for unknown command`
+
+4. **Alias registration and lookup** - Covered across multiple describe blocks
+   - Test: `registers aliases for command`
+   - Test: `retrieves command by alias`
+   - Test: `includes commands when alias matches`
+   - Test: `does not duplicate command when both name and alias match`
+
+5. **Duplicate registration is prevented** - Covered in `register()` describe block
+   - Test: `throws error on duplicate command name`
+   - Test: `throws error when alias conflicts with existing command`
+   - Test: `throws error when alias conflicts with existing alias`
+
+#### Test Results
+- 54 tests pass in tests/ui/commands/registry.test.ts
+- 103 expect() calls
+- No failures
+
+#### Files Verified
+- tests/ui/commands/registry.test.ts - Comprehensive test coverage already exists
+- research/feature-list.json - Updated passes to true for this feature

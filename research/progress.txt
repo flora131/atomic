@@ -3850,3 +3850,65 @@ Added 30 new tests in tests/ui/commands/skill-commands.test.ts organized into 5 
 - tests/ui/commands/skill-commands.test.ts - Added expandArguments import and 33 new tests
 - research/feature-list.json - Updated passes to true for this feature
 
+
+---
+
+## 2026-02-03 - Feature Implementation: Unit test: Subgraph node execution
+
+### Status: COMPLETED
+
+Implemented comprehensive unit tests for subgraph node execution covering parent-child workflow relationships, state passing, and result merging.
+
+#### Tests Added (22 new tests in tests/graph/nodes.test.ts)
+
+1. **parent workflow with subgraph node**
+   - `subgraph node can be created with child workflow`
+   - `subgraph node can use inputMapper to prepare child state`
+   - `subgraph node can use outputMapper to merge results`
+
+2. **child workflow execution**
+   - `subgraph node executes child workflow`
+   - `child workflow receives mapped input state`
+   - `child workflow executes with transformed state`
+
+3. **state passing through subgraph**
+   - `parent state fields are available in inputMapper`
+   - `parent outputs are preserved in inputMapper context`
+   - `child state is independent from parent state`
+   - `without inputMapper uses parent state directly (cast)`
+
+4. **subgraph result merging into parent state**
+   - `child workflow result is merged into parent state via outputMapper`
+   - `outputMapper can access both child and parent state`
+   - `without outputMapper stores child state in outputs`
+   - `partial state updates are supported`
+   - `multiple fields can be merged at once`
+
+5. **end-to-end subgraph execution scenarios**
+   - `full parent-child workflow execution flow`
+   - `nested state transformations work correctly`
+   - `error handling in child workflow propagates correctly`
+   - `async operations in child workflow complete before outputMapper`
+   - `subgraph can produce complex merged state`
+
+#### Test Coverage
+
+The tests verify:
+- Creating parent workflow with subgraph node
+- Creating child workflows with execute methods
+- Subgraph node executes child workflow correctly
+- State passes through correctly via inputMapper
+- Subgraph result is merged into parent state via outputMapper
+- Default behavior stores child state in outputs when no outputMapper
+- Error handling propagates correctly from child to parent
+- Async operations complete before output mapping
+- Complex nested state transformations work correctly
+
+#### Test Results
+- All 115 tests in tests/graph/nodes.test.ts pass (22 new tests added)
+- No regressions detected in the graph tests
+
+#### Files Modified
+- tests/graph/nodes.test.ts - Added 22 new tests for subgraph node execution
+- research/feature-list.json - Updated passes to true for this feature
+

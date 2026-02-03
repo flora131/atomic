@@ -3740,3 +3740,67 @@ Verified that comprehensive unit tests for command registration and lookup alrea
 #### Files Verified
 - tests/ui/commands/registry.test.ts - Comprehensive test coverage already exists
 - research/feature-list.json - Updated passes to true for this feature
+
+---
+
+## 2026-02-03 - Feature Implementation: Unit test: Skill prompt expansion with $ARGUMENTS
+
+### Status: COMPLETED
+
+Implemented comprehensive unit tests for the `expandArguments` function in skill-commands.ts to verify $ARGUMENTS placeholder expansion behavior.
+
+#### Tests Added
+
+Added 30 new tests in tests/ui/commands/skill-commands.test.ts organized into 5 test suites:
+
+1. **$ARGUMENTS replaced with args value** (5 tests)
+   - replaces single $ARGUMENTS with provided args
+   - replaces $ARGUMENTS at the beginning of prompt
+   - replaces $ARGUMENTS at the end of prompt
+   - replaces $ARGUMENTS in the middle of prompt
+   - preserves surrounding whitespace
+
+2. **empty args replaced with placeholder** (3 tests)
+   - replaces $ARGUMENTS with placeholder for empty string
+   - replaces $ARGUMENTS with placeholder for whitespace-only string
+   - uses provided args when not empty
+
+3. **multiple $ARGUMENTS occurrences all replaced** (5 tests)
+   - replaces multiple $ARGUMENTS with same args value
+   - replaces three $ARGUMENTS occurrences
+   - replaces many $ARGUMENTS occurrences
+   - replaces multiple $ARGUMENTS with empty args using placeholder
+   - replaces $ARGUMENTS on multiple lines
+
+4. **special characters in args handled correctly** (14 tests)
+   - handles args with single quotes
+   - handles args with double quotes
+   - handles args with backslashes
+   - handles args with regex special characters
+   - handles args with dollar signs (not $ARGUMENTS)
+   - handles args with newlines
+   - handles args with tabs
+   - handles args with unicode characters
+   - handles args with HTML/XML-like content
+   - handles args with JSON content
+   - handles args with pipe and ampersand
+   - handles args with parentheses and brackets
+   - handles args with mixed special characters
+
+5. **edge cases** (6 tests)
+   - handles prompt with no $ARGUMENTS placeholder
+   - handles empty prompt
+   - handles $ARGUMENTS-like but different pattern
+   - handles case-sensitive replacement
+   - handles $ARGUMENTS adjacent to text without spaces
+   - handles very long args string
+
+#### Test Results
+- All 139 tests in tests/ui/commands/skill-commands.test.ts pass (33 new tests added)
+- All 582 tests in tests/ui/commands/ pass
+- No regressions detected
+
+#### Files Modified
+- tests/ui/commands/skill-commands.test.ts - Added expandArguments import and 33 new tests
+- research/feature-list.json - Updated passes to true for this feature
+

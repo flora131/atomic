@@ -2,8 +2,7 @@
  * Ralph Workflow Definition
  *
  * This module defines the graph-based workflow for the Ralph autonomous loop.
- * Unlike the full Atomic workflow, the Ralph workflow is a simplified version
- * that focuses on feature implementation without the research/spec phases.
+ * The Ralph workflow focuses on feature implementation without research/spec phases.
  *
  * Workflow:
  * 1. Initialize Ralph session
@@ -11,7 +10,6 @@
  *    a. Clear context (at start of each iteration to prevent overflow)
  *    b. Implement feature
  * 3. Check completion after loop exits
- * 4. Create pull request
  *
  * The clearContextNode is placed at the start of EACH loop iteration to:
  * - Prevent context window overflow
@@ -22,17 +20,16 @@
  * Reference: Feature - Implement createRalphWorkflow() function
  */
 
-import type { CompiledGraph, GraphConfig } from "../graph/types.ts";
-import { graph, clearContextNode } from "../graph/index.ts";
-import { SessionDirSaver } from "../graph/checkpointer.ts";
+import type { CompiledGraph, GraphConfig } from "../../graph/types.ts";
+import { graph, clearContextNode } from "../../graph/index.ts";
+import { SessionDirSaver } from "../../graph/checkpointer.ts";
 import {
   initRalphSessionNode,
   implementFeatureNode,
   checkCompletionNode,
-  createPRNode,
   type RalphWorkflowState,
-} from "../graph/nodes/ralph-nodes.ts";
-import { RALPH_CONFIG } from "../config/ralph.ts";
+} from "../../graph/nodes/ralph-nodes.ts";
+import { RALPH_CONFIG } from "../../config/ralph.ts";
 
 // ============================================================================
 // CONSTANTS
@@ -44,7 +41,6 @@ export const RALPH_NODE_IDS = {
   CLEAR_CONTEXT: "clear-context",
   IMPLEMENT_FEATURE: "implement-feature",
   CHECK_COMPLETION: "check-completion",
-  CREATE_PR: "create-pr",
 } as const;
 
 // ============================================================================
@@ -145,17 +141,6 @@ function createCheckNode() {
   });
 }
 
-/**
- * Create the create PR node.
- */
-function createPRNodeInstance() {
-  return createPRNode<RalphWorkflowState>({
-    id: RALPH_NODE_IDS.CREATE_PR,
-    name: "Create Pull Request",
-    description: "Create a pull request with session metadata",
-  });
-}
-
 // ============================================================================
 // WORKFLOW FACTORY
 // ============================================================================
@@ -163,10 +148,10 @@ function createPRNodeInstance() {
 /**
  * Create the Ralph workflow graph.
  *
- * The workflow implements a simplified Ralph loop:
+ * The workflow implements the Ralph loop:
  * 1. Initialize session (load or resume)
  * 2. Loop: Clear context -> Implement feature (until shouldContinue is false)
- * 3. Create pull request when done
+ * 3. Check completion after loop exits
  *
  * The clearContextNode is placed at the START of each loop iteration to:
  * - Prevent context window overflow
@@ -219,10 +204,9 @@ export function createRalphWorkflow(
   const clearNode = createClearNode();
   const implementNode = createImplementNode({ userPrompt });
   const checkNode = createCheckNode();
-  const prNode = createPRNodeInstance();
 
   // Build the workflow graph
-  // Sequence: init -> loop(clear, implement) -> check -> createPR
+  // Sequence: init -> loop(clear, implement) -> check
   // The loop contains clearContextNode FIRST to clear context at the start
   // of each iteration, followed by implementFeatureNode
   const builder = graph<RalphWorkflowState>()
@@ -242,8 +226,6 @@ export function createRalphWorkflow(
     )
     // Phase 3: Check completion after loop exits
     .then(checkNode)
-    // Phase 4: Create pull request
-    .then(prNode)
     .end();
 
   // Compile with configuration
@@ -286,4 +268,4 @@ export function createTestRalphWorkflow(
 // ============================================================================
 
 // Re-export types for convenience
-export type { RalphWorkflowState } from "../graph/nodes/ralph-nodes.ts";
+export type { RalphWorkflowState } from "../../graph/nodes/ralph-nodes.ts";

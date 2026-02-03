@@ -5,30 +5,30 @@
  * Workflows are compiled graphs that implement specific automation patterns.
  *
  * Available Workflows:
- * - Atomic (Ralph) workflow: Full feature implementation cycle
+ * - Ralph workflow: Autonomous feature implementation cycle
  *
  * Session Management:
  * - RalphSession: Session state for Ralph loop execution
  * - RalphFeature: Feature definition for implementation tracking
  */
 
-// Ralph session types and utilities
+// Ralph module (session, workflow, executor)
 export {
-  // Interfaces
+  // Session types
   type RalphSession,
   type RalphFeature,
 
-  // Factory functions
+  // Session factory functions
   generateSessionId,
   getSessionDir,
   createRalphSession,
   createRalphFeature,
 
-  // Type guards
+  // Session type guards
   isRalphSession,
   isRalphFeature,
 
-  // File system operations
+  // Session file system operations
   SESSION_SUBDIRECTORIES,
   createSessionDirectory,
   saveSession,
@@ -36,63 +36,19 @@ export {
   loadSessionIfExists,
   appendLog,
   appendProgress,
-} from "./ralph-session.ts";
 
-// Atomic workflow exports
-export {
-  // Main factory function
-  createAtomicWorkflow,
-  createTestAtomicWorkflow,
-
-  // Configuration
-  DEFAULT_MAX_ITERATIONS,
-  ATOMIC_NODE_IDS,
-  type AtomicWorkflowConfig,
-
-  // State utilities
-  createAtomicState,
-  type AtomicWorkflowState,
-  type Feature,
-
-  // Node definitions (for testing/customization)
-  researchNode,
-  createSpecNode,
-  reviewSpecNode,
-  waitForApprovalNode,
-  createFeatureListNode,
-  selectFeatureNode,
-  implementFeatureNode,
-  checkFeaturesNode,
-  createPRNode,
-
-  // Helper functions
-  extractTextContent,
-  parseFeatureList,
-  getNextFeature,
-  checkAllFeaturesPassing,
-} from "./atomic.ts";
-
-// Ralph workflow exports
-export {
-  // Main factory function
+  // Workflow factory functions
   createRalphWorkflow,
   createTestRalphWorkflow,
 
-  // Configuration
+  // Workflow configuration
   RALPH_NODE_IDS,
   type CreateRalphWorkflowConfig,
-
-  // State type
   type RalphWorkflowState,
-} from "./ralph.ts";
 
-// Ralph executor exports
-export {
-  // Executor class
+  // Executor
   RalphExecutor,
   createRalphExecutor,
-
-  // Types
   type RalphExecutorRunOptions,
   type RalphExecutorResult,
-} from "./ralph-executor.ts";
+} from "./ralph/index.ts";

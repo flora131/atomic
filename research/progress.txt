@@ -1,5 +1,84 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Unit test: Sub-agent discovery from agent directories
+
+### Status: COMPLETED
+
+Implemented comprehensive unit tests for sub-agent discovery from multiple agent directories (`.claude/agents/`, `.opencode/agents/`, `.github/agents/`, `.atomic/agents/`).
+
+#### Tests Added (44 new tests)
+
+1. **discoverAgentFiles finds agents in .claude/agents/**
+   - discovers .md files in .claude/agents/
+   - assigns project source to .claude/agents/ files
+   - includes full path to .claude/agents/ files
+
+2. **discoverAgentFiles finds agents in .opencode/agents/**
+   - discovers .md files in .opencode/agents/
+   - assigns project source to .opencode/agents/ files
+   - includes full path to .opencode/agents/ files
+
+3. **discoverAgentFiles finds agents in .github/agents/**
+   - discovers .md files in .github/agents/
+   - assigns project source to .github/agents/ files
+   - includes full path to .github/agents/ files
+
+4. **discoverAgents finds all agents from all paths**
+   - discovers agents from all four directories
+   - parses Claude format frontmatter correctly
+   - parses OpenCode format frontmatter correctly
+   - parses GitHub format frontmatter correctly
+   - parses Atomic format frontmatter correctly
+
+5. **agents from all paths have correct sources**
+   - agent from .claude/agents/ has project source
+   - agent from .opencode/agents/ has project source
+   - agent from .github/agents/ has project source
+   - agent from .atomic/agents/ has atomic source
+
+6. **discoverAgentFiles correctly identifies paths**
+   - Tests for .claude/agents, .opencode/agents, .github/agents paths
+
+7. **Sub-agent discovery with multiple agents per directory**
+   - discovers all agents in .claude/agents/
+   - discovers all agents in .github/agents/
+   - discoverAgents finds all agents from multiple directories
+   - all discovered agents have correct descriptions
+   - all discovered agents have correct prompts
+
+8. **Sub-agent discovery handles empty directories**
+   - returns empty array for empty .claude/agents/
+   - returns empty array for empty .github/agents/
+   - discoverAgents still finds agents in non-empty directories
+   - discoverAgents gracefully handles mix of empty and non-empty dirs
+
+9. **Sub-agent discovery handles non-existent directories**
+   - returns empty array for non-existent .claude/agents/
+   - returns empty array for non-existent .opencode/agents/
+   - returns empty array for non-existent .github/agents/
+   - discoverAgents finds agents even when some directories don't exist
+
+10. **Sub-agent discovery ignores non-.md files**
+    - only discovers .md files in agent directories
+    - ignores .txt files
+    - ignores .json files
+    - ignores .ts files
+    - ignores hidden files
+
+11. **Sub-agent discovery with name conflicts across directories**
+    - handles duplicate names across directories
+    - earlier discovery path takes precedence
+
+#### Test Results
+- All 242 tests in tests/ui/commands/agent-commands.test.ts pass (44 new tests added)
+- No regressions detected
+
+#### Files Modified
+- tests/ui/commands/agent-commands.test.ts - Added 44 new tests for sub-agent discovery from multiple directories
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Unit test: Circular dependency detection
 
 ### Status: COMPLETED

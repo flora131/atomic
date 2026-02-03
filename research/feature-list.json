@@ -1500,7 +1500,7 @@
         "Verify state preserved across context clears",
         "Verify workflow completes successfully"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

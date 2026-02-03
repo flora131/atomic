@@ -213,12 +213,16 @@ describe("SDK Types Module", () => {
         "tool.complete",
         "subagent.start",
         "subagent.complete",
+        "permission.requested",
+        "human_input_required",
       ];
 
-      expect(events).toHaveLength(9);
+      expect(events).toHaveLength(11);
       expect(events).toContain("session.start");
       expect(events).toContain("message.complete");
       expect(events).toContain("tool.complete");
+      expect(events).toContain("permission.requested");
+      expect(events).toContain("human_input_required");
     });
   });
 
@@ -284,6 +288,52 @@ describe("SDK Types Module", () => {
       expect(event.type).toBe("tool.complete");
       expect(event.data.success).toBe(true);
       expect(event.data.toolName).toBe("read_file");
+    });
+
+    test("creates human_input_required event", () => {
+      const event: AgentEvent<"human_input_required"> = {
+        type: "human_input_required",
+        sessionId: "sess-456",
+        timestamp: new Date().toISOString(),
+        data: {
+          requestId: "req-abc-123",
+          question: "Should we proceed with the deployment?",
+          header: "Deployment Confirmation",
+          options: [
+            { label: "Yes", description: "Deploy to production" },
+            { label: "No", description: "Cancel deployment" },
+          ],
+          nodeId: "deploy-confirm-node",
+        },
+      };
+
+      expect(event.type).toBe("human_input_required");
+      expect(event.sessionId).toBe("sess-456");
+      expect(event.data.requestId).toBe("req-abc-123");
+      expect(event.data.question).toBe("Should we proceed with the deployment?");
+      expect(event.data.header).toBe("Deployment Confirmation");
+      expect(event.data.options).toHaveLength(2);
+      expect(event.data.nodeId).toBe("deploy-confirm-node");
+    });
+
+    test("creates human_input_required event without optional fields", () => {
+      const event: AgentEvent<"human_input_required"> = {
+        type: "human_input_required",
+        sessionId: "sess-789",
+        timestamp: new Date().toISOString(),
+        data: {
+          requestId: "req-def-456",
+          question: "Continue?",
+          nodeId: "continue-node",
+        },
+      };
+
+      expect(event.type).toBe("human_input_required");
+      expect(event.data.requestId).toBe("req-def-456");
+      expect(event.data.question).toBe("Continue?");
+      expect(event.data.header).toBeUndefined();
+      expect(event.data.options).toBeUndefined();
+      expect(event.data.nodeId).toBe("continue-node");
     });
   });
 

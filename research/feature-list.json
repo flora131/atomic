@@ -1078,7 +1078,7 @@
         "Ensure listener is set up during component mount",
         "Clean up listener on unmount"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

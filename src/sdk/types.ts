@@ -248,7 +248,8 @@ export type EventType =
   | "tool.complete"
   | "subagent.start"
   | "subagent.complete"
-  | "permission.requested";
+  | "permission.requested"
+  | "human_input_required";
 
 /**
  * Base event data shared by all events
@@ -385,6 +386,35 @@ export interface PermissionRequestedEventData extends BaseEventData {
 }
 
 /**
+ * Option for human_input_required events from askUserNode
+ */
+export interface HumanInputOption {
+  /** Display label for the option */
+  label: string;
+  /** Optional description */
+  description?: string;
+}
+
+/**
+ * Event data for human_input_required events from workflow graph askUserNode.
+ * Emitted when a workflow graph requires human input to continue execution.
+ */
+export interface HumanInputRequiredEventData extends BaseEventData {
+  /** Unique request identifier for correlating responses */
+  requestId: string;
+  /** Question/prompt for the user */
+  question: string;
+  /** Header/label for the question dialog */
+  header?: string;
+  /** Available options to choose from */
+  options?: HumanInputOption[];
+  /** Node ID that emitted the signal */
+  nodeId: string;
+  /** Callback to provide the answer and resume workflow */
+  respond?: (answer: string | string[]) => void;
+}
+
+/**
  * Map of event types to their corresponding data types
  */
 export interface EventDataMap {
@@ -398,6 +428,7 @@ export interface EventDataMap {
   "subagent.start": SubagentStartEventData;
   "subagent.complete": SubagentCompleteEventData;
   "permission.requested": PermissionRequestedEventData;
+  "human_input_required": HumanInputRequiredEventData;
 }
 
 /**

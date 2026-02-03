@@ -4246,3 +4246,79 @@ The tests verify:
 - tests/graph/nodes.test.ts - Added 22 new tests for subgraph node execution
 - research/feature-list.json - Updated passes to true for this feature
 
+
+---
+
+## 2026-02-03 - Feature Implementation: Integration test: Full workflow execution with mock SDK
+
+### Status: COMPLETED
+
+Implemented comprehensive integration tests for full workflow execution with mock SDK, validating the complete graph execution pipeline with mocked SDK interactions.
+
+#### Tests Added (27 new tests)
+
+1. **Mock SDK Client Tests**
+   - can start and stop
+   - createSession throws before start
+   - can create session after start
+   - session can send and receive messages
+   - session cycles through responses
+   - execution log tracks operations
+
+2. **Linear workflow execution**
+   - executes simple linear graph with all nodes in order
+   - state transitions correctly between nodes
+   - final state contains expected values
+
+3. **Workflow with mock SDK integration**
+   - executes workflow with mock SDK nodes
+   - mock SDK session is created and tracked
+   - multiple mock SDK calls accumulate responses
+
+4. **Conditional branching**
+   - follows true branch when condition is met
+   - follows false branch when condition is not met
+
+5. **Loop execution**
+   - executes loop until condition is met
+   - respects maxIterations limit
+
+6. **Error handling and retry**
+   - retries failed nodes and succeeds
+   - fails when retries are exhausted
+
+7. **Abort handling**
+   - cancels execution when abort signal is triggered
+
+8. **Checkpointing**
+   - saves checkpoints during execution
+
+9. **Complex workflow scenarios**
+   - executes workflow with mixed node types
+   - streaming execution yields correct intermediate states
+   - executor instance can be reused
+
+10. **Workflow edge cases**
+    - single node workflow executes correctly
+    - empty node result does not modify state
+    - deeply nested outputs are preserved
+    - handles concurrent state updates correctly
+
+#### Implementation Details
+
+The test suite includes:
+- **MockSDKClient**: A complete mock implementation of the SDK client interface
+- **WorkflowTestState**: Extended test state with tracking fields for node execution, data, loop counters, etc.
+- **Test Node Factories**: Helper functions for creating tracking nodes, mock SDK nodes, loop body nodes, failable nodes, and completion nodes
+
+#### Test Results
+- All 27 tests pass
+- 77 expect() calls verified
+- Execution time: 89ms
+
+#### Files Created
+- tests/workflows/workflow-integration.test.ts - Comprehensive integration tests for workflow execution with mock SDK
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+

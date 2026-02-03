@@ -1,5 +1,52 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Update /help command to include Ralph workflow and sub-agent info
+
+### Status: COMPLETED
+
+Updated the /help command to include comprehensive documentation for sub-agents alongside the existing Ralph workflow documentation.
+
+#### Changes Made
+
+1. **Added "agent" to category order in /help output**
+   - Position: Between "workflow" and "skill" categories
+   - Label: "Sub-Agents"
+
+2. **Added Sub-Agent Details section**
+   - Shows when agent commands are registered
+   - Lists each builtin agent with model information:
+     - `/codebase-analyzer` (opus) - Deep code analysis and architecture review
+     - `/codebase-locator` (haiku) - Find files and components quickly
+     - `/codebase-pattern-finder` (sonnet) - Find similar implementations and patterns
+     - `/codebase-online-researcher` (sonnet) - Research using web sources
+     - `/codebase-research-analyzer` (sonnet) - Analyze research/ directory documents
+     - `/codebase-research-locator` (haiku) - Find documents in research/ directory
+     - `/debugger` (sonnet) - Debug errors and test failures
+   - Custom agents show their description directly without hardcoded details
+
+3. **Existing Ralph documentation preserved**
+   - All flags documented: --yolo, --resume, --feature-list, --max-iterations
+   - Interrupt instructions (Ctrl+C/Esc) still present
+
+#### Tests Added (5 new tests in tests/ui/commands/builtin-commands.test.ts)
+- shows Sub-Agents section when agent commands are registered
+- shows all builtin agent details correctly
+- shows custom agents without hardcoded details
+- does not show Sub-Agents section when no agent commands registered
+- groups agent commands under Sub-Agents category in command list
+
+#### Test Results
+- All 25 tests in builtin-commands.test.ts pass
+- All 542 tests in tests/ui/commands/ pass
+- Build succeeds
+
+#### Files Modified
+- src/ui/commands/builtin-commands.ts - Added agent category handling and Sub-Agent Details section
+- tests/ui/commands/builtin-commands.test.ts - Added 5 new tests for sub-agents documentation
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Remove hook-based Ralph loop implementation files
 
 ### Status: COMPLETED

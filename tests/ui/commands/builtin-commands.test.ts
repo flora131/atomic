@@ -171,6 +171,113 @@ describe("helpCommand", () => {
     expect(result.message).not.toContain("**Ralph Workflow**");
     expect(result.message).not.toContain("--yolo");
   });
+
+  test("shows Sub-Agents section when agent commands are registered", () => {
+    globalRegistry.register({
+      name: "codebase-analyzer",
+      description: "Analyzes codebase implementation details",
+      category: "agent",
+      execute: () => ({ success: true }),
+    });
+    globalRegistry.register({
+      name: "debugger",
+      description: "Debugging specialist",
+      category: "agent",
+      execute: () => ({ success: true }),
+    });
+
+    const context = createMockContext();
+    const result = helpCommand.execute("", context);
+
+    // Check Sub-Agent Details section is present
+    expect(result.message).toContain("**Sub-Agent Details**");
+    expect(result.message).toContain("Specialized agents for specific tasks");
+
+    // Check builtin agents with model info
+    expect(result.message).toContain("/codebase-analyzer (opus)");
+    expect(result.message).toContain("Deep code analysis");
+    expect(result.message).toContain("/debugger (sonnet)");
+    expect(result.message).toContain("Debug errors");
+  });
+
+  test("shows all builtin agent details correctly", () => {
+    // Register all builtin agents
+    const builtinAgents = [
+      { name: "codebase-analyzer", desc: "Analyzes code" },
+      { name: "codebase-locator", desc: "Locates files" },
+      { name: "codebase-pattern-finder", desc: "Finds patterns" },
+      { name: "codebase-online-researcher", desc: "Online research" },
+      { name: "codebase-research-analyzer", desc: "Analyzes research" },
+      { name: "codebase-research-locator", desc: "Locates research" },
+      { name: "debugger", desc: "Debugging" },
+    ];
+
+    for (const agent of builtinAgents) {
+      globalRegistry.register({
+        name: agent.name,
+        description: agent.desc,
+        category: "agent",
+        execute: () => ({ success: true }),
+      });
+    }
+
+    const context = createMockContext();
+    const result = helpCommand.execute("", context);
+
+    // Check all agents are listed with correct models
+    expect(result.message).toContain("/codebase-analyzer (opus)");
+    expect(result.message).toContain("/codebase-locator (haiku)");
+    expect(result.message).toContain("/codebase-pattern-finder (sonnet)");
+    expect(result.message).toContain("/codebase-online-researcher (sonnet)");
+    expect(result.message).toContain("/codebase-research-analyzer (sonnet)");
+    expect(result.message).toContain("/codebase-research-locator (haiku)");
+    expect(result.message).toContain("/debugger (sonnet)");
+  });
+
+  test("shows custom agents without hardcoded details", () => {
+    globalRegistry.register({
+      name: "custom-agent",
+      description: "A custom agent for testing",
+      category: "agent",
+      execute: () => ({ success: true }),
+    });
+
+    const context = createMockContext();
+    const result = helpCommand.execute("", context);
+
+    // Custom agents should show their description directly
+    expect(result.message).toContain("/custom-agent");
+    expect(result.message).toContain("A custom agent for testing");
+  });
+
+  test("does not show Sub-Agents section when no agent commands registered", () => {
+    globalRegistry.register({
+      name: "test",
+      description: "Test command",
+      category: "builtin",
+      execute: () => ({ success: true }),
+    });
+
+    const context = createMockContext();
+    const result = helpCommand.execute("", context);
+
+    expect(result.message).not.toContain("**Sub-Agent Details**");
+  });
+
+  test("groups agent commands under Sub-Agents category in command list", () => {
+    globalRegistry.register({
+      name: "codebase-analyzer",
+      description: "Analyzes codebase",
+      category: "agent",
+      execute: () => ({ success: true }),
+    });
+
+    const context = createMockContext();
+    const result = helpCommand.execute("", context);
+
+    // Agent commands should be listed under Sub-Agents category
+    expect(result.message).toContain("**Sub-Agents**");
+  });
 });
 
 // /status command removed - progress tracked via research/progress.txt instead

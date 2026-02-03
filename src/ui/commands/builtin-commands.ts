@@ -53,10 +53,11 @@ export const helpCommand: CommandDefinition = {
     // Format output
     const lines: string[] = ["**Available Commands**", ""];
 
-    const categoryOrder = ["builtin", "workflow", "skill", "custom"] as const;
+    const categoryOrder = ["builtin", "workflow", "agent", "skill", "custom"] as const;
     const categoryLabels: Record<string, string> = {
       builtin: "Built-in",
       workflow: "Workflows",
+      agent: "Sub-Agents",
       skill: "Skills",
       custom: "Custom",
     };
@@ -93,6 +94,59 @@ export const helpCommand: CommandDefinition = {
       lines.push("  Interrupt:");
       lines.push("    Press Ctrl+C or Esc to pause the workflow.");
       lines.push("    Resume later with: /ralph --resume <session-uuid>");
+      lines.push("");
+    }
+
+    // Add Sub-Agents documentation if agent commands are registered
+    const agentCommands = grouped["agent"];
+    if (agentCommands && agentCommands.length > 0) {
+      lines.push("**Sub-Agent Details**");
+      lines.push("  Specialized agents for specific tasks. Invoke with /<agent-name> <query>");
+      lines.push("");
+
+      // List each agent with model info
+      const agentDetails: Record<string, { desc: string; model: string }> = {
+        "codebase-analyzer": {
+          desc: "Deep code analysis and architecture review",
+          model: "opus",
+        },
+        "codebase-locator": {
+          desc: "Find files and components quickly",
+          model: "haiku",
+        },
+        "codebase-pattern-finder": {
+          desc: "Find similar implementations and patterns",
+          model: "sonnet",
+        },
+        "codebase-online-researcher": {
+          desc: "Research using web sources",
+          model: "sonnet",
+        },
+        "codebase-research-analyzer": {
+          desc: "Analyze research/ directory documents",
+          model: "sonnet",
+        },
+        "codebase-research-locator": {
+          desc: "Find documents in research/ directory",
+          model: "haiku",
+        },
+        debugger: {
+          desc: "Debug errors and test failures",
+          model: "sonnet",
+        },
+      };
+
+      for (const cmd of agentCommands) {
+        const details = agentDetails[cmd.name];
+        if (details) {
+          lines.push(`  /${cmd.name} (${details.model})`);
+          lines.push(`    ${details.desc}`);
+        } else {
+          // For custom agents without hardcoded details
+          lines.push(`  /${cmd.name}`);
+          lines.push(`    ${cmd.description}`);
+        }
+      }
       lines.push("");
     }
 

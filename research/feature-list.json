@@ -1215,7 +1215,7 @@
         "List all built-in sub-agents with descriptions",
         "Remove references to removed commands"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "ui",

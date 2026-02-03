@@ -1,3 +1,100 @@
+## 2026-02-03 - Feature Implementation: E2E test: /ralph --yolo runs without feature-list
+
+### Status: COMPLETED
+
+Implemented comprehensive E2E tests for the /ralph --yolo command, validating that yolo mode correctly runs without requiring a feature-list.json file and properly marks sessions as yolo mode with user prompts.
+
+#### Tests Added (58 new tests across 8 test groups)
+
+1. **Run /ralph --yolo 'build snake game in rust'** (8 tests)
+   - parseRalphArgs correctly parses --yolo flag with prompt
+   - parseRalphArgs handles --yolo with quoted prompt
+   - parseRalphArgs handles --yolo with complex prompt containing special chars
+   - parseRalphArgs returns yolo true with --yolo flag at start
+   - parseRalphArgs combines --yolo with --max-iterations
+   - parseRalphArgs with --yolo at different position
+   - parseRalphArgs with empty prompt after --yolo returns null prompt
+   - parseRalphArgs with whitespace only after --yolo returns null prompt
+
+2. **Verify no feature-list.json required** (7 tests)
+   - yolo mode does not require research directory
+   - yolo mode workflow can be created without feature-list.json existing
+   - yolo mode session has empty features array
+   - non-yolo mode would fail without feature-list.json
+   - yolo session can be saved and loaded without features
+   - research directory is still created for session artifacts even in yolo mode
+
+3. **Verify session marked as yolo mode** (9 tests)
+   - createRalphWorkflowState with yolo=true sets yolo flag
+   - createRalphWorkflowState with yolo=false sets yolo flag to false
+   - createRalphWorkflowState defaults yolo to false when not specified
+   - createRalphSession with yolo=true sets yolo field
+   - session.json contains yolo: true for yolo mode sessions
+   - session.json contains yolo: false for feature-list mode sessions
+   - yolo mode state has userPrompt field set
+   - yolo mode state has sourceFeatureListPath undefined
+   - yolo mode session has no source feature list path
+
+4. **Verify agent receives prompt with task** (10 tests)
+   - YOLO_COMPLETION_INSTRUCTION contains EXTREMELY_IMPORTANT tag
+   - YOLO_COMPLETION_INSTRUCTION contains COMPLETE output instruction
+   - yolo mode state stores userPrompt
+   - userPrompt is accessible from workflow state
+   - checkYoloCompletion returns true when output contains COMPLETE
+   - checkYoloCompletion returns false when output lacks COMPLETE
+   - checkYoloCompletion detects COMPLETE on its own line
+   - checkYoloCompletion is case sensitive - only uppercase COMPLETE
+   - checkYoloCompletion detects COMPLETE within text
+   - yolo workflow configuration includes userPrompt
+
+5. **Yolo mode workflow structure** (4 tests)
+   - yolo workflow has same node structure as feature-list workflow
+   - yolo workflow starts with init-session node
+   - yolo workflow can be created with custom maxIterations
+   - yolo workflow can be created with maxIterations 0 (unlimited)
+
+6. **Yolo mode session state** (8 tests)
+   - yolo mode state initializes with yoloComplete = false
+   - yolo mode state initializes with shouldContinue = true
+   - yolo mode state has empty completedFeatures array
+   - yolo mode state has allFeaturesPassing = false initially
+   - yolo mode state has currentFeature = null
+   - yolo mode state has currentFeatureIndex = 0
+   - yolo mode state has iteration = 1
+   - yolo mode state has sessionStatus = running
+
+7. **Command execution for yolo mode** (4 tests)
+   - parseRalphArgs with yolo returns correct RalphCommandArgs structure
+   - yolo mode with --max-iterations 0 for unlimited iterations
+   - workflow config can be built from parsed yolo args
+   - session can be created and persisted for yolo mode
+
+8. **Edge cases and error handling** (5 tests)
+   - yolo mode without prompt is parsed but returns null prompt
+   - createRalphWorkflowState with yolo but no userPrompt works
+   - yolo session persists yolo flag through save/load cycle
+   - yolo mode session can be paused and resumed
+   - loadSessionIfExists returns null for non-existent yolo session
+   - yolo and non-yolo sessions can coexist
+
+9. **Integration: Complete yolo mode flow** (3 tests)
+   - complete yolo mode setup: parse args -> create state -> create session -> save
+   - yolo workflow can be created with all config options
+   - yolo completion signal detection works correctly
+
+#### Test Results
+- All 58 tests pass
+- All 178 ralph E2E tests pass (no regressions)
+- 118 expect() calls
+
+#### Files Added
+- tests/e2e/ralph-yolo.test.ts - 58 comprehensive E2E tests for /ralph --yolo
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: E2E test: /ralph --resume resumes paused session
 
 ### Status: COMPLETED

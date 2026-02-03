@@ -1,3 +1,76 @@
+## 2026-02-03 - Feature Implementation: Integration test: Permission bypass configuration per SDK
+
+### Status: COMPLETED
+
+Implemented comprehensive integration tests for permission bypass configuration across all three SDK clients (Claude, OpenCode, Copilot), validating that tools auto-execute without prompts while AskUserQuestion still pauses for human input.
+
+#### Tests Added (37 new tests)
+
+1. **Claude SDK with permissionMode: bypassPermissions**
+   - client has bypass permission mode configured
+   - session is created with bypass permission mode
+   - tools execute without prompts in bypass mode
+   - Bash commands execute without prompt in bypass mode
+   - file edits execute without prompt in bypass mode
+   - web operations execute without prompt in bypass mode
+   - allowDangerouslySkipPermissions is implicitly set in bypass mode
+   - session config can override client permission mode
+
+2. **OpenCode SDK with permission: { default: allow }**
+   - client has allow permission config
+   - tools execute without prompts with allow config
+   - Bash commands auto-execute with allow config
+   - file edits auto-execute with allow config
+   - all tools auto-execute when permission.default is allow
+   - ask rules are removed with allow config
+
+3. **OpenCode SDK with permission: deny (comparison test)**
+   - tools require prompts with deny/ask config
+
+4. **Copilot SDK with no PermissionHandler**
+   - client has no permission handler configured
+   - all tools auto-execute without PermissionHandler
+   - Bash commands execute without prompt
+   - file edits execute without prompt
+   - web operations execute without prompt
+   - this is equivalent to --allow-all mode
+
+5. **Copilot SDK with PermissionHandler (comparison test)**
+   - client has permission handler configured
+   - tools would be prompted with PermissionHandler
+
+6. **All tools execute without prompts across SDKs**
+   - Bash commands execute without prompts on all SDKs
+   - file edits execute without prompts on all SDKs
+   - web searches execute without prompts on all SDKs
+
+7. **AskUserQuestion still pauses for input**
+   - Claude SDK AskUserQuestion pauses execution
+   - OpenCode SDK AskUserQuestion pauses execution
+   - Copilot SDK AskUserQuestion pauses execution
+   - AskUserQuestion blocks until user responds
+   - human_input_required event is emitted for AskUserQuestion
+   - workflow state includes __waitingForInput: true during AskUserQuestion
+
+8. **Edge cases**
+   - multiple tools execute sequentially without prompts
+   - AskUserQuestion works correctly after tool executions
+   - tool executions continue after user responds to AskUserQuestion
+   - concurrent sessions maintain independent permission state
+   - permission mode is preserved across session resume
+
+#### Test Results
+- All 37 tests pass
+- No regressions detected in existing tests
+
+#### Files Added
+- tests/sdk/permission-bypass-integration.test.ts - 37 comprehensive integration tests for permission bypass configuration per SDK
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Integration test: Context window management with clearContextNode
 
 ### Status: COMPLETED

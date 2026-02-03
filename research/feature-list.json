@@ -1672,7 +1672,7 @@
         "Verify no state corruption",
         "Both complete independently"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

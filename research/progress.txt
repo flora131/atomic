@@ -2119,3 +2119,28 @@ The Ralph workflow follows this sequence:
 ### Files Modified
 - src/ui/commands/workflow-commands.ts - Added --feature-list flag parsing
 - tests/ui/commands/workflow-commands.test.ts - Added --feature-list tests
+
+## 2026-02-03 - Refactor: Remove /atomic Command Registration
+
+### Completed
+- Removed `/atomic` command registration from `BUILTIN_WORKFLOW_DEFINITIONS`
+- Removed unused `createAtomicWorkflow` and `AtomicWorkflowConfig` imports from workflow-commands.ts
+- Transferred the `loop` alias from `/atomic` to `/ralph` (ralph now has aliases: ["loop"])
+- Updated docstring example in index.ts to reference `/ralph` instead of `/atomic`
+- Updated all tests in workflow-commands.test.ts to test `/ralph` instead of `/atomic`
+
+### Notes
+- The `createAtomicWorkflow` function and `atomic.ts` workflow file are still used by:
+  - src/commands/ralph.ts
+  - src/commands/chat.ts
+- Only the command registration was removed, not the underlying workflow implementation
+- The `/loop` alias now points to `/ralph` instead of `/atomic`
+
+### Test Results
+- All 82 workflow-commands tests pass
+
+### Files Modified
+- src/ui/commands/workflow-commands.ts - Removed atomic command, transferred loop alias to ralph
+- src/ui/commands/index.ts - Updated docstring example
+- tests/ui/commands/workflow-commands.test.ts - Updated tests to reference ralph
+- research/feature-list.json - Marked feature as passes: true

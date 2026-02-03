@@ -177,8 +177,8 @@ export interface ParsedSlashCommand {
  * parseSlashCommand("/help")
  * // { isCommand: true, name: "help", args: "", raw: "/help" }
  *
- * parseSlashCommand("/atomic Build a feature")
- * // { isCommand: true, name: "atomic", args: "Build a feature", raw: "/atomic Build a feature" }
+ * parseSlashCommand("/ralph Build a feature")
+ * // { isCommand: true, name: "ralph", args: "Build a feature", raw: "/ralph Build a feature" }
  *
  * parseSlashCommand("Hello world")
  * // { isCommand: false, name: "", args: "", raw: "Hello world" }

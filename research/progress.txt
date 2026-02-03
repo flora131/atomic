@@ -1,5 +1,61 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Add visual indicator for yolo mode vs feature-list mode
+
+### Status: COMPLETED
+
+Implemented visual mode indicator at the start of Ralph workflow execution to show whether the session is running in yolo (freestyle) mode or feature-list mode.
+
+#### Changes Made
+
+1. **Added mode display for new sessions in initRalphSessionNode()**
+   - Location: src/graph/nodes/ralph-nodes.ts (lines 1497-1502)
+   - After displaying "Started Ralph session: {uuid}", shows:
+     - In yolo mode: `Mode: Freestyle (yolo)`
+     - In feature-list mode: `Mode: Feature list (N features)` where N is the count
+
+2. **Added mode display for resumed sessions**
+   - Location: src/graph/nodes/ralph-nodes.ts (lines 1459-1464)
+   - After displaying "Resuming Ralph session: {uuid}", shows the same mode indicators
+   - Uses session.yolo and session.features.length for the display
+
+3. **Refactored feature loading order**
+   - Moved feature loading before the mode display to accurately show the count
+   - Split the feature saving step to avoid duplicate loading
+
+4. **Example output**:
+   ```
+   Started Ralph session: abc123-def456
+   Mode: Feature list (5 features)
+   ```
+   or
+   ```
+   Started Ralph session: abc123-def456
+   Mode: Freestyle (yolo)
+   ```
+
+#### Tests Added (7 new tests in tests/graph/nodes/ralph-nodes.test.ts)
+
+- `displays 'Mode: Freestyle (yolo)' for yolo mode` - Verifies exact yolo mode message
+- `displays 'Mode: Feature list (N features)' for feature-list mode` - Verifies message with feature count
+- `displays correct count for single feature` - Verifies "1 features" is displayed
+- `displays correct count for empty feature list` - Verifies "0 features" is displayed
+- `displays mode indicator when resuming yolo session` - Verifies yolo mode on resume
+- `displays mode indicator when resuming feature-list session` - Verifies feature count on resume
+- `mode indicator appears after session ID in logs` - Verifies correct log ordering
+
+#### Test Results
+- All 218 tests in tests/graph/nodes/ralph-nodes.test.ts pass (7 new tests added)
+- All 568 tests in tests/graph/ pass
+- Build succeeds
+
+#### Files Modified
+- src/graph/nodes/ralph-nodes.ts - Added mode display in initRalphSessionNode() for both new and resumed sessions
+- tests/graph/nodes/ralph-nodes.test.ts - Added 7 new tests for mode indicator display
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Display completed features count during Ralph execution
 
 ### Status: COMPLETED

@@ -24,7 +24,7 @@
 
 import type { CompiledGraph, GraphConfig } from "../graph/types.ts";
 import { graph, clearContextNode } from "../graph/index.ts";
-import { ResearchDirSaver } from "../graph/checkpointer.ts";
+import { SessionDirSaver } from "../graph/checkpointer.ts";
 import {
   initRalphSessionNode,
   implementFeatureNode,
@@ -56,16 +56,27 @@ export const RALPH_NODE_IDS = {
  *
  * Note: autoApproveSpec is intentionally not included.
  * Spec approval should always be manual (handled in Atomic workflow).
+ *
+ * Checkpointing:
+ * When enabled, checkpoints are saved to the session's checkpoints directory:
+ * `.ralph/sessions/{sessionId}/checkpoints/`
+ *
+ * Checkpoints use sequential naming (node-001.json, node-002.json, etc.)
+ * and include the full workflow state, allowing resumption from any checkpoint.
  */
 export interface CreateRalphWorkflowConfig {
   /** Maximum iterations for the feature loop (default: 100) */
   maxIterations?: number;
 
-  /** Enable checkpointing for workflow resumption (default: true) */
+  /**
+   * Enable checkpointing for workflow resumption (default: true)
+   *
+   * When enabled, checkpoints are saved to:
+   * `.ralph/sessions/{sessionId}/checkpoints/node-NNN.json`
+   *
+   * Each checkpoint includes the full workflow state.
+   */
   checkpointing?: boolean;
-
-  /** Checkpoint directory (default: research/checkpoints) */
-  checkpointDir?: string;
 
   /** Feature list path (default: research/feature-list.json) */
   featureListPath?: string;
@@ -193,7 +204,6 @@ export function createRalphWorkflow(
   const {
     maxIterations = RALPH_CONFIG.maxIterations,
     checkpointing = RALPH_CONFIG.checkpointing,
-    checkpointDir = "research/checkpoints",
     featureListPath = "research/feature-list.json",
     yolo = false,
     userPrompt,
@@ -237,9 +247,16 @@ export function createRalphWorkflow(
     .end();
 
   // Compile with configuration
+  // Use SessionDirSaver with dynamic checkpointDir based on session state
+  // This saves checkpoints to .ralph/sessions/{sessionId}/checkpoints/
+  // with sequential naming (node-001.json, node-002.json, etc.)
   const compiledConfig: GraphConfig<RalphWorkflowState> = {
     autoCheckpoint: checkpointing,
-    checkpointer: checkpointing ? new ResearchDirSaver(checkpointDir) : undefined,
+    checkpointer: checkpointing
+      ? new SessionDirSaver<RalphWorkflowState>(
+          (state) => state.ralphSessionDir
+        )
+      : undefined,
     contextWindowThreshold: 60,
     ...graphConfig,
   };

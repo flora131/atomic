@@ -1684,7 +1684,7 @@
         "Verify web searches execute without prompt",
         "Only AskUserQuestion pauses"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

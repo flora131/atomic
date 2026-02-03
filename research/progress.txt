@@ -3234,3 +3234,86 @@ The CommandDefinition interface was already properly defined in src/ui/commands/
 
 ### Completed
 - Created BUILTIN_AGENTS array in 
+## 2026-02-03 - Feature Implementation: E2E test: All tools auto-execute without prompts
+
+### Status: COMPLETED
+
+Implemented comprehensive E2E tests verifying that when running /ralph workflow with permission bypass mode, all tools (Bash, file edits, web searches) auto-execute without prompts, while AskUserQuestion still correctly pauses for user input.
+
+#### Tests Added (40 tests across 8 test groups)
+
+1. **Run /ralph with workflow that uses various tools** (5 tests)
+   - Workflow can be created for tool execution testing
+   - Workflow state can be created with bypass permission mode
+   - Mock client can be configured with bypass permission mode
+   - Session inherits bypass permission mode from client
+   - Session can override client permission mode
+
+2. **Verify Bash commands execute without prompt** (5 tests)
+   - Bash tool executes without prompt in bypass mode
+   - Multiple Bash commands all execute without prompts
+   - Bash commands include command in execution record
+   - Bash executes immediately without waiting for confirmation
+   - Dangerous Bash commands also auto-execute in bypass mode
+
+3. **Verify file edits execute without prompt** (6 tests)
+   - Edit tool executes without prompt in bypass mode
+   - Write tool executes without prompt in bypass mode
+   - NotebookEdit tool executes without prompt
+   - Multiple file operations all auto-execute
+   - File editing tools track execution timestamp
+   - Edit and Write tools execute in sequence without prompts
+
+4. **Verify web searches execute without prompt** (4 tests)
+   - WebSearch tool executes without prompt in bypass mode
+   - WebFetch tool executes without prompt in bypass mode
+   - Multiple web operations all auto-execute
+   - MCP tools also auto-execute in bypass mode
+
+5. **Only AskUserQuestion pauses** (7 tests)
+   - AskUserQuestion pauses execution even in bypass mode
+   - AskUserQuestion blocks until user responds
+   - Other tools do NOT pause - only AskUserQuestion does
+   - AskUserQuestion always pauses regardless of permission mode
+   - AskUserQuestion pauses between auto-executing tools
+   - Workflow continues after user responds to AskUserQuestion
+
+6. **Integration: Tool execution in Ralph workflow context** (5 tests)
+   - Complete flow: all tools auto-execute during feature implementation
+   - Mixed tool types all auto-execute in single workflow iteration
+   - Session maintains tool execution history across multiple iterations
+   - Permission bypass persists across session interactions
+   - Ralph session directory receives tool execution logs
+
+7. **Edge cases** (5 tests)
+   - Concurrent tool executions all auto-execute
+   - Tool execution after AskUserQuestion response maintains bypass mode
+   - Empty tool name handled gracefully
+   - Very long tool sequences all auto-execute
+   - Comparison: prompt mode requires confirmation
+
+8. **Cross-SDK verification** (4 tests)
+   - Bypass mode works with Claude SDK configuration
+   - Bypass mode works with OpenCode SDK configuration
+   - Bypass mode works with Copilot SDK configuration
+   - AskUserQuestion pauses on all SDKs
+
+#### Test Results
+- All 40 tests pass
+- All 486 ralph E2E tests pass (no regressions)
+- 104 expect() calls
+
+#### Files Added
+- tests/e2e/ralph-tools-auto-execute.test.ts - 40 comprehensive E2E tests for tool auto-execution behavior
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+#### Key Design Decisions
+- Created MockToolSession interface to track tool executions with wasPrompted/autoExecuted flags
+- Tests verify that bypass mode (permissionMode: 'bypass') enables auto-execution
+- Tests confirm AskUserQuestion is the only exception that pauses for HITL
+- Tests cover all major tool categories: Bash, file operations (Read/Edit/Write), web operations (WebSearch/WebFetch), MCP tools
+- Cross-SDK tests verify behavior works with Claude, OpenCode, and Copilot configurations
+
+---

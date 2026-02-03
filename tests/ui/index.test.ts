@@ -530,9 +530,11 @@ describe("Command Initialization", () => {
 
     // Check for known commands
     expect(globalRegistry.has("help")).toBe(true);
-    expect(globalRegistry.has("status")).toBe(true);
-    expect(globalRegistry.has("approve")).toBe(true);
-    expect(globalRegistry.has("reject")).toBe(true);
+    // /status removed - progress tracked via research/progress.txt instead
+    expect(globalRegistry.has("status")).toBe(false);
+    // /approve and /reject removed - spec approval is now manual before workflow
+    expect(globalRegistry.has("approve")).toBe(false);
+    expect(globalRegistry.has("reject")).toBe(false);
   });
 
   test("initializeCommands is idempotent", async () => {
@@ -565,16 +567,18 @@ describe("Command Initialization", () => {
 
     // Check builtin commands
     expect(globalRegistry.get("help")).toBeDefined();
-    expect(globalRegistry.get("status")).toBeDefined();
+    // /status removed - progress tracked via research/progress.txt instead
+    expect(globalRegistry.get("status")).toBeUndefined();
     expect(globalRegistry.get("clear")).toBeDefined();
     expect(globalRegistry.get("theme")).toBeDefined();
 
     // Check aliases work
     expect(globalRegistry.get("h")).toBeDefined(); // help alias
-    expect(globalRegistry.get("s")).toBeDefined(); // status alias
+    // /status "s" alias removed - progress tracked via research/progress.txt instead
+    expect(globalRegistry.get("s")).toBeUndefined();
 
-    // Check workflow commands
-    expect(globalRegistry.get("atomic")).toBeDefined();
+    // Check workflow commands (note: /atomic removed, /ralph is the main workflow)
+    expect(globalRegistry.get("ralph")).toBeDefined();
 
     // Check skill commands
     expect(globalRegistry.get("commit")).toBeDefined();

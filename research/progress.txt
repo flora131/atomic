@@ -2324,3 +2324,63 @@ The `/ralph:cancel-ralph` command is no longer needed - users should use Ctrl+C 
 ### Files Modified
 - .opencode/opencode.json - Removed ralph:cancel-ralph command, updated help templates
 - tests/ui/commands/skill-commands.test.ts - Updated getRalphSkills test expectation
+
+---
+
+## 2026-02-03 - Refactor: Remove /status Command Registration
+
+### Completed
+- Removed /status command from builtin-commands.ts
+  - Removed statusCommand export and definition
+  - Removed from builtinCommands array (now 4 commands: help, theme, clear, compact)
+  - Removed formatNodeName() and createProgressBar() helper functions
+  - Updated file header comment
+- Updated index.ts
+  - Removed statusCommand from exports
+  - Updated comment: "Built-in commands (help, theme, clear, compact)"
+- Updated cli.ts
+  - Removed /status from slash commands help text
+- Updated chat.ts
+  - Removed /status command handler block in wrapSessionWithWorkflow()
+  - Updated /help output to remove /status reference
+  - Updated "Starting workflow execution..." message to not reference /status
+- Updated workflow-commands.ts
+  - Changed "Use /status to check progress" to "Check research/progress.txt for progress" (2 occurrences)
+
+### Tests Updated
+- tests/ui/commands/builtin-commands.test.ts
+  - Removed statusCommand import
+  - Removed entire statusCommand test suite (17 tests removed)
+  - Updated builtinCommands array test (4 commands instead of 5)
+  - Updated "contains all built-in commands" test to not include statusCommand
+  - Updated "registers all built-in commands" test to verify status is NOT registered
+  - Updated "registers aliases" test to verify "s" alias is NOT registered
+  - Updated idempotent test (size 4 instead of 5)
+- tests/ui/commands/index.test.ts
+  - Updated expect for globalRegistry.has("status") to be false
+  - Updated expect for globalRegistry.has("s") to be false
+- tests/ui/index.test.ts
+  - Updated "initializeCommands is exported and callable" test to expect status=false
+  - Updated "globalRegistry is properly populated" test to expect status and "s" alias undefined
+  - Updated reference from /atomic to /ralph workflow
+
+### Test Results
+- All UI commands tests pass (475 tests)
+- All builtin-commands tests pass (20 tests)
+- All index tests pass (31 tests, commands/index.test.ts)
+- UI index tests pass (24 tests, ui/index.test.ts)
+
+### Files Modified
+- src/ui/commands/builtin-commands.ts - Removed /status command
+- src/ui/commands/index.ts - Removed statusCommand export
+- src/cli.ts - Removed /status from help text
+- src/commands/chat.ts - Removed /status handling
+- src/ui/commands/workflow-commands.ts - Updated messages to reference progress.txt
+- tests/ui/commands/builtin-commands.test.ts - Removed statusCommand tests
+- tests/ui/commands/index.test.ts - Updated status registration tests
+- tests/ui/index.test.ts - Updated status registration tests
+
+### Rationale
+Progress tracking is now done via research/progress.txt instead of the /status command.
+This simplifies the command system and encourages the use of file-based progress tracking
+that persists across sessions and can be reviewed externally.

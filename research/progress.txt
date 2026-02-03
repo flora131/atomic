@@ -1,3 +1,103 @@
+## 2026-02-03 - Feature Implementation: E2E test: Sub-agent invocation /codebase-analyzer
+
+### Status: COMPLETED
+
+Implemented comprehensive E2E tests verifying that the /codebase-analyzer sub-agent command works correctly. The tests validate agent spawning, system prompt content, tool access, model configuration, and result handling.
+
+#### Tests Added (56 tests across 8 test groups)
+
+1. **Run /codebase-analyzer 'analyze authentication flow'** (8 tests)
+   - codebase-analyzer agent exists in BUILTIN_AGENTS
+   - getBuiltinAgent returns codebase-analyzer agent
+   - codebase-analyzer command can be created from agent definition
+   - registerBuiltinAgents registers codebase-analyzer command
+   - /codebase-analyzer command executes with arguments
+   - /codebase-analyzer sends message with user arguments appended
+   - /codebase-analyzer appends user request section to prompt
+   - /codebase-analyzer handles empty arguments
+
+2. **Verify agent spawned with correct system prompt** (6 tests)
+   - codebase-analyzer has comprehensive system prompt
+   - system prompt describes codebase analysis role
+   - system prompt includes analysis steps
+   - system prompt includes output format guidance
+   - system prompt describes tool usage
+   - sendMessage includes full system prompt
+
+3. **Verify agent has access to specified tools** (12 tests)
+   - codebase-analyzer has tools array defined
+   - codebase-analyzer has Glob tool
+   - codebase-analyzer has Grep tool
+   - codebase-analyzer has NotebookRead tool
+   - codebase-analyzer has Read tool
+   - codebase-analyzer has LS tool
+   - codebase-analyzer has Bash tool
+   - codebase-analyzer has exactly 6 tools
+   - codebase-analyzer tools match expected set
+   - codebase-analyzer does NOT have Write tool (read-only)
+   - codebase-analyzer does NOT have Edit tool (read-only)
+   - system prompt mentions all specified tools
+
+4. **Verify agent uses opus model** (5 tests)
+   - codebase-analyzer has model field defined
+   - codebase-analyzer model is set to opus
+   - opus model is highest capability tier
+   - codebase-analyzer uses opus for deep analysis capability
+   - other agents may use different models
+
+5. **Verify result returned** (7 tests)
+   - command execute returns success result
+   - command execute does not return error message on success
+   - command sends message to context
+   - result includes user request in sent message
+   - multiple invocations each return independent results
+   - command result type is CommandResult
+
+6. **Integration tests** (8 tests)
+   - complete flow: register, lookup, execute, verify
+   - agent command works with session context
+   - agent command description matches expected format
+   - agent is not hidden in command registry
+   - agent appears in registry.all() results
+   - agent appears in registry.search() results
+   - multiple user queries work sequentially
+
+7. **Edge cases** (6 tests)
+   - handles whitespace-only arguments
+   - handles very long arguments
+   - handles special characters in arguments
+   - handles newlines in arguments
+   - case-insensitive command lookup
+   - repeated registrations are idempotent
+   - getBuiltinAgent is case-insensitive
+
+8. **Agent definition completeness** (4 tests)
+   - codebase-analyzer has all required fields
+   - codebase-analyzer description is informative
+   - codebase-analyzer prompt is comprehensive
+   - codebase-analyzer source is builtin
+
+#### Test Results
+- All 56 tests pass
+- All 597 E2E tests pass (no regressions)
+- All 295 agent-commands unit tests pass (no regressions)
+- 152 expect() calls in new tests
+
+#### Files Added
+- tests/e2e/subagent-codebase-analyzer.test.ts - 56 comprehensive E2E tests for /codebase-analyzer sub-agent
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+#### Key Design Decisions
+- Tests verify the agent definition structure (name, description, tools, model, prompt, source)
+- Tests validate the command execution flow through the registry
+- Tests ensure the opus model is correctly configured for deep analysis capabilities
+- Tests confirm the agent only has read-only tools (no Write/Edit) for safe codebase analysis
+- Edge cases cover various input formats including special characters and long arguments
+
+---
+
 ## 2026-02-03 - Feature Implementation: E2E test: Concurrent sessions don't interfere
 
 ### Status: COMPLETED

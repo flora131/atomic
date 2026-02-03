@@ -1,3 +1,65 @@
+## 2026-02-03 - Feature Implementation: Document custom workflow file format
+
+### Status: COMPLETED
+
+Created comprehensive documentation for custom workflow file formats in Atomic. The documentation covers how to create custom workflow files, required and optional exports, search paths for workflow discovery, and precedence rules.
+
+#### Documentation Created
+
+**File:** `research/docs/2026-02-03-custom-workflow-file-format.md`
+
+**Sections Covered:**
+
+1. **Overview** - Introduction to custom workflow capabilities
+2. **File Location** - Project-local and user-global paths
+   - `.atomic/workflows/` for project-specific workflows
+   - `~/.atomic/workflows/` for user-global workflows
+   - CUSTOM_WORKFLOW_SEARCH_PATHS constant documentation
+3. **Required Exports** - The `default` function requirement
+   - Function signature details
+   - Validation behavior
+4. **Optional Exports** - Customization options
+   - `name` - Workflow name (defaults to filename)
+   - `description` - Human-readable description
+   - `aliases` - Alternative command names
+   - `defaultConfig` - Default configuration values
+5. **Precedence Rules** - Local vs global vs built-in priority
+   - Priority table with source labels
+   - How overriding works
+   - Logging behavior for skipped workflows
+6. **Example Workflow File** - Complete working examples
+   - Full-featured example with all exports
+   - Minimal example showing only required exports
+7. **API Reference** - Key functions documented
+   - `loadWorkflowsFromDisk()`
+   - `discoverWorkflowFiles()`
+   - `getAllWorkflows()`
+   - `WorkflowMetadata` type
+
+#### Key Design Decisions
+
+- Documentation style follows existing research docs format (date, status, author headers)
+- Includes two complete code examples (full and minimal)
+- Documents both the user-facing workflow file format and the internal API
+- Explains precedence rules with concrete examples
+- References related documentation for deeper understanding
+
+#### Test Results
+
+- All 170 workflow-commands tests pass
+- 428 expect() calls verified
+- No regressions introduced
+
+#### Files Added
+
+- `research/docs/2026-02-03-custom-workflow-file-format.md` - Comprehensive documentation
+
+#### Files Modified
+
+- `research/feature-list.json` - Updated `passes` to `true` for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Document workflow composition patterns
 
 ### Status: COMPLETED

@@ -1707,7 +1707,7 @@
         "Verify agent uses haiku model",
         "Verify files located and returned"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

@@ -1,5 +1,52 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Display completed features count during Ralph execution
+
+### Status: COMPLETED
+
+Implemented UI feedback to show completed features count during Ralph workflow execution in feature-list mode.
+
+#### Changes Made
+
+1. **Added completed features count display in implementFeatureNode()**
+   - Location: src/graph/nodes/ralph-nodes.ts (lines 804-808)
+   - Displays `Features: {completed}/{total} completed` after status display
+   - Only shown in feature-list mode (not in yolo mode)
+   - Counts features with status "passing" as completed
+   - Example output:
+     ```
+     Iteration 5/100
+     Status: Running
+     Features: 3/10 completed
+     Implementing: Add User Authentication
+     ```
+
+2. **Implementation Details**
+   - Filters features array for those with status "passing"
+   - Uses total features count from features.length
+   - Display logic: `console.log(\`Features: ${completedCount}/${totalCount} completed\`)`
+   - Placed after status display and before yolo mode check
+   - Conditionally skipped in yolo mode since there are no discrete features
+
+#### Tests Added (4 new tests in tests/graph/nodes/ralph-nodes.test.ts)
+
+- `displays completed features count with some features completed` - Verifies "Features: 2/4 completed" is logged when 2 of 4 features are passing
+- `displays completed features count with zero features completed` - Verifies "Features: 0/3 completed" is logged when no features are passing
+- `displays completed features count with all features completed` - Verifies "Features: 2/2 completed" is logged when all features are passing
+- `does not display completed features count in yolo mode` - Verifies no "Features:" line is logged in yolo mode
+
+#### Test Results
+- All 195 tests in tests/graph/nodes/ralph-nodes.test.ts pass
+- All 310 tests in Ralph-related test files pass
+- No regressions detected
+
+#### Files Modified
+- src/graph/nodes/ralph-nodes.ts - Added completed features count display in implementFeatureNode()
+- tests/graph/nodes/ralph-nodes.test.ts - Added 4 new tests for completed features display
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Display resume command on interrupt
 
 ### Status: COMPLETED

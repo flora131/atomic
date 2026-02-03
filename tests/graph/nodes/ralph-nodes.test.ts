@@ -1588,6 +1588,112 @@ describe("implementFeatureNode", () => {
         console.log = originalLog;
       }
     });
+
+    test("displays completed features count with some features completed", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+        { id: "f2", name: "Feature 2", description: "Desc 2", status: "passing" },
+        { id: "f3", name: "Feature 3", description: "Desc 3", status: "pending" },
+        { id: "f4", name: "Feature 4", description: "Desc 4", status: "pending" },
+      ];
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = implementFeatureNode({ id: "impl" });
+        const ctx = createImplementMockContext(features);
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Features: 2/4 completed"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays completed features count with zero features completed", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+        { id: "f2", name: "Feature 2", description: "Desc 2", status: "pending" },
+        { id: "f3", name: "Feature 3", description: "Desc 3", status: "pending" },
+      ];
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = implementFeatureNode({ id: "impl" });
+        const ctx = createImplementMockContext(features);
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Features: 0/3 completed"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays completed features count with all features completed", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+        { id: "f2", name: "Feature 2", description: "Desc 2", status: "passing" },
+      ];
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = implementFeatureNode({ id: "impl" });
+        const ctx = createImplementMockContext(features);
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Features: 2/2 completed"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("does not display completed features count in yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = implementFeatureNode({ id: "impl" });
+        const ctx = createImplementMockContext([], {
+          yolo: true,
+          userPrompt: "Build a test app",
+        });
+        await node.execute(ctx);
+
+        // Should not display "Features:" line in yolo mode
+        expect(logs.some(log => log.includes("Features:"))).toBe(false);
+      } finally {
+        console.log = originalLog;
+      }
+    });
   });
 
   describe("no pending features", () => {

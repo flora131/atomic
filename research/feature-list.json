@@ -1475,7 +1475,7 @@
         "Verify workflow resumes",
         "Verify user answer available in state"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

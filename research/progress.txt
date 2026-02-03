@@ -2182,3 +2182,22 @@ The Ralph workflow follows this sequence:
 - tests/sdk/opencode-hooks.test.ts - Updated tests
 - tests/sdk/copilot-hooks.test.ts - Updated tests
 - research/feature-list.json - Marked feature as passes: true
+
+## 2026-02-02 - Feature Implementation: Remove /ralph:cancel-ralph Command Registration
+
+### Completed
+- Removed `/ralph:cancel-ralph` command registration from `.opencode/opencode.json`
+- Updated `ralph:ralph-help` template to replace `/cancel-ralph` references with Ctrl+C/Esc
+- Updated `ralph:ralph-loop` template to replace cancellation instructions with Ctrl+C/Esc
+- Removed the `/cancel-ralph` documentation section from help text
+- Updated `getRalphSkills` test expectation from >=2 to >=1 (only ralph:ralph-help remains)
+
+### Rationale
+The `/ralph:cancel-ralph` command is no longer needed - users should use Ctrl+C or Esc instead for manual cancellation. This is part of the SDK-native workflow migration where ralph:ralph-loop and ralph:cancel-ralph are replaced by the SDK-native /ralph workflow.
+
+### Test Results
+- All skill-commands tests pass (108 tests)
+
+### Files Modified
+- .opencode/opencode.json - Removed ralph:cancel-ralph command, updated help templates
+- tests/ui/commands/skill-commands.test.ts - Updated getRalphSkills test expectation

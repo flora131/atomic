@@ -1263,6 +1263,215 @@ describe("initRalphSessionNode", () => {
       expect(result.stateUpdate!.iteration).toBe(1); // Fresh session starts at 1
     });
   });
+
+  describe("mode indicator display", () => {
+    test("displays 'Mode: Freestyle (yolo)' for yolo mode", async () => {
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = initRalphSessionNode({
+          id: "init-yolo-mode-display",
+          yolo: true,
+        });
+
+        const ctx = createMockContext();
+        await node.execute(ctx);
+
+        expect(logs.some(log => log === "Mode: Freestyle (yolo)")).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays 'Mode: Feature list (N features)' for feature-list mode", async () => {
+      await createTestFeatureList([
+        { category: "test", description: "Feature 1", steps: [], passes: false },
+        { category: "test", description: "Feature 2", steps: [], passes: false },
+        { category: "test", description: "Feature 3", steps: [], passes: false },
+      ]);
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = initRalphSessionNode({
+          id: "init-feature-list-mode-display",
+          featureListPath: testFeatureListPath,
+        });
+
+        const ctx = createMockContext();
+        await node.execute(ctx);
+
+        expect(logs.some(log => log === "Mode: Feature list (3 features)")).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays correct count for single feature", async () => {
+      await createTestFeatureList([
+        { category: "test", description: "Only Feature", steps: [], passes: false },
+      ]);
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = initRalphSessionNode({
+          id: "init-single-feature-display",
+          featureListPath: testFeatureListPath,
+        });
+
+        const ctx = createMockContext();
+        await node.execute(ctx);
+
+        expect(logs.some(log => log === "Mode: Feature list (1 features)")).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays correct count for empty feature list", async () => {
+      await createTestFeatureList([]);
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = initRalphSessionNode({
+          id: "init-empty-feature-display",
+          featureListPath: testFeatureListPath,
+        });
+
+        const ctx = createMockContext();
+        await node.execute(ctx);
+
+        expect(logs.some(log => log === "Mode: Feature list (0 features)")).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays mode indicator when resuming yolo session", async () => {
+      // Create an existing yolo session
+      await createSessionDirectory(testSessionId);
+      const existingSession = createRalphSession({
+        sessionId: testSessionId,
+        yolo: true,
+        maxIterations: 50,
+        status: "running",
+      });
+      await saveSession(testSessionDir, existingSession);
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = initRalphSessionNode({
+          id: "init-resume-yolo-display",
+          resumeSessionId: testSessionId,
+        });
+
+        const ctx = createMockContext();
+        await node.execute(ctx);
+
+        expect(logs.some(log => log === "Mode: Freestyle (yolo)")).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays mode indicator when resuming feature-list session", async () => {
+      // Create an existing feature-list session
+      await createSessionDirectory(testSessionId);
+      const existingSession = createRalphSession({
+        sessionId: testSessionId,
+        yolo: false,
+        maxIterations: 50,
+        features: [
+          { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+          { id: "f2", name: "Feature 2", description: "Desc 2", status: "pending" },
+        ],
+        status: "running",
+      });
+      await saveSession(testSessionDir, existingSession);
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = initRalphSessionNode({
+          id: "init-resume-feature-display",
+          resumeSessionId: testSessionId,
+        });
+
+        const ctx = createMockContext();
+        await node.execute(ctx);
+
+        expect(logs.some(log => log === "Mode: Feature list (2 features)")).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("mode indicator appears after session ID in logs", async () => {
+      await createTestFeatureList([
+        { category: "test", description: "Test", steps: [], passes: false },
+      ]);
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = initRalphSessionNode({
+          id: "init-order-test",
+          featureListPath: testFeatureListPath,
+        });
+
+        const ctx = createMockContext();
+        await node.execute(ctx);
+
+        // Find the indices of the session start and mode display logs
+        const sessionStartIndex = logs.findIndex(log => log.includes("Started Ralph session:"));
+        const modeIndex = logs.findIndex(log => log.startsWith("Mode:"));
+
+        expect(sessionStartIndex).toBeGreaterThanOrEqual(0);
+        expect(modeIndex).toBeGreaterThanOrEqual(0);
+        expect(modeIndex).toBeGreaterThan(sessionStartIndex);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+  });
 });
 
 // ============================================================================

@@ -1301,7 +1301,7 @@
         "If yolo, display 'Mode: Freestyle (yolo)'",
         "If feature-list, display 'Mode: Feature list ({count} features)'"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

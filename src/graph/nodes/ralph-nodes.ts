@@ -1456,6 +1456,13 @@ export function initRalphSessionNode<TState extends RalphWorkflowState = RalphWo
           // Resume existing session
           console.log(`Resuming Ralph session: ${sessionId}`);
 
+          // Display mode indicator for resumed session
+          if (existingSession.yolo) {
+            console.log("Mode: Freestyle (yolo)");
+          } else {
+            console.log(`Mode: Feature list (${existingSession.features.length} features)`);
+          }
+
           // Convert session to workflow state
           const resumedState = sessionToWorkflowState(existingSession, ctx.state.executionId);
 
@@ -1481,15 +1488,24 @@ export function initRalphSessionNode<TState extends RalphWorkflowState = RalphWo
       // Create new session
       console.log(`Started Ralph session: ${sessionId}`);
 
-      // Create session directory structure
-      await createSessionDirectory(sessionId);
-
-      // Load features if not in yolo mode
+      // Load features if not in yolo mode (before mode display to show count)
       let features: RalphFeature[] = [];
       if (!yolo) {
         features = await loadFeaturesFromFile(featureListPath);
+      }
 
-        // Copy features to session directory
+      // Display mode indicator
+      if (yolo) {
+        console.log("Mode: Freestyle (yolo)");
+      } else {
+        console.log(`Mode: Feature list (${features.length} features)`);
+      }
+
+      // Create session directory structure
+      await createSessionDirectory(sessionId);
+
+      // Copy features to session directory if not in yolo mode
+      if (!yolo) {
         await saveSessionFeatureList(sessionDir, features);
       }
 

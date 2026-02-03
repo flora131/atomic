@@ -710,6 +710,181 @@ export function waitNode<TState extends BaseState = BaseState>(
 }
 
 // ============================================================================
+// ASK USER NODE
+// ============================================================================
+
+/**
+ * Option for structured user responses in askUserNode.
+ */
+export interface AskUserOption {
+  /** Display label for the option */
+  label: string;
+  /** Detailed description of what this option does */
+  description: string;
+}
+
+/**
+ * Options for creating an askUserNode.
+ * This is the primary interface for configuring user questions in workflows.
+ */
+export interface AskUserOptions {
+  /** The question to ask the user */
+  question: string;
+  /** Short label for UI display (e.g., header in a prompt box) */
+  header?: string;
+  /** Structured options for the user to choose from */
+  options?: AskUserOption[];
+}
+
+/**
+ * Configuration for creating an ask user node.
+ *
+ * @template TState - The state type for the workflow
+ */
+export interface AskUserNodeConfig<TState extends BaseState = BaseState> {
+  /** Unique identifier for the node */
+  id: NodeId;
+
+  /**
+   * Options for the question, or a function that builds options from state.
+   */
+  options: AskUserOptions | ((state: TState) => AskUserOptions);
+
+  /** Human-readable name */
+  name?: string;
+
+  /** Description */
+  description?: string;
+}
+
+/**
+ * State extension for tracking human input wait state.
+ * Workflows using askUserNode should handle these fields.
+ */
+export interface AskUserWaitState {
+  /** Whether the workflow is currently waiting for user input */
+  __waitingForInput?: boolean;
+  /** The node ID that is waiting for input */
+  __waitNodeId?: string;
+  /** The request ID for correlating responses */
+  __askUserRequestId?: string;
+}
+
+/**
+ * Event data emitted when human input is required.
+ */
+export interface AskUserQuestionEventData {
+  /** Unique request ID for correlating responses */
+  requestId: string;
+  /** The question to ask the user */
+  question: string;
+  /** Optional header for UI display */
+  header?: string;
+  /** Structured options for the user to choose from */
+  options?: AskUserOption[];
+  /** The node ID that requires input */
+  nodeId: string;
+}
+
+/**
+ * Create an ask user node that pauses for explicit user input.
+ *
+ * This is the ONLY node type that pauses workflow execution for human input.
+ * All other tools auto-execute. Use this node when you need to:
+ * - Ask the user a specific question
+ * - Present structured options for the user to choose from
+ * - Get explicit confirmation or feedback
+ *
+ * The node:
+ * 1. Generates a unique requestId using crypto.randomUUID()
+ * 2. Emits a 'human_input_required' signal with question details
+ * 3. Sets state flags to indicate waiting for input
+ * 4. Returns updated state with wait flags
+ *
+ * @template TState - The state type for the workflow (should extend AskUserWaitState)
+ * @param config - Ask user node configuration
+ * @returns A NodeDefinition that pauses for user input
+ *
+ * @example
+ * ```typescript
+ * const confirmNode = askUserNode<MyState>({
+ *   id: "confirm-action",
+ *   options: {
+ *     question: "Are you sure you want to proceed?",
+ *     header: "Confirmation",
+ *     options: [
+ *       { label: "Yes", description: "Proceed with the action" },
+ *       { label: "No", description: "Cancel and go back" },
+ *     ],
+ *   },
+ * });
+ *
+ * // With dynamic question based on state
+ * const reviewNode = askUserNode<MyState>({
+ *   id: "review-spec",
+ *   options: (state) => ({
+ *     question: `Please review the following spec:\n\n${state.specDoc}`,
+ *     header: "Spec Review",
+ *   }),
+ * });
+ * ```
+ */
+export function askUserNode<TState extends BaseState & AskUserWaitState = BaseState & AskUserWaitState>(
+  config: AskUserNodeConfig<TState>
+): NodeDefinition<TState> {
+  const { id, options, name, description } = config;
+
+  return {
+    id,
+    type: "ask_user",
+    name: name ?? "ask-user",
+    description,
+    execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
+      // Resolve options (can be static or function of state)
+      const resolvedOptions: AskUserOptions =
+        typeof options === "function" ? options(ctx.state) : options;
+
+      // Generate unique request ID for correlating responses
+      const requestId = crypto.randomUUID();
+
+      // Build event data for human_input_required signal
+      const eventData: AskUserQuestionEventData = {
+        requestId,
+        question: resolvedOptions.question,
+        header: resolvedOptions.header,
+        options: resolvedOptions.options,
+        nodeId: id,
+      };
+
+      // Emit signal if emit function is available
+      if (ctx.emit) {
+        ctx.emit({
+          type: "human_input_required",
+          message: resolvedOptions.question,
+          data: eventData as unknown as Record<string, unknown>,
+        });
+      }
+
+      // Return state update with wait flags and emit signal
+      return {
+        stateUpdate: {
+          __waitingForInput: true,
+          __waitNodeId: id,
+          __askUserRequestId: requestId,
+        } as Partial<TState>,
+        signals: [
+          {
+            type: "human_input_required",
+            message: resolvedOptions.question,
+            data: eventData as unknown as Record<string, unknown>,
+          },
+        ],
+      };
+    },
+  };
+}
+
+// ============================================================================
 // PARALLEL NODE
 // ============================================================================
 

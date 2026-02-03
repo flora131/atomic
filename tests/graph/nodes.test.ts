@@ -593,6 +593,259 @@ describe("waitNode", () => {
 });
 
 // ============================================================================
+// Ask User Node Tests
+// ============================================================================
+
+import { askUserNode, type AskUserNodeConfig, type AskUserWaitState } from "../../src/graph/nodes.ts";
+
+interface TestStateWithWait extends TestState, AskUserWaitState {}
+
+function createTestContextWithWait(stateOverrides: Partial<TestStateWithWait> = {}): ExecutionContext<TestStateWithWait> {
+  return {
+    state: {
+      executionId: "test-exec-1",
+      lastUpdated: new Date().toISOString(),
+      outputs: {},
+      counter: 0,
+      approved: false,
+      items: [],
+      ...stateOverrides,
+    },
+    config: {} as GraphConfig,
+    errors: [],
+  };
+}
+
+describe("askUserNode", () => {
+  test("creates node with correct type and id", () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "test-ask",
+      options: {
+        question: "What is your name?",
+      },
+    });
+
+    expect(node.id).toBe("test-ask");
+    expect(node.type).toBe("ask_user");
+    expect(node.name).toBe("ask-user");
+  });
+
+  test("uses provided name and description", () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "test-ask",
+      options: { question: "Test?" },
+      name: "Custom Ask",
+      description: "Asks a custom question",
+    });
+
+    expect(node.name).toBe("Custom Ask");
+    expect(node.description).toBe("Asks a custom question");
+  });
+
+  test("emits human_input_required signal with question", async () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "confirm-action",
+      options: {
+        question: "Are you sure?",
+        header: "Confirmation",
+      },
+    });
+
+    const ctx = createTestContextWithWait();
+    const result = await node.execute(ctx);
+
+    expect(result.signals).toBeDefined();
+    expect(result.signals).toHaveLength(1);
+    expect(result.signals![0]!.type).toBe("human_input_required");
+    expect(result.signals![0]!.message).toBe("Are you sure?");
+    expect(result.signals![0]!.data?.question).toBe("Are you sure?");
+    expect(result.signals![0]!.data?.header).toBe("Confirmation");
+    expect(result.signals![0]!.data?.nodeId).toBe("confirm-action");
+  });
+
+  test("generates unique requestId using crypto.randomUUID()", async () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "request-test",
+      options: { question: "Test?" },
+    });
+
+    const ctx = createTestContextWithWait();
+    const result = await node.execute(ctx);
+
+    const requestId = result.signals![0]!.data?.requestId as string;
+    expect(requestId).toBeDefined();
+    // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx
+    expect(requestId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  });
+
+  test("sets __waitingForInput to true in state update", async () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "wait-test",
+      options: { question: "Wait for me?" },
+    });
+
+    const ctx = createTestContextWithWait();
+    const result = await node.execute(ctx);
+
+    expect(result.stateUpdate?.__waitingForInput).toBe(true);
+  });
+
+  test("sets __waitNodeId to node id in state update", async () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "my-ask-node",
+      options: { question: "Test?" },
+    });
+
+    const ctx = createTestContextWithWait();
+    const result = await node.execute(ctx);
+
+    expect(result.stateUpdate?.__waitNodeId).toBe("my-ask-node");
+  });
+
+  test("sets __askUserRequestId in state update", async () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "request-id-test",
+      options: { question: "Test?" },
+    });
+
+    const ctx = createTestContextWithWait();
+    const result = await node.execute(ctx);
+
+    const requestIdFromState = result.stateUpdate?.__askUserRequestId;
+    const requestIdFromSignal = result.signals![0]!.data?.requestId;
+
+    expect(requestIdFromState).toBeDefined();
+    expect(requestIdFromState).toBe(requestIdFromSignal);
+  });
+
+  test("includes options array in signal data", async () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "options-test",
+      options: {
+        question: "Choose an option:",
+        options: [
+          { label: "Yes", description: "Proceed with the action" },
+          { label: "No", description: "Cancel the action" },
+          { label: "Maybe", description: "Ask again later" },
+        ],
+      },
+    });
+
+    const ctx = createTestContextWithWait();
+    const result = await node.execute(ctx);
+
+    const options = result.signals![0]!.data?.options as Array<{ label: string; description: string }>;
+    expect(options).toHaveLength(3);
+    expect(options[0]).toEqual({ label: "Yes", description: "Proceed with the action" });
+    expect(options[1]).toEqual({ label: "No", description: "Cancel the action" });
+    expect(options[2]).toEqual({ label: "Maybe", description: "Ask again later" });
+  });
+
+  test("uses options function with state", async () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "dynamic-question",
+      options: (state) => ({
+        question: `You have ${state.counter} items. Continue?`,
+        header: `Item Count: ${state.counter}`,
+      }),
+    });
+
+    const ctx = createTestContextWithWait({ counter: 42 });
+    const result = await node.execute(ctx);
+
+    expect(result.signals![0]!.message).toBe("You have 42 items. Continue?");
+    expect(result.signals![0]!.data?.question).toBe("You have 42 items. Continue?");
+    expect(result.signals![0]!.data?.header).toBe("Item Count: 42");
+  });
+
+  test("calls emit function when available", async () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "emit-test",
+      options: { question: "Emit test?" },
+    });
+
+    const emittedSignals: Array<{ type: string; message?: string; data?: Record<string, unknown> }> = [];
+    const ctx = createTestContextWithWait();
+    ctx.emit = (signal) => {
+      emittedSignals.push(signal);
+    };
+
+    await node.execute(ctx);
+
+    expect(emittedSignals).toHaveLength(1);
+    expect(emittedSignals[0]!.type).toBe("human_input_required");
+    expect(emittedSignals[0]!.message).toBe("Emit test?");
+  });
+
+  test("works without emit function", async () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "no-emit-test",
+      options: { question: "No emit?" },
+    });
+
+    const ctx = createTestContextWithWait();
+    // No emit function set
+
+    // Should not throw
+    const result = await node.execute(ctx);
+
+    // Still returns signals
+    expect(result.signals).toHaveLength(1);
+    expect(result.stateUpdate?.__waitingForInput).toBe(true);
+  });
+
+  test("handles empty options array", async () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "empty-options",
+      options: {
+        question: "Free form input?",
+        options: [],
+      },
+    });
+
+    const ctx = createTestContextWithWait();
+    const result = await node.execute(ctx);
+
+    const options = result.signals![0]!.data?.options as Array<unknown>;
+    expect(options).toEqual([]);
+  });
+
+  test("handles missing optional fields", async () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "minimal-options",
+      options: {
+        question: "Just a question",
+        // No header, no options
+      },
+    });
+
+    const ctx = createTestContextWithWait();
+    const result = await node.execute(ctx);
+
+    expect(result.signals![0]!.data?.header).toBeUndefined();
+    expect(result.signals![0]!.data?.options).toBeUndefined();
+  });
+
+  test("generates different requestIds for each execution", async () => {
+    const node = askUserNode<TestStateWithWait>({
+      id: "unique-request",
+      options: { question: "Test?" },
+    });
+
+    const ctx1 = createTestContextWithWait();
+    const ctx2 = createTestContextWithWait();
+
+    const result1 = await node.execute(ctx1);
+    const result2 = await node.execute(ctx2);
+
+    const requestId1 = result1.signals![0]!.data?.requestId as string;
+    const requestId2 = result2.signals![0]!.data?.requestId as string;
+
+    expect(requestId1).not.toBe(requestId2);
+  });
+});
+
+// ============================================================================
 // Parallel Node Tests
 // ============================================================================
 

@@ -155,6 +155,13 @@ export type {
   // Clear context node types
   ClearContextNodeConfig,
 
+  // Ask user node types
+  AskUserOption,
+  AskUserOptions,
+  AskUserNodeConfig,
+  AskUserWaitState,
+  AskUserQuestionEventData,
+
   // Parallel node types
   ParallelMergeStrategy,
   ParallelMerger,
@@ -194,6 +201,7 @@ export {
   clearContextNode,
   decisionNode,
   waitNode,
+  askUserNode,
   parallelNode,
   subgraphNode,
   contextMonitorNode,

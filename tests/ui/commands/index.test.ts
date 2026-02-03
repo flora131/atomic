@@ -30,12 +30,13 @@ describe("initializeCommands", () => {
   test("registers all command types", () => {
     initializeCommands();
 
-    // Built-in commands (note: /approve removed - spec approval is now manual before workflow)
+    // Built-in commands (note: /approve and /reject removed - spec approval is now manual before workflow)
     expect(globalRegistry.has("help")).toBe(true);
     expect(globalRegistry.has("status")).toBe(true);
-    expect(globalRegistry.has("reject")).toBe(true);
     expect(globalRegistry.has("theme")).toBe(true);
     expect(globalRegistry.has("clear")).toBe(true);
+    expect(globalRegistry.has("compact")).toBe(true);
+    expect(globalRegistry.has("reject")).toBe(false);
 
     // Workflow commands (note: /atomic removed, /ralph is the main workflow)
     expect(globalRegistry.has("ralph")).toBe(true);

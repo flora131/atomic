@@ -2,7 +2,7 @@
  * Built-in Commands for Chat UI
  *
  * Provides core slash commands for the chat interface:
- * /help, /status, /reject, /theme, /clear
+ * /help, /status, /theme, /clear, /compact
  *
  * Reference: Feature 2 - Implement built-in commands
  */
@@ -162,7 +162,7 @@ export const statusCommand: CommandDefinition = {
     lines.push("");
     if (state.pendingApproval) {
       lines.push("Spec: **pending approval**");
-      lines.push("  Use `/reject <feedback>` to revise or continue manually");
+      lines.push("  Review the spec and continue manually or revise.");
     } else if (state.specApproved !== undefined) {
       lines.push(
         `Spec: ${state.specApproved ? "**approved**" : "**rejected**"}`
@@ -217,47 +217,6 @@ function createProgressBar(completed: number, total: number, width: number = 10)
   const emptyCount = width - filledCount;
   return "█".repeat(filledCount) + "░".repeat(emptyCount);
 }
-
-/**
- * /reject - Reject the current spec with optional feedback.
- *
- * Sets specApproved to false and stores feedback for revision.
- */
-export const rejectCommand: CommandDefinition = {
-  name: "reject",
-  description: "Reject the current spec with feedback for revision",
-  category: "builtin",
-  aliases: ["no"],
-  execute: (args: string, context: CommandContext): CommandResult => {
-    if (!context.state.workflowActive) {
-      return {
-        success: false,
-        message: "No active workflow. Start a workflow first.",
-      };
-    }
-
-    if (!context.state.pendingApproval) {
-      return {
-        success: false,
-        message: "No spec pending approval.",
-      };
-    }
-
-    const feedback = args.trim() || null;
-
-    return {
-      success: true,
-      message: feedback
-        ? `Spec rejected with feedback: "${feedback}"\nRevising spec...`
-        : "Spec rejected. Revising spec...",
-      stateUpdate: {
-        specApproved: false,
-        pendingApproval: false,
-        feedback,
-      },
-    };
-  },
-};
 
 /**
  * /theme - Toggle between dark and light theme.
@@ -362,7 +321,6 @@ export const compactCommand: CommandDefinition = {
 export const builtinCommands: CommandDefinition[] = [
   helpCommand,
   statusCommand,
-  rejectCommand,
   themeCommand,
   clearCommand,
   compactCommand,

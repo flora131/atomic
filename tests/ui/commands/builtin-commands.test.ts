@@ -1,14 +1,13 @@
 /**
  * Tests for Built-in Commands
  *
- * Verifies the behavior of /help, /status, /reject, /theme, /clear commands.
+ * Verifies the behavior of /help, /status, /theme, /clear, /compact commands.
  */
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import {
   helpCommand,
   statusCommand,
-  rejectCommand,
   themeCommand,
   clearCommand,
   compactCommand,
@@ -206,7 +205,8 @@ describe("statusCommand", () => {
     const result = statusCommand.execute("", context);
 
     expect(result.message).toContain("pending approval");
-    expect(result.message).toContain("/reject");
+    // /reject command removed - spec approval is now manual before workflow
+    expect(result.message).toContain("Review the spec");
   });
 
   test("shows approved spec state", () => {
@@ -376,70 +376,7 @@ describe("statusCommand", () => {
   });
 });
 
-describe("rejectCommand", () => {
-  test("has correct metadata", () => {
-    expect(rejectCommand.name).toBe("reject");
-    expect(rejectCommand.category).toBe("builtin");
-    expect(rejectCommand.aliases).toContain("no");
-  });
-
-  test("fails when no workflow active", () => {
-    const context = createMockContext({ workflowActive: false });
-    const result = rejectCommand.execute("Need changes", context);
-
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("No active workflow");
-  });
-
-  test("fails when no spec pending approval", () => {
-    const context = createMockContext({
-      workflowActive: true,
-      pendingApproval: false,
-    });
-    const result = rejectCommand.execute("Need changes", context);
-
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("No spec pending");
-  });
-
-  test("rejects spec without feedback", () => {
-    const context = createMockContext({
-      workflowActive: true,
-      pendingApproval: true,
-    });
-    const result = rejectCommand.execute("", context);
-
-    expect(result.success).toBe(true);
-    expect(result.message).toContain("rejected");
-    expect(result.stateUpdate?.specApproved).toBe(false);
-    expect(result.stateUpdate?.pendingApproval).toBe(false);
-    expect(result.stateUpdate?.feedback).toBe(null);
-  });
-
-  test("rejects spec with feedback", () => {
-    const context = createMockContext({
-      workflowActive: true,
-      pendingApproval: true,
-    });
-    const result = rejectCommand.execute("Add error handling", context);
-
-    expect(result.success).toBe(true);
-    expect(result.message).toContain("rejected");
-    expect(result.message).toContain("Add error handling");
-    expect(result.stateUpdate?.specApproved).toBe(false);
-    expect(result.stateUpdate?.feedback).toBe("Add error handling");
-  });
-
-  test("trims feedback whitespace", () => {
-    const context = createMockContext({
-      workflowActive: true,
-      pendingApproval: true,
-    });
-    const result = rejectCommand.execute("  feedback with spaces  ", context);
-
-    expect(result.stateUpdate?.feedback).toBe("feedback with spaces");
-  });
-});
+// /reject command removed - spec approval is now manual before workflow
 
 describe("themeCommand", () => {
   test("has correct metadata", () => {
@@ -501,14 +438,14 @@ describe("builtinCommands array", () => {
   test("contains all built-in commands", () => {
     expect(builtinCommands).toContain(helpCommand);
     expect(builtinCommands).toContain(statusCommand);
-    expect(builtinCommands).toContain(rejectCommand);
     expect(builtinCommands).toContain(themeCommand);
     expect(builtinCommands).toContain(clearCommand);
     expect(builtinCommands).toContain(compactCommand);
   });
 
-  test("has 6 commands", () => {
-    expect(builtinCommands.length).toBe(6);
+  test("has 5 commands", () => {
+    // /reject command removed - spec approval is now manual before workflow
+    expect(builtinCommands.length).toBe(5);
   });
 });
 
@@ -526,9 +463,11 @@ describe("registerBuiltinCommands", () => {
 
     expect(globalRegistry.has("help")).toBe(true);
     expect(globalRegistry.has("status")).toBe(true);
-    expect(globalRegistry.has("reject")).toBe(true);
     expect(globalRegistry.has("theme")).toBe(true);
     expect(globalRegistry.has("clear")).toBe(true);
+    expect(globalRegistry.has("compact")).toBe(true);
+    // /reject command removed - spec approval is now manual before workflow
+    expect(globalRegistry.has("reject")).toBe(false);
   });
 
   test("registers aliases", () => {
@@ -537,9 +476,10 @@ describe("registerBuiltinCommands", () => {
     expect(globalRegistry.has("h")).toBe(true);
     expect(globalRegistry.has("?")).toBe(true);
     expect(globalRegistry.has("s")).toBe(true);
-    expect(globalRegistry.has("no")).toBe(true);
     expect(globalRegistry.has("cls")).toBe(true);
     expect(globalRegistry.has("c")).toBe(true);
+    // /reject "no" alias removed - spec approval is now manual before workflow
+    expect(globalRegistry.has("no")).toBe(false);
   });
 
   test("is idempotent (can be called multiple times)", () => {
@@ -547,7 +487,8 @@ describe("registerBuiltinCommands", () => {
     registerBuiltinCommands();
 
     // Should not throw and should still have correct count
-    expect(globalRegistry.size()).toBe(6);
+    // /reject command removed - now 5 commands instead of 6
+    expect(globalRegistry.size()).toBe(5);
   });
 
   test("commands are executable after registration", async () => {

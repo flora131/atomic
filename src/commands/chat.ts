@@ -383,17 +383,6 @@ function wrapSessionWithWorkflow(
           };
         }
 
-        if (command === "reject" && state.awaitingApproval && state.approvalCallback) {
-          state.approvalCallback("reject");
-          state.awaitingApproval = false;
-          state.approvalCallback = null;
-          return {
-            type: "text",
-            content: "Specification rejected. Returning to revision phase...",
-            role: "assistant",
-          };
-        }
-
         if (command === "status") {
           if (state.workflowState) {
             const { featureList, iteration, specApproved, prUrl } = state.workflowState;
@@ -425,7 +414,6 @@ function wrapSessionWithWorkflow(
             content: `**Available Commands**
 /workflow - Start the Atomic workflow
 /status - Show workflow status
-/reject - Reject and request revisions
 /theme <dark|light> - Switch theme
 /help - Show this help message`,
             role: "assistant",
@@ -436,16 +424,12 @@ function wrapSessionWithWorkflow(
       // Handle manual continuation if awaiting approval
       // Spec approval is now manual before workflow start; any input continues the workflow
       if (state.awaitingApproval && state.approvalCallback) {
-        // Check if user explicitly rejects with /reject or "reject"
-        const isRejection = message.toLowerCase().includes("reject");
-        state.approvalCallback(isRejection ? "reject" : "continue");
+        state.approvalCallback("continue");
         state.awaitingApproval = false;
         state.approvalCallback = null;
         return {
           type: "text",
-          content: isRejection
-            ? "Specification rejected. Returning to revision phase..."
-            : "Continuing workflow...",
+          content: "Continuing workflow...",
           role: "assistant",
         };
       }
@@ -534,7 +518,7 @@ async function* streamWorkflowExecution(
 
         yield {
           type: "text",
-          content: "\nType `/reject <feedback>` to request revisions or continue manually.\n",
+          content: "\nReview the spec and type any message to continue, or revise manually.\n",
           role: "assistant",
         };
 

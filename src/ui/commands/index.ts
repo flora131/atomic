@@ -44,7 +44,6 @@ export {
   builtinCommands,
   helpCommand,
   statusCommand,
-  rejectCommand,
   themeCommand,
   clearCommand,
 } from "./builtin-commands.ts";
@@ -84,8 +83,8 @@ export {
  *
  * This function is idempotent - calling it multiple times is safe.
  * Commands are registered in this order:
- * 1. Built-in commands (help, status, reject, theme, clear)
- * 2. Workflow commands (atomic + dynamically loaded from disk)
+ * 1. Built-in commands (help, status, theme, clear, compact)
+ * 2. Workflow commands (ralph + dynamically loaded from disk)
  * 3. Skill commands (commit, research-codebase, etc.)
  *
  * Note: This synchronous version only loads built-in workflows.

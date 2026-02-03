@@ -801,6 +801,13 @@ export function implementFeatureNode<TState extends RalphWorkflowState = RalphWo
       console.log(`Iteration ${state.iteration}/${maxIterationsDisplay}`);
       console.log(`Status: ${formatSessionStatus(state.sessionStatus)}`);
 
+      // Display completed features count (only in feature-list mode)
+      if (!state.yolo) {
+        const completedCount = state.features.filter((f) => f.status === "passing").length;
+        const totalCount = state.features.length;
+        console.log(`Features: ${completedCount}/${totalCount} completed`);
+      }
+
       // =========================================
       // YOLO MODE EXECUTION
       // =========================================

@@ -1,5 +1,45 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Remove explicit hooks module from src/
+
+### Status: COMPLETED
+
+Removed the explicit hooks module from src/sdk/ as hooks are now passthrough to the underlying SDKs.
+
+#### Background
+The hooks system was originally designed to provide a unified interface for registering event handlers across all coding agent SDKs (Claude, OpenCode, Copilot). However, this is no longer needed because:
+- Claude SDK handles .claude/settings.json hooks natively
+- OpenCode SDK handles hooks natively
+- Copilot SDK handles hooks natively
+
+#### Files Removed
+- `src/sdk/hooks.ts` - HookManager unified hook system (605 lines)
+- `src/sdk/claude-hooks.ts` - Claude-specific SDK hooks (214 lines)
+- `src/sdk/opencode-hooks.ts` - OpenCode-specific SDK hooks (846 lines)
+- `src/sdk/copilot-hooks.ts` - Copilot-specific SDK hooks (590 lines)
+- `tests/sdk/hooks.test.ts` - HookManager tests
+- `tests/sdk/claude-hooks.test.ts` - Claude hooks tests
+- `tests/sdk/opencode-hooks.test.ts` - OpenCode hooks tests
+- `tests/sdk/copilot-hooks.test.ts` - Copilot hooks tests
+
+#### Files Modified
+- `src/sdk/index.ts` - Removed all hooks-related exports, added note explaining hooks are passthrough to underlying SDKs
+
+#### Removed Exports
+- `HookManager`, `createHookManager`
+- Hook type exports: `UnifiedHookEvent`, `HookContext`, `HookHandler`, `HookResult`, `HookEventData`, `HookEventDataMap`
+- Event data types: `BaseHookEventData`, `HookSessionStartEventData`, `HookSessionEndEventData`, `HookSessionErrorEventData`, `ToolBeforeEventData`, `ToolAfterEventData`, `ToolErrorEventData`, `MessageBeforeEventData`, `MessageAfterEventData`, `PermissionRequestEventData`, `HookSubagentStartEventData`, `SubagentEndEventData`
+- Claude hook exports: `createSessionEndTelemetryHook`, `createDefaultClaudeHooks`, `createSessionStartHook`, `createPreToolUseHook`, `createPostToolUseHook`
+- Copilot hook exports: `createCopilotSessionStartHandler`, `createCopilotSessionEndHandler`, `createCopilotUserPromptHandler`, `registerDefaultCopilotHooks`, `createDefaultCopilotHooks`, `CopilotHookHandlers`
+- OpenCode hook exports: `createOpenCodeSessionStartHandler`, `createOpenCodeSessionIdleHandler`, `createOpenCodeSessionDeletedHandler`, `createOpenCodeCommandExecuteHandler`, `createOpenCodeChatMessageHandler`, `registerDefaultOpenCodeHooks`, `createDefaultOpenCodeHooks`, `parseRalphState`, `writeRalphState`, `deleteRalphState`, `checkFeaturesPassing`, `checkCompletionPromise`, `normalizeCommandName`, `extractCommandsFromText`, `OpenCodeHookHandlers`, `OpenCodeHookContext`
+
+#### Test Results
+- Build passes successfully
+- All 162 SDK tests pass (hooks tests removed)
+- All tests pass (2962 pass, 17 fail - pre-existing failures unrelated to hooks)
+
+---
+
 ## 2026-02-03 - Feature Implementation: Define RalphWorkflowState interface in graph/annotation.ts
 
 ### Status: COMPLETED

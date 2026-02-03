@@ -90,65 +90,8 @@ export {
   type CopilotClientOptions,
 } from "./copilot-client.ts";
 
-// HookManager exports
-export {
-  HookManager,
-  createHookManager,
-  type UnifiedHookEvent,
-  type HookContext,
-  type HookHandler,
-  type HookResult,
-  type HookEventData,
-  type HookEventDataMap,
-  type BaseHookEventData,
-  type SessionStartEventData as HookSessionStartEventData,
-  type SessionEndEventData as HookSessionEndEventData,
-  type SessionErrorEventData as HookSessionErrorEventData,
-  type ToolBeforeEventData,
-  type ToolAfterEventData,
-  type ToolErrorEventData,
-  type MessageBeforeEventData,
-  type MessageAfterEventData,
-  type PermissionRequestEventData,
-  type SubagentStartEventData as HookSubagentStartEventData,
-  type SubagentEndEventData,
-} from "./hooks.ts";
-
-// Claude Hook Handlers exports
-export {
-  createSessionEndTelemetryHook,
-  createDefaultClaudeHooks,
-  createSessionStartHook,
-  createPreToolUseHook,
-  createPostToolUseHook,
-} from "./claude-hooks.ts";
-
-// Copilot Hook Handlers exports
-export {
-  createSessionStartHandler as createCopilotSessionStartHandler,
-  createSessionEndHandler as createCopilotSessionEndHandler,
-  createUserPromptHandler as createCopilotUserPromptHandler,
-  registerDefaultCopilotHooks,
-  createDefaultCopilotHooks,
-  type CopilotHookHandlers,
-} from "./copilot-hooks.ts";
-
-// OpenCode Hook Handlers exports
-export {
-  createSessionStartHandler as createOpenCodeSessionStartHandler,
-  createSessionIdleHandler as createOpenCodeSessionIdleHandler,
-  createSessionDeletedHandler as createOpenCodeSessionDeletedHandler,
-  createCommandExecuteHandler as createOpenCodeCommandExecuteHandler,
-  createChatMessageHandler as createOpenCodeChatMessageHandler,
-  registerDefaultOpenCodeHooks,
-  createDefaultOpenCodeHooks,
-  parseRalphState,
-  writeRalphState,
-  deleteRalphState,
-  checkFeaturesPassing,
-  checkCompletionPromise,
-  normalizeCommandName,
-  extractCommandsFromText,
-  type OpenCodeHookHandlers,
-  type OpenCodeHookContext,
-} from "./opencode-hooks.ts";
+// Note: Hook modules have been removed.
+// Hooks are now passthrough to underlying SDKs:
+// - Claude SDK handles .claude/settings.json hooks natively
+// - OpenCode SDK handles hooks natively
+// - Copilot SDK handles hooks natively

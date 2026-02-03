@@ -1190,7 +1190,7 @@
         "OpenCode SDK handles hooks natively",
         "Copilot SDK handles hooks natively"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "refactor",

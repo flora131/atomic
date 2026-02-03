@@ -49,7 +49,7 @@ Stop spending hours hunting through unfamiliar code. The `/research-codebase` co
 
 This is the fastest path to value — install, run one command, get answers.
 
-### Thorough Online Research
+### Thorough Technical Online Research
 
 When you're evaluating libraries, exploring implementation approaches, or need best practices before building, Atomic's research phase pulls in external knowledge — not just your codebase — to inform the spec and implementation plan.
 
@@ -65,9 +65,8 @@ curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | b
 cd your-project && atomic run claude
 
 # Try it
-/research-codebase "How does authentication work in this codebase?"
+/research-codebase "I need to add real-time collaborative editing. Research how our data layer, state management, and API boundaries work so I can plan where WebSocket connections should integrate."
 ```
-
 ---
 
 ## Table of Contents

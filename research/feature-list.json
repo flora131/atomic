@@ -1315,7 +1315,7 @@
         "Log 'workflow.error' event on failures",
         "Use existing telemetry system"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

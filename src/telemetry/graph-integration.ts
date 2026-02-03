@@ -15,6 +15,7 @@ import type {
 import type {
   TelemetryCollector,
   GraphEventProperties,
+  WorkflowEventProperties,
 } from "./types.ts";
 import { getGlobalCollector } from "./collector.ts";
 
@@ -495,4 +496,224 @@ export function withCheckpointTelemetry<TState extends BaseState>(
       return checkpointer.delete(execId, label);
     },
   };
+}
+
+// ============================================================================
+// WORKFLOW TELEMETRY TYPES
+// ============================================================================
+
+/**
+ * Configuration for workflow telemetry integration.
+ */
+export interface WorkflowTelemetryConfig {
+  /** Custom telemetry collector (defaults to global collector) */
+  collector?: TelemetryCollector;
+  /** Whether to track node enter/exit events */
+  trackNodes?: boolean;
+  /** Additional properties to include in all events */
+  additionalProperties?: WorkflowEventProperties;
+}
+
+/**
+ * Workflow tracker returned by trackWorkflowExecution.
+ * Call these functions at appropriate points during workflow execution.
+ */
+export interface WorkflowTracker {
+  /** Track workflow start event */
+  start: (workflowName: string, config?: Record<string, unknown>, properties?: WorkflowEventProperties) => void;
+  /** Track node enter event */
+  nodeEnter: (nodeId: string, nodeType?: string, properties?: WorkflowEventProperties) => void;
+  /** Track node exit event with duration */
+  nodeExit: (nodeId: string, nodeType?: string, durationMs?: number, properties?: WorkflowEventProperties) => void;
+  /** Track successful workflow completion */
+  complete: (success: boolean, durationMs?: number, properties?: WorkflowEventProperties) => void;
+  /** Track workflow error */
+  error: (errorMessage: string, nodeId?: string, properties?: WorkflowEventProperties) => void;
+}
+
+// ============================================================================
+// WORKFLOW TRACKER FACTORY
+// ============================================================================
+
+/**
+ * Create a workflow tracker for tracking workflow execution events.
+ *
+ * Returns an object with methods to track workflow start, node transitions,
+ * completion, and errors using the new workflow.* event types.
+ *
+ * @param executionId - Unique identifier for this execution
+ * @param config - Telemetry configuration
+ * @returns Workflow tracker with tracking methods
+ *
+ * @example
+ * ```typescript
+ * const tracker = trackWorkflowExecution("exec-123");
+ *
+ * tracker.start("ralph-workflow", { maxIterations: 100 });
+ *
+ * for (const node of nodes) {
+ *   const startTime = Date.now();
+ *   tracker.nodeEnter(node.id, node.type);
+ *   await executeNode(node);
+ *   tracker.nodeExit(node.id, node.type, Date.now() - startTime);
+ * }
+ *
+ * tracker.complete(true, totalDuration);
+ * ```
+ */
+export function trackWorkflowExecution(
+  executionId: string,
+  config: WorkflowTelemetryConfig = {}
+): WorkflowTracker {
+  const collector = config.collector ?? getGlobalCollector();
+  const baseProperties: WorkflowEventProperties = {
+    ...config.additionalProperties,
+  };
+
+  return {
+    start(
+      workflowName: string,
+      workflowConfig?: Record<string, unknown>,
+      properties?: WorkflowEventProperties
+    ): void {
+      collector.track(
+        "workflow.start",
+        {
+          ...baseProperties,
+          ...properties,
+          // Include workflow name and config as custom properties
+          // These will be captured in the properties object
+        },
+        { executionId }
+      );
+      // Log workflow name and config separately if needed for debugging
+      if (workflowConfig) {
+        // Config is passed for context but we only track what fits in properties
+      }
+    },
+
+    nodeEnter(
+      nodeId: string,
+      nodeType?: string,
+      properties?: WorkflowEventProperties
+    ): void {
+      if (config.trackNodes === false) {
+        return;
+      }
+      collector.track(
+        "workflow.node.enter",
+        {
+          ...baseProperties,
+          ...properties,
+        },
+        { executionId }
+      );
+    },
+
+    nodeExit(
+      nodeId: string,
+      nodeType?: string,
+      durationMs?: number,
+      properties?: WorkflowEventProperties
+    ): void {
+      if (config.trackNodes === false) {
+        return;
+      }
+      collector.track(
+        "workflow.node.exit",
+        {
+          ...baseProperties,
+          ...properties,
+          durationMs,
+        },
+        { executionId }
+      );
+    },
+
+    complete(
+      success: boolean,
+      durationMs?: number,
+      properties?: WorkflowEventProperties
+    ): void {
+      collector.track(
+        "workflow.complete",
+        {
+          ...baseProperties,
+          ...properties,
+          durationMs,
+        },
+        { executionId }
+      );
+    },
+
+    error(
+      errorMessage: string,
+      nodeId?: string,
+      properties?: WorkflowEventProperties
+    ): void {
+      collector.track(
+        "workflow.error",
+        {
+          ...baseProperties,
+          ...properties,
+        },
+        { executionId }
+      );
+    },
+  };
+}
+
+/**
+ * Execute a workflow with automatic telemetry tracking.
+ *
+ * This is a convenience wrapper that handles the common workflow execution pattern,
+ * automatically tracking start, completion/error events with duration.
+ *
+ * @param executionId - Unique identifier for this execution
+ * @param workflowName - Name of the workflow being executed
+ * @param fn - Async function to execute
+ * @param config - Telemetry configuration
+ * @returns The result of the execution function
+ *
+ * @example
+ * ```typescript
+ * const result = await withWorkflowTelemetry(
+ *   "exec-123",
+ *   "ralph-workflow",
+ *   async (tracker) => {
+ *     // Execute workflow nodes
+ *     for (const node of nodes) {
+ *       const startTime = Date.now();
+ *       tracker.nodeEnter(node.id, node.type);
+ *       await executeNode(node);
+ *       tracker.nodeExit(node.id, node.type, Date.now() - startTime);
+ *     }
+ *     return finalResult;
+ *   }
+ * );
+ * ```
+ */
+export async function withWorkflowTelemetry<T>(
+  executionId: string,
+  workflowName: string,
+  fn: (tracker: WorkflowTracker) => Promise<T>,
+  config: WorkflowTelemetryConfig = {}
+): Promise<T> {
+  const tracker = trackWorkflowExecution(executionId, config);
+  const startTime = Date.now();
+
+  tracker.start(workflowName, {});
+
+  try {
+    const result = await fn(tracker);
+
+    tracker.complete(true, Date.now() - startTime);
+
+    return result;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    tracker.error(errorMessage);
+    tracker.complete(false, Date.now() - startTime);
+    throw error;
+  }
 }

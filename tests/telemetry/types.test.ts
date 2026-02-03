@@ -106,6 +106,11 @@ describe("GraphEventType", () => {
 
 describe("WorkflowEventType", () => {
   const validWorkflowEvents = [
+    "workflow.start",
+    "workflow.complete",
+    "workflow.error",
+    "workflow.node.enter",
+    "workflow.node.exit",
     "workflow.iteration.started",
     "workflow.iteration.completed",
     "workflow.feature.started",
@@ -120,6 +125,14 @@ describe("WorkflowEventType", () => {
     for (const eventType of validWorkflowEvents) {
       expect(isWorkflowEventType(eventType)).toBe(true);
     }
+  });
+
+  test("validates new workflow execution event types", () => {
+    expect(isWorkflowEventType("workflow.start")).toBe(true);
+    expect(isWorkflowEventType("workflow.complete")).toBe(true);
+    expect(isWorkflowEventType("workflow.error")).toBe(true);
+    expect(isWorkflowEventType("workflow.node.enter")).toBe(true);
+    expect(isWorkflowEventType("workflow.node.exit")).toBe(true);
   });
 
   test("rejects non-workflow event types", () => {
@@ -616,6 +629,11 @@ describe("Event Type Exhaustiveness", () => {
 
   test("Workflow events total count", () => {
     const workflowEvents = [
+      "workflow.start",
+      "workflow.complete",
+      "workflow.error",
+      "workflow.node.enter",
+      "workflow.node.exit",
       "workflow.iteration.started",
       "workflow.iteration.completed",
       "workflow.feature.started",
@@ -629,7 +647,7 @@ describe("Event Type Exhaustiveness", () => {
     for (const event of workflowEvents) {
       expect(isWorkflowEventType(event)).toBe(true);
     }
-    expect(workflowEvents.length).toBe(8);
+    expect(workflowEvents.length).toBe(13);
   });
 
   test("UI events total count", () => {
@@ -648,8 +666,8 @@ describe("Event Type Exhaustiveness", () => {
   });
 
   test("Total telemetry event types", () => {
-    // 9 SDK + 11 Graph + 8 Workflow + 5 UI = 33 total
-    const totalExpected = 9 + 11 + 8 + 5;
-    expect(totalExpected).toBe(33);
+    // 9 SDK + 11 Graph + 13 Workflow + 5 UI = 38 total
+    const totalExpected = 9 + 11 + 13 + 5;
+    expect(totalExpected).toBe(38);
   });
 });

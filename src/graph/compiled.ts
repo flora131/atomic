@@ -29,6 +29,11 @@ import type {
   Checkpointer,
 } from "./types.ts";
 import { DEFAULT_RETRY_CONFIG, DEFAULT_GRAPH_CONFIG } from "./types.ts";
+import {
+  trackWorkflowExecution,
+  type WorkflowTracker,
+  type WorkflowTelemetryConfig,
+} from "../telemetry/graph-integration.ts";
 
 // ============================================================================
 // EXECUTION TYPES
@@ -54,6 +59,12 @@ export interface ExecutionOptions<TState extends BaseState = BaseState> {
 
   /** Maximum number of nodes to execute (safety limit) */
   maxSteps?: number;
+
+  /** Workflow name for telemetry tracking */
+  workflowName?: string;
+
+  /** Telemetry configuration */
+  telemetry?: WorkflowTelemetryConfig;
 }
 
 /**
@@ -255,6 +266,20 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
   async *stream(options: ExecutionOptions<TState> = {}): AsyncGenerator<StepResult<TState>> {
     const executionId = options.executionId ?? generateExecutionId();
     const maxSteps = options.maxSteps ?? 1000;
+    const workflowStartTime = Date.now();
+
+    // Initialize telemetry tracker
+    const tracker: WorkflowTracker | null = options.telemetry
+      ? trackWorkflowExecution(executionId, options.telemetry)
+      : null;
+
+    // Track workflow start
+    if (tracker) {
+      tracker.start(options.workflowName ?? "unnamed", {
+        maxSteps,
+        resuming: !!options.resumeFrom,
+      });
+    }
 
     // Initialize or resume state
     let state: TState;
@@ -284,6 +309,10 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
     while (nodeQueue.length > 0 && stepCount < maxSteps) {
       // Check for abort
       if (options.abortSignal?.aborted) {
+        // Track workflow cancellation as completion with failure
+        if (tracker) {
+          tracker.complete(false, Date.now() - workflowStartTime);
+        }
         yield {
           nodeId: nodeQueue[0]!,
           state,
@@ -314,6 +343,12 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
       }
       executionVisited.add(visitKey);
 
+      // Track node enter
+      const nodeStartTime = Date.now();
+      if (tracker) {
+        tracker.nodeEnter(currentNodeId, node.type);
+      }
+
       // Execute node with retry
       let result: NodeResult<TState>;
       let nodeError: ExecutionError | undefined;
@@ -329,6 +364,18 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
         };
         errors.push(nodeError);
 
+        // Track node exit with failure
+        if (tracker) {
+          tracker.nodeExit(currentNodeId, node.type, Date.now() - nodeStartTime);
+        }
+
+        // Track workflow error
+        if (tracker) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          tracker.error(errorMessage, currentNodeId);
+          tracker.complete(false, Date.now() - workflowStartTime);
+        }
+
         yield {
           nodeId: currentNodeId,
           state,
@@ -337,6 +384,11 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
           error: nodeError,
         };
         return;
+      }
+
+      // Track node exit
+      if (tracker) {
+        tracker.nodeExit(currentNodeId, node.type, Date.now() - nodeStartTime);
       }
 
       // Update state
@@ -409,6 +461,11 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
       const isEndNode =
         this.graph.endNodes.has(currentNodeId) && nodeQueue.length === 0;
 
+      // Track workflow completion BEFORE yield to ensure it's tracked even if consumer breaks
+      if (isEndNode && tracker) {
+        tracker.complete(true, Date.now() - workflowStartTime);
+      }
+
       yield {
         nodeId: currentNodeId,
         state,
@@ -423,6 +480,11 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
 
     // Exceeded max steps
     if (stepCount >= maxSteps) {
+      // Track workflow error for max steps exceeded
+      if (tracker) {
+        tracker.error(`Exceeded maximum steps (${maxSteps})`, this.graph.startNode);
+        tracker.complete(false, Date.now() - workflowStartTime);
+      }
       yield {
         nodeId: nodeQueue[0] ?? this.graph.startNode,
         state,

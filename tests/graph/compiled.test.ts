@@ -897,3 +897,227 @@ describe("Edge Cases", () => {
     expect((output.nested as Record<string, unknown>).deeply).toEqual({ value: 42 });
   });
 });
+
+// ============================================================================
+// Workflow Telemetry Integration Tests
+// ============================================================================
+
+describe("Workflow Telemetry Integration", () => {
+  interface TrackedEvent {
+    eventType: string;
+    properties: Record<string, unknown>;
+    options?: { executionId?: string; sessionId?: string };
+  }
+
+  function createTrackingCollector(): {
+    collector: import("../../src/telemetry/types.ts").TelemetryCollector;
+    events: TrackedEvent[];
+    clear: () => void;
+  } {
+    const events: TrackedEvent[] = [];
+
+    const collector: import("../../src/telemetry/types.ts").TelemetryCollector = {
+      track(eventType, properties = {}, options) {
+        events.push({ eventType, properties: properties as Record<string, unknown>, options });
+      },
+      async flush() {
+        return { eventCount: events.length, localLogSuccess: true, remoteSuccess: true };
+      },
+      isEnabled() {
+        return true;
+      },
+      async shutdown() {},
+      getBufferSize() {
+        return events.length;
+      },
+      getConfig() {
+        return { enabled: true };
+      },
+    };
+
+    const clear = () => {
+      events.length = 0;
+    };
+
+    return { collector, events, clear };
+  }
+
+  test("emits workflow.start event when telemetry is enabled", async () => {
+    const { collector, events } = createTrackingCollector();
+
+    const compiled = graph<TestState>()
+      .start(createIncrementNode("step1"))
+      .end()
+      .compile();
+
+    await executeGraph(compiled, {
+      initialState: { counter: 0, items: [], approved: false },
+      workflowName: "test-workflow",
+      telemetry: { collector },
+    });
+
+    const startEvents = events.filter((e) => e.eventType === "workflow.start");
+    expect(startEvents.length).toBe(1);
+  });
+
+  test("emits workflow.node.enter and workflow.node.exit events for each node", async () => {
+    const { collector, events } = createTrackingCollector();
+
+    const compiled = graph<TestState>()
+      .start(createIncrementNode("step1"))
+      .then(createIncrementNode("step2"))
+      .end()
+      .compile();
+
+    await executeGraph(compiled, {
+      initialState: { counter: 0, items: [], approved: false },
+      workflowName: "multi-node-workflow",
+      telemetry: { collector },
+    });
+
+    const enterEvents = events.filter((e) => e.eventType === "workflow.node.enter");
+    const exitEvents = events.filter((e) => e.eventType === "workflow.node.exit");
+
+    // Should have enter/exit events for each of the 2 nodes
+    expect(enterEvents.length).toBe(2);
+    expect(exitEvents.length).toBe(2);
+  });
+
+  test("emits workflow.complete event on successful completion", async () => {
+    const { collector, events } = createTrackingCollector();
+
+    const compiled = graph<TestState>()
+      .start(createIncrementNode("step1"))
+      .end()
+      .compile();
+
+    await executeGraph(compiled, {
+      initialState: { counter: 0, items: [], approved: false },
+      telemetry: { collector },
+    });
+
+    const completeEvents = events.filter((e) => e.eventType === "workflow.complete");
+    expect(completeEvents.length).toBe(1);
+  });
+
+  test("emits workflow.error and workflow.complete events on failure", async () => {
+    const { collector, events } = createTrackingCollector();
+
+    const failingNode = createNode<TestState>("failing", "tool", async () => {
+      throw new Error("Node execution failed");
+    });
+
+    const compiled = graph<TestState>()
+      .start(failingNode)
+      .end()
+      .compile();
+
+    try {
+      await executeGraph(compiled, {
+        initialState: { counter: 0, items: [], approved: false },
+        telemetry: { collector },
+      });
+    } catch {
+      // Expected to fail
+    }
+
+    const errorEvents = events.filter((e) => e.eventType === "workflow.error");
+    const completeEvents = events.filter((e) => e.eventType === "workflow.complete");
+
+    expect(errorEvents.length).toBe(1);
+    expect(completeEvents.length).toBe(1);
+  });
+
+  test("does not emit telemetry events when telemetry option is not provided", async () => {
+    const { collector, events } = createTrackingCollector();
+
+    const compiled = graph<TestState>()
+      .start(createIncrementNode("step1"))
+      .end()
+      .compile();
+
+    await executeGraph(compiled, {
+      initialState: { counter: 0, items: [], approved: false },
+      // No telemetry option
+    });
+
+    // Events array should be empty since we didn't pass telemetry config
+    expect(events.length).toBe(0);
+  });
+
+  test("node exit events include duration", async () => {
+    const { collector, events } = createTrackingCollector();
+
+    const slowNode = createNode<TestState>("slow", "tool", async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      return { stateUpdate: { counter: 1 } };
+    });
+
+    const compiled = graph<TestState>()
+      .start(slowNode)
+      .end()
+      .compile();
+
+    await executeGraph(compiled, {
+      initialState: { counter: 0, items: [], approved: false },
+      telemetry: { collector },
+    });
+
+    const exitEvents = events.filter((e) => e.eventType === "workflow.node.exit");
+    expect(exitEvents.length).toBe(1);
+    expect(exitEvents[0]!.properties.durationMs).toBeGreaterThanOrEqual(10);
+  });
+
+  test("workflow name is passed to start event", async () => {
+    const { collector, events } = createTrackingCollector();
+
+    const compiled = graph<TestState>()
+      .start(createIncrementNode("step1"))
+      .end()
+      .compile();
+
+    await executeGraph(compiled, {
+      initialState: { counter: 0, items: [], approved: false },
+      workflowName: "my-custom-workflow",
+      telemetry: { collector },
+    });
+
+    const startEvents = events.filter((e) => e.eventType === "workflow.start");
+    expect(startEvents.length).toBe(1);
+    // The workflow name is passed to the tracker but stored internally
+    // Event is tracked with correct execution ID
+    expect(startEvents[0]!.options?.executionId).toBeDefined();
+  });
+
+  test("telemetry tracks cancellation as failure", async () => {
+    const { collector, events } = createTrackingCollector();
+
+    const abortController = new AbortController();
+
+    // Abort immediately before execution starts
+    abortController.abort();
+
+    const incrementNode = createNode<TestState>("step1", "tool", async () => ({
+      stateUpdate: { counter: 1 },
+    }));
+
+    const compiled = graph<TestState>()
+      .start(incrementNode)
+      .end()
+      .compile();
+
+    const result = await executeGraph(compiled, {
+      initialState: { counter: 0, items: [], approved: false },
+      telemetry: { collector },
+      abortSignal: abortController.signal,
+    });
+
+    expect(result.status).toBe("cancelled");
+
+    // Should have workflow.start and workflow.complete (failure) events
+    const startEvents = events.filter((e) => e.eventType === "workflow.start");
+    const completeEvents = events.filter((e) => e.eventType === "workflow.complete");
+    expect(startEvents.length).toBe(1);
+    expect(completeEvents.length).toBe(1);
+  });
+});

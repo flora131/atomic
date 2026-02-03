@@ -867,7 +867,7 @@
         "Remove associated handler code",
         "Spec approval is now manual before workflow start"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "refactor",

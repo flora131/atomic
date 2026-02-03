@@ -1,5 +1,52 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Remove /approve Command Registration
+
+### Completed
+- Removed /approve command from builtin-commands.ts
+  - Removed approveCommand export and definition
+  - Removed from builtinCommands array
+  - Updated command count from 7 to 6
+- Updated /status command message to remove /approve reference
+  - Changed "Use `/approve` or `/reject <feedback>` to continue" to "Use `/reject <feedback>` to revise or continue manually"
+- Updated index.ts
+  - Removed approveCommand from exports
+  - Updated comment to remove /approve from list
+- Updated cli.ts
+  - Removed /approve from slash commands help text
+- Updated chat.ts
+  - Removed /approve command handler block
+  - Updated help message to remove /approve
+  - Changed approval prompt from "Type `/approve` to proceed or `/reject`" to "Type `/reject <feedback>` to request revisions or continue manually."
+  - Updated approval callback logic: any input continues workflow, explicit "reject" rejects
+
+### Tests Updated
+- tests/ui/commands/builtin-commands.test.ts
+  - Removed approveCommand import
+  - Removed entire approveCommand test suite
+  - Updated builtinCommands array test (6 commands instead of 7)
+  - Removed "ok" and "yes" alias tests (those were approveCommand aliases)
+  - Updated registerBuiltinCommands idempotent test (size 6 instead of 7)
+  - Updated pending approval state test to not expect /approve in message
+- tests/ui/commands/index.test.ts
+  - Removed expect for globalRegistry.has("approve")
+  - Added note: "/approve removed - spec approval is now manual before workflow"
+
+### Test Results
+- All UI commands tests pass (498 tests)
+- All builtin-commands tests pass (43 tests)
+- All index tests pass (31 tests)
+
+### Files Modified
+- src/ui/commands/builtin-commands.ts - Removed /approve command
+- src/ui/commands/index.ts - Removed approveCommand export
+- src/cli.ts - Removed /approve from help text
+- src/commands/chat.ts - Removed /approve handling, updated messages
+- tests/ui/commands/builtin-commands.test.ts - Removed approveCommand tests
+- tests/ui/commands/index.test.ts - Removed approve registration test
+
+---
+
 ## 2026-02-03 - Feature Implementation: Remove /ralph:ralph-help and Integrate into /help
 
 ### Completed

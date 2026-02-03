@@ -74,6 +74,26 @@ export const helpCommand: CommandDefinition = {
       }
     }
 
+    // Add Ralph workflow documentation if /ralph is registered
+    if (grouped["workflow"]?.some((cmd) => cmd.name === "ralph")) {
+      lines.push("**Ralph Workflow**");
+      lines.push("  The autonomous implementation workflow.");
+      lines.push("");
+      lines.push("  Usage:");
+      lines.push("    /ralph                        Start with feature-list.json");
+      lines.push("    /ralph --yolo <prompt>        Freestyle mode (no feature list)");
+      lines.push("    /ralph --resume <uuid>        Resume paused session");
+      lines.push("");
+      lines.push("  Options:");
+      lines.push("    --feature-list <path>         Feature list path (default: research/feature-list.json)");
+      lines.push("    --max-iterations <n>          Max iterations (default: 100, 0 = infinite)");
+      lines.push("");
+      lines.push("  Interrupt:");
+      lines.push("    Press Ctrl+C or Esc to pause the workflow.");
+      lines.push("    Resume later with: /ralph --resume <session-uuid>");
+      lines.push("");
+    }
+
     return {
       success: true,
       message: lines.join("\n").trim(),

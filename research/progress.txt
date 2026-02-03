@@ -1,5 +1,32 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Remove /ralph:ralph-help and Integrate into /help
+
+### Completed
+- Verified /ralph:ralph-help command already removed from SKILL_DEFINITIONS
+- Updated /help command to include Ralph workflow documentation when /ralph is registered
+- Added comprehensive Ralph workflow help section with:
+  - Usage examples for default mode, --yolo mode, and --resume
+  - Option documentation for --feature-list and --max-iterations
+  - Interrupt instructions (Ctrl+C or Esc to pause)
+  - Resume instructions with session UUID
+- Fixed pre-existing test failures in builtin-commands.test.ts
+  - Updated expected command count from 6 to 7 (includes compactCommand)
+  - Added compactCommand to import and array containment tests
+
+### Tests Added
+- helpCommand shows Ralph workflow documentation when /ralph is registered
+- helpCommand does not show Ralph documentation when /ralph is not registered
+
+### Test Results
+- All UI commands tests pass (502 tests)
+- All builtin-commands tests pass (47 tests)
+- All skill-commands tests pass (107 tests)
+
+### Files Modified
+- src/ui/commands/builtin-commands.ts - Updated /help to include Ralph workflow docs
+- tests/ui/commands/builtin-commands.test.ts - Fixed command count, added Ralph help tests
+
 ## 2026-02-02 - Feature Implementation: BuiltinSkill Interface
 
 ### Completed

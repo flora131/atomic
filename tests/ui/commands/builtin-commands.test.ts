@@ -12,6 +12,7 @@ import {
   rejectCommand,
   themeCommand,
   clearCommand,
+  compactCommand,
   builtinCommands,
   registerBuiltinCommands,
 } from "../../../src/ui/commands/builtin-commands.ts";
@@ -123,6 +124,51 @@ describe("helpCommand", () => {
     const result = helpCommand.execute("", context);
 
     expect(result.message).toContain("t, tst");
+  });
+
+  test("shows Ralph workflow documentation when /ralph is registered", () => {
+    globalRegistry.register({
+      name: "ralph",
+      description: "Start the Ralph autonomous implementation workflow",
+      category: "workflow",
+      execute: () => ({ success: true }),
+    });
+
+    const context = createMockContext();
+    const result = helpCommand.execute("", context);
+
+    // Check Ralph workflow section is present
+    expect(result.message).toContain("**Ralph Workflow**");
+    expect(result.message).toContain("autonomous implementation workflow");
+
+    // Check usage examples
+    expect(result.message).toContain("/ralph");
+    expect(result.message).toContain("--yolo");
+    expect(result.message).toContain("--resume");
+
+    // Check options
+    expect(result.message).toContain("--feature-list");
+    expect(result.message).toContain("--max-iterations");
+
+    // Check interrupt instructions
+    expect(result.message).toContain("Ctrl+C");
+    expect(result.message).toContain("Esc");
+  });
+
+  test("does not show Ralph documentation when /ralph is not registered", () => {
+    globalRegistry.register({
+      name: "other-workflow",
+      description: "Other workflow",
+      category: "workflow",
+      execute: () => ({ success: true }),
+    });
+
+    const context = createMockContext();
+    const result = helpCommand.execute("", context);
+
+    // Ralph section should not be present
+    expect(result.message).not.toContain("**Ralph Workflow**");
+    expect(result.message).not.toContain("--yolo");
   });
 });
 
@@ -503,10 +549,11 @@ describe("builtinCommands array", () => {
     expect(builtinCommands).toContain(rejectCommand);
     expect(builtinCommands).toContain(themeCommand);
     expect(builtinCommands).toContain(clearCommand);
+    expect(builtinCommands).toContain(compactCommand);
   });
 
-  test("has 6 commands", () => {
-    expect(builtinCommands.length).toBe(6);
+  test("has 7 commands", () => {
+    expect(builtinCommands.length).toBe(7);
   });
 });
 
@@ -548,7 +595,7 @@ describe("registerBuiltinCommands", () => {
     registerBuiltinCommands();
 
     // Should not throw and should still have correct count
-    expect(globalRegistry.size()).toBe(6);
+    expect(globalRegistry.size()).toBe(7);
   });
 
   test("commands are executable after registration", async () => {

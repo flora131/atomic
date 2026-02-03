@@ -716,6 +716,115 @@ export function formatSessionStatus(status: RalphSessionStatus): string {
 }
 
 // ============================================================================
+// TERMINAL HYPERLINK SUPPORT
+// ============================================================================
+
+/**
+ * Check if the terminal supports hyperlinks using OSC 8 escape sequences.
+ *
+ * Modern terminals that support hyperlinks include:
+ * - iTerm2 (macOS)
+ * - VTE-based terminals (GNOME Terminal, Tilix, etc.)
+ * - Windows Terminal
+ * - Hyper
+ * - Alacritty (with recent versions)
+ *
+ * We detect support by checking environment variables that indicate
+ * terminal capabilities.
+ *
+ * @returns True if the terminal likely supports hyperlinks
+ */
+export function supportsTerminalHyperlinks(): boolean {
+  // Check if running in a TTY
+  if (!process.stdout.isTTY) {
+    return false;
+  }
+
+  // Check for known terminals that support hyperlinks
+  const termProgram = process.env.TERM_PROGRAM ?? "";
+  const term = process.env.TERM ?? "";
+  const wtSession = process.env.WT_SESSION; // Windows Terminal
+  const colorterm = process.env.COLORTERM ?? "";
+
+  // iTerm2 and similar macOS terminals
+  if (termProgram === "iTerm.app" || termProgram === "Apple_Terminal") {
+    return true;
+  }
+
+  // Windows Terminal
+  if (wtSession) {
+    return true;
+  }
+
+  // VTE-based terminals (GNOME Terminal, etc.)
+  if (process.env.VTE_VERSION) {
+    const vteVersion = parseInt(process.env.VTE_VERSION, 10);
+    // VTE 0.50.0 (version 5000) added hyperlink support
+    if (!isNaN(vteVersion) && vteVersion >= 5000) {
+      return true;
+    }
+  }
+
+  // Modern terminal with truecolor support often supports hyperlinks
+  if (colorterm === "truecolor" || colorterm === "24bit") {
+    return true;
+  }
+
+  // xterm-256color and similar modern terms often support hyperlinks
+  if (term.includes("256color") || term.includes("xterm")) {
+    return true;
+  }
+
+  // Hyper terminal
+  if (termProgram === "Hyper") {
+    return true;
+  }
+
+  // Default to false for unknown terminals
+  return false;
+}
+
+/**
+ * Format a URL as a clickable terminal hyperlink using OSC 8 escape sequences.
+ *
+ * If the terminal supports hyperlinks, the URL will be clickable when displayed.
+ * Otherwise, the URL is returned as-is.
+ *
+ * The OSC 8 format is:
+ * \x1b]8;;URL\x07TEXT\x1b]8;;\x07
+ *
+ * Where:
+ * - \x1b]8;; starts the hyperlink with the URL
+ * - \x07 (BEL) terminates the URL
+ * - TEXT is what the user sees
+ * - \x1b]8;;\x07 ends the hyperlink
+ *
+ * @param url - The URL to make clickable
+ * @param text - Optional display text (defaults to the URL)
+ * @returns The formatted hyperlink string or plain URL if not supported
+ *
+ * @example
+ * ```typescript
+ * // Returns clickable link in supported terminals
+ * formatTerminalHyperlink("https://github.com/owner/repo/pull/123");
+ *
+ * // Returns clickable link with custom text
+ * formatTerminalHyperlink("https://github.com/owner/repo/pull/123", "PR #123");
+ * ```
+ */
+export function formatTerminalHyperlink(url: string, text?: string): string {
+  const displayText = text ?? url;
+
+  if (!supportsTerminalHyperlinks()) {
+    return displayText;
+  }
+
+  // OSC 8 hyperlink format: \x1b]8;;URL\x07TEXT\x1b]8;;\x07
+  // Using \x1b (ESC) and \x07 (BEL) for maximum terminal compatibility
+  return `\x1b]8;;${url}\x07${displayText}\x1b]8;;\x07`;
+}
+
+// ============================================================================
 // IMPLEMENT FEATURE NODE
 // ============================================================================
 
@@ -1701,9 +1810,10 @@ export async function processCreatePRResult(
     totalFeatures: totalCount,
   });
 
-  // Log completion message
+  // Log completion message with clickable URL if terminal supports it
   if (prUrl) {
-    console.log(`Pull request created: ${prUrl}`);
+    const clickableUrl = formatTerminalHyperlink(prUrl);
+    console.log(`Pull request created: ${clickableUrl}`);
   } else {
     console.log("Session completed (no PR URL extracted from output)");
   }

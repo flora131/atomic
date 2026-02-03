@@ -1291,7 +1291,7 @@
         "Display 'Pull request created: {prUrl}'",
         "Make URL clickable in terminal if supported"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "ui",

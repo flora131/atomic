@@ -1718,7 +1718,7 @@
         "Verify agent has access to Edit, Write tools",
         "Verify agent can analyze and fix issue"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

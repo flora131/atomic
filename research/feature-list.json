@@ -1202,7 +1202,7 @@
         "Replaced by SDK-native workflow execution",
         "Update any imports that reference removed files"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

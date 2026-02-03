@@ -1,5 +1,43 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Remove hook-based Ralph loop implementation files
+
+### Status: COMPLETED
+
+Removed all hook-based Ralph loop implementation files since the graph engine is now the only execution mode.
+
+#### Files Removed
+- `.github/hooks/ralph-stop.ts` - Hook-based Ralph stop handler for GitHub Copilot
+- `.github/scripts/ralph-loop.ts` - Hook-based Ralph loop setup script
+- `.github/scripts/start-ralph-session.ts` - Hook-based session start handler
+- `.github/scripts/cancel-ralph.ts` - Hook-based cancel script
+- `.github/skills/ralph/` directory - Skills for hook-based Ralph (SKILL.md, ralph-loop.md, cancel-ralph.md)
+- `plugins/ralph/` directory - Plugin files for hook-based Ralph (hooks.json, commands/*.md, plugin.json)
+- `tests/ralph/ralph-loop-integration.test.ts` - Integration tests for hook-based loop
+- `tests/ralph/start-ralph-session.test.ts` - Tests for start-ralph-session.ts
+- `tests/ralph/ralph-loop-cli.test.ts` - CLI tests for ralph-loop.ts
+- `tests/ralph/cancel-ralph.test.ts` - Tests for cancel-ralph.ts
+- `tests/ralph/yaml-frontmatter.test.ts` - Tests for YAML frontmatter parsing
+
+#### Files Modified
+- `src/commands/ralph.ts` - Removed `ralphStop()` function and related utility functions (readStdin, parseFrontmatter, extractPromptText, testAllFeaturesPassing, extractPromiseText, fileExists, RALPH_STATE_FILE constant, TranscriptMessage and FeatureItem types)
+- `src/cli.ts` - Removed `ralphStop` import and `ralph stop` subcommand
+
+#### Files Kept (SDK-native workflow)
+- `src/workflows/ralph.ts` - SDK-native workflow definition
+- `src/workflows/ralph-session.ts` - Session management for SDK-native workflow
+- `src/workflows/ralph-executor.ts` - Workflow executor
+- `src/graph/nodes/ralph-nodes.ts` - Graph nodes for Ralph workflow
+- `src/config/ralph.ts` - Configuration for Ralph workflow
+- `tests/ralph/ralph-graph-engine.test.ts` - Tests for graph-based workflow (13 tests pass)
+
+#### Test Results
+- Build passes successfully
+- All 13 Ralph graph engine tests pass
+- Pre-existing test failures in cli-commander.test.ts are unrelated to this change
+
+---
+
 ## 2026-02-03 - Feature Implementation: Remove explicit hooks module from src/
 
 ### Status: COMPLETED

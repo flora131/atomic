@@ -38,6 +38,8 @@ Not just bug fixes — scoped, multi-file features that require architectural un
 
 The workflow: `/research-codebase` → review → `/create-spec` → review → `/create-feature-list` → review → `/implement-feature` (manually one-by-one, or let Ralph run overnight). Wake up to completed features ready for review.
 
+Works on macOS, Linux, and Windows.
+
 ### Deep Codebase Research & Root Cause Analysis
 
 Stop spending hours hunting through unfamiliar code. The `/research-codebase` command dispatches specialized sub-agents to do the hunting for you:
@@ -61,12 +63,26 @@ When you're evaluating libraries, exploring implementation approaches, or need b
 # Install
 curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
 
-# Run in your project
-cd your-project && atomic run claude
+# Navigate to your project
+cd your-project
+```
 
-# Try it
-/research-codebase "I need to add real-time collaborative editing. \
-  Research how our data layer, state management, and API boundaries \
+```bash
+# For Claude Code
+atomic run claude "/research-codebase I need to add real-time collaborative \
+  editing. Research how our data layer, state management, and API boundaries \
+  work so I can plan where WebSocket connections should integrate."
+
+# For OpenCode
+atomic run opencode
+# then type:
+/research-codebase "I need to add real-time collaborative editing. Research
+  how our data layer, state management, and API boundaries work so I can
+  plan where WebSocket connections should integrate."
+
+# For GitHub Copilot
+atomic run copilot -i "/research-codebase I need to add real-time collaborative \
+  editing. Research how our data layer, state management, and API boundaries \
   work so I can plan where WebSocket connections should integrate."
 ```
 ---

@@ -415,3 +415,271 @@ export function isAtomicWorkflowState(value: unknown): value is AtomicWorkflowSt
     typeof obj.iteration === "number"
   );
 }
+
+// ============================================================================
+// RALPH WORKFLOW STATE
+// ============================================================================
+
+/**
+ * Ralph workflow state interface for the Ralph loop execution.
+ *
+ * This interface extends BaseState and includes all fields needed for
+ * the Ralph autonomous feature implementation workflow. It combines:
+ * - Base workflow state fields (executionId, lastUpdated, outputs)
+ * - Research and specification tracking
+ * - Feature list management
+ * - Debug and error tracking
+ * - PR management
+ * - Context management
+ * - Iteration tracking
+ * - Ralph-specific session fields (yolo mode, session management)
+ *
+ * @example
+ * ```typescript
+ * const state: RalphWorkflowState = {
+ *   executionId: "550e8400-e29b-41d4-a716-446655440000",
+ *   lastUpdated: "2026-02-02T10:00:00.000Z",
+ *   outputs: {},
+ *   researchDoc: "# Research\n...",
+ *   specDoc: "# Specification\n...",
+ *   specApproved: true,
+ *   featureList: [...],
+ *   currentFeature: null,
+ *   allFeaturesPassing: false,
+ *   contextWindowUsage: null,
+ *   iteration: 1,
+ *   prUrl: null,
+ *   debugReports: [],
+ *   ralphSessionId: "abc123-def456",
+ *   ralphSessionDir: ".ralph/sessions/abc123-def456/",
+ *   yolo: false,
+ *   yoloPrompt: null,
+ *   yoloComplete: false,
+ *   maxIterations: 100,
+ *   shouldContinue: true
+ * };
+ * ```
+ */
+export interface RalphWorkflowState {
+  /** Unique identifier for this execution instance */
+  executionId: string;
+
+  /** ISO timestamp of last state update */
+  lastUpdated: string;
+
+  /** Map of node outputs keyed by node ID */
+  outputs: Record<NodeId, unknown>;
+
+  /** Research documentation content */
+  researchDoc: string;
+
+  /** Technical specification document content */
+  specDoc: string;
+
+  /** Whether the specification has been approved for implementation */
+  specApproved: boolean;
+
+  /** List of features to implement */
+  featureList: Feature[];
+
+  /** Currently active feature being implemented, or null */
+  currentFeature: Feature | null;
+
+  /** Whether all features have passed their tests */
+  allFeaturesPassing: boolean;
+
+  /** Current context window usage from agent sessions */
+  contextWindowUsage: ContextWindowUsage | null;
+
+  /** Current iteration number (increments each loop cycle) */
+  iteration: number;
+
+  /** URL of the pull request created by this workflow (if any) */
+  prUrl: string | null;
+
+  /** Array of debug reports generated during execution */
+  debugReports: DebugReport[];
+
+  // ============================================================================
+  // RALPH-SPECIFIC SESSION FIELDS
+  // ============================================================================
+
+  /** Ralph session unique identifier (UUID v4) */
+  ralphSessionId: string;
+
+  /** Path to the Ralph session directory (e.g., ".ralph/sessions/{uuid}/") */
+  ralphSessionDir: string;
+
+  /**
+   * YOLO mode flag
+   * - true: Run without a feature list (autonomous exploration with prompt)
+   * - false: Follow the provided feature list
+   */
+  yolo: boolean;
+
+  /** Prompt provided in yolo mode (null if not in yolo mode) */
+  yoloPrompt: string | null;
+
+  /** Whether yolo mode has completed (agent signaled COMPLETE) */
+  yoloComplete: boolean;
+
+  /** Maximum number of iterations before the workflow stops (0 = infinite) */
+  maxIterations: number;
+
+  /** Whether the workflow should continue to the next iteration */
+  shouldContinue: boolean;
+
+  /** Git branch name for this session's work (undefined if not set) */
+  prBranch: string | undefined;
+
+  /** Array of completed feature IDs */
+  completedFeatures: string[];
+
+  /** Path to the source feature-list.json file (undefined if in yolo mode) */
+  sourceFeatureListPath: string | undefined;
+
+  /** Maximum iterations reached flag (for loop exit condition) */
+  maxIterationsReached: boolean | undefined;
+}
+
+/**
+ * Annotation schema for the Ralph workflow state.
+ * Defines all fields needed for the Ralph loop with appropriate reducers.
+ */
+export const RalphStateAnnotation = {
+  // Base state fields (required by BaseState)
+  executionId: annotation<string>(""),
+  lastUpdated: annotation<string>(() => new Date().toISOString()),
+  outputs: annotation<Record<NodeId, unknown>>({}),
+
+  // Research and specification
+  researchDoc: annotation<string>(""),
+  specDoc: annotation<string>(""),
+  specApproved: annotation<boolean>(false),
+
+  // Feature list management
+  featureList: annotation<Feature[]>([], Reducers.mergeById<Feature>("description")),
+  currentFeature: annotation<Feature | null>(null),
+  allFeaturesPassing: annotation<boolean>(false),
+
+  // Debug and error tracking
+  debugReports: annotation<DebugReport[]>([], Reducers.concat),
+
+  // PR management
+  prUrl: annotation<string | null>(null),
+  prBranch: annotation<string | undefined>(undefined),
+
+  // Context management
+  contextWindowUsage: annotation<ContextWindowUsage | null>(null),
+
+  // Iteration tracking
+  iteration: annotation<number>(1),
+
+  // Ralph-specific session fields
+  ralphSessionId: annotation<string>(""),
+  ralphSessionDir: annotation<string>(""),
+  yolo: annotation<boolean>(false),
+  yoloPrompt: annotation<string | null>(null),
+  yoloComplete: annotation<boolean>(false),
+  maxIterations: annotation<number>(100),
+  shouldContinue: annotation<boolean>(true),
+  completedFeatures: annotation<string[]>([], Reducers.concat),
+  sourceFeatureListPath: annotation<string | undefined>(undefined),
+  maxIterationsReached: annotation<boolean | undefined>(undefined),
+};
+
+/**
+ * Create a new Ralph workflow state with default values.
+ *
+ * @param executionId - Unique ID for this execution (auto-generated if not provided)
+ * @param options - Optional initial values for Ralph-specific fields
+ * @returns Initialized RalphWorkflowState
+ *
+ * @example
+ * ```typescript
+ * // Create with defaults
+ * const state = createRalphState();
+ *
+ * // Create with specific options
+ * const state = createRalphState("my-exec-id", {
+ *   yolo: true,
+ *   yoloPrompt: "Build a snake game in Rust",
+ *   maxIterations: 0
+ * });
+ * ```
+ */
+export function createRalphState(
+  executionId?: string,
+  options?: Partial<RalphWorkflowState>
+): RalphWorkflowState {
+  const state = initializeState(RalphStateAnnotation);
+  const ralphSessionId = options?.ralphSessionId ?? crypto.randomUUID();
+
+  return {
+    ...state,
+    executionId: executionId ?? crypto.randomUUID(),
+    lastUpdated: new Date().toISOString(),
+    ralphSessionId,
+    ralphSessionDir: options?.ralphSessionDir ?? `.ralph/sessions/${ralphSessionId}/`,
+    yolo: options?.yolo ?? false,
+    yoloPrompt: options?.yoloPrompt ?? null,
+    yoloComplete: options?.yoloComplete ?? false,
+    maxIterations: options?.maxIterations ?? 100,
+    shouldContinue: options?.shouldContinue ?? true,
+    completedFeatures: options?.completedFeatures ?? [],
+    sourceFeatureListPath: options?.sourceFeatureListPath,
+    maxIterationsReached: options?.maxIterationsReached,
+    prBranch: options?.prBranch,
+    ...options,
+  };
+}
+
+/**
+ * Apply an update to a Ralph workflow state.
+ *
+ * @param current - Current state
+ * @param update - Partial update to apply
+ * @returns New state with updates applied
+ */
+export function updateRalphState(
+  current: RalphWorkflowState,
+  update: Partial<RalphWorkflowState>
+): RalphWorkflowState {
+  const newState = applyStateUpdate(RalphStateAnnotation, current, update);
+  return {
+    ...newState,
+    lastUpdated: new Date().toISOString(),
+  };
+}
+
+/**
+ * Type guard to check if a value is a valid RalphWorkflowState.
+ */
+export function isRalphWorkflowState(value: unknown): value is RalphWorkflowState {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+  const obj = value as Record<string, unknown>;
+  return (
+    // Base state fields
+    typeof obj.executionId === "string" &&
+    typeof obj.lastUpdated === "string" &&
+    typeof obj.outputs === "object" &&
+    obj.outputs !== null &&
+    // Atomic workflow fields
+    typeof obj.researchDoc === "string" &&
+    typeof obj.specDoc === "string" &&
+    typeof obj.specApproved === "boolean" &&
+    Array.isArray(obj.featureList) &&
+    typeof obj.allFeaturesPassing === "boolean" &&
+    Array.isArray(obj.debugReports) &&
+    typeof obj.iteration === "number" &&
+    // Ralph-specific fields
+    typeof obj.ralphSessionId === "string" &&
+    typeof obj.ralphSessionDir === "string" &&
+    typeof obj.yolo === "boolean" &&
+    typeof obj.maxIterations === "number" &&
+    typeof obj.shouldContinue === "boolean" &&
+    Array.isArray(obj.completedFeatures)
+  );
+}

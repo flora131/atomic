@@ -1174,7 +1174,7 @@
         "Add Ralph-specific fields: ralphSessionId, ralphSessionDir, yolo, etc.",
         "Export the interface"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "refactor",

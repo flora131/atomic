@@ -83,6 +83,9 @@ export type {
   // Atomic workflow types
   Feature,
   AtomicWorkflowState,
+
+  // Ralph workflow types
+  RalphWorkflowState,
 } from "./annotation.ts";
 
 // Value exports from annotation.ts
@@ -104,9 +107,15 @@ export {
   createAtomicState,
   updateAtomicState,
 
+  // Ralph workflow
+  RalphStateAnnotation,
+  createRalphState,
+  updateRalphState,
+
   // Type guards
   isFeature,
   isAtomicWorkflowState,
+  isRalphWorkflowState,
 } from "./annotation.ts";
 
 // Type exports from builder.ts

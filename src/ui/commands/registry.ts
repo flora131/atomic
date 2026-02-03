@@ -17,6 +17,36 @@ import type { Session } from "../../sdk/types.ts";
  * State available to commands during execution.
  * Provides access to session, UI state, and helper methods.
  */
+/**
+ * Options for spawning a sub-agent.
+ */
+export interface SpawnSubagentOptions {
+  /** System prompt for the sub-agent */
+  systemPrompt: string;
+  /** Initial message/task for the sub-agent */
+  message: string;
+  /** Tools available to the sub-agent (inherits all if omitted) */
+  tools?: string[];
+  /** Model to use (sonnet, opus, haiku) */
+  model?: "sonnet" | "opus" | "haiku";
+}
+
+/**
+ * Result from sub-agent execution.
+ */
+export interface SpawnSubagentResult {
+  /** Whether the sub-agent completed successfully */
+  success: boolean;
+  /** Output/response from the sub-agent */
+  output: string;
+  /** Error message if failed */
+  error?: string;
+}
+
+/**
+ * State available to commands during execution.
+ * Provides access to session, UI state, and helper methods.
+ */
 export interface CommandContext {
   /** Active session for agent communication (may be null before first message) */
   session: Session | null;
@@ -31,6 +61,14 @@ export interface CommandContext {
    * Use this for commands that need to invoke agent interactions.
    */
   sendMessage: (content: string) => void;
+  /**
+   * Spawn a sub-agent with specific configuration.
+   * Use this for commands that need to delegate tasks to specialized agents.
+   *
+   * @param options - Configuration for the sub-agent
+   * @returns Promise with the sub-agent execution result
+   */
+  spawnSubagent: (options: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
 }
 
 /**

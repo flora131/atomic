@@ -1196,6 +1196,40 @@ export function ChatApp({
           sendMessageRef.current(content);
         }
       },
+      spawnSubagent: async (options) => {
+        // Implementation for spawning a sub-agent
+        // This is a placeholder that sends the task through the normal message flow
+        // In the future, this should spawn a dedicated sub-agent session
+        const session = getSession?.();
+        if (!session) {
+          return {
+            success: false,
+            output: "",
+            error: "No active session to spawn sub-agent",
+          };
+        }
+
+        try {
+          // Build the combined prompt with system prompt context
+          const taskMessage = `[Sub-agent task]\n\nSystem Context: ${options.systemPrompt}\n\nTask: ${options.message}`;
+
+          // Send through normal message flow
+          if (sendMessageRef.current) {
+            sendMessageRef.current(taskMessage);
+          }
+
+          return {
+            success: true,
+            output: "Sub-agent task sent through message flow",
+          };
+        } catch (error) {
+          return {
+            success: false,
+            output: "",
+            error: error instanceof Error ? error.message : "Unknown error spawning sub-agent",
+          };
+        }
+      },
     };
 
     try {

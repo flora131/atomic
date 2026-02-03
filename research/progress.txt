@@ -2800,3 +2800,82 @@ The `/ralph:cancel-ralph` command is no longer needed - users should use Ctrl+C 
 Progress tracking is now done via research/progress.txt instead of the /status command.
 This simplifies the command system and encourages the use of file-based progress tracking
 that persists across sessions and can be reviewed externally.
+
+---
+
+## 2026-02-03 - Feature Verification: CommandCategory and CommandContext interfaces in registry.ts
+
+### Status: COMPLETED - Verified and Extended
+
+#### CommandCategory Type
+The CommandCategory type was already properly defined in src/ui/commands/registry.ts at line 102.
+
+**Implementation Details:**
+- **Location**: src/ui/commands/registry.ts (line 102)
+- **Type Definition**: `type CommandCategory = "builtin" | "workflow" | "skill" | "agent" | "custom"`
+- Categories include:
+  - `builtin` - For /help, /clear commands
+  - `skill` - For /commit, /research commands
+  - `workflow` - For /ralph command
+  - `agent` - For sub-agent commands
+  - `custom` - For user-defined commands
+
+**Tests Added (7 new tests):**
+- includes 'builtin' for help, clear commands
+- includes 'skill' for commit, research commands
+- includes 'workflow' for ralph command
+- includes 'agent' for sub-agent commands
+- includes 'custom' for user-defined commands
+- all categories can be used in CommandDefinition
+- registry sorting uses all category priorities
+
+#### CommandContext Interface
+The CommandContext interface was extended to include the `spawnSubagent` method.
+
+**Implementation Details:**
+- **Location**: src/ui/commands/registry.ts (lines 48-72)
+- **Fields Added**:
+  - `spawnSubagent: (options: SpawnSubagentOptions) => Promise<SpawnSubagentResult>`
+- **Supporting Types Added**:
+  - `SpawnSubagentOptions` interface with systemPrompt, message, tools?, model?
+  - `SpawnSubagentResult` interface with success, output, error?
+
+**Tests Added (12 new tests for CommandContext, SpawnSubagentOptions, SpawnSubagentResult):**
+- CommandContext has session field that can be Session or null
+- CommandContext has state field of type CommandContextState
+- CommandContext has addMessage method with role and content parameters
+- CommandContext has setStreaming method with streaming parameter
+- CommandContext has sendMessage method with content parameter
+- CommandContext has spawnSubagent method that returns Promise<SpawnSubagentResult>
+- SpawnSubagentOptions requires systemPrompt and message fields
+- SpawnSubagentOptions supports optional tools array
+- SpawnSubagentOptions supports optional model field
+- SpawnSubagentOptions model can be sonnet, opus, or haiku
+- SpawnSubagentResult has success and output fields
+- SpawnSubagentResult supports optional error field when failed
+
+#### CommandResult Interface
+The CommandResult interface was already properly defined in src/ui/commands/registry.ts.
+
+**Implementation Details:**
+- **Location**: src/ui/commands/registry.ts (lines 124-135)
+- **Interface Fields**:
+  - `success: boolean`
+  - `message?: string`
+  - `stateUpdate?: Partial<CommandContextState>`
+  - `clearMessages?: boolean`
+
+#### Test Results
+- All 54 tests in tests/ui/commands/registry.test.ts pass
+- Total expect() calls: 103
+- All 532 tests in tests/ui/commands/ pass
+
+#### Files Modified
+- src/ui/commands/registry.ts - Added SpawnSubagentOptions, SpawnSubagentResult interfaces, added spawnSubagent to CommandContext
+- src/ui/chat.tsx - Added spawnSubagent implementation in context
+- tests/ui/commands/registry.test.ts - Added 19 new tests for CommandCategory, CommandContext, SpawnSubagentOptions, SpawnSubagentResult
+- tests/ui/commands/skill-commands.test.ts - Updated mock context with spawnSubagent
+- tests/ui/commands/builtin-commands.test.ts - Updated mock context with sendMessage and spawnSubagent
+- tests/ui/commands/workflow-commands.test.ts - Updated mock context with sendMessage and spawnSubagent
+- tests/ui/chat-command-execution.test.ts - Updated mock context with spawnSubagent
+

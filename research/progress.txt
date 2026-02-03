@@ -1,5 +1,82 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: askUserNode with human_input_required event
+
+### Completed
+- Added `"ask_user"` to NodeType enum in src/graph/types.ts
+  - New node type specifically for explicit human-in-the-loop questions
+  - Distinct from legacy `"wait"` type
+
+- Defined AskUserOptions interface in src/graph/nodes.ts
+  - `question: string` - The question to ask the user
+  - `header?: string` - Short label for UI display
+  - `options?: AskUserOption[]` - Structured options for user choice
+
+- Defined AskUserOption interface
+  - `label: string` - Display label for the option
+  - `description: string` - Detailed description
+
+- Defined AskUserNodeConfig interface for node configuration
+  - `id: NodeId` - Unique identifier
+  - `options: AskUserOptions | ((state) => AskUserOptions)` - Static or dynamic options
+  - `name?: string` - Human-readable name
+  - `description?: string` - Node description
+
+- Defined AskUserWaitState interface for state extension
+  - `__waitingForInput?: boolean` - Wait flag
+  - `__waitNodeId?: string` - Node ID waiting for input
+  - `__askUserRequestId?: string` - Request correlation ID
+
+- Defined AskUserQuestionEventData interface for event data
+  - `requestId: string` - UUID for correlating responses
+  - `question: string` - The question
+  - `header?: string` - Optional header
+  - `options?: AskUserOption[]` - Optional structured options
+  - `nodeId: string` - The asking node's ID
+
+- Implemented askUserNode() function
+  - Creates node with type `"ask_user"`
+  - Generates unique requestId using `crypto.randomUUID()`
+  - Emits `human_input_required` signal with full event data
+  - Sets `__waitingForInput: true` in state
+  - Sets `__waitNodeId` to node id in state
+  - Sets `__askUserRequestId` for response correlation
+  - Calls `ctx.emit()` when available
+  - Supports both static and function-based options
+
+- Updated src/graph/index.ts exports
+  - Added type exports: AskUserOption, AskUserOptions, AskUserNodeConfig, AskUserWaitState, AskUserQuestionEventData
+  - Added value export: askUserNode
+
+### Tests Added (14 new tests)
+- askUserNode tests:
+  - creates node with correct type and id
+  - uses provided name and description
+  - emits human_input_required signal with question
+  - generates unique requestId using crypto.randomUUID()
+  - sets __waitingForInput to true in state update
+  - sets __waitNodeId to node id in state update
+  - sets __askUserRequestId in state update
+  - includes options array in signal data
+  - uses options function with state
+  - calls emit function when available
+  - works without emit function
+  - handles empty options array
+  - handles missing optional fields
+  - generates different requestIds for each execution
+
+### Test Results
+- All nodes.test.ts tests pass (95 tests, up from 81)
+- All graph tests pass (497 tests)
+
+### Files Modified
+- src/graph/types.ts - Added "ask_user" to NodeType enum
+- src/graph/nodes.ts - Added AskUserOptions, AskUserNodeConfig, AskUserWaitState, AskUserQuestionEventData interfaces and askUserNode() function
+- src/graph/index.ts - Added new type and value exports
+- tests/graph/nodes.test.ts - Added 14 new tests for askUserNode
+
+---
+
 ## 2026-02-03 - Feature Implementation: Update subgraphNode() to accept workflow name string
 
 ### Completed

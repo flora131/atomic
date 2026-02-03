@@ -1093,7 +1093,7 @@
         "Add execute: (args, context) => CommandResult | Promise<CommandResult>",
         "Export the interface"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

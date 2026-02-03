@@ -247,3 +247,300 @@ describe("RalphExecutor integration", () => {
     executor2.cleanup();
   });
 });
+
+// ============================================================================
+// handleInterrupt Display Tests
+// ============================================================================
+
+describe("handleInterrupt resume command display", () => {
+  let executor: RalphExecutor;
+  let consoleLogs: string[];
+  let originalConsoleLog: typeof console.log;
+  let originalProcessExit: typeof process.exit;
+
+  beforeEach(() => {
+    executor = new RalphExecutor();
+    consoleLogs = [];
+
+    // Capture console.log calls
+    originalConsoleLog = console.log;
+    console.log = (...args: unknown[]) => {
+      consoleLogs.push(args.map(String).join(" "));
+    };
+
+    // Mock process.exit to prevent test from exiting
+    originalProcessExit = process.exit;
+    process.exit = (() => {}) as typeof process.exit;
+  });
+
+  afterEach(() => {
+    // Restore console.log and process.exit
+    console.log = originalConsoleLog;
+    process.exit = originalProcessExit;
+    executor.cleanup();
+  });
+
+  test("displays 'Paused Ralph session: {uuid}' on interrupt when session is set", async () => {
+    const sessionId = "test-session-uuid-12345";
+    const sessionDir = "/tmp/ralph/sessions/test-session-uuid-12345";
+
+    // Create a mock session file
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, "session.json"),
+      JSON.stringify({
+        sessionId,
+        sessionDir,
+        createdAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        yolo: false,
+        maxIterations: 50,
+        features: [],
+        currentFeatureIndex: 0,
+        completedFeatures: [],
+        iteration: 1,
+        status: "running",
+      })
+    );
+
+    // Set the session on the executor
+    executor.setSession(sessionId, sessionDir);
+
+    // Trigger interrupt by calling the private method through SIGINT simulation
+    // We need to access the private handler - let's use a workaround by
+    // triggering SIGINT, but we need to ensure handlers are set up first
+    const workflow = createRalphWorkflow();
+    await executor.run(workflow, { maxIterations: 5 });
+
+    // Now trigger SIGINT
+    process.emit("SIGINT");
+
+    // Wait a bit for async operations
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Verify the expected console output
+    const pausedSessionLog = consoleLogs.find((log) =>
+      log.includes(`Paused Ralph session: ${sessionId}`)
+    );
+    expect(pausedSessionLog).toBeDefined();
+
+    // Cleanup test files
+    const { rm } = await import("node:fs/promises");
+    await rm("/tmp/ralph", { recursive: true, force: true });
+  });
+
+  test("displays 'Resume with: /ralph --resume {uuid}' on interrupt when session is set", async () => {
+    const sessionId = "resume-test-session-uuid";
+    const sessionDir = "/tmp/ralph/sessions/resume-test-session-uuid";
+
+    // Create a mock session file
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, "session.json"),
+      JSON.stringify({
+        sessionId,
+        sessionDir,
+        createdAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        yolo: false,
+        maxIterations: 50,
+        features: [],
+        currentFeatureIndex: 0,
+        completedFeatures: [],
+        iteration: 1,
+        status: "running",
+      })
+    );
+
+    // Set the session on the executor
+    executor.setSession(sessionId, sessionDir);
+
+    // Set up handlers and trigger interrupt
+    const workflow = createRalphWorkflow();
+    await executor.run(workflow, { maxIterations: 5 });
+
+    // Trigger SIGINT
+    process.emit("SIGINT");
+
+    // Wait for async operations
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Verify the resume command output
+    const resumeCommandLog = consoleLogs.find((log) =>
+      log.includes(`Resume with: /ralph --resume ${sessionId}`)
+    );
+    expect(resumeCommandLog).toBeDefined();
+
+    // Cleanup
+    const { rm } = await import("node:fs/promises");
+    await rm("/tmp/ralph", { recursive: true, force: true });
+  });
+
+  test("displays 'Stopping Ralph execution...' on interrupt", async () => {
+    const sessionId = "stop-test-session";
+    const sessionDir = "/tmp/ralph/sessions/stop-test-session";
+
+    // Create a mock session file
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, "session.json"),
+      JSON.stringify({
+        sessionId,
+        sessionDir,
+        createdAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        yolo: false,
+        maxIterations: 50,
+        features: [],
+        currentFeatureIndex: 0,
+        completedFeatures: [],
+        iteration: 1,
+        status: "running",
+      })
+    );
+
+    executor.setSession(sessionId, sessionDir);
+
+    const workflow = createRalphWorkflow();
+    await executor.run(workflow, { maxIterations: 5 });
+
+    // Trigger SIGINT
+    process.emit("SIGINT");
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Verify the stopping message (note: it starts with newline)
+    const stoppingLog = consoleLogs.find(
+      (log) =>
+        log.includes("Stopping Ralph execution...") ||
+        log.includes("\nStopping Ralph execution...")
+    );
+    expect(stoppingLog).toBeDefined();
+
+    // Cleanup
+    const { rm } = await import("node:fs/promises");
+    await rm("/tmp/ralph", { recursive: true, force: true });
+  });
+
+  test("displays 'Status: Paused' on interrupt", async () => {
+    const sessionId = "status-test-session";
+    const sessionDir = "/tmp/ralph/sessions/status-test-session";
+
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, "session.json"),
+      JSON.stringify({
+        sessionId,
+        sessionDir,
+        createdAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        yolo: false,
+        maxIterations: 50,
+        features: [],
+        currentFeatureIndex: 0,
+        completedFeatures: [],
+        iteration: 1,
+        status: "running",
+      })
+    );
+
+    executor.setSession(sessionId, sessionDir);
+
+    const workflow = createRalphWorkflow();
+    await executor.run(workflow, { maxIterations: 5 });
+
+    // Trigger SIGINT
+    process.emit("SIGINT");
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Verify the status message
+    const statusLog = consoleLogs.find((log) => log.includes("Status: Paused"));
+    expect(statusLog).toBeDefined();
+
+    // Cleanup
+    const { rm } = await import("node:fs/promises");
+    await rm("/tmp/ralph", { recursive: true, force: true });
+  });
+
+  test("does not display resume command when session is not set", async () => {
+    // Don't set session on executor
+    const workflow = createRalphWorkflow();
+    await executor.run(workflow, { maxIterations: 5 });
+
+    // Trigger SIGINT
+    process.emit("SIGINT");
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Should still show stopping message
+    const stoppingLog = consoleLogs.find((log) =>
+      log.includes("Stopping Ralph execution...")
+    );
+    expect(stoppingLog).toBeDefined();
+
+    // But should NOT show resume command since no session
+    const resumeLog = consoleLogs.find((log) =>
+      log.includes("Resume with: /ralph --resume")
+    );
+    expect(resumeLog).toBeUndefined();
+  });
+
+  test("resume command includes the correct session UUID format", async () => {
+    const sessionId = "550e8400-e29b-41d4-a716-446655440000";
+    const sessionDir = `/tmp/ralph/sessions/${sessionId}`;
+
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, "session.json"),
+      JSON.stringify({
+        sessionId,
+        sessionDir,
+        createdAt: new Date().toISOString(),
+        lastUpdated: new Date().toISOString(),
+        yolo: false,
+        maxIterations: 50,
+        features: [],
+        currentFeatureIndex: 0,
+        completedFeatures: [],
+        iteration: 1,
+        status: "running",
+      })
+    );
+
+    executor.setSession(sessionId, sessionDir);
+
+    const workflow = createRalphWorkflow();
+    await executor.run(workflow, { maxIterations: 5 });
+
+    // Trigger SIGINT
+    process.emit("SIGINT");
+
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    // Verify exact format of resume command
+    const resumeLog = consoleLogs.find((log) =>
+      log.includes("Resume with: /ralph --resume 550e8400-e29b-41d4-a716-446655440000")
+    );
+    expect(resumeLog).toBeDefined();
+
+    // Cleanup
+    const { rm } = await import("node:fs/promises");
+    await rm("/tmp/ralph", { recursive: true, force: true });
+  });
+});

@@ -1,5 +1,39 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Display resume command on interrupt
+
+### Status: COMPLETED
+
+Verified and added tests for the resume command display functionality that was already implemented in handleInterrupt().
+
+#### Functionality Verified
+
+The implementation in `src/workflows/ralph-executor.ts` already includes:
+1. `console.log("\nStopping Ralph execution...")` - Line 155
+2. `console.log("Status: Paused")` - Line 170
+3. `console.log("Paused Ralph session: ${this.sessionId}")` - Line 171
+4. `console.log("Resume with: /ralph --resume ${this.sessionId}")` - Line 172
+
+#### Tests Added (6 new tests in tests/workflows/ralph-executor.test.ts)
+
+- `displays 'Paused Ralph session: {uuid}' on interrupt when session is set`
+- `displays 'Resume with: /ralph --resume {uuid}' on interrupt when session is set`
+- `displays 'Stopping Ralph execution...' on interrupt`
+- `displays 'Status: Paused' on interrupt`
+- `does not display resume command when session is not set`
+- `resume command includes the correct session UUID format`
+
+#### Test Results
+- All 26 tests in tests/workflows/ralph-executor.test.ts pass
+- All 172 tests in tests/workflows/ pass
+- Build succeeds
+
+#### Files Modified
+- tests/workflows/ralph-executor.test.ts - Added 6 new tests for resume command display
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Display session status (running, paused, completed, failed)
 
 ### Status: COMPLETED

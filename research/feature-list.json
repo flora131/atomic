@@ -1271,7 +1271,7 @@
         "Display 'Resume with: /ralph --resume {uuid}'",
         "Make command copy-able"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "ui",

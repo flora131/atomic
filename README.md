@@ -4,15 +4,7 @@
   <img src="assets/atomic.png" alt="Atomic" width="800">
 </p>
 
-AI coding agents are exceptionally powerful but have key gaps in principled software engineering, context, and memory. This makes them difficult to use in large codebases or generate higher quality code.
-
-Engineers spend a lot of their time figuring out how to get tools to work for them rather than iterating on and shipping code with AI coding agents.
-
-This project is named 'Atomic' for its approach of decomposing complex goals into discrete, manageable steps. By following core Software Development Lifecycle (SDLC) principles, it creates a foundation for effectively steering AI coding agents. This approach enables engineers to transition from vibe coding to true AI-assisted development.
-
-This repo automates AI coding agents with an operating procedure and memory.
-
-We provide the procedures that agents use to work on your project based on software engineering best practices, and specs that persist as memory of decisions made and lessons learned.
+Ship complex features with AI agents that actually understand your codebase. Research, spec, implement — then wake up to completed code ready for review.
 
 ---
 
@@ -33,20 +25,55 @@ We provide the procedures that agents use to work on your project based on softw
 
 ---
 
-## The ROI
+## What Engineers Use Atomic For
 
-**1 minute of setup. Maximum output.**
+### Ship Complex Features End-to-End
 
-- **Minimal set of curated sub-agents** for the most common workflows
-- **Skills and commands** that enforce proven software engineering practices
-- **Overnight autonomous execution** (Ralph) means waking up to completed features ready for review
+Not just bug fixes — scoped, multi-file features that require architectural understanding:
 
-This approach highlights the best of SDLC and gets you 40-60% of the way there so you can review, refactor, and continue in a flow state.
+- Database migrations across large codebases
+- Entire new services (building a complete GraphRAG service from scratch)
+- Features spanning dozens of files that need to understand existing patterns first
+- Trying different implementation approaches — spec it out, try one framework, revert, try another
+
+The workflow: `/research-codebase` → review → `/create-spec` → review → `/create-feature-list` → review → `/implement-feature` (manually one-by-one, or let Ralph run overnight). Wake up to completed features ready for review.
+
+### Deep Codebase Research & Root Cause Analysis
+
+Stop spending hours hunting through unfamiliar code. The `/research-codebase` command dispatches specialized sub-agents to do the hunting for you:
+
+- Understand how authentication flows work in an unfamiliar codebase
+- Track down root causes by analyzing code paths across dozens of files
+- Search through docs, READMEs, and inline documentation in your repo
+- Get up to speed on a new project in minutes instead of hours
+
+This is the fastest path to value — install, run one command, get answers.
+
+### Thorough Online Research
+
+When you're evaluating libraries, exploring implementation approaches, or need best practices before building, Atomic's research phase pulls in external knowledge — not just your codebase — to inform the spec and implementation plan.
+
+---
+
+## Try It in 60 Seconds
+
+```bash
+# Install
+curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
+
+# Run in your project
+cd your-project && atomic run claude
+
+# Try it
+/research-codebase "How does authentication work in this codebase?"
+```
 
 ---
 
 ## Table of Contents
 
+- [What Engineers Use Atomic For](#what-engineers-use-atomic-for)
+- [Try It in 60 Seconds](#try-it-in-60-seconds)
 - [Set up Atomic](#set-up-atomic)
 - [The Flywheel](#the-flywheel)
 - [How It Works](#how-it-works)

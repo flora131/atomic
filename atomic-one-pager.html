@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Atomic: AI Assisted Development</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #ffffff;
+      color: #2a2a3a;
+      line-height: 1.5;
+      padding: 40px 48px;
+      max-width: 8.5in;
+      margin: 0 auto;
+    }
+
+    /* Header */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 28px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid #E8DCD0;
+    }
+
+    .title-block h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      margin-bottom: 4px;
+      color: #C06030;
+    }
+
+    .title-block .tagline {
+      font-size: 14px;
+      color: #8A9A9A;
+      font-weight: 400;
+    }
+
+    .header-links {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    .header-link {
+      font-size: 12px;
+      color: #8A9A9A;
+      text-decoration: none;
+      padding: 6px 12px;
+      border: 1px solid #E8DCD0;
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+
+    .header-link:hover {
+      border-color: #C06030;
+      color: #C06030;
+    }
+
+    .header-link.primary {
+      background: linear-gradient(135deg, #C06030 0%, #D87848 100%);
+      color: #fff;
+      border-color: #C06030;
+    }
+
+    .header-link.primary:hover {
+      background: linear-gradient(135deg, #D87848 0%, #E89060 100%);
+    }
+
+    /* Main content grid */
+    .content {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 32px;
+    }
+
+    .left-column {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .right-column {
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    /* Section styling */
+    .section h2 {
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #3A9690;
+      margin-bottom: 10px;
+    }
+
+    .section p {
+      font-size: 14px;
+      color: #3a3a4a;
+    }
+
+    /* Workflow diagram */
+    .workflow {
+      background: linear-gradient(135deg, #FAF8F6 0%, #F8F4F0 100%);
+      border-radius: 12px;
+      padding: 20px 24px;
+      border: 1px solid #E8DCD0;
+    }
+
+    .workflow-steps {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .step {
+      text-align: center;
+      flex: 1;
+    }
+
+    .step-icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #C06030 0%, #D87848 100%);
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 8px;
+      font-size: 16px;
+    }
+
+    .step-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #A85828;
+    }
+
+    .step-desc {
+      font-size: 10px;
+      color: #8A9A9A;
+      margin-top: 2px;
+    }
+
+    .arrow {
+      color: #D8A880;
+      font-size: 18px;
+      flex-shrink: 0;
+      margin-top: 10px;
+    }
+
+    /* Highlight box */
+    .highlight-box {
+      background: linear-gradient(135deg, #f5faf9 0%, #eef7f5 100%);
+      border-left: 3px solid #3A9690;
+      padding: 16px 20px;
+      border-radius: 0 8px 8px 0;
+    }
+
+    .highlight-box .label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #3A9690;
+      margin-bottom: 6px;
+    }
+
+    .highlight-box p {
+      font-size: 14px;
+      color: #2a2a3a;
+      font-weight: 500;
+    }
+
+    /* Benefits list */
+    .benefits {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .benefit {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    .benefit-icon {
+      width: 24px;
+      height: 24px;
+      background: linear-gradient(135deg, #FDF8F5 0%, #F8F0E8 100%);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      flex-shrink: 0;
+      margin-top: 1px;
+      color: #C06030;
+    }
+
+    .benefit-text {
+      font-size: 13px;
+      color: #3a3a4a;
+    }
+
+    .benefit-text strong {
+      color: #A85828;
+    }
+
+    /* Footer */
+    .footer {
+      margin-top: 28px;
+      padding-top: 20px;
+      border-top: 1px solid #E8DCD0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .cta {
+      font-size: 13px;
+      color: #3a3a4a;
+    }
+
+    .cta code {
+      background: linear-gradient(135deg, #FDF8F5 0%, #F8F2EC 100%);
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 11px;
+      color: #3A9690;
+      border: 1px solid #E8DCD0;
+      white-space: nowrap;
+    }
+
+    .links {
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+    }
+
+    .links a {
+      color: #8A9A9A;
+      text-decoration: none;
+    }
+
+    .links a:hover {
+      color: #C06030;
+    }
+
+    /* Print optimization */
+    @media print {
+      body {
+        padding: 0.4in 0.5in;
+      }
+
+      .header-link:hover,
+      .links a:hover {
+        color: inherit;
+        border-color: inherit;
+        background: inherit;
+      }
+
+      .header-link.primary {
+        background: #C06030;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .step-icon {
+        background: #C06030;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="title-block">
+      <h1>Atomic</h1>
+      <span class="tagline">AI Assisted Development</span>
+    </div>
+    <div class="header-links">
+      <a href="https://github.com/flora131/atomic" class="header-link">GitHub</a>
+      <a href="https://www.youtube.com/watch?v=Lq8-qzGfoy4" class="header-link primary">Watch Video Walkthrough</a>
+    </div>
+  </header>
+
+  <main class="content">
+    <div class="left-column">
+      <section class="section">
+        <h2>What is Atomic?</h2>
+        <p>Atomic is a framework that guides AI coding tools to follow real software engineering practices. Instead of generating code immediately, it enforces a structured process: research the codebase, write a technical plan, break work into a feature list, then implement one piece at a time. It works for existing projects and new ones you're starting from scratch.</p>
+      </section>
+
+      <section class="section workflow">
+        <h2>The Workflow</h2>
+        <div class="workflow-steps">
+          <div class="step">
+            <div class="step-icon">1</div>
+            <div class="step-label">Research</div>
+            <div class="step-desc">Understand what exists</div>
+          </div>
+          <span class="arrow">&rarr;</span>
+          <div class="step">
+            <div class="step-icon">2</div>
+            <div class="step-label">Plan</div>
+            <div class="step-desc">Write technical spec</div>
+          </div>
+          <span class="arrow">&rarr;</span>
+          <div class="step">
+            <div class="step-icon">3</div>
+            <div class="step-label">Features</div>
+            <div class="step-desc">Break into tasks</div>
+          </div>
+          <span class="arrow">&rarr;</span>
+          <div class="step">
+            <div class="step-icon">4</div>
+            <div class="step-label">Implement</div>
+            <div class="step-desc">Build one at a time</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section highlight-box">
+        <div class="label">Key Principle</div>
+        <p>You own the decisions. AI owns the execution.</p>
+      </section>
+
+      <section class="section">
+        <h2>Why It Matters</h2>
+        <p>Atomic handles the complexity&mdash;codebase research, web lookups, architecture planning&mdash;so you can focus on understanding and decision-making. At each step, you review the output: the research findings, the technical plan, the feature list. Nothing gets built without your approval.</p>
+      </section>
+    </div>
+
+    <div class="right-column">
+      <section class="section">
+        <h2>This Isn't Outsourcing Your Thinking</h2>
+        <p>The common concern with AI coding tools is that they let you skip understanding. Atomic is the opposite. You can't jump to code&mdash;you must engage with each phase. You read the research. You review the plan. You approve the feature list. This is mentor-guided learning, not autopilot.</p>
+      </section>
+
+      <section class="section">
+        <h2>What You'll Learn</h2>
+        <div class="benefits">
+          <div class="benefit">
+            <span class="benefit-icon">&#9679;</span>
+            <span class="benefit-text"><strong>Technical specifications</strong> &mdash; How professional teams document what they're building before writing code</span>
+          </div>
+          <div class="benefit">
+            <span class="benefit-icon">&#9679;</span>
+            <span class="benefit-text"><strong>Architecture decisions</strong> &mdash; Why code is organized a certain way and what tradeoffs exist</span>
+          </div>
+          <div class="benefit">
+            <span class="benefit-icon">&#9679;</span>
+            <span class="benefit-text"><strong>Implementation planning</strong> &mdash; Breaking complex features into testable, incremental pieces</span>
+          </div>
+          <div class="benefit">
+            <span class="benefit-icon">&#9679;</span>
+            <span class="benefit-text"><strong>Code review mindset</strong> &mdash; Evaluating generated code against specs and best practices</span>
+          </div>
+          <div class="benefit">
+            <span class="benefit-icon">&#9679;</span>
+            <span class="benefit-text"><strong>Long-horizon execution</strong> &mdash; Using Ralph mode to run autonomous multi-hour coding sessions while you focus elsewhere</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section highlight-box">
+        <div class="label">Real SDLC Practices</div>
+        <p>Research &rarr; Plan &rarr; Features &rarr; Implement is how professional software teams operate. Atomic makes this workflow accessible while AI handles the tedious parts.</p>
+      </section>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <div class="cta">
+      Get started: <code>curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash</code>
+    </div>
+    <div class="links">
+      <a href="https://github.com/flora131/atomic">GitHub</a>
+    </div>
+  </footer>
+</body>
+</html>

@@ -248,7 +248,7 @@ export {
 } from "./compiled.ts";
 
 // Type exports from checkpointer.ts
-export type { CheckpointerType } from "./checkpointer.ts";
+export type { CheckpointerType, CreateCheckpointerOptions } from "./checkpointer.ts";
 
 // Value exports from checkpointer.ts
 export {
@@ -256,6 +256,7 @@ export {
   MemorySaver,
   FileSaver,
   ResearchDirSaver,
+  SessionDirSaver,
 
   // Factory function
   createCheckpointer,

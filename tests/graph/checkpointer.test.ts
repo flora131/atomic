@@ -16,6 +16,7 @@ import {
   MemorySaver,
   FileSaver,
   ResearchDirSaver,
+  SessionDirSaver,
   createCheckpointer,
   type CheckpointerType,
 } from "../../src/graph/checkpointer.ts";
@@ -473,6 +474,277 @@ describe("ResearchDirSaver", () => {
 });
 
 // ============================================================================
+// SessionDirSaver Tests
+// ============================================================================
+
+describe("SessionDirSaver", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = join(tmpdir(), `atomic-session-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await mkdir(tempDir, { recursive: true });
+    await mkdir(join(tempDir, "checkpoints"), { recursive: true });
+  });
+
+  afterEach(async () => {
+    try {
+      await rm(tempDir, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+  });
+
+  describe("save and load with static session directory", () => {
+    test("saves and loads a checkpoint", async () => {
+      const saver = new SessionDirSaver(tempDir);
+      const state = createTestState("exec-1", { node1: "result1" });
+
+      await saver.save("exec-1", state, "step_1");
+      const loaded = await saver.load("exec-1");
+
+      expect(loaded).not.toBeNull();
+      expect(loaded?.executionId).toBe("exec-1");
+      expect(loaded?.outputs).toEqual({ node1: "result1" });
+    });
+
+    test("returns null for non-existent execution", async () => {
+      const saver = new SessionDirSaver(tempDir);
+      const loaded = await saver.load("non-existent");
+      expect(loaded).toBeNull();
+    });
+
+    test("uses sequential naming when label not provided", async () => {
+      const saver = new SessionDirSaver(tempDir);
+
+      await saver.save("exec-1", createTestState("exec-1", { step: 1 }));
+      await saver.save("exec-1", createTestState("exec-1", { step: 2 }));
+      await saver.save("exec-1", createTestState("exec-1", { step: 3 }));
+
+      const labels = await saver.list("exec-1");
+      expect(labels).toEqual(["node-001", "node-002", "node-003"]);
+    });
+
+    test("loads the most recent checkpoint", async () => {
+      const saver = new SessionDirSaver(tempDir);
+
+      await saver.save("exec-1", createTestState("exec-1", { step: 1 }), "node-001");
+      await saver.save("exec-1", createTestState("exec-1", { step: 2 }), "node-002");
+      await saver.save("exec-1", createTestState("exec-1", { step: 3 }), "node-003");
+
+      const loaded = await saver.load("exec-1");
+      expect(loaded?.outputs).toEqual({ step: 3 });
+    });
+
+    test("creates proper file structure in checkpoints directory", async () => {
+      const saver = new SessionDirSaver(tempDir);
+      const state = createTestState("exec-1");
+      await saver.save("exec-1", state, "node-001");
+
+      const filePath = join(tempDir, "checkpoints", "node-001.json");
+      const content = await readFile(filePath, "utf-8");
+      const data = JSON.parse(content);
+
+      expect(data.label).toBe("node-001");
+      expect(data.executionId).toBe("exec-1");
+      expect(data.timestamp).toBeDefined();
+      expect(data.checkpointNumber).toBeDefined();
+      expect(data.state.executionId).toBe("exec-1");
+    });
+  });
+
+  describe("save and load with dynamic session directory", () => {
+    interface TestSessionState extends BaseState {
+      ralphSessionDir: string;
+    }
+
+    function createSessionTestState(executionId: string, sessionDir: string): TestSessionState {
+      return {
+        executionId,
+        lastUpdated: new Date().toISOString(),
+        outputs: {},
+        ralphSessionDir: sessionDir,
+      };
+    }
+
+    test("saves checkpoint using dynamic session directory from state", async () => {
+      const saver = new SessionDirSaver<TestSessionState>((state) => state.ralphSessionDir);
+      const state = createSessionTestState("exec-1", tempDir);
+
+      await saver.save("exec-1", state, "node-001");
+
+      // Verify the file was created in the correct location
+      const filePath = join(tempDir, "checkpoints", "node-001.json");
+      const content = await readFile(filePath, "utf-8");
+      const data = JSON.parse(content);
+
+      expect(data.label).toBe("node-001");
+      expect(data.state.ralphSessionDir).toBe(tempDir);
+    });
+
+    test("throws error when loading without state for dynamic directory", async () => {
+      const saver = new SessionDirSaver<TestSessionState>((state) => state.ralphSessionDir);
+
+      await expect(saver.load("exec-1")).rejects.toThrow(
+        "SessionDirSaver.load() requires a static session directory"
+      );
+    });
+
+    test("can load from session directory using loadFromSessionDir", async () => {
+      const saver = new SessionDirSaver<TestSessionState>((state) => state.ralphSessionDir);
+      const state = createSessionTestState("exec-1", tempDir);
+
+      await saver.save("exec-1", state, "node-001");
+
+      const loaded = await saver.loadFromSessionDir(tempDir, "exec-1");
+      expect(loaded).not.toBeNull();
+      expect(loaded?.executionId).toBe("exec-1");
+      expect(loaded?.ralphSessionDir).toBe(tempDir);
+    });
+  });
+
+  describe("loadByLabel", () => {
+    test("loads a specific checkpoint by label", async () => {
+      const saver = new SessionDirSaver(tempDir);
+
+      await saver.save("exec-1", createTestState("exec-1", { step: 1 }), "node-001");
+      await saver.save("exec-1", createTestState("exec-1", { step: 2 }), "node-002");
+
+      const loaded = await saver.loadByLabel("exec-1", "node-001");
+      expect(loaded?.outputs).toEqual({ step: 1 });
+    });
+
+    test("returns null for non-existent label", async () => {
+      const saver = new SessionDirSaver(tempDir);
+      await saver.save("exec-1", createTestState("exec-1"), "node-001");
+
+      const loaded = await saver.loadByLabel("exec-1", "non-existent");
+      expect(loaded).toBeNull();
+    });
+  });
+
+  describe("list", () => {
+    test("lists all checkpoint labels sorted", async () => {
+      const saver = new SessionDirSaver(tempDir);
+
+      await saver.save("exec-1", createTestState("exec-1"), "node-003");
+      await saver.save("exec-1", createTestState("exec-1"), "node-001");
+      await saver.save("exec-1", createTestState("exec-1"), "node-002");
+
+      const labels = await saver.list("exec-1");
+      expect(labels).toEqual(["node-001", "node-002", "node-003"]);
+    });
+
+    test("returns empty array for non-existent checkpoints directory", async () => {
+      const nonExistentDir = join(tmpdir(), "non-existent-session");
+      const saver = new SessionDirSaver(nonExistentDir);
+
+      const labels = await saver.list("exec-1");
+      expect(labels).toEqual([]);
+    });
+  });
+
+  describe("delete", () => {
+    test("deletes all checkpoints", async () => {
+      const saver = new SessionDirSaver(tempDir);
+
+      await saver.save("exec-1", createTestState("exec-1"), "node-001");
+      await saver.save("exec-1", createTestState("exec-1"), "node-002");
+
+      await saver.delete("exec-1");
+
+      const labels = await saver.list("exec-1");
+      expect(labels).toEqual([]);
+    });
+
+    test("deletes a specific checkpoint", async () => {
+      const saver = new SessionDirSaver(tempDir);
+
+      await saver.save("exec-1", createTestState("exec-1"), "node-001");
+      await saver.save("exec-1", createTestState("exec-1"), "node-002");
+
+      await saver.delete("exec-1", "node-001");
+
+      const labels = await saver.list("exec-1");
+      expect(labels).toEqual(["node-002"]);
+    });
+
+    test("resets counter when deleting all checkpoints", async () => {
+      const saver = new SessionDirSaver(tempDir);
+
+      await saver.save("exec-1", createTestState("exec-1"));
+      await saver.save("exec-1", createTestState("exec-1"));
+      expect(saver.getCheckpointCount()).toBe(2);
+
+      await saver.delete("exec-1");
+      expect(saver.getCheckpointCount()).toBe(0);
+    });
+  });
+
+  describe("checkpoint counter", () => {
+    test("getCheckpointCount returns the current counter value", async () => {
+      const saver = new SessionDirSaver(tempDir);
+
+      expect(saver.getCheckpointCount()).toBe(0);
+
+      await saver.save("exec-1", createTestState("exec-1"));
+      expect(saver.getCheckpointCount()).toBe(1);
+
+      await saver.save("exec-1", createTestState("exec-1"));
+      expect(saver.getCheckpointCount()).toBe(2);
+    });
+
+    test("resetCounter resets the counter to 0", async () => {
+      const saver = new SessionDirSaver(tempDir);
+
+      await saver.save("exec-1", createTestState("exec-1"));
+      await saver.save("exec-1", createTestState("exec-1"));
+      expect(saver.getCheckpointCount()).toBe(2);
+
+      saver.resetCounter();
+      expect(saver.getCheckpointCount()).toBe(0);
+    });
+
+    test("loading a checkpoint restores the counter", async () => {
+      const saver = new SessionDirSaver(tempDir);
+
+      await saver.save("exec-1", createTestState("exec-1"));
+      await saver.save("exec-1", createTestState("exec-1"));
+
+      // Reset counter
+      saver.resetCounter();
+      expect(saver.getCheckpointCount()).toBe(0);
+
+      // Load the latest checkpoint
+      await saver.load("exec-1");
+      expect(saver.getCheckpointCount()).toBe(2);
+    });
+  });
+
+  describe("resumption from checkpoint", () => {
+    test("supports resumption from any checkpoint", async () => {
+      const saver = new SessionDirSaver(tempDir);
+
+      await saver.save("exec-1", createTestState("exec-1", { step: 1 }), "node-001");
+      await saver.save("exec-1", createTestState("exec-1", { step: 2 }), "node-002");
+      await saver.save("exec-1", createTestState("exec-1", { step: 3 }), "node-003");
+
+      // Resume from middle checkpoint
+      const resumedState = await saver.loadByLabel("exec-1", "node-002");
+      expect(resumedState?.outputs).toEqual({ step: 2 });
+
+      // After loading node-002, counter should be at 2
+      expect(saver.getCheckpointCount()).toBe(2);
+
+      // Continue saving - should get node-003 (not node-001)
+      await saver.save("exec-1", createTestState("exec-1", { step: 4 }));
+      const labels = await saver.list("exec-1");
+      expect(labels).toContain("node-003");
+      expect(saver.getCheckpointCount()).toBe(3);
+    });
+  });
+});
+
+// ============================================================================
 // createCheckpointer Factory Tests
 // ============================================================================
 
@@ -526,13 +798,35 @@ describe("createCheckpointer", () => {
     const memory = createCheckpointer("memory");
     const file = createCheckpointer("file", { baseDir: tempDir });
     const research = createCheckpointer("research", { researchDir: tempDir });
+    const session = createCheckpointer("session", { sessionDir: tempDir });
 
     // All should have the required methods
-    for (const saver of [memory, file, research]) {
+    for (const saver of [memory, file, research, session]) {
       expect(typeof saver.save).toBe("function");
       expect(typeof saver.load).toBe("function");
       expect(typeof saver.list).toBe("function");
       expect(typeof saver.delete).toBe("function");
     }
+  });
+
+  test("creates SessionDirSaver for 'session' type with static path", () => {
+    const saver = createCheckpointer("session", { sessionDir: tempDir });
+    expect(saver).toBeInstanceOf(SessionDirSaver);
+  });
+
+  test("creates SessionDirSaver for 'session' type with dynamic getter", () => {
+    interface TestState extends BaseState {
+      ralphSessionDir: string;
+    }
+    const saver = createCheckpointer<TestState>("session", {
+      sessionDir: (state) => state.ralphSessionDir,
+    });
+    expect(saver).toBeInstanceOf(SessionDirSaver);
+  });
+
+  test("throws error for 'session' type without sessionDir", () => {
+    expect(() => createCheckpointer("session")).toThrow(
+      "SessionDirSaver requires sessionDir option"
+    );
   });
 });

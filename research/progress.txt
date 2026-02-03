@@ -3603,3 +3603,93 @@ Implemented the display of PR URL on workflow completion with clickable terminal
 - tests/graph/nodes/ralph-nodes.test.ts - Added 14 new tests
 - research/feature-list.json - Updated passes to true for this feature
 
+
+## 2026-02-03 - Feature Implementation: Implement checkpointing to session directory
+
+### Status: COMPLETED
+
+Implemented dynamic session directory checkpointing for the Ralph workflow. Checkpoints are now saved to the session's checkpoints directory (`.ralph/sessions/{sessionId}/checkpoints/`) with sequential naming (`node-001.json`, `node-002.json`, etc.).
+
+#### Changes Made
+
+1. **Created SessionDirSaver class in src/graph/checkpointer.ts**
+   - New checkpointer implementation that saves to the session's checkpoints directory
+   - Supports both static session directory path and dynamic getter function
+   - Uses sequential naming (node-001, node-002, etc.) when label is not provided
+   - Tracks checkpoint counter for proper resumption
+   - Includes full state in each checkpoint
+   - Provides `loadFromSessionDir()` and `loadByLabelFromSessionDir()` for dynamic directories
+   - Restores counter when loading checkpoints to support proper resumption
+
+2. **Updated createCheckpointer factory function**
+   - Added "session" type to CheckpointerType union
+   - Added CreateCheckpointerOptions interface with sessionDir option
+   - Factory now supports creating SessionDirSaver with static or dynamic directory
+
+3. **Updated createRalphWorkflow() in src/workflows/ralph.ts**
+   - Switched from ResearchDirSaver to SessionDirSaver
+   - Uses dynamic checkpointDir: `(state) => state.ralphSessionDir`
+   - Removed obsolete `checkpointDir` configuration option
+   - Updated CreateRalphWorkflowConfig documentation
+
+4. **Updated src/graph/index.ts exports**
+   - Added SessionDirSaver to exports
+   - Added CreateCheckpointerOptions type export
+
+#### Tests Added (22 new tests in tests/graph/checkpointer.test.ts)
+
+SessionDirSaver test suite:
+- save and load with static session directory (5 tests)
+  - saves and loads a checkpoint
+  - returns null for non-existent execution
+  - uses sequential naming when label not provided
+  - loads the most recent checkpoint
+  - creates proper file structure in checkpoints directory
+
+- save and load with dynamic session directory (3 tests)
+  - saves checkpoint using dynamic session directory from state
+  - throws error when loading without state for dynamic directory
+  - can load from session directory using loadFromSessionDir
+
+- loadByLabel (2 tests)
+  - loads a specific checkpoint by label
+  - returns null for non-existent label
+
+- list (2 tests)
+  - lists all checkpoint labels sorted
+  - returns empty array for non-existent checkpoints directory
+
+- delete (3 tests)
+  - deletes all checkpoints
+  - deletes a specific checkpoint
+  - resets counter when deleting all checkpoints
+
+- checkpoint counter (3 tests)
+  - getCheckpointCount returns the current counter value
+  - resetCounter resets the counter to 0
+  - loading a checkpoint restores the counter
+
+- resumption from checkpoint (1 test)
+  - supports resumption from any checkpoint
+
+createCheckpointer factory tests (3 new tests):
+- creates SessionDirSaver for 'session' type with static path
+- creates SessionDirSaver for 'session' type with dynamic getter
+- throws error for 'session' type without sessionDir
+
+#### Test Results
+- All 69 tests in tests/graph/checkpointer.test.ts pass (22 new tests added)
+- All 609 tests in tests/graph/ pass
+- All 42 tests in tests/workflows/ralph.test.ts pass
+- All 47 tests in tests/workflows/ralph-session.test.ts pass
+- All 229 tests in tests/graph/nodes/ralph-nodes.test.ts pass
+- Build succeeds
+
+#### Files Modified
+- src/graph/checkpointer.ts - Added SessionDirSaver class and updated factory
+- src/graph/index.ts - Added SessionDirSaver export
+- src/workflows/ralph.ts - Updated to use SessionDirSaver with dynamic directory
+- tests/graph/checkpointer.test.ts - Added 22 new tests
+- research/feature-list.json - Updated passes to true for this feature
+
+---

@@ -589,13 +589,346 @@ export class ResearchDirSaver<TState extends BaseState = BaseState>
 }
 
 // ============================================================================
+// SESSION DIR SAVER
+// ============================================================================
+
+/**
+ * Session directory checkpointer for Ralph sessions.
+ *
+ * This checkpointer saves checkpoints to the session's checkpoints directory,
+ * using sequential naming (node-001.json, node-002.json, etc.).
+ *
+ * Storage structure:
+ * ```
+ * .ralph/sessions/{sessionId}/
+ *   checkpoints/
+ *     node-001.json
+ *     node-002.json
+ *     ...
+ * ```
+ *
+ * Features:
+ * - Sequential checkpoint naming for easy ordering
+ * - Full state included in each checkpoint
+ * - Supports resumption from any checkpoint
+ * - Dynamic directory based on session state
+ *
+ * @template TState - The state type being checkpointed
+ */
+export class SessionDirSaver<TState extends BaseState = BaseState>
+  implements Checkpointer<TState>
+{
+  private checkpointCounter = 0;
+
+  /**
+   * Create a SessionDirSaver.
+   *
+   * @param sessionDirGetter - Function that returns the session directory from state
+   *                           or a static session directory path
+   */
+  constructor(
+    private readonly sessionDirGetter: string | ((state: TState) => string)
+  ) {}
+
+  /**
+   * Get the checkpoints directory for a session.
+   */
+  private getCheckpointsDir(sessionDir: string): string {
+    return join(sessionDir, "checkpoints");
+  }
+
+  /**
+   * Get the checkpoint file path with sequential naming.
+   */
+  private getCheckpointPath(sessionDir: string, label: string): string {
+    const checkpointsDir = this.getCheckpointsDir(sessionDir);
+    // Sanitize label for use as filename
+    const safeLabel = label.replace(/[^a-zA-Z0-9_-]/g, "_");
+    return join(checkpointsDir, `${safeLabel}.json`);
+  }
+
+  /**
+   * Generate a sequential checkpoint label (node-001, node-002, etc.)
+   */
+  private generateSequentialLabel(): string {
+    this.checkpointCounter++;
+    return `node-${String(this.checkpointCounter).padStart(3, "0")}`;
+  }
+
+  /**
+   * Resolve the session directory from the getter.
+   */
+  private resolveSessionDir(state?: TState): string {
+    if (typeof this.sessionDirGetter === "string") {
+      return this.sessionDirGetter;
+    }
+    if (!state) {
+      throw new Error("SessionDirSaver requires state to resolve dynamic session directory");
+    }
+    return this.sessionDirGetter(state);
+  }
+
+  /**
+   * Ensure the checkpoints directory exists.
+   */
+  private async ensureDir(sessionDir: string): Promise<void> {
+    const checkpointsDir = this.getCheckpointsDir(sessionDir);
+    await mkdir(checkpointsDir, { recursive: true });
+  }
+
+  /**
+   * Extract checkpoint number from a label in the format "node-NNN".
+   * Returns null if the label doesn't match the sequential format.
+   */
+  private extractCheckpointNumber(label: string): number | null {
+    const match = label.match(/^node-(\d+)$/);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    return null;
+  }
+
+  /**
+   * Save a checkpoint of the current execution state.
+   *
+   * Uses sequential naming (node-001, node-002, etc.) if no label is provided.
+   */
+  async save(executionId: string, state: TState, label?: string): Promise<void> {
+    const sessionDir = this.resolveSessionDir(state);
+    await this.ensureDir(sessionDir);
+
+    let checkpointLabel: string;
+    let checkpointNumber: number;
+
+    if (label) {
+      checkpointLabel = label;
+      // If the label matches our sequential pattern, extract and update the counter
+      const extractedNumber = this.extractCheckpointNumber(label);
+      if (extractedNumber !== null) {
+        checkpointNumber = extractedNumber;
+        // Update internal counter if this is higher than current
+        if (extractedNumber > this.checkpointCounter) {
+          this.checkpointCounter = extractedNumber;
+        }
+      } else {
+        // Non-sequential label, just use current counter
+        checkpointNumber = this.checkpointCounter;
+      }
+    } else {
+      // Generate sequential label
+      checkpointLabel = this.generateSequentialLabel();
+      checkpointNumber = this.checkpointCounter;
+    }
+
+    const filePath = this.getCheckpointPath(sessionDir, checkpointLabel);
+
+    const data = {
+      executionId,
+      label: checkpointLabel,
+      timestamp: new Date().toISOString(),
+      checkpointNumber,
+      state,
+    };
+
+    await writeFile(filePath, JSON.stringify(data, null, 2), "utf-8");
+  }
+
+  /**
+   * Load the most recent checkpoint for an execution.
+   *
+   * Note: This method requires the session directory to be provided via
+   * a static path in the constructor.
+   */
+  async load(executionId: string): Promise<TState | null> {
+    if (typeof this.sessionDirGetter !== "string") {
+      throw new Error(
+        "SessionDirSaver.load() requires a static session directory. " +
+        "Use loadFromSessionDir() for dynamic session directories."
+      );
+    }
+
+    return this.loadFromSessionDir(this.sessionDirGetter, executionId);
+  }
+
+  /**
+   * Load the most recent checkpoint from a specific session directory.
+   *
+   * @param sessionDir - Path to the session directory
+   * @param executionId - Execution ID to match (optional, uses most recent if not provided)
+   * @returns The checkpointed state, or null if not found
+   */
+  async loadFromSessionDir(sessionDir: string, executionId?: string): Promise<TState | null> {
+    const labels = await this.listFromSessionDir(sessionDir);
+
+    if (labels.length === 0) {
+      return null;
+    }
+
+    // Get the most recent checkpoint (last in sorted list)
+    const latestLabel = labels[labels.length - 1]!;
+    return this.loadByLabelFromSessionDir(sessionDir, latestLabel, executionId);
+  }
+
+  /**
+   * Load a specific checkpoint by label.
+   */
+  async loadByLabel(executionId: string, label: string): Promise<TState | null> {
+    if (typeof this.sessionDirGetter !== "string") {
+      throw new Error(
+        "SessionDirSaver.loadByLabel() requires a static session directory. " +
+        "Use loadByLabelFromSessionDir() for dynamic session directories."
+      );
+    }
+
+    return this.loadByLabelFromSessionDir(this.sessionDirGetter, label, executionId);
+  }
+
+  /**
+   * Load a specific checkpoint by label from a session directory.
+   */
+  async loadByLabelFromSessionDir(
+    sessionDir: string,
+    label: string,
+    executionId?: string
+  ): Promise<TState | null> {
+    const filePath = this.getCheckpointPath(sessionDir, label);
+
+    try {
+      const content = await readFile(filePath, "utf-8");
+      const data = JSON.parse(content);
+
+      // Optionally verify execution ID matches
+      if (executionId && data.executionId !== executionId) {
+        return null;
+      }
+
+      // Update internal counter to continue from this checkpoint
+      if (typeof data.checkpointNumber === "number") {
+        this.checkpointCounter = data.checkpointNumber;
+      }
+
+      return data.state as TState;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * List all checkpoint labels for an execution.
+   */
+  async list(executionId: string): Promise<string[]> {
+    if (typeof this.sessionDirGetter !== "string") {
+      throw new Error(
+        "SessionDirSaver.list() requires a static session directory. " +
+        "Use listFromSessionDir() for dynamic session directories."
+      );
+    }
+
+    return this.listFromSessionDir(this.sessionDirGetter);
+  }
+
+  /**
+   * List all checkpoint labels from a session directory.
+   */
+  async listFromSessionDir(sessionDir: string): Promise<string[]> {
+    const checkpointsDir = this.getCheckpointsDir(sessionDir);
+
+    try {
+      const files = await readdir(checkpointsDir);
+      return files
+        .filter((f) => f.endsWith(".json"))
+        .map((f) => f.replace(".json", ""))
+        .sort(); // Sort alphabetically (node-001, node-002, etc.)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Delete a specific checkpoint or all checkpoints for an execution.
+   */
+  async delete(executionId: string, label?: string): Promise<void> {
+    if (typeof this.sessionDirGetter !== "string") {
+      throw new Error(
+        "SessionDirSaver.delete() requires a static session directory. " +
+        "Use deleteFromSessionDir() for dynamic session directories."
+      );
+    }
+
+    return this.deleteFromSessionDir(this.sessionDirGetter, label);
+  }
+
+  /**
+   * Delete checkpoints from a session directory.
+   */
+  async deleteFromSessionDir(sessionDir: string, label?: string): Promise<void> {
+    const checkpointsDir = this.getCheckpointsDir(sessionDir);
+
+    if (!label) {
+      // Delete all checkpoints in the directory
+      try {
+        await rm(checkpointsDir, { recursive: true, force: true });
+        this.checkpointCounter = 0;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
+      }
+      return;
+    }
+
+    // Delete specific checkpoint
+    const filePath = this.getCheckpointPath(sessionDir, label);
+    try {
+      await unlink(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+
+  /**
+   * Get the current checkpoint count.
+   */
+  getCheckpointCount(): number {
+    return this.checkpointCounter;
+  }
+
+  /**
+   * Reset the checkpoint counter.
+   */
+  resetCounter(): void {
+    this.checkpointCounter = 0;
+  }
+}
+
+// ============================================================================
 // FACTORY FUNCTION
 // ============================================================================
 
 /**
  * Checkpointer type for factory function.
  */
-export type CheckpointerType = "memory" | "file" | "research";
+export type CheckpointerType = "memory" | "file" | "research" | "session";
+
+/**
+ * Options for creating a checkpointer.
+ */
+export interface CreateCheckpointerOptions<TState extends BaseState = BaseState> {
+  /** Base directory for FileSaver */
+  baseDir?: string;
+  /** Research directory for ResearchDirSaver */
+  researchDir?: string;
+  /** Session directory or getter function for SessionDirSaver */
+  sessionDir?: string | ((state: TState) => string);
+}
 
 /**
  * Create a checkpointer instance.
@@ -609,11 +942,14 @@ export type CheckpointerType = "memory" | "file" | "research";
  * const memory = createCheckpointer("memory");
  * const file = createCheckpointer("file", { baseDir: "/tmp/checkpoints" });
  * const research = createCheckpointer("research", { researchDir: "research" });
+ * const session = createCheckpointer("session", {
+ *   sessionDir: (state) => state.ralphSessionDir
+ * });
  * ```
  */
 export function createCheckpointer<TState extends BaseState = BaseState>(
   type: CheckpointerType,
-  options?: { baseDir?: string; researchDir?: string }
+  options?: CreateCheckpointerOptions<TState>
 ): Checkpointer<TState> {
   switch (type) {
     case "memory":
@@ -627,6 +963,12 @@ export function createCheckpointer<TState extends BaseState = BaseState>(
 
     case "research":
       return new ResearchDirSaver<TState>(options?.researchDir ?? "research");
+
+    case "session":
+      if (!options?.sessionDir) {
+        throw new Error("SessionDirSaver requires sessionDir option");
+      }
+      return new SessionDirSaver<TState>(options.sessionDir);
 
     default:
       throw new Error(`Unknown checkpointer type: ${type}`);

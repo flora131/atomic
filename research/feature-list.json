@@ -1340,7 +1340,7 @@
         "Include full state in checkpoint",
         "Allow resumption from any checkpoint"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

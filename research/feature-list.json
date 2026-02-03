@@ -811,7 +811,7 @@
         "If not exists and not --yolo, show error",
         "Pass featureListPath to workflow config"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "refactor",

@@ -2075,3 +2075,47 @@ The Ralph workflow follows this sequence:
 - src/ui/commands/registry.ts - Added maxIterations to ralphConfig interface
 - tests/ui/commands/workflow-commands.test.ts - Added --max-iterations flag tests
 - research/feature-list.json - Marked feature as passes: true
+
+## 2026-02-03 - Feature Implementation: --feature-list Flag for /ralph Command
+
+### Completed
+- Added `featureListPath` field to `RalphCommandArgs` interface
+- Updated `parseRalphArgs()` to parse `--feature-list <path>` flag
+  - Defaults to "research/feature-list.json" when not specified
+  - Correctly handles flag positioning (only matches at start or after other flags)
+  - Works in combination with `--yolo`, `--max-iterations`, and `--resume` flags
+- Updated `createRalphCommand()` to validate feature list file exists
+  - Shows error if file not found and not in `--yolo` mode
+  - Skips validation in `--yolo` mode (yolo doesn't need feature list)
+- Added `featureListPath` to `ralphConfig` state update
+- Non-default feature list path shown in workflow start message
+
+### Tests Added (17 new tests)
+- parseRalphArgs --feature-list flag tests:
+  - parses --feature-list flag with path
+  - defaults to research/feature-list.json if not specified
+  - parses --feature-list with full path
+  - parses --feature-list with --yolo flag (--feature-list first)
+  - parses --feature-list with --yolo flag (--yolo first)
+  - parses --feature-list with leading/trailing whitespace
+  - --feature-list with --resume flag
+  - --feature-list with --max-iterations flag
+  - does not treat --feature-list in the middle of prompt as a flag
+  - parses relative path with directory
+
+- ralph command --feature-list integration tests:
+  - ralph command with --feature-list and existing file succeeds
+  - ralph command with --feature-list and non-existent file fails
+  - ralph command with --yolo skips feature list validation
+  - ralph command defaults featureListPath to research/feature-list.json
+  - ralph command with custom --feature-list shows in message
+  - ralph command with non-default --feature-list shows in message
+  - ralph command system message includes feature-list when non-default
+  - ralph command system message does not include feature-list when default
+
+### Test Results
+- All workflow-commands tests pass (93 tests)
+
+### Files Modified
+- src/ui/commands/workflow-commands.ts - Added --feature-list flag parsing
+- tests/ui/commands/workflow-commands.test.ts - Added --feature-list tests

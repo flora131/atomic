@@ -834,3 +834,202 @@ describe("ralph command --max-iterations flag", () => {
     expect(messages[0]?.content).not.toContain("max:");
   });
 });
+
+// ============================================================================
+// PARSE RALPH ARGS --feature-list TESTS
+// ============================================================================
+
+describe("parseRalphArgs --feature-list flag", () => {
+  test("parses --feature-list flag with path", () => {
+    const result = parseRalphArgs("--feature-list custom.json implement auth");
+    expect(result.featureListPath).toBe("custom.json");
+    expect(result.prompt).toBe("implement auth");
+    expect(result.yolo).toBe(false);
+  });
+
+  test("defaults to research/feature-list.json if --feature-list not specified", () => {
+    const result = parseRalphArgs("implement auth");
+    expect(result.featureListPath).toBe("research/feature-list.json");
+  });
+
+  test("parses --feature-list with full path", () => {
+    const result = parseRalphArgs("--feature-list /path/to/features.json implement auth");
+    expect(result.featureListPath).toBe("/path/to/features.json");
+    expect(result.prompt).toBe("implement auth");
+  });
+
+  test("parses --feature-list with --yolo flag (--feature-list first)", () => {
+    const result = parseRalphArgs("--feature-list custom.json --yolo implement auth");
+    expect(result.featureListPath).toBe("custom.json");
+    expect(result.yolo).toBe(true);
+    expect(result.prompt).toBe("implement auth");
+  });
+
+  test("parses --feature-list with --yolo flag (--yolo first)", () => {
+    const result = parseRalphArgs("--yolo --feature-list custom.json implement auth");
+    expect(result.featureListPath).toBe("custom.json");
+    expect(result.yolo).toBe(true);
+    expect(result.prompt).toBe("implement auth");
+  });
+
+  test("parses --feature-list with leading/trailing whitespace", () => {
+    const result = parseRalphArgs("  --feature-list  custom.json  implement auth  ");
+    expect(result.featureListPath).toBe("custom.json");
+    expect(result.prompt).toBe("implement auth");
+  });
+
+  test("--feature-list with --resume flag", () => {
+    const result = parseRalphArgs("--feature-list custom.json --resume 550e8400-e29b-41d4-a716-446655440000");
+    expect(result.featureListPath).toBe("custom.json");
+    expect(result.resumeSessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
+  });
+
+  test("--feature-list with --max-iterations flag", () => {
+    const result = parseRalphArgs("--feature-list custom.json --max-iterations 50 implement auth");
+    expect(result.featureListPath).toBe("custom.json");
+    expect(result.maxIterations).toBe(50);
+    expect(result.prompt).toBe("implement auth");
+  });
+
+  test("does not treat --feature-list in the middle of prompt as a flag", () => {
+    const result = parseRalphArgs("implement --feature-list auth");
+    expect(result.featureListPath).toBe("research/feature-list.json");
+    expect(result.prompt).toBe("implement --feature-list auth");
+  });
+
+  test("parses relative path with directory", () => {
+    const result = parseRalphArgs("--feature-list specs/features.json implement auth");
+    expect(result.featureListPath).toBe("specs/features.json");
+    expect(result.prompt).toBe("implement auth");
+  });
+});
+
+// ============================================================================
+// RALPH COMMAND --feature-list INTEGRATION TESTS
+// ============================================================================
+
+describe("ralph command --feature-list flag", () => {
+  const testFeatureListPath = "research/feature-list.json";
+
+  test("ralph command with --feature-list and existing file succeeds", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    // Uses existing research/feature-list.json
+    const context = createMockContext();
+    const result = ralphCmd!.execute(`--feature-list ${testFeatureListPath} implement auth`, context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.ralphConfig?.featureListPath).toBe(testFeatureListPath);
+  });
+
+  test("ralph command with --feature-list and non-existent file fails", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("--feature-list nonexistent/file.json implement auth", context) as CommandResult;
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Feature list file not found");
+    expect(result.message).toContain("nonexistent/file.json");
+  });
+
+  test("ralph command with --yolo skips feature list validation", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    // Even with non-existent file, --yolo mode should succeed
+    const result = ralphCmd!.execute("--feature-list nonexistent.json --yolo implement auth", context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.ralphConfig?.yolo).toBe(true);
+    expect(result.stateUpdate?.ralphConfig?.featureListPath).toBe("nonexistent.json");
+  });
+
+  test("ralph command defaults featureListPath to research/feature-list.json", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("implement auth", context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.ralphConfig?.featureListPath).toBe("research/feature-list.json");
+  });
+
+  test("ralph command with custom --feature-list shows in message", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute(`--feature-list ${testFeatureListPath} implement auth`, context) as CommandResult;
+
+    // Default path should not show in message
+    expect(result.message).not.toContain("features:");
+  });
+
+  test("ralph command with non-default --feature-list shows in message", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    // Create a temp file for this test
+    const customPath = "research/custom-features.json";
+    const { writeFileSync, unlinkSync } = require("fs");
+    writeFileSync(customPath, "[]");
+
+    try {
+      const context = createMockContext();
+      const result = ralphCmd!.execute(`--feature-list ${customPath} implement auth`, context) as CommandResult;
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain("features:");
+      expect(result.message).toContain(customPath);
+    } finally {
+      unlinkSync(customPath);
+    }
+  });
+
+  test("ralph command system message includes feature-list when non-default", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    // Create a temp file for this test
+    const customPath = "research/custom-features.json";
+    const { writeFileSync, unlinkSync } = require("fs");
+    writeFileSync(customPath, "[]");
+
+    try {
+      const messages: Array<{ role: string; content: string }> = [];
+      const context = createMockContext();
+      context.addMessage = (role: string, content: string) => {
+        messages.push({ role, content });
+      };
+
+      ralphCmd!.execute(`--feature-list ${customPath} implement auth`, context);
+
+      expect(messages.length).toBe(1);
+      expect(messages[0]?.content).toContain("features:");
+      expect(messages[0]?.content).toContain(customPath);
+    } finally {
+      unlinkSync(customPath);
+    }
+  });
+
+  test("ralph command system message does not include feature-list when default", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const messages: Array<{ role: string; content: string }> = [];
+    const context = createMockContext();
+    context.addMessage = (role: string, content: string) => {
+      messages.push({ role, content });
+    };
+
+    ralphCmd!.execute("implement auth", context);
+
+    expect(messages.length).toBe(1);
+    expect(messages[0]?.content).not.toContain("features:");
+  });
+});

@@ -159,7 +159,6 @@ Examples:
 Slash Commands (in workflow mode):
   /workflow - Start the Atomic workflow
   /status   - Show workflow status
-  /reject   - Reject and request revisions
   /theme    - Switch theme (dark/light)
   /help     - Show available commands`
     )

@@ -1,5 +1,54 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Remove /reject Command Registration
+
+### Completed
+- Removed /reject command from builtin-commands.ts
+  - Removed rejectCommand export and definition
+  - Removed from builtinCommands array (now 5 commands)
+  - Updated file header comment
+- Updated /status command message
+  - Changed from "Use `/reject <feedback>` to revise or continue manually" to "Review the spec and continue manually or revise."
+- Updated index.ts
+  - Removed rejectCommand from exports
+  - Updated comment: "Built-in commands (help, status, theme, clear, compact)"
+- Updated cli.ts
+  - Removed /reject from slash commands help text
+- Updated chat.ts
+  - Removed /reject command handler block
+  - Updated help message to remove /reject
+  - Updated approval prompt from mentioning /reject to "Review the spec and type any message to continue, or revise manually."
+  - Simplified approval callback logic (no longer checking for "reject" in message)
+
+### Tests Updated
+- tests/ui/commands/builtin-commands.test.ts
+  - Removed rejectCommand import
+  - Removed entire rejectCommand test suite
+  - Updated builtinCommands array test (5 commands instead of 6)
+  - Removed rejectCommand from "contains all built-in commands" test
+  - Updated "registers all built-in commands" test to verify reject is NOT registered
+  - Removed "no" alias test (was rejectCommand alias)
+  - Updated idempotent test (size 5 instead of 6)
+  - Updated pending approval state test to not expect /reject in message
+- tests/ui/commands/index.test.ts
+  - Updated expect for globalRegistry.has("reject") to be false
+  - Added expect for globalRegistry.has("compact") to be true
+
+### Test Results
+- All UI commands tests pass (492 tests)
+- All builtin-commands tests pass (37 tests)
+- All index tests pass (31 tests)
+
+### Files Modified
+- src/ui/commands/builtin-commands.ts - Removed /reject command
+- src/ui/commands/index.ts - Removed rejectCommand export
+- src/cli.ts - Removed /reject from help text
+- src/commands/chat.ts - Removed /reject handling, updated messages
+- tests/ui/commands/builtin-commands.test.ts - Removed rejectCommand tests
+- tests/ui/commands/index.test.ts - Updated reject registration test
+
+---
+
 ## 2026-02-03 - Feature Implementation: Remove /approve Command Registration
 
 ### Completed

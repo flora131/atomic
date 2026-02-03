@@ -1696,7 +1696,7 @@
         "Verify agent uses opus model",
         "Verify result returned"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

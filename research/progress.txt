@@ -1,5 +1,74 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Implement workflow telemetry for start, node transitions, completion events
+
+### Status: COMPLETED
+
+Implemented workflow telemetry to track workflow execution events including start, node transitions (enter/exit), completion, and errors.
+
+#### Changes Made
+
+1. **Added new WorkflowEventType values in src/telemetry/types.ts**
+   - Added "workflow.start" for workflow start events
+   - Added "workflow.complete" for workflow completion events
+   - Added "workflow.error" for workflow error events
+   - Added "workflow.node.enter" for node entry events
+   - Added "workflow.node.exit" for node exit events with duration
+   - Updated isWorkflowEventType type guard to include new event types
+
+2. **Added WorkflowTelemetryConfig and WorkflowTracker interfaces in src/telemetry/graph-integration.ts**
+   - WorkflowTelemetryConfig: Configuration for workflow telemetry (collector, trackNodes, additionalProperties)
+   - WorkflowTracker: Interface with start(), nodeEnter(), nodeExit(), complete(), error() methods
+   - Created trackWorkflowExecution() factory function
+   - Created withWorkflowTelemetry() convenience wrapper for automatic tracking
+
+3. **Integrated telemetry into GraphExecutor in src/graph/compiled.ts**
+   - Added workflowName and telemetry options to ExecutionOptions interface
+   - Tracks workflow.start at beginning of stream execution
+   - Tracks workflow.node.enter before each node execution
+   - Tracks workflow.node.exit after each node execution (with duration)
+   - Tracks workflow.complete on successful completion (before final yield)
+   - Tracks workflow.error and workflow.complete on failures/cancellation
+
+#### Tests Added
+
+1. **Updated tests/telemetry/types.test.ts** (1 new test, updated counts)
+   - validates new workflow execution event types
+   - Updated workflow events count from 8 to 13
+   - Updated total event count from 33 to 38
+
+2. **Added tests/telemetry/graph-integration.test.ts** (13 new tests)
+   - trackWorkflowExecution: start(), nodeEnter(), nodeExit(), complete(), error() tests
+   - withWorkflowTelemetry: success/error/tracker integration tests
+   - Workflow Telemetry Integration test suite
+
+3. **Added tests/graph/compiled.test.ts** (8 new tests)
+   - emits workflow.start event when telemetry is enabled
+   - emits workflow.node.enter and workflow.node.exit events for each node
+   - emits workflow.complete event on successful completion
+   - emits workflow.error and workflow.complete events on failure
+   - does not emit telemetry events when telemetry option is not provided
+   - node exit events include duration
+   - workflow name is passed to start event
+   - telemetry tracks cancellation as failure
+
+#### Test Results
+- All 47 tests in tests/graph/compiled.test.ts pass
+- All 53 tests in tests/telemetry/graph-integration.test.ts pass
+- All 41 tests in tests/telemetry/types.test.ts pass
+- Build succeeds
+
+#### Files Modified
+- src/telemetry/types.ts - Added new workflow event types and updated type guard
+- src/telemetry/graph-integration.ts - Added WorkflowTelemetryConfig, WorkflowTracker, trackWorkflowExecution(), withWorkflowTelemetry()
+- src/graph/compiled.ts - Integrated telemetry tracking into GraphExecutor stream method
+- tests/telemetry/types.test.ts - Updated tests for new event types
+- tests/telemetry/graph-integration.test.ts - Added tests for workflow tracking functions
+- tests/graph/compiled.test.ts - Added tests for GraphExecutor telemetry integration
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Add visual indicator for yolo mode vs feature-list mode
 
 ### Status: COMPLETED

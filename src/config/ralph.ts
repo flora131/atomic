@@ -80,12 +80,11 @@ export const RALPH_DEFAULTS = {
  * Ralph workflow configuration.
  *
  * This configuration is used by the graph-based workflow engine.
- * Note: autoApproveSpec is intentionally not included - spec approval is manual.
  */
 export interface RalphWorkflowConfig {
   /**
    * Maximum number of iterations for the workflow loop.
-   * Default: 100
+   * Default: 0 (unlimited)
    */
   maxIterations: number;
 
@@ -99,14 +98,11 @@ export interface RalphWorkflowConfig {
 /**
  * Default Ralph workflow configuration.
  *
- * - maxIterations: 100 - Provides a reasonable limit to prevent infinite loops
+ * - maxIterations: 0 - Unlimited iterations (run until completion)
  * - checkpointing: true - Enables workflow resumption after interruption
- *
- * Note: autoApproveSpec is intentionally not included.
- * Spec approval should always be manual to ensure human review.
  */
 export const RALPH_CONFIG: RalphWorkflowConfig = {
-  maxIterations: 100,
+  maxIterations: 0,
   checkpointing: true,
 } as const;
 

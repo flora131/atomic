@@ -1,5 +1,48 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: CUSTOM_WORKFLOW_SEARCH_PATHS Constant
+
+### Completed
+- Defined and exported CUSTOM_WORKFLOW_SEARCH_PATHS constant in workflow-commands.ts
+  - Array of paths to search for custom workflow definitions
+  - `.atomic/workflows` for project-local workflows (highest priority)
+  - `~/.atomic/workflows` for user-global workflows (lower priority)
+  - Added comprehensive JSDoc documentation with examples
+- Added expandPath() helper function to resolve ~ paths
+  - Expands ~/path to $HOME/path
+  - Expands ~path to $HOME/path
+  - Resolves relative paths from process.cwd()
+- Updated discoverWorkflowFiles() function
+  - Now uses CUSTOM_WORKFLOW_SEARCH_PATHS constant instead of hardcoded paths
+  - Uses expandPath() for proper path expansion
+  - Added detailed documentation about search order
+
+### Tests Added
+- CUSTOM_WORKFLOW_SEARCH_PATHS tests:
+  - is exported as an array
+  - has correct number of paths (2)
+  - contains .atomic/workflows for project-local workflows
+  - contains ~/.atomic/workflows for user-global workflows
+  - local path comes before global path (higher priority)
+  - local path is first element
+  - global path is second element
+- discoverWorkflowFiles tests:
+  - returns empty array when no workflow directories exist
+  - discovers .ts files in local workflow directory
+  - marks local workflows with source 'local'
+  - ignores non-.ts files
+  - returns absolute paths
+
+### Test Results
+- All workflow-commands tests pass (96 tests)
+- All UI commands tests pass (487 tests)
+
+### Files Modified
+- src/ui/commands/workflow-commands.ts - Added CUSTOM_WORKFLOW_SEARCH_PATHS constant and expandPath() helper
+- tests/ui/commands/workflow-commands.test.ts - Added CUSTOM_WORKFLOW_SEARCH_PATHS and discoverWorkflowFiles tests
+
+---
+
 ## 2026-02-03 - Feature Implementation: Remove /reject Command Registration
 
 ### Completed

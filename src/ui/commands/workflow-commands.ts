@@ -33,6 +33,7 @@ import {
   RALPH_DEFAULTS,
 } from "../../config/ralph.ts";
 import {
+  generateSessionId,
   getSessionDir,
 } from "../../workflows/ralph-session.ts";
 
@@ -861,23 +862,26 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
         };
       }
 
+      // Generate a new session ID for this Ralph session
+      const sessionId = generateSessionId();
+
       // Build the mode indicator for the message
       const modeStr = parsed.yolo ? " (yolo mode)" : "";
       const iterStr = parsed.maxIterations !== 100 ? ` (max: ${parsed.maxIterations})` : "";
-      const featureListStr = parsed.featureListPath !== RALPH_DEFAULTS.featureListPath 
-        ? ` (features: ${parsed.featureListPath})` 
+      const featureListStr = parsed.featureListPath !== RALPH_DEFAULTS.featureListPath
+        ? ` (features: ${parsed.featureListPath})`
         : "";
 
-      // Add a system message indicating workflow start
+      // Add a system message indicating workflow start with session UUID
       context.addMessage(
         "system",
-        `Starting **ralph** workflow${modeStr}${iterStr}${featureListStr}...\n\nPrompt: "${parsed.prompt}"`
+        `Started Ralph session: ${sessionId}\n\nStarting **ralph** workflow${modeStr}${iterStr}${featureListStr}...\n\nPrompt: "${parsed.prompt}"`
       );
 
-      // Return success with state updates and workflow config
+      // Return success with state updates and workflow config including sessionId
       return {
         success: true,
-        message: `Workflow **ralph** initialized${modeStr}${iterStr}${featureListStr}. Starting implementation...`,
+        message: `Started Ralph session: ${sessionId}\n\nWorkflow **ralph** initialized${modeStr}${iterStr}${featureListStr}. Starting implementation...`,
         stateUpdate: {
           workflowActive: true,
           workflowType: metadata.name,
@@ -886,8 +890,9 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
           specApproved: undefined,
           feedback: null,
           maxIterations: parsed.maxIterations,
-          // Ralph-specific config
+          // Ralph-specific config with sessionId
           ralphConfig: {
+            sessionId,
             yolo: parsed.yolo,
             userPrompt: parsed.prompt,
             maxIterations: parsed.maxIterations,

@@ -1742,7 +1742,7 @@
         "Verify all features work in copilot mode",
         "Verify permission bypass configured correctly"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

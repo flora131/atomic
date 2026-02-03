@@ -399,6 +399,50 @@ describe("WorkflowMetadata interface", () => {
       }
     }
   });
+
+  test("each definition has valid defaultConfig if present", () => {
+    for (const def of WORKFLOW_DEFINITIONS) {
+      if (def.defaultConfig !== undefined) {
+        expect(typeof def.defaultConfig).toBe("object");
+        expect(def.defaultConfig).not.toBeNull();
+      }
+    }
+  });
+
+  test("each definition has valid source if present", () => {
+    const validSources = ["builtin", "global", "local"];
+    for (const def of WORKFLOW_DEFINITIONS) {
+      if (def.source !== undefined) {
+        expect(validSources).toContain(def.source);
+      }
+    }
+  });
+
+  test("built-in workflows have source 'builtin'", () => {
+    for (const def of WORKFLOW_DEFINITIONS) {
+      expect(def.source).toBe("builtin");
+    }
+  });
+
+  test("createWorkflow returns a compiled graph", () => {
+    for (const def of WORKFLOW_DEFINITIONS) {
+      const graph = def.createWorkflow();
+      expect(graph).toBeDefined();
+      // CompiledGraph has nodes, edges, startNode, endNodes, and config properties
+      expect(graph.nodes).toBeInstanceOf(Map);
+      expect(Array.isArray(graph.edges)).toBe(true);
+      expect(typeof graph.startNode).toBe("string");
+      expect(graph.endNodes).toBeInstanceOf(Set);
+      expect(graph.config).toBeDefined();
+    }
+  });
+
+  test("createWorkflow accepts optional config parameter", () => {
+    for (const def of WORKFLOW_DEFINITIONS) {
+      const graph = def.createWorkflow({ customOption: "test" });
+      expect(graph).toBeDefined();
+    }
+  });
 });
 
 // ============================================================================

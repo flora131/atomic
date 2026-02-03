@@ -2879,3 +2879,35 @@ The CommandResult interface was already properly defined in src/ui/commands/regi
 - tests/ui/commands/workflow-commands.test.ts - Updated mock context with sendMessage and spawnSubagent
 - tests/ui/chat-command-execution.test.ts - Updated mock context with spawnSubagent
 
+---
+
+## 2026-02-03 - Feature Verification: Define WorkflowMetadata interface in workflow-commands.ts
+
+### Status: VERIFIED - Already Implemented with Enhanced Tests
+
+The WorkflowMetadata interface was already properly defined in src/ui/commands/workflow-commands.ts. Added comprehensive tests to verify all interface fields.
+
+#### Implementation Details
+- **Location**: src/ui/commands/workflow-commands.ts (lines 210-223)
+- **Interface Fields**:
+  - `name: string` - Command name (without leading slash)
+  - `description: string` - Human-readable description
+  - `aliases?: string[]` - Alternative names for the command
+  - `createWorkflow: (config?) => CompiledGraph<TState>` - Function to create the workflow graph
+  - `defaultConfig?: Record<string, unknown>` - Optional default configuration
+  - `source?: 'builtin' | 'global' | 'local'` - Source type (built-in, global, or local)
+
+#### Tests Added
+- `each definition has valid defaultConfig if present` - Verifies defaultConfig is object type when present
+- `each definition has valid source if present` - Verifies source is one of 'builtin', 'global', 'local'
+- `built-in workflows have source 'builtin'` - Verifies all WORKFLOW_DEFINITIONS have source 'builtin'
+- `createWorkflow returns a compiled graph` - Verifies CompiledGraph structure (nodes, edges, startNode, endNodes, config)
+- `createWorkflow accepts optional config parameter` - Verifies config parameter handling
+
+#### Test Results
+- All 127 tests in tests/ui/commands/workflow-commands.test.ts pass
+- Total expect() calls: 310
+
+#### Files Modified
+- tests/ui/commands/workflow-commands.test.ts - Added 5 new tests for WorkflowMetadata interface validation
+

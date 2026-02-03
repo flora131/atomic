@@ -1525,7 +1525,7 @@
         "Verify sessions don't interfere with each other",
         "Verify each session has independent feature list copy"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

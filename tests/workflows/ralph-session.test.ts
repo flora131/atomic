@@ -1387,3 +1387,818 @@ describe("Session Directory Creation - Comprehensive Tests", () => {
     });
   });
 });
+
+// ============================================================================
+// SESSION STATE SERIALIZATION/DESERIALIZATION - COMPREHENSIVE TESTS
+// Feature: Unit test: Session state serialization/deserialization
+// ============================================================================
+
+describe("Session State Serialization/Deserialization - Comprehensive Tests", () => {
+  const { rm, stat, readFile, writeFile } = require("node:fs/promises");
+  const { join } = require("node:path");
+
+  // Helper to clean up test directories
+  async function cleanupDir(dir: string) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+
+  // Clean up .ralph directory after all tests
+  afterAll(async () => {
+    try {
+      await rm(".ralph", { recursive: true, force: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+  });
+
+  describe("Create RalphSession object with all fields", () => {
+    test("creates session with all required fields populated", () => {
+      const session = createRalphSession({
+        sessionId: "test-all-fields",
+        sessionDir: ".ralph/sessions/test-all-fields/",
+        createdAt: "2026-02-03T10:00:00.000Z",
+        lastUpdated: "2026-02-03T10:30:00.000Z",
+        yolo: false,
+        maxIterations: 75,
+        sourceFeatureListPath: "research/feature-list.json",
+        features: [
+          createRalphFeature({
+            id: "feat-001",
+            name: "Test Feature",
+            description: "A complete test feature",
+            acceptanceCriteria: ["Step 1", "Step 2"],
+            status: "pending",
+          }),
+        ],
+        currentFeatureIndex: 0,
+        completedFeatures: [],
+        iteration: 1,
+        status: "running",
+        prUrl: undefined,
+        prBranch: "feature/test",
+      });
+
+      expect(session.sessionId).toBe("test-all-fields");
+      expect(session.sessionDir).toBe(".ralph/sessions/test-all-fields/");
+      expect(session.createdAt).toBe("2026-02-03T10:00:00.000Z");
+      expect(session.lastUpdated).toBe("2026-02-03T10:30:00.000Z");
+      expect(session.yolo).toBe(false);
+      expect(session.maxIterations).toBe(75);
+      expect(session.sourceFeatureListPath).toBe("research/feature-list.json");
+      expect(session.features.length).toBe(1);
+      expect(session.currentFeatureIndex).toBe(0);
+      expect(session.completedFeatures).toEqual([]);
+      expect(session.iteration).toBe(1);
+      expect(session.status).toBe("running");
+      expect(session.prUrl).toBeUndefined();
+      expect(session.prBranch).toBe("feature/test");
+    });
+
+    test("creates session with all optional fields populated", () => {
+      const session = createRalphSession({
+        sessionId: "test-optional-fields",
+        yolo: true,
+        maxIterations: 0,
+        prUrl: "https://github.com/user/repo/pull/123",
+        prBranch: "feature/optional-test",
+        debugReports: [{ type: "error", message: "Test error" }],
+      });
+
+      expect(session.prUrl).toBe("https://github.com/user/repo/pull/123");
+      expect(session.prBranch).toBe("feature/optional-test");
+      expect(session.debugReports).toEqual([{ type: "error", message: "Test error" }]);
+    });
+
+    test("creates session with multiple features at different statuses", () => {
+      const features: RalphFeature[] = [
+        createRalphFeature({
+          id: "feat-001",
+          name: "Completed Feature",
+          description: "Already done",
+          status: "passing",
+          implementedAt: "2026-02-01T10:00:00.000Z",
+        }),
+        createRalphFeature({
+          id: "feat-002",
+          name: "In Progress Feature",
+          description: "Being worked on",
+          status: "in_progress",
+        }),
+        createRalphFeature({
+          id: "feat-003",
+          name: "Pending Feature",
+          description: "Not started",
+          status: "pending",
+        }),
+        createRalphFeature({
+          id: "feat-004",
+          name: "Failed Feature",
+          description: "Has errors",
+          status: "failing",
+          error: "Test suite failed",
+        }),
+      ];
+
+      const session = createRalphSession({
+        features,
+        currentFeatureIndex: 1,
+        completedFeatures: ["feat-001"],
+        iteration: 10,
+      });
+
+      expect(session.features.length).toBe(4);
+      expect(session.features[0].status).toBe("passing");
+      expect(session.features[1].status).toBe("in_progress");
+      expect(session.features[2].status).toBe("pending");
+      expect(session.features[3].status).toBe("failing");
+      expect(session.features[3].error).toBe("Test suite failed");
+    });
+
+    test("creates session in all valid status states", () => {
+      const statuses = ["running", "paused", "completed", "failed"] as const;
+
+      for (const status of statuses) {
+        const session = createRalphSession({ status });
+        expect(session.status).toBe(status);
+        expect(isRalphSession(session)).toBe(true);
+      }
+    });
+
+    test("session with debugReports is valid", () => {
+      const session = createRalphSession({
+        debugReports: [
+          { type: "error", message: "Error 1", details: { stack: "..." } },
+          { type: "warning", message: "Warning 1" },
+        ],
+      });
+
+      expect(session.debugReports?.length).toBe(2);
+      expect(isRalphSession(session)).toBe(true);
+    });
+  });
+
+  describe("saveSession() writes valid JSON", () => {
+    test("saveSession writes session to session.json file", async () => {
+      const sessionId = `save-json-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const session = createRalphSession({ sessionId, sessionDir });
+        await saveSession(sessionDir, session);
+
+        const sessionPath = join(sessionDir, "session.json");
+        const fileStat = await stat(sessionPath);
+        expect(fileStat.isFile()).toBe(true);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("saveSession writes parseable JSON content", async () => {
+      const sessionId = `save-parseable-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const session = createRalphSession({ sessionId, sessionDir });
+        await saveSession(sessionDir, session);
+
+        const sessionPath = join(sessionDir, "session.json");
+        const content = await readFile(sessionPath, "utf-8");
+        expect(() => JSON.parse(content)).not.toThrow();
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("saveSession preserves all session fields in JSON", async () => {
+      const sessionId = `save-all-fields-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const originalSession = createRalphSession({
+          sessionId,
+          sessionDir,
+          yolo: true,
+          maxIterations: 200,
+          sourceFeatureListPath: "path/to/features.json",
+          features: [
+            createRalphFeature({
+              id: "f1",
+              name: "Feature 1",
+              description: "Desc 1",
+              acceptanceCriteria: ["Criterion A", "Criterion B"],
+              status: "passing",
+              implementedAt: "2026-02-03T10:00:00.000Z",
+            }),
+          ],
+          currentFeatureIndex: 0,
+          completedFeatures: ["f1"],
+          iteration: 42,
+          status: "completed",
+          prUrl: "https://github.com/test/repo/pull/1",
+          prBranch: "feature/complete",
+          debugReports: [{ type: "info", message: "All good" }],
+        });
+
+        await saveSession(sessionDir, originalSession);
+
+        const sessionPath = join(sessionDir, "session.json");
+        const content = await readFile(sessionPath, "utf-8");
+        const saved = JSON.parse(content);
+
+        // Verify all fields
+        expect(saved.sessionId).toBe(sessionId);
+        expect(saved.sessionDir).toBe(sessionDir);
+        expect(saved.yolo).toBe(true);
+        expect(saved.maxIterations).toBe(200);
+        expect(saved.sourceFeatureListPath).toBe("path/to/features.json");
+        expect(saved.features.length).toBe(1);
+        expect(saved.features[0].acceptanceCriteria).toEqual(["Criterion A", "Criterion B"]);
+        expect(saved.currentFeatureIndex).toBe(0);
+        expect(saved.completedFeatures).toEqual(["f1"]);
+        expect(saved.iteration).toBe(42);
+        expect(saved.status).toBe("completed");
+        expect(saved.prUrl).toBe("https://github.com/test/repo/pull/1");
+        expect(saved.prBranch).toBe("feature/complete");
+        expect(saved.debugReports).toEqual([{ type: "info", message: "All good" }]);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("saveSession writes properly formatted JSON with indentation", async () => {
+      const sessionId = `save-format-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const session = createRalphSession({ sessionId, sessionDir });
+        await saveSession(sessionDir, session);
+
+        const sessionPath = join(sessionDir, "session.json");
+        const content = await readFile(sessionPath, "utf-8");
+
+        // Check for 2-space indentation (as specified in saveSession implementation)
+        expect(content).toContain("\n  ");
+        expect(content.split("\n").length).toBeGreaterThan(1);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("saveSession handles special characters in feature names", async () => {
+      const sessionId = `save-special-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const session = createRalphSession({
+          sessionId,
+          sessionDir,
+          features: [
+            createRalphFeature({
+              id: "special-1",
+              name: 'Feature with "quotes" and \\ backslash',
+              description: "Unicode: ✓ ✗ 日本語",
+              status: "pending",
+            }),
+          ],
+        });
+
+        await saveSession(sessionDir, session);
+
+        const sessionPath = join(sessionDir, "session.json");
+        const content = await readFile(sessionPath, "utf-8");
+        const saved = JSON.parse(content);
+
+        expect(saved.features[0].name).toBe('Feature with "quotes" and \\ backslash');
+        expect(saved.features[0].description).toBe("Unicode: ✓ ✗ 日本語");
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("saveSession overwrites existing session.json", async () => {
+      const sessionId = `save-overwrite-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        // Save first session
+        const session1 = createRalphSession({
+          sessionId,
+          sessionDir,
+          iteration: 1,
+          status: "running",
+        });
+        await saveSession(sessionDir, session1);
+
+        // Save updated session
+        const session2 = createRalphSession({
+          sessionId,
+          sessionDir,
+          iteration: 10,
+          status: "completed",
+        });
+        await saveSession(sessionDir, session2);
+
+        // Verify only the second session is stored
+        const sessionPath = join(sessionDir, "session.json");
+        const content = await readFile(sessionPath, "utf-8");
+        const saved = JSON.parse(content);
+
+        expect(saved.iteration).toBe(10);
+        expect(saved.status).toBe("completed");
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+  });
+
+  describe("loadSession() reads and parses correctly", () => {
+    test("loadSession reads and parses session.json correctly", async () => {
+      const sessionId = `load-parse-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const originalSession = createRalphSession({
+          sessionId,
+          sessionDir,
+          yolo: false,
+          maxIterations: 50,
+        });
+        await saveSession(sessionDir, originalSession);
+
+        const loadedSession = await loadSession(sessionDir);
+
+        expect(loadedSession.sessionId).toBe(sessionId);
+        expect(loadedSession.yolo).toBe(false);
+        expect(loadedSession.maxIterations).toBe(50);
+        expect(isRalphSession(loadedSession)).toBe(true);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("loadSession returns typed RalphSession object", async () => {
+      const sessionId = `load-typed-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const originalSession = createRalphSession({ sessionId, sessionDir });
+        await saveSession(sessionDir, originalSession);
+
+        const loadedSession = await loadSession(sessionDir);
+
+        // Verify TypeScript type conformance through actual type-checked operations
+        const id: string = loadedSession.sessionId;
+        const dir: string = loadedSession.sessionDir;
+        const yolo: boolean = loadedSession.yolo;
+        const max: number = loadedSession.maxIterations;
+        const features: RalphFeature[] = loadedSession.features;
+        const status: "running" | "paused" | "completed" | "failed" = loadedSession.status;
+
+        expect(id).toBe(sessionId);
+        expect(dir).toBe(sessionDir);
+        expect(typeof yolo).toBe("boolean");
+        expect(typeof max).toBe("number");
+        expect(Array.isArray(features)).toBe(true);
+        expect(["running", "paused", "completed", "failed"]).toContain(status);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("loadSession preserves all feature fields", async () => {
+      const sessionId = `load-features-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const originalFeature = createRalphFeature({
+          id: "feat-complete",
+          name: "Complete Feature",
+          description: "A fully-defined feature",
+          acceptanceCriteria: ["Criterion 1", "Criterion 2", "Criterion 3"],
+          status: "passing",
+          implementedAt: "2026-02-03T15:30:00.000Z",
+        });
+
+        const originalSession = createRalphSession({
+          sessionId,
+          sessionDir,
+          features: [originalFeature],
+        });
+        await saveSession(sessionDir, originalSession);
+
+        const loadedSession = await loadSession(sessionDir);
+        const loadedFeature = loadedSession.features[0];
+
+        expect(loadedFeature.id).toBe("feat-complete");
+        expect(loadedFeature.name).toBe("Complete Feature");
+        expect(loadedFeature.description).toBe("A fully-defined feature");
+        expect(loadedFeature.acceptanceCriteria).toEqual([
+          "Criterion 1",
+          "Criterion 2",
+          "Criterion 3",
+        ]);
+        expect(loadedFeature.status).toBe("passing");
+        expect(loadedFeature.implementedAt).toBe("2026-02-03T15:30:00.000Z");
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("loadSession throws for non-existent session directory", async () => {
+      const nonExistentDir = ".ralph/sessions/does-not-exist-abc123/";
+      await expect(loadSession(nonExistentDir)).rejects.toThrow();
+    });
+
+    test("loadSession throws for invalid JSON", async () => {
+      const sessionId = `load-invalid-json-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const sessionPath = join(sessionDir, "session.json");
+        await writeFile(sessionPath, "{ invalid json ]", "utf-8");
+
+        await expect(loadSession(sessionDir)).rejects.toThrow();
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("loadSession throws for valid JSON with missing required fields", async () => {
+      const sessionId = `load-missing-fields-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const sessionPath = join(sessionDir, "session.json");
+        await writeFile(sessionPath, '{ "sessionId": "test" }', "utf-8");
+
+        await expect(loadSession(sessionDir)).rejects.toThrow("Invalid session data");
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("loadSession validates session status", async () => {
+      const sessionId = `load-validate-status-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const sessionPath = join(sessionDir, "session.json");
+        const invalidSession = {
+          sessionId,
+          sessionDir,
+          createdAt: "2026-02-03T10:00:00.000Z",
+          lastUpdated: "2026-02-03T10:00:00.000Z",
+          yolo: false,
+          maxIterations: 50,
+          features: [],
+          currentFeatureIndex: 0,
+          completedFeatures: [],
+          iteration: 1,
+          status: "invalid_status", // Invalid status
+        };
+        await writeFile(sessionPath, JSON.stringify(invalidSession), "utf-8");
+
+        await expect(loadSession(sessionDir)).rejects.toThrow("Invalid session data");
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("loadSession round-trips complex session data", async () => {
+      const sessionId = `load-roundtrip-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const originalSession: RalphSession = {
+          sessionId,
+          sessionDir,
+          createdAt: "2026-02-01T08:00:00.000Z",
+          lastUpdated: "2026-02-03T16:45:00.000Z",
+          yolo: false,
+          maxIterations: 100,
+          sourceFeatureListPath: "custom/path/features.json",
+          features: [
+            {
+              id: "f1",
+              name: "First",
+              description: "First feature",
+              status: "passing",
+              implementedAt: "2026-02-02T10:00:00.000Z",
+            },
+            {
+              id: "f2",
+              name: "Second",
+              description: "Second feature",
+              acceptanceCriteria: ["AC1", "AC2"],
+              status: "in_progress",
+            },
+          ],
+          currentFeatureIndex: 1,
+          completedFeatures: ["f1"],
+          iteration: 25,
+          status: "running",
+          prBranch: "feature/roundtrip-test",
+          debugReports: [
+            { type: "debug", data: { nested: { value: 42 } } },
+          ],
+        };
+
+        await saveSession(sessionDir, originalSession);
+        const loadedSession = await loadSession(sessionDir);
+
+        // Verify round-trip (except lastUpdated which is updated on save)
+        expect(loadedSession.sessionId).toBe(originalSession.sessionId);
+        expect(loadedSession.sessionDir).toBe(originalSession.sessionDir);
+        expect(loadedSession.createdAt).toBe(originalSession.createdAt);
+        expect(loadedSession.yolo).toBe(originalSession.yolo);
+        expect(loadedSession.maxIterations).toBe(originalSession.maxIterations);
+        expect(loadedSession.sourceFeatureListPath).toBe(originalSession.sourceFeatureListPath);
+        expect(loadedSession.features.length).toBe(originalSession.features.length);
+        expect(loadedSession.currentFeatureIndex).toBe(originalSession.currentFeatureIndex);
+        expect(loadedSession.completedFeatures).toEqual(originalSession.completedFeatures);
+        expect(loadedSession.iteration).toBe(originalSession.iteration);
+        expect(loadedSession.status).toBe(originalSession.status);
+        expect(loadedSession.prBranch).toBe(originalSession.prBranch);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+  });
+
+  describe("loadSessionIfExists() returns null for missing session", () => {
+    test("loadSessionIfExists returns null for non-existent directory", async () => {
+      const nonExistentDir = `.ralph/sessions/never-exists-${Date.now()}/`;
+      const result = await loadSessionIfExists(nonExistentDir);
+      expect(result).toBeNull();
+    });
+
+    test("loadSessionIfExists returns null for empty directory", async () => {
+      const sessionId = `empty-dir-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        // Directory exists but has no session.json
+        const result = await loadSessionIfExists(sessionDir);
+        expect(result).toBeNull();
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("loadSessionIfExists returns null for invalid session.json", async () => {
+      const sessionId = `invalid-session-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const sessionPath = join(sessionDir, "session.json");
+        await writeFile(sessionPath, "not valid json at all!", "utf-8");
+
+        const result = await loadSessionIfExists(sessionDir);
+        expect(result).toBeNull();
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("loadSessionIfExists returns null for structurally invalid session", async () => {
+      const sessionId = `struct-invalid-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const sessionPath = join(sessionDir, "session.json");
+        // Valid JSON but missing required fields
+        await writeFile(sessionPath, '{"name": "test"}', "utf-8");
+
+        const result = await loadSessionIfExists(sessionDir);
+        expect(result).toBeNull();
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("loadSessionIfExists returns session when it exists and is valid", async () => {
+      const sessionId = `valid-exists-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const session = createRalphSession({
+          sessionId,
+          sessionDir,
+          status: "paused",
+        });
+        await saveSession(sessionDir, session);
+
+        const result = await loadSessionIfExists(sessionDir);
+
+        expect(result).not.toBeNull();
+        expect(result!.sessionId).toBe(sessionId);
+        expect(result!.status).toBe("paused");
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("loadSessionIfExists is safe to call multiple times", async () => {
+      const sessionId = `multi-call-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const session = createRalphSession({ sessionId, sessionDir });
+        await saveSession(sessionDir, session);
+
+        // Call multiple times
+        const result1 = await loadSessionIfExists(sessionDir);
+        const result2 = await loadSessionIfExists(sessionDir);
+        const result3 = await loadSessionIfExists(sessionDir);
+
+        expect(result1!.sessionId).toBe(sessionId);
+        expect(result2!.sessionId).toBe(sessionId);
+        expect(result3!.sessionId).toBe(sessionId);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("loadSessionIfExists differentiates between file not found and invalid data", async () => {
+      const missingDirId = `missing-dir-${Date.now()}`;
+      const invalidDataId = `invalid-data-${Date.now()}`;
+      const invalidDataDir = await createSessionDirectory(invalidDataId);
+
+      try {
+        // Case 1: Directory doesn't exist
+        const missingResult = await loadSessionIfExists(`.ralph/sessions/${missingDirId}/`);
+        expect(missingResult).toBeNull();
+
+        // Case 2: Directory exists but session.json is invalid
+        const sessionPath = join(invalidDataDir, "session.json");
+        await writeFile(sessionPath, '{"incomplete": true}', "utf-8");
+        const invalidResult = await loadSessionIfExists(invalidDataDir);
+        expect(invalidResult).toBeNull();
+
+        // Both return null (gracefully handling errors)
+      } finally {
+        await cleanupDir(invalidDataDir);
+      }
+    });
+  });
+
+  describe("lastUpdated updated on save", () => {
+    test("saveSession updates lastUpdated to current time", async () => {
+      const sessionId = `update-timestamp-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const originalTimestamp = "2026-01-01T00:00:00.000Z";
+        const session = createRalphSession({
+          sessionId,
+          sessionDir,
+          lastUpdated: originalTimestamp,
+        });
+
+        const beforeSave = new Date().toISOString();
+        await saveSession(sessionDir, session);
+        const afterSave = new Date().toISOString();
+
+        const loadedSession = await loadSession(sessionDir);
+
+        // lastUpdated should be between beforeSave and afterSave
+        expect(loadedSession.lastUpdated >= beforeSave).toBe(true);
+        expect(loadedSession.lastUpdated <= afterSave).toBe(true);
+
+        // lastUpdated should NOT be the original timestamp
+        expect(loadedSession.lastUpdated).not.toBe(originalTimestamp);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("createdAt is preserved on save (not updated)", async () => {
+      const sessionId = `preserve-created-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const originalCreatedAt = "2026-01-15T12:00:00.000Z";
+        const session = createRalphSession({
+          sessionId,
+          sessionDir,
+          createdAt: originalCreatedAt,
+        });
+
+        await saveSession(sessionDir, session);
+
+        const loadedSession = await loadSession(sessionDir);
+
+        // createdAt should be preserved
+        expect(loadedSession.createdAt).toBe(originalCreatedAt);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("multiple saves update lastUpdated each time", async () => {
+      const sessionId = `multi-save-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const session = createRalphSession({ sessionId, sessionDir });
+
+        // First save
+        await saveSession(sessionDir, session);
+        const firstLoad = await loadSession(sessionDir);
+        const firstTimestamp = firstLoad.lastUpdated;
+
+        // Small delay to ensure different timestamps
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        // Second save
+        await saveSession(sessionDir, { ...session, iteration: 2 });
+        const secondLoad = await loadSession(sessionDir);
+        const secondTimestamp = secondLoad.lastUpdated;
+
+        // Small delay
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
+        // Third save
+        await saveSession(sessionDir, { ...session, iteration: 3 });
+        const thirdLoad = await loadSession(sessionDir);
+        const thirdTimestamp = thirdLoad.lastUpdated;
+
+        // Each timestamp should be later than the previous
+        expect(secondTimestamp >= firstTimestamp).toBe(true);
+        expect(thirdTimestamp >= secondTimestamp).toBe(true);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("lastUpdated is in valid ISO 8601 format", async () => {
+      const sessionId = `iso-format-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const session = createRalphSession({ sessionId, sessionDir });
+        await saveSession(sessionDir, session);
+
+        const loadedSession = await loadSession(sessionDir);
+
+        // ISO 8601 format check
+        const isoRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+        expect(loadedSession.lastUpdated).toMatch(isoRegex);
+
+        // Should be a valid parseable date
+        const date = new Date(loadedSession.lastUpdated);
+        expect(date.toISOString()).toBe(loadedSession.lastUpdated);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("saveSession original object is not mutated", async () => {
+      const sessionId = `no-mutate-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const originalTimestamp = "2026-01-01T00:00:00.000Z";
+        const session = createRalphSession({
+          sessionId,
+          sessionDir,
+          lastUpdated: originalTimestamp,
+        });
+
+        await saveSession(sessionDir, session);
+
+        // Original session object should NOT be mutated
+        expect(session.lastUpdated).toBe(originalTimestamp);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+
+    test("saved lastUpdated reflects actual save time accurately", async () => {
+      const sessionId = `accurate-time-${Date.now()}`;
+      const sessionDir = await createSessionDirectory(sessionId);
+
+      try {
+        const session = createRalphSession({ sessionId, sessionDir });
+
+        const beforeSave = Date.now();
+        await saveSession(sessionDir, session);
+        const afterSave = Date.now();
+
+        const loadedSession = await loadSession(sessionDir);
+        const savedTime = new Date(loadedSession.lastUpdated).getTime();
+
+        // savedTime should be within the save operation window
+        expect(savedTime).toBeGreaterThanOrEqual(beforeSave);
+        expect(savedTime).toBeLessThanOrEqual(afterSave);
+      } finally {
+        await cleanupDir(sessionDir);
+      }
+    });
+  });
+});

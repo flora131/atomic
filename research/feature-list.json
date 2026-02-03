@@ -1447,7 +1447,7 @@
         "Test loadSessionIfExists() returns null for missing session",
         "Test lastUpdated updated on save"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

@@ -755,6 +755,13 @@ export function implementFeatureNode<TState extends RalphWorkflowState = RalphWo
       const sessionDir = state.ralphSessionDir;
 
       // =========================================
+      // DISPLAY ITERATION COUNT
+      // =========================================
+      const maxIterationsDisplay =
+        state.maxIterations === 0 ? "∞" : String(state.maxIterations);
+      console.log(`Iteration ${state.iteration}/${maxIterationsDisplay}`);
+
+      // =========================================
       // YOLO MODE EXECUTION
       // =========================================
       if (state.yolo) {

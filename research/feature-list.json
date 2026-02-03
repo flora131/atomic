@@ -1248,7 +1248,7 @@
         "Display max iterations (or 'infinite' if 0)",
         "Format: 'Iteration {current}/{max}' or 'Iteration {current}/∞'"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "ui",

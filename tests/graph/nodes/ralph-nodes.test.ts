@@ -1436,6 +1436,82 @@ describe("implementFeatureNode", () => {
         console.log = originalLog;
       }
     });
+
+    test("displays iteration count with finite max iterations", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+      ];
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = implementFeatureNode({ id: "impl" });
+        const ctx = createImplementMockContext(features, { iteration: 5, maxIterations: 100 });
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Iteration 5/100"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays iteration count with infinite max iterations (0)", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+      ];
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = implementFeatureNode({ id: "impl" });
+        const ctx = createImplementMockContext(features, { iteration: 3, maxIterations: 0 });
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Iteration 3/∞"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays iteration count at start of yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = implementFeatureNode({ id: "impl" });
+        const ctx = createImplementMockContext([], {
+          yolo: true,
+          userPrompt: "Build a test app",
+          iteration: 7,
+          maxIterations: 50,
+        });
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Iteration 7/50"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
   });
 
   describe("no pending features", () => {

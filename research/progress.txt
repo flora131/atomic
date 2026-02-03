@@ -1,5 +1,44 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Display current feature being implemented in feature-list mode
+
+### Status: COMPLETED
+
+Implemented UI feedback to display the current feature being implemented during Ralph workflow execution.
+
+#### Changes Made
+
+1. **Added console output to implementFeatureNode()**
+   - Location: src/graph/nodes/ralph-nodes.ts (lines 833-837)
+   - Displays `Implementing: {feature.name}` when a pending feature is found
+   - Shows the feature description on an indented line below (if different from name)
+   - Example output:
+     ```
+     Implementing: Add User Authentication
+       Implement OAuth2 flow for user login
+     ```
+
+2. **Description display logic**
+   - Only shows description if it exists AND is different from the name
+   - Prevents redundant output when name equals description
+   - Description is indented with 2 spaces for visual hierarchy
+
+#### Tests Added (3 new tests in tests/graph/nodes/ralph-nodes.test.ts)
+- `displays current feature name when implementing` - Verifies "Implementing: {name}" is logged
+- `displays feature description when different from name` - Verifies description shows on separate line
+- `does not display description when same as name` - Verifies no duplicate output when name===description
+
+#### Test Results
+- All 177 tests in tests/graph/nodes/ralph-nodes.test.ts pass
+- No regressions detected
+
+#### Files Modified
+- src/graph/nodes/ralph-nodes.ts - Added console.log for feature display
+- tests/graph/nodes/ralph-nodes.test.ts - Added 3 new tests for display feature
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Update /help command to include Ralph workflow and sub-agent info
 
 ### Status: COMPLETED
@@ -3134,3 +3173,41 @@ Implemented the feature to display the session UUID when starting a new Ralph se
 # Later, to resume:
 /ralph --resume 550e8400-e29b-41d4-a716-446655440000
 ```
+
+---
+
+## 2026-02-03 - Feature Implementation: Display iteration count and max iterations during Ralph execution
+
+### Status: COMPLETED
+
+Implemented UI feedback to display the current iteration count and max iterations at the start of each Ralph workflow iteration.
+
+#### Changes Made
+
+1. **Added iteration display to implementFeatureNode()**
+   - Location: src/graph/nodes/ralph-nodes.ts (execute function, near line 760)
+   - Displays `Iteration {current}/{max}` at the start of each workflow iteration
+   - Uses infinity symbol (∞) when maxIterations is 0 (unlimited)
+   - Example outputs:
+     - `Iteration 5/100` (finite max iterations)
+     - `Iteration 3/∞` (unlimited iterations)
+
+2. **Display logic**
+   - Shows iteration before any feature implementation or yolo mode execution
+   - Works consistently in both feature-list mode and yolo mode
+   - Provides immediate feedback about workflow progress
+
+#### Tests Added (3 new tests in tests/graph/nodes/ralph-nodes.test.ts)
+- `displays iteration count with finite max iterations` - Verifies "Iteration 5/100" format
+- `displays iteration count with infinite max iterations (0)` - Verifies "Iteration 3/∞" format
+- `displays iteration count at start of yolo mode` - Verifies iteration display in yolo mode
+
+#### Test Results
+- All 180 tests in tests/graph/nodes/ralph-nodes.test.ts pass
+- All 530 tests in tests/graph/ pass
+- Build succeeds
+
+#### Files Modified
+- src/graph/nodes/ralph-nodes.ts - Added console.log for iteration display
+- tests/graph/nodes/ralph-nodes.test.ts - Added 3 new tests for iteration display
+- research/feature-list.json - Updated passes to true for this feature

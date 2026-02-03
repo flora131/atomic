@@ -30,9 +30,11 @@ describe("initializeCommands", () => {
   test("registers all command types", () => {
     initializeCommands();
 
-    // Built-in commands (note: /approve and /reject removed - spec approval is now manual before workflow)
+    // Built-in commands
+    // Note: /approve and /reject removed - spec approval is now manual before workflow
+    // Note: /status removed - progress tracked via research/progress.txt instead
     expect(globalRegistry.has("help")).toBe(true);
-    expect(globalRegistry.has("status")).toBe(true);
+    expect(globalRegistry.has("status")).toBe(false);
     expect(globalRegistry.has("theme")).toBe(true);
     expect(globalRegistry.has("clear")).toBe(true);
     expect(globalRegistry.has("compact")).toBe(true);
@@ -66,7 +68,8 @@ describe("initializeCommands", () => {
     // Built-in aliases
     expect(globalRegistry.has("h")).toBe(true); // help
     expect(globalRegistry.has("?")).toBe(true); // help
-    expect(globalRegistry.has("s")).toBe(true); // status
+    // Note: /status "s" alias removed - progress tracked via research/progress.txt instead
+    expect(globalRegistry.has("s")).toBe(false);
 
     // Workflow aliases
     expect(globalRegistry.has("ralph")).toBe(true); // atomic

@@ -538,7 +538,7 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
       if (context.state.workflowActive) {
         return {
           success: false,
-          message: `A workflow is already active (${context.state.workflowType}). Use /status to check progress.`,
+          message: `A workflow is already active (${context.state.workflowType}). Check research/progress.txt for progress.`,
         };
       }
 
@@ -597,7 +597,7 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
       if (context.state.workflowActive) {
         return {
           success: false,
-          message: `A workflow is already active (${context.state.workflowType}). Use /status to check progress.`,
+          message: `A workflow is already active (${context.state.workflowType}). Check research/progress.txt for progress.`,
         };
       }
 

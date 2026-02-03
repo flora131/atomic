@@ -2,7 +2,9 @@
  * Built-in Commands for Chat UI
  *
  * Provides core slash commands for the chat interface:
- * /help, /status, /theme, /clear, /compact
+ * /help, /theme, /clear, /compact
+ *
+ * Note: /status removed - progress tracked via research/progress.txt instead
  *
  * Reference: Feature 2 - Implement built-in commands
  */
@@ -100,123 +102,6 @@ export const helpCommand: CommandDefinition = {
     };
   },
 };
-
-/**
- * /status - Show current workflow progress and state.
- *
- * Displays:
- * - Workflow active state and type
- * - Current node being executed
- * - Iteration count and max
- * - Spec approval status
- * - Feature list progress
- * - Message count and streaming status
- */
-export const statusCommand: CommandDefinition = {
-  name: "status",
-  description: "Show workflow progress and current state",
-  category: "builtin",
-  aliases: ["s"],
-  execute: (_args: string, context: CommandContext): CommandResult => {
-    const { state } = context;
-
-    const lines: string[] = ["**Status**", ""];
-
-    // Workflow state
-    if (state.workflowActive) {
-      lines.push(`Workflow: **${state.workflowType ?? "Unknown"}** (active)`);
-
-      // Current node
-      if (state.currentNode) {
-        lines.push(`Phase: **${formatNodeName(state.currentNode)}**`);
-      }
-
-      // Iteration count
-      if (state.iteration !== undefined && state.iteration > 0) {
-        if (state.maxIterations !== undefined && state.maxIterations > 0) {
-          lines.push(`Iteration: ${state.iteration}/${state.maxIterations}`);
-        } else {
-          lines.push(`Iteration: ${state.iteration}`);
-        }
-      }
-
-      // Feature progress
-      if (state.featureProgress) {
-        const { completed, total, currentFeature } = state.featureProgress;
-        const progressBar = createProgressBar(completed, total);
-        lines.push(`Features: ${progressBar} (${completed}/${total})`);
-        if (currentFeature) {
-          // Truncate long feature names
-          const maxLen = 40;
-          const truncated = currentFeature.length > maxLen
-            ? `${currentFeature.slice(0, maxLen - 3)}...`
-            : currentFeature;
-          lines.push(`  Current: ${truncated}`);
-        }
-      }
-    } else {
-      lines.push("Workflow: *inactive*");
-    }
-
-    // Spec approval status
-    lines.push("");
-    if (state.pendingApproval) {
-      lines.push("Spec: **pending approval**");
-      lines.push("  Review the spec and continue manually or revise.");
-    } else if (state.specApproved !== undefined) {
-      lines.push(
-        `Spec: ${state.specApproved ? "**approved**" : "**rejected**"}`
-      );
-      if (!state.specApproved && state.feedback) {
-        lines.push(`  Feedback: ${state.feedback}`);
-      }
-    } else if (state.workflowActive) {
-      lines.push("Spec: *not yet created*");
-    }
-
-    // Initial prompt
-    if (state.initialPrompt) {
-      lines.push("");
-      lines.push(`Initial prompt: "${state.initialPrompt}"`);
-    }
-
-    // Message count and streaming
-    lines.push("");
-    lines.push(`Messages: ${state.messageCount}`);
-    if (state.isStreaming) {
-      lines.push("Status: *streaming response*");
-    }
-
-    return {
-      success: true,
-      message: lines.join("\n"),
-    };
-  },
-};
-
-/**
- * Format a node name for display (convert snake_case to Title Case).
- */
-function formatNodeName(nodeName: string): string {
-  return nodeName
-    .split("_")
-    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
-/**
- * Create a simple ASCII progress bar.
- * @param completed - Number of completed items
- * @param total - Total number of items
- * @param width - Width of the progress bar (default 10)
- * @returns Progress bar string like "████░░░░░░"
- */
-function createProgressBar(completed: number, total: number, width: number = 10): string {
-  if (total <= 0) return "░".repeat(width);
-  const filledCount = Math.round((completed / total) * width);
-  const emptyCount = width - filledCount;
-  return "█".repeat(filledCount) + "░".repeat(emptyCount);
-}
 
 /**
  * /theme - Toggle between dark and light theme.
@@ -320,7 +205,6 @@ export const compactCommand: CommandDefinition = {
  */
 export const builtinCommands: CommandDefinition[] = [
   helpCommand,
-  statusCommand,
   themeCommand,
   clearCommand,
   compactCommand,

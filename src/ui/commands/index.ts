@@ -39,11 +39,11 @@ import { registerSkillCommands } from "./skill-commands.ts";
 // ============================================================================
 
 export {
-  // Built-in commands
+  // Built-in commands (help, theme, clear, compact)
+  // Note: /status removed - progress tracked via research/progress.txt instead
   registerBuiltinCommands,
   builtinCommands,
   helpCommand,
-  statusCommand,
   themeCommand,
   clearCommand,
 } from "./builtin-commands.ts";
@@ -83,7 +83,7 @@ export {
  *
  * This function is idempotent - calling it multiple times is safe.
  * Commands are registered in this order:
- * 1. Built-in commands (help, status, theme, clear, compact)
+ * 1. Built-in commands (help, theme, clear, compact)
  * 2. Workflow commands (ralph + dynamically loaded from disk)
  * 3. Skill commands (commit, research-codebase, etc.)
  *

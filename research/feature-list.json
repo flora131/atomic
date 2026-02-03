@@ -889,7 +889,7 @@
         "Remove associated handler code",
         "Progress tracked via research/progress.txt instead"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

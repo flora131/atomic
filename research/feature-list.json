@@ -1411,7 +1411,7 @@
         "Test discoverAgents() finds all agents",
         "Test agents from all paths are discovered"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

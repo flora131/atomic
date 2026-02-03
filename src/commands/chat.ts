@@ -378,32 +378,7 @@ function wrapSessionWithWorkflow(
           // Start workflow execution
           return {
             type: "text",
-            content: "Starting workflow execution... Use /status to check progress.",
-            role: "assistant",
-          };
-        }
-
-        if (command === "status") {
-          if (state.workflowState) {
-            const { featureList, iteration, specApproved, prUrl } = state.workflowState;
-            const passingCount = featureList.filter((f) => f.passes).length;
-            const totalCount = featureList.length;
-            let statusMessage = `**Workflow Status**\n`;
-            statusMessage += `- Iteration: ${iteration}\n`;
-            statusMessage += `- Spec Approved: ${specApproved ? "Yes" : "No"}\n`;
-            statusMessage += `- Features: ${passingCount}/${totalCount} passing\n`;
-            if (prUrl) {
-              statusMessage += `- PR URL: ${prUrl}`;
-            }
-            return {
-              type: "text",
-              content: statusMessage,
-              role: "assistant",
-            };
-          }
-          return {
-            type: "text",
-            content: "No workflow running. Use /workflow to start.",
+            content: "Starting workflow execution...",
             role: "assistant",
           };
         }
@@ -413,7 +388,6 @@ function wrapSessionWithWorkflow(
             type: "text",
             content: `**Available Commands**
 /workflow - Start the Atomic workflow
-/status - Show workflow status
 /theme <dark|light> - Switch theme
 /help - Show this help message`,
             role: "assistant",

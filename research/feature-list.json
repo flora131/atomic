@@ -1730,7 +1730,7 @@
         "Verify all features work in opencode mode",
         "Verify permission bypass configured correctly"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

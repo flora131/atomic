@@ -162,7 +162,10 @@ export type {
   ParallelExecutionContext,
 
   // Subgraph node types
+  CompiledSubgraph,
+  SubgraphRef,
   SubgraphNodeConfig,
+  WorkflowResolver,
 
   // Context monitoring types
   ContextCompactionAction,
@@ -176,6 +179,10 @@ export {
   // Client provider
   setClientProvider,
   getClientProvider,
+
+  // Workflow resolver for subgraph nodes
+  setWorkflowResolver,
+  getWorkflowResolver,
 
   // Default configurations
   AGENT_NODE_RETRY_CONFIG,

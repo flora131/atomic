@@ -1,5 +1,65 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Update subgraphNode() to accept workflow name string
+
+### Completed
+- Updated SubgraphNodeConfig interface in src/graph/nodes.ts
+  - Added CompiledSubgraph<TSubState> interface for typed subgraph execution
+  - Added SubgraphRef<TSubState> type as union of CompiledSubgraph | string
+  - Updated subgraph field to accept SubgraphRef (either compiled graph or workflow name string)
+  - Added comprehensive JSDoc documentation for the new type
+
+- Implemented WorkflowResolver dependency injection pattern
+  - Added WorkflowResolver type for workflow name resolution function
+  - Added globalWorkflowResolver module-level variable
+  - Added setWorkflowResolver() to set the global resolver
+  - Added getWorkflowResolver() to get the current resolver
+  - This pattern avoids circular dependencies between nodes.ts and workflow-commands.ts
+
+- Updated subgraphNode() function to handle string workflow references
+  - If subgraph is a string, resolve via globalWorkflowResolver
+  - Throws clear error if no resolver is set: "Cannot resolve workflow \"{name}\": No workflow resolver set"
+  - Throws "Workflow not found: {name}" if resolver returns null
+  - If subgraph is a CompiledGraph, use directly (existing behavior)
+  - Both paths execute the subgraph and return result
+
+- Integrated workflow resolver with workflow-commands.ts
+  - Added import for setWorkflowResolver in workflow-commands.ts
+  - Added initializeWorkflowResolver() function to set resolveWorkflowRef as the global resolver
+  - Updated registerWorkflowCommands() to call initializeWorkflowResolver() automatically
+  - Exported initializeWorkflowResolver and resolveWorkflowRef from index.ts
+
+- Updated src/graph/index.ts exports
+  - Added CompiledSubgraph, SubgraphRef, WorkflowResolver type exports
+  - Added setWorkflowResolver, getWorkflowResolver value exports
+
+### Tests Added
+- subgraphNode with string workflow reference tests (9 tests):
+  - setWorkflowResolver sets the global resolver
+  - getWorkflowResolver returns null when not set
+  - resolves workflow by name and executes it
+  - throws error when no workflow resolver is set
+  - throws error when workflow is not found
+  - stores resolved subgraph result in outputs without mapper
+  - uses inputMapper when resolving workflow by name
+  - compiled graph still works when string is not provided
+  - accepts any workflow name string
+
+### Test Results
+- All nodes.test.ts tests pass (81 tests, up from 72)
+- All graph tests pass (483 tests)
+- All workflow-commands tests pass (122 tests)
+- All UI commands tests pass (513 tests)
+
+### Files Modified
+- src/graph/nodes.ts - Added CompiledSubgraph, SubgraphRef types, WorkflowResolver pattern, updated subgraphNode()
+- src/graph/index.ts - Added new type and value exports
+- src/ui/commands/workflow-commands.ts - Added initializeWorkflowResolver(), updated registerWorkflowCommands()
+- src/ui/commands/index.ts - Added initializeWorkflowResolver and resolveWorkflowRef exports
+- tests/graph/nodes.test.ts - Added 9 new tests for string workflow reference
+
+---
+
 ## 2026-02-03 - Feature Implementation: Workflow Registry and Resolution
 
 ### Completed

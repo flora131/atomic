@@ -51,6 +51,7 @@ export {
 export {
   // Workflow commands
   registerWorkflowCommands,
+  initializeWorkflowResolver,
   workflowCommands,
   WORKFLOW_DEFINITIONS,
   getWorkflowMetadata,
@@ -59,6 +60,7 @@ export {
   getAllWorkflows,
   discoverWorkflowFiles,
   getWorkflowCommands,
+  resolveWorkflowRef,
   type WorkflowMetadata,
 } from "./workflow-commands.ts";
 

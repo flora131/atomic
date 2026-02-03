@@ -848,6 +848,26 @@ export function parallelNode<TState extends BaseState = BaseState>(
 // ============================================================================
 
 /**
+ * Type for a compiled subgraph that can be executed.
+ * This is the shape required for direct subgraph execution.
+ *
+ * @template TSubState - The state type for the subgraph
+ */
+export interface CompiledSubgraph<TSubState extends BaseState = BaseState> {
+  execute: (state: TSubState) => Promise<TSubState>;
+}
+
+/**
+ * Type for subgraph reference - either a compiled graph or a workflow name string.
+ * When a string is provided, the workflow is resolved at runtime via resolveWorkflowRef().
+ *
+ * @template TSubState - The state type for the subgraph
+ */
+export type SubgraphRef<TSubState extends BaseState = BaseState> =
+  | CompiledSubgraph<TSubState>
+  | string;
+
+/**
  * Configuration for creating a subgraph node.
  *
  * @template TState - The state type for the workflow
@@ -861,12 +881,21 @@ export interface SubgraphNodeConfig<
   id: NodeId;
 
   /**
-   * The compiled subgraph to execute.
-   * This should be a CompiledGraph instance.
+   * The subgraph to execute. Can be:
+   * - A CompiledGraph instance (direct execution)
+   * - A workflow name string (resolved at runtime via resolveWorkflowRef)
+   *
+   * When using a string, the workflow is looked up in the workflow registry.
+   * If the workflow is not found, an error is thrown: "Workflow not found: {name}"
+   *
+   * @example
+   * // Direct compiled graph
+   * subgraph: compiledAnalysisGraph
+   *
+   * // Workflow name (resolved at runtime)
+   * subgraph: "research-codebase"
    */
-  subgraph: {
-    execute: (state: TSubState) => Promise<TSubState>;
-  };
+  subgraph: SubgraphRef<TSubState>;
 
   /**
    * Map parent state to subgraph initial state.
@@ -886,7 +915,45 @@ export interface SubgraphNodeConfig<
 }
 
 /**
+ * Resolver function type for workflow name resolution.
+ * This is injected to avoid circular dependencies between nodes.ts and workflow-commands.ts.
+ */
+export type WorkflowResolver = (name: string) => CompiledSubgraph<BaseState> | null;
+
+/**
+ * Global workflow resolver function.
+ * Set this before using subgraphNode with string workflow references.
+ */
+let globalWorkflowResolver: WorkflowResolver | null = null;
+
+/**
+ * Set the global workflow resolver for subgraph nodes.
+ * This should be called during application initialization.
+ *
+ * @param resolver - Function that resolves workflow name to compiled graph
+ */
+export function setWorkflowResolver(resolver: WorkflowResolver): void {
+  globalWorkflowResolver = resolver;
+}
+
+/**
+ * Get the current global workflow resolver.
+ *
+ * @returns The current workflow resolver or null
+ */
+export function getWorkflowResolver(): WorkflowResolver | null {
+  return globalWorkflowResolver;
+}
+
+/**
  * Create a subgraph node that executes a nested graph.
+ *
+ * The subgraph can be specified as:
+ * - A CompiledGraph instance (direct execution)
+ * - A workflow name string (resolved at runtime via the global workflow resolver)
+ *
+ * When using a string workflow name, ensure setWorkflowResolver() has been called
+ * during application initialization.
  *
  * @template TState - The state type for the workflow
  * @template TSubState - The state type for the subgraph
@@ -895,6 +962,7 @@ export interface SubgraphNodeConfig<
  *
  * @example
  * ```typescript
+ * // Using a compiled graph directly
  * const analysisNode = subgraphNode<MainState, AnalysisState>({
  *   id: "deep-analysis",
  *   subgraph: compiledAnalysisGraph,
@@ -902,6 +970,13 @@ export interface SubgraphNodeConfig<
  *   outputMapper: (subState, parentState) => ({
  *     analysisResults: subState.results,
  *   }),
+ * });
+ *
+ * // Using a workflow name string
+ * const researchNode = subgraphNode<MainState, ResearchState>({
+ *   id: "research",
+ *   subgraph: "research-codebase",
+ *   inputMapper: (state) => ({ topic: state.currentTopic }),
  * });
  * ```
  */
@@ -917,13 +992,37 @@ export function subgraphNode<
     name: name ?? "subgraph",
     description,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
+      // Resolve subgraph reference
+      let resolvedSubgraph: CompiledSubgraph<TSubState>;
+
+      if (typeof subgraph === "string") {
+        // Workflow name string - resolve via global resolver
+        const resolver = globalWorkflowResolver;
+        if (!resolver) {
+          throw new Error(
+            `Cannot resolve workflow "${subgraph}": No workflow resolver set. ` +
+              "Call setWorkflowResolver() during application initialization."
+          );
+        }
+
+        const resolved = resolver(subgraph);
+        if (!resolved) {
+          throw new Error(`Workflow not found: ${subgraph}`);
+        }
+
+        resolvedSubgraph = resolved as CompiledSubgraph<TSubState>;
+      } else {
+        // Direct compiled graph
+        resolvedSubgraph = subgraph;
+      }
+
       // Map input state
       const subState = inputMapper
         ? inputMapper(ctx.state)
         : (ctx.state as unknown as TSubState);
 
       // Execute subgraph
-      const finalSubState = await subgraph.execute(subState);
+      const finalSubState = await resolvedSubgraph.execute(subState);
 
       // Map output state
       const stateUpdate = outputMapper

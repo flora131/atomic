@@ -26,6 +26,7 @@ import {
 } from "../../workflows/ralph.ts";
 import type { CompiledGraph, BaseState } from "../../graph/types.ts";
 import type { AtomicWorkflowState } from "../../graph/annotation.ts";
+import { setWorkflowResolver } from "../../graph/nodes.ts";
 import {
   generateRalphSessionId,
   getRalphSessionPaths,
@@ -919,8 +920,32 @@ export const workflowCommands: CommandDefinition[] = BUILTIN_WORKFLOW_DEFINITION
 );
 
 /**
+ * Initialize the workflow resolver for subgraph nodes.
+ * This enables subgraphNode() to accept workflow names as strings
+ * that are resolved at runtime via the workflow registry.
+ *
+ * Call this function during application initialization, after
+ * loadWorkflowsFromDisk() has been called.
+ *
+ * @example
+ * ```typescript
+ * import { loadWorkflowsFromDisk, initializeWorkflowResolver } from "./workflow-commands";
+ *
+ * // In app initialization
+ * await loadWorkflowsFromDisk();
+ * initializeWorkflowResolver();
+ * ```
+ */
+export function initializeWorkflowResolver(): void {
+  setWorkflowResolver(resolveWorkflowRef);
+}
+
+/**
  * Register all workflow commands with the global registry.
  * Includes both built-in and dynamically loaded workflows.
+ *
+ * Also initializes the workflow resolver for subgraph nodes,
+ * enabling subgraphNode() to accept workflow names as strings.
  *
  * Call this function during application initialization.
  * For best results, call loadWorkflowsFromDisk() first to discover custom workflows.
@@ -935,6 +960,9 @@ export const workflowCommands: CommandDefinition[] = BUILTIN_WORKFLOW_DEFINITION
  * ```
  */
 export function registerWorkflowCommands(): void {
+  // Initialize the workflow resolver so subgraphNode can use string workflow names
+  initializeWorkflowResolver();
+
   const commands = getWorkflowCommands();
   for (const command of commands) {
     // Skip if already registered (idempotent)

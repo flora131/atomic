@@ -812,6 +812,242 @@ describe("subgraphNode", () => {
 });
 
 // ============================================================================
+// Subgraph Node with String Workflow Reference Tests
+// ============================================================================
+
+import {
+  setWorkflowResolver,
+  getWorkflowResolver,
+  type WorkflowResolver,
+  type CompiledSubgraph,
+} from "../../src/graph/nodes.ts";
+
+describe("subgraphNode with string workflow reference", () => {
+  interface SubState extends BaseState {
+    doc: string;
+    analysisResult?: string;
+  }
+
+  function createSubState(): SubState {
+    return {
+      executionId: "sub-1",
+      lastUpdated: new Date().toISOString(),
+      outputs: {},
+      doc: "",
+    };
+  }
+
+  afterEach(() => {
+    setWorkflowResolver(null as unknown as WorkflowResolver);
+  });
+
+  test("setWorkflowResolver sets the global resolver", () => {
+    const mockResolver: WorkflowResolver = () => null;
+    setWorkflowResolver(mockResolver);
+    expect(getWorkflowResolver()).toBe(mockResolver);
+  });
+
+  test("getWorkflowResolver returns null when not set", () => {
+    setWorkflowResolver(null as unknown as WorkflowResolver);
+    expect(getWorkflowResolver()).toBeNull();
+  });
+
+  test("resolves workflow by name and executes it", async () => {
+    const mockSubgraph: CompiledSubgraph<SubState> = {
+      execute: mock(async (state: SubState) => ({
+        ...state,
+        analysisResult: `Resolved and analyzed: ${state.doc}`,
+      })),
+    };
+
+    const mockResolver: WorkflowResolver = mock((name: string) => {
+      if (name === "research-codebase") {
+        return mockSubgraph as CompiledSubgraph<BaseState>;
+      }
+      return null;
+    });
+
+    setWorkflowResolver(mockResolver);
+
+    const node = subgraphNode<TestState, SubState>({
+      id: "research",
+      subgraph: "research-codebase",
+      inputMapper: (state) => ({
+        ...createSubState(),
+        doc: state.document || "default",
+      }),
+      outputMapper: (subState) => ({
+        results: [subState.analysisResult],
+      }),
+    });
+
+    const ctx = createTestContext({ document: "Test document" });
+    const result = await node.execute(ctx);
+
+    expect(mockResolver).toHaveBeenCalledWith("research-codebase");
+    expect(mockSubgraph.execute).toHaveBeenCalled();
+    expect(result.stateUpdate).toEqual({
+      results: ["Resolved and analyzed: Test document"],
+    });
+  });
+
+  test("throws error when no workflow resolver is set", async () => {
+    setWorkflowResolver(null as unknown as WorkflowResolver);
+
+    const node = subgraphNode<TestState, SubState>({
+      id: "research",
+      subgraph: "research-codebase",
+    });
+
+    const ctx = createTestContext();
+
+    await expect(node.execute(ctx)).rejects.toThrow(
+      'Cannot resolve workflow "research-codebase": No workflow resolver set'
+    );
+  });
+
+  test("throws error when workflow is not found", async () => {
+    const mockResolver: WorkflowResolver = () => null;
+    setWorkflowResolver(mockResolver);
+
+    const node = subgraphNode<TestState, SubState>({
+      id: "research",
+      subgraph: "non-existent-workflow",
+    });
+
+    const ctx = createTestContext();
+
+    await expect(node.execute(ctx)).rejects.toThrow(
+      "Workflow not found: non-existent-workflow"
+    );
+  });
+
+  test("stores resolved subgraph result in outputs without mapper", async () => {
+    const finalSubState: SubState = {
+      ...createSubState(),
+      doc: "processed",
+      analysisResult: "done",
+    };
+
+    const mockSubgraph: CompiledSubgraph<SubState> = {
+      execute: async () => finalSubState,
+    };
+
+    const mockResolver: WorkflowResolver = (name: string) => {
+      if (name === "my-workflow") {
+        return mockSubgraph as CompiledSubgraph<BaseState>;
+      }
+      return null;
+    };
+
+    setWorkflowResolver(mockResolver);
+
+    const node = subgraphNode<TestState, SubState>({
+      id: "sub",
+      subgraph: "my-workflow",
+    });
+
+    const ctx = createTestContext();
+    const result = await node.execute(ctx);
+
+    expect(result.stateUpdate?.outputs?.["sub"]).toEqual(finalSubState);
+  });
+
+  test("uses inputMapper when resolving workflow by name", async () => {
+    let receivedState: SubState | null = null;
+
+    const mockSubgraph: CompiledSubgraph<SubState> = {
+      execute: async (state: SubState) => {
+        receivedState = state;
+        return state;
+      },
+    };
+
+    const mockResolver: WorkflowResolver = (name: string) => {
+      if (name === "mapped-workflow") {
+        return mockSubgraph as CompiledSubgraph<BaseState>;
+      }
+      return null;
+    };
+
+    setWorkflowResolver(mockResolver);
+
+    const node = subgraphNode<TestState, SubState>({
+      id: "mapped-sub",
+      subgraph: "mapped-workflow",
+      inputMapper: (state) => ({
+        ...createSubState(),
+        doc: `Count: ${state.counter}`,
+      }),
+    });
+
+    const ctx = createTestContext({ counter: 42 });
+    await node.execute(ctx);
+
+    expect(receivedState).not.toBeNull();
+    expect(receivedState!.doc).toBe("Count: 42");
+  });
+
+  test("compiled graph still works when string is not provided", async () => {
+    const mockSubgraph = {
+      execute: mock(async (state: SubState) => ({
+        ...state,
+        analysisResult: "Direct execution",
+      })),
+    };
+
+    // Don't set a resolver - compiled graph should work directly
+    setWorkflowResolver(null as unknown as WorkflowResolver);
+
+    const node = subgraphNode<TestState, SubState>({
+      id: "direct",
+      subgraph: mockSubgraph,
+      inputMapper: () => createSubState(),
+      outputMapper: (subState) => ({
+        results: [subState.analysisResult],
+      }),
+    });
+
+    const ctx = createTestContext();
+    const result = await node.execute(ctx);
+
+    expect(mockSubgraph.execute).toHaveBeenCalled();
+    expect(result.stateUpdate).toEqual({
+      results: ["Direct execution"],
+    });
+  });
+
+  test("accepts any workflow name string", async () => {
+    const mockSubgraph: CompiledSubgraph<SubState> = {
+      execute: async (state: SubState) => state,
+    };
+
+    const calledNames: string[] = [];
+    const mockResolver: WorkflowResolver = (name: string) => {
+      calledNames.push(name);
+      return mockSubgraph as CompiledSubgraph<BaseState>;
+    };
+
+    setWorkflowResolver(mockResolver);
+
+    // Test various workflow names
+    const names = ["my-workflow", "UPPERCASE", "with-dashes", "with_underscores"];
+
+    for (const name of names) {
+      const node = subgraphNode<TestState, SubState>({
+        id: `sub-${name}`,
+        subgraph: name,
+      });
+
+      const ctx = createTestContext();
+      await node.execute(ctx);
+    }
+
+    expect(calledNames).toEqual(names);
+  });
+});
+
+// ============================================================================
 // Edge Cases and Error Handling
 // ============================================================================
 

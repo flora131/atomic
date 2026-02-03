@@ -1387,7 +1387,7 @@
         "Test state passes through correctly",
         "Test subgraph result merged into parent state"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

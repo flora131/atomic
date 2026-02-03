@@ -1929,3 +1929,634 @@ describe("contextMonitorNode", () => {
     expect(result.signals![0]!.message).toContain("no session");
   });
 });
+
+// ============================================================================
+// Unit test: Subgraph Node Execution
+// ============================================================================
+// Reference: feature-list.json - "Unit test: Subgraph node execution"
+// Tests cover:
+// - Create parent workflow with subgraph node
+// - Create child workflow
+// - Test subgraph node executes child workflow
+// - Test state passes through correctly
+// - Test subgraph result merged into parent state
+
+describe("Subgraph Node Execution", () => {
+  // Define state types for parent and child workflows
+  interface ParentState extends BaseState {
+    parentData: string;
+    childResult?: string;
+    mergedResult?: string;
+    processedCount: number;
+  }
+
+  interface ChildState extends BaseState {
+    childData: string;
+    processedBy: string;
+    transformedValue: string;
+  }
+
+  // Helper functions for creating states
+  function createParentState(overrides: Partial<ParentState> = {}): ParentState {
+    return {
+      executionId: "parent-exec-1",
+      lastUpdated: new Date().toISOString(),
+      outputs: {},
+      parentData: "initial-parent-data",
+      processedCount: 0,
+      ...overrides,
+    };
+  }
+
+  function createChildState(overrides: Partial<ChildState> = {}): ChildState {
+    return {
+      executionId: "child-exec-1",
+      lastUpdated: new Date().toISOString(),
+      outputs: {},
+      childData: "",
+      processedBy: "",
+      transformedValue: "",
+      ...overrides,
+    };
+  }
+
+  function createParentContext(stateOverrides: Partial<ParentState> = {}): ExecutionContext<ParentState> {
+    return {
+      state: createParentState(stateOverrides),
+      config: {} as GraphConfig,
+      errors: [],
+    };
+  }
+
+  // Shared mock child workflows
+  function createMockChildWorkflow(
+    transformer: (input: ChildState) => ChildState
+  ) {
+    return {
+      execute: mock(async (state: ChildState) => transformer(state)),
+    };
+  }
+
+  describe("parent workflow with subgraph node", () => {
+    test("subgraph node can be created with child workflow", () => {
+      const childWorkflow = createMockChildWorkflow((state) => state);
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "parent-with-child",
+        subgraph: childWorkflow,
+      });
+
+      expect(node.id).toBe("parent-with-child");
+      expect(node.type).toBe("subgraph");
+    });
+
+    test("subgraph node can use inputMapper to prepare child state", () => {
+      const childWorkflow = createMockChildWorkflow((state) => state);
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "parent-mapped",
+        subgraph: childWorkflow,
+        inputMapper: (parentState) => ({
+          ...createChildState(),
+          childData: parentState.parentData,
+          processedBy: "input-mapper",
+        }),
+      });
+
+      expect(node.id).toBe("parent-mapped");
+      expect(node.type).toBe("subgraph");
+    });
+
+    test("subgraph node can use outputMapper to merge results", () => {
+      const childWorkflow = createMockChildWorkflow((state) => state);
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "parent-output-mapped",
+        subgraph: childWorkflow,
+        outputMapper: (childState, _parentState) => ({
+          childResult: childState.transformedValue,
+        }),
+      });
+
+      expect(node.id).toBe("parent-output-mapped");
+      expect(node.type).toBe("subgraph");
+    });
+  });
+
+  describe("child workflow execution", () => {
+    test("subgraph node executes child workflow", async () => {
+      const childWorkflow = createMockChildWorkflow((state) => ({
+        ...state,
+        transformedValue: `processed:${state.childData}`,
+      }));
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "execute-child",
+        subgraph: childWorkflow,
+        inputMapper: (parentState) => ({
+          ...createChildState(),
+          childData: parentState.parentData,
+        }),
+      });
+
+      const ctx = createParentContext({ parentData: "test-data" });
+      await node.execute(ctx);
+
+      expect(childWorkflow.execute).toHaveBeenCalled();
+    });
+
+    test("child workflow receives mapped input state", async () => {
+      let receivedState: ChildState | null = null;
+
+      const childWorkflow = {
+        execute: mock(async (state: ChildState) => {
+          receivedState = state;
+          return state;
+        }),
+      };
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "receive-state",
+        subgraph: childWorkflow,
+        inputMapper: (parentState) => ({
+          ...createChildState(),
+          childData: `from-parent:${parentState.parentData}`,
+          processedBy: "mapper",
+          transformedValue: "initial",
+        }),
+      });
+
+      const ctx = createParentContext({ parentData: "original-data" });
+      await node.execute(ctx);
+
+      expect(receivedState).not.toBeNull();
+      expect(receivedState!.childData).toBe("from-parent:original-data");
+      expect(receivedState!.processedBy).toBe("mapper");
+    });
+
+    test("child workflow executes with transformed state", async () => {
+      const childWorkflow = createMockChildWorkflow((state) => ({
+        ...state,
+        transformedValue: state.childData.toUpperCase(),
+        processedBy: "child-workflow",
+      }));
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "transform-state",
+        subgraph: childWorkflow,
+        inputMapper: (parentState) => ({
+          ...createChildState(),
+          childData: parentState.parentData,
+        }),
+        outputMapper: (childState) => ({
+          childResult: childState.transformedValue,
+        }),
+      });
+
+      const ctx = createParentContext({ parentData: "hello" });
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate?.childResult).toBe("HELLO");
+    });
+  });
+
+  describe("state passing through subgraph", () => {
+    test("parent state fields are available in inputMapper", async () => {
+      let mappedFromParent: string | null = null;
+      let mappedCount: number | null = null;
+
+      const childWorkflow = createMockChildWorkflow((state) => state);
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "state-passing",
+        subgraph: childWorkflow,
+        inputMapper: (parentState) => {
+          mappedFromParent = parentState.parentData;
+          mappedCount = parentState.processedCount;
+          return createChildState();
+        },
+      });
+
+      const ctx = createParentContext({
+        parentData: "parent-value",
+        processedCount: 42,
+      });
+      await node.execute(ctx);
+
+      expect(mappedFromParent).toBe("parent-value");
+      expect(mappedCount).toBe(42);
+    });
+
+    test("parent outputs are preserved in inputMapper context", async () => {
+      let parentOutputsAccessed = false;
+
+      const childWorkflow = createMockChildWorkflow((state) => state);
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "preserve-outputs",
+        subgraph: childWorkflow,
+        inputMapper: (parentState) => {
+          parentOutputsAccessed = parentState.outputs !== undefined;
+          return createChildState();
+        },
+      });
+
+      const ctx = createParentContext();
+      ctx.state.outputs = { "previous-node": "previous-result" };
+      await node.execute(ctx);
+
+      expect(parentOutputsAccessed).toBe(true);
+    });
+
+    test("child state is independent from parent state", async () => {
+      let receivedChildState: ChildState | null = null;
+
+      const childWorkflow = {
+        execute: mock(async (state: ChildState) => {
+          receivedChildState = state;
+          // Verify child doesn't have parent fields
+          expect((state as unknown as ParentState).parentData).toBeUndefined();
+          return state;
+        }),
+      };
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "independent-state",
+        subgraph: childWorkflow,
+        inputMapper: (_parentState) => createChildState({
+          childData: "independent",
+        }),
+      });
+
+      const ctx = createParentContext({ parentData: "parent-only" });
+      await node.execute(ctx);
+
+      expect(receivedChildState).not.toBeNull();
+      expect(receivedChildState!.childData).toBe("independent");
+    });
+
+    test("without inputMapper uses parent state directly (cast)", async () => {
+      let receivedState: BaseState | null = null;
+
+      const childWorkflow = {
+        execute: mock(async (state: BaseState) => {
+          receivedState = state;
+          return state;
+        }),
+      };
+
+      const node = subgraphNode<ParentState, BaseState>({
+        id: "no-input-mapper",
+        subgraph: childWorkflow,
+        // No inputMapper - parent state is used directly
+      });
+
+      const ctx = createParentContext({ parentData: "direct-pass" });
+      await node.execute(ctx);
+
+      expect(receivedState).not.toBeNull();
+      expect(receivedState!.executionId).toBe(ctx.state.executionId);
+    });
+  });
+
+  describe("subgraph result merging into parent state", () => {
+    test("child workflow result is merged into parent state via outputMapper", async () => {
+      const childWorkflow = createMockChildWorkflow((state) => ({
+        ...state,
+        transformedValue: `transformed:${state.childData}`,
+      }));
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "merge-result",
+        subgraph: childWorkflow,
+        inputMapper: (parentState) => ({
+          ...createChildState(),
+          childData: parentState.parentData,
+        }),
+        outputMapper: (childState, _parentState) => ({
+          childResult: childState.transformedValue,
+          mergedResult: `merged:${childState.transformedValue}`,
+        }),
+      });
+
+      const ctx = createParentContext({ parentData: "input" });
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate?.childResult).toBe("transformed:input");
+      expect(result.stateUpdate?.mergedResult).toBe("merged:transformed:input");
+    });
+
+    test("outputMapper can access both child and parent state", async () => {
+      let parentDataInMapper: string | null = null;
+      let childDataInMapper: string | null = null;
+
+      const childWorkflow = createMockChildWorkflow((state) => ({
+        ...state,
+        transformedValue: "from-child",
+      }));
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "access-both",
+        subgraph: childWorkflow,
+        inputMapper: () => createChildState(),
+        outputMapper: (childState, parentState) => {
+          parentDataInMapper = parentState.parentData;
+          childDataInMapper = childState.transformedValue;
+          return {
+            mergedResult: `${parentState.parentData}+${childState.transformedValue}`,
+          };
+        },
+      });
+
+      const ctx = createParentContext({ parentData: "from-parent" });
+      const result = await node.execute(ctx);
+
+      expect(parentDataInMapper).toBe("from-parent");
+      expect(childDataInMapper).toBe("from-child");
+      expect(result.stateUpdate?.mergedResult).toBe("from-parent+from-child");
+    });
+
+    test("without outputMapper stores child state in outputs", async () => {
+      const finalChildState: ChildState = {
+        ...createChildState(),
+        transformedValue: "final-value",
+        processedBy: "child",
+      };
+
+      const childWorkflow = {
+        execute: async () => finalChildState,
+      };
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "no-output-mapper",
+        subgraph: childWorkflow,
+        inputMapper: () => createChildState(),
+        // No outputMapper - child state stored in outputs[nodeId]
+      });
+
+      const ctx = createParentContext();
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate?.outputs?.["no-output-mapper"]).toEqual(finalChildState);
+    });
+
+    test("partial state updates are supported", async () => {
+      const childWorkflow = createMockChildWorkflow((state) => ({
+        ...state,
+        transformedValue: "updated",
+      }));
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "partial-update",
+        subgraph: childWorkflow,
+        inputMapper: () => createChildState(),
+        outputMapper: (childState) => ({
+          // Only update childResult, leave other parent fields unchanged
+          childResult: childState.transformedValue,
+        }),
+      });
+
+      const ctx = createParentContext({
+        parentData: "unchanged",
+        processedCount: 100,
+      });
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate?.childResult).toBe("updated");
+      // Parent-specific fields should not be in the update
+      expect(result.stateUpdate?.parentData).toBeUndefined();
+      expect(result.stateUpdate?.processedCount).toBeUndefined();
+    });
+
+    test("multiple fields can be merged at once", async () => {
+      const childWorkflow = createMockChildWorkflow((state) => ({
+        ...state,
+        transformedValue: "value1",
+        processedBy: "value2",
+        childData: "value3",
+      }));
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "multi-field-merge",
+        subgraph: childWorkflow,
+        inputMapper: () => createChildState(),
+        outputMapper: (childState, parentState) => ({
+          childResult: childState.transformedValue,
+          mergedResult: childState.processedBy,
+          processedCount: parentState.processedCount + 1,
+        }),
+      });
+
+      const ctx = createParentContext({ processedCount: 5 });
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate?.childResult).toBe("value1");
+      expect(result.stateUpdate?.mergedResult).toBe("value2");
+      expect(result.stateUpdate?.processedCount).toBe(6);
+    });
+  });
+
+  describe("end-to-end subgraph execution scenarios", () => {
+    test("full parent-child workflow execution flow", async () => {
+      // Simulate a complete parent->child->parent flow
+      const executionLog: string[] = [];
+
+      const childWorkflow = {
+        execute: mock(async (state: ChildState) => {
+          executionLog.push("child-execute-start");
+          const result = {
+            ...state,
+            transformedValue: `PROCESSED:${state.childData}`,
+            processedBy: "child-workflow",
+          };
+          executionLog.push("child-execute-end");
+          return result;
+        }),
+      };
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "full-flow",
+        subgraph: childWorkflow,
+        inputMapper: (parentState) => {
+          executionLog.push("input-mapper");
+          return {
+            ...createChildState(),
+            childData: parentState.parentData,
+          };
+        },
+        outputMapper: (childState, parentState) => {
+          executionLog.push("output-mapper");
+          return {
+            childResult: childState.transformedValue,
+            processedCount: parentState.processedCount + 1,
+          };
+        },
+      });
+
+      const ctx = createParentContext({
+        parentData: "test-input",
+        processedCount: 0,
+      });
+
+      const result = await node.execute(ctx);
+
+      // Verify execution order
+      expect(executionLog).toEqual([
+        "input-mapper",
+        "child-execute-start",
+        "child-execute-end",
+        "output-mapper",
+      ]);
+
+      // Verify final result
+      expect(result.stateUpdate?.childResult).toBe("PROCESSED:test-input");
+      expect(result.stateUpdate?.processedCount).toBe(1);
+    });
+
+    test("nested state transformations work correctly", async () => {
+      // Child workflow that performs multiple transformations
+      const childWorkflow = {
+        execute: mock(async (state: ChildState) => {
+          // Step 1: Trim
+          let value = state.childData.trim();
+          // Step 2: Uppercase
+          value = value.toUpperCase();
+          // Step 3: Add prefix
+          value = `RESULT:${value}`;
+
+          return {
+            ...state,
+            transformedValue: value,
+            processedBy: "multi-step-child",
+          };
+        }),
+      };
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "nested-transform",
+        subgraph: childWorkflow,
+        inputMapper: (parentState) => ({
+          ...createChildState(),
+          childData: `  ${parentState.parentData}  `, // Add whitespace
+        }),
+        outputMapper: (childState) => ({
+          childResult: childState.transformedValue,
+        }),
+      });
+
+      const ctx = createParentContext({ parentData: "hello world" });
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate?.childResult).toBe("RESULT:HELLO WORLD");
+    });
+
+    test("error handling in child workflow propagates correctly", async () => {
+      const childWorkflow = {
+        execute: mock(async (_state: ChildState) => {
+          throw new Error("Child workflow failed");
+        }),
+      };
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "error-handling",
+        subgraph: childWorkflow,
+        inputMapper: () => createChildState(),
+      });
+
+      const ctx = createParentContext();
+
+      await expect(node.execute(ctx)).rejects.toThrow("Child workflow failed");
+    });
+
+    test("async operations in child workflow complete before outputMapper", async () => {
+      const asyncDelayMs = 10;
+      let asyncOperationCompleted = false;
+
+      const childWorkflow = {
+        execute: mock(async (state: ChildState) => {
+          // Simulate async operation
+          await new Promise((resolve) => setTimeout(resolve, asyncDelayMs));
+          asyncOperationCompleted = true;
+          return {
+            ...state,
+            transformedValue: "async-completed",
+          };
+        }),
+      };
+
+      const node = subgraphNode<ParentState, ChildState>({
+        id: "async-child",
+        subgraph: childWorkflow,
+        inputMapper: () => createChildState(),
+        outputMapper: (childState) => {
+          // This should run after the async operation
+          expect(asyncOperationCompleted).toBe(true);
+          return {
+            childResult: childState.transformedValue,
+          };
+        },
+      });
+
+      const ctx = createParentContext();
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate?.childResult).toBe("async-completed");
+    });
+
+    test("subgraph can produce complex merged state", async () => {
+      interface ComplexChildState extends BaseState {
+        items: string[];
+        metadata: { processed: boolean; count: number };
+      }
+
+      interface ComplexParentState extends BaseState {
+        items: string[];
+        totalCount: number;
+        metadata?: { processed: boolean; count: number };
+      }
+
+      const complexChildWorkflow = {
+        execute: mock(async (state: ComplexChildState) => ({
+          ...state,
+          items: state.items.map((item) => item.toUpperCase()),
+          metadata: { processed: true, count: state.items.length },
+        })),
+      };
+
+      const node = subgraphNode<ComplexParentState, ComplexChildState>({
+        id: "complex-merge",
+        subgraph: complexChildWorkflow,
+        inputMapper: (parentState) => ({
+          executionId: "complex-child",
+          lastUpdated: new Date().toISOString(),
+          outputs: {},
+          items: parentState.items,
+          metadata: { processed: false, count: 0 },
+        }),
+        outputMapper: (childState, parentState) => ({
+          items: childState.items,
+          totalCount: parentState.totalCount + childState.metadata.count,
+          metadata: childState.metadata,
+        }),
+      });
+
+      const ctx: ExecutionContext<ComplexParentState> = {
+        state: {
+          executionId: "complex-parent",
+          lastUpdated: new Date().toISOString(),
+          outputs: {},
+          items: ["a", "b", "c"],
+          totalCount: 10,
+        },
+        config: {} as GraphConfig,
+        errors: [],
+      };
+
+      const result = await node.execute(ctx);
+
+      expect(result.stateUpdate?.items).toEqual(["A", "B", "C"]);
+      expect(result.stateUpdate?.totalCount).toBe(13);
+      expect(result.stateUpdate?.metadata).toEqual({ processed: true, count: 3 });
+    });
+  });
+});

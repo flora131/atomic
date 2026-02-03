@@ -1,5 +1,65 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Unit test: Circular dependency detection
+
+### Status: COMPLETED
+
+Implemented comprehensive unit tests for circular dependency detection in the workflow resolution system (`resolveWorkflowRef`).
+
+#### Tests Added (19 new tests)
+
+1. **Resolution stack cleanup tests**
+   - `resolveWorkflowRef clears resolution stack after successful resolution`
+   - `resolveWorkflowRef clears resolution stack after failed resolution`
+
+2. **Circular dependency detection behavior**
+   - `resolveWorkflowRef(A) throws circular dependency error when A->B->A`
+   - `error format includes arrow notation in chain`
+
+3. **Non-circular dependencies work correctly**
+   - `resolves leaf workflow without error`
+   - `multiple resolutions of same workflow do not throw`
+   - `resolution stack is cleared between independent resolutions`
+   - `sequential resolution of different workflows works correctly`
+
+4. **Resolution stack cleanup on error**
+   - `resolution stack is cleared even when createWorkflow throws`
+   - `resolution stack is cleared after workflow not found`
+
+5. **Case-insensitive resolution stack tracking**
+   - `resolution uses lowercase for stack tracking`
+   - `case normalization in error message`
+
+6. **Circular dependency error message format**
+   - `error message format matches implementation`
+   - `self-reference error includes workflow name twice`
+   - `three-way cycle error includes all three workflow names`
+
+7. **Integration: workflow registry and resolution stack interaction**
+   - `hasWorkflow does not affect resolution stack`
+   - `getWorkflowFromRegistry does not affect resolution stack`
+   - `getWorkflowNames does not affect resolution stack`
+   - `refreshWorkflowRegistry clears and reinitializes properly`
+
+#### Implementation Details
+
+The circular dependency detection is implemented in `src/ui/commands/workflow-commands.ts`:
+- Uses a `resolutionStack` Set to track workflows currently being resolved
+- Converts workflow names to lowercase for case-insensitive detection
+- When a workflow is already in the stack, throws error with format:
+  `Circular workflow dependency detected: workflow-a -> workflow-b -> workflow-a`
+- The stack is always cleaned up in a `finally` block, even on errors
+
+#### Test Results
+- All 170 tests in tests/ui/commands/workflow-commands.test.ts pass (19 new tests added)
+- No regressions detected
+
+#### Files Modified
+- tests/ui/commands/workflow-commands.test.ts - Expanded circular dependency detection tests from 2 to 19 tests
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Unit test: Workflow loading from multiple search paths
 
 ### Status: COMPLETED

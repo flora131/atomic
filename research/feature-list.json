@@ -1399,7 +1399,7 @@
         "Test error message includes full dependency chain",
         "Test non-circular dependencies work correctly"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

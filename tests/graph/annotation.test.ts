@@ -556,3 +556,376 @@ describe("Type Inference", () => {
     expect(typeof specApproved).toBe("boolean");
   });
 });
+
+// ============================================================================
+// RalphWorkflowState Tests
+// ============================================================================
+
+import {
+  RalphStateAnnotation,
+  createRalphState,
+  updateRalphState,
+  isRalphWorkflowState,
+  type RalphWorkflowState,
+} from "../../src/graph/annotation.ts";
+
+describe("RalphStateAnnotation", () => {
+  test("has all required base state fields", () => {
+    expect(RalphStateAnnotation.executionId).toBeDefined();
+    expect(RalphStateAnnotation.lastUpdated).toBeDefined();
+    expect(RalphStateAnnotation.outputs).toBeDefined();
+  });
+
+  test("has all required workflow fields", () => {
+    expect(RalphStateAnnotation.researchDoc).toBeDefined();
+    expect(RalphStateAnnotation.specDoc).toBeDefined();
+    expect(RalphStateAnnotation.specApproved).toBeDefined();
+    expect(RalphStateAnnotation.featureList).toBeDefined();
+    expect(RalphStateAnnotation.currentFeature).toBeDefined();
+    expect(RalphStateAnnotation.allFeaturesPassing).toBeDefined();
+    expect(RalphStateAnnotation.debugReports).toBeDefined();
+    expect(RalphStateAnnotation.prUrl).toBeDefined();
+    expect(RalphStateAnnotation.contextWindowUsage).toBeDefined();
+    expect(RalphStateAnnotation.iteration).toBeDefined();
+  });
+
+  test("has all required Ralph-specific fields", () => {
+    expect(RalphStateAnnotation.ralphSessionId).toBeDefined();
+    expect(RalphStateAnnotation.ralphSessionDir).toBeDefined();
+    expect(RalphStateAnnotation.yolo).toBeDefined();
+    expect(RalphStateAnnotation.yoloPrompt).toBeDefined();
+    expect(RalphStateAnnotation.yoloComplete).toBeDefined();
+    expect(RalphStateAnnotation.maxIterations).toBeDefined();
+    expect(RalphStateAnnotation.shouldContinue).toBeDefined();
+    expect(RalphStateAnnotation.completedFeatures).toBeDefined();
+    expect(RalphStateAnnotation.sourceFeatureListPath).toBeDefined();
+    expect(RalphStateAnnotation.prBranch).toBeDefined();
+    expect(RalphStateAnnotation.maxIterationsReached).toBeDefined();
+  });
+});
+
+describe("createRalphState", () => {
+  test("creates state with all default values", () => {
+    const state = createRalphState();
+
+    // Base state fields
+    expect(typeof state.executionId).toBe("string");
+    expect(state.executionId.length).toBeGreaterThan(0);
+    expect(typeof state.lastUpdated).toBe("string");
+    expect(state.outputs).toEqual({});
+
+    // Workflow fields
+    expect(state.researchDoc).toBe("");
+    expect(state.specDoc).toBe("");
+    expect(state.specApproved).toBe(false);
+    expect(state.featureList).toEqual([]);
+    expect(state.currentFeature).toBeNull();
+    expect(state.allFeaturesPassing).toBe(false);
+    expect(state.debugReports).toEqual([]);
+    expect(state.prUrl).toBeNull();
+    expect(state.contextWindowUsage).toBeNull();
+    expect(state.iteration).toBe(1);
+
+    // Ralph-specific fields
+    expect(typeof state.ralphSessionId).toBe("string");
+    expect(state.ralphSessionId.length).toBeGreaterThan(0);
+    expect(state.ralphSessionDir).toContain(".ralph/sessions/");
+    expect(state.yolo).toBe(false);
+    expect(state.yoloPrompt).toBeNull();
+    expect(state.yoloComplete).toBe(false);
+    expect(state.maxIterations).toBe(100);
+    expect(state.shouldContinue).toBe(true);
+    expect(state.completedFeatures).toEqual([]);
+  });
+
+  test("uses provided executionId", () => {
+    const state = createRalphState("custom-exec-id");
+    expect(state.executionId).toBe("custom-exec-id");
+  });
+
+  test("generates unique executionIds when not provided", () => {
+    const state1 = createRalphState();
+    const state2 = createRalphState();
+    expect(state1.executionId).not.toBe(state2.executionId);
+  });
+
+  test("generates unique ralphSessionIds when not provided", () => {
+    const state1 = createRalphState();
+    const state2 = createRalphState();
+    expect(state1.ralphSessionId).not.toBe(state2.ralphSessionId);
+  });
+
+  test("creates state with yolo mode options", () => {
+    const state = createRalphState(undefined, {
+      yolo: true,
+      yoloPrompt: "Build a snake game in Rust",
+      maxIterations: 0,
+    });
+
+    expect(state.yolo).toBe(true);
+    expect(state.yoloPrompt).toBe("Build a snake game in Rust");
+    expect(state.maxIterations).toBe(0);
+  });
+
+  test("creates state with feature-list mode options", () => {
+    const state = createRalphState(undefined, {
+      yolo: false,
+      sourceFeatureListPath: "research/feature-list.json",
+      maxIterations: 50,
+    });
+
+    expect(state.yolo).toBe(false);
+    expect(state.sourceFeatureListPath).toBe("research/feature-list.json");
+    expect(state.maxIterations).toBe(50);
+  });
+
+  test("uses provided ralphSessionId and derives sessionDir", () => {
+    const state = createRalphState(undefined, {
+      ralphSessionId: "test-session-123",
+    });
+
+    expect(state.ralphSessionId).toBe("test-session-123");
+    expect(state.ralphSessionDir).toBe(".ralph/sessions/test-session-123/");
+  });
+
+  test("uses provided sessionDir when explicitly set", () => {
+    const state = createRalphState(undefined, {
+      ralphSessionId: "test-session-123",
+      ralphSessionDir: "/custom/path/to/session/",
+    });
+
+    expect(state.ralphSessionId).toBe("test-session-123");
+    expect(state.ralphSessionDir).toBe("/custom/path/to/session/");
+  });
+});
+
+describe("updateRalphState", () => {
+  test("updates specific fields while preserving others", () => {
+    const current = createRalphState("test-id");
+    const oldTimestamp = current.lastUpdated;
+
+    // Small delay to ensure timestamp changes
+    const updated = updateRalphState(current, {
+      researchDoc: "# Research Document",
+      iteration: 5,
+      yoloComplete: true,
+    });
+
+    expect(updated.executionId).toBe("test-id");
+    expect(updated.researchDoc).toBe("# Research Document");
+    expect(updated.iteration).toBe(5);
+    expect(updated.yoloComplete).toBe(true);
+    // Other fields unchanged
+    expect(updated.yolo).toBe(false);
+    expect(updated.maxIterations).toBe(100);
+  });
+
+  test("concatenates debug reports", () => {
+    const current = createRalphState();
+    const report1 = {
+      errorSummary: "Error 1",
+      relevantFiles: [],
+      suggestedFixes: [],
+      generatedAt: new Date().toISOString(),
+    };
+    const report2 = {
+      errorSummary: "Error 2",
+      relevantFiles: [],
+      suggestedFixes: [],
+      generatedAt: new Date().toISOString(),
+    };
+
+    const state1 = updateRalphState(current, { debugReports: [report1] });
+    const state2 = updateRalphState(state1, { debugReports: [report2] });
+
+    expect(state2.debugReports).toHaveLength(2);
+    expect(state2.debugReports[0]?.errorSummary).toBe("Error 1");
+    expect(state2.debugReports[1]?.errorSummary).toBe("Error 2");
+  });
+
+  test("concatenates completedFeatures", () => {
+    const current = createRalphState();
+
+    const state1 = updateRalphState(current, { completedFeatures: ["feat-001"] });
+    const state2 = updateRalphState(state1, { completedFeatures: ["feat-002"] });
+
+    expect(state2.completedFeatures).toEqual(["feat-001", "feat-002"]);
+  });
+
+  test("merges feature list by description", () => {
+    const current = createRalphState();
+    const feature1: Feature = {
+      category: "test",
+      description: "Feature 1",
+      steps: ["step1"],
+      passes: false,
+    };
+    const feature2: Feature = {
+      category: "test",
+      description: "Feature 2",
+      steps: ["step2"],
+      passes: false,
+    };
+
+    const state1 = updateRalphState(current, { featureList: [feature1, feature2] });
+
+    // Update feature1 to passing
+    const updatedFeature1: Feature = { ...feature1, passes: true };
+    const state2 = updateRalphState(state1, { featureList: [updatedFeature1] });
+
+    expect(state2.featureList).toHaveLength(2);
+    expect(state2.featureList.find((f) => f.description === "Feature 1")?.passes).toBe(true);
+    expect(state2.featureList.find((f) => f.description === "Feature 2")?.passes).toBe(false);
+  });
+
+  test("returns immutable state", () => {
+    const current = createRalphState();
+    const updated = updateRalphState(current, { iteration: 2 });
+
+    expect(updated).not.toBe(current);
+    expect(current.iteration).toBe(1);
+    expect(updated.iteration).toBe(2);
+  });
+
+  test("updates lastUpdated timestamp", () => {
+    const current = createRalphState();
+    const oldTimestamp = "2020-01-01T00:00:00.000Z";
+    const stateWithOldTimestamp = { ...current, lastUpdated: oldTimestamp };
+
+    const updated = updateRalphState(stateWithOldTimestamp, { iteration: 2 });
+
+    expect(updated.lastUpdated).not.toBe(oldTimestamp);
+    expect(new Date(updated.lastUpdated).getTime()).toBeGreaterThan(
+      new Date(oldTimestamp).getTime()
+    );
+  });
+});
+
+describe("isRalphWorkflowState", () => {
+  test("returns true for valid RalphWorkflowState", () => {
+    const state = createRalphState();
+    expect(isRalphWorkflowState(state)).toBe(true);
+  });
+
+  test("returns false for null", () => {
+    expect(isRalphWorkflowState(null)).toBe(false);
+  });
+
+  test("returns false for undefined", () => {
+    expect(isRalphWorkflowState(undefined)).toBe(false);
+  });
+
+  test("returns false for empty object", () => {
+    expect(isRalphWorkflowState({})).toBe(false);
+  });
+
+  test("returns false for partial state missing base fields", () => {
+    const partial = {
+      ralphSessionId: "test",
+      ralphSessionDir: ".ralph/sessions/test/",
+      yolo: false,
+    };
+    expect(isRalphWorkflowState(partial)).toBe(false);
+  });
+
+  test("returns false for partial state missing ralph-specific fields", () => {
+    const partial = {
+      executionId: "test",
+      lastUpdated: "2024-01-01",
+      outputs: {},
+      researchDoc: "",
+      specDoc: "",
+      specApproved: false,
+      featureList: [],
+      allFeaturesPassing: false,
+      debugReports: [],
+      iteration: 1,
+      // Missing ralph-specific fields
+    };
+    expect(isRalphWorkflowState(partial)).toBe(false);
+  });
+
+  test("returns false when required fields have wrong types", () => {
+    const invalidState = {
+      ...createRalphState(),
+      yolo: "not a boolean", // Wrong type
+    };
+    expect(isRalphWorkflowState(invalidState)).toBe(false);
+  });
+
+  test("returns false when completedFeatures is not an array", () => {
+    const invalidState = {
+      ...createRalphState(),
+      completedFeatures: "not an array",
+    };
+    expect(isRalphWorkflowState(invalidState)).toBe(false);
+  });
+});
+
+describe("RalphWorkflowState Type Inference", () => {
+  test("RalphWorkflowState has correct field types", () => {
+    const state: RalphWorkflowState = createRalphState();
+
+    // Base state field types
+    const executionId: string = state.executionId;
+    const lastUpdated: string = state.lastUpdated;
+    const outputs: Record<string, unknown> = state.outputs;
+
+    // Workflow field types
+    const researchDoc: string = state.researchDoc;
+    const specDoc: string = state.specDoc;
+    const specApproved: boolean = state.specApproved;
+    const featureList: Feature[] = state.featureList;
+    const currentFeature: Feature | null = state.currentFeature;
+    const allFeaturesPassing: boolean = state.allFeaturesPassing;
+    const iteration: number = state.iteration;
+    const prUrl: string | null = state.prUrl;
+
+    // Ralph-specific field types
+    const ralphSessionId: string = state.ralphSessionId;
+    const ralphSessionDir: string = state.ralphSessionDir;
+    const yolo: boolean = state.yolo;
+    const yoloPrompt: string | null = state.yoloPrompt;
+    const yoloComplete: boolean = state.yoloComplete;
+    const maxIterations: number = state.maxIterations;
+    const shouldContinue: boolean = state.shouldContinue;
+    const completedFeatures: string[] = state.completedFeatures;
+
+    expect(typeof executionId).toBe("string");
+    expect(typeof lastUpdated).toBe("string");
+    expect(typeof outputs).toBe("object");
+    expect(typeof researchDoc).toBe("string");
+    expect(typeof specDoc).toBe("string");
+    expect(typeof specApproved).toBe("boolean");
+    expect(Array.isArray(featureList)).toBe(true);
+    expect(currentFeature === null || typeof currentFeature === "object").toBe(true);
+    expect(typeof allFeaturesPassing).toBe("boolean");
+    expect(typeof iteration).toBe("number");
+    expect(prUrl === null || typeof prUrl === "string").toBe(true);
+    expect(typeof ralphSessionId).toBe("string");
+    expect(typeof ralphSessionDir).toBe("string");
+    expect(typeof yolo).toBe("boolean");
+    expect(yoloPrompt === null || typeof yoloPrompt === "string").toBe(true);
+    expect(typeof yoloComplete).toBe("boolean");
+    expect(typeof maxIterations).toBe("number");
+    expect(typeof shouldContinue).toBe("boolean");
+    expect(Array.isArray(completedFeatures)).toBe(true);
+  });
+
+  test("optional RalphWorkflowState fields are correctly typed", () => {
+    const state: RalphWorkflowState = createRalphState();
+
+    // Optional fields can be undefined
+    const prBranch: string | undefined = state.prBranch;
+    const sourceFeatureListPath: string | undefined = state.sourceFeatureListPath;
+    const maxIterationsReached: boolean | undefined = state.maxIterationsReached;
+
+    expect(prBranch === undefined || typeof prBranch === "string").toBe(true);
+    expect(sourceFeatureListPath === undefined || typeof sourceFeatureListPath === "string").toBe(
+      true
+    );
+    expect(maxIterationsReached === undefined || typeof maxIterationsReached === "boolean").toBe(
+      true
+    );
+  });
+});

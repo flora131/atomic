@@ -62,6 +62,32 @@ This is the fastest path to value — install, run one command, get answers.
 
 When you're evaluating libraries, exploring implementation approaches, or need best practices before building, Atomic's research phase pulls in external knowledge — not just your codebase — to inform the spec and implementation plan.
 
+**Example: Researching three GraphRAG implementation approaches in parallel**
+
+```bash
+# Run 3 parallel research sessions in separate terminals
+atomic run claude "/research-codebase Research implementing GraphRAG using \
+  LangChain's graph retrieval patterns. Look up langchain-ai/langchain for \
+  graph store integrations, chunking strategies, and retrieval patterns. \
+  Document how this would integrate with our existing vector store."
+
+atomic run claude "/research-codebase Research implementing GraphRAG using \
+  Microsoft's GraphRAG library. Look up microsoft/graphrag for their \
+  community detection, entity extraction, and summarization pipeline. \
+  Document the infrastructure requirements and how it fits our data model."
+
+atomic run claude "/research-codebase Research implementing GraphRAG using \
+  LlamaIndex's property graph index. Look up run-llama/llama_index for \
+  their KnowledgeGraphIndex and property graph patterns. Document trade-offs \
+  vs our current RAG implementation."
+```
+
+**What happens:** Each agent spawns `codebase-online-researcher` sub-agents that query DeepWiki for the specified repos, pull external documentation, and cross-reference with your existing codebase patterns. You get three research documents:
+
+**From there:** Run `/create-spec` and `/create-feature-list` on each research doc in parallel terminals. Then spin up three git worktrees and run `/ralph:ralph-loop` in each. Wake up to three complete implementations on separate branches — review, benchmark, and choose the winner.
+
+> **Note:** This workflow works identically with `atomic run opencode` and `atomic run copilot` — just substitute the CLI command.
+
 ---
 
 ## Try It in 60 Seconds

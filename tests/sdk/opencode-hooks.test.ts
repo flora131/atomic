@@ -374,6 +374,7 @@ describe("OpenCode SDK Hook Handlers", () => {
     });
 
     test("recognizes all atomic commands", () => {
+      // Note: ralph:ralph-help removed - replaced by SDK-native /ralph workflow
       const commands = [
         "research-codebase",
         "create-spec",
@@ -383,8 +384,6 @@ describe("OpenCode SDK Hook Handlers", () => {
         "create-gh-pr",
         "explain-code",
         "ralph",
-        "ralph:cancel-ralph",
-        "ralph:ralph-help",
       ];
 
       for (const cmd of commands) {

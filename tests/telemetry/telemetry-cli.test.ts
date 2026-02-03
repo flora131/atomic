@@ -320,16 +320,17 @@ describe("extractCommandsFromArgs", () => {
   });
 
   test("extracts namespaced commands", () => {
-    const result = extractCommandsFromArgs(["/ralph:cancel-ralph"]);
-    expect(result).toEqual(["/ralph:cancel-ralph"]);
+    // Test with /ralph workflow command (ralph:ralph-help removed)
+    const result = extractCommandsFromArgs(["/ralph"]);
+    expect(result).toEqual(["/ralph"]);
   });
 
-  test("extracts multiple namespaced commands", () => {
+  test("extracts multiple commands including ralph", () => {
     const result = extractCommandsFromArgs([
-      "/ralph:cancel-ralph",
-      "/ralph:ralph-help",
+      "/commit",
+      "/ralph",
     ]);
-    expect(result).toEqual(["/ralph:cancel-ralph", "/ralph:ralph-help"]);
+    expect(result).toEqual(["/commit", "/ralph"]);
   });
 
   test("handles empty args array", () => {

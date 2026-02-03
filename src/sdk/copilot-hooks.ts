@@ -39,8 +39,6 @@ const ATOMIC_COMMANDS = [
   "/create-gh-pr",
   "/explain-code",
   "/ralph",
-  "/ralph:cancel-ralph",
-  "/ralph:ralph-help",
 ];
 
 // ============================================================================

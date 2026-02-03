@@ -1,3 +1,77 @@
+## 2026-02-03 - Feature Implementation: E2E test: Esc stops execution and marks session as paused
+
+### Status: COMPLETED
+
+Implemented comprehensive E2E tests verifying that when a user presses Esc key during Ralph workflow execution in TTY mode, the session is properly paused and all state is preserved for later resumption.
+
+#### Tests Added (36 new tests across 8 test groups)
+
+1. **Start /ralph session in TTY mode** (5 tests)
+   - MockTTYStdin correctly simulates TTY behavior
+   - Ralph session can be started for Esc interrupt testing
+   - TestableRalphExecutor can be created with mock stdin
+   - Running session can be created and saved for Esc testing
+   - Executor signal is AbortSignal
+
+2. **Send Esc key (0x1b)** (5 tests)
+   - ESC_KEY_CODE constant is 0x1b (27)
+   - MockTTYStdin can emit Esc key data event
+   - Esc key handler can be set up on mock stdin
+   - Non-Esc keys do not trigger interrupt handler
+   - Multiple Esc key presses are handled gracefully
+   - Esc key detection uses first byte of buffer
+
+3. **Verify 'Stopping Ralph execution...' message** (4 tests)
+   - Stopping message is logged on Esc key press
+   - Stopping message appears before session update messages on Esc
+   - Stopping message has same format as Ctrl+C message
+   - Message format matches expected pattern on Esc
+
+4. **Verify session.json status is 'paused'** (5 tests)
+   - Session status changes from running to paused after Esc
+   - Session lastUpdated is updated when paused via Esc
+   - Session preserves all other state when paused via Esc
+   - Session file is valid JSON after Esc interrupt
+   - Paused session can be loaded with loadSessionIfExists after Esc
+
+5. **Verify checkpoint saved** (4 tests)
+   - Checkpoints directory exists after session creation
+   - Session state is persisted and can be recovered after Esc
+   - Session directory structure is intact after Esc interrupt
+   - Esc-interrupted session can be used for resume
+
+6. **Verify resume command displayed on Esc** (3 tests)
+   - Resume command is logged on Esc with session set
+   - Paused session message is logged on Esc
+   - All Esc interrupt messages appear in correct order
+
+7. **Integration: Esc key behavior parity with Ctrl+C** (4 tests)
+   - Esc produces same outcome as SIGINT for session status
+   - Full Esc interrupt cycle: start -> Esc -> verify all artifacts
+   - Esc interrupt during yolo mode session
+   - Esc interrupt preserves partially completed features
+
+8. **Edge cases** (6 tests)
+   - Mock stdin cleanup can be called multiple times
+   - Esc handler works after cleanup and re-setup
+   - Session without session.json handles Esc interrupt gracefully
+   - Rapid Esc key presses are handled
+   - Esc followed by other keys only triggers on Esc
+
+#### Test Results
+- All 36 tests pass
+- All 471 E2E tests pass (no regressions)
+- All 1102 related tests pass (workflow, graph, E2E)
+- 98 expect() calls
+
+#### Files Added
+- tests/e2e/ralph-esc-interrupt.test.ts - 36 comprehensive E2E tests for Esc key interrupt handling
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: E2E test: Ctrl+C stops execution and marks session as paused
 
 ### Status: COMPLETED

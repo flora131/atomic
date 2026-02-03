@@ -1779,7 +1779,7 @@
         "Provide examples of parent-child workflow composition",
         "Document state passing between workflows"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "documentation",

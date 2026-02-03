@@ -1357,6 +1357,85 @@ describe("implementFeatureNode", () => {
       expect(result.stateUpdate!.shouldContinue).toBe(true);
       expect(result.stateUpdate!.allFeaturesPassing).toBe(false);
     });
+
+    test("displays current feature name when implementing", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Add User Authentication", description: "Implement OAuth2 flow", status: "pending" },
+      ];
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = implementFeatureNode({ id: "impl" });
+        const ctx = createImplementMockContext(features);
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Implementing: Add User Authentication"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays feature description when different from name", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Short Name", description: "This is a much longer description of the feature", status: "pending" },
+      ];
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = implementFeatureNode({ id: "impl" });
+        const ctx = createImplementMockContext(features);
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Implementing: Short Name"))).toBe(true);
+        expect(logs.some(log => log.includes("This is a much longer description of the feature"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("does not display description when same as name", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Same Name", description: "Same Name", status: "pending" },
+      ];
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = implementFeatureNode({ id: "impl" });
+        const ctx = createImplementMockContext(features);
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Implementing: Same Name"))).toBe(true);
+        // Should only have one log entry for the feature (just the name)
+        const implementingLogs = logs.filter(log => log.includes("Implementing:") || log.includes("Same Name"));
+        expect(implementingLogs.length).toBe(1);
+      } finally {
+        console.log = originalLog;
+      }
+    });
   });
 
   describe("no pending features", () => {

@@ -830,6 +830,12 @@ export function implementFeatureNode<TState extends RalphWorkflowState = RalphWo
       // Get the pending feature (we know it exists since findIndex returned a valid index)
       const feature = state.features[pendingFeatureIndex]!;
 
+      // Display the current feature being implemented
+      console.log(`Implementing: ${feature.name}`);
+      if (feature.description && feature.description !== feature.name) {
+        console.log(`  ${feature.description}`);
+      }
+
       // Mark feature as in_progress
       const updatedFeatures = [...state.features];
       const inProgressFeature: RalphFeature = {

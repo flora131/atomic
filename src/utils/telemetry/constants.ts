@@ -26,8 +26,6 @@ export const ATOMIC_COMMANDS = [
   "/create-gh-pr",
   "/explain-code",
   "/ralph",
-  "/ralph:cancel-ralph",
-  "/ralph:ralph-help",
 ] as const;
 
 /** Type for valid Atomic command strings */

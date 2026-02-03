@@ -1564,7 +1564,7 @@
         "Verify all UUIDs are unique",
         "Verify UUID format is valid v4"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

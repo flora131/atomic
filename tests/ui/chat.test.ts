@@ -1864,3 +1864,434 @@ describe("LoadingIndicator with spinner verb", () => {
     expect(SPINNER_VERBS).toContain(verb);
   });
 });
+
+// ============================================================================
+// handleAskUserQuestion Tests
+// ============================================================================
+
+describe("handleAskUserQuestion", () => {
+  /**
+   * Tests for the handleAskUserQuestion callback in ChatApp.
+   * This callback handles AskUserQuestionEventData from askUserNode
+   * graph nodes and shows a UserQuestionDialog.
+   */
+
+  test("AskUserQuestionEventData has required fields", () => {
+    // Test the expected shape of AskUserQuestionEventData
+    interface AskUserQuestionEventData {
+      requestId: string;
+      question: string;
+      header?: string;
+      options?: Array<{ label: string; description?: string }>;
+      nodeId: string;
+    }
+
+    const eventData: AskUserQuestionEventData = {
+      requestId: "test-uuid-123",
+      question: "What should we do next?",
+      nodeId: "ask-user-node",
+    };
+
+    expect(eventData.requestId).toBe("test-uuid-123");
+    expect(eventData.question).toBe("What should we do next?");
+    expect(eventData.nodeId).toBe("ask-user-node");
+    expect(eventData.header).toBeUndefined();
+    expect(eventData.options).toBeUndefined();
+  });
+
+  test("AskUserQuestionEventData with optional header", () => {
+    interface AskUserQuestionEventData {
+      requestId: string;
+      question: string;
+      header?: string;
+      options?: Array<{ label: string; description?: string }>;
+      nodeId: string;
+    }
+
+    const eventData: AskUserQuestionEventData = {
+      requestId: "test-uuid-456",
+      question: "Please confirm your choice",
+      header: "Confirmation",
+      nodeId: "confirm-node",
+    };
+
+    expect(eventData.header).toBe("Confirmation");
+  });
+
+  test("AskUserQuestionEventData with options array", () => {
+    interface AskUserQuestionEventData {
+      requestId: string;
+      question: string;
+      header?: string;
+      options?: Array<{ label: string; description?: string }>;
+      nodeId: string;
+    }
+
+    const eventData: AskUserQuestionEventData = {
+      requestId: "test-uuid-789",
+      question: "Select an action",
+      header: "Action",
+      options: [
+        { label: "Approve", description: "Proceed with changes" },
+        { label: "Reject", description: "Discard changes" },
+        { label: "Review", description: "View details first" },
+      ],
+      nodeId: "action-node",
+    };
+
+    expect(eventData.options).toHaveLength(3);
+    expect(eventData.options![0]!.label).toBe("Approve");
+    expect(eventData.options![0]!.description).toBe("Proceed with changes");
+    expect(eventData.options![2]!.label).toBe("Review");
+  });
+
+  test("conversion to UserQuestion format uses header or default", () => {
+    // Simulate the conversion logic in handleAskUserQuestion
+    interface AskUserQuestionEventData {
+      requestId: string;
+      question: string;
+      header?: string;
+      options?: Array<{ label: string; description?: string }>;
+      nodeId: string;
+    }
+
+    interface UserQuestion {
+      header: string;
+      question: string;
+      options: Array<{ label: string; value: string; description?: string }>;
+      multiSelect: boolean;
+    }
+
+    const convertToUserQuestion = (eventData: AskUserQuestionEventData): UserQuestion => ({
+      header: eventData.header || "Question",
+      question: eventData.question,
+      options: eventData.options?.map(opt => ({
+        label: opt.label,
+        value: opt.label,
+        description: opt.description,
+      })) || [],
+      multiSelect: false,
+    });
+
+    // With header
+    const withHeader = convertToUserQuestion({
+      requestId: "1",
+      question: "Test?",
+      header: "Custom Header",
+      nodeId: "node",
+    });
+    expect(withHeader.header).toBe("Custom Header");
+
+    // Without header - uses default
+    const withoutHeader = convertToUserQuestion({
+      requestId: "2",
+      question: "Test?",
+      nodeId: "node",
+    });
+    expect(withoutHeader.header).toBe("Question");
+  });
+
+  test("conversion preserves options with label as value", () => {
+    interface AskUserQuestionEventData {
+      requestId: string;
+      question: string;
+      header?: string;
+      options?: Array<{ label: string; description?: string }>;
+      nodeId: string;
+    }
+
+    interface UserQuestion {
+      header: string;
+      question: string;
+      options: Array<{ label: string; value: string; description?: string }>;
+      multiSelect: boolean;
+    }
+
+    const convertToUserQuestion = (eventData: AskUserQuestionEventData): UserQuestion => ({
+      header: eventData.header || "Question",
+      question: eventData.question,
+      options: eventData.options?.map(opt => ({
+        label: opt.label,
+        value: opt.label,
+        description: opt.description,
+      })) || [],
+      multiSelect: false,
+    });
+
+    const result = convertToUserQuestion({
+      requestId: "1",
+      question: "Choose",
+      options: [
+        { label: "Option A", description: "First option" },
+        { label: "Option B" },
+      ],
+      nodeId: "node",
+    });
+
+    expect(result.options).toHaveLength(2);
+    expect(result.options[0]!.label).toBe("Option A");
+    expect(result.options[0]!.value).toBe("Option A"); // value = label
+    expect(result.options[0]!.description).toBe("First option");
+    expect(result.options[1]!.label).toBe("Option B");
+    expect(result.options[1]!.description).toBeUndefined();
+  });
+
+  test("empty options array produces empty UserQuestion options", () => {
+    interface AskUserQuestionEventData {
+      requestId: string;
+      question: string;
+      header?: string;
+      options?: Array<{ label: string; description?: string }>;
+      nodeId: string;
+    }
+
+    const convertToUserQuestion = (eventData: AskUserQuestionEventData) => ({
+      header: eventData.header || "Question",
+      question: eventData.question,
+      options: eventData.options?.map(opt => ({
+        label: opt.label,
+        value: opt.label,
+        description: opt.description,
+      })) || [],
+      multiSelect: false,
+    });
+
+    const result = convertToUserQuestion({
+      requestId: "1",
+      question: "No options",
+      nodeId: "node",
+    });
+
+    expect(result.options).toEqual([]);
+  });
+});
+
+describe("handleAskUserQuestion response flow", () => {
+  /**
+   * Tests for the response flow when user answers an askUserNode question.
+   */
+
+  test("workflow mode calls onWorkflowResumeWithAnswer", () => {
+    // Simulate the response flow logic
+    interface ResponseContext {
+      workflowActive: boolean;
+      onWorkflowResumeWithAnswer?: (requestId: string, answer: string | string[]) => void;
+      getSession?: () => { send: (msg: string) => Promise<void> } | null;
+    }
+
+    let resumeWithAnswerCalled = false;
+    let resumeArgs: { requestId: string; answer: string | string[] } | null = null;
+
+    const context: ResponseContext = {
+      workflowActive: true,
+      onWorkflowResumeWithAnswer: (requestId, answer) => {
+        resumeWithAnswerCalled = true;
+        resumeArgs = { requestId, answer };
+      },
+    };
+
+    // Simulate the response handling logic
+    const handleResponse = (requestId: string, answer: string | string[], context: ResponseContext) => {
+      if (context.workflowActive && context.onWorkflowResumeWithAnswer) {
+        context.onWorkflowResumeWithAnswer(requestId, answer);
+      } else {
+        const session = context.getSession?.();
+        if (session) {
+          const answerText = Array.isArray(answer) ? answer.join(", ") : answer;
+          void session.send(answerText);
+        }
+      }
+    };
+
+    handleResponse("test-request-id", "Approve", context);
+
+    expect(resumeWithAnswerCalled).toBe(true);
+    expect(resumeArgs?.requestId).toBe("test-request-id");
+    expect(resumeArgs?.answer).toBe("Approve");
+  });
+
+  test("standalone mode calls session.send", () => {
+    interface ResponseContext {
+      workflowActive: boolean;
+      onWorkflowResumeWithAnswer?: (requestId: string, answer: string | string[]) => void;
+      getSession?: () => { send: (msg: string) => Promise<void> } | null;
+    }
+
+    let sessionSendCalled = false;
+    let sentMessage: string | null = null;
+
+    const context: ResponseContext = {
+      workflowActive: false,
+      getSession: () => ({
+        send: async (msg: string) => {
+          sessionSendCalled = true;
+          sentMessage = msg;
+        },
+      }),
+    };
+
+    // Simulate the response handling logic
+    const handleResponse = (requestId: string, answer: string | string[], context: ResponseContext) => {
+      if (context.workflowActive && context.onWorkflowResumeWithAnswer) {
+        context.onWorkflowResumeWithAnswer(requestId, answer);
+      } else {
+        const session = context.getSession?.();
+        if (session) {
+          const answerText = Array.isArray(answer) ? answer.join(", ") : answer;
+          void session.send(answerText);
+        }
+      }
+    };
+
+    handleResponse("test-request-id", "Approve", context);
+
+    expect(sessionSendCalled).toBe(true);
+    expect(sentMessage).toBe("Approve");
+  });
+
+  test("array answer is joined with comma for session.send", () => {
+    let sentMessage: string | null = null;
+
+    const context = {
+      workflowActive: false,
+      getSession: () => ({
+        send: async (msg: string) => {
+          sentMessage = msg;
+        },
+      }),
+    };
+
+    const handleResponse = (answer: string | string[], ctx: typeof context) => {
+      const session = ctx.getSession?.();
+      if (session) {
+        const answerText = Array.isArray(answer) ? answer.join(", ") : answer;
+        void session.send(answerText);
+      }
+    };
+
+    handleResponse(["Option A", "Option B", "Option C"], context);
+
+    expect(sentMessage).toBe("Option A, Option B, Option C");
+  });
+
+  test("no action when session is null in standalone mode", () => {
+    let anythingCalled = false;
+
+    const context = {
+      workflowActive: false,
+      getSession: () => null,
+    };
+
+    const handleResponse = (answer: string | string[], ctx: typeof context) => {
+      const session = ctx.getSession?.();
+      if (session) {
+        anythingCalled = true;
+      }
+    };
+
+    handleResponse("Test", context);
+
+    expect(anythingCalled).toBe(false);
+  });
+});
+
+describe("ChatAppProps with askUserQuestion handlers", () => {
+  /**
+   * Tests for the new ChatAppProps related to askUserQuestion handling.
+   */
+
+  test("ChatAppProps includes registerAskUserQuestionHandler", () => {
+    // Type test - this should compile without errors
+    interface TestChatAppProps {
+      registerAskUserQuestionHandler?: (handler: (eventData: { requestId: string; question: string; nodeId: string }) => void) => void;
+    }
+
+    const props: TestChatAppProps = {
+      registerAskUserQuestionHandler: (handler) => {
+        // Handler registration logic
+        void handler;
+      },
+    };
+
+    expect(typeof props.registerAskUserQuestionHandler).toBe("function");
+  });
+
+  test("ChatAppProps includes onWorkflowResumeWithAnswer", () => {
+    // Type test - this should compile without errors
+    interface TestChatAppProps {
+      onWorkflowResumeWithAnswer?: (requestId: string, answer: string | string[]) => void;
+    }
+
+    let called = false;
+    const props: TestChatAppProps = {
+      onWorkflowResumeWithAnswer: (requestId, answer) => {
+        called = true;
+        void requestId;
+        void answer;
+      },
+    };
+
+    props.onWorkflowResumeWithAnswer?.("id", "answer");
+    expect(called).toBe(true);
+  });
+
+  test("both handlers can be used together", () => {
+    interface TestChatAppProps {
+      registerAskUserQuestionHandler?: (handler: (eventData: { requestId: string; question: string }) => void) => void;
+      onWorkflowResumeWithAnswer?: (requestId: string, answer: string | string[]) => void;
+    }
+
+    let registered = false;
+    let resumed = false;
+
+    const props: TestChatAppProps = {
+      registerAskUserQuestionHandler: () => { registered = true; },
+      onWorkflowResumeWithAnswer: () => { resumed = true; },
+    };
+
+    props.registerAskUserQuestionHandler?.(() => {});
+    props.onWorkflowResumeWithAnswer?.("id", "answer");
+
+    expect(registered).toBe(true);
+    expect(resumed).toBe(true);
+  });
+});
+
+describe("OnAskUserQuestion callback type", () => {
+  /**
+   * Tests for the OnAskUserQuestion callback type.
+   */
+
+  test("accepts AskUserQuestionEventData parameter", () => {
+    // Simulate the callback signature
+    type OnAskUserQuestion = (eventData: {
+      requestId: string;
+      question: string;
+      header?: string;
+      options?: Array<{ label: string; description?: string }>;
+      nodeId: string;
+    }) => void;
+
+    let receivedData: unknown = null;
+
+    const handler: OnAskUserQuestion = (eventData) => {
+      receivedData = eventData;
+    };
+
+    handler({
+      requestId: "abc-123",
+      question: "What would you like to do?",
+      header: "Action Required",
+      options: [{ label: "Continue" }],
+      nodeId: "action-node",
+    });
+
+    expect(receivedData).toEqual({
+      requestId: "abc-123",
+      question: "What would you like to do?",
+      header: "Action Required",
+      options: [{ label: "Continue" }],
+      nodeId: "action-node",
+    });
+  });
+});

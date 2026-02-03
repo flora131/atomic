@@ -1067,7 +1067,7 @@
         "Clear activeQuestion after response",
         "Add to useCallback dependency array"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

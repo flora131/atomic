@@ -383,17 +383,6 @@ function wrapSessionWithWorkflow(
           };
         }
 
-        if (command === "approve" && state.awaitingApproval && state.approvalCallback) {
-          state.approvalCallback("approve");
-          state.awaitingApproval = false;
-          state.approvalCallback = null;
-          return {
-            type: "text",
-            content: "Specification approved. Continuing workflow...",
-            role: "assistant",
-          };
-        }
-
         if (command === "reject" && state.awaitingApproval && state.approvalCallback) {
           state.approvalCallback("reject");
           state.awaitingApproval = false;
@@ -436,7 +425,6 @@ function wrapSessionWithWorkflow(
             content: `**Available Commands**
 /workflow - Start the Atomic workflow
 /status - Show workflow status
-/approve - Approve the current specification
 /reject - Reject and request revisions
 /theme <dark|light> - Switch theme
 /help - Show this help message`,
@@ -445,17 +433,19 @@ function wrapSessionWithWorkflow(
         }
       }
 
-      // Handle approval input if awaiting
+      // Handle manual continuation if awaiting approval
+      // Spec approval is now manual before workflow start; any input continues the workflow
       if (state.awaitingApproval && state.approvalCallback) {
-        const approved = message.toLowerCase().includes("approve");
-        state.approvalCallback(approved ? "approve" : "reject");
+        // Check if user explicitly rejects with /reject or "reject"
+        const isRejection = message.toLowerCase().includes("reject");
+        state.approvalCallback(isRejection ? "reject" : "continue");
         state.awaitingApproval = false;
         state.approvalCallback = null;
         return {
           type: "text",
-          content: approved
-            ? "Specification approved. Continuing workflow..."
-            : "Specification rejected. Returning to revision phase...",
+          content: isRejection
+            ? "Specification rejected. Returning to revision phase..."
+            : "Continuing workflow...",
           role: "assistant",
         };
       }
@@ -544,7 +534,7 @@ async function* streamWorkflowExecution(
 
         yield {
           type: "text",
-          content: "\nType `/approve` to proceed or `/reject` to request revisions.\n",
+          content: "\nType `/reject <feedback>` to request revisions or continue manually.\n",
           role: "assistant",
         };
 

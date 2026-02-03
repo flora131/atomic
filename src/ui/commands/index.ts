@@ -44,7 +44,6 @@ export {
   builtinCommands,
   helpCommand,
   statusCommand,
-  approveCommand,
   rejectCommand,
   themeCommand,
   clearCommand,
@@ -85,7 +84,7 @@ export {
  *
  * This function is idempotent - calling it multiple times is safe.
  * Commands are registered in this order:
- * 1. Built-in commands (help, status, approve, reject, theme, clear)
+ * 1. Built-in commands (help, status, reject, theme, clear)
  * 2. Workflow commands (atomic + dynamically loaded from disk)
  * 3. Skill commands (commit, research-codebase, etc.)
  *

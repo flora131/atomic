@@ -48,6 +48,11 @@ export type GraphEventType =
  * Workflow event types for tracking Ralph loop and feature progress.
  */
 export type WorkflowEventType =
+  | "workflow.start"
+  | "workflow.complete"
+  | "workflow.error"
+  | "workflow.node.enter"
+  | "workflow.node.exit"
   | "workflow.iteration.started"
   | "workflow.iteration.completed"
   | "workflow.feature.started"
@@ -385,6 +390,11 @@ export function isGraphEventType(value: string): value is GraphEventType {
  */
 export function isWorkflowEventType(value: string): value is WorkflowEventType {
   const workflowTypes: WorkflowEventType[] = [
+    "workflow.start",
+    "workflow.complete",
+    "workflow.error",
+    "workflow.node.enter",
+    "workflow.node.exit",
     "workflow.iteration.started",
     "workflow.iteration.completed",
     "workflow.feature.started",

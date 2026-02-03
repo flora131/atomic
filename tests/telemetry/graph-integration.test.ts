@@ -16,8 +16,12 @@ import {
   trackGraphExecution,
   withExecutionTracking,
   withCheckpointTelemetry,
+  trackWorkflowExecution,
+  withWorkflowTelemetry,
   type GraphTelemetryConfig,
   type ExecutionTracker,
+  type WorkflowTracker,
+  type WorkflowTelemetryConfig,
 } from "../../src/telemetry/graph-integration.ts";
 import {
   setGlobalCollector,
@@ -798,5 +802,246 @@ describe("Integration", () => {
     expect(events[0]!.properties.nodeCount).toBe(10);
     expect(events[1]!.properties.nodeCount).toBe(10);
     expect(events[2]!.properties.nodeCount).toBe(10);
+  });
+});
+
+// ============================================================================
+// trackWorkflowExecution Tests
+// ============================================================================
+
+describe("trackWorkflowExecution", () => {
+  test("start() tracks workflow start", () => {
+    const { collector, events } = createTrackingCollector();
+    const tracker = trackWorkflowExecution("exec-workflow-start", { collector });
+
+    tracker.start("ralph-workflow", { maxIterations: 100 });
+
+    expect(events.length).toBe(1);
+    expect(events[0]!.eventType).toBe("workflow.start");
+    expect(events[0]!.options?.executionId).toBe("exec-workflow-start");
+  });
+
+  test("nodeEnter() tracks node entry", () => {
+    const { collector, events } = createTrackingCollector();
+    const tracker = trackWorkflowExecution("exec-node-enter", { collector });
+
+    tracker.nodeEnter("init-session", "ralph_init");
+
+    expect(events.length).toBe(1);
+    expect(events[0]!.eventType).toBe("workflow.node.enter");
+    expect(events[0]!.options?.executionId).toBe("exec-node-enter");
+  });
+
+  test("nodeExit() tracks node exit with duration", () => {
+    const { collector, events } = createTrackingCollector();
+    const tracker = trackWorkflowExecution("exec-node-exit", { collector });
+
+    tracker.nodeExit("implement-feature", "ralph_implement", 1500);
+
+    expect(events.length).toBe(1);
+    expect(events[0]!.eventType).toBe("workflow.node.exit");
+    expect(events[0]!.properties.durationMs).toBe(1500);
+    expect(events[0]!.options?.executionId).toBe("exec-node-exit");
+  });
+
+  test("complete() tracks workflow completion with success", () => {
+    const { collector, events } = createTrackingCollector();
+    const tracker = trackWorkflowExecution("exec-complete-success", { collector });
+
+    tracker.complete(true, 5000);
+
+    expect(events.length).toBe(1);
+    expect(events[0]!.eventType).toBe("workflow.complete");
+    expect(events[0]!.properties.durationMs).toBe(5000);
+    expect(events[0]!.options?.executionId).toBe("exec-complete-success");
+  });
+
+  test("complete() tracks workflow completion with failure", () => {
+    const { collector, events } = createTrackingCollector();
+    const tracker = trackWorkflowExecution("exec-complete-fail", { collector });
+
+    tracker.complete(false, 3000);
+
+    expect(events.length).toBe(1);
+    expect(events[0]!.eventType).toBe("workflow.complete");
+    expect(events[0]!.properties.durationMs).toBe(3000);
+  });
+
+  test("error() tracks workflow error", () => {
+    const { collector, events } = createTrackingCollector();
+    const tracker = trackWorkflowExecution("exec-error", { collector });
+
+    tracker.error("Feature implementation failed", "implement-node");
+
+    expect(events.length).toBe(1);
+    expect(events[0]!.eventType).toBe("workflow.error");
+    expect(events[0]!.options?.executionId).toBe("exec-error");
+  });
+
+  test("skips node events when trackNodes is false", () => {
+    const { collector, events } = createTrackingCollector();
+    const tracker = trackWorkflowExecution("exec-skip-nodes", {
+      collector,
+      trackNodes: false,
+    });
+
+    tracker.nodeEnter("node-1", "agent");
+    tracker.nodeExit("node-1", "agent", 100);
+
+    expect(events.length).toBe(0);
+  });
+
+  test("includes additional properties in all events", () => {
+    const { collector, events } = createTrackingCollector();
+    const tracker = trackWorkflowExecution("exec-props", {
+      collector,
+      additionalProperties: {
+        totalFeatures: 5,
+        iteration: 1,
+      },
+    });
+
+    tracker.start("test-workflow", {});
+    tracker.nodeEnter("node-1", "agent");
+    tracker.complete(true, 100);
+
+    expect(events.length).toBe(3);
+    for (const event of events) {
+      expect(event.properties.totalFeatures).toBe(5);
+      expect(event.properties.iteration).toBe(1);
+    }
+  });
+});
+
+// ============================================================================
+// withWorkflowTelemetry Tests
+// ============================================================================
+
+describe("withWorkflowTelemetry", () => {
+  test("tracks started and completed on success", async () => {
+    const { collector, events } = createTrackingCollector();
+
+    const result = await withWorkflowTelemetry(
+      "exec-success",
+      "test-workflow",
+      async () => {
+        return "success result";
+      },
+      { collector }
+    );
+
+    expect(result).toBe("success result");
+    expect(events.length).toBe(2);
+    expect(events[0]!.eventType).toBe("workflow.start");
+    expect(events[1]!.eventType).toBe("workflow.complete");
+    expect(events[1]!.properties.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test("tracks started and failed on error", async () => {
+    const { collector, events } = createTrackingCollector();
+
+    try {
+      await withWorkflowTelemetry(
+        "exec-error",
+        "failing-workflow",
+        async () => {
+          throw new Error("Workflow failed");
+        },
+        { collector }
+      );
+    } catch (error) {
+      // Expected
+    }
+
+    expect(events.length).toBe(3);
+    expect(events[0]!.eventType).toBe("workflow.start");
+    expect(events[1]!.eventType).toBe("workflow.error");
+    expect(events[2]!.eventType).toBe("workflow.complete");
+  });
+
+  test("provides tracker to the function", async () => {
+    const { collector, events } = createTrackingCollector();
+
+    await withWorkflowTelemetry(
+      "exec-tracker",
+      "tracked-workflow",
+      async (tracker) => {
+        tracker.nodeEnter("inner-node", "agent");
+        tracker.nodeExit("inner-node", "agent", 50);
+        return true;
+      },
+      { collector }
+    );
+
+    // start + nodeEnter + nodeExit + complete
+    expect(events.length).toBe(4);
+    expect(events[1]!.eventType).toBe("workflow.node.enter");
+    expect(events[2]!.eventType).toBe("workflow.node.exit");
+  });
+
+  test("rethrows errors after tracking", async () => {
+    const { collector } = createTrackingCollector();
+
+    await expect(
+      withWorkflowTelemetry(
+        "exec-rethrow",
+        "error-workflow",
+        async () => {
+          throw new Error("Must propagate");
+        },
+        { collector }
+      )
+    ).rejects.toThrow("Must propagate");
+  });
+});
+
+// ============================================================================
+// Workflow Telemetry Integration Tests
+// ============================================================================
+
+describe("Workflow Telemetry Integration", () => {
+  test("full workflow tracking scenario", async () => {
+    const { collector, events } = createTrackingCollector();
+
+    const result = await withWorkflowTelemetry(
+      "workflow-full",
+      "ralph-implementation",
+      async (tracker) => {
+        // Simulate a Ralph workflow with multiple nodes
+        tracker.nodeEnter("init-session", "ralph_init");
+        await new Promise((r) => setTimeout(r, 10));
+        tracker.nodeExit("init-session", "ralph_init", 10);
+
+        tracker.nodeEnter("implement-feature", "ralph_implement");
+        await new Promise((r) => setTimeout(r, 10));
+        tracker.nodeExit("implement-feature", "ralph_implement", 10);
+
+        tracker.nodeEnter("check-completion", "ralph_check");
+        await new Promise((r) => setTimeout(r, 10));
+        tracker.nodeExit("check-completion", "ralph_check", 10);
+
+        return { success: true, nodesCompleted: 3 };
+      },
+      {
+        collector,
+        additionalProperties: { totalFeatures: 10 },
+      }
+    );
+
+    expect(result.nodesCompleted).toBe(3);
+
+    // start + 3*(nodeEnter + nodeExit) + complete = 8
+    expect(events.length).toBe(8);
+
+    // Verify event sequence
+    expect(events[0]!.eventType).toBe("workflow.start");
+    expect(events[1]!.eventType).toBe("workflow.node.enter");
+    expect(events[2]!.eventType).toBe("workflow.node.exit");
+    expect(events[7]!.eventType).toBe("workflow.complete");
+
+    // Verify additional properties are on all events
+    for (const event of events) {
+      expect(event.properties.totalFeatures).toBe(10);
+    }
   });
 });

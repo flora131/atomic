@@ -1281,7 +1281,7 @@
         "Display 'Features: {completed}/{total} completed'",
         "Update after each feature completes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "ui",

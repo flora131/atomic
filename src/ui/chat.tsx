@@ -39,6 +39,7 @@ import {
   type CommandContext,
   type CommandContextState,
 } from "./commands/index.ts";
+import type { AskUserQuestionEventData } from "../graph/index.ts";
 
 // ============================================================================
 // BLOCK LETTER LOGO WITH GRADIENT
@@ -210,6 +211,12 @@ export type OnPermissionRequest = (
 export type OnInterrupt = () => void;
 
 /**
+ * AskUserQuestion event callback signature.
+ * Called when askUserNode emits a human_input_required signal.
+ */
+export type OnAskUserQuestion = (eventData: AskUserQuestionEventData) => void;
+
+/**
  * Props for the ChatApp component.
  */
 export interface ChatAppProps {
@@ -271,6 +278,16 @@ export interface ChatAppProps {
    * Returns null if no session is active yet.
    */
   getSession?: () => import("../sdk/types.ts").Session | null;
+  /**
+   * Register callback to receive AskUserQuestion events from askUserNode.
+   * Called with a function that handles human_input_required signals from workflow graphs.
+   */
+  registerAskUserQuestionHandler?: (handler: OnAskUserQuestion) => void;
+  /**
+   * Callback to resume workflow execution with user's answer.
+   * Called when the user responds to an askUserNode question in workflow mode.
+   */
+  onWorkflowResumeWithAnswer?: (requestId: string, answer: string | string[]) => void;
 }
 
 /**
@@ -736,6 +753,8 @@ export function ChatApp({
   registerPermissionRequestHandler,
   registerCtrlCWarningHandler,
   getSession,
+  registerAskUserQuestionHandler,
+  onWorkflowResumeWithAnswer,
 }: ChatAppProps): React.ReactNode {
   // title and suggestion are deprecated, kept for backwards compatibility
   void _title;
@@ -949,6 +968,47 @@ export function ChatApp({
     handleHumanInputRequired(userQuestion);
   }, [handleHumanInputRequired]);
 
+  // Store the requestId for askUserNode questions (for workflow resumption)
+  const askUserQuestionRequestIdRef = useRef<string | null>(null);
+
+  /**
+   * Handle AskUserQuestion event from askUserNode.
+   * Converts AskUserQuestionEventData to UserQuestion and shows the dialog.
+   *
+   * This handler is specifically for askUserNode graph nodes which emit
+   * 'human_input_required' signals with AskUserQuestionEventData.
+   *
+   * The respond flow:
+   * - If workflowState.workflowActive, call onWorkflowResumeWithAnswer
+   * - Otherwise, call session.send() with the user's answer for standalone agents
+   */
+  const handleAskUserQuestion = useCallback((eventData: AskUserQuestionEventData) => {
+    // Store the requestId for response correlation
+    askUserQuestionRequestIdRef.current = eventData.requestId;
+
+    // Convert AskUserQuestionEventData to UserQuestion format
+    const userQuestion: UserQuestion = {
+      header: eventData.header || "Question",
+      question: eventData.question,
+      options: eventData.options?.map(opt => ({
+        label: opt.label,
+        value: opt.label, // Use label as value since AskUserOption only has label/description
+        description: opt.description,
+      })) || [],
+      multiSelect: false,
+    };
+
+    // Show the question dialog
+    handleHumanInputRequired(userQuestion);
+  }, [handleHumanInputRequired]);
+
+  // Register askUserQuestion handler with parent component
+  useEffect(() => {
+    if (registerAskUserQuestionHandler) {
+      registerAskUserQuestionHandler(handleAskUserQuestion);
+    }
+  }, [registerAskUserQuestionHandler, handleAskUserQuestion]);
+
   // Register permission request handler with parent component
   useEffect(() => {
     if (registerPermissionRequestHandler) {
@@ -966,6 +1026,10 @@ export function ChatApp({
   /**
    * Handle user answering a question from UserQuestionDialog.
    * Claude Code behavior: Just respond and continue streaming, no "User selected" messages.
+   *
+   * For askUserNode questions:
+   * - If workflowState.workflowActive, calls onWorkflowResumeWithAnswer to resume workflow
+   * - Otherwise, sends the answer through session.send() for standalone agent mode
    */
   const handleQuestionAnswer = useCallback((answer: QuestionAnswer) => {
     // Clear active question first
@@ -974,7 +1038,7 @@ export function ChatApp({
     // Remove from pending questions queue
     streamingState.removePendingQuestion();
 
-    // If there's a permission respond callback, call it
+    // If there's a permission respond callback, call it (SDK permission requests)
     if (permissionRespondRef.current) {
       if (answer.cancelled) {
         // For cancellation, send a deny response
@@ -984,6 +1048,30 @@ export function ChatApp({
         permissionRespondRef.current(answer.selected);
       }
       permissionRespondRef.current = null;
+    }
+
+    // Handle askUserNode question responses (workflow graph questions)
+    if (askUserQuestionRequestIdRef.current) {
+      const requestId = askUserQuestionRequestIdRef.current;
+      askUserQuestionRequestIdRef.current = null;
+
+      if (!answer.cancelled) {
+        // Determine how to respond based on workflow state
+        if (workflowState.workflowActive && onWorkflowResumeWithAnswer) {
+          // Workflow mode: call workflow executor to resume with answer
+          onWorkflowResumeWithAnswer(requestId, answer.selected);
+        } else {
+          // Standalone agent mode: send the answer through the session
+          const session = getSession?.();
+          if (session) {
+            // Send the user's answer as a message to continue the conversation
+            const answerText = Array.isArray(answer.selected)
+              ? answer.selected.join(", ")
+              : answer.selected;
+            void session.send(answerText);
+          }
+        }
+      }
     }
 
     // Update workflow state if this was spec approval
@@ -996,7 +1084,7 @@ export function ChatApp({
 
     // Don't add "User selected" messages - Claude Code doesn't show these
     // The streaming response continues automatically after the callback
-  }, [streamingState, updateWorkflowState]);
+  }, [streamingState, updateWorkflowState, workflowState.workflowActive, onWorkflowResumeWithAnswer, getSession]);
 
   /**
    * Update workflow progress state (called by workflow execution).

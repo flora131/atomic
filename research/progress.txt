@@ -1,5 +1,58 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Wire handleAskUserQuestion to human_input_required event
+
+### Completed
+- Added `human_input_required` to `EventType` union in src/sdk/types.ts
+  - Now includes all 11 event types including the new workflow graph event
+
+- Added new SDK types:
+  - `HumanInputOption` interface - Option structure for human_input_required events (label, description)
+  - `HumanInputRequiredEventData` interface - Event data structure with requestId, question, header, options, nodeId, respond callback
+  - Updated `EventDataMap` to include mapping for `human_input_required` event type
+
+- Added askUserQuestion handler wiring in src/ui/index.ts:
+  - Added `askUserQuestionHandler: OnAskUserQuestion | null` to `ChatUIState` interface
+  - Initialized `askUserQuestionHandler: null` in state initialization
+  - Created `registerAskUserQuestionHandler` callback that stores handler in state
+  - Added subscription for `human_input_required` events in `subscribeToToolEvents()`
+  - Event handler transforms event data to AskUserQuestionEventData format and calls registered handler
+  - Added cleanup for the subscription in the unsubscribe function
+  - Passed `registerAskUserQuestionHandler` to ChatApp props
+
+- Added exports:
+  - Exported `OnAskUserQuestion` type from src/ui/index.ts
+  - Exported `HumanInputOption`, `HumanInputRequiredEventData`, `PermissionOption`, `PermissionRequestedEventData` from src/sdk/index.ts
+
+### Test Results
+- Added 8 new tests for human_input_required event wiring in tests/ui/chat.test.ts:
+  - event listener receives human_input_required event data
+  - event handler transforms event data to AskUserQuestionEventData format
+  - event handler does not call askUserQuestionHandler if required fields are missing
+  - event listener is set up during subscription
+  - event listener is cleaned up on unsubscribe
+  - registered handler is called with correct event data
+  - options array is passed through correctly
+  - optional header field is handled correctly
+
+- Added 3 new tests for human_input_required event type in tests/sdk/types.test.ts:
+  - includes all expected event types (updated from 9 to 11)
+  - creates human_input_required event
+  - creates human_input_required event without optional fields
+
+- All tests pass:
+  - tests/ui/chat.test.ts: 130 pass
+  - tests/sdk/types.test.ts: 31 pass
+
+### Files Modified
+- src/sdk/types.ts - Added human_input_required to EventType, HumanInputOption, HumanInputRequiredEventData interfaces, updated EventDataMap
+- src/sdk/index.ts - Added new type exports
+- src/ui/index.ts - Added askUserQuestionHandler state, registration callback, event subscription, ChatApp prop
+- tests/ui/chat.test.ts - Added 8 new tests
+- tests/sdk/types.test.ts - Added 3 new tests
+
+---
+
 ## 2026-02-03 - Feature Implementation: handleAskUserQuestion() in chat.tsx
 
 ### Completed

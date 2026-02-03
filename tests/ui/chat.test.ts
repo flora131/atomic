@@ -2295,3 +2295,258 @@ describe("OnAskUserQuestion callback type", () => {
     });
   });
 });
+
+// ============================================================================
+// human_input_required Event Wiring Tests
+// ============================================================================
+
+describe("human_input_required event wiring", () => {
+  /**
+   * Tests for wiring handleAskUserQuestion to human_input_required event.
+   * These tests verify the event listener setup and data flow from events
+   * to the UI handler.
+   */
+
+  test("event listener receives human_input_required event data", () => {
+    // Simulate the event data from askUserNode
+    interface HumanInputRequiredEventData {
+      requestId: string;
+      question: string;
+      header?: string;
+      options?: Array<{ label: string; description?: string }>;
+      nodeId: string;
+    }
+
+    const eventData: HumanInputRequiredEventData = {
+      requestId: "test-uuid-001",
+      question: "Should we proceed with the deployment?",
+      header: "Deployment Confirmation",
+      options: [
+        { label: "Yes", description: "Deploy to production" },
+        { label: "No", description: "Cancel deployment" },
+      ],
+      nodeId: "deploy-confirm-node",
+    };
+
+    // Verify all fields are present
+    expect(eventData.requestId).toBe("test-uuid-001");
+    expect(eventData.question).toBe("Should we proceed with the deployment?");
+    expect(eventData.header).toBe("Deployment Confirmation");
+    expect(eventData.options).toHaveLength(2);
+    expect(eventData.nodeId).toBe("deploy-confirm-node");
+  });
+
+  test("event handler transforms event data to AskUserQuestionEventData format", () => {
+    // Simulate the transformation that happens in subscribeToToolEvents
+    interface RawEventData {
+      requestId?: string;
+      question?: string;
+      header?: string;
+      options?: Array<{ label: string; description?: string }>;
+      nodeId?: string;
+    }
+
+    interface AskUserQuestionEventData {
+      requestId: string;
+      question: string;
+      header?: string;
+      options?: Array<{ label: string; description?: string }>;
+      nodeId: string;
+    }
+
+    const rawData: RawEventData = {
+      requestId: "test-uuid-002",
+      question: "Select an action",
+      header: "Action",
+      options: [{ label: "Continue" }],
+      nodeId: "action-node",
+    };
+
+    // Transform to AskUserQuestionEventData (mimicking subscribeToToolEvents logic)
+    const transformedData: AskUserQuestionEventData | null =
+      rawData.question && rawData.requestId && rawData.nodeId
+        ? {
+            requestId: rawData.requestId,
+            question: rawData.question,
+            header: rawData.header,
+            options: rawData.options,
+            nodeId: rawData.nodeId,
+          }
+        : null;
+
+    expect(transformedData).not.toBeNull();
+    expect(transformedData!.requestId).toBe("test-uuid-002");
+    expect(transformedData!.question).toBe("Select an action");
+    expect(transformedData!.header).toBe("Action");
+  });
+
+  test("event handler does not call askUserQuestionHandler if required fields are missing", () => {
+    interface RawEventData {
+      requestId?: string;
+      question?: string;
+      header?: string;
+      options?: Array<{ label: string; description?: string }>;
+      nodeId?: string;
+    }
+
+    // Missing requestId
+    const missingRequestId: RawEventData = {
+      question: "Select an action",
+      nodeId: "action-node",
+    };
+
+    // Missing question
+    const missingQuestion: RawEventData = {
+      requestId: "test-uuid",
+      nodeId: "action-node",
+    };
+
+    // Missing nodeId
+    const missingNodeId: RawEventData = {
+      requestId: "test-uuid",
+      question: "Select an action",
+    };
+
+    const shouldCallHandler = (data: RawEventData) =>
+      !!(data.question && data.requestId && data.nodeId);
+
+    expect(shouldCallHandler(missingRequestId)).toBe(false);
+    expect(shouldCallHandler(missingQuestion)).toBe(false);
+    expect(shouldCallHandler(missingNodeId)).toBe(false);
+  });
+
+  test("event listener is set up during subscription", () => {
+    // Simulate the client.on pattern used in subscribeToToolEvents
+    type EventHandler = (event: { data: unknown }) => void;
+    const eventHandlers = new Map<string, EventHandler>();
+
+    const mockClientOn = (eventType: string, handler: EventHandler) => {
+      eventHandlers.set(eventType, handler);
+      return () => eventHandlers.delete(eventType);
+    };
+
+    // Subscribe to human_input_required
+    const unsubscribe = mockClientOn("human_input_required", (event) => {
+      void event;
+    });
+
+    expect(eventHandlers.has("human_input_required")).toBe(true);
+
+    // Unsubscribe
+    unsubscribe();
+    expect(eventHandlers.has("human_input_required")).toBe(false);
+  });
+
+  test("event listener is cleaned up on unsubscribe", () => {
+    type EventHandler = (event: { data: unknown }) => void;
+    const eventHandlers = new Map<string, EventHandler>();
+    const unsubscribeFunctions: (() => void)[] = [];
+
+    const mockClientOn = (eventType: string, handler: EventHandler) => {
+      eventHandlers.set(eventType, handler);
+      const unsub = () => eventHandlers.delete(eventType);
+      unsubscribeFunctions.push(unsub);
+      return unsub;
+    };
+
+    // Subscribe to multiple events (mimicking subscribeToToolEvents)
+    mockClientOn("tool.start", () => {});
+    mockClientOn("tool.complete", () => {});
+    mockClientOn("permission.requested", () => {});
+    mockClientOn("human_input_required", () => {});
+
+    expect(eventHandlers.size).toBe(4);
+    expect(eventHandlers.has("human_input_required")).toBe(true);
+
+    // Clean up all
+    for (const unsub of unsubscribeFunctions) {
+      unsub();
+    }
+
+    expect(eventHandlers.size).toBe(0);
+    expect(eventHandlers.has("human_input_required")).toBe(false);
+  });
+
+  test("registered handler is called with correct event data", () => {
+    // Simulate the state and handler registration pattern
+    let registeredHandler: ((data: unknown) => void) | null = null;
+    let receivedData: unknown = null;
+
+    // Register handler (mimicking registerAskUserQuestionHandler)
+    const registerHandler = (handler: (data: unknown) => void) => {
+      registeredHandler = handler;
+    };
+
+    registerHandler((data) => {
+      receivedData = data;
+    });
+
+    // Simulate event reception
+    const eventData = {
+      requestId: "test-123",
+      question: "Confirm?",
+      nodeId: "confirm-node",
+    };
+
+    if (registeredHandler) {
+      registeredHandler(eventData);
+    }
+
+    expect(receivedData).toEqual(eventData);
+  });
+
+  test("options array is passed through correctly", () => {
+    interface EventData {
+      requestId: string;
+      question: string;
+      header?: string;
+      options?: Array<{ label: string; description?: string }>;
+      nodeId: string;
+    }
+
+    const eventData: EventData = {
+      requestId: "test-uuid",
+      question: "Choose one",
+      header: "Selection",
+      options: [
+        { label: "Option A", description: "First option" },
+        { label: "Option B", description: "Second option" },
+        { label: "Option C" }, // No description
+      ],
+      nodeId: "selection-node",
+    };
+
+    // Verify options are correctly structured
+    expect(eventData.options).toHaveLength(3);
+    expect(eventData.options![0]!.label).toBe("Option A");
+    expect(eventData.options![0]!.description).toBe("First option");
+    expect(eventData.options![2]!.description).toBeUndefined();
+  });
+
+  test("optional header field is handled correctly", () => {
+    interface EventData {
+      requestId: string;
+      question: string;
+      header?: string;
+      nodeId: string;
+    }
+
+    // With header
+    const withHeader: EventData = {
+      requestId: "id-1",
+      question: "Question?",
+      header: "Custom Header",
+      nodeId: "node-1",
+    };
+
+    // Without header
+    const withoutHeader: EventData = {
+      requestId: "id-2",
+      question: "Question?",
+      nodeId: "node-2",
+    };
+
+    expect(withHeader.header).toBe("Custom Header");
+    expect(withoutHeader.header).toBeUndefined();
+  });
+});

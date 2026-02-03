@@ -10,7 +10,7 @@
 import React from "react";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { createRoot, type Root } from "@opentui/react";
-import { ChatApp, type OnToolStart, type OnToolComplete, type OnPermissionRequest as ChatOnPermissionRequest, type OnInterrupt } from "./chat.tsx";
+import { ChatApp, type OnToolStart, type OnToolComplete, type OnPermissionRequest as ChatOnPermissionRequest, type OnInterrupt, type OnAskUserQuestion } from "./chat.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
 import { initializeCommandsAsync } from "./commands/index.ts";
 import type {
@@ -88,6 +88,8 @@ interface ChatUIState {
   toolCompleteHandler: OnToolComplete | null;
   /** Registered handler for permission/HITL requests */
   permissionRequestHandler: OnPermissionRequest | null;
+  /** Registered handler for askUserQuestion events from workflow graphs */
+  askUserQuestionHandler: OnAskUserQuestion | null;
   /** Tool ID counter for generating unique IDs */
   toolIdCounter: number;
   /** Interrupt counter for double-press exit (shared between signal and UI) */
@@ -167,6 +169,7 @@ export async function startChatUI(
     toolStartHandler: null,
     toolCompleteHandler: null,
     permissionRequestHandler: null,
+    askUserQuestionHandler: null,
     toolIdCounter: 0,
     interruptCount: 0,
     interruptTimeout: null,
@@ -337,10 +340,33 @@ export async function startChatUI(
       }
     });
 
+    // Subscribe to human_input_required events from workflow graphs (askUserNode)
+    const unsubHumanInput = client.on("human_input_required", (event) => {
+      const data = event.data as {
+        requestId?: string;
+        question?: string;
+        header?: string;
+        options?: Array<{ label: string; description?: string }>;
+        nodeId?: string;
+        respond?: (answer: string | string[]) => void;
+      };
+
+      if (state.askUserQuestionHandler && data.question && data.requestId && data.nodeId) {
+        state.askUserQuestionHandler({
+          requestId: data.requestId,
+          question: data.question,
+          header: data.header,
+          options: data.options,
+          nodeId: data.nodeId,
+        });
+      }
+    });
+
     return () => {
       unsubStart();
       unsubComplete();
       unsubPermission();
+      unsubHumanInput();
     };
   }
 
@@ -553,6 +579,10 @@ export async function startChatUI(
       state.permissionRequestHandler = handler;
     };
 
+    const registerAskUserQuestionHandler = (handler: OnAskUserQuestion) => {
+      state.askUserQuestionHandler = handler;
+    };
+
     const registerCtrlCWarningHandler = (handler: (show: boolean) => void) => {
       state.showCtrlCWarning = handler;
     };
@@ -590,6 +620,7 @@ export async function startChatUI(
             registerToolStartHandler,
             registerToolCompleteHandler,
             registerPermissionRequestHandler,
+            registerAskUserQuestionHandler,
             registerCtrlCWarningHandler,
             getSession,
           }),
@@ -717,6 +748,7 @@ export {
   type OnToolStart,
   type OnToolComplete,
   type OnInterrupt,
+  type OnAskUserQuestion,
   defaultWorkflowChatState,
 } from "./chat.tsx";
 export {

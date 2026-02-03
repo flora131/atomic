@@ -1,5 +1,88 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Unit test: Agent frontmatter parsing across SDK formats
+
+### Status: COMPLETED
+
+Implemented comprehensive unit tests for agent frontmatter parsing across different SDK formats (Claude, OpenCode, Copilot).
+
+#### Tests Added (53 new tests)
+
+1. **Claude format: tools as string array**
+   - parses Claude format with tools as string array
+   - Claude format tools array is passed through unchanged
+   - Claude format with empty tools array
+   - Claude format with single tool
+   - Claude format tools preserve case
+
+2. **OpenCode format: tools as Record<string, boolean>**
+   - parses OpenCode format with tools as Record<string, boolean>
+   - OpenCode format converts Record to array of enabled tools
+   - OpenCode format with all tools disabled
+   - OpenCode format with all tools enabled
+   - OpenCode format mode field is ignored in AgentDefinition
+   - OpenCode format with primary mode is still parsed
+
+3. **Model normalization: 'anthropic/claude-3-sonnet' -> 'sonnet'**
+   - normalizes anthropic/claude-3-sonnet to sonnet
+   - normalizes anthropic/claude-3.5-sonnet to sonnet
+   - normalizes anthropic/claude-3-opus to opus
+   - normalizes anthropic/claude-3.5-opus to opus
+   - normalizes anthropic/claude-3-haiku to haiku
+   - normalizes anthropic/claude-3.5-haiku to haiku
+   - normalizes direct model names (sonnet, opus, haiku)
+   - model normalization in parseAgentFrontmatter
+   - model normalization handles partial matches
+   - model normalization returns undefined for unknown models
+   - model normalization returns undefined for undefined input
+
+4. **Missing optional fields use defaults**
+   - missing name uses filename as default
+   - missing description uses default description
+   - missing description with only filename uses filename in default
+   - missing tools field results in undefined tools
+   - missing model field results in undefined model
+   - minimal frontmatter with only required source creates valid agent
+   - empty body results in empty prompt string
+   - whitespace-only body is trimmed to empty string
+
+5. **Invalid frontmatter handled gracefully**
+   - parseMarkdownFrontmatter returns null for content without frontmatter delimiters
+   - parseMarkdownFrontmatter returns null for unclosed frontmatter
+   - parseMarkdownFrontmatter returns null for frontmatter without opening delimiter
+   - parseAgentFile returns agent with defaults for content without frontmatter
+   - parseAgentFile returns null for non-existent file
+   - parseAgentFrontmatter handles undefined values gracefully
+   - parseAgentFrontmatter handles null values gracefully
+   - parseAgentFrontmatter handles wrong types for tools field
+   - normalizeTools passes through arrays
+   - normalizeTools converts object to array of enabled tools
+   - normalizeTools returns undefined for undefined input
+   - normalizeModel returns undefined for empty string
+   - parseMarkdownFrontmatter handles empty frontmatter section
+   - parseMarkdownFrontmatter returns null for truly empty frontmatter
+   - parseMarkdownFrontmatter handles malformed YAML in frontmatter
+   - parseMarkdownFrontmatter handles frontmatter with only comments
+
+6. **Copilot format compatibility**
+   - parses Copilot format with string array tools
+   - Copilot format tools are preserved as-is
+
+7. **Full parsing flow with parseAgentFile**
+   - parseAgentFile correctly parses Claude format file
+   - parseAgentFile correctly parses OpenCode format file
+   - parseAgentFile correctly parses minimal format file
+
+#### Test Results
+- All 295 tests in tests/ui/commands/agent-commands.test.ts pass (53 new tests added)
+- No regressions detected
+
+#### Files Modified
+- tests/ui/commands/agent-commands.test.ts - Added 53 new tests for agent frontmatter parsing across SDK formats
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Unit test: Sub-agent discovery from agent directories
 
 ### Status: COMPLETED

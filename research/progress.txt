@@ -1,3 +1,74 @@
+## 2026-02-03 - Feature Implementation: Document workflow composition patterns
+
+### Status: COMPLETED
+
+Created comprehensive documentation for workflow composition patterns in Atomic. The documentation covers how to compose complex workflows from simpler building blocks using the subgraph node system.
+
+#### Documentation Created
+
+**File:** `research/docs/2026-02-03-workflow-composition-patterns.md`
+
+**Sections Covered:**
+
+1. **Overview** - Introduction to workflow composition capabilities
+2. **Subgraph Node Usage** - How to use `subgraphNode()` factory function
+   - Basic subgraph node creation
+   - Configuration options (id, subgraph, inputMapper, outputMapper, name, description)
+3. **Referencing Workflows by Name** - String-based workflow resolution
+   - How name resolution works
+   - Setting up the workflow resolver
+   - Resolution priority (local > global > built-in)
+4. **Circular Dependency Detection** - Automatic detection and error handling
+   - How the resolution stack works
+   - Error message format
+   - Strategies for avoiding circular dependencies
+5. **Parent-Child Workflow Composition** - Patterns for hierarchical workflows
+   - Basic composition pattern
+   - Using named references for flexibility
+6. **State Passing Between Workflows** - Data flow between parent and child
+   - Input mapping
+   - Output mapping
+   - Default behavior
+   - Preserving state through context clears
+7. **Best Practices** - Guidelines for effective workflow composition
+   - Design state interfaces carefully
+   - Keep subgraphs focused
+   - Use name references for flexibility
+   - Handle errors gracefully
+   - Document workflow dependencies
+8. **Examples** - Code examples demonstrating patterns
+   - Simple subgraph composition
+   - Conditional subgraph execution
+   - Loop with subgraph
+   - Parallel subgraphs
+9. **API Reference** - Reference for key functions
+   - `subgraphNode<TState, TSubState>(config)`
+   - `setWorkflowResolver(resolver)`
+   - `resolveWorkflowRef(name)`
+
+#### Key Design Decisions
+
+- Documentation style follows existing research docs format (date, status, author headers)
+- Includes practical code examples with TypeScript types
+- Covers both direct graph references and string-based name resolution
+- Documents the circular dependency detection mechanism from `workflow-commands.ts`
+- Provides best practices derived from the actual implementation
+
+#### Test Results
+
+- All 1031 graph and workflow tests pass
+- No regressions introduced
+
+#### Files Added
+
+- `research/docs/2026-02-03-workflow-composition-patterns.md` - Comprehensive documentation
+
+#### Files Modified
+
+- `research/feature-list.json` - Updated `passes` to `true` for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: E2E test: Build snake game in Rust using /ralph --yolo
 
 ### Status: COMPLETED

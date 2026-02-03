@@ -13,6 +13,7 @@
 
 import { mkdir, writeFile, readFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { DebugReport } from "../graph/types.ts";
 
 // ============================================================================
 // RALPH FEATURE INTERFACE
@@ -155,6 +156,13 @@ export interface RalphSession {
 
   /** Git branch name for this session's work */
   prBranch?: string;
+
+  /**
+   * Array of debug reports generated during execution.
+   * Reports are accumulated using Reducers.concat, persisting across iterations.
+   * Available for inspection after workflow completes.
+   */
+  debugReports?: DebugReport[];
 }
 
 // ============================================================================
@@ -228,6 +236,7 @@ export function createRalphSession(
     status: options.status ?? "running",
     prUrl: options.prUrl,
     prBranch: options.prBranch,
+    debugReports: options.debugReports ?? [],
   };
 }
 
@@ -320,7 +329,8 @@ export function isRalphSession(value: unknown): value is RalphSession {
     typeof obj.iteration === "number" &&
     ["running", "paused", "completed", "failed"].includes(obj.status as string) &&
     (obj.prUrl === undefined || typeof obj.prUrl === "string") &&
-    (obj.prBranch === undefined || typeof obj.prBranch === "string")
+    (obj.prBranch === undefined || typeof obj.prBranch === "string") &&
+    (obj.debugReports === undefined || Array.isArray(obj.debugReports))
   );
 }
 

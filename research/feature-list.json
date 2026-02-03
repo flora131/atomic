@@ -1150,7 +1150,7 @@
         "Add source?: 'builtin' | 'global' | 'local' field",
         "Export the interface"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

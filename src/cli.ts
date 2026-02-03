@@ -29,7 +29,7 @@ import { runAgentCommand } from "./commands/run-agent";
 import { configCommand } from "./commands/config";
 import { updateCommand } from "./commands/update";
 import { uninstallCommand } from "./commands/uninstall";
-import { ralphSetup, ralphStop } from "./commands/ralph";
+import { ralphSetup } from "./commands/ralph";
 import { chatCommand } from "./commands/chat";
 import { cleanupWindowsLeftoverFiles } from "./utils/cleanup";
 import { isTelemetryEnabledSync } from "./utils/telemetry";
@@ -286,22 +286,8 @@ Stopping:
       process.exit(exitCode);
     });
 
-  // Add 'stop' subcommand to ralph
-  ralphCmd
-    .command("stop")
-    .description("Stop hook handler (called automatically by hooks)")
-    .requiredOption("-a, --agent <name>", "Agent to use (currently only 'claude' is supported)")
-    .action(async (localOpts) => {
-      // Validate agent is 'claude' (only supported agent for ralph)
-      if (localOpts.agent !== "claude") {
-        console.error(`${COLORS.red}Error: Ralph loop currently only supports 'claude' agent${COLORS.reset}`);
-        console.error(`You provided: ${localOpts.agent}`);
-        console.error("\n(Run 'atomic ralph stop --help' for usage information)");
-        process.exit(1);
-      }
-
-      await ralphStop();
-    });
+  // Note: 'ralph stop' subcommand was removed - hook-based execution is no longer supported.
+  // Graph engine is now the only execution mode.
 
   // Add hidden command for internal telemetry upload (used by background process)
   program

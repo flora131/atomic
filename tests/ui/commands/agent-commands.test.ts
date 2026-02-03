@@ -1807,3 +1807,634 @@ You are a custom agent.`
     expect(countAfterSecond).toBe(countAfterFirst);
   });
 });
+
+// ============================================================================
+// SUB-AGENT DISCOVERY FROM AGENT DIRECTORIES TESTS
+// ============================================================================
+
+describe("Sub-agent discovery from agent directories", () => {
+  const testDir = "/tmp/test-subagent-discovery-" + Date.now();
+  const claudeAgentDir = join(testDir, ".claude", "agents");
+  const opencodeAgentDir = join(testDir, ".opencode", "agents");
+  const githubAgentDir = join(testDir, ".github", "agents");
+  const atomicAgentDir = join(testDir, ".atomic", "agents");
+
+  beforeAll(() => {
+    // Create all agent directories
+    mkdirSync(claudeAgentDir, { recursive: true });
+    mkdirSync(opencodeAgentDir, { recursive: true });
+    mkdirSync(githubAgentDir, { recursive: true });
+    mkdirSync(atomicAgentDir, { recursive: true });
+
+    // Create test agent in .claude/agents/
+    writeFileSync(
+      join(claudeAgentDir, "claude-analyzer.md"),
+      `---
+name: claude-analyzer
+description: A Claude-specific code analyzer
+tools:
+  - Glob
+  - Grep
+  - Read
+model: opus
+---
+You are a Claude-specific code analyzer agent.
+Analyze code with precision and provide detailed insights.`
+    );
+
+    // Create test agent in .opencode/agents/
+    writeFileSync(
+      join(opencodeAgentDir, "opencode-writer.md"),
+      `---
+name: opencode-writer
+description: An OpenCode-specific code writer
+tools:
+  glob: true
+  grep: true
+  write: true
+  edit: true
+  bash: false
+model: anthropic/claude-3-sonnet
+mode: subagent
+---
+You are an OpenCode-specific code writer agent.
+Write clean, maintainable code following best practices.`
+    );
+
+    // Create test agent in .github/agents/
+    writeFileSync(
+      join(githubAgentDir, "github-reviewer.md"),
+      `---
+name: github-reviewer
+description: A GitHub-specific code reviewer
+tools:
+  - Glob
+  - Grep
+  - Read
+  - Bash
+model: sonnet
+---
+You are a GitHub-specific code reviewer agent.
+Review pull requests and provide constructive feedback.`
+    );
+
+    // Create test agent in .atomic/agents/
+    writeFileSync(
+      join(atomicAgentDir, "atomic-helper.md"),
+      `---
+name: atomic-helper
+description: An Atomic-specific helper agent
+tools:
+  - Read
+  - Write
+model: haiku
+---
+You are an Atomic-specific helper agent.
+Provide quick assistance for common tasks.`
+    );
+
+    // Change to test directory
+    process.chdir(testDir);
+  });
+
+  afterAll(() => {
+    process.chdir("/tmp");
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  describe("discoverAgentFiles finds agents in .claude/agents/", () => {
+    test("discovers .md files in .claude/agents/", () => {
+      const files = discoverAgentFilesInPath(claudeAgentDir, "project");
+      expect(files).toHaveLength(1);
+      expect(files[0]!.filename).toBe("claude-analyzer");
+    });
+
+    test("assigns project source to .claude/agents/ files", () => {
+      const files = discoverAgentFilesInPath(claudeAgentDir, "project");
+      expect(files[0]!.source).toBe("project");
+    });
+
+    test("includes full path to .claude/agents/ files", () => {
+      const files = discoverAgentFilesInPath(claudeAgentDir, "project");
+      expect(files[0]!.path).toBe(join(claudeAgentDir, "claude-analyzer.md"));
+    });
+  });
+
+  describe("discoverAgentFiles finds agents in .opencode/agents/", () => {
+    test("discovers .md files in .opencode/agents/", () => {
+      const files = discoverAgentFilesInPath(opencodeAgentDir, "project");
+      expect(files).toHaveLength(1);
+      expect(files[0]!.filename).toBe("opencode-writer");
+    });
+
+    test("assigns project source to .opencode/agents/ files", () => {
+      const files = discoverAgentFilesInPath(opencodeAgentDir, "project");
+      expect(files[0]!.source).toBe("project");
+    });
+
+    test("includes full path to .opencode/agents/ files", () => {
+      const files = discoverAgentFilesInPath(opencodeAgentDir, "project");
+      expect(files[0]!.path).toBe(join(opencodeAgentDir, "opencode-writer.md"));
+    });
+  });
+
+  describe("discoverAgentFiles finds agents in .github/agents/", () => {
+    test("discovers .md files in .github/agents/", () => {
+      const files = discoverAgentFilesInPath(githubAgentDir, "project");
+      expect(files).toHaveLength(1);
+      expect(files[0]!.filename).toBe("github-reviewer");
+    });
+
+    test("assigns project source to .github/agents/ files", () => {
+      const files = discoverAgentFilesInPath(githubAgentDir, "project");
+      expect(files[0]!.source).toBe("project");
+    });
+
+    test("includes full path to .github/agents/ files", () => {
+      const files = discoverAgentFilesInPath(githubAgentDir, "project");
+      expect(files[0]!.path).toBe(join(githubAgentDir, "github-reviewer.md"));
+    });
+  });
+
+  describe("discoverAgents finds all agents from all paths", () => {
+    test("discovers agents from all four directories", async () => {
+      const agents = await discoverAgents();
+
+      const claudeAgent = agents.find((a) => a.name === "claude-analyzer");
+      const opencodeAgent = agents.find((a) => a.name === "opencode-writer");
+      const githubAgent = agents.find((a) => a.name === "github-reviewer");
+      const atomicAgent = agents.find((a) => a.name === "atomic-helper");
+
+      expect(claudeAgent).toBeDefined();
+      expect(opencodeAgent).toBeDefined();
+      expect(githubAgent).toBeDefined();
+      expect(atomicAgent).toBeDefined();
+    });
+
+    test("parses Claude format frontmatter correctly", async () => {
+      const agents = await discoverAgents();
+      const claudeAgent = agents.find((a) => a.name === "claude-analyzer");
+
+      expect(claudeAgent).toBeDefined();
+      expect(claudeAgent!.description).toBe("A Claude-specific code analyzer");
+      expect(claudeAgent!.tools).toEqual(["Glob", "Grep", "Read"]);
+      expect(claudeAgent!.model).toBe("opus");
+      expect(claudeAgent!.prompt).toContain("Claude-specific code analyzer agent");
+    });
+
+    test("parses OpenCode format frontmatter correctly", async () => {
+      const agents = await discoverAgents();
+      const opencodeAgent = agents.find((a) => a.name === "opencode-writer");
+
+      expect(opencodeAgent).toBeDefined();
+      expect(opencodeAgent!.description).toBe("An OpenCode-specific code writer");
+      // OpenCode tools format: Record<string, boolean> normalized to array
+      expect(opencodeAgent!.tools).toContain("glob");
+      expect(opencodeAgent!.tools).toContain("grep");
+      expect(opencodeAgent!.tools).toContain("write");
+      expect(opencodeAgent!.tools).toContain("edit");
+      expect(opencodeAgent!.tools).not.toContain("bash"); // bash: false
+      // Model normalized from anthropic/claude-3-sonnet to sonnet
+      expect(opencodeAgent!.model).toBe("sonnet");
+      expect(opencodeAgent!.prompt).toContain("OpenCode-specific code writer agent");
+    });
+
+    test("parses GitHub format frontmatter correctly", async () => {
+      const agents = await discoverAgents();
+      const githubAgent = agents.find((a) => a.name === "github-reviewer");
+
+      expect(githubAgent).toBeDefined();
+      expect(githubAgent!.description).toBe("A GitHub-specific code reviewer");
+      expect(githubAgent!.tools).toEqual(["Glob", "Grep", "Read", "Bash"]);
+      expect(githubAgent!.model).toBe("sonnet");
+      expect(githubAgent!.prompt).toContain("GitHub-specific code reviewer agent");
+    });
+
+    test("parses Atomic format frontmatter correctly", async () => {
+      const agents = await discoverAgents();
+      const atomicAgent = agents.find((a) => a.name === "atomic-helper");
+
+      expect(atomicAgent).toBeDefined();
+      expect(atomicAgent!.description).toBe("An Atomic-specific helper agent");
+      expect(atomicAgent!.tools).toEqual(["Read", "Write"]);
+      expect(atomicAgent!.model).toBe("haiku");
+      expect(atomicAgent!.prompt).toContain("Atomic-specific helper agent");
+    });
+  });
+
+  describe("agents from all paths have correct sources", () => {
+    test("agent from .claude/agents/ has project source", async () => {
+      const agents = await discoverAgents();
+      const claudeAgent = agents.find((a) => a.name === "claude-analyzer");
+
+      expect(claudeAgent).toBeDefined();
+      expect(claudeAgent!.source).toBe("project");
+    });
+
+    test("agent from .opencode/agents/ has project source", async () => {
+      const agents = await discoverAgents();
+      const opencodeAgent = agents.find((a) => a.name === "opencode-writer");
+
+      expect(opencodeAgent).toBeDefined();
+      expect(opencodeAgent!.source).toBe("project");
+    });
+
+    test("agent from .github/agents/ has project source", async () => {
+      const agents = await discoverAgents();
+      const githubAgent = agents.find((a) => a.name === "github-reviewer");
+
+      expect(githubAgent).toBeDefined();
+      expect(githubAgent!.source).toBe("project");
+    });
+
+    test("agent from .atomic/agents/ has atomic source", async () => {
+      const agents = await discoverAgents();
+      const atomicAgent = agents.find((a) => a.name === "atomic-helper");
+
+      expect(atomicAgent).toBeDefined();
+      expect(atomicAgent!.source).toBe("atomic");
+    });
+  });
+
+  describe("discoverAgentFiles correctly identifies .claude/agents path", () => {
+    test("discoverAgentFiles includes .claude/agents in search", () => {
+      // AGENT_DISCOVERY_PATHS should contain .claude/agents
+      expect(AGENT_DISCOVERY_PATHS).toContain(".claude/agents");
+    });
+
+    test("discoverAgentFiles returns files with correct metadata", () => {
+      const files = discoverAgentFilesInPath(".claude/agents", "project");
+      if (files.length > 0) {
+        const file = files[0]!;
+        expect(file).toHaveProperty("path");
+        expect(file).toHaveProperty("source");
+        expect(file).toHaveProperty("filename");
+      }
+    });
+  });
+
+  describe("discoverAgentFiles correctly identifies .opencode/agents path", () => {
+    test("discoverAgentFiles includes .opencode/agents in search", () => {
+      // AGENT_DISCOVERY_PATHS should contain .opencode/agents
+      expect(AGENT_DISCOVERY_PATHS).toContain(".opencode/agents");
+    });
+
+    test("discoverAgentFiles returns files with correct metadata", () => {
+      const files = discoverAgentFilesInPath(".opencode/agents", "project");
+      if (files.length > 0) {
+        const file = files[0]!;
+        expect(file).toHaveProperty("path");
+        expect(file).toHaveProperty("source");
+        expect(file).toHaveProperty("filename");
+      }
+    });
+  });
+
+  describe("discoverAgentFiles correctly identifies .github/agents path", () => {
+    test("discoverAgentFiles includes .github/agents in search", () => {
+      // AGENT_DISCOVERY_PATHS should contain .github/agents
+      expect(AGENT_DISCOVERY_PATHS).toContain(".github/agents");
+    });
+
+    test("discoverAgentFiles returns files with correct metadata", () => {
+      const files = discoverAgentFilesInPath(".github/agents", "project");
+      if (files.length > 0) {
+        const file = files[0]!;
+        expect(file).toHaveProperty("path");
+        expect(file).toHaveProperty("source");
+        expect(file).toHaveProperty("filename");
+      }
+    });
+  });
+});
+
+describe("Sub-agent discovery with multiple agents per directory", () => {
+  const testDir = "/tmp/test-multi-agent-discovery-" + Date.now();
+  const claudeAgentDir = join(testDir, ".claude", "agents");
+  const githubAgentDir = join(testDir, ".github", "agents");
+
+  beforeAll(() => {
+    mkdirSync(claudeAgentDir, { recursive: true });
+    mkdirSync(githubAgentDir, { recursive: true });
+
+    // Create multiple agents in .claude/agents/
+    writeFileSync(
+      join(claudeAgentDir, "agent-one.md"),
+      `---
+name: agent-one
+description: First Claude agent
+---
+First agent prompt.`
+    );
+    writeFileSync(
+      join(claudeAgentDir, "agent-two.md"),
+      `---
+name: agent-two
+description: Second Claude agent
+---
+Second agent prompt.`
+    );
+    writeFileSync(
+      join(claudeAgentDir, "agent-three.md"),
+      `---
+name: agent-three
+description: Third Claude agent
+---
+Third agent prompt.`
+    );
+
+    // Create multiple agents in .github/agents/
+    writeFileSync(
+      join(githubAgentDir, "github-one.md"),
+      `---
+name: github-one
+description: First GitHub agent
+---
+GitHub one prompt.`
+    );
+    writeFileSync(
+      join(githubAgentDir, "github-two.md"),
+      `---
+name: github-two
+description: Second GitHub agent
+---
+GitHub two prompt.`
+    );
+
+    process.chdir(testDir);
+  });
+
+  afterAll(() => {
+    process.chdir("/tmp");
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  test("discovers all agents in .claude/agents/", () => {
+    const files = discoverAgentFilesInPath(claudeAgentDir, "project");
+    expect(files).toHaveLength(3);
+    const filenames = files.map((f) => f.filename);
+    expect(filenames).toContain("agent-one");
+    expect(filenames).toContain("agent-two");
+    expect(filenames).toContain("agent-three");
+  });
+
+  test("discovers all agents in .github/agents/", () => {
+    const files = discoverAgentFilesInPath(githubAgentDir, "project");
+    expect(files).toHaveLength(2);
+    const filenames = files.map((f) => f.filename);
+    expect(filenames).toContain("github-one");
+    expect(filenames).toContain("github-two");
+  });
+
+  test("discoverAgents finds all agents from multiple directories", async () => {
+    const agents = await discoverAgents();
+
+    // Should find all 5 custom agents
+    const agentNames = agents.map((a) => a.name);
+    expect(agentNames).toContain("agent-one");
+    expect(agentNames).toContain("agent-two");
+    expect(agentNames).toContain("agent-three");
+    expect(agentNames).toContain("github-one");
+    expect(agentNames).toContain("github-two");
+  });
+
+  test("all discovered agents have correct descriptions", async () => {
+    const agents = await discoverAgents();
+
+    const agentOne = agents.find((a) => a.name === "agent-one");
+    const agentTwo = agents.find((a) => a.name === "agent-two");
+    const githubOne = agents.find((a) => a.name === "github-one");
+
+    expect(agentOne?.description).toBe("First Claude agent");
+    expect(agentTwo?.description).toBe("Second Claude agent");
+    expect(githubOne?.description).toBe("First GitHub agent");
+  });
+
+  test("all discovered agents have correct prompts", async () => {
+    const agents = await discoverAgents();
+
+    const agentOne = agents.find((a) => a.name === "agent-one");
+    const githubTwo = agents.find((a) => a.name === "github-two");
+
+    expect(agentOne?.prompt).toBe("First agent prompt.");
+    expect(githubTwo?.prompt).toBe("GitHub two prompt.");
+  });
+});
+
+describe("Sub-agent discovery handles empty directories", () => {
+  const testDir = "/tmp/test-empty-agent-dirs-" + Date.now();
+  const emptyClaudeDir = join(testDir, ".claude", "agents");
+  const emptyGithubDir = join(testDir, ".github", "agents");
+  const nonEmptyAtomicDir = join(testDir, ".atomic", "agents");
+
+  beforeAll(() => {
+    // Create empty directories
+    mkdirSync(emptyClaudeDir, { recursive: true });
+    mkdirSync(emptyGithubDir, { recursive: true });
+    mkdirSync(nonEmptyAtomicDir, { recursive: true });
+
+    // Only add agent to atomic dir
+    writeFileSync(
+      join(nonEmptyAtomicDir, "only-agent.md"),
+      `---
+name: only-agent
+description: The only agent in this test
+---
+Only agent prompt.`
+    );
+
+    process.chdir(testDir);
+  });
+
+  afterAll(() => {
+    process.chdir("/tmp");
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  test("returns empty array for empty .claude/agents/", () => {
+    const files = discoverAgentFilesInPath(emptyClaudeDir, "project");
+    expect(files).toHaveLength(0);
+  });
+
+  test("returns empty array for empty .github/agents/", () => {
+    const files = discoverAgentFilesInPath(emptyGithubDir, "project");
+    expect(files).toHaveLength(0);
+  });
+
+  test("discoverAgents still finds agents in non-empty directories", async () => {
+    const agents = await discoverAgents();
+    const onlyAgent = agents.find((a) => a.name === "only-agent");
+
+    expect(onlyAgent).toBeDefined();
+    expect(onlyAgent!.description).toBe("The only agent in this test");
+  });
+
+  test("discoverAgents gracefully handles mix of empty and non-empty dirs", async () => {
+    const agents = await discoverAgents();
+
+    // Should only find the one agent from atomic dir
+    const customAgents = agents.filter((a) => a.name === "only-agent");
+    expect(customAgents).toHaveLength(1);
+  });
+});
+
+describe("Sub-agent discovery handles non-existent directories", () => {
+  const testDir = "/tmp/test-nonexistent-agent-dirs-" + Date.now();
+  const existingDir = join(testDir, ".atomic", "agents");
+
+  beforeAll(() => {
+    // Only create .atomic/agents, leave others non-existent
+    mkdirSync(existingDir, { recursive: true });
+
+    writeFileSync(
+      join(existingDir, "existing-agent.md"),
+      `---
+name: existing-agent
+description: Agent in existing directory
+---
+Existing agent prompt.`
+    );
+
+    process.chdir(testDir);
+  });
+
+  afterAll(() => {
+    process.chdir("/tmp");
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  test("returns empty array for non-existent .claude/agents/", () => {
+    const files = discoverAgentFilesInPath(".claude/agents", "project");
+    expect(files).toHaveLength(0);
+  });
+
+  test("returns empty array for non-existent .opencode/agents/", () => {
+    const files = discoverAgentFilesInPath(".opencode/agents", "project");
+    expect(files).toHaveLength(0);
+  });
+
+  test("returns empty array for non-existent .github/agents/", () => {
+    const files = discoverAgentFilesInPath(".github/agents", "project");
+    expect(files).toHaveLength(0);
+  });
+
+  test("discoverAgents finds agents even when some directories don't exist", async () => {
+    const agents = await discoverAgents();
+    const existingAgent = agents.find((a) => a.name === "existing-agent");
+
+    expect(existingAgent).toBeDefined();
+    expect(existingAgent!.description).toBe("Agent in existing directory");
+  });
+});
+
+describe("Sub-agent discovery ignores non-.md files", () => {
+  const testDir = "/tmp/test-ignore-nonmd-" + Date.now();
+  const claudeDir = join(testDir, ".claude", "agents");
+
+  beforeAll(() => {
+    mkdirSync(claudeDir, { recursive: true });
+
+    // Create various file types
+    writeFileSync(
+      join(claudeDir, "valid-agent.md"),
+      `---
+name: valid-agent
+description: A valid agent
+---
+Valid prompt.`
+    );
+    writeFileSync(join(claudeDir, "readme.txt"), "This is a readme");
+    writeFileSync(join(claudeDir, "config.json"), '{"key": "value"}');
+    writeFileSync(join(claudeDir, "script.ts"), "console.log('hello');");
+    writeFileSync(join(claudeDir, ".hidden"), "hidden file");
+
+    process.chdir(testDir);
+  });
+
+  afterAll(() => {
+    process.chdir("/tmp");
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  test("only discovers .md files in agent directories", () => {
+    const files = discoverAgentFilesInPath(claudeDir, "project");
+    expect(files).toHaveLength(1);
+    expect(files[0]!.filename).toBe("valid-agent");
+  });
+
+  test("ignores .txt files", () => {
+    const files = discoverAgentFilesInPath(claudeDir, "project");
+    const txtFiles = files.filter((f) => f.filename === "readme");
+    expect(txtFiles).toHaveLength(0);
+  });
+
+  test("ignores .json files", () => {
+    const files = discoverAgentFilesInPath(claudeDir, "project");
+    const jsonFiles = files.filter((f) => f.filename === "config");
+    expect(jsonFiles).toHaveLength(0);
+  });
+
+  test("ignores .ts files", () => {
+    const files = discoverAgentFilesInPath(claudeDir, "project");
+    const tsFiles = files.filter((f) => f.filename === "script");
+    expect(tsFiles).toHaveLength(0);
+  });
+
+  test("ignores hidden files", () => {
+    const files = discoverAgentFilesInPath(claudeDir, "project");
+    const hiddenFiles = files.filter((f) => f.filename.startsWith("."));
+    expect(hiddenFiles).toHaveLength(0);
+  });
+});
+
+describe("Sub-agent discovery with name conflicts across directories", () => {
+  const testDir = "/tmp/test-name-conflict-" + Date.now();
+  const claudeDir = join(testDir, ".claude", "agents");
+  const githubDir = join(testDir, ".github", "agents");
+
+  beforeAll(() => {
+    mkdirSync(claudeDir, { recursive: true });
+    mkdirSync(githubDir, { recursive: true });
+
+    // Same agent name in different directories
+    writeFileSync(
+      join(claudeDir, "shared-agent.md"),
+      `---
+name: shared-agent
+description: Shared agent from Claude
+---
+Claude version of shared agent.`
+    );
+    writeFileSync(
+      join(githubDir, "shared-agent.md"),
+      `---
+name: shared-agent
+description: Shared agent from GitHub
+---
+GitHub version of shared agent.`
+    );
+
+    process.chdir(testDir);
+  });
+
+  afterAll(() => {
+    process.chdir("/tmp");
+    rmSync(testDir, { recursive: true, force: true });
+  });
+
+  test("handles duplicate names across directories", async () => {
+    const agents = await discoverAgents();
+    const sharedAgents = agents.filter((a) => a.name === "shared-agent");
+
+    // Should only have one agent with this name (first one discovered wins)
+    expect(sharedAgents).toHaveLength(1);
+  });
+
+  test("earlier discovery path takes precedence", async () => {
+    const agents = await discoverAgents();
+    const sharedAgent = agents.find((a) => a.name === "shared-agent");
+
+    // .claude/agents comes before .github/agents in AGENT_DISCOVERY_PATHS
+    expect(sharedAgent?.description).toBe("Shared agent from Claude");
+  });
+});

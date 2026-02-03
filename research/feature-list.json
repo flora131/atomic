@@ -1435,7 +1435,7 @@
         "Test progress.txt initialized with header",
         "Test feature-list.json copied when not yolo mode"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

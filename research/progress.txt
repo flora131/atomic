@@ -2029,3 +2029,49 @@ The Ralph workflow follows this sequence:
 ### Files Modified
 - src/ui/commands/workflow-commands.ts - Added --resume flag support
 - tests/ui/commands/workflow-commands.test.ts - Added --resume flag tests
+
+## 2026-02-03 - Feature Implementation: --max-iterations Flag for /ralph Command
+
+### Completed
+- Added maxIterations field to RalphCommandArgs interface
+- Added DEFAULT_MAX_ITERATIONS constant (100)
+- Updated parseRalphArgs() to parse --max-iterations <number> flag
+  - Extracts numeric value after --max-iterations
+  - Validates it's a non-negative integer via regex
+  - Can be combined with --yolo or --resume flags
+  - Flag position is flexible (can be before or after other flags)
+  - Defaults to 100 if not specified
+  - 0 means infinite iterations
+- Updated ralphConfig in registry.ts to include maxIterations field
+- Updated createRalphCommand() to pass maxIterations to state
+  - Sets both stateUpdate.maxIterations and ralphConfig.maxIterations
+  - Shows "(max: N)" in messages when non-default value is used
+
+### Tests Added
+- parseRalphArgs --max-iterations tests (9 tests):
+  - parses --max-iterations flag with number
+  - defaults to 100 if --max-iterations not specified
+  - parses --max-iterations 0 for infinite iterations
+  - parses --max-iterations with --yolo flag (--max-iterations first)
+  - parses --max-iterations with --yolo flag (--yolo first)
+  - parses --max-iterations with leading/trailing whitespace
+  - --max-iterations with --resume flag
+  - does not treat --max-iterations in the middle of prompt as a flag
+  - handles large iteration numbers
+
+- ralph command --max-iterations integration tests (6 tests):
+  - ralph command with --max-iterations sets correct state
+  - ralph command with --max-iterations 0 sets infinite iterations
+  - ralph command defaults maxIterations to 100
+  - ralph command with --max-iterations and --yolo shows both in message
+  - ralph command system message includes max-iterations when non-default
+  - ralph command system message does not include max-iterations when default
+
+### Test Results
+- All 75 workflow-commands tests pass
+
+### Files Modified
+- src/ui/commands/workflow-commands.ts - Added --max-iterations flag support
+- src/ui/commands/registry.ts - Added maxIterations to ralphConfig interface
+- tests/ui/commands/workflow-commands.test.ts - Added --max-iterations flag tests
+- research/feature-list.json - Marked feature as passes: true

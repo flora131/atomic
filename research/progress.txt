@@ -1,3 +1,117 @@
+## 2026-02-03 - Feature Implementation: E2E test: Sub-agent invocation /codebase-locator
+
+### Status: COMPLETED
+
+Implemented comprehensive E2E tests verifying that the /codebase-locator sub-agent command works correctly. The tests validate agent spawning, system prompt content, tool access, haiku model configuration, and result handling.
+
+#### Tests Added (67 tests across 10 test groups)
+
+1. **Run /codebase-locator 'find routing files'** (7 tests)
+   - codebase-locator agent exists in BUILTIN_AGENTS
+   - getBuiltinAgent returns codebase-locator agent
+   - codebase-locator command can be created from agent definition
+   - registerBuiltinAgents registers codebase-locator command
+   - /codebase-locator command executes with arguments
+   - /codebase-locator sends message with user arguments appended
+   - /codebase-locator appends user request section to prompt
+   - /codebase-locator handles empty arguments
+
+2. **Verify agent spawned correctly** (8 tests)
+   - codebase-locator has comprehensive system prompt
+   - system prompt describes file location role
+   - system prompt includes navigation steps
+   - system prompt includes output format guidance
+   - system prompt describes tool usage
+   - sendMessage includes full system prompt
+   - codebase-locator agent description is specific to file location
+   - codebase-locator has correct source field
+
+3. **Verify agent uses haiku model** (7 tests)
+   - codebase-locator has model field defined
+   - codebase-locator model is set to haiku
+   - haiku model is fastest/lowest capability tier
+   - codebase-locator uses haiku for speed on simple tasks
+   - locator uses different model than analyzer
+   - agent definition preserves model in command
+   - haiku model is cost-effective for simple navigation
+
+4. **Verify files located and returned** (8 tests)
+   - command execute returns success result
+   - command execute does not return error message on success
+   - command sends message to context
+   - result includes user request in sent message
+   - multiple invocations each return independent results
+   - command result type is CommandResult
+   - prompt includes search strategies for file patterns
+
+5. **Verify agent has access to specified tools** (12 tests)
+   - codebase-locator has tools array defined
+   - codebase-locator has Glob tool
+   - codebase-locator has Grep tool
+   - codebase-locator has NotebookRead tool
+   - codebase-locator has Read tool
+   - codebase-locator has LS tool
+   - codebase-locator has Bash tool
+   - codebase-locator has exactly 6 tools
+   - codebase-locator tools match expected set
+   - codebase-locator does NOT have Write tool (read-only)
+   - codebase-locator does NOT have Edit tool (read-only)
+   - system prompt mentions all specified tools
+   - codebase-locator has same tools as codebase-analyzer
+
+6. **Integration tests** (7 tests)
+   - complete flow: register, lookup, execute, verify
+   - agent command works with session context
+   - agent command description matches expected format
+   - agent is not hidden in command registry
+   - agent appears in registry.all() results
+   - agent appears in registry.search() results
+   - multiple user queries work sequentially
+
+7. **Edge cases** (9 tests)
+   - handles whitespace-only arguments
+   - handles very long arguments
+   - handles special characters in arguments
+   - handles newlines in arguments
+   - case-insensitive command lookup
+   - repeated registrations are idempotent
+   - getBuiltinAgent is case-insensitive
+   - handles glob pattern-like arguments
+
+8. **Agent definition completeness** (5 tests)
+   - codebase-locator has all required fields
+   - codebase-locator description is informative
+   - codebase-locator prompt is comprehensive
+   - codebase-locator source is builtin
+   - codebase-locator description mentions Super Grep/Glob/LS
+
+9. **Comparison with other codebase agents** (4 tests)
+   - locator is distinct from analyzer in purpose
+   - locator is distinct from pattern-finder in purpose
+   - all codebase agents have same tool set
+   - locator is the fastest of codebase agents
+
+#### Test Results
+- All 67 tests pass
+- All 664 E2E tests pass (no regressions)
+- 184 expect() calls in new tests
+
+#### Files Added
+- tests/e2e/subagent-codebase-locator.test.ts - 67 comprehensive E2E tests for /codebase-locator sub-agent
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+#### Key Design Decisions
+- Tests verify the agent definition structure (name, description, tools, model, prompt, source)
+- Tests validate the command execution flow through the registry
+- Tests ensure the haiku model is correctly configured for fast, efficient file location
+- Tests confirm the agent only has read-only tools (no Write/Edit) for safe codebase navigation
+- Tests compare codebase-locator with other codebase agents to verify distinct purposes
+- Edge cases cover various input formats including glob patterns and special characters
+
+---
+
 ## 2026-02-03 - Feature Implementation: E2E test: Sub-agent invocation /codebase-analyzer
 
 ### Status: COMPLETED

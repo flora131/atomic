@@ -10,6 +10,7 @@
 import { existsSync } from "fs";
 
 // Atomic commands to track (from spec Section 5.3.2)
+// Note: ralph:ralph-loop and ralph:ralph-help replaced by SDK-native /ralph workflow
 const ATOMIC_COMMANDS = [
   "/research-codebase",
   "/create-spec",
@@ -18,9 +19,7 @@ const ATOMIC_COMMANDS = [
   "/commit",
   "/create-gh-pr",
   "/explain-code",
-  "/ralph:ralph-loop",
-  "/ralph:cancel-ralph",
-  "/ralph:ralph-help",
+  "/ralph",
 ];
 
 // Temp file for accumulating commands during session

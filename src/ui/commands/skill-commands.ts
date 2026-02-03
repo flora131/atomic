@@ -1099,17 +1099,8 @@ export const SKILL_DEFINITIONS: SkillMetadata[] = [
     aliases: ["explain"],
   },
 
-  // Ralph skills (note: ralph:ralph-loop replaced by SDK-native /ralph workflow)
-  {
-    name: "ralph:cancel-ralph",
-    description: "Cancel active Ralph Loop",
-    aliases: ["cancel-ralph", "stop-ralph"],
-  },
-  {
-    name: "ralph:ralph-help",
-    description: "Explain Ralph Loop plugin and available commands",
-    aliases: ["ralph-help"],
-  },
+  // Note: ralph:ralph-loop, ralph:cancel-ralph, and ralph:ralph-help replaced by SDK-native /ralph workflow
+  // Help for Ralph is now integrated into /help command, and /ralph description provides usage info
 
   // Additional skills from system-reminder
   {

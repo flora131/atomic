@@ -1512,7 +1512,7 @@
         "Verify all tools execute without prompts",
         "Verify AskUserQuestion still pauses"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

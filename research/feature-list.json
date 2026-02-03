@@ -1553,7 +1553,7 @@
         "Verify session directory created",
         "Verify features loaded from file"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

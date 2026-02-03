@@ -1,3 +1,85 @@
+## 2026-02-03 - Feature Implementation: E2E test: /ralph command starts workflow with feature-list
+
+### Status: COMPLETED
+
+Implemented comprehensive E2E tests for the /ralph command starting a workflow with feature-list, validating the complete initialization flow from parsing command arguments through session creation and feature loading.
+
+#### Tests Added (46 new tests across 8 test groups)
+
+1. **Create temp folder for test** (4 tests)
+   - temp folder is created successfully
+   - temp folder is writable
+   - temp folder can contain nested directories
+   - temp folder is unique per test run
+
+2. **Create research/feature-list.json with test features** (5 tests)
+   - can create research directory
+   - can create feature-list.json with test content
+   - feature-list.json contains valid JSON
+   - feature-list.json has expected structure
+   - feature-list.json features have required fields
+
+3. **Run /ralph command** (7 tests)
+   - parseRalphArgs parses standard prompt
+   - parseRalphArgs parses --yolo flag
+   - parseRalphArgs parses --feature-list flag
+   - parseRalphArgs uses default feature-list path
+   - parseRalphArgs parses --max-iterations flag
+   - parseRalphArgs parses --resume flag
+   - ralph command can be retrieved from registry after registration
+
+4. **Verify workflow starts** (5 tests)
+   - createRalphWorkflow creates a valid workflow
+   - workflow has required nodes
+   - workflow starts with init-session node
+   - workflow can be created with custom maxIterations
+   - workflow can be created in yolo mode
+
+5. **Verify session UUID displayed** (6 tests)
+   - generateSessionId creates a valid UUID v4
+   - generateSessionId creates unique UUIDs
+   - isValidUUID validates correct UUID format
+   - isValidUUID rejects invalid UUID format
+   - session ID is included in workflow state after command execution
+   - session UUID format matches expected pattern
+
+6. **Verify session directory created** (6 tests)
+   - getSessionDir returns correct path format
+   - createSessionDirectory creates the directory structure
+   - session directory is created at correct location
+   - session directory contains required subdirectories
+   - multiple sessions create separate directories
+   - session.json can be saved to session directory
+
+7. **Verify features loaded from file** (9 tests)
+   - feature-list.json can be read from expected path
+   - features can be converted to RalphFeature format
+   - features are loaded with pending status by default
+   - session can be created with loaded features
+   - session with features can be saved and loaded
+   - loadSessionIfExists returns null for non-existent session
+   - loadSessionIfExists returns session when exists
+   - custom feature-list path is respected
+   - saved session can be loaded
+
+8. **Integration: Complete workflow initialization flow** (4 tests)
+   - complete flow: parse args -> create session -> load features -> save session
+   - workflow can be created with session configuration
+   - session directory structure matches expected layout
+   - session state persists across save/load cycles
+
+#### Test Results
+- All 46 tests pass
+- All 190 ralph-related tests pass (no regressions)
+
+#### Files Added
+- tests/e2e/ralph-workflow.test.ts - 46 comprehensive E2E tests for /ralph command with feature-list
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Integration test: Session resume with --resume flag
 
 ### Status: COMPLETED

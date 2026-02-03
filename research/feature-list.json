@@ -901,7 +901,7 @@
         "Add '~/.atomic/workflows' for user-global workflows",
         "Export the constant"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

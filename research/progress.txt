@@ -1,5 +1,51 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Unit test: Workflow loading from multiple search paths
+
+### Status: COMPLETED
+
+Implemented comprehensive unit tests for workflow loading from multiple search paths (local `.atomic/workflows/` and global `~/.atomic/workflows/`).
+
+#### Tests Added (18 new tests)
+
+1. **discoverWorkflowFiles finds both local and global workflows**
+   - `discovers workflows in local directory`
+   - `discovers workflows in global directory`
+   - `discovers workflows from both directories simultaneously`
+   - `correctly marks source for local vs global paths`
+
+2. **loadWorkflowsFromDisk loads both local and global workflows**
+   - `loads workflows from both local and global directories`
+   - `preserves workflow metadata from both directories`
+
+3. **local workflows override global workflows with same name**
+   - `local workflow takes precedence over global workflow with same name`
+   - `local workflow overrides global even with different case in name`
+   - `alias collision: local alias takes precedence over global workflow`
+
+4. **invalid workflow files are skipped with warning**
+   - `skips file without default export`
+   - `skips file with non-function default export`
+   - `skips file with syntax errors gracefully`
+   - `continues loading valid workflows even when some are invalid`
+   - `handles empty workflow directory gracefully`
+   - `handles non-.ts files without error`
+
+5. **edge cases for multi-path loading**
+   - `handles missing local directory when global exists`
+   - `handles missing global directory when local exists`
+   - `handles both directories missing`
+
+#### Test Results
+- All 153 tests in tests/ui/commands/workflow-commands.test.ts pass (18 new tests added)
+- No regressions detected
+
+#### Files Modified
+- tests/ui/commands/workflow-commands.test.ts - Added 18 new tests for multi-path workflow loading
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Implement debug reports accumulation in workflow state
 
 ### Status: COMPLETED

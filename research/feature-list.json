@@ -1375,7 +1375,7 @@
         "Test local overrides global with same name",
         "Test invalid workflow files are skipped with warning"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "test",

@@ -1644,3 +1644,500 @@ describe("circular dependency detection", () => {
     expect(() => resolveWorkflowRef("ralph")).not.toThrow();
   });
 });
+
+// ============================================================================
+// WORKFLOW LOADING FROM MULTIPLE SEARCH PATHS TESTS
+// ============================================================================
+
+describe("Workflow loading from multiple search paths", () => {
+  const testLocalDir = ".atomic/workflows";
+  const testGlobalDir = join(process.env.HOME || "", ".atomic-test-workflows");
+
+  // Store original CUSTOM_WORKFLOW_SEARCH_PATHS to restore after tests
+  let originalPaths: string[];
+
+  beforeEach(() => {
+    // Back up original paths
+    originalPaths = [...CUSTOM_WORKFLOW_SEARCH_PATHS];
+
+    // Clean up any existing test directories
+    if (existsSync(testLocalDir)) {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+    if (existsSync(testGlobalDir)) {
+      rmSync(testGlobalDir, { recursive: true, force: true });
+    }
+  });
+
+  afterEach(() => {
+    // Clean up test directories
+    if (existsSync(testLocalDir)) {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+    if (existsSync(testGlobalDir)) {
+      rmSync(testGlobalDir, { recursive: true, force: true });
+    }
+
+    // Restore original paths
+    CUSTOM_WORKFLOW_SEARCH_PATHS.length = 0;
+    CUSTOM_WORKFLOW_SEARCH_PATHS.push(...originalPaths);
+  });
+
+  describe("discoverWorkflowFiles finds both local and global workflows", () => {
+    test("discovers workflows in local directory", () => {
+      // Create local workflow
+      mkdirSync(testLocalDir, { recursive: true });
+      const localFile = join(testLocalDir, "local-workflow.ts");
+      require("fs").writeFileSync(localFile, "export default () => ({});");
+
+      const discovered = discoverWorkflowFiles();
+      const localResults = discovered.filter(d => d.source === "local");
+
+      expect(localResults.some(r => r.path.includes("local-workflow.ts"))).toBe(true);
+    });
+
+    test("discovers workflows in global directory", () => {
+      // Temporarily modify search paths to use test global dir
+      CUSTOM_WORKFLOW_SEARCH_PATHS.length = 0;
+      CUSTOM_WORKFLOW_SEARCH_PATHS.push(testLocalDir, testGlobalDir);
+
+      // Create global workflow
+      mkdirSync(testGlobalDir, { recursive: true });
+      const globalFile = join(testGlobalDir, "global-workflow.ts");
+      require("fs").writeFileSync(globalFile, "export default () => ({});");
+
+      const discovered = discoverWorkflowFiles();
+      const globalResults = discovered.filter(d => d.source === "global");
+
+      expect(globalResults.some(r => r.path.includes("global-workflow.ts"))).toBe(true);
+    });
+
+    test("discovers workflows from both directories simultaneously", () => {
+      // Temporarily modify search paths
+      CUSTOM_WORKFLOW_SEARCH_PATHS.length = 0;
+      CUSTOM_WORKFLOW_SEARCH_PATHS.push(testLocalDir, testGlobalDir);
+
+      // Create local workflow
+      mkdirSync(testLocalDir, { recursive: true });
+      const localFile = join(testLocalDir, "local-only.ts");
+      require("fs").writeFileSync(localFile, "export default () => ({});");
+
+      // Create global workflow
+      mkdirSync(testGlobalDir, { recursive: true });
+      const globalFile = join(testGlobalDir, "global-only.ts");
+      require("fs").writeFileSync(globalFile, "export default () => ({});");
+
+      const discovered = discoverWorkflowFiles();
+
+      const localResults = discovered.filter(d => d.source === "local");
+      const globalResults = discovered.filter(d => d.source === "global");
+
+      expect(localResults.some(r => r.path.includes("local-only.ts"))).toBe(true);
+      expect(globalResults.some(r => r.path.includes("global-only.ts"))).toBe(true);
+    });
+
+    test("correctly marks source for local vs global paths", () => {
+      // Temporarily modify search paths
+      CUSTOM_WORKFLOW_SEARCH_PATHS.length = 0;
+      CUSTOM_WORKFLOW_SEARCH_PATHS.push(testLocalDir, testGlobalDir);
+
+      // Create workflows in both directories
+      mkdirSync(testLocalDir, { recursive: true });
+      mkdirSync(testGlobalDir, { recursive: true });
+
+      require("fs").writeFileSync(join(testLocalDir, "test1.ts"), "export default () => ({});");
+      require("fs").writeFileSync(join(testGlobalDir, "test2.ts"), "export default () => ({});");
+
+      const discovered = discoverWorkflowFiles();
+
+      const test1 = discovered.find(d => d.path.includes("test1.ts"));
+      const test2 = discovered.find(d => d.path.includes("test2.ts"));
+
+      expect(test1?.source).toBe("local");
+      expect(test2?.source).toBe("global");
+    });
+  });
+
+  describe("loadWorkflowsFromDisk loads both local and global workflows", () => {
+    test("loads workflows from both local and global directories", async () => {
+      // Temporarily modify search paths
+      CUSTOM_WORKFLOW_SEARCH_PATHS.length = 0;
+      CUSTOM_WORKFLOW_SEARCH_PATHS.push(testLocalDir, testGlobalDir);
+
+      // Create local workflow
+      mkdirSync(testLocalDir, { recursive: true });
+      const localWorkflow = `
+export const name = "multi-path-local";
+export const description = "Local workflow for multi-path test";
+export default function createWorkflow() {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+      require("fs").writeFileSync(join(testLocalDir, "multi-path-local.ts"), localWorkflow);
+
+      // Create global workflow
+      mkdirSync(testGlobalDir, { recursive: true });
+      const globalWorkflow = `
+export const name = "multi-path-global";
+export const description = "Global workflow for multi-path test";
+export default function createWorkflow() {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+      require("fs").writeFileSync(join(testGlobalDir, "multi-path-global.ts"), globalWorkflow);
+
+      const loaded = await loadWorkflowsFromDisk();
+
+      const localLoaded = loaded.find(w => w.name === "multi-path-local");
+      const globalLoaded = loaded.find(w => w.name === "multi-path-global");
+
+      expect(localLoaded).toBeDefined();
+      expect(localLoaded?.source).toBe("local");
+      expect(localLoaded?.description).toBe("Local workflow for multi-path test");
+
+      expect(globalLoaded).toBeDefined();
+      expect(globalLoaded?.source).toBe("global");
+      expect(globalLoaded?.description).toBe("Global workflow for multi-path test");
+    });
+
+    test("preserves workflow metadata from both directories", async () => {
+      // Temporarily modify search paths
+      CUSTOM_WORKFLOW_SEARCH_PATHS.length = 0;
+      CUSTOM_WORKFLOW_SEARCH_PATHS.push(testLocalDir, testGlobalDir);
+
+      // Create local workflow with aliases
+      mkdirSync(testLocalDir, { recursive: true });
+      const localWorkflow = `
+export const name = "aliased-local";
+export const description = "Local workflow with aliases";
+export const aliases = ["al", "alias-local"];
+export default function createWorkflow() {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+      require("fs").writeFileSync(join(testLocalDir, "aliased-local.ts"), localWorkflow);
+
+      // Create global workflow with aliases
+      mkdirSync(testGlobalDir, { recursive: true });
+      const globalWorkflow = `
+export const name = "aliased-global";
+export const description = "Global workflow with aliases";
+export const aliases = ["ag", "alias-global"];
+export default function createWorkflow() {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+      require("fs").writeFileSync(join(testGlobalDir, "aliased-global.ts"), globalWorkflow);
+
+      const loaded = await loadWorkflowsFromDisk();
+
+      const localLoaded = loaded.find(w => w.name === "aliased-local");
+      const globalLoaded = loaded.find(w => w.name === "aliased-global");
+
+      expect(localLoaded?.aliases).toContain("al");
+      expect(localLoaded?.aliases).toContain("alias-local");
+
+      expect(globalLoaded?.aliases).toContain("ag");
+      expect(globalLoaded?.aliases).toContain("alias-global");
+    });
+  });
+
+  describe("local workflows override global workflows with same name", () => {
+    test("local workflow takes precedence over global workflow with same name", async () => {
+      // Temporarily modify search paths
+      CUSTOM_WORKFLOW_SEARCH_PATHS.length = 0;
+      CUSTOM_WORKFLOW_SEARCH_PATHS.push(testLocalDir, testGlobalDir);
+
+      // Create global workflow first (to verify order doesn't matter)
+      mkdirSync(testGlobalDir, { recursive: true });
+      const globalWorkflow = `
+export const name = "override-test";
+export const description = "GLOBAL version - should be overridden";
+export default function createWorkflow() {
+  return { nodes: new Map([["global-marker", {}]]), edges: [], startNode: "global-marker" };
+}
+`;
+      require("fs").writeFileSync(join(testGlobalDir, "override-test.ts"), globalWorkflow);
+
+      // Create local workflow with same name
+      mkdirSync(testLocalDir, { recursive: true });
+      const localWorkflow = `
+export const name = "override-test";
+export const description = "LOCAL version - should take precedence";
+export default function createWorkflow() {
+  return { nodes: new Map([["local-marker", {}]]), edges: [], startNode: "local-marker" };
+}
+`;
+      require("fs").writeFileSync(join(testLocalDir, "override-test.ts"), localWorkflow);
+
+      const loaded = await loadWorkflowsFromDisk();
+
+      // Should only have one workflow with this name
+      const matches = loaded.filter(w => w.name === "override-test");
+      expect(matches.length).toBe(1);
+
+      // Should be the local version
+      expect(matches[0]?.source).toBe("local");
+      expect(matches[0]?.description).toBe("LOCAL version - should take precedence");
+    });
+
+    test("local workflow overrides global even with different case in name", async () => {
+      // Temporarily modify search paths
+      CUSTOM_WORKFLOW_SEARCH_PATHS.length = 0;
+      CUSTOM_WORKFLOW_SEARCH_PATHS.push(testLocalDir, testGlobalDir);
+
+      // Create global workflow with lowercase name
+      mkdirSync(testGlobalDir, { recursive: true });
+      const globalWorkflow = `
+export const name = "case-test";
+export const description = "GLOBAL lowercase";
+export default function createWorkflow() {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+      require("fs").writeFileSync(join(testGlobalDir, "case-test.ts"), globalWorkflow);
+
+      // Create local workflow with uppercase name
+      mkdirSync(testLocalDir, { recursive: true });
+      const localWorkflow = `
+export const name = "CASE-TEST";
+export const description = "LOCAL uppercase";
+export default function createWorkflow() {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+      require("fs").writeFileSync(join(testLocalDir, "case-test.ts"), localWorkflow);
+
+      const loaded = await loadWorkflowsFromDisk();
+
+      // Should only have one workflow (case-insensitive deduplication)
+      const matches = loaded.filter(w => w.name.toLowerCase() === "case-test");
+      expect(matches.length).toBe(1);
+
+      // Should be the local version
+      expect(matches[0]?.source).toBe("local");
+    });
+
+    test("alias collision: local alias takes precedence over global workflow", async () => {
+      // Temporarily modify search paths
+      CUSTOM_WORKFLOW_SEARCH_PATHS.length = 0;
+      CUSTOM_WORKFLOW_SEARCH_PATHS.push(testLocalDir, testGlobalDir);
+
+      // Create global workflow with name "shared-alias"
+      mkdirSync(testGlobalDir, { recursive: true });
+      const globalWorkflow = `
+export const name = "shared-alias";
+export const description = "Global workflow named shared-alias";
+export default function createWorkflow() {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+      require("fs").writeFileSync(join(testGlobalDir, "shared-alias.ts"), globalWorkflow);
+
+      // Create local workflow with alias "shared-alias"
+      mkdirSync(testLocalDir, { recursive: true });
+      const localWorkflow = `
+export const name = "local-with-alias";
+export const description = "Local workflow with alias matching global name";
+export const aliases = ["shared-alias"];
+export default function createWorkflow() {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+      require("fs").writeFileSync(join(testLocalDir, "local-with-alias.ts"), localWorkflow);
+
+      const loaded = await loadWorkflowsFromDisk();
+
+      // Local workflow should be loaded
+      const localLoaded = loaded.find(w => w.name === "local-with-alias");
+      expect(localLoaded).toBeDefined();
+
+      // Global workflow with name "shared-alias" should be skipped
+      // because local aliases include "shared-alias"
+      const globalLoaded = loaded.find(w => w.name === "shared-alias");
+      expect(globalLoaded).toBeUndefined();
+    });
+  });
+
+  describe("invalid workflow files are skipped with warning", () => {
+    test("skips file without default export", async () => {
+      mkdirSync(testLocalDir, { recursive: true });
+      const invalidWorkflow = `
+export const name = "no-default";
+export const description = "Invalid - no default export";
+// Missing: export default function createWorkflow() { ... }
+`;
+      require("fs").writeFileSync(join(testLocalDir, "no-default.ts"), invalidWorkflow);
+
+      // Should not throw
+      const loaded = await loadWorkflowsFromDisk();
+
+      // Should not include the invalid workflow
+      const found = loaded.find(w => w.name === "no-default");
+      expect(found).toBeUndefined();
+    });
+
+    test("skips file with non-function default export", async () => {
+      mkdirSync(testLocalDir, { recursive: true });
+      const invalidWorkflow = `
+export const name = "non-function-default";
+export const description = "Invalid - default is not a function";
+export default { nodes: new Map() };
+`;
+      require("fs").writeFileSync(join(testLocalDir, "non-function-default.ts"), invalidWorkflow);
+
+      // Should not throw
+      const loaded = await loadWorkflowsFromDisk();
+
+      // Should not include the invalid workflow
+      const found = loaded.find(w => w.name === "non-function-default");
+      expect(found).toBeUndefined();
+    });
+
+    test("skips file with syntax errors gracefully", async () => {
+      mkdirSync(testLocalDir, { recursive: true });
+      const syntaxErrorFile = `
+export const name = "syntax-error"
+export const description = "Invalid - syntax error"
+export default function createWorkflow() {
+  return { nodes: new Map() edges: [], startNode: "start" }; // Missing comma
+}
+`;
+      require("fs").writeFileSync(join(testLocalDir, "syntax-error.ts"), syntaxErrorFile);
+
+      // Should not throw when loading
+      let loaded: WorkflowMetadata[] = [];
+      await expect(async () => {
+        loaded = await loadWorkflowsFromDisk();
+      }).not.toThrow();
+
+      // Should not include the errored workflow
+      const found = loaded.find(w => w.name === "syntax-error");
+      expect(found).toBeUndefined();
+    });
+
+    test("continues loading valid workflows even when some are invalid", async () => {
+      mkdirSync(testLocalDir, { recursive: true });
+
+      // Create an invalid workflow
+      const invalidWorkflow = `
+export const name = "invalid-in-batch";
+// Missing default export
+`;
+      require("fs").writeFileSync(join(testLocalDir, "invalid.ts"), invalidWorkflow);
+
+      // Create a valid workflow
+      const validWorkflow = `
+export const name = "valid-in-batch";
+export const description = "Valid workflow alongside invalid one";
+export default function createWorkflow() {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+      require("fs").writeFileSync(join(testLocalDir, "valid.ts"), validWorkflow);
+
+      const loaded = await loadWorkflowsFromDisk();
+
+      // Should have the valid one but not the invalid one
+      const invalidFound = loaded.find(w => w.name === "invalid-in-batch");
+      const validFound = loaded.find(w => w.name === "valid-in-batch");
+
+      expect(invalidFound).toBeUndefined();
+      expect(validFound).toBeDefined();
+      expect(validFound?.description).toBe("Valid workflow alongside invalid one");
+    });
+
+    test("handles empty workflow directory gracefully", async () => {
+      // Create empty directory
+      mkdirSync(testLocalDir, { recursive: true });
+
+      // Should not throw
+      const loaded = await loadWorkflowsFromDisk();
+
+      // Should still have built-in workflows available via getAllWorkflows
+      expect(Array.isArray(loaded)).toBe(true);
+    });
+
+    test("handles non-.ts files without error", async () => {
+      mkdirSync(testLocalDir, { recursive: true });
+
+      // Create various non-.ts files
+      require("fs").writeFileSync(join(testLocalDir, "readme.md"), "# Workflows");
+      require("fs").writeFileSync(join(testLocalDir, "config.json"), "{}");
+      require("fs").writeFileSync(join(testLocalDir, ".gitignore"), "*.log");
+
+      // Should not throw and should not load these files
+      const loaded = await loadWorkflowsFromDisk();
+
+      // Should not have any workflows from these files
+      const mdWorkflow = loaded.find(w => w.name === "readme");
+      const jsonWorkflow = loaded.find(w => w.name === "config");
+      const gitignoreWorkflow = loaded.find(w => w.name === ".gitignore");
+
+      expect(mdWorkflow).toBeUndefined();
+      expect(jsonWorkflow).toBeUndefined();
+      expect(gitignoreWorkflow).toBeUndefined();
+    });
+  });
+
+  describe("edge cases for multi-path loading", () => {
+    test("handles missing local directory when global exists", async () => {
+      // Temporarily modify search paths
+      CUSTOM_WORKFLOW_SEARCH_PATHS.length = 0;
+      CUSTOM_WORKFLOW_SEARCH_PATHS.push(testLocalDir, testGlobalDir);
+
+      // Only create global directory
+      mkdirSync(testGlobalDir, { recursive: true });
+      const globalWorkflow = `
+export const name = "global-only-edge";
+export default function createWorkflow() {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+      require("fs").writeFileSync(join(testGlobalDir, "global-only-edge.ts"), globalWorkflow);
+
+      // Don't create local directory - should still work
+      const loaded = await loadWorkflowsFromDisk();
+
+      const found = loaded.find(w => w.name === "global-only-edge");
+      expect(found).toBeDefined();
+      expect(found?.source).toBe("global");
+    });
+
+    test("handles missing global directory when local exists", async () => {
+      // Temporarily modify search paths
+      CUSTOM_WORKFLOW_SEARCH_PATHS.length = 0;
+      CUSTOM_WORKFLOW_SEARCH_PATHS.push(testLocalDir, testGlobalDir);
+
+      // Only create local directory
+      mkdirSync(testLocalDir, { recursive: true });
+      const localWorkflow = `
+export const name = "local-only-edge";
+export default function createWorkflow() {
+  return { nodes: new Map(), edges: [], startNode: "start" };
+}
+`;
+      require("fs").writeFileSync(join(testLocalDir, "local-only-edge.ts"), localWorkflow);
+
+      // Don't create global directory - should still work
+      const loaded = await loadWorkflowsFromDisk();
+
+      const found = loaded.find(w => w.name === "local-only-edge");
+      expect(found).toBeDefined();
+      expect(found?.source).toBe("local");
+    });
+
+    test("handles both directories missing", async () => {
+      // Temporarily modify search paths to non-existent dirs
+      CUSTOM_WORKFLOW_SEARCH_PATHS.length = 0;
+      CUSTOM_WORKFLOW_SEARCH_PATHS.push("/nonexistent/local", "/nonexistent/global");
+
+      // Should not throw
+      const loaded = await loadWorkflowsFromDisk();
+
+      // Should return empty array (no dynamically loaded workflows)
+      expect(Array.isArray(loaded)).toBe(true);
+      expect(loaded.length).toBe(0);
+    });
+  });
+});

@@ -3075,3 +3075,62 @@ The WorkflowMetadata interface was already properly defined in src/ui/commands/w
 #### Files Modified
 - tests/ui/commands/workflow-commands.test.ts - Added 5 new tests for WorkflowMetadata interface validation
 
+
+---
+
+## 2026-02-03 - Feature Implementation: Display session UUID when /ralph starts
+
+### Status: COMPLETED
+
+Implemented the feature to display the session UUID when starting a new Ralph session, making it easy to copy for later resumption.
+
+#### Changes Made
+
+1. **Added generateSessionId import to workflow-commands.ts**
+   - Imported `generateSessionId` from `../../workflows/ralph-session.ts`
+   - This function generates UUID v4 format session IDs
+
+2. **Updated createRalphCommand() to generate and display session UUID**
+   - Generate a new UUID when starting a new session (not resuming)
+   - Display "Started Ralph session: {uuid}" in system message
+   - Include session UUID in the return message for CLI visibility
+   - Pass sessionId through to stateUpdate.ralphConfig.sessionId
+
+3. **Session UUID for easy resumption**
+   - The UUID format is valid for use with --resume flag
+   - Format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (UUID v4)
+   - Example: "550e8400-e29b-41d4-a716-446655440000"
+
+#### Tests Added (8 new tests in tests/ui/commands/workflow-commands.test.ts)
+- ralph command generates and displays session UUID on start
+- ralph command includes session UUID in stateUpdate.ralphConfig
+- ralph command system message includes session UUID
+- ralph command generates unique UUIDs for each invocation
+- ralph command with --yolo flag also includes session UUID
+- ralph command with --max-iterations flag also includes session UUID
+- ralph command session UUID can be used for resumption
+- ralph command --resume flag does not generate new session UUID
+
+#### Test Results
+- All 135 tests in workflow-commands.test.ts pass (8 new tests added)
+- All 550 tests in tests/ui/commands/ pass
+- Build succeeds
+
+#### Files Modified
+- src/ui/commands/workflow-commands.ts - Added generateSessionId import, updated createRalphCommand()
+- tests/ui/commands/workflow-commands.test.ts - Added 8 new tests for session UUID display
+- research/feature-list.json - Updated passes to true for this feature
+
+#### Usage Example
+```
+/ralph implement authentication
+
+> Started Ralph session: 550e8400-e29b-41d4-a716-446655440000
+>
+> Starting **ralph** workflow...
+>
+> Prompt: "implement authentication"
+
+# Later, to resume:
+/ralph --resume 550e8400-e29b-41d4-a716-446655440000
+```

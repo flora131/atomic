@@ -144,17 +144,19 @@ export function checkCompletionNode<TState extends RalphWorkflowState = RalphWor
           shouldContinue,
         });
 
-        // Log completion message if complete
-        if (isComplete) {
-          console.log("Task completed! Agent signaled COMPLETE.");
-        } else if (maxIterationsReached) {
-          console.log(`Max iterations (${state.maxIterations}) reached.`);
-        }
-
         // Update session status if complete or max iterations reached
         let sessionStatus = state.sessionStatus;
         if (isComplete || maxIterationsReached) {
           sessionStatus = "completed";
+        }
+
+        // Log completion message if complete
+        if (isComplete) {
+          console.log("Task completed! Agent signaled COMPLETE.");
+          console.log(`Status: ${formatSessionStatus(sessionStatus)}`);
+        } else if (maxIterationsReached) {
+          console.log(`Max iterations (${state.maxIterations}) reached.`);
+          console.log(`Status: ${formatSessionStatus(sessionStatus)}`);
         }
 
         // Build updated state
@@ -216,20 +218,22 @@ export function checkCompletionNode<TState extends RalphWorkflowState = RalphWor
         shouldContinue,
       });
 
+      // Update session status if complete or max iterations reached
+      let sessionStatus = state.sessionStatus;
+      if (allFeaturesPassing || maxIterationsReached) {
+        sessionStatus = "completed";
+      }
+
       // Log completion message
       if (allFeaturesPassing) {
         console.log("All features passing! Workflow complete.");
+        console.log(`Status: ${formatSessionStatus(sessionStatus)}`);
       } else if (maxIterationsReached) {
         console.log(`Max iterations (${state.maxIterations}) reached.`);
         const passing = state.features.filter((f) => f.status === "passing").length;
         const total = state.features.length;
         console.log(`Features completed: ${passing}/${total}`);
-      }
-
-      // Update session status if complete or max iterations reached
-      let sessionStatus = state.sessionStatus;
-      if (allFeaturesPassing || maxIterationsReached) {
-        sessionStatus = "completed";
+        console.log(`Status: ${formatSessionStatus(sessionStatus)}`);
       }
 
       // Build updated state
@@ -677,6 +681,41 @@ export function checkYoloCompletion(output: string): boolean {
 }
 
 // ============================================================================
+// SESSION STATUS DISPLAY
+// ============================================================================
+
+/**
+ * Session status type for Ralph workflows.
+ */
+export type RalphSessionStatus = "running" | "paused" | "completed" | "failed";
+
+/**
+ * Format session status for display.
+ *
+ * Converts the internal status value to a human-readable, capitalized string.
+ *
+ * @param status - The session status value
+ * @returns Human-readable status string (e.g., "Running", "Paused", "Completed", "Failed")
+ *
+ * @example
+ * ```typescript
+ * formatSessionStatus("running"); // "Running"
+ * formatSessionStatus("paused"); // "Paused"
+ * formatSessionStatus("completed"); // "Completed"
+ * formatSessionStatus("failed"); // "Failed"
+ * ```
+ */
+export function formatSessionStatus(status: RalphSessionStatus): string {
+  const statusMap: Record<RalphSessionStatus, string> = {
+    running: "Running",
+    paused: "Paused",
+    completed: "Completed",
+    failed: "Failed",
+  };
+  return statusMap[status] ?? status;
+}
+
+// ============================================================================
 // IMPLEMENT FEATURE NODE
 // ============================================================================
 
@@ -755,11 +794,12 @@ export function implementFeatureNode<TState extends RalphWorkflowState = RalphWo
       const sessionDir = state.ralphSessionDir;
 
       // =========================================
-      // DISPLAY ITERATION COUNT
+      // DISPLAY ITERATION COUNT AND STATUS
       // =========================================
       const maxIterationsDisplay =
         state.maxIterations === 0 ? "∞" : String(state.maxIterations);
       console.log(`Iteration ${state.iteration}/${maxIterationsDisplay}`);
+      console.log(`Status: ${formatSessionStatus(state.sessionStatus)}`);
 
       // =========================================
       // YOLO MODE EXECUTION
@@ -1096,8 +1136,10 @@ export async function processYoloResult(
   // Log completion message if complete
   if (isComplete) {
     console.log("Task completed! Agent signaled COMPLETE.");
+    console.log(`Status: ${formatSessionStatus("completed")}`);
   } else if (maxIterationsReached) {
     console.log(`Max iterations (${state.maxIterations}) reached.`);
+    console.log(`Status: ${formatSessionStatus("completed")}`);
   }
 
   return updatedState;
@@ -1658,6 +1700,7 @@ export async function processCreatePRResult(
   } else {
     console.log("Session completed (no PR URL extracted from output)");
   }
+  console.log(`Status: ${formatSessionStatus("completed")}`);
 
   return updatedState;
 }

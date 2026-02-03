@@ -1,5 +1,78 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: Display session status (running, paused, completed, failed)
+
+### Status: COMPLETED
+
+Implemented status indicator display throughout the Ralph workflow execution to show the current session status.
+
+#### Changes Made
+
+1. **Added formatSessionStatus() helper function**
+   - Location: src/graph/nodes/ralph-nodes.ts (lines 690-712)
+   - Converts internal status values to human-readable, capitalized strings
+   - Maps: running -> "Running", paused -> "Paused", completed -> "Completed", failed -> "Failed"
+   - Exported as `formatSessionStatus` and `RalphSessionStatus` type
+
+2. **Added status display in implementFeatureNode()**
+   - Location: src/graph/nodes/ralph-nodes.ts (line 764)
+   - Displays `Status: Running` after the iteration count during active execution
+   - Example output:
+     ```
+     Iteration 5/100
+     Status: Running
+     Implementing: Add User Authentication
+     ```
+
+3. **Added status display in checkCompletionNode()**
+   - Shows `Status: Completed` when yolo mode completes (agent signals COMPLETE)
+   - Shows `Status: Completed` when max iterations are reached
+   - Shows `Status: Completed` when all features pass in feature-list mode
+
+4. **Added status display in processYoloResult()**
+   - Shows `Status: Completed` when yolo task completes or max iterations reached
+
+5. **Added status display in processCreatePRResult()**
+   - Shows `Status: Completed` after PR creation completes
+
+6. **Added status display in ralph-executor.ts handleInterrupt()**
+   - Location: src/workflows/ralph-executor.ts (line 170)
+   - Shows `Status: Paused` when session is interrupted via Ctrl+C or Esc
+
+#### Tests Added (11 new tests)
+
+In tests/graph/nodes/ralph-nodes.test.ts:
+- `formatSessionStatus` tests (4 tests):
+  - formats 'running' status as 'Running'
+  - formats 'paused' status as 'Paused'
+  - formats 'completed' status as 'Completed'
+  - formats 'failed' status as 'Failed'
+
+- `implementFeatureNode` status display tests (2 tests):
+  - displays session status as Running during active execution
+  - displays session status in yolo mode
+
+- `checkCompletionNode` status display tests (5 tests):
+  - displays Completed status when yolo mode completes
+  - displays Completed status when max iterations reached in yolo mode
+  - displays Completed status when all features passing
+  - displays Completed status when max iterations reached in feature-list mode
+  - does not display status when workflow is continuing
+
+#### Test Results
+- All 191 tests in tests/graph/nodes/ralph-nodes.test.ts pass
+- All 20 tests in tests/workflows/ralph-executor.test.ts pass
+- All 707 tests in graph and workflow test suites pass
+- Build succeeds
+
+#### Files Modified
+- src/graph/nodes/ralph-nodes.ts - Added formatSessionStatus(), RalphSessionStatus type, and status display calls
+- src/workflows/ralph-executor.ts - Added status display on interrupt
+- tests/graph/nodes/ralph-nodes.test.ts - Added 11 new tests for status display
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Display current feature being implemented in feature-list mode
 
 ### Status: COMPLETED

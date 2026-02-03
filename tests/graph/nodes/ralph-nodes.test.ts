@@ -43,6 +43,10 @@ import {
   checkYoloCompletion,
   YOLO_COMPLETION_INSTRUCTION,
 
+  // Status display functions
+  formatSessionStatus,
+  type RalphSessionStatus,
+
   // Re-exported functions
   generateSessionId,
   getSessionDir,
@@ -153,6 +157,28 @@ function createTestSession(): RalphSession {
     prBranch: "test-branch",
   };
 }
+
+// ============================================================================
+// FORMAT SESSION STATUS TESTS
+// ============================================================================
+
+describe("formatSessionStatus", () => {
+  test("formats 'running' status as 'Running'", () => {
+    expect(formatSessionStatus("running")).toBe("Running");
+  });
+
+  test("formats 'paused' status as 'Paused'", () => {
+    expect(formatSessionStatus("paused")).toBe("Paused");
+  });
+
+  test("formats 'completed' status as 'Completed'", () => {
+    expect(formatSessionStatus("completed")).toBe("Completed");
+  });
+
+  test("formats 'failed' status as 'Failed'", () => {
+    expect(formatSessionStatus("failed")).toBe("Failed");
+  });
+});
 
 // ============================================================================
 // RALPH WORKFLOW STATE TESTS
@@ -1512,6 +1538,56 @@ describe("implementFeatureNode", () => {
         console.log = originalLog;
       }
     });
+
+    test("displays session status as Running during active execution", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+      ];
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = implementFeatureNode({ id: "impl" });
+        const ctx = createImplementMockContext(features, { sessionStatus: "running" });
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Status: Running"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays session status in yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = implementFeatureNode({ id: "impl" });
+        const ctx = createImplementMockContext([], {
+          yolo: true,
+          userPrompt: "Build a test app",
+          sessionStatus: "running",
+        });
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Status: Running"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
   });
 
   describe("no pending features", () => {
@@ -2807,6 +2883,152 @@ describe("checkCompletionNode", () => {
 
       expect(result.stateUpdate!.maxIterationsReached).toBe(false);
       expect(result.stateUpdate!.shouldContinue).toBe(true);
+    });
+  });
+
+  describe("status display", () => {
+    test("displays Completed status when yolo mode completes", async () => {
+      await createSessionDirectory(testSessionId);
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = checkCompletionNode({ id: "check" });
+        const ctx = createCheckMockContext({
+          yolo: true,
+          yoloComplete: true,
+          sessionStatus: "running",
+        });
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Status: Completed"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays Completed status when max iterations reached in yolo mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = checkCompletionNode({ id: "check" });
+        const ctx = createCheckMockContext({
+          yolo: true,
+          yoloComplete: false,
+          maxIterations: 5,
+          iteration: 5,
+          sessionStatus: "running",
+        });
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Status: Completed"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays Completed status when all features passing", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "passing" },
+      ];
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = checkCompletionNode({ id: "check" });
+        const ctx = createCheckMockContext({
+          yolo: false,
+          features,
+          sessionStatus: "running",
+        });
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Status: Completed"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("displays Completed status when max iterations reached in feature-list mode", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+      ];
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = checkCompletionNode({ id: "check" });
+        const ctx = createCheckMockContext({
+          yolo: false,
+          features,
+          maxIterations: 5,
+          iteration: 5,
+          sessionStatus: "running",
+        });
+        await node.execute(ctx);
+
+        expect(logs.some(log => log.includes("Status: Completed"))).toBe(true);
+      } finally {
+        console.log = originalLog;
+      }
+    });
+
+    test("does not display status when workflow is continuing", async () => {
+      await createSessionDirectory(testSessionId);
+
+      const features: RalphFeature[] = [
+        { id: "f1", name: "Feature 1", description: "Desc 1", status: "pending" },
+      ];
+
+      // Capture console.log output
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (...args: unknown[]) => {
+        logs.push(args.map(String).join(" "));
+      };
+
+      try {
+        const node = checkCompletionNode({ id: "check" });
+        const ctx = createCheckMockContext({
+          yolo: false,
+          features,
+          maxIterations: 100,
+          iteration: 5,
+          sessionStatus: "running",
+        });
+        await node.execute(ctx);
+
+        // Should not display status when continuing (status displayed by implementFeatureNode)
+        expect(logs.some(log => log.includes("Status:"))).toBe(false);
+      } finally {
+        console.log = originalLog;
+      }
     });
   });
 

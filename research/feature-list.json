@@ -856,7 +856,7 @@
         "Help is now integrated into /help command",
         "Update /help to include Ralph workflow info"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "refactor",

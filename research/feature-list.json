@@ -1107,7 +1107,7 @@
         "Include 'custom' for user-defined commands",
         "Export the type"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -1122,7 +1122,7 @@
         "Add spawnSubagent: (options) => Promise<result> method",
         "Export the interface"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -1135,7 +1135,7 @@
         "Add stateUpdate?: Partial<CommandContextState> field",
         "Export the interface"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

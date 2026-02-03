@@ -62,6 +62,8 @@ function createMockContext(
       messages.push({ role, content });
     },
     setStreaming: () => {},
+    sendMessage: () => {},
+    spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
   };
 }
 

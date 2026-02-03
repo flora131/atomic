@@ -46,6 +46,7 @@ function createMockContext(
         options.onSendMessage(content);
       }
     },
+    spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
     sentMessages,
   };
 }

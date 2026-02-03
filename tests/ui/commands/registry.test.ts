@@ -9,6 +9,10 @@ import {
   CommandRegistry,
   type CommandDefinition,
   type CommandResult,
+  type CommandCategory,
+  type CommandContext,
+  type SpawnSubagentOptions,
+  type SpawnSubagentResult,
   globalRegistry,
 } from "../../../src/ui/commands/registry.ts";
 
@@ -442,5 +446,261 @@ describe("globalRegistry", () => {
     const ref2 = globalRegistry;
 
     expect(ref1).toBe(ref2);
+  });
+});
+
+// ============================================================================
+// COMMAND CATEGORY TYPE TESTS
+// ============================================================================
+
+describe("CommandCategory type", () => {
+  test("includes 'builtin' for help, clear commands", () => {
+    const category: CommandCategory = "builtin";
+    expect(category).toBe("builtin");
+  });
+
+  test("includes 'skill' for commit, research commands", () => {
+    const category: CommandCategory = "skill";
+    expect(category).toBe("skill");
+  });
+
+  test("includes 'workflow' for ralph command", () => {
+    const category: CommandCategory = "workflow";
+    expect(category).toBe("workflow");
+  });
+
+  test("includes 'agent' for sub-agent commands", () => {
+    const category: CommandCategory = "agent";
+    expect(category).toBe("agent");
+  });
+
+  test("includes 'custom' for user-defined commands", () => {
+    const category: CommandCategory = "custom";
+    expect(category).toBe("custom");
+  });
+
+  test("all categories can be used in CommandDefinition", () => {
+    const categories: CommandCategory[] = ["builtin", "skill", "workflow", "agent", "custom"];
+
+    categories.forEach(cat => {
+      const command: CommandDefinition = {
+        name: `test-${cat}`,
+        description: `Test ${cat} command`,
+        category: cat,
+        execute: () => ({ success: true }),
+      };
+      expect(command.category).toBe(cat);
+    });
+  });
+
+  test("registry sorting uses all category priorities", () => {
+    const registry = new CommandRegistry();
+
+    // Register commands with different categories
+    registry.register(createCommand("custom-cmd", { category: "custom" }));
+    registry.register(createCommand("builtin-cmd", { category: "builtin" }));
+    registry.register(createCommand("workflow-cmd", { category: "workflow" }));
+    registry.register(createCommand("skill-cmd", { category: "skill" }));
+    registry.register(createCommand("agent-cmd", { category: "agent" }));
+
+    const all = registry.all();
+    const names = all.map(c => c.name);
+
+    // Priority order: workflow > skill > agent > builtin > custom
+    expect(names.indexOf("workflow-cmd")).toBeLessThan(names.indexOf("skill-cmd"));
+    expect(names.indexOf("skill-cmd")).toBeLessThan(names.indexOf("agent-cmd"));
+    expect(names.indexOf("agent-cmd")).toBeLessThan(names.indexOf("builtin-cmd"));
+    expect(names.indexOf("builtin-cmd")).toBeLessThan(names.indexOf("custom-cmd"));
+  });
+});
+
+// ============================================================================
+// COMMAND CONTEXT INTERFACE TESTS
+// ============================================================================
+
+describe("CommandContext interface", () => {
+  test("has session field that can be Session or null", () => {
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: () => {},
+      spawnSubagent: async () => ({ success: true, output: "" }),
+    };
+
+    expect(context.session).toBeNull();
+  });
+
+  test("has state field of type CommandContextState", () => {
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: true, messageCount: 5 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: () => {},
+      spawnSubagent: async () => ({ success: true, output: "" }),
+    };
+
+    expect(context.state.isStreaming).toBe(true);
+    expect(context.state.messageCount).toBe(5);
+  });
+
+  test("has addMessage method with role and content parameters", () => {
+    let capturedRole: string | undefined;
+    let capturedContent: string | undefined;
+
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: (role, content) => {
+        capturedRole = role;
+        capturedContent = content;
+      },
+      setStreaming: () => {},
+      sendMessage: () => {},
+      spawnSubagent: async () => ({ success: true, output: "" }),
+    };
+
+    context.addMessage("user", "Hello");
+
+    expect(capturedRole).toBe("user");
+    expect(capturedContent).toBe("Hello");
+  });
+
+  test("has setStreaming method with streaming parameter", () => {
+    let capturedStreaming: boolean | undefined;
+
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: (streaming) => {
+        capturedStreaming = streaming;
+      },
+      sendMessage: () => {},
+      spawnSubagent: async () => ({ success: true, output: "" }),
+    };
+
+    context.setStreaming(true);
+
+    expect(capturedStreaming).toBe(true);
+  });
+
+  test("has sendMessage method with content parameter", () => {
+    let capturedContent: string | undefined;
+
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: (content) => {
+        capturedContent = content;
+      },
+      spawnSubagent: async () => ({ success: true, output: "" }),
+    };
+
+    context.sendMessage("Test message");
+
+    expect(capturedContent).toBe("Test message");
+  });
+
+  test("has spawnSubagent method that returns Promise<SpawnSubagentResult>", async () => {
+    const context: CommandContext = {
+      session: null,
+      state: { isStreaming: false, messageCount: 0 },
+      addMessage: () => {},
+      setStreaming: () => {},
+      sendMessage: () => {},
+      spawnSubagent: async (options) => ({
+        success: true,
+        output: `Executed with prompt: ${options.systemPrompt}`,
+      }),
+    };
+
+    const result = await context.spawnSubagent({
+      systemPrompt: "You are a test agent",
+      message: "Do something",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.output).toContain("You are a test agent");
+  });
+});
+
+// ============================================================================
+// SPAWN SUBAGENT OPTIONS TESTS
+// ============================================================================
+
+describe("SpawnSubagentOptions interface", () => {
+  test("requires systemPrompt and message fields", () => {
+    const options: SpawnSubagentOptions = {
+      systemPrompt: "You are an analyzer",
+      message: "Analyze this code",
+    };
+
+    expect(options.systemPrompt).toBe("You are an analyzer");
+    expect(options.message).toBe("Analyze this code");
+  });
+
+  test("supports optional tools array", () => {
+    const options: SpawnSubagentOptions = {
+      systemPrompt: "You are an analyzer",
+      message: "Analyze this code",
+      tools: ["Glob", "Grep", "Read"],
+    };
+
+    expect(options.tools).toEqual(["Glob", "Grep", "Read"]);
+  });
+
+  test("supports optional model field", () => {
+    const options: SpawnSubagentOptions = {
+      systemPrompt: "You are an analyzer",
+      message: "Analyze this code",
+      model: "opus",
+    };
+
+    expect(options.model).toBe("opus");
+  });
+
+  test("model can be sonnet, opus, or haiku", () => {
+    const models: Array<"sonnet" | "opus" | "haiku"> = ["sonnet", "opus", "haiku"];
+
+    models.forEach(model => {
+      const options: SpawnSubagentOptions = {
+        systemPrompt: "Test",
+        message: "Test",
+        model,
+      };
+      expect(options.model).toBe(model);
+    });
+  });
+});
+
+// ============================================================================
+// SPAWN SUBAGENT RESULT TESTS
+// ============================================================================
+
+describe("SpawnSubagentResult interface", () => {
+  test("has success and output fields", () => {
+    const result: SpawnSubagentResult = {
+      success: true,
+      output: "Task completed successfully",
+    };
+
+    expect(result.success).toBe(true);
+    expect(result.output).toBe("Task completed successfully");
+  });
+
+  test("supports optional error field when failed", () => {
+    const result: SpawnSubagentResult = {
+      success: false,
+      output: "",
+      error: "Sub-agent failed to complete task",
+    };
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("Sub-agent failed to complete task");
   });
 });

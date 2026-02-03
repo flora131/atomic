@@ -1588,7 +1588,7 @@
         "Verify session marked as yolo mode",
         "Verify agent receives prompt with task"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

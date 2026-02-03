@@ -915,7 +915,7 @@
         "Determine source based on path (local vs global)",
         "Return array of {path, source} objects"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -935,7 +935,7 @@
         "Add to loadedWorkflows Map",
         "Register each workflow with globalRegistry"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -947,7 +947,7 @@
         "Validate createWorkflow returns CompiledGraph",
         "Handle export validation errors gracefully"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -959,7 +959,7 @@
         "If both are same source, use first encountered",
         "Log when override happens for debugging"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -971,7 +971,7 @@
         "Include built-in workflows",
         "Export for use by resolveWorkflowRef()"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -987,7 +987,7 @@
         "Remove name from resolutionStack in finally block",
         "Return compiled graph"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -998,7 +998,7 @@
         "Used to track current resolution chain",
         "Cleared after each resolution completes"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",
@@ -1011,7 +1011,7 @@
         "Throw Error with message",
         "This prevents infinite recursion in subgraph composition"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

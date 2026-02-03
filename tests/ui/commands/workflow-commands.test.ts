@@ -61,22 +61,15 @@ function createMockContext(
 // ============================================================================
 
 describe("WORKFLOW_DEFINITIONS", () => {
-  test("contains atomic workflow", () => {
-    const atomic = WORKFLOW_DEFINITIONS.find((w) => w.name === "atomic");
-    expect(atomic).toBeDefined();
-    expect(atomic?.description).toContain("Atomic");
-  });
-
-  test("atomic has correct aliases", () => {
-    const atomic = WORKFLOW_DEFINITIONS.find((w) => w.name === "atomic");
-    expect(atomic?.aliases).toContain("loop");
-  });
-
-  test("ralph workflow is defined separately", () => {
+  test("contains ralph workflow", () => {
     const ralph = WORKFLOW_DEFINITIONS.find((w) => w.name === "ralph");
     expect(ralph).toBeDefined();
     expect(ralph?.description).toContain("Ralph");
-    expect(ralph?.description).toContain("autonomous");
+  });
+
+  test("ralph has correct aliases", () => {
+    const ralph = WORKFLOW_DEFINITIONS.find((w) => w.name === "ralph");
+    expect(ralph?.aliases).toContain("loop");
   });
 
   test("ralph createWorkflow returns a compiled graph", () => {
@@ -102,25 +95,6 @@ describe("WORKFLOW_DEFINITIONS", () => {
     });
     expect(graph).toBeDefined();
   });
-
-  test("atomic createWorkflow returns a compiled graph", () => {
-    const atomic = WORKFLOW_DEFINITIONS.find((w) => w.name === "atomic");
-    expect(atomic).toBeDefined();
-
-    const graph = atomic!.createWorkflow();
-    expect(graph).toBeDefined();
-    expect(graph.nodes).toBeInstanceOf(Map);
-    expect(Array.isArray(graph.edges)).toBe(true);
-    expect(typeof graph.startNode).toBe("string");
-  });
-
-  test("atomic createWorkflow accepts configuration", () => {
-    const atomic = WORKFLOW_DEFINITIONS.find((w) => w.name === "atomic");
-    expect(atomic).toBeDefined();
-
-    const graph = atomic!.createWorkflow({ maxIterations: 10, checkpointing: false });
-    expect(graph).toBeDefined();
-  });
 });
 
 describe("workflowCommands", () => {
@@ -128,96 +102,11 @@ describe("workflowCommands", () => {
     expect(workflowCommands.length).toBe(WORKFLOW_DEFINITIONS.length);
   });
 
-  test("atomic command has correct metadata", () => {
-    const atomicCmd = workflowCommands.find((c) => c.name === "atomic");
-    expect(atomicCmd).toBeDefined();
-    expect(atomicCmd?.category).toBe("workflow");
-    expect(atomicCmd?.aliases).toContain("loop");
-  });
-
   test("ralph command has correct metadata", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
     expect(ralphCmd?.category).toBe("workflow");
-    // ralph has no aliases, it's a standalone command
-    expect(ralphCmd?.aliases).toBeUndefined();
-  });
-
-  test("atomic command requires a prompt", () => {
-    const atomicCmd = workflowCommands.find((c) => c.name === "atomic");
-    expect(atomicCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = atomicCmd!.execute("", context);
-
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("provide a prompt");
-  });
-
-  test("atomic command fails if workflow already active", () => {
-    const atomicCmd = workflowCommands.find((c) => c.name === "atomic");
-    expect(atomicCmd).toBeDefined();
-
-    const context = createMockContext({
-      workflowActive: true,
-      workflowType: "atomic",
-    });
-    const result = atomicCmd!.execute("Build a feature", context) as CommandResult;
-
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("already active");
-  });
-
-  test("atomic command starts workflow with valid prompt", () => {
-    const atomicCmd = workflowCommands.find((c) => c.name === "atomic");
-    expect(atomicCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = atomicCmd!.execute("Build a new feature", context) as CommandResult;
-
-    expect(result.success).toBe(true);
-    expect(result.stateUpdate?.workflowActive).toBe(true);
-    expect(result.stateUpdate?.workflowType).toBe("atomic");
-    expect(result.stateUpdate?.initialPrompt).toBe("Build a new feature");
-    expect(result.stateUpdate?.pendingApproval).toBe(false);
-    expect(result.stateUpdate?.specApproved).toBeUndefined();
-  });
-
-  test("atomic command adds system message", () => {
-    const atomicCmd = workflowCommands.find((c) => c.name === "atomic");
-    expect(atomicCmd).toBeDefined();
-
-    const messages: Array<{ role: string; content: string }> = [];
-    const context: CommandContext = {
-      session: null,
-      state: {
-        isStreaming: false,
-        messageCount: 0,
-        workflowActive: false,
-      },
-      addMessage: (role, content) => {
-        messages.push({ role, content });
-      },
-      setStreaming: () => {},
-    };
-
-    atomicCmd!.execute("Build a feature", context);
-
-    expect(messages.length).toBe(1);
-    expect(messages[0]?.role).toBe("system");
-    expect(messages[0]?.content).toContain("Starting");
-    expect(messages[0]?.content).toContain("atomic");
-    expect(messages[0]?.content).toContain("Build a feature");
-  });
-
-  test("atomic command trims prompt whitespace", () => {
-    const atomicCmd = workflowCommands.find((c) => c.name === "atomic");
-    expect(atomicCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = atomicCmd!.execute("  Build a feature  ", context) as CommandResult;
-
-    expect(result.stateUpdate?.initialPrompt).toBe("Build a feature");
+    expect(ralphCmd?.aliases).toContain("loop");
   });
 });
 
@@ -233,15 +122,14 @@ describe("registerWorkflowCommands", () => {
   test("registers all workflow commands", () => {
     registerWorkflowCommands();
 
-    expect(globalRegistry.has("atomic")).toBe(true);
+    expect(globalRegistry.has("ralph")).toBe(true);
   });
 
   test("registers workflow and aliases", () => {
     registerWorkflowCommands();
 
-    // ralph is now a separate workflow, not an alias
     expect(globalRegistry.has("ralph")).toBe(true);
-    // loop is an alias of atomic
+    // loop is an alias of ralph
     expect(globalRegistry.has("loop")).toBe(true);
   });
 
@@ -256,11 +144,11 @@ describe("registerWorkflowCommands", () => {
   test("commands are executable after registration", () => {
     registerWorkflowCommands();
 
-    const atomicCmd = globalRegistry.get("atomic");
-    expect(atomicCmd).toBeDefined();
+    const ralphCmd = globalRegistry.get("ralph");
+    expect(ralphCmd).toBeDefined();
 
     const context = createMockContext();
-    const result = atomicCmd!.execute("Test prompt", context) as CommandResult;
+    const result = ralphCmd!.execute("--yolo Test prompt", context) as CommandResult;
 
     expect(result.success).toBe(true);
   });
@@ -270,37 +158,32 @@ describe("registerWorkflowCommands", () => {
 
     const byRalph = globalRegistry.get("ralph");
     const byLoop = globalRegistry.get("loop");
-    const byAtomic = globalRegistry.get("atomic");
 
-    // ralph is now a separate workflow command, not an alias
     expect(byRalph?.name).toBe("ralph");
-    // loop is still an alias of atomic
-    expect(byLoop?.name).toBe("atomic");
-    expect(byAtomic?.name).toBe("atomic");
+    // loop is an alias of ralph
+    expect(byLoop?.name).toBe("ralph");
   });
 });
 
 describe("getWorkflowMetadata", () => {
   test("finds workflow by name", () => {
-    const metadata = getWorkflowMetadata("atomic");
+    const metadata = getWorkflowMetadata("ralph");
     expect(metadata).toBeDefined();
-    expect(metadata?.name).toBe("atomic");
+    expect(metadata?.name).toBe("ralph");
   });
 
   test("finds workflow by alias", () => {
-    // ralph is now a separate workflow, not an alias
     const byRalph = getWorkflowMetadata("ralph");
     const byLoop = getWorkflowMetadata("loop");
 
     expect(byRalph?.name).toBe("ralph");
-    expect(byLoop?.name).toBe("atomic");
+    expect(byLoop?.name).toBe("ralph");
   });
 
   test("is case-insensitive", () => {
-    expect(getWorkflowMetadata("ATOMIC")?.name).toBe("atomic");
-    expect(getWorkflowMetadata("Atomic")?.name).toBe("atomic");
-    // ralph is now a separate workflow
     expect(getWorkflowMetadata("RALPH")?.name).toBe("ralph");
+    expect(getWorkflowMetadata("Ralph")?.name).toBe("ralph");
+    expect(getWorkflowMetadata("LOOP")?.name).toBe("ralph");
   });
 
   test("returns undefined for unknown workflow", () => {
@@ -311,7 +194,7 @@ describe("getWorkflowMetadata", () => {
 
 describe("createWorkflowByName", () => {
   test("creates workflow by name", () => {
-    const graph = createWorkflowByName("atomic");
+    const graph = createWorkflowByName("ralph");
     expect(graph).toBeDefined();
     expect(graph?.nodes).toBeInstanceOf(Map);
     expect(Array.isArray(graph?.edges)).toBe(true);
@@ -327,13 +210,13 @@ describe("createWorkflowByName", () => {
   });
 
   test("accepts configuration override", () => {
-    const graph = createWorkflowByName("atomic", { maxIterations: 5 });
+    const graph = createWorkflowByName("ralph", { maxIterations: 5 });
     expect(graph).toBeDefined();
   });
 
   test("merges default config with provided config", () => {
     // This tests that defaultConfig is applied
-    const graph = createWorkflowByName("atomic", { maxIterations: 10 });
+    const graph = createWorkflowByName("ralph", { maxIterations: 10 });
     expect(graph).toBeDefined();
   });
 
@@ -343,8 +226,8 @@ describe("createWorkflowByName", () => {
   });
 
   test("is case-insensitive", () => {
-    expect(createWorkflowByName("ATOMIC")).toBeDefined();
-    expect(createWorkflowByName("Atomic")).toBeDefined();
+    expect(createWorkflowByName("RALPH")).toBeDefined();
+    expect(createWorkflowByName("Ralph")).toBeDefined();
   });
 });
 

@@ -1,5 +1,72 @@
 # Progress Log
 
+## 2026-02-03 - Feature Implementation: handleAskUserQuestion() in chat.tsx
+
+### Completed
+- Added `OnAskUserQuestion` callback type in src/ui/chat.tsx
+  - Accepts `AskUserQuestionEventData` parameter from askUserNode
+  - Type: `(eventData: AskUserQuestionEventData) => void`
+
+- Added new ChatAppProps fields:
+  - `registerAskUserQuestionHandler?: (handler: OnAskUserQuestion) => void` - Registration callback for askUserNode events
+  - `onWorkflowResumeWithAnswer?: (requestId: string, answer: string | string[]) => void` - Callback to resume workflow with user's answer
+
+- Added `askUserQuestionRequestIdRef` ref to store the requestId for response correlation
+
+- Implemented `handleAskUserQuestion` callback:
+  - Stores requestId in ref for response correlation
+  - Converts `AskUserQuestionEventData` to `UserQuestion` format
+  - Uses header or defaults to "Question"
+  - Maps options using label as value (since AskUserOption only has label/description)
+  - Shows question dialog via `handleHumanInputRequired`
+
+- Added registration effect hook for `registerAskUserQuestionHandler`
+
+- Updated `handleQuestionAnswer` to handle askUserNode responses:
+  - Checks if `askUserQuestionRequestIdRef.current` is set
+  - Clears the ref after processing
+  - If `workflowState.workflowActive && onWorkflowResumeWithAnswer`:
+    - Calls `onWorkflowResumeWithAnswer(requestId, answer.selected)` for workflow mode
+  - Otherwise (standalone agent mode):
+    - Gets session via `getSession()`
+    - Sends answer through `session.send()` with array values joined by comma
+  - Updated useCallback dependencies
+
+- Imported `AskUserQuestionEventData` type from `../graph/index.ts`
+
+### Tests Added (14 new tests)
+- handleAskUserQuestion tests:
+  - AskUserQuestionEventData has required fields
+  - AskUserQuestionEventData with optional header
+  - AskUserQuestionEventData with options array
+  - conversion to UserQuestion format uses header or default
+  - conversion preserves options with label as value
+  - empty options array produces empty UserQuestion options
+
+- handleAskUserQuestion response flow tests:
+  - workflow mode calls onWorkflowResumeWithAnswer
+  - standalone mode calls session.send
+  - array answer is joined with comma for session.send
+  - no action when session is null in standalone mode
+
+- ChatAppProps with askUserQuestion handlers tests:
+  - ChatAppProps includes registerAskUserQuestionHandler
+  - ChatAppProps includes onWorkflowResumeWithAnswer
+  - both handlers can be used together
+
+- OnAskUserQuestion callback type tests:
+  - accepts AskUserQuestionEventData parameter
+
+### Test Results
+- All chat.test.ts tests pass (122 tests, up from 108)
+- All UI commands tests pass (621 tests)
+
+### Files Modified
+- src/ui/chat.tsx - Added handleAskUserQuestion callback, new props, updated handleQuestionAnswer
+- tests/ui/chat.test.ts - Added 14 new tests for handleAskUserQuestion
+
+---
+
 ## 2026-02-03 - Feature Implementation: askUserNode with human_input_required event
 
 ### Completed

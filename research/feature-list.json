@@ -823,7 +823,7 @@
         "Update any references to /atomic in codebase",
         "Replaced by /ralph"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "refactor",

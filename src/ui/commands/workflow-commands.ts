@@ -18,7 +18,7 @@ import type {
   CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
-import { createAtomicWorkflow, type AtomicWorkflowConfig } from "../../workflows/atomic.ts";
+
 import {
   createRalphWorkflow,
   type CreateRalphWorkflowConfig,
@@ -485,26 +485,9 @@ export function getAllWorkflows(): WorkflowMetadata[] {
  */
 const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata<BaseState>[] = [
   {
-    name: "atomic",
-    description: "Start the Atomic workflow for feature implementation with research/spec phases",
-    aliases: ["loop"],
-    createWorkflow: (config?: Record<string, unknown>) => {
-      const atomicConfig: AtomicWorkflowConfig = {
-        maxIterations: typeof config?.maxIterations === "number" ? config.maxIterations : undefined,
-        checkpointing: typeof config?.checkpointing === "boolean" ? config.checkpointing : true,
-        autoApproveSpec: typeof config?.autoApproveSpec === "boolean" ? config.autoApproveSpec : false,
-      };
-      return createAtomicWorkflow(atomicConfig) as CompiledGraph<BaseState>;
-    },
-    defaultConfig: {
-      checkpointing: true,
-      autoApproveSpec: false,
-    },
-    source: "builtin",
-  },
-  {
     name: "ralph",
     description: "Start the Ralph autonomous implementation workflow",
+    aliases: ["loop"],
     createWorkflow: (config?: Record<string, unknown>) => {
       const ralphConfig: CreateRalphWorkflowConfig = {
         maxIterations: typeof config?.maxIterations === "number" ? config.maxIterations : undefined,

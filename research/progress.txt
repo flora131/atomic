@@ -1,3 +1,76 @@
+## 2026-02-03 - Feature Implementation: E2E test: /ralph --yolo --max-iterations 0 runs until COMPLETE
+
+### Status: COMPLETED
+
+Implemented comprehensive E2E tests for the /ralph --yolo workflow with unlimited iterations (--max-iterations 0), validating that the workflow correctly runs without any iteration limit and only exits when the agent signals COMPLETE.
+
+#### Tests Added (35 new tests across 8 test groups)
+
+1. **Run /ralph --yolo --max-iterations 0 'complex task'** (6 tests)
+   - parseRalphArgs correctly parses --yolo --max-iterations 0 'complex task'
+   - parseRalphArgs handles --max-iterations 0 --yolo order
+   - parseRalphArgs handles quoted complex prompts with --max-iterations 0
+   - workflow can be created with yolo=true and maxIterations=0
+   - state can be created with yolo=true and maxIterations=0
+   - session can be created with yolo=true and maxIterations=0
+
+2. **Verify no iteration limit enforced** (7 tests)
+   - maxIterations=0 does not trigger maxIterationsReached at low iteration count
+   - maxIterations=0 does not trigger maxIterationsReached at iteration 100
+   - maxIterations=0 does not trigger maxIterationsReached at iteration 1000
+   - maxIterations=0 does not trigger maxIterationsReached at iteration 10000
+   - maxIterationsReached check: 0 > 0 is false (unlimited)
+   - session with maxIterations=0 persists through save/load cycle
+
+3. **Verify workflow continues until COMPLETE** (5 tests)
+   - workflow continues at iteration 50 without COMPLETE
+   - workflow continues at iteration 500 without COMPLETE
+   - workflow exits when COMPLETE is detected at iteration 50
+   - workflow exits when COMPLETE is detected at iteration 1000
+   - workflow simulates multiple iterations until COMPLETE
+
+4. **Verify session tracks unlimited iterations** (5 tests)
+   - session.json shows maxIterations: 0 for unlimited mode
+   - session tracks high iteration count correctly
+   - session iteration increments correctly through processYoloResult
+   - session logs agent calls with unlimited iteration tracking
+   - progress.txt tracks iterations in unlimited mode
+
+5. **Complete integration flow with unlimited iterations** (3 tests)
+   - complete flow: parse args -> create state -> iterate -> COMPLETE (100+ iterations)
+   - workflow config correctly handles --max-iterations 0 --yolo
+   - session persists unlimited mode through entire workflow
+
+6. **Edge cases for unlimited iterations** (5 tests)
+   - maxIterations 0 with very high iteration count (100000) still continues
+   - empty prompt with --yolo --max-iterations 0 is parsed but returns null prompt
+   - maxIterations 0 is distinct from maxIterations undefined
+   - COMPLETE signal exits even with maxIterations 0
+   - session can be paused and resumed at high iteration with maxIterations 0
+
+7. **Comparison with limited iterations** (3 tests)
+   - maxIterations 100 stops at iteration 100
+   - maxIterations 0 continues at iteration 100
+   - maxIterations 50 stops at iteration 50, but 0 continues
+
+8. **Logging and progress tracking with unlimited iterations** (2 tests)
+   - agent-calls.jsonl logs maxIterationsReached as false for unlimited
+   - session.json preserves maxIterations: 0 through multiple updates
+
+#### Test Results
+- All 35 tests pass
+- All 285 ralph E2E tests pass (no regressions)
+- All 399 ralph workflow and node tests pass (no regressions)
+- 443 expect() calls
+
+#### Files Added
+- tests/e2e/ralph-yolo-unlimited-iterations.test.ts - 35 comprehensive E2E tests for /ralph --yolo --max-iterations 0
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: E2E test: /ralph --yolo appends completion promise instruction
 
 ### Status: COMPLETED

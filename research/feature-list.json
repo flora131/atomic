@@ -1621,7 +1621,7 @@
         "Verify workflow continues until COMPLETE",
         "Verify session tracks unlimited iterations"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

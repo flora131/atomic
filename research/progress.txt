@@ -1,3 +1,71 @@
+## 2026-02-03 - Feature Implementation: E2E test: /ralph --yolo appends completion promise instruction
+
+### Status: COMPLETED
+
+Implemented comprehensive E2E tests verifying that /ralph --yolo correctly appends the completion promise instruction to agent prompts, ensuring the EXTREMELY_IMPORTANT tag and COMPLETE output instruction are present.
+
+#### Tests Added (35 new tests across 7 test groups)
+
+1. **Run /ralph --yolo 'test task'** (5 tests)
+   - parseRalphArgs correctly parses --yolo with test task
+   - yolo workflow can be created with test task prompt
+   - yolo state created with userPrompt for test task
+   - yolo mode session can be initialized for test task
+   - workflow config includes yolo and userPrompt for test task
+
+2. **Intercept agent prompt** (6 tests)
+   - implementFeatureNode stores yolo prompt in outputs
+   - yolo prompt from implementFeatureNode includes original user prompt
+   - yolo prompt from implementFeatureNode includes completion instruction
+   - intercepted prompt is userPrompt + YOLO_COMPLETION_INSTRUCTION
+   - agent prompt is logged to agent-calls.jsonl
+   - outputs include yolo flag set to true
+
+3. **Verify EXTREMELY_IMPORTANT tag present** (7 tests)
+   - YOLO_COMPLETION_INSTRUCTION contains opening EXTREMELY_IMPORTANT tag
+   - YOLO_COMPLETION_INSTRUCTION contains closing EXTREMELY_IMPORTANT tag
+   - EXTREMELY_IMPORTANT tags are properly nested
+   - intercepted yolo prompt contains EXTREMELY_IMPORTANT tag
+   - EXTREMELY_IMPORTANT section contains critical instruction
+   - full yolo prompt has EXTREMELY_IMPORTANT at appropriate position
+   - multiple yolo runs all include EXTREMELY_IMPORTANT tag
+
+4. **Verify 'output: COMPLETE' instruction present** (8 tests)
+   - YOLO_COMPLETION_INSTRUCTION contains COMPLETE keyword
+   - YOLO_COMPLETION_INSTRUCTION instructs agent to output COMPLETE
+   - COMPLETE appears on its own line in instruction
+   - intercepted yolo prompt contains COMPLETE instruction
+   - instruction tells agent when to output COMPLETE
+   - instruction tells agent NOT to output COMPLETE prematurely
+   - checkYoloCompletion can detect COMPLETE in agent output
+   - COMPLETE signal is only uppercase (case sensitive)
+   - multiple prompts all get COMPLETE instruction appended
+
+5. **Integration: Complete prompt interception flow** (4 tests)
+   - complete flow: parse args -> create state -> execute node -> intercept prompt
+   - yolo prompt format matches expected structure
+   - non-yolo mode does NOT append completion instruction
+   - completion instruction is appended, not prepended
+
+6. **Edge cases** (4 tests)
+   - empty string prompt still gets completion instruction (throws error)
+   - very long prompt still gets completion instruction appended
+   - prompt with newlines gets completion instruction appended correctly
+   - prompt with special XML-like characters preserved correctly
+
+#### Test Results
+- All 35 tests pass
+- All 213 ralph E2E tests pass (no regressions)
+- 83 expect() calls
+
+#### Files Added
+- tests/e2e/ralph-yolo-completion-promise.test.ts - 35 comprehensive E2E tests for completion promise instruction
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: E2E test: /ralph --yolo runs without feature-list
 
 ### Status: COMPLETED

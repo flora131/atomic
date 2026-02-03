@@ -1599,7 +1599,7 @@
         "Verify EXTREMELY_IMPORTANT tag present",
         "Verify 'output: COMPLETE' instruction present"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

@@ -845,7 +845,7 @@
         "Remove associated handler code",
         "No longer needed - use Ctrl+C or Esc instead"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "refactor",

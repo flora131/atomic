@@ -316,25 +316,60 @@ export function completeSession(sessionId: string): void {
 // ============================================================================
 
 /**
- * Paths to search for workflow definitions.
+ * Paths to search for custom workflow definitions.
  * Local workflows (.atomic/workflows) override global (~/.atomic/workflows).
+ *
+ * The first path is for project-local workflows (highest priority).
+ * The second path is for user-global workflows (lower priority).
+ *
+ * @example
+ * // Project-local workflows
+ * .atomic/workflows/my-workflow.ts
+ *
+ * // User-global workflows
+ * ~/.atomic/workflows/my-workflow.ts
  */
-const WORKFLOW_SEARCH_PATHS = [
+export const CUSTOM_WORKFLOW_SEARCH_PATHS = [
   // Local project workflows (highest priority)
-  join(process.cwd(), ".atomic", "workflows"),
+  ".atomic/workflows",
   // Global user workflows
-  join(process.env.HOME || "~", ".atomic", "workflows"),
+  "~/.atomic/workflows",
 ];
+
+/**
+ * Expand a path that may contain ~ to the user's home directory.
+ *
+ * @param path - Path that may start with ~
+ * @returns Expanded absolute path
+ */
+function expandPath(path: string): string {
+  if (path.startsWith("~/")) {
+    return join(process.env.HOME || "", path.slice(2));
+  }
+  if (path.startsWith("~")) {
+    return join(process.env.HOME || "", path.slice(1));
+  }
+  // For relative paths, resolve from cwd
+  if (!path.startsWith("/")) {
+    return join(process.cwd(), path);
+  }
+  return path;
+}
 
 /**
  * Discover workflow files from disk.
  * Returns paths to .ts files that define workflows.
+ *
+ * Searches CUSTOM_WORKFLOW_SEARCH_PATHS in order:
+ * 1. .atomic/workflows (project-local, highest priority)
+ * 2. ~/.atomic/workflows (user-global, lower priority)
  */
 export function discoverWorkflowFiles(): { path: string; source: "local" | "global" }[] {
   const discovered: { path: string; source: "local" | "global" }[] = [];
 
-  for (let i = 0; i < WORKFLOW_SEARCH_PATHS.length; i++) {
-    const searchPath = WORKFLOW_SEARCH_PATHS[i]!;
+  for (let i = 0; i < CUSTOM_WORKFLOW_SEARCH_PATHS.length; i++) {
+    const rawPath = CUSTOM_WORKFLOW_SEARCH_PATHS[i]!;
+    const searchPath = expandPath(rawPath);
     const source = i === 0 ? "local" : "global";
 
     if (existsSync(searchPath)) {

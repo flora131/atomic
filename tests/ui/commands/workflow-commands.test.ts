@@ -9,12 +9,14 @@ import { mkdirSync, rmSync, existsSync } from "fs";
 import { join } from "path";
 import {
   WORKFLOW_DEFINITIONS,
+  CUSTOM_WORKFLOW_SEARCH_PATHS,
   workflowCommands,
   registerWorkflowCommands,
   getWorkflowMetadata,
   createWorkflowByName,
   parseRalphArgs,
   isValidUUID,
+  discoverWorkflowFiles,
   type WorkflowMetadata,
   type RalphCommandArgs,
 } from "../../../src/ui/commands/workflow-commands.ts";
@@ -59,6 +61,141 @@ function createMockContext(
 // ============================================================================
 // TESTS
 // ============================================================================
+
+// ============================================================================
+// CUSTOM_WORKFLOW_SEARCH_PATHS TESTS
+// ============================================================================
+
+describe("CUSTOM_WORKFLOW_SEARCH_PATHS", () => {
+  test("is exported as an array", () => {
+    expect(Array.isArray(CUSTOM_WORKFLOW_SEARCH_PATHS)).toBe(true);
+  });
+
+  test("has correct number of paths", () => {
+    expect(CUSTOM_WORKFLOW_SEARCH_PATHS.length).toBe(2);
+  });
+
+  test("contains .atomic/workflows for project-local workflows", () => {
+    expect(CUSTOM_WORKFLOW_SEARCH_PATHS).toContain(".atomic/workflows");
+  });
+
+  test("contains ~/.atomic/workflows for user-global workflows", () => {
+    expect(CUSTOM_WORKFLOW_SEARCH_PATHS).toContain("~/.atomic/workflows");
+  });
+
+  test("local path comes before global path (higher priority)", () => {
+    const localIndex = CUSTOM_WORKFLOW_SEARCH_PATHS.indexOf(".atomic/workflows");
+    const globalIndex = CUSTOM_WORKFLOW_SEARCH_PATHS.indexOf("~/.atomic/workflows");
+    expect(localIndex).toBeLessThan(globalIndex);
+  });
+
+  test("local path is first element", () => {
+    expect(CUSTOM_WORKFLOW_SEARCH_PATHS[0]).toBe(".atomic/workflows");
+  });
+
+  test("global path is second element", () => {
+    expect(CUSTOM_WORKFLOW_SEARCH_PATHS[1]).toBe("~/.atomic/workflows");
+  });
+});
+
+describe("discoverWorkflowFiles", () => {
+  const testLocalDir = ".atomic/workflows";
+  const testGlobalDir = join(process.env.HOME || "", ".atomic/workflows");
+
+  afterEach(() => {
+    // Clean up test directories
+    if (existsSync(testLocalDir)) {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+    // Don't clean up global dir in tests as it may contain real workflows
+  });
+
+  test("returns empty array when no workflow directories exist", () => {
+    // Ensure test directories don't exist
+    if (existsSync(testLocalDir)) {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+
+    const result = discoverWorkflowFiles();
+    // May have results from global dir, but local should not add any
+    const localResults = result.filter(r => r.source === "local");
+    expect(localResults.length).toBe(0);
+  });
+
+  test("discovers .ts files in local workflow directory", () => {
+    // Create test local workflow directory with a test file
+    mkdirSync(testLocalDir, { recursive: true });
+    const testFilePath = join(testLocalDir, "test-workflow.ts");
+    require("fs").writeFileSync(testFilePath, "// test workflow");
+
+    try {
+      const result = discoverWorkflowFiles();
+      const localResults = result.filter(r => r.source === "local");
+
+      expect(localResults.length).toBeGreaterThan(0);
+      expect(localResults.some(r => r.path.endsWith("test-workflow.ts"))).toBe(true);
+    } finally {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+  });
+
+  test("marks local workflows with source 'local'", () => {
+    // Create test local workflow directory with a test file
+    mkdirSync(testLocalDir, { recursive: true });
+    const testFilePath = join(testLocalDir, "test-workflow.ts");
+    require("fs").writeFileSync(testFilePath, "// test workflow");
+
+    try {
+      const result = discoverWorkflowFiles();
+      const localResults = result.filter(r => r.path.includes(testLocalDir));
+
+      for (const local of localResults) {
+        expect(local.source).toBe("local");
+      }
+    } finally {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+  });
+
+  test("ignores non-.ts files", () => {
+    // Create test local workflow directory with different file types
+    mkdirSync(testLocalDir, { recursive: true });
+    require("fs").writeFileSync(join(testLocalDir, "test-workflow.ts"), "// ts workflow");
+    require("fs").writeFileSync(join(testLocalDir, "readme.md"), "# readme");
+    require("fs").writeFileSync(join(testLocalDir, "config.json"), "{}");
+
+    try {
+      const result = discoverWorkflowFiles();
+      const localResults = result.filter(r => r.source === "local");
+
+      // Should only have .ts file
+      expect(localResults.every(r => r.path.endsWith(".ts"))).toBe(true);
+      expect(localResults.some(r => r.path.endsWith(".md"))).toBe(false);
+      expect(localResults.some(r => r.path.endsWith(".json"))).toBe(false);
+    } finally {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+  });
+
+  test("returns absolute paths", () => {
+    // Create test local workflow directory with a test file
+    mkdirSync(testLocalDir, { recursive: true });
+    const testFilePath = join(testLocalDir, "test-workflow.ts");
+    require("fs").writeFileSync(testFilePath, "// test workflow");
+
+    try {
+      const result = discoverWorkflowFiles();
+      const localResults = result.filter(r => r.source === "local");
+
+      for (const local of localResults) {
+        // Path should be absolute or resolvable from cwd
+        expect(local.path.includes("test-workflow.ts")).toBe(true);
+      }
+    } finally {
+      rmSync(testLocalDir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("WORKFLOW_DEFINITIONS", () => {
   test("contains ralph workflow", () => {

@@ -1226,7 +1226,7 @@
         "Use console.log or context.addMessage()",
         "Make UUID easily copy-able for resumption"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "ui",

@@ -1108,6 +1108,152 @@ describe("ralph command --feature-list flag", () => {
 });
 
 // ============================================================================
+// RALPH COMMAND SESSION UUID DISPLAY TESTS
+// ============================================================================
+
+describe("ralph command session UUID display", () => {
+  test("ralph command generates and displays session UUID on start", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("implement auth", context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    // Message should contain "Started Ralph session:" and a UUID
+    expect(result.message).toContain("Started Ralph session:");
+    // Extract UUID from message and validate format
+    const uuidMatch = result.message?.match(/Started Ralph session: ([0-9a-f-]+)/i);
+    expect(uuidMatch).toBeDefined();
+    expect(isValidUUID(uuidMatch![1]!)).toBe(true);
+  });
+
+  test("ralph command includes session UUID in stateUpdate.ralphConfig", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("implement auth", context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.ralphConfig?.sessionId).toBeDefined();
+    expect(isValidUUID(result.stateUpdate?.ralphConfig?.sessionId as string)).toBe(true);
+  });
+
+  test("ralph command system message includes session UUID", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const messages: Array<{ role: string; content: string }> = [];
+    const context = createMockContext();
+    context.addMessage = (role: string, content: string) => {
+      messages.push({ role, content });
+    };
+
+    ralphCmd!.execute("implement auth", context);
+
+    expect(messages.length).toBe(1);
+    expect(messages[0]?.role).toBe("system");
+    expect(messages[0]?.content).toContain("Started Ralph session:");
+    // Validate UUID format in system message
+    const uuidMatch = messages[0]?.content.match(/Started Ralph session: ([0-9a-f-]+)/i);
+    expect(uuidMatch).toBeDefined();
+    expect(isValidUUID(uuidMatch![1]!)).toBe(true);
+  });
+
+  test("ralph command generates unique UUIDs for each invocation", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context1 = createMockContext();
+    const result1 = ralphCmd!.execute("implement auth", context1) as CommandResult;
+
+    const context2 = createMockContext();
+    const result2 = ralphCmd!.execute("implement login", context2) as CommandResult;
+
+    expect(result1.success).toBe(true);
+    expect(result2.success).toBe(true);
+
+    // Extract UUIDs from both results
+    const uuid1 = result1.stateUpdate?.ralphConfig?.sessionId;
+    const uuid2 = result2.stateUpdate?.ralphConfig?.sessionId;
+
+    expect(uuid1).toBeDefined();
+    expect(uuid2).toBeDefined();
+    expect(uuid1).not.toBe(uuid2);
+  });
+
+  test("ralph command with --yolo flag also includes session UUID", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("--yolo implement auth", context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("Started Ralph session:");
+    expect(result.stateUpdate?.ralphConfig?.sessionId).toBeDefined();
+    expect(isValidUUID(result.stateUpdate?.ralphConfig?.sessionId as string)).toBe(true);
+  });
+
+  test("ralph command with --max-iterations flag also includes session UUID", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("--max-iterations 50 implement auth", context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain("Started Ralph session:");
+    expect(result.stateUpdate?.ralphConfig?.sessionId).toBeDefined();
+    expect(isValidUUID(result.stateUpdate?.ralphConfig?.sessionId as string)).toBe(true);
+  });
+
+  test("ralph command session UUID can be used for resumption", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    const context = createMockContext();
+    const result = ralphCmd!.execute("implement auth", context) as CommandResult;
+
+    expect(result.success).toBe(true);
+    const sessionId = result.stateUpdate?.ralphConfig?.sessionId;
+    expect(sessionId).toBeDefined();
+
+    // The UUID format is valid for use with --resume flag
+    const resumeArgs = `--resume ${sessionId}`;
+    const parsed = parseRalphArgs(resumeArgs);
+    expect(parsed.resumeSessionId).toBe(sessionId);
+  });
+
+  test("ralph command --resume flag does not generate new session UUID", () => {
+    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
+    expect(ralphCmd).toBeDefined();
+
+    // Create a test session directory
+    const testSessionId = "550e8400-e29b-41d4-a716-446655440000";
+    const testSessionDir = `.ralph/sessions/${testSessionId}`;
+    mkdirSync(testSessionDir, { recursive: true });
+
+    try {
+      const context = createMockContext();
+      const result = ralphCmd!.execute(`--resume ${testSessionId}`, context) as CommandResult;
+
+      expect(result.success).toBe(true);
+      // Resume should use the provided session ID, not generate a new one
+      expect(result.stateUpdate?.ralphConfig?.resumeSessionId).toBe(testSessionId);
+      // Should not have a new sessionId field (resume uses resumeSessionId)
+      expect(result.stateUpdate?.ralphConfig?.sessionId).toBeUndefined();
+    } finally {
+      // Clean up
+      if (existsSync(".ralph")) {
+        rmSync(".ralph", { recursive: true, force: true });
+      }
+    }
+  });
+});
+
+// ============================================================================
 // LOAD WORKFLOWS FROM DISK TESTS
 // ============================================================================
 

@@ -1,3 +1,129 @@
+## 2026-02-03 - Feature Implementation: E2E test: Sub-agent invocation /debugger
+
+### Status: COMPLETED
+
+Implemented comprehensive E2E tests verifying that the /debugger sub-agent command works correctly. The tests validate agent spawning, debugging-specific system prompt content, tool access (including Edit and Write for fixing issues), sonnet model configuration, and result handling.
+
+#### Tests Added (80 tests across 11 test groups)
+
+1. **Run /debugger 'fix TypeError in parser.ts'** (8 tests)
+   - debugger agent exists in BUILTIN_AGENTS
+   - getBuiltinAgent returns debugger agent
+   - debugger command can be created from agent definition
+   - registerBuiltinAgents registers debugger command
+   - /debugger command executes with arguments
+   - /debugger sends message with user arguments appended
+   - /debugger appends user request section to prompt
+   - /debugger handles empty arguments
+   - /debugger handles complex error descriptions
+
+2. **Verify agent spawned with debugging prompt** (9 tests)
+   - debugger has comprehensive system prompt
+   - system prompt describes debugging role
+   - system prompt includes debugging process steps
+   - system prompt includes debug report format
+   - system prompt describes tool usage for debugging
+   - sendMessage includes full system prompt
+   - system prompt covers common debugging patterns
+   - debugger agent description is specific to debugging
+   - debugger has correct source field
+
+3. **Verify agent has access to Edit, Write tools** (16 tests)
+   - debugger has tools array defined
+   - debugger has Edit tool
+   - debugger has Write tool
+   - debugger has Bash tool
+   - debugger has Task tool for sub-investigations
+   - debugger has AskUserQuestion tool for clarifications
+   - debugger has Glob, Grep, Read, WebFetch, WebSearch tools
+   - debugger has exactly 10 tools
+   - debugger tools match expected set
+   - debugger HAS Edit tool (unlike read-only agents)
+   - debugger HAS Write tool (unlike read-only agents)
+   - system prompt mentions Edit, Write, Task tools
+
+4. **Verify agent can analyze and fix issue** (8 tests)
+   - command execute returns success result
+   - command execute does not return error message on success
+   - command sends message to context
+   - result includes user request in sent message
+   - multiple invocations each return independent results
+   - command result type is CommandResult
+   - prompt includes search strategies for debugging
+   - debugger uses sonnet model for balanced analysis
+
+5. **Verify agent uses sonnet model** (8 tests)
+   - debugger has model field defined
+   - debugger model is set to sonnet
+   - sonnet model is balanced capability tier
+   - debugger uses sonnet for balanced debugging capability
+   - debugger uses different model than analyzer (opus)
+   - debugger uses different model than locator (haiku)
+   - agent definition preserves model in command
+
+6. **Integration tests** (7 tests)
+   - complete flow: register, lookup, execute, verify
+   - agent command works with session context
+   - agent command description matches expected format
+   - agent is not hidden in command registry
+   - agent appears in registry.all() results
+   - agent appears in registry.search() results
+   - multiple user queries work sequentially
+
+7. **Edge cases** (9 tests)
+   - handles whitespace-only arguments
+   - handles very long arguments
+   - handles special characters in arguments
+   - handles newlines in arguments (stack traces)
+   - case-insensitive command lookup
+   - repeated registrations are idempotent
+   - getBuiltinAgent is case-insensitive
+   - handles error message with file path and line numbers
+
+8. **Agent definition completeness** (5 tests)
+   - debugger has all required fields
+   - debugger description is informative
+   - debugger prompt is comprehensive
+   - debugger source is builtin
+   - debugger description mentions unexpected behavior
+
+9. **Comparison with other codebase agents** (6 tests)
+   - debugger is distinct from analyzer in purpose
+   - debugger is distinct from locator in purpose
+   - debugger has more tools than read-only agents
+   - debugger uses intermediate model tier
+   - debugger is only agent with Task tool
+   - debugger is only agent with AskUserQuestion tool
+
+10. **Debug report format** (4 tests)
+    - prompt includes debug report template
+    - prompt includes error type classification
+    - prompt includes location format guidance
+
+#### Test Results
+- All 80 tests pass
+- All 744 E2E tests pass (no regressions)
+- All 295 agent-commands unit tests pass (no regressions)
+- 236 expect() calls in new tests
+
+#### Files Added
+- tests/e2e/subagent-debugger.test.ts - 80 comprehensive E2E tests for /debugger sub-agent
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+#### Key Design Decisions
+- Tests verify the agent definition structure (name, description, tools, model, prompt, source)
+- Tests validate the command execution flow through the registry
+- Tests ensure the sonnet model is correctly configured for balanced debugging capability
+- Tests confirm the agent HAS Edit and Write tools (unlike read-only codebase agents)
+- Tests verify debugger is the only agent with Task and AskUserQuestion tools
+- Tests compare debugger with other agents to verify distinct purposes and tool sets
+- Edge cases cover various input formats including stack traces and error messages with file paths
+- Debug report format tests verify the structured output template in the prompt
+
+---
+
 ## 2026-02-03 - Feature Implementation: E2E test: Sub-agent invocation /codebase-locator
 
 ### Status: COMPLETED

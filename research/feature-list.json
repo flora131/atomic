@@ -1610,7 +1610,7 @@
         "Verify workflow exits after COMPLETE",
         "Verify session status is 'completed'"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

@@ -241,10 +241,10 @@ describe("Copilot SDK Hook Handlers", () => {
     test("handler extracts ralph commands", async () => {
       const handler = createUserPromptHandler();
 
-      await handler("/ralph:ralph-loop start");
+      await handler("/ralph start");
 
       const content = readFileSync(TEST_TEMP_COMMANDS, "utf-8");
-      expect(content).toContain("/ralph:ralph-loop");
+      expect(content).toContain("/ralph");
     });
   });
 

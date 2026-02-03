@@ -38,8 +38,8 @@ describe("initializeCommands", () => {
     expect(globalRegistry.has("theme")).toBe(true);
     expect(globalRegistry.has("clear")).toBe(true);
 
-    // Workflow commands
-    expect(globalRegistry.has("atomic")).toBe(true);
+    // Workflow commands (note: /atomic removed, /ralph is the main workflow)
+    expect(globalRegistry.has("ralph")).toBe(true);
 
     // Skill commands
     expect(globalRegistry.has("commit")).toBe(true);
@@ -75,7 +75,7 @@ describe("initializeCommands", () => {
     // Skill aliases
     expect(globalRegistry.has("ci")).toBe(true); // commit
     expect(globalRegistry.has("spec")).toBe(true); // create-spec
-    expect(globalRegistry.has("ralph-loop")).toBe(true); // ralph:ralph-loop
+    expect(globalRegistry.has("cancel-ralph")).toBe(true); // ralph:cancel-ralph
   });
 
   test("all commands are retrievable after initialization", () => {
@@ -181,10 +181,10 @@ describe("parseSlashCommand", () => {
   });
 
   test("handles colon in command name (ralph skills)", () => {
-    const result = parseSlashCommand("/ralph:ralph-loop");
+    const result = parseSlashCommand("/ralph:cancel-ralph");
 
     expect(result.isCommand).toBe(true);
-    expect(result.name).toBe("ralph:ralph-loop");
+    expect(result.name).toBe("ralph:cancel-ralph");
     expect(result.args).toBe("");
   });
 });

@@ -1024,7 +1024,7 @@
         "If CompiledGraph, use directly",
         "Execute subgraph and return result"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "functional",

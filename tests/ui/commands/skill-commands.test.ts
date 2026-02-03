@@ -79,7 +79,8 @@ describe("SKILL_DEFINITIONS", () => {
   });
 
   test("contains ralph skills", () => {
-    const ralphSkillNames = ["ralph:ralph-loop", "ralph:cancel-ralph", "ralph:ralph-help"];
+    // Note: ralph:ralph-loop replaced by SDK-native /ralph workflow
+    const ralphSkillNames = ["ralph:cancel-ralph", "ralph:ralph-help"];
 
     for (const name of ralphSkillNames) {
       const skill = SKILL_DEFINITIONS.find((s) => s.name === name);
@@ -103,10 +104,10 @@ describe("SKILL_DEFINITIONS", () => {
     expect(spec?.aliases).toContain("spec");
   });
 
-  test("ralph:ralph-loop skill has correct aliases", () => {
-    const ralphLoop = SKILL_DEFINITIONS.find((s) => s.name === "ralph:ralph-loop");
-    expect(ralphLoop?.aliases).toContain("ralph-loop");
-    // Note: "loop" alias is reserved for atomic workflow to avoid conflicts
+  test("ralph:cancel-ralph skill has correct aliases", () => {
+    const cancelRalph = SKILL_DEFINITIONS.find((s) => s.name === "ralph:cancel-ralph");
+    expect(cancelRalph?.aliases).toContain("cancel-ralph");
+    expect(cancelRalph?.aliases).toContain("stop-ralph");
   });
 });
 
@@ -328,7 +329,7 @@ describe("registerSkillCommands", () => {
     expect(globalRegistry.has("commit")).toBe(true);
     expect(globalRegistry.has("research-codebase")).toBe(true);
     expect(globalRegistry.has("create-spec")).toBe(true);
-    expect(globalRegistry.has("ralph:ralph-loop")).toBe(true);
+    expect(globalRegistry.has("ralph:cancel-ralph")).toBe(true);
   });
 
   test("registers skill aliases", () => {
@@ -337,7 +338,7 @@ describe("registerSkillCommands", () => {
     expect(globalRegistry.has("ci")).toBe(true); // commit alias
     expect(globalRegistry.has("research")).toBe(true); // research-codebase alias
     expect(globalRegistry.has("spec")).toBe(true); // create-spec alias
-    expect(globalRegistry.has("ralph-loop")).toBe(true); // ralph:ralph-loop alias
+    expect(globalRegistry.has("cancel-ralph")).toBe(true); // ralph:cancel-ralph alias
   });
 
   test("is idempotent", () => {
@@ -416,17 +417,16 @@ describe("getSkillMetadata", () => {
   });
 
   test("finds ralph skills", () => {
-    const ralphLoop = getSkillMetadata("ralph:ralph-loop");
-    const byAlias = getSkillMetadata("ralph-loop");
+    const cancelRalph = getSkillMetadata("ralph:cancel-ralph");
+    const byAlias = getSkillMetadata("cancel-ralph");
 
-    expect(ralphLoop?.name).toBe("ralph:ralph-loop");
-    expect(byAlias?.name).toBe("ralph:ralph-loop");
+    expect(cancelRalph?.name).toBe("ralph:cancel-ralph");
+    expect(byAlias?.name).toBe("ralph:cancel-ralph");
   });
 });
 
 describe("isRalphSkill", () => {
   test("returns true for ralph skills", () => {
-    expect(isRalphSkill("ralph:ralph-loop")).toBe(true);
     expect(isRalphSkill("ralph:cancel-ralph")).toBe(true);
     expect(isRalphSkill("ralph:ralph-help")).toBe(true);
   });
@@ -438,8 +438,8 @@ describe("isRalphSkill", () => {
   });
 
   test("is case-insensitive", () => {
-    expect(isRalphSkill("RALPH:ralph-loop")).toBe(true);
-    expect(isRalphSkill("Ralph:Ralph-Loop")).toBe(true);
+    expect(isRalphSkill("RALPH:cancel-ralph")).toBe(true);
+    expect(isRalphSkill("Ralph:Cancel-Ralph")).toBe(true);
   });
 });
 
@@ -447,7 +447,7 @@ describe("getRalphSkills", () => {
   test("returns only ralph skills", () => {
     const ralphSkills = getRalphSkills();
 
-    expect(ralphSkills.length).toBeGreaterThanOrEqual(3);
+    expect(ralphSkills.length).toBeGreaterThanOrEqual(2);
     for (const skill of ralphSkills) {
       expect(skill.name.toLowerCase().startsWith("ralph:")).toBe(true);
     }
@@ -457,7 +457,6 @@ describe("getRalphSkills", () => {
     const ralphSkills = getRalphSkills();
     const names = ralphSkills.map((s) => s.name);
 
-    expect(names).toContain("ralph:ralph-loop");
     expect(names).toContain("ralph:cancel-ralph");
     expect(names).toContain("ralph:ralph-help");
   });
@@ -486,8 +485,8 @@ describe("getCoreSkills", () => {
     const coreSkills = getCoreSkills();
     const names = coreSkills.map((s) => s.name);
 
-    expect(names).not.toContain("ralph:ralph-loop");
     expect(names).not.toContain("ralph:cancel-ralph");
+    expect(names).not.toContain("ralph:ralph-help");
   });
 });
 
@@ -821,8 +820,8 @@ describe("getBuiltinSkill", () => {
 
   test("returns undefined for non-builtin skill", () => {
     // ralph skills are in SKILL_DEFINITIONS but not BUILTIN_SKILLS
-    const ralphLoop = getBuiltinSkill("ralph:ralph-loop");
-    expect(ralphLoop).toBeUndefined();
+    const cancelRalph = getBuiltinSkill("ralph:cancel-ralph");
+    expect(cancelRalph).toBeUndefined();
   });
 
   test("finds create-gh-pr builtin skill by name", () => {

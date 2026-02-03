@@ -2144,3 +2144,41 @@ The Ralph workflow follows this sequence:
 - src/ui/commands/index.ts - Updated docstring example
 - tests/ui/commands/workflow-commands.test.ts - Updated tests to reference ralph
 - research/feature-list.json - Marked feature as passes: true
+
+## 2026-02-03 - Feature Implementation: Remove /ralph:ralph-loop Command Registration
+
+### Completed
+- Removed `ralph:ralph-loop` from `SKILL_DEFINITIONS` in skill-commands.ts
+- Replaced `/ralph:ralph-loop` with `/ralph` in telemetry constants:
+  - src/utils/telemetry/constants.ts - ATOMIC_COMMANDS
+  - src/sdk/opencode-hooks.ts - ATOMIC_COMMANDS
+  - src/sdk/copilot-hooks.ts - ATOMIC_COMMANDS
+- Updated tests to reflect the removal:
+  - tests/ui/commands/skill-commands.test.ts - Updated ralph skill tests
+  - tests/ui/commands/index.test.ts - Updated command registration tests
+  - tests/telemetry/telemetry-cli.test.ts - Updated namespaced command tests
+  - tests/telemetry/telemetry-session.test.ts - Updated ralph command extraction tests
+  - tests/sdk/opencode-hooks.test.ts - Updated ATOMIC_COMMANDS list
+  - tests/sdk/copilot-hooks.test.ts - Updated ralph command test
+
+### Notes
+- The `/ralph:ralph-loop` command is now replaced by the SDK-native `/ralph` workflow
+- Other ralph skills (`ralph:cancel-ralph`, `ralph:ralph-help`) remain unchanged
+- The `ralph-loop.local.md` state file naming convention is preserved (used internally)
+
+### Test Results
+- All affected tests pass (skill-commands, index, telemetry-cli, telemetry-session, opencode-hooks, copilot-hooks)
+- Pre-existing test failures in builtin-commands.test.ts (expects 6 commands, but there are 7 due to compactCommand) - not related to this feature
+
+### Files Modified
+- src/ui/commands/skill-commands.ts - Removed ralph:ralph-loop skill definition
+- src/utils/telemetry/constants.ts - Replaced /ralph:ralph-loop with /ralph
+- src/sdk/opencode-hooks.ts - Replaced /ralph:ralph-loop with /ralph
+- src/sdk/copilot-hooks.ts - Replaced /ralph:ralph-loop with /ralph
+- tests/ui/commands/skill-commands.test.ts - Updated tests
+- tests/ui/commands/index.test.ts - Updated tests
+- tests/telemetry/telemetry-cli.test.ts - Updated tests
+- tests/telemetry/telemetry-session.test.ts - Updated tests
+- tests/sdk/opencode-hooks.test.ts - Updated tests
+- tests/sdk/copilot-hooks.test.ts - Updated tests
+- research/feature-list.json - Marked feature as passes: true

@@ -160,19 +160,19 @@ describe("extractCommandsFromTranscript", () => {
   });
 
   test("extracts namespaced commands", () => {
-    const transcript = createMessage("user", "/ralph:ralph-loop");
+    const transcript = createMessage("user", "/ralph:cancel-ralph");
     const result = extractCommandsFromTranscript(transcript);
-    expect(result).toEqual(["/ralph:ralph-loop"]);
+    expect(result).toEqual(["/ralph:cancel-ralph"]);
   });
 
 
   test("extracts all ralph commands from user", () => {
     const transcript = createMessage(
       "user",
-      "/ralph:ralph-loop /ralph:cancel-ralph /ralph:ralph-help"
+      "/ralph /ralph:cancel-ralph /ralph:ralph-help"
     );
     const result = extractCommandsFromTranscript(transcript);
-    expect(result).toContain("/ralph:ralph-loop");
+    expect(result).toContain("/ralph");
     expect(result).toContain("/ralph:cancel-ralph");
     expect(result).toContain("/ralph:ralph-help");
   });

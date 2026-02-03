@@ -1,3 +1,73 @@
+## 2026-02-03 - Feature Implementation: Add migration notes for removed commands
+
+### Status: COMPLETED
+
+Created comprehensive migration documentation for users upgrading to the new Atomic version that replaces hook-based Ralph implementation with SDK-native graph execution.
+
+#### Documentation Created
+
+**File:** `research/docs/2026-02-03-command-migration-notes.md`
+
+**Sections Covered:**
+
+1. **Overview** - Introduction to the architectural changes
+2. **/atomic replaced by /ralph** - Migration from old /atomic to /ralph command
+   - Before/after comparison table
+   - New /ralph flags (--yolo, --resume, --feature-list, --max-iterations)
+3. **/ralph:* hook-based commands removed** - Details on removed commands
+   - /ralph:ralph-loop -> /ralph
+   - /ralph:cancel-ralph -> Ctrl+C or Esc
+   - /ralph:ralph-help -> /help
+4. **/approve, /reject, /status removed** - Command removal explanations
+   - Spec approval is now manual
+   - Status tracking via progress.txt
+5. **Spec Approval is Now Manual** - New manual review workflow
+   - Step-by-step recommended process
+   - Spec file locations
+6. **Progress Tracking via progress.txt** - File-based progress tracking
+   - Global progress (research/progress.txt)
+   - Session-specific progress (.ralph/sessions/<uuid>/progress.txt)
+   - Benefits of file-based progress
+7. **Migration Checklist** - Actionable upgrade steps
+   - Before upgrading tasks
+   - After upgrading tasks
+   - Script update patterns
+8. **Related Documentation** - References to related docs
+
+#### Test Created
+
+**File:** `tests/docs/command-migration-notes.test.ts`
+
+**Test Coverage:**
+
+- Document existence and basic structure (4 tests)
+- /atomic replaced by /ralph section (5 tests)
+- /ralph:* hook-based commands removed section (6 tests)
+- /approve, /reject, /status removed section (4 tests)
+- Spec approval is now manual section (4 tests)
+- Progress tracking via progress.txt section (5 tests)
+- Migration checklist section (4 tests)
+- Related documentation section (4 tests)
+
+**Total: 35 tests, 47 expect() calls**
+
+#### Test Results
+
+- All 35 documentation tests pass
+- All existing workflow-commands tests pass (170 tests)
+- All builtin-commands tests pass (25 tests)
+
+#### Files Added
+
+- `research/docs/2026-02-03-command-migration-notes.md` - Migration documentation
+- `tests/docs/command-migration-notes.test.ts` - Documentation tests
+
+#### Files Modified
+
+- `research/feature-list.json` - Updated `passes` to `true` for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: Document custom workflow file format
 
 ### Status: COMPLETED

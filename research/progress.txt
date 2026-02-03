@@ -1,3 +1,75 @@
+## 2026-02-03 - Feature Implementation: E2E test: Ctrl+C stops execution and marks session as paused
+
+### Status: COMPLETED
+
+Implemented comprehensive E2E tests verifying that when a user presses Ctrl+C (SIGINT) during Ralph workflow execution, the session is properly paused and all state is preserved for later resumption.
+
+#### Tests Added (35 new tests across 8 test groups)
+
+1. **Start /ralph session** (5 tests)
+   - Ralph session can be started for interrupt testing
+   - Session directory structure is created correctly
+   - Running session can be created and saved
+   - RalphExecutor can be created with session info
+   - Executor signal is AbortSignal
+
+2. **Send SIGINT (Ctrl+C) signal** (4 tests)
+   - SIGINT handler is registered when executor runs
+   - SIGINT can be emitted to trigger interrupt handler
+   - AbortController is aborted after SIGINT
+   - Multiple SIGINT emissions are handled gracefully
+
+3. **Verify 'Stopping Ralph execution...' message** (4 tests)
+   - Stopping message is logged on SIGINT
+   - Stopping message appears before session update messages
+   - Stopping message is displayed even without session set
+   - Message format matches expected pattern
+
+4. **Verify session.json status is 'paused'** (5 tests)
+   - Session status changes from running to paused after SIGINT
+   - Session lastUpdated is updated when paused
+   - Session preserves all other state when paused
+   - Session file is valid JSON after interrupt
+   - Paused session can be loaded with loadSessionIfExists
+
+5. **Verify checkpoint saved** (4 tests)
+   - Checkpoints directory exists after session creation
+   - Session state is persisted and can be recovered
+   - Session directory structure is intact after interrupt
+   - Interrupted session can be used for resume
+
+6. **Verify resume command displayed** (6 tests)
+   - Resume command is logged on SIGINT with session set
+   - Paused session message is logged on SIGINT
+   - Status paused message is logged on SIGINT
+   - Resume command is NOT displayed when no session is set
+   - Resume command contains valid UUID format
+   - All interrupt messages appear in correct order
+
+7. **Integration: Complete Ctrl+C interrupt flow** (3 tests)
+   - Full interrupt cycle: start -> SIGINT -> verify all artifacts
+   - Interrupt during yolo mode session
+   - Interrupt preserves partially completed features
+
+8. **Edge cases** (4 tests)
+   - Cleanup can be called multiple times without error
+   - New executor works correctly after previous cleanup
+   - Session without session.json handles interrupt gracefully
+   - Interrupt with empty session directory path
+
+#### Test Results
+- All 35 tests pass
+- All 435 E2E tests pass (no regressions)
+- 87 expect() calls
+
+#### Files Added
+- tests/e2e/ralph-ctrl-c-interrupt.test.ts - 35 comprehensive E2E tests for Ctrl+C interrupt handling
+
+#### Files Modified
+- research/feature-list.json - Updated passes to true for this feature
+
+---
+
 ## 2026-02-03 - Feature Implementation: E2E test: Session artifacts saved to .ralph/sessions/{uuid}/
 
 ### Status: COMPLETED

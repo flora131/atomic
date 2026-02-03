@@ -1647,7 +1647,7 @@
         "Verify checkpoint saved",
         "Verify resume command displayed"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "category": "e2e",

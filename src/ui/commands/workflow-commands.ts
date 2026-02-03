@@ -29,6 +29,7 @@ import type { AtomicWorkflowState } from "../../graph/annotation.ts";
 import {
   generateRalphSessionId,
   getRalphSessionPaths,
+  RALPH_DEFAULTS,
 } from "../../config/ralph.ts";
 import {
   getSessionDir,
@@ -50,22 +51,26 @@ export interface RalphCommandArgs {
   resumeSessionId: string | null;
   /** Maximum number of iterations (from --max-iterations flag) */
   maxIterations: number;
+  /** Path to feature list JSON file (from --feature-list flag) */
+  featureListPath: string;
 }
 
 /** Default max iterations if not specified */
 const DEFAULT_MAX_ITERATIONS = 100;
 
 /**
- * Parse /ralph command arguments for --yolo, --resume, and --max-iterations flags.
+ * Parse /ralph command arguments for --yolo, --resume, --max-iterations, and --feature-list flags.
  *
  * Supported formats:
  *   /ralph --yolo <prompt>                    - Run in yolo mode with the given prompt
  *   /ralph --resume <uuid>                    - Resume a previous session
  *   /ralph --max-iterations <n> <prompt>      - Set max iterations
+ *   /ralph --feature-list <path> <prompt>     - Use custom feature list path
  *   /ralph <prompt>                           - Normal mode with feature list
  *
- * The --max-iterations flag can be combined with --yolo:
+ * The --max-iterations and --feature-list flags can be combined with --yolo:
  *   /ralph --max-iterations 50 --yolo <prompt>
+ *   /ralph --feature-list custom.json --yolo <prompt>
  *   /ralph --yolo --max-iterations 50 <prompt>
  *
  * @param args - Raw argument string from the command
@@ -73,20 +78,24 @@ const DEFAULT_MAX_ITERATIONS = 100;
  *
  * @example
  * parseRalphArgs("--yolo implement auth")
- * // => { yolo: true, prompt: "implement auth", resumeSessionId: null, maxIterations: 100 }
+ * // => { yolo: true, prompt: "implement auth", resumeSessionId: null, maxIterations: 100, featureListPath: "research/feature-list.json" }
  *
  * parseRalphArgs("--max-iterations 50 --yolo implement auth")
- * // => { yolo: true, prompt: "implement auth", resumeSessionId: null, maxIterations: 50 }
+ * // => { yolo: true, prompt: "implement auth", resumeSessionId: null, maxIterations: 50, featureListPath: "research/feature-list.json" }
+ *
+ * parseRalphArgs("--feature-list custom.json implement auth")
+ * // => { yolo: false, prompt: "implement auth", resumeSessionId: null, maxIterations: 100, featureListPath: "custom.json" }
  *
  * parseRalphArgs("--resume abc123-def456")
- * // => { yolo: false, prompt: null, resumeSessionId: "abc123-def456", maxIterations: 100 }
+ * // => { yolo: false, prompt: null, resumeSessionId: "abc123-def456", maxIterations: 100, featureListPath: "research/feature-list.json" }
  *
  * parseRalphArgs("my feature")
- * // => { yolo: false, prompt: "my feature", resumeSessionId: null, maxIterations: 100 }
+ * // => { yolo: false, prompt: "my feature", resumeSessionId: null, maxIterations: 100, featureListPath: "research/feature-list.json" }
  */
 export function parseRalphArgs(args: string): RalphCommandArgs {
   let trimmed = args.trim();
   let maxIterations = DEFAULT_MAX_ITERATIONS;
+  let featureListPath = RALPH_DEFAULTS.featureListPath;
 
   // First, check for and extract --max-iterations flag anywhere in the string
   const maxIterMatch = trimmed.match(/^(.*?)--max-iterations\s+(\d+)\s*(.*?)$/s);
@@ -105,6 +114,39 @@ export function parseRalphArgs(args: string): RalphCommandArgs {
     trimmed = (beforeFlag + " " + afterFlag).trim();
   }
 
+  // Check for and extract --feature-list flag at a valid position
+  // The flag is valid if there's no non-flag content before it
+  // We check if --feature-list is present and NOT preceded by non-flag words
+  if (trimmed.includes("--feature-list")) {
+    // Check if it's at the start or only preceded by other flags/values
+    const beforeFeatureList = trimmed.split("--feature-list")[0] ?? "";
+    const tokens = beforeFeatureList.trim().split(/\s+/).filter(t => t.length > 0);
+    
+    // Valid if: empty before, or all tokens before are flags (start with --) or immediately follow a flag
+    let isValidPosition = true;
+    for (let i = 0; i < tokens.length; i++) {
+      const token = tokens[i]!;
+      const prevToken = i > 0 ? tokens[i - 1] : undefined;
+      // Token is valid if it starts with -- OR if the previous token starts with --
+      if (!token.startsWith("--") && !(prevToken && prevToken.startsWith("--"))) {
+        isValidPosition = false;
+        break;
+      }
+    }
+    
+    if (isValidPosition) {
+      // Extract the path after --feature-list
+      const afterFeatureList = trimmed.split("--feature-list")[1]?.trim() ?? "";
+      const pathMatch = afterFeatureList.match(/^(\S+)/);
+      if (pathMatch) {
+        featureListPath = pathMatch[1]!;
+        // Reconstruct trimmed without --feature-list and its value
+        const afterPath = afterFeatureList.slice(featureListPath.length).trim();
+        trimmed = (beforeFeatureList.trim() + " " + afterPath).trim();
+      }
+    }
+  }
+
   // Check for --resume flag
   if (trimmed.startsWith("--resume")) {
     // Extract everything after --resume as the session ID
@@ -115,6 +157,7 @@ export function parseRalphArgs(args: string): RalphCommandArgs {
       prompt: null,
       resumeSessionId: sessionId,
       maxIterations,
+      featureListPath,
     };
   }
 
@@ -127,6 +170,7 @@ export function parseRalphArgs(args: string): RalphCommandArgs {
       prompt: afterFlag.length > 0 ? afterFlag : null,
       resumeSessionId: null,
       maxIterations,
+      featureListPath,
     };
   }
 
@@ -136,6 +180,7 @@ export function parseRalphArgs(args: string): RalphCommandArgs {
     prompt: trimmed.length > 0 ? trimmed : null,
     resumeSessionId: null,
     maxIterations,
+    featureListPath,
   };
 }
 
@@ -619,6 +664,7 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
               userPrompt: null,
               resumeSessionId: parsed.resumeSessionId,
               maxIterations: parsed.maxIterations,
+              featureListPath: parsed.featureListPath,
             },
           },
         };
@@ -629,6 +675,14 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
         return {
           success: false,
           message: `--yolo flag requires a prompt.\nUsage: /ralph --yolo <your task description>`,
+        };
+      }
+
+      // In non-yolo mode, validate feature list file exists
+      if (!parsed.yolo && !existsSync(parsed.featureListPath)) {
+        return {
+          success: false,
+          message: `Feature list file not found: ${parsed.featureListPath}\nCreate the file or use --yolo mode for prompt-only execution.`,
         };
       }
 
@@ -643,17 +697,20 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
       // Build the mode indicator for the message
       const modeStr = parsed.yolo ? " (yolo mode)" : "";
       const iterStr = parsed.maxIterations !== 100 ? ` (max: ${parsed.maxIterations})` : "";
+      const featureListStr = parsed.featureListPath !== RALPH_DEFAULTS.featureListPath 
+        ? ` (features: ${parsed.featureListPath})` 
+        : "";
 
       // Add a system message indicating workflow start
       context.addMessage(
         "system",
-        `Starting **ralph** workflow${modeStr}${iterStr}...\n\nPrompt: "${parsed.prompt}"`
+        `Starting **ralph** workflow${modeStr}${iterStr}${featureListStr}...\n\nPrompt: "${parsed.prompt}"`
       );
 
       // Return success with state updates and workflow config
       return {
         success: true,
-        message: `Workflow **ralph** initialized${modeStr}${iterStr}. Starting implementation...`,
+        message: `Workflow **ralph** initialized${modeStr}${iterStr}${featureListStr}. Starting implementation...`,
         stateUpdate: {
           workflowActive: true,
           workflowType: metadata.name,
@@ -667,6 +724,7 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
             yolo: parsed.yolo,
             userPrompt: parsed.prompt,
             maxIterations: parsed.maxIterations,
+            featureListPath: parsed.featureListPath,
           },
         },
       };

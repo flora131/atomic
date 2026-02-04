@@ -7,17 +7,6 @@
     "defaultMode": "bypassPermissions"
   },
   "enableAllProjectMcpServers": true,
-  "extraKnownMarketplaces": {
-    "atomic-plugins": {
-      "source": {
-        "source": "github",
-        "repo": "flora131/atomic"
-      }
-    }
-  },
-  "enabledPlugins": {
-    "ralph@atomic-plugins": true
-  },
   "hooks": {
     "SessionEnd": [
       {
@@ -30,5 +19,16 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "ralph@atomic-plugins": false
+  },
+  "extraKnownMarketplaces": {
+    "atomic-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "flora131/atomic"
+      }
+    }
   }
 }

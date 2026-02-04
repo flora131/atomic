@@ -82,42 +82,12 @@ atomic run claude "/research-codebase Research implementing GraphRAG using \
   vs our current RAG implementation."
 ```
 
-**What happens:** Each agent spawns `codebase-online-researcher` sub-agents that query DeepWiki for the specified repos, pull external documentation, and cross-reference with your existing codebase patterns. You get three research documents:
+**What happens:** Each agent spawns `codebase-online-researcher` sub-agents that query DeepWiki for the specified repos, pull external documentation, and cross-reference with your existing codebase patterns. You get three research documents.
 
 **From there:** Run `/create-spec` and `/create-feature-list` on each research doc in parallel terminals. Then spin up three git worktrees and run `/ralph:ralph-loop` in each. Wake up to three complete implementations on separate branches — review, benchmark, and choose the winner.
 
 > **Note:** This workflow works identically with `atomic run opencode` and `atomic run copilot` — just substitute the CLI command.
 
----
-
-## Try It in 60 Seconds
-
-```bash
-# Install
-curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
-
-# Navigate to your project
-cd your-project
-```
-
-```bash
-# For Claude Code
-atomic run claude "/research-codebase I need to add real-time collaborative \
-  editing. Research how our data layer, state management, and API boundaries \
-  work so I can plan where WebSocket connections should integrate."
-
-# For OpenCode
-atomic run opencode
-# then type:
-/research-codebase "I need to add real-time collaborative editing. Research
-  how our data layer, state management, and API boundaries work so I can
-  plan where WebSocket connections should integrate."
-
-# For GitHub Copilot
-atomic run copilot -i "/research-codebase I need to add real-time collaborative \
-  editing. Research how our data layer, state management, and API boundaries \
-  work so I can plan where WebSocket connections should integrate."
-```
 ---
 
 ## Table of Contents

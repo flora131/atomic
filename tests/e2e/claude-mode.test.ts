@@ -361,6 +361,8 @@ function createMockContextWithClaude(
       messages.push({ role: "user", content });
     },
     spawnSubagent: async () => ({ success: true, output: "Mock Claude sub-agent output" }),
+    agentType: "claude",
+    modelOps: undefined,
     getMessages: () => messages,
   };
 }

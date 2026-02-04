@@ -21,6 +21,11 @@ import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplet
 import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
 import { ToolResult } from "./components/tool-result.tsx";
 import { TimestampDisplay } from "./components/timestamp-display.tsx";
+import { QueueIndicator } from "./components/queue-indicator.tsx";
+import {
+  ParallelAgentsTree,
+  type ParallelAgent,
+} from "./components/parallel-agents-tree.tsx";
 import {
   UserQuestionDialog,
   type UserQuestion,
@@ -40,6 +45,7 @@ import {
   type CommandContextState,
 } from "./commands/index.ts";
 import type { AskUserQuestionEventData } from "../graph/index.ts";
+import type { AgentType, ModelOperations } from "../models";
 
 // ============================================================================
 // BLOCK LETTER LOGO WITH GRADIENT
@@ -143,6 +149,8 @@ export interface MessageToolCall {
   output?: unknown;
   /** Current execution status */
   status: ToolExecutionStatus;
+  /** Content offset at the time tool call started (for inline rendering) */
+  contentOffsetAtStart?: number;
 }
 
 /**
@@ -288,6 +296,14 @@ export interface ChatAppProps {
    * Called when the user responds to an askUserNode question in workflow mode.
    */
   onWorkflowResumeWithAnswer?: (requestId: string, answer: string | string[]) => void;
+  /** The type of agent currently in use (claude, opencode, copilot) */
+  agentType?: AgentType;
+  /** Model operations interface for listing, setting, and resolving models */
+  modelOps?: ModelOperations;
+  /** Parallel agents currently running (for tree view display) */
+  parallelAgents?: ParallelAgent[];
+  /** Register callback to receive parallel agent updates */
+  registerParallelAgentHandler?: (handler: (agents: ParallelAgent[]) => void) => void;
 }
 
 /**
@@ -589,11 +605,86 @@ export function AtomicHeader({
 // ============================================================================
 
 /**
+ * Represents a segment of content to render (either text or tool call).
+ * Used for interleaving text content with tool calls at the correct positions.
+ */
+interface ContentSegment {
+  type: "text" | "tool";
+  content?: string;
+  toolCall?: MessageToolCall;
+  key: string;
+}
+
+/**
+ * Build interleaved content segments from message content and tool calls.
+ * Tool calls are inserted at their recorded content offsets.
+ */
+function buildContentSegments(content: string, toolCalls: MessageToolCall[]): ContentSegment[] {
+  // Filter out HITL tools
+  const visibleToolCalls = toolCalls.filter(tc =>
+    tc.toolName !== "AskUserQuestion" && tc.toolName !== "question"
+  );
+
+  if (visibleToolCalls.length === 0) {
+    return content ? [{ type: "text", content, key: "text-0" }] : [];
+  }
+
+  // Sort tool calls by their content offset (ascending)
+  const sortedToolCalls = [...visibleToolCalls].sort((a, b) => {
+    const offsetA = a.contentOffsetAtStart ?? 0;
+    const offsetB = b.contentOffsetAtStart ?? 0;
+    return offsetA - offsetB;
+  });
+
+  const segments: ContentSegment[] = [];
+  let lastOffset = 0;
+
+  for (const toolCall of sortedToolCalls) {
+    const offset = toolCall.contentOffsetAtStart ?? 0;
+
+    // Add text segment before this tool call (if any)
+    if (offset > lastOffset) {
+      const textContent = content.slice(lastOffset, offset).trimEnd();
+      if (textContent) {
+        segments.push({
+          type: "text",
+          content: textContent,
+          key: `text-${lastOffset}`,
+        });
+      }
+    }
+
+    // Add the tool call segment
+    segments.push({
+      type: "tool",
+      toolCall,
+      key: `tool-${toolCall.id}`,
+    });
+
+    lastOffset = offset;
+  }
+
+  // Add remaining text after the last tool call
+  if (lastOffset < content.length) {
+    const remainingContent = content.slice(lastOffset).trimStart();
+    if (remainingContent) {
+      segments.push({
+        type: "text",
+        content: remainingContent,
+        key: `text-${lastOffset}`,
+      });
+    }
+  }
+
+  return segments;
+}
+
+/**
  * Renders a single chat message with role-based styling.
  * Clean, minimal design matching the reference UI:
  * - User messages: highlighted inline box with just the text
  * - Assistant messages: bullet point (●) prefix, no header
- * Includes tool results for assistant messages that contain tool calls.
+ * Tool calls are rendered inline at their correct chronological positions.
  */
 export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false, hideAskUserQuestion = false, hideLoading = false }: MessageBubbleProps): React.ReactNode {
   // Show loading animation only before any content arrives, and not when question dialog is active
@@ -602,9 +693,6 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
   // Hide the entire message when question dialog is active and there's no content yet
   // This prevents showing a stray "●" bullet before the dialog
   const hideEntireMessage = hideLoading && message.streaming && !message.content.trim();
-
-  // Check if message has tool calls
-  const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
 
   // User message: highlighted inline box with just the text (no header/timestamp)
   if (message.role === "user") {
@@ -622,36 +710,36 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
     );
   }
 
-  // Assistant message: bullet point prefix, no header/timestamp
+  // Assistant message: bullet point prefix, with tool calls interleaved at correct positions
   if (message.role === "assistant") {
-    // Render content based on syntaxStyle availability
-    // Loading animation shows without bullet; bullet appears only with content
-    // Use same row structure as content for consistent alignment
-    const contentElement = showLoadingAnimation ? (
-      <box flexDirection="row" alignItems="flex-start">
-        <text style={{ fg: ATOMIC_PINK }}>● </text>
-        <text>
-          <LoadingIndicator speed={120} />
-        </text>
-      </box>
-    ) : syntaxStyle ? (
-      <box flexDirection="row" alignItems="flex-start">
-        <text style={{ fg: ATOMIC_PINK }}>● </text>
-        <box flexGrow={1}>
-          <markdown
-            content={message.content}
-            syntaxStyle={syntaxStyle}
-            streaming={message.streaming}
-          />
-        </box>
-      </box>
-    ) : (
-      <text wrapMode="word">
-        <span style={{ fg: ATOMIC_PINK }}>● </span>
-        {message.content}
-      </text>
-    );
+    // Build interleaved content segments
+    const segments = buildContentSegments(message.content, message.toolCalls || []);
+    const hasContent = segments.length > 0;
 
+    // Check if first segment is text (for bullet point prefix)
+    const firstTextSegment = segments.find(s => s.type === "text");
+    const hasLeadingText = segments.length > 0 && segments[0].type === "text";
+
+    // Loading animation when no content yet
+    if (showLoadingAnimation) {
+      return (
+        <box
+          flexDirection="column"
+          marginBottom={isLast ? 0 : 1}
+          paddingLeft={1}
+          paddingRight={1}
+        >
+          <box flexDirection="row" alignItems="flex-start">
+            <text style={{ fg: ATOMIC_PINK }}>● </text>
+            <text>
+              <LoadingIndicator speed={120} />
+            </text>
+          </box>
+        </box>
+      );
+    }
+
+    // Render interleaved segments
     return (
       <box
         flexDirection="column"
@@ -659,33 +747,45 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
         paddingLeft={1}
         paddingRight={1}
       >
-        {/* Tool results for assistant messages */}
-        {hasToolCalls && (
-          <box flexDirection="column" marginBottom={1}>
-            {message.toolCalls!
-              .filter((toolCall) => {
-                // Hide HITL tools - the UI shows the dialog directly
-                // AskUserQuestion is used by Claude, "question" is used by OpenCode
-                if (toolCall.toolName === "AskUserQuestion" || toolCall.toolName === "question") {
-                  return false;
-                }
-                return true;
-              })
-              .map((toolCall) => (
+        {!hideEntireMessage && segments.map((segment, index) => {
+          if (segment.type === "text" && segment.content) {
+            // Text segment - add bullet prefix to first text segment
+            const isFirst = segment === firstTextSegment;
+            return syntaxStyle ? (
+              <box key={segment.key} flexDirection="row" alignItems="flex-start" marginBottom={index < segments.length - 1 ? 1 : 0}>
+                {isFirst && <text style={{ fg: ATOMIC_PINK }}>● </text>}
+                {!isFirst && <text>  </text>}
+                <box flexGrow={1}>
+                  <markdown
+                    content={segment.content}
+                    syntaxStyle={syntaxStyle}
+                    streaming={message.streaming && index === segments.length - 1}
+                  />
+                </box>
+              </box>
+            ) : (
+              <text key={segment.key} wrapMode="word">
+                {isFirst && <span style={{ fg: ATOMIC_PINK }}>● </span>}
+                {!isFirst && "  "}
+                {segment.content}
+              </text>
+            );
+          } else if (segment.type === "tool" && segment.toolCall) {
+            // Tool call segment
+            return (
+              <box key={segment.key} marginTop={index > 0 ? 1 : 0} marginBottom={index < segments.length - 1 ? 1 : 0}>
                 <ToolResult
-                  key={toolCall.id}
-                  toolName={toolCall.toolName}
-                  input={toolCall.input}
-                  output={toolCall.output}
-                  status={toolCall.status}
+                  toolName={segment.toolCall.toolName}
+                  input={segment.toolCall.input}
+                  output={segment.toolCall.output}
+                  status={segment.toolCall.status}
                   verboseMode={verboseMode}
                 />
-              ))}
-          </box>
-        )}
-
-        {/* Message content with bullet prefix - hidden when question dialog is active and no content */}
-        {!hideEntireMessage && contentElement}
+              </box>
+            );
+          }
+          return null;
+        })}
 
         {/* Timestamp display in verbose mode (only for completed assistant messages) */}
         {verboseMode && !message.streaming && (
@@ -755,6 +855,10 @@ export function ChatApp({
   getSession,
   registerAskUserQuestionHandler,
   onWorkflowResumeWithAnswer,
+  agentType,
+  modelOps,
+  parallelAgents: initialParallelAgents = [],
+  registerParallelAgentHandler,
 }: ChatAppProps): React.ReactNode {
   // title and suggestion are deprecated, kept for backwards compatibility
   void _title;
@@ -789,16 +893,36 @@ export function ChatApp({
   // State for showing user question dialog
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
 
+  // State for queue editing mode
+  const [isEditingQueue, setIsEditingQueue] = useState(false);
+
+  // State for parallel agents display
+  const [parallelAgents, setParallelAgents] = useState<ParallelAgent[]>(initialParallelAgents);
+
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
   // Ref to track when streaming started for duration calculation
   const streamingStartRef = useRef<number | null>(null);
+  // Ref to track streaming state synchronously (for immediate check in handleSubmit)
+  // This avoids race conditions where React state hasn't updated yet
+  const isStreamingRef = useRef(false);
   // Ref for scrollbox to enable programmatic scrolling
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const scrollboxRef = useRef<any>(null);
 
   // Create macOS-style scroll acceleration for smooth mouse wheel scrolling
   const scrollAcceleration = useMemo(() => new MacOSScrollAccel(), []);
+
+  // Dynamic placeholder based on queue state
+  const dynamicPlaceholder = useMemo(() => {
+    if (messageQueue.count > 0) {
+      return "Press ↑ to edit queued messages...";
+    } else if (isStreaming) {
+      return "Type to queue message...";
+    } else {
+      return "Enter a message...";
+    }
+  }, [messageQueue.count, isStreaming]);
 
   /**
    * Update workflow state with partial values.
@@ -811,6 +935,7 @@ export function ChatApp({
   /**
    * Handle tool execution start event.
    * Updates streaming state and adds tool call to current message.
+   * Captures content offset for inline rendering.
    */
   const handleToolStart = useCallback((
     toolId: string,
@@ -820,17 +945,20 @@ export function ChatApp({
     // Update streaming state
     streamingState.handleToolStart(toolId, toolName, input);
 
-    // Add tool call to current streaming message
+    // Add tool call to current streaming message, capturing content offset
     const messageId = streamingMessageIdRef.current;
     if (messageId) {
       setMessages((prev) =>
         prev.map((msg) => {
           if (msg.id === messageId) {
+            // Capture current content length as offset for inline rendering
+            const contentOffsetAtStart = msg.content.length;
             const newToolCall: MessageToolCall = {
               id: toolId,
               toolName,
               input,
               status: "running",
+              contentOffsetAtStart,
             };
             return {
               ...msg,
@@ -917,6 +1045,89 @@ export function ChatApp({
       }
     };
   }, []);
+
+  // Auto-start workflow when workflowActive becomes true with an initialPrompt
+  // This handles the transition from /ralph command to actual workflow execution
+  const workflowStartedRef = useRef<string | null>(null);
+  useEffect(() => {
+    // Only trigger if:
+    // 1. Workflow is active
+    // 2. We have an initial prompt
+    // 3. We haven't already started this workflow (prevent double-sends)
+    // 4. We're not currently streaming
+    if (
+      workflowState.workflowActive &&
+      workflowState.initialPrompt &&
+      workflowStartedRef.current !== workflowState.initialPrompt &&
+      !isStreaming
+    ) {
+      // Mark this prompt as started to prevent re-triggering
+      workflowStartedRef.current = workflowState.initialPrompt;
+
+      // Small delay to ensure state is settled before sending
+      const timeoutId = setTimeout(() => {
+        // Set streaming BEFORE calling onStreamMessage to prevent race conditions
+        setIsStreaming(true);
+
+        // Call the stream handler - this is async but we don't await it
+        // The callbacks will handle state updates
+        onStreamMessage?.(
+          workflowState.initialPrompt!,
+          // onChunk: append to current message
+          (chunk) => {
+            setMessages((prev) => {
+              const lastMsg = prev[prev.length - 1];
+              if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
+                return [
+                  ...prev.slice(0, -1),
+                  { ...lastMsg, content: lastMsg.content + chunk },
+                ];
+              }
+              // Create new streaming message
+              const newMessage: ChatMessage = {
+                id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                role: "assistant",
+                content: chunk,
+                timestamp: new Date(),
+                streaming: true,
+                toolCalls: [],
+              };
+              streamingMessageIdRef.current = newMessage.id;
+              return [...prev, newMessage];
+            });
+          },
+          // onComplete: mark message as complete
+          () => {
+            setMessages((prev) => {
+              const lastMsg = prev[prev.length - 1];
+              if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
+                return [
+                  ...prev.slice(0, -1),
+                  {
+                    ...lastMsg,
+                    streaming: false,
+                    completedAt: new Date(),
+                  },
+                ];
+              }
+              return prev;
+            });
+            streamingMessageIdRef.current = null;
+            setIsStreaming(false);
+          }
+        );
+      }, 100);
+
+      return () => clearTimeout(timeoutId);
+    }
+  }, [workflowState.workflowActive, workflowState.initialPrompt, isStreaming, onStreamMessage]);
+
+  // Reset workflow started ref when workflow becomes inactive
+  useEffect(() => {
+    if (!workflowState.workflowActive) {
+      workflowStartedRef.current = null;
+    }
+  }, [workflowState.workflowActive]);
 
   /**
    * Handle human_input_required signal.
@@ -1022,6 +1233,13 @@ export function ChatApp({
       registerCtrlCWarningHandler(setCtrlCPressed);
     }
   }, [registerCtrlCWarningHandler]);
+
+  // Register parallel agent handler with parent component
+  useEffect(() => {
+    if (registerParallelAgentHandler) {
+      registerParallelAgentHandler(setParallelAgents);
+    }
+  }, [registerParallelAgentHandler]);
 
   /**
    * Handle user answering a question from UserQuestionDialog.
@@ -1230,6 +1448,8 @@ export function ChatApp({
           };
         }
       },
+      agentType,
+      modelOps,
     };
 
     try {
@@ -1265,6 +1485,14 @@ export function ChatApp({
       // Display message if present (as assistant message, not system)
       if (result.message) {
         addMessage("assistant", result.message);
+      }
+
+      // Handle exit command
+      if (result.shouldExit) {
+        // Small delay to show the message before exiting
+        setTimeout(() => {
+          onExit?.();
+        }, 100);
       }
 
       return result.success;
@@ -1368,7 +1596,8 @@ export function ChatApp({
           return;
         }
 
-        // ESC key - interrupt streaming, hide autocomplete, or double-press to exit
+        // ESC key - interrupt streaming, hide autocomplete, or exit queue editing
+        // NOTE: ESC does NOT exit the TUI. Use /exit command or Ctrl+C twice to exit.
         if (event.name === "escape") {
           // First, hide autocomplete if visible
           if (workflowState.showAutocomplete) {
@@ -1380,43 +1609,20 @@ export function ChatApp({
             return;
           }
 
+          // Exit queue editing mode if active
+          if (isEditingQueue) {
+            setIsEditingQueue(false);
+            messageQueue.setEditIndex(-1);
+            return;
+          }
+
           // If streaming, interrupt (abort) the current operation
           if (isStreaming) {
             onInterrupt?.();
-            // Reset interrupt counter after interrupting
-            setInterruptCount(0);
-            if (interruptTimeoutRef.current) {
-              clearTimeout(interruptTimeoutRef.current);
-              interruptTimeoutRef.current = null;
-            }
             return;
           }
 
-          // Not streaming: use double-press to exit
-          const newCount = interruptCount + 1;
-          if (newCount >= 2) {
-            // Double press - exit
-            setInterruptCount(0);
-            if (interruptTimeoutRef.current) {
-              clearTimeout(interruptTimeoutRef.current);
-              interruptTimeoutRef.current = null;
-            }
-            setCtrlCPressed(false);
-            onExit?.();
-            return;
-          }
-
-          // First press - show warning and set timeout
-          setInterruptCount(newCount);
-          setCtrlCPressed(true);
-          if (interruptTimeoutRef.current) {
-            clearTimeout(interruptTimeoutRef.current);
-          }
-          interruptTimeoutRef.current = setTimeout(() => {
-            setInterruptCount(0);
-            setCtrlCPressed(false);
-            interruptTimeoutRef.current = null;
-          }, 1000);
+          // ESC when idle does nothing - use /exit or Ctrl+C twice to exit
           return;
         }
 
@@ -1440,6 +1646,78 @@ export function ChatApp({
         if (event.name === "up" && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
           const newIndex = navigateUp(workflowState.selectedSuggestionIndex, autocompleteSuggestions.length);
           updateWorkflowState({ selectedSuggestionIndex: newIndex });
+          return;
+        }
+
+        // Queue editing: Up arrow - navigate queue messages
+        if (event.name === "up" && messageQueue.count > 0 && !isStreaming) {
+          const textarea = textareaRef.current;
+          if (messageQueue.currentEditIndex === -1) {
+            // Enter edit mode at last message - load its content into textarea
+            const lastIndex = messageQueue.count - 1;
+            const queuedMessage = messageQueue.queue[lastIndex];
+            if (queuedMessage && textarea) {
+              // Save current input before loading queue message (if any)
+              // Clear textarea and insert queued message content
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+              textarea.insertText(queuedMessage.content);
+            }
+            messageQueue.setEditIndex(lastIndex);
+            setIsEditingQueue(true);
+          } else if (messageQueue.currentEditIndex > 0) {
+            // Save current edits before moving to previous message
+            if (textarea) {
+              const currentContent = textarea.plainText ?? "";
+              messageQueue.updateAt(messageQueue.currentEditIndex, currentContent);
+            }
+            // Move to previous message - load its content
+            const prevIndex = messageQueue.currentEditIndex - 1;
+            const prevMessage = messageQueue.queue[prevIndex];
+            if (prevMessage && textarea) {
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+              textarea.insertText(prevMessage.content);
+            }
+            messageQueue.setEditIndex(prevIndex);
+          }
+          return;
+        }
+
+        // Queue editing: Down arrow - navigate queue messages
+        if (event.name === "down" && isEditingQueue && messageQueue.count > 0) {
+          const textarea = textareaRef.current;
+          if (messageQueue.currentEditIndex < messageQueue.count - 1) {
+            // Save current edits before moving to next message
+            if (textarea) {
+              const currentContent = textarea.plainText ?? "";
+              messageQueue.updateAt(messageQueue.currentEditIndex, currentContent);
+            }
+            // Move to next message - load its content
+            const nextIndex = messageQueue.currentEditIndex + 1;
+            const nextMessage = messageQueue.queue[nextIndex];
+            if (nextMessage && textarea) {
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+              textarea.insertText(nextMessage.content);
+            }
+            messageQueue.setEditIndex(nextIndex);
+          } else {
+            // Save current edits and exit edit mode
+            if (textarea) {
+              const currentContent = textarea.plainText ?? "";
+              messageQueue.updateAt(messageQueue.currentEditIndex, currentContent);
+              // Clear textarea when exiting edit mode
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+            }
+            setIsEditingQueue(false);
+            messageQueue.setEditIndex(-1);
+          }
           return;
         }
 
@@ -1486,6 +1764,13 @@ export function ChatApp({
             void executeCommand(selectedCommand.name, "");
           }
           return;
+        }
+
+        // Queue editing: Enter - exit edit mode and allow submission
+        if (event.name === "return" && isEditingQueue) {
+          setIsEditingQueue(false);
+          // Keep edit index for potential message update
+          // Allow default input submission behavior to proceed
         }
 
         // Ctrl+Shift+C - copy selected text
@@ -1564,7 +1849,7 @@ export function ChatApp({
           handleInputChange(value);
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand, activeQuestion, ctrlCPressed]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand, activeQuestion, ctrlCPressed, messageQueue, setIsEditingQueue]
     )
   );
 
@@ -1585,6 +1870,8 @@ export function ChatApp({
 
       // Handle streaming response if handler provided
       if (onStreamMessage) {
+        // Set ref immediately (synchronous) so handleSubmit can check it
+        isStreamingRef.current = true;
         setIsStreaming(true);
         // Track when streaming started for duration calculation
         streamingStartRef.current = Date.now();
@@ -1627,6 +1914,8 @@ export function ChatApp({
           }
           streamingMessageIdRef.current = null;
           streamingStartRef.current = null;
+          // Clear ref immediately (synchronous) before state update
+          isStreamingRef.current = false;
           setIsStreaming(false);
 
           // Process next queued message after 50ms delay
@@ -1689,7 +1978,8 @@ export function ChatApp({
       }
 
       // If streaming, queue the message instead of sending immediately
-      if (isStreaming) {
+      // Use ref for immediate check (state update is async and may not reflect yet)
+      if (isStreamingRef.current) {
         messageQueue.enqueue(trimmedValue);
         return;
       }
@@ -1697,7 +1987,7 @@ export function ChatApp({
       // Send the message
       sendMessage(trimmedValue);
     },
-    [isStreaming, workflowState.showAutocomplete, updateWorkflowState, executeCommand, messageQueue, sendMessage]
+    [workflowState.showAutocomplete, updateWorkflowState, executeCommand, messageQueue, sendMessage]
   );
 
   // Get the visible messages (limit to MAX_VISIBLE_MESSAGES for performance)
@@ -1756,7 +2046,17 @@ export function ChatApp({
         iteration={workflowState.iteration}
         maxIterations={workflowState.maxIterations}
         featureProgress={workflowState.featureProgress}
+        queueCount={messageQueue.count}
       />
+
+      {/* Parallel Agents Tree - shows running sub-agents */}
+      {parallelAgents.length > 0 && (
+        <ParallelAgentsTree
+          agents={parallelAgents}
+          compact={true}
+          maxVisible={5}
+        />
+      )}
 
       {/* Main content area - scrollable when content overflows */}
       {/* stickyStart="bottom" keeps input visible, user can scroll up */}
@@ -1784,30 +2084,55 @@ export function ChatApp({
           />
         )}
 
+        {/* Queue Indicator - shows pending queued messages */}
+        {messageQueue.count > 0 && (
+          <QueueIndicator
+            count={messageQueue.count}
+            queue={messageQueue.queue}
+            compact={!isEditingQueue}
+            editable={!isStreaming}
+            editIndex={messageQueue.currentEditIndex}
+            onEdit={(index) => {
+              messageQueue.setEditIndex(index);
+              setIsEditingQueue(true);
+            }}
+          />
+        )}
+
         {/* Input Area - inside scrollbox, flows after messages */}
         {/* Hidden when question dialog is active (Claude Code behavior) */}
         {!activeQuestion && (
-          <box
-            border
-            borderStyle="rounded"
-            borderColor={ATOMIC_PINK_DIM}
-            paddingLeft={1}
-            paddingRight={1}
-            marginTop={messages.length > 0 ? 1 : 0}
-            flexDirection="row"
-            alignItems="center"
-          >
-            <text style={{ fg: ATOMIC_PINK }}>❯{" "}</text>
-            <textarea
-              ref={textareaRef}
-              placeholder={messages.length === 0 ? placeholder : ""}
-              focused={inputFocused && !isStreaming}
-              keyBindings={textareaKeyBindings}
-              onSubmit={handleSubmit}
-              flexGrow={1}
-              height={1}
-            />
-          </box>
+          <>
+            <box
+              border
+              borderStyle="rounded"
+              borderColor={ATOMIC_PINK_DIM}
+              paddingLeft={1}
+              paddingRight={1}
+              marginTop={messages.length > 0 ? 1 : 0}
+              flexDirection="row"
+              alignItems="center"
+            >
+              <text style={{ fg: ATOMIC_PINK }}>❯{" "}</text>
+              <textarea
+                ref={textareaRef}
+                placeholder={messages.length === 0 ? dynamicPlaceholder : ""}
+                focused={inputFocused}
+                keyBindings={textareaKeyBindings}
+                onSubmit={handleSubmit}
+                flexGrow={1}
+                height={1}
+              />
+            </box>
+            {/* Streaming hint - shows "esc to interrupt" during streaming */}
+            {isStreaming && (
+              <box marginLeft={2}>
+                <text style={{ fg: MUTED_LAVENDER }}>
+                  esc to interrupt
+                </text>
+              </box>
+            )}
+          </>
         )}
 
         {/* Autocomplete dropdown for slash commands - inside scrollbox */}

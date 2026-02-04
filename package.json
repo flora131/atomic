@@ -37,7 +37,9 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --config=oxlint.json src",
-    "lint:fix": "oxlint --config=oxlint.json --fix src"
+    "lint:fix": "oxlint --config=oxlint.json --fix src",
+    "update-models-snapshot": "bun run scripts/generate-models-snapshot.ts",
+    "generate:models": "bun run scripts/generate-models-snapshot.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.3.6",

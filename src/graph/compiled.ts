@@ -501,13 +501,55 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
   }
 
   /**
+   * Resolve the model for a node based on resolution order:
+   * 1. node.model (if not 'inherit')
+   * 2. parentContext.model (inherited from parent)
+   * 3. config.defaultModel (if not 'inherit')
+   * 4. undefined (let SDK use its default)
+   */
+  private resolveModel(
+    node: NodeDefinition<TState>,
+    parentContext?: ExecutionContext<TState>
+  ): string | undefined {
+    const nodeId = node.id;
+    
+    // Debug: Log resolution attempt with all inputs
+    console.debug(`[resolveModel] Resolving model for node ${nodeId}`);
+    console.debug(
+      `[resolveModel] Node model: ${node.model ?? 'undefined'}, ` +
+      `Parent model: ${parentContext?.model ?? 'undefined'}, ` +
+      `Default: ${this.config.defaultModel ?? 'undefined'}`
+    );
+
+    let result: string | undefined;
+
+    // 1. If node.model exists and is not 'inherit', use it
+    if (node.model && node.model !== "inherit") {
+      result = node.model;
+    }
+    // 2. If parentContext.model exists, inherit from parent
+    else if (parentContext?.model) {
+      result = parentContext.model;
+    }
+    // 3. If config.defaultModel exists and is not 'inherit', use it
+    else if (this.config.defaultModel && this.config.defaultModel !== "inherit") {
+      result = this.config.defaultModel;
+    }
+    // 4. Return undefined - let SDK use its default
+
+    console.debug(`[resolveModel] Resolved to: ${result ?? 'undefined (SDK default)'}`);
+    return result;
+  }
+
+  /**
    * Execute a node with retry logic.
    */
   private async executeWithRetry(
     node: NodeDefinition<TState>,
     state: TState,
     errors: ExecutionError[],
-    abortSignal?: AbortSignal
+    abortSignal?: AbortSignal,
+    parentContext?: ExecutionContext<TState>
   ): Promise<NodeResult<TState>> {
     const retryConfig = node.retry ?? DEFAULT_RETRY_CONFIG;
     let lastError: Error | undefined;
@@ -517,6 +559,9 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
       attempt++;
 
       try {
+        // Resolve model for this node
+        const resolvedModel = this.resolveModel(node, parentContext);
+
         // Build execution context
         const context: ExecutionContext<TState> = {
           state,
@@ -524,6 +569,7 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
           config: this.config as unknown as GraphConfig,
           errors,
           abortSignal,
+          model: resolvedModel,
           emit: (_signal) => {
             // Signals are collected in the result
           },

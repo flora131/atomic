@@ -15,6 +15,7 @@ import type {
   CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
+import { ModelsDev } from "../../models";
 
 // ============================================================================
 // COMMAND IMPLEMENTATIONS
@@ -250,6 +251,184 @@ export const compactCommand: CommandDefinition = {
   },
 };
 
+/**
+ * /exit - Exit the TUI cleanly.
+ *
+ * This is the only way to exit the TUI besides Ctrl+C twice.
+ * Double ESC no longer exits.
+ */
+export const exitCommand: CommandDefinition = {
+  name: "exit",
+  description: "Exit the chat application",
+  category: "builtin",
+  aliases: ["quit", "q"],
+  execute: (_args: string, _context: CommandContext): CommandResult => {
+    return {
+      success: true,
+      message: "Goodbye!",
+      shouldExit: true,
+    };
+  },
+};
+
+/**
+ * /model - Switch or view the current model.
+ *
+ * Subcommands:
+ *   (no args) - Show current model
+ *   refresh   - Refresh models cache from models.dev
+ *   list      - List available models
+ *   <model>   - Switch to specified model
+ */
+export const modelCommand: CommandDefinition = {
+  name: "model",
+  description: "Switch or view the current model",
+  category: "builtin",
+  aliases: ["m"],
+  execute: async (args: string, context: CommandContext): Promise<CommandResult> => {
+    const { agentType, modelOps, state } = context;
+    const trimmed = args.trim();
+
+    // No args: show current model
+    if (!trimmed) {
+      const currentModel = await modelOps?.getCurrentModel();
+      return {
+        success: true,
+        message: `Current model: **${currentModel ?? "No model set"}**`,
+      };
+    }
+
+    const lowerTrimmed = trimmed.toLowerCase();
+
+    // Refresh subcommand
+    if (lowerTrimmed === "refresh") {
+      await ModelsDev.refresh();
+      return {
+        success: true,
+        message: "Models cache refreshed from models.dev",
+      };
+    }
+
+    // List subcommand
+    if (lowerTrimmed === "list" || lowerTrimmed.startsWith("list ")) {
+      const providerFilter = lowerTrimmed.startsWith("list ")
+        ? trimmed.substring(5).trim()
+        : undefined;
+      const models = await modelOps?.listAvailableModels();
+      const dataSource = ModelsDev.getDataSource();
+      
+      // Handle offline mode with user-friendly message
+      if (!models || models.length === 0) {
+        if (dataSource === 'offline') {
+          return {
+            success: true,
+            message: "⚠️ **No models available** - Running in offline mode.\n\nThe models.dev API is unavailable and no cached data exists.\nRun `/model refresh` when you have internet access to populate the models list.",
+          };
+        }
+        return {
+          success: true,
+          message: "No models available.",
+        };
+      }
+      const filtered = providerFilter
+        ? models.filter((m) => m.providerID === providerFilter)
+        : models;
+      if (filtered.length === 0) {
+        return {
+          success: true,
+          message: `No models found for provider: ${providerFilter}`,
+        };
+      }
+      const grouped = groupByProvider(filtered);
+      const lines = formatGroupedModels(grouped);
+      
+      // Add source indicator for non-API sources
+      let sourceNote = "";
+      if (dataSource === 'cache') {
+        sourceNote = " *(from cache)*";
+      } else if (dataSource === 'snapshot') {
+        sourceNote = " *(from bundled snapshot - run `/model refresh` for latest)*";
+      }
+      
+      return {
+        success: true,
+        message: `**Available Models** (via models.dev)${sourceNote}\n\n${lines.join("\n")}`,
+      };
+    }
+
+    // Model switching (default case)
+    // Reject model switch during streaming to prevent mid-response changes
+    if (state.isStreaming) {
+      return {
+        success: false,
+        message: "Cannot switch models while a response is streaming. Please wait for the current response to complete.",
+      };
+    }
+
+    try {
+      const resolvedModel = modelOps?.resolveAlias(trimmed) ?? trimmed;
+      const result = await modelOps?.setModel(resolvedModel);
+      if (result?.requiresNewSession) {
+        return {
+          success: true,
+          message: `Model **${resolvedModel}** will be used for the next session. (${agentType} requires a new session for model changes)`,
+          stateUpdate: { pendingModel: resolvedModel } as unknown as CommandResult["stateUpdate"],
+        };
+      }
+      return {
+        success: true,
+        message: `Model switched to **${resolvedModel}**`,
+        stateUpdate: { model: resolvedModel } as unknown as CommandResult["stateUpdate"],
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      return {
+        success: false,
+        message: `Failed to switch model: ${errorMessage}`,
+      };
+    }
+  },
+};
+
+/**
+ * Group models by provider ID
+ */
+export function groupByProvider(models: { providerID: string; modelID?: string; name: string }[]): Map<string, typeof models> {
+  const grouped = new Map<string, typeof models>();
+  for (const model of models) {
+    const arr = grouped.get(model.providerID) ?? [];
+    arr.push(model);
+    grouped.set(model.providerID, arr);
+  }
+  return grouped;
+}
+
+/**
+ * Format grouped models for display
+ */
+export function formatGroupedModels(grouped: Map<string, { providerID: string; modelID?: string; name: string; status?: string; limits?: { context?: number } }[]>): string[] {
+  const lines: string[] = [];
+  for (const [providerID, models] of grouped.entries()) {
+    lines.push(`**${providerID}**`);
+    for (const model of models) {
+      let line = `  - ${model.modelID ?? model.name}`;
+      const annotations: string[] = [];
+      if (model.status && model.status !== 'active') {
+        annotations.push(model.status);
+      }
+      if (model.limits?.context) {
+        annotations.push(`${Math.round(model.limits.context / 1000)}k ctx`);
+      }
+      if (annotations.length > 0) {
+        line += ` (${annotations.join(', ')})`;
+      }
+      lines.push(line);
+    }
+    lines.push("");
+  }
+  return lines;
+}
+
 // ============================================================================
 // REGISTRATION
 // ============================================================================
@@ -262,6 +441,8 @@ export const builtinCommands: CommandDefinition[] = [
   themeCommand,
   clearCommand,
   compactCommand,
+  exitCommand,
+  modelCommand,
 ];
 
 /**

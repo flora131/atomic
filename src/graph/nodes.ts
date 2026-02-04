@@ -195,6 +195,7 @@ export function agentNode<TState extends BaseState = BaseState>(
       // Build session configuration
       const fullSessionConfig: SessionConfig = {
         ...sessionConfig,
+        model: ctx.model ?? sessionConfig?.model,
         systemPrompt: systemPrompt ?? sessionConfig?.systemPrompt,
         tools: tools ?? sessionConfig?.tools,
       };
@@ -720,7 +721,7 @@ export interface AskUserOption {
   /** Display label for the option */
   label: string;
   /** Detailed description of what this option does */
-  description: string;
+  description?: string;
 }
 
 /**
@@ -1185,7 +1186,7 @@ export function subgraphNode<
           throw new Error(`Workflow not found: ${subgraph}`);
         }
 
-        resolvedSubgraph = resolved as CompiledSubgraph<TSubState>;
+        resolvedSubgraph = resolved as unknown as CompiledSubgraph<TSubState>;
       } else {
         // Direct compiled graph
         resolvedSubgraph = subgraph;

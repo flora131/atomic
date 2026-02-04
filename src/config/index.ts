@@ -16,3 +16,6 @@ export {
   loadRalphConfig,
   describeRalphConfig,
 } from "./ralph.ts";
+
+// Copilot agent configuration
+export { type CopilotAgent, loadCopilotAgents } from "./copilot-manual.ts";

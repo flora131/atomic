@@ -25,6 +25,12 @@ export interface QueueIndicatorProps {
   queue?: QueuedMessage[];
   /** Whether to show compact display (default: true) */
   compact?: boolean;
+  /** Enable editing mode */
+  editable?: boolean;
+  /** Current edit index, -1 for none */
+  editIndex?: number;
+  /** Callback when user selects message to edit */
+  onEdit?: (index: number) => void;
 }
 
 // ============================================================================
@@ -90,6 +96,9 @@ export function QueueIndicator({
   count,
   queue,
   compact = true,
+  editable = false,
+  editIndex = -1,
+  onEdit,
 }: QueueIndicatorProps): React.ReactNode {
   const { theme } = useTheme();
 
@@ -101,15 +110,55 @@ export function QueueIndicator({
   const icon = getQueueIcon();
   const countText = formatQueueCount(count);
 
-  // Compact mode: single line with icon and count
+  // Compact mode: shows icon, count, and first queued message preview
   if (compact) {
+    // Get first message preview
+    const firstMessage = queue && queue.length > 0 ? queue[0] : undefined;
+    const preview = firstMessage ? truncateContent(firstMessage.content, 40) : "";
+
     return (
-      <box flexDirection="row" gap={1}>
-        <text style={{ fg: theme.colors.accent }}>{icon}</text>
-        <text style={{ fg: theme.colors.muted }}>{countText}</text>
+      <box flexDirection="column" gap={0}>
+        <box flexDirection="row" gap={1}>
+          <text style={{ fg: theme.colors.accent }}>{icon}</text>
+          <text style={{ fg: theme.colors.muted }}>{countText}</text>
+        </box>
+        {firstMessage && (
+          <box paddingLeft={2}>
+            <text style={{ fg: theme.colors.foreground }}>
+              ❯ {preview}
+            </text>
+            {count > 1 && (
+              <text style={{ fg: theme.colors.muted }}>
+                {" "}(+{count - 1} more)
+              </text>
+            )}
+          </box>
+        )}
       </box>
     );
   }
+
+  /**
+   * Render a single queued message with editing support.
+   *
+   * @param msg - The queued message to render
+   * @param index - The index of the message in the queue
+   * @returns React node for the message
+   */
+  const renderMessage = (msg: QueuedMessage, index: number): React.ReactNode => {
+    const isEditing = editable && editIndex === index;
+    const prefix = isEditing ? "› " : "❯ ";
+    const style = {
+      fg: isEditing ? theme.colors.accent : theme.colors.muted,
+      attributes: isEditing ? 1 : 0, // bold when editing
+    };
+
+    return (
+      <text key={msg.id} style={style}>
+        {prefix}{truncateContent(msg.content)}
+      </text>
+    );
+  };
 
   // Non-compact mode: show preview of queued messages
   return (
@@ -122,14 +171,7 @@ export function QueueIndicator({
       </box>
       {queue && queue.length > 0 && (
         <box flexDirection="column" paddingLeft={2}>
-          {queue.slice(0, 3).map((msg, index) => (
-            <text
-              key={msg.id}
-              style={{ fg: theme.colors.muted }}
-            >
-              {index + 1}. {truncateContent(msg.content)}
-            </text>
-          ))}
+          {queue.slice(0, 3).map((msg, index) => renderMessage(msg, index))}
           {queue.length > 3 && (
             <text style={{ fg: theme.colors.muted }}>
               ...and {queue.length - 3} more

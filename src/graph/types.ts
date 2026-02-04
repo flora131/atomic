@@ -64,6 +64,28 @@ export interface Checkpointer<TState extends BaseState = BaseState> {
 export type NodeId = string;
 
 /**
+ * Model specification for agent nodes.
+ *
+ * Defines which LLM model an agent node should use. The format is SDK-specific:
+ * - **Anthropic SDK**: `"claude-3-5-sonnet-20241022"`, `"claude-3-opus-20240229"`
+ * - **OpenAI SDK**: `"gpt-4o"`, `"gpt-4-turbo"`, `"gpt-3.5-turbo"`
+ * - **Google SDK**: `"gemini-1.5-pro"`, `"gemini-1.5-flash"`
+ * - **Ollama**: `"llama3.1:70b"`, `"mistral:7b"`
+ *
+ * Special values:
+ * - `"inherit"`: Use the model configured at the graph or session level
+ *
+ * @example
+ * // Use a specific model
+ * const modelSpec: ModelSpec = "claude-3-5-sonnet-20241022";
+ *
+ * @example
+ * // Inherit from parent configuration
+ * const modelSpec: ModelSpec = "inherit";
+ */
+export type ModelSpec = string | "inherit";
+
+/**
  * Types of nodes supported in the graph execution engine.
  *
  * - `agent`: Executes an AI agent to process input and generate output
@@ -244,6 +266,9 @@ export interface ExecutionContext<TState extends BaseState = BaseState> {
   /** Current context window usage from agent sessions */
   contextWindowUsage?: ContextWindowUsage;
 
+  /** Context window threshold percentage for triggering summarization */
+  contextWindowThreshold?: number;
+
   /**
    * Emit a signal during execution.
    * @param signal - The signal data to emit
@@ -256,6 +281,13 @@ export interface ExecutionContext<TState extends BaseState = BaseState> {
    * @returns The output from the node, or undefined if not executed
    */
   getNodeOutput?: (nodeId: NodeId) => unknown;
+
+  /**
+   * Resolved model for this execution context.
+   * Set by GraphExecutor based on node.model, parent context, or defaultModel.
+   * Passed to agent nodes for session creation.
+   */
+  model?: string;
 }
 
 /**
@@ -292,6 +324,16 @@ export interface NodeDefinition<TState extends BaseState = BaseState> {
 
   /** Description of what the node does */
   description?: string;
+
+  /**
+   * Model specification for this node.
+   *
+   * Per-SDK behavior:
+   * - **Claude** (`-a claude`): `'opus'`, `'sonnet'`, `'haiku'` aliases; `'inherit'` for parent; full ID supported
+   * - **OpenCode** (`-a opencode`): `'providerID/modelID'` format; `'inherit'` for parent
+   * - **Copilot** (`-a copilot`): Model IDs; `'inherit'` for session; NOTE: changes require new session
+   */
+  model?: ModelSpec;
 }
 
 // ============================================================================
@@ -359,6 +401,15 @@ export interface GraphConfig<TState extends BaseState = BaseState> {
    * Custom metadata to include with checkpoints.
    */
   metadata?: Record<string, unknown>;
+
+  /**
+   * Default model specification for graph execution.
+   *
+   * Used when nodes don't specify a model or use `'inherit'`.
+   * Format: `'providerID/modelID'` (e.g., `'anthropic/claude-sonnet-4-5'`, `'openai/gpt-4.1'`)
+   * Claude aliases (`opus`, `sonnet`, `haiku`) are also accepted.
+   */
+  defaultModel?: ModelSpec;
 }
 
 // ============================================================================

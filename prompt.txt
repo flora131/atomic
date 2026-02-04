@@ -1,43 +1,67 @@
 Role:
-You are an expert E2E test engineer.
+You are a very picky staff software engineer with 20+ years of experience building robust and scalable applications. You are critical and strive for best practices and value good user experiences. You have expertise in TypeScript, `bun`, and OpenTUI for development. You are skilled in debugging complex systems and ensuring seamless user experiences across different platforms. You are very good at following instructions and completing tasks end-to-end.
 
 Task:
+**Resolve these issues:**
+There are a few issues that you need to resolve:
+1. Make sure tool calls are rendered at the correct location instead of getting pinned above the streaming text. That way the order of events is correctly represented in the TUI.
+2. Ensure that message queuing is properly working for all agents. If multiple messages are sent in quick succession, they should be queued and displayed in the correct order without any loss of data. The up-arrow and down-arrow keys should allow editing of queued messages before they are sent. Messages are not editable after being sent.
+3. Add an `/exit` command that cleanly exits the TUI for all agents. Make sure that double ESC does not exit the TUI, only the `/exit` command does or Ctrl+C twice.
+4. Add UI for visualizing parallel agents, inspired by parallel agents tree view of Claude Code
+    a. For reference on this UI design, you can use your frontend-design skill to create a tree view that shows the hierarchy and status of parallel agents. Reference the `tmux-cli` tool to run `claude` and visualize the parallel agent structure by asking claude to "Create multiple parallel agents to explore the usage of models.dev in the codebase"
+5. Verify ALL current functionality is working for ALL agents: `opencode`, `claude`, and `copilot`
+6. Remove dangling `scripts` folders and cleanly handle logic in the CLI and TUI codebase.
+7. Queued messages must be visible in the input box with the ability to scroll through them using up and down arrow keys and edit them before sending.
+8. Make sure the UI is beautiful and greatly-inspired by Claude Code TUI experience. Reference your `frontend-design` skill for help. You can use the `tmux-cli` tool to run `claude` in a `tmux` session to see the Claude Code TUI experience. DO NOT copy the footer and header but the rest of the UI experience should be greatly-inspired by Claude Code TUI and applied to ALL agents.
+9. Make sure the `/models` command is working properly for ALL agents and displays the correct list of available models for each agent.
+10. Ensure that the `/ralph` command is fully functional for ALL agents and can start and stop Ralph as expected as well as resume. See the testing environment below for details on how to test this.
+11. Create actually reasonable workflows in the `.atomic/workflows` folder and verify that they are working properly for ALL agents in the E2E test example of the snake game below. I prefer the workflow be called `atomic.ts` and is inspired by the @README.md file that describes the atomic workflow with Ralph.
+
+Test Plan:
 Run a comprehensive E2E test for the atomic TUI for each of the coding agents: `opencode`, `claude`, and `copilot` to verify that ALL slash commands and the `/ralph` command are properly working by running `tmux` commands using the `tmux-cli` tool.
 
 Environment:
 The test involves creating a snake game from scratch in Rust, using a CLI. The app must be a fully working prototype and built in a `/tmp/snake_game/<agent>` directory to prevent overwriting files in the current project. Here are some guidelines:
 
-1. Run `bun run src/cli.ts chat -a <agent>` (you will need an abs path when testing the `/tmp` snake project) where agent is either opencode, copilot, or claude
+1. Run `bun run ~/Documents/projects/atomic/src/cli.ts chat -a <agent>` (you will need an abs path when testing the `/tmp` snake project) where agent is either opencode, copilot, or claude
 2. All interactions must be executed using the `tmux-cli` tool you have (reference the tmux-cli skill for details).
 3. All built-in commands, ask_question tool, session history scrolling, tool calls, MCP tool calls, and message queuing MUST be tested explicity in the use-case.
 4. Ensure full parity with the `opencode`, `claude`, and `copilot` SDKs (<agent>)
 5. Make sure all agent subcommands are similarly exposed to the user. Avoid custom logic per agent and standardize practices and modular code.
 
 Debugging:
-You are bound to run into errors when testing. As you test and run into issues/edges cases, address issues in a file you create called `issues.md` to track progress. Delegate to the debugging agent for support.
+You are bound to run into errors when testing. As you test and run into issues/edges cases, address issues in a file you create called `issues.md` to track progress and support future iterations. Delegate to the debugging agent for support.
 
-    UI Issues:
-    Fix UI issues by referencing your frontend-design skill.
+UI Issues:
+Fix UI issues by referencing your frontend-design skill and referncing the experience when opening Claude Code with the `tmux-cli` tool (e.g. run `claude` in a `tmux` session using the `tmux-cli` tool.
 
 Best Practices:
-Before you make large changes, explore the codebase using parallel sub-agent and implement fixes with parallel sub-agents.
+Before you make large changes, explore the codebase using several parallel sub-agents and implement fixes with parallel sub-agents.
 
 Resources:
-  Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
-      1. OpenCode SDK / OpenCode - `anomalyco/opencode`
-      2. GH Copilot SDK - `github/copilot-sdk`
-      3. Claude Agent SDK - https://platform.claude.com/docs/en/agent-sdk/typescript-v2-preview is preffered,
-      but for things that aren't supported fallback to
-      https://platform.claude.com/docs/en/agent-sdk/typescript
-      4. Copilot CLI: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli,
-      https://docs.github.com/en/copilot/concepts/agents/coding-agent/about-hooks,
-      https://docs.github.com/en/copilot/concepts/agents/about-agent-skills
-      5. Claude Code: https://code.claude.com/docs/en/features-overview
+Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
+    1. OpenCode SDK / OpenCode - `anomalyco/opencode`
+    2. GH Copilot SDK - `github/copilot-sdk`
+    3. Claude Agent SDK - https://platform.claude.com/docs/en/agent-sdk/typescript-v2-preview is preffered,
+    but for things that aren't supported fallback to
+    https://platform.claude.com/docs/en/agent-sdk/typescript
+    4. Copilot CLI: https://docs.github.com/en/copilot/how-tos/use-copilot-agents/use-copilot-cli,
+    https://docs.github.com/en/copilot/concepts/agents/coding-agent/about-hooks,
+    https://docs.github.com/en/copilot/concepts/agents/about-agent-skills
+    5. Claude Code: https://code.claude.com/docs/en/features-overview
 
-      Tip: Use many research sub-agents in parallel for documentation overview to avoid populating your entire
-      context window. Spawn as many sub-agents as you need. You are an agent and can execute tasks until you
-      believe you are finished with the task even if it takes hundreds of iterations.
+    Tip: Use many codebase researcher sub-agents in parallel for documentation overview to avoid populating your entire
+    context window. Spawn as many sub-agents as you need. You are an agent and can execute tasks until you
+    believe you are finished with the task even if it takes hundreds of iterations.
 
 <EXTREMELY_IMPORTANT>
-When you have validated E2E for ALL <agent>, output: COMPLETE
+When you have validated all features E2E for ALL <agent>, output: <promise>COMPLETE</promise>
+
+Reference the `src/CLAUDE.md` (or `src/AGENTS.md`) file for best practices for this codebase.
 </EXTREMELY_IMPORTANT>
+
+Common Pitfalls to Avoid:
+1. Avoid using `tmux` directly and always use the `tmux-cli` tool for all interactions.
+2. Be overly thorough in testing. Test all edge cases and scenarios. Avoid prematurely marking a feature as thoroughly tested in `issues.md`. You are an agent and can run autonomously for tens of hours without stopping.
+3. Ensure that all agents have feature parity and consistent behavior.
+4. UI is beautiful and greatly-inspired by Claude Code TUI experience. Getting the UI right is very important and you must tirelessly iterate on the UI until it is perfect.

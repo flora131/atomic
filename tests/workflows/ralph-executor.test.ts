@@ -10,8 +10,8 @@ import {
   createRalphExecutor,
   type RalphExecutorRunOptions,
   type RalphExecutorResult,
-} from "../../src/workflows/ralph-executor.ts";
-import { createRalphWorkflow } from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/ralph/executor.ts";
+import { createRalphWorkflow } from "../../src/workflows/ralph/workflow.ts";
 import type { RalphWorkflowState } from "../../src/graph/nodes/ralph-nodes.ts";
 
 // ============================================================================

@@ -49,7 +49,7 @@ const UUID_V4_PATTERN =
  */
 function createMockContext(
   stateOverrides: Partial<CommandContextState> = {}
-): CommandContext {
+): CommandContext & { getMessages: () => Array<{ role: string; content: string }> } {
   const messages: Array<{ role: string; content: string }> = [];
   return {
     session: null,
@@ -70,6 +70,8 @@ function createMockContext(
     setStreaming: () => {},
     sendMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
+    agentType: undefined,
+    modelOps: undefined,
     getMessages: () => messages,
   };
 }

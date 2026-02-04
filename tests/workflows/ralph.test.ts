@@ -10,7 +10,7 @@ import {
   createTestRalphWorkflow,
   RALPH_NODE_IDS,
   type CreateRalphWorkflowConfig,
-} from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/ralph/workflow.ts";
 import { RALPH_CONFIG } from "../../src/config/ralph.ts";
 
 // ============================================================================

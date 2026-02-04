@@ -43,6 +43,10 @@ export interface ChatCommandOptions {
   theme?: "dark" | "light";
   /** Session configuration options */
   model?: string;
+  /** Enable graph workflow mode */
+  workflow?: boolean;
+  /** Maximum iterations for workflow */
+  maxIterations?: number;
 }
 
 // ============================================================================
@@ -174,6 +178,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
       tier: modelDisplayInfo.tier,
       workingDir: process.cwd(),
       suggestion: 'Try "fix typecheck errors"',
+      agentType,
     };
 
     // Start standard chat

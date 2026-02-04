@@ -26,7 +26,7 @@ import {
   SESSION_SUBDIRECTORIES,
   type RalphFeature,
   type RalphSession,
-} from "../../src/workflows/ralph-session.ts";
+} from "../../src/workflows/ralph/session.ts";
 
 describe("RalphFeature", () => {
   describe("createRalphFeature", () => {

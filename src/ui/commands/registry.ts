@@ -8,6 +8,7 @@
  */
 
 import type { Session } from "../../sdk/types.ts";
+import type { AgentType, ModelOperations } from "../../models";
 
 // ============================================================================
 // TYPES
@@ -69,6 +70,10 @@ export interface CommandContext {
    * @returns Promise with the sub-agent execution result
    */
   spawnSubagent: (options: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
+  /** The type of agent currently in use (claude, opencode, copilot) */
+  agentType?: AgentType;
+  /** Model operations interface for listing, setting, and resolving models */
+  modelOps?: ModelOperations;
 }
 
 /**
@@ -117,6 +122,8 @@ export interface CommandContextState {
     userPrompt: string | null;
     resumeSessionId?: string;
     maxIterations?: number;
+    featureListPath?: string;
+    sessionId?: string;
   };
 }
 
@@ -132,6 +139,8 @@ export interface CommandResult {
   stateUpdate?: Partial<CommandContextState>;
   /** If true, clear all messages from the chat */
   clearMessages?: boolean;
+  /** If true, exit the application */
+  shouldExit?: boolean;
 }
 
 /**

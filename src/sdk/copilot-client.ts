@@ -19,6 +19,18 @@
  *
  * To implement custom permission handling, call setPermissionHandler()
  * with a custom CopilotPermissionHandler before creating sessions.
+ *
+ * AGENT-SPECIFIC LOGIC (why this module exists):
+ * - Copilot SDK uses CopilotClient class with start/stop lifecycle
+ * - Copilot SDK requires connection mode configuration (stdio, port, cliUrl)
+ * - Copilot SDK has custom agent support loaded from .github/agents/
+ * - Copilot SDK permission model uses onPermissionRequest callback
+ * - Copilot SDK events (SessionEvent) require custom mapping to unified EventType
+ * - Copilot SDK tracks toolCallId for mapping tool.start to tool.complete
+ *
+ * Common patterns (see base-client.ts) are duplicated here because:
+ * - Tighter integration with Copilot session state tracking
+ * - Event subscription tied to SDK session lifecycle
  */
 
 import {
@@ -33,7 +45,11 @@ import {
   type PermissionRequestResult as SdkPermissionResult,
   type Tool as SdkTool,
   type ResumeSessionConfig as SdkResumeSessionConfig,
+  type CustomAgentConfig as SdkCustomAgentConfig,
 } from "@github/copilot-sdk";
+
+import { initCopilotSessionOptions } from "./init.ts";
+import { loadCopilotAgents } from "../config/copilot-manual.ts";
 
 import type {
   CodingAgentClient,
@@ -555,8 +571,21 @@ export class CopilotClient implements CodingAgentClient {
     // Generate a session ID for permission handler events
     const tentativeSessionId = config.sessionId ?? `copilot_${Date.now()}`;
 
-    // Use provided permission handler or create HITL handler that emits events
-    const permissionHandler = this.permissionHandler ?? this.createHITLPermissionHandler(tentativeSessionId);
+    // Get default session options (auto-approve permissions)
+    const defaultOptions = initCopilotSessionOptions();
+
+    // Use provided permission handler, or default from initCopilotSessionOptions, or create HITL handler
+    const permissionHandler = this.permissionHandler ?? defaultOptions.OnPermissionRequest ?? this.createHITLPermissionHandler(tentativeSessionId);
+
+    // Load custom agents from project and global directories
+    const projectRoot = this.clientOptions.cwd ?? process.cwd();
+    const loadedAgents = await loadCopilotAgents(projectRoot);
+    const customAgents: SdkCustomAgentConfig[] = loadedAgents.map((agent) => ({
+      name: agent.name,
+      description: agent.description,
+      tools: agent.tools ?? null,
+      prompt: agent.systemPrompt,
+    }));
 
     const sdkConfig: SdkSessionConfig = {
       sessionId: config.sessionId,
@@ -568,6 +597,7 @@ export class CopilotClient implements CodingAgentClient {
       streaming: true,
       tools: this.registeredTools.map((t) => this.convertTool(t)),
       onPermissionRequest: permissionHandler,
+      customAgents: customAgents.length > 0 ? customAgents : undefined,
     };
 
     const sdkSession = await this.sdkClient.createSession(sdkConfig);

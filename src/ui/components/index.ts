@@ -83,3 +83,21 @@ export {
   type TimestampDisplayProps,
 } from "./timestamp-display.tsx";
 
+// ============================================================================
+// PARALLEL AGENTS TREE COMPONENT
+// ============================================================================
+
+export {
+  ParallelAgentsTree,
+  getAgentColor,
+  getStatusIcon,
+  formatDuration,
+  truncateText,
+  getElapsedTime,
+  STATUS_ICONS,
+  AGENT_COLORS,
+  type ParallelAgentsTreeProps,
+  type ParallelAgent,
+  type AgentStatus,
+} from "./parallel-agents-tree.tsx";
+

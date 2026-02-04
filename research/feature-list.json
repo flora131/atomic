@@ -1,0 +1,1476 @@
+[
+  {
+    "category": "functional",
+    "description": "Phase 1.1: Add ModelSpec type definition to graph types",
+    "steps": [
+      "Open src/graph/types.ts",
+      "Add ModelSpec type after line 64: export type ModelSpec = string | 'inherit'",
+      "Add comprehensive JSDoc explaining SDK-specific formats:",
+      "  - Claude: 'opus' | 'sonnet' | 'haiku' | 'inherit' | full model ID",
+      "  - OpenCode: 'providerID/modelID' format (e.g., 'anthropic/claude-sonnet-4-5')",
+      "  - Copilot: Model ID (e.g., 'gpt-5', 'claude-sonnet-4.5')",
+      "Export the type in the module's public API",
+      "Run pnpm typecheck to verify no breaking changes"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 1.2: Add model field to NodeDefinition interface",
+    "steps": [
+      "Open src/graph/types.ts (lines 277-295)",
+      "Add model?: ModelSpec field to NodeDefinition interface",
+      "Add JSDoc comment explaining per-SDK behavior:",
+      "  - Claude (-a claude): 'opus', 'sonnet', 'haiku' aliases; 'inherit' for parent; full ID supported",
+      "  - OpenCode (-a opencode): 'providerID/modelID' format; 'inherit' for parent",
+      "  - Copilot (-a copilot): Model IDs; 'inherit' for session; NOTE: changes require new session",
+      "Ensure field is optional to maintain backward compatibility",
+      "Run pnpm typecheck to verify interface compatibility"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 1.3: Add model field to ExecutionContext interface",
+    "steps": [
+      "Open src/graph/types.ts (lines 231-259)",
+      "Add model?: string field to ExecutionContext interface",
+      "Add JSDoc comment: 'Resolved model for this execution context - Set by GraphExecutor based on node.model, parent context, or defaultModel - Passed to agent nodes for session creation'",
+      "Ensure field is optional to maintain backward compatibility",
+      "Run pnpm typecheck to verify interface compatibility"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 1.4: Add defaultModel field to GraphConfig interface",
+    "steps": [
+      "Open src/graph/types.ts (lines 322-362)",
+      "Add defaultModel?: ModelSpec field to GraphConfig interface",
+      "Add JSDoc comment explaining:",
+      "  - Used when nodes don't specify a model or use 'inherit'",
+      "  - Format: 'anthropic/claude-sonnet-4-5', 'openai/gpt-4.1', etc.",
+      "  - Claude aliases (opus, sonnet, haiku) also accepted",
+      "Ensure field is optional to maintain backward compatibility",
+      "Run pnpm typecheck to verify interface compatibility"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 1.5: Implement resolveModel private method in GraphExecutor",
+    "steps": [
+      "Open src/graph/compiled.ts",
+      "Add private resolveModel() method before executeWithRetry method",
+      "Method signature: private resolveModel(node: NodeDefinition<TState>, parentContext?: ExecutionContext<TState>): string | undefined",
+      "Implement resolution order:",
+      "  1. If node.model exists and is not 'inherit', return node.model",
+      "  2. If parentContext?.model exists, return parentContext.model",
+      "  3. If this.config.defaultModel exists and is not 'inherit', return this.config.defaultModel",
+      "  4. Return undefined (let SDK use its default)",
+      "Add debug-level logging for model resolution tracing"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 1.6: Update ExecutionContext construction to include resolved model",
+    "steps": [
+      "Open src/graph/compiled.ts (lines 519-531)",
+      "Locate the context construction in executeWithRetry or similar method",
+      "Add model: this.resolveModel(node, parentContext) to the ExecutionContext object",
+      "Verify model is properly passed through to child nodes during nested execution",
+      "Add debug logging: 'Resolved model for node {nodeId}: {model}'",
+      "Run pnpm typecheck to verify changes"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 1.7: Use context.model in agent node session configuration",
+    "steps": [
+      "Open src/graph/nodes.ts (lines 196-200)",
+      "Locate the fullSessionConfig construction",
+      "Update to use context.model ?? sessionConfig?.model for model precedence",
+      "Ensure context model takes precedence over sessionConfig.model",
+      "Verify the model is passed to createSession() call",
+      "Test with agent nodes using different model configurations"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.1: Create lazy initialization utility module",
+    "steps": [
+      "Create new file src/util/lazy.ts",
+      "Implement lazy<T>(fn: () => T) function signature",
+      "Return type: (() => T) & { reset: () => void }",
+      "Implement internal state: cached: T | undefined, computed: boolean",
+      "Implement lazy evaluation: if not computed, call fn() and cache result",
+      "Implement reset() method to clear cache and set computed = false",
+      "Add JSDoc documentation explaining the pattern (same as OpenCode)",
+      "Export lazy function as default and named export"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.2: Create models.dev Model Zod schema",
+    "steps": [
+      "Create new file src/models/models-dev.ts",
+      "Import z from 'zod'",
+      "Create ModelsDev namespace",
+      "Define Model schema with all fields from OpenCode (lines 17-69):",
+      "  - id: z.string()",
+      "  - name: z.string()",
+      "  - family: z.string().optional()",
+      "  - release_date: z.string()",
+      "  - attachment: z.boolean()",
+      "  - reasoning: z.boolean()",
+      "  - temperature: z.boolean()",
+      "  - tool_call: z.boolean()",
+      "  - interleaved: z.union([z.literal(true), z.object({field: z.enum(['reasoning_content', 'reasoning_details'])}).strict()]).optional()",
+      "  - cost: z.object with input, output, cache_read, cache_write, context_over_200k",
+      "  - limit: z.object with context, input, output",
+      "  - modalities: z.object with input/output arrays",
+      "  - experimental: z.boolean().optional()",
+      "  - status: z.enum(['alpha', 'beta', 'deprecated']).optional()",
+      "  - options: z.record(z.string(), z.any())",
+      "  - headers: z.record(z.string(), z.string()).optional()",
+      "  - provider: z.object({ npm: z.string() }).optional()",
+      "  - variants: z.record(z.string(), z.record(z.string(), z.any())).optional()",
+      "Export type Model = z.infer<typeof Model>"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.3: Create models.dev Provider Zod schema",
+    "steps": [
+      "In src/models/models-dev.ts, add Provider schema after Model",
+      "Define Provider schema (from OpenCode lines 72-79):",
+      "  - api: z.string().optional()",
+      "  - name: z.string()",
+      "  - env: z.array(z.string())",
+      "  - id: z.string()",
+      "  - npm: z.string().optional()",
+      "  - models: z.record(z.string(), Model)",
+      "Export type Provider = z.infer<typeof Provider>",
+      "Define Database type: Record<string, Provider>"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.4: Implement models.dev cache path and constants",
+    "steps": [
+      "In src/models/models-dev.ts, add constants at top of file",
+      "Define CACHE_PATH: process.env.ATOMIC_MODELS_PATH ?? path.join(process.env.HOME || '', '.atomic', 'cache', 'models.json')",
+      "Define REFRESH_INTERVAL: 60 * 1000 * 60 (60 minutes, same as OpenCode)",
+      "Import fs from 'fs/promises' and path from 'path'",
+      "Add url() function that returns process.env.ATOMIC_MODELS_URL ?? 'https://models.dev'"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.5: Implement models.dev Data lazy loader",
+    "steps": [
+      "In src/models/models-dev.ts, implement Data using lazy()",
+      "Import lazy from '../util/lazy'",
+      "Data = lazy(async () => { ... })",
+      "Load order implementation:",
+      "  1. Try file cache: await fs.readFile(cachePath, 'utf-8'), JSON.parse",
+      "  2. Try bundled snapshot: await import('./models-snapshot')",
+      "  3. Fetch from API if not disabled: !process.env.ATOMIC_DISABLE_MODELS_FETCH",
+      "Handle errors gracefully with empty catch blocks",
+      "Return {} as Database if all sources fail"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.6: Implement models.dev fetchFromApi function",
+    "steps": [
+      "In src/models/models-dev.ts, add private async function fetchFromApi(): Promise<Database>",
+      "Use fetch() with url() + '/api.json'",
+      "Set headers: { 'User-Agent': 'atomic-cli' }",
+      "Set signal: AbortSignal.timeout(10000) (10 second timeout)",
+      "Check response.ok, throw Error if not",
+      "Return response.json() as Promise<Database>",
+      "Handle network errors appropriately"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.7: Implement models.dev get() function",
+    "steps": [
+      "In src/models/models-dev.ts, export async function get(): Promise<Database>",
+      "Simply return Data() (calls lazy loader)",
+      "Add JSDoc: 'Get models data (from lazy loader)'"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.8: Implement models.dev refresh() function",
+    "steps": [
+      "In src/models/models-dev.ts, export async function refresh(): Promise<void>",
+      "Call const data = await fetchFromApi()",
+      "Write to cache: await fs.mkdir(path.dirname(cachePath), { recursive: true })",
+      "Write file: await fs.writeFile(cachePath, JSON.stringify(data, null, 2))",
+      "Reset lazy loader: Data.reset()",
+      "Add error handling for file write failures"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.9: Implement models.dev listModels() function",
+    "steps": [
+      "In src/models/models-dev.ts, export async function listModels()",
+      "Return type: Promise<Array<{ providerID: string; model: Model & { id: string } }>>",
+      "Get data via await get()",
+      "Iterate Object.entries(data) for providers",
+      "Iterate Object.entries(provider.models) for models",
+      "Push { providerID, model: { ...model, id: modelID } } to result array",
+      "Return result array"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.10: Implement models.dev getModel() and getProvider() functions",
+    "steps": [
+      "In src/models/models-dev.ts, export async function getModel(providerID: string, modelID: string): Promise<Model | undefined>",
+      "Get data via await get()",
+      "Return data[providerID]?.models[modelID]",
+      "Export async function getProvider(providerID: string): Promise<Provider | undefined>",
+      "Get data via await get()",
+      "Return data[providerID]"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.11: Implement startModelsDevRefresh() function",
+    "steps": [
+      "In src/models/models-dev.ts, export function startModelsDevRefresh(): void",
+      "Call ModelsDev.refresh().catch(() => {}) for initial refresh",
+      "Set up setInterval() with REFRESH_INTERVAL (60 minutes)",
+      "In interval callback: ModelsDev.refresh().catch(() => {})",
+      "Add JSDoc explaining refresh behavior"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.12: Create empty models-snapshot.ts placeholder",
+    "steps": [
+      "Create new file src/models/models-snapshot.ts",
+      "Export default {} as const",
+      "Add comment: '// Generated at build time - do not edit manually'",
+      "Add comment explaining this is a fallback for offline scenarios"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.13: Create model transformation module - Model interface",
+    "steps": [
+      "Create new file src/models/model-transform.ts",
+      "Import { ModelsDev } from './models-dev'",
+      "Define Model interface with fields:",
+      "  - id: string (Full ID: providerID/modelID)",
+      "  - providerID: string",
+      "  - modelID: string",
+      "  - name: string",
+      "  - family?: string",
+      "  - api?: string",
+      "  - status: 'alpha' | 'beta' | 'deprecated' | 'active'",
+      "  - capabilities: { reasoning, attachment, temperature, toolCall }",
+      "  - limits: { context, input?, output }",
+      "  - cost?: { input, output, cacheRead?, cacheWrite? }",
+      "  - modalities?: { input: string[], output: string[] }",
+      "  - options: Record<string, unknown>",
+      "  - headers?: Record<string, string>",
+      "Export Model interface"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.14: Implement fromModelsDevModel transformation function",
+    "steps": [
+      "In src/models/model-transform.ts, export function fromModelsDevModel()",
+      "Parameters: providerID: string, modelID: string, model: ModelsDev.Model, providerApi?: string",
+      "Return type: Model",
+      "Map all fields from ModelsDev.Model to internal Model format:",
+      "  - id: `${providerID}/${modelID}`",
+      "  - status: model.status ?? 'active'",
+      "  - capabilities: { reasoning: model.reasoning, attachment: model.attachment, temperature: model.temperature, toolCall: model.tool_call }",
+      "  - limits: { context: model.limit.context, input: model.limit.input, output: model.limit.output }",
+      "  - cost transformation with camelCase conversion",
+      "  - Copy modalities, options, headers directly"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.15: Implement fromModelsDevProvider transformation function",
+    "steps": [
+      "In src/models/model-transform.ts, export function fromModelsDevProvider()",
+      "Parameters: providerID: string, provider: ModelsDev.Provider",
+      "Return type: Model[]",
+      "Map Object.entries(provider.models) to array",
+      "Call fromModelsDevModel for each model",
+      "Pass provider.api as providerApi parameter"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.16: Create model operations module - Types and interfaces",
+    "steps": [
+      "Create new file src/models/model-operations.ts",
+      "Import { ModelsDev } from './models-dev'",
+      "Import { Model, fromModelsDevModel } from './model-transform'",
+      "Export type AgentType = 'claude' | 'opencode' | 'copilot'",
+      "Export interface SetModelResult { success: boolean; requiresNewSession?: boolean }",
+      "Export interface ModelOperations:",
+      "  - listAvailableModels(): Promise<Model[]>",
+      "  - setModel(model: string): Promise<SetModelResult>",
+      "  - getCurrentModel(): Promise<string | undefined>",
+      "  - resolveAlias(alias: string): string | undefined"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.17: Define Claude alias constants",
+    "steps": [
+      "In src/models/model-operations.ts, add const CLAUDE_ALIASES",
+      "Type: Record<string, string>",
+      "Define mappings:",
+      "  - 'sonnet': 'sonnet' (SDK resolves to latest Sonnet)",
+      "  - 'opus': 'opus' (SDK resolves to latest Opus)",
+      "  - 'haiku': 'haiku' (SDK resolves to latest Haiku)",
+      "  - 'default': 'sonnet' (Account default)",
+      "Add comment explaining these are passed to SDK which resolves to latest versions"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.18: Implement UnifiedModelOperations class constructor",
+    "steps": [
+      "In src/models/model-operations.ts, export class UnifiedModelOperations implements ModelOperations",
+      "Add private fields: currentModel?: string, pendingModel?: string",
+      "Constructor parameters: private agentType: AgentType, private sdkSetModel?: (model: string) => Promise<void>",
+      "Add JSDoc explaining unified model operations using models.dev"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.19: Implement UnifiedModelOperations.listAvailableModels()",
+    "steps": [
+      "Implement async listAvailableModels(): Promise<Model[]>",
+      "Call const data = await ModelsDev.get()",
+      "Initialize const models: Model[] = []",
+      "Iterate Object.entries(data) for providers",
+      "Iterate Object.entries(provider.models) for models",
+      "Push fromModelsDevModel(providerID, modelID, model, provider.api) to models array",
+      "Return models"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.20: Implement UnifiedModelOperations.setModel()",
+    "steps": [
+      "Implement async setModel(model: string): Promise<SetModelResult>",
+      "Resolve alias: const resolvedModel = this.resolveAlias(model) ?? model",
+      "Check Copilot limitation: if (this.agentType === 'copilot')",
+      "  - Set this.pendingModel = resolvedModel",
+      "  - Return { success: true, requiresNewSession: true }",
+      "For other agents, call SDK: if (this.sdkSetModel) await this.sdkSetModel(resolvedModel)",
+      "Set this.currentModel = resolvedModel",
+      "Return { success: true }"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.21: Implement UnifiedModelOperations.getCurrentModel() and resolveAlias()",
+    "steps": [
+      "Implement async getCurrentModel(): Promise<string | undefined>",
+      "Return this.currentModel",
+      "Implement resolveAlias(alias: string): string | undefined",
+      "Check if agentType === 'claude'",
+      "Return CLAUDE_ALIASES[alias.toLowerCase()] if Claude",
+      "Return undefined for other agent types",
+      "Add getPendingModel(): string | undefined method for Copilot"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.22: Create models module index file",
+    "steps": [
+      "Create new file src/models/index.ts",
+      "Export * from './models-dev'",
+      "Export * from './model-transform'",
+      "Export * from './model-operations'",
+      "Export { startModelsDevRefresh } from './models-dev'"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.23: Extend CommandContext interface with model operations",
+    "steps": [
+      "Open src/ui/commands/registry.ts (lines 50-72)",
+      "Import { AgentType, ModelOperations } from '../../models'",
+      "Add agentType: AgentType field to CommandContext interface",
+      "Add modelOps: ModelOperations field to CommandContext interface",
+      "Add JSDoc comments explaining each field",
+      "Run pnpm typecheck to verify changes"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.24: Update CommandContext creation sites",
+    "steps": [
+      "Search for all locations that create CommandContext objects",
+      "Update each to include agentType and modelOps fields",
+      "Import necessary types at each location",
+      "Ensure UnifiedModelOperations is instantiated with correct agentType",
+      "Pass SDK setModel function where available",
+      "Run pnpm typecheck to verify all creation sites are updated"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.25: Implement /model command - basic structure",
+    "steps": [
+      "Open src/ui/commands/builtin-commands.ts",
+      "Import { ModelsDev } from '../../models'",
+      "Create modelCommand: CommandDefinition object",
+      "Set name: 'model', description: 'Switch or view the current model'",
+      "Set category: 'builtin', aliases: ['m']",
+      "Create execute async function with args: string, context: CommandContext parameters",
+      "Return type: Promise<CommandResult>"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.26: Implement /model command - show current model (no args)",
+    "steps": [
+      "In modelCommand.execute, extract { agentType, modelOps } from context",
+      "Trim args: const trimmed = args.trim()",
+      "If !trimmed (no args):",
+      "  - Call const currentModel = await modelOps.getCurrentModel()",
+      "  - Return { success: true, message: `Current model: **${currentModel ?? 'No model set'}**` }"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.27: Implement /model command - refresh subcommand",
+    "steps": [
+      "In modelCommand.execute, add const lowerTrimmed = trimmed.toLowerCase()",
+      "If lowerTrimmed === 'refresh':",
+      "  - Call await ModelsDev.refresh()",
+      "  - Return { success: true, message: 'Models cache refreshed from models.dev' }"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.28: Implement /model command - list subcommand",
+    "steps": [
+      "If lowerTrimmed === 'list' || lowerTrimmed.startsWith('list '):",
+      "Extract provider filter: const providerFilter = lowerTrimmed.startsWith('list ') ? trimmed.substring(5).trim() : undefined",
+      "Call const models = await modelOps.listAvailableModels()",
+      "Filter if needed: const filtered = providerFilter ? models.filter(m => m.providerID === providerFilter) : models",
+      "If filtered.length === 0, return appropriate message",
+      "Call groupByProvider(filtered) and formatGroupedModels(grouped)",
+      "Return { success: true, message: `**Available Models** (via models.dev)\\n\\n${lines.join('\\n')}` }"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.29: Implement /model command - model switching",
+    "steps": [
+      "Add try-catch block for model switching (default case)",
+      "Resolve alias: const resolvedModel = modelOps.resolveAlias(trimmed) ?? trimmed",
+      "Call const result = await modelOps.setModel(resolvedModel)",
+      "If result.requiresNewSession:",
+      "  - Return message explaining model will be used for next session",
+      "  - Include stateUpdate: { pendingModel: resolvedModel }",
+      "Otherwise return { success: true, message: `Model switched to **${resolvedModel}**`, stateUpdate: { model: resolvedModel } }",
+      "In catch block: return { success: false, message: `Failed to switch model: ${error.message}` }"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.30: Implement groupByProvider helper function",
+    "steps": [
+      "In src/ui/commands/builtin-commands.ts, add function groupByProvider(models: Model[]): Map<string, Model[]>",
+      "Initialize const grouped = new Map<string, Model[]>()",
+      "Iterate models, get or create array for each providerID",
+      "Push model to provider's array",
+      "Return grouped Map"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.31: Implement formatGroupedModels helper function",
+    "steps": [
+      "In src/ui/commands/builtin-commands.ts, add function formatGroupedModels(grouped: Map<string, Model[]>): string[]",
+      "Initialize const lines: string[] = []",
+      "Iterate grouped Map entries",
+      "For each provider: push `\\n**${provider}**`",
+      "For each model:",
+      "  - Format status: const status = m.status && m.status !== 'active' ? ` (${m.status})` : ''",
+      "  - Format context: const ctx = m.limits.context ? ` [${Math.round(m.limits.context / 1000)}k ctx]` : ''",
+      "  - Push `  ${m.providerID}/${m.modelID} - ${m.name}${ctx}${status}`",
+      "Return lines"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.32: Register modelCommand in builtinCommands array",
+    "steps": [
+      "Open src/ui/commands/builtin-commands.ts (lines 260-265)",
+      "Add modelCommand to the builtinCommands array",
+      "Ensure it's exported properly",
+      "Verify command is registered in the command registry"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 2.33: Call startModelsDevRefresh on app initialization",
+    "steps": [
+      "Identify app entry point (likely src/cli.ts or src/index.ts)",
+      "Import { startModelsDevRefresh } from './models'",
+      "Call startModelsDevRefresh() during app startup",
+      "Ensure refresh doesn't block app startup (it's async)",
+      "Handle errors gracefully without crashing the app"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.1: Add currentEditIndex state to useMessageQueue hook",
+    "steps": [
+      "Open src/ui/hooks/use-message-queue.ts",
+      "Add state: const [currentEditIndex, setCurrentEditIndex] = useState<number>(-1)",
+      "Update UseMessageQueueReturn interface to include currentEditIndex: number",
+      "Update UseMessageQueueReturn interface to include setEditIndex: (index: number) => void"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.2: Implement updateAt method in useMessageQueue hook",
+    "steps": [
+      "In src/ui/hooks/use-message-queue.ts, add updateAt method",
+      "Use useCallback for memoization",
+      "Signature: (index: number, content: string) => void",
+      "Implementation:",
+      "  - Check if index < 0 || index >= prev.length, return prev unchanged",
+      "  - Create copy of array: const updated = [...prev]",
+      "  - Update message: updated[index] = { ...updated[index], content }",
+      "  - Return updated array",
+      "Add updateAt to return object"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.3: Implement moveUp method in useMessageQueue hook",
+    "steps": [
+      "In src/ui/hooks/use-message-queue.ts, add moveUp method",
+      "Use useCallback for memoization",
+      "Signature: (index: number) => void",
+      "Implementation:",
+      "  - Check if index <= 0 || index >= prev.length, return prev unchanged",
+      "  - Create copy: const updated = [...prev]",
+      "  - Swap: [updated[index - 1], updated[index]] = [updated[index], updated[index - 1]]",
+      "  - Update edit index: setCurrentEditIndex(prev => prev > 0 ? prev - 1 : prev)",
+      "  - Return updated",
+      "Add moveUp to return object"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.4: Implement moveDown method in useMessageQueue hook",
+    "steps": [
+      "In src/ui/hooks/use-message-queue.ts, add moveDown method",
+      "Use useCallback with [queue.length] dependency",
+      "Signature: (index: number) => void",
+      "Implementation:",
+      "  - Check if index < 0 || index >= prev.length - 1, return prev unchanged",
+      "  - Create copy: const updated = [...prev]",
+      "  - Swap: [updated[index], updated[index + 1]] = [updated[index + 1], updated[index]]",
+      "  - Update edit index: setCurrentEditIndex(prev => prev < queue.length - 1 ? prev + 1 : prev)",
+      "  - Return updated",
+      "Add moveDown to return object"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.5: Implement setEditIndex method in useMessageQueue hook",
+    "steps": [
+      "In src/ui/hooks/use-message-queue.ts, add setEditIndex method",
+      "Use useCallback for memoization (empty dependency array)",
+      "Signature: (index: number) => void",
+      "Implementation: setCurrentEditIndex(index)",
+      "Add setEditIndex to return object"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.6: Update UseMessageQueueReturn interface with all new methods",
+    "steps": [
+      "In src/ui/hooks/use-message-queue.ts, update UseMessageQueueReturn interface",
+      "Add updateAt: (index: number, content: string) => void",
+      "Add moveUp: (index: number) => void",
+      "Add moveDown: (index: number) => void",
+      "Add currentEditIndex: number",
+      "Add setEditIndex: (index: number) => void",
+      "Add JSDoc comments for each new method"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.7: Update QueueIndicatorProps interface with editing support",
+    "steps": [
+      "Open src/ui/components/queue-indicator.tsx",
+      "Update QueueIndicatorProps interface",
+      "Add editable?: boolean (Enable editing mode)",
+      "Add editIndex?: number (Current edit index, -1 for none)",
+      "Add onEdit?: (index: number) => void (Callback when user selects message to edit)",
+      "Set default values in destructuring: editable = false, editIndex = -1"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.8: Update QueueIndicator message rendering for editing",
+    "steps": [
+      "In QueueIndicator component, update renderMessage function",
+      "Add parameters: msg: QueuedMessage, index: number",
+      "Calculate isEditing: const isEditing = editable && editIndex === index",
+      "Set prefix: const prefix = isEditing ? '› ' : '❯ '",
+      "Create style object with accent color for editing, muted for others",
+      "Add fontWeight: 'bold' for editing state",
+      "Add onClick handler to Box: onClick={() => onEdit?.(index)}",
+      "Apply style to Text component"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.9: Add truncateContent helper function to QueueIndicator",
+    "steps": [
+      "In src/ui/components/queue-indicator.tsx, add truncateContent function",
+      "Parameters: content: string, maxLength: number",
+      "Return type: string",
+      "Implementation: return content.length > maxLength ? content.slice(0, maxLength) + '...' : content",
+      "Use in renderMessage for msg.content"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.10: Add isEditingQueue state to ChatApp",
+    "steps": [
+      "Open src/ui/chat.tsx",
+      "Add state: const [isEditingQueue, setIsEditingQueue] = useState(false)",
+      "This tracks whether user is in queue editing mode"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.11: Render QueueIndicator in ChatApp",
+    "steps": [
+      "In src/ui/chat.tsx, locate render section (after message list, before input)",
+      "Import QueueIndicator component",
+      "Add conditional render: {messageQueue.count > 0 && (...)}",
+      "Render QueueIndicator with props:",
+      "  - count={messageQueue.count}",
+      "  - queue={messageQueue.queue}",
+      "  - compact={!isEditingQueue}",
+      "  - editable={!isStreaming}",
+      "  - editIndex={messageQueue.currentEditIndex}",
+      "  - onEdit callback to set edit index and isEditingQueue"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.12: Implement up-arrow handler for queue editing",
+    "steps": [
+      "In src/ui/chat.tsx, locate keyboard handler (lines 1361-1569)",
+      "Add condition: if (key.upArrow && messageQueue.count > 0 && !isStreaming)",
+      "Call e.preventDefault()",
+      "If messageQueue.currentEditIndex === -1:",
+      "  - Enter edit mode at last message: messageQueue.setEditIndex(messageQueue.count - 1)",
+      "  - Set setIsEditingQueue(true)",
+      "Else if messageQueue.currentEditIndex > 0:",
+      "  - Move to previous: messageQueue.setEditIndex(messageQueue.currentEditIndex - 1)",
+      "Return early to prevent other handlers"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.13: Implement down-arrow handler for queue editing",
+    "steps": [
+      "In src/ui/chat.tsx keyboard handler, add down-arrow handling",
+      "Add condition: if (key.downArrow && isEditingQueue && messageQueue.count > 0)",
+      "Call e.preventDefault()",
+      "If messageQueue.currentEditIndex < messageQueue.count - 1:",
+      "  - Move to next: messageQueue.setEditIndex(messageQueue.currentEditIndex + 1)",
+      "Else:",
+      "  - Exit edit mode: setIsEditingQueue(false)",
+      "  - Reset edit index: messageQueue.setEditIndex(-1)",
+      "Return early"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.14: Implement Escape handler for queue editing",
+    "steps": [
+      "In src/ui/chat.tsx keyboard handler, add Escape handling",
+      "Add condition: if (key.escape && isEditingQueue)",
+      "Exit edit mode: setIsEditingQueue(false)",
+      "Reset edit index: messageQueue.setEditIndex(-1)",
+      "Return early"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.15: Update input placeholder based on queue state",
+    "steps": [
+      "In src/ui/chat.tsx, locate placeholder useMemo",
+      "Update logic to check messageQueue.count first:",
+      "  - If messageQueue.count > 0: 'Press ↑ to edit queued messages...'",
+      "  - Else if isStreaming: 'Type to queue message...'",
+      "  - Else: 'Enter a message...'",
+      "Add [messageQueue.count, isStreaming] to dependency array"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.16: Handle Enter key in queue editing mode",
+    "steps": [
+      "In src/ui/chat.tsx keyboard handler, add Enter handling for queue edit",
+      "Add condition: if (key.return && isEditingQueue)",
+      "Exit edit mode: setIsEditingQueue(false)",
+      "Keep edit index for potential message update",
+      "Allow default input submission behavior"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 3.17: Add visual indicator for queue count in status bar",
+    "steps": [
+      "If a status bar component exists, add queue count display",
+      "Show badge or indicator when messageQueue.count > 0",
+      "Format: '📝 {count} queued' or similar",
+      "Style with appropriate color (muted/accent)"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 4.1: Create SDK initialization module structure",
+    "steps": [
+      "Create new file src/sdk/init.ts",
+      "Add imports for SDK types as needed",
+      "Add file header comment explaining purpose"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 4.2: Implement initClaudeOptions function",
+    "steps": [
+      "In src/sdk/init.ts, export function initClaudeOptions()",
+      "Return type: Partial<Options> (from Claude SDK types)",
+      "Return object with:",
+      "  - settingSources: ['project'] (auto-loads .claude/ with ~/.claude/ fallback)",
+      "  - permissionMode: 'bypassPermissions'",
+      "  - allowDangerouslySkipPermissions: true",
+      "Add JSDoc explaining SDK handles local vs global priority automatically"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 4.3: Implement initOpenCodeConfigOverrides function",
+    "steps": [
+      "In src/sdk/init.ts, export function initOpenCodeConfigOverrides()",
+      "Return object with: permission: { '*': 'allow' }",
+      "Add JSDoc explaining SDK handles local vs global via Config.get()"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 4.4: Implement initCopilotSessionOptions function",
+    "steps": [
+      "In src/sdk/init.ts, export function initCopilotSessionOptions()",
+      "Return object with: OnPermissionRequest: async () => ({ kind: 'approved' as const })",
+      "Add JSDoc noting Copilot SDK does NOT auto-load agents from .github/agents/",
+      "Explain manual parsing is required via loadCopilotAgents()"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 4.5: Create Copilot manual parser module - CopilotAgent interface",
+    "steps": [
+      "Create new file src/config/copilot-manual.ts",
+      "Import fs from 'fs/promises', path from 'path', os from 'os'",
+      "Export interface CopilotAgent:",
+      "  - name: string",
+      "  - description: string",
+      "  - tools?: string[]",
+      "  - systemPrompt: string",
+      "  - source: 'local' | 'global'"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 4.6: Implement loadAgentsFromDir helper function",
+    "steps": [
+      "In src/config/copilot-manual.ts, add async function loadAgentsFromDir()",
+      "Parameters: agentsDir: string, source: 'local' | 'global'",
+      "Return type: Promise<CopilotAgent[]>",
+      "Wrap in try-catch, return [] on error",
+      "Read directory: const files = await fs.readdir(agentsDir)",
+      "Filter .md files: const mdFiles = files.filter(f => f.endsWith('.md'))",
+      "For each file: read content, parse frontmatter, create CopilotAgent",
+      "Use parseMarkdownFrontmatter (import from agent-commands)",
+      "Return agents array"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 4.7: Implement loadCopilotAgents function with priority",
+    "steps": [
+      "In src/config/copilot-manual.ts, export async function loadCopilotAgents()",
+      "Parameter: projectRoot: string",
+      "Return type: Promise<CopilotAgent[]>",
+      "Define paths:",
+      "  - localDir: path.join(projectRoot, '.github', 'agents')",
+      "  - globalDir: path.join(os.homedir(), '.copilot', 'agents')",
+      "Create Map<string, CopilotAgent> for deduplication",
+      "Load global agents first (lower priority)",
+      "Load local agents (override global with same name)",
+      "Use lowercase name as key for case-insensitive matching",
+      "Return Array.from(agentMap.values())"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 4.8: Implement loadCopilotInstructions function",
+    "steps": [
+      "In src/config/copilot-manual.ts, export async function loadCopilotInstructions()",
+      "Parameter: projectRoot: string",
+      "Return type: Promise<string | null>",
+      "Define paths:",
+      "  - localPath: path.join(projectRoot, '.github', 'copilot-instructions.md')",
+      "  - globalPath: path.join(os.homedir(), '.copilot', 'copilot-instructions.md')",
+      "Try local first (higher priority): await fs.readFile(localPath, 'utf-8')",
+      "On error, try global: await fs.readFile(globalPath, 'utf-8')",
+      "On error, return null"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 4.9: Integrate initClaudeOptions in claude-client.ts",
+    "steps": [
+      "Open src/sdk/claude-client.ts",
+      "Import { initClaudeOptions } from './init'",
+      "Locate buildSdkOptions() function (lines 185-301)",
+      "Spread initClaudeOptions() into the options object",
+      "Ensure existing options take precedence where specified",
+      "Run pnpm typecheck"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 4.10: Integrate initOpenCodeConfigOverrides in opencode-client.ts",
+    "steps": [
+      "Open src/sdk/opencode-client.ts",
+      "Import { initOpenCodeConfigOverrides } from './init'",
+      "Locate createSession() function (lines 577-601)",
+      "Apply config overrides to session options",
+      "Run pnpm typecheck"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 4.11: Integrate initCopilotSessionOptions and loadCopilotAgents in copilot-client.ts",
+    "steps": [
+      "Open src/sdk/copilot-client.ts",
+      "Import { initCopilotSessionOptions } from './init'",
+      "Import { loadCopilotAgents } from '../config/copilot-manual'",
+      "Locate createSession() function (lines 549-575)",
+      "Apply initCopilotSessionOptions() to session options",
+      "Call loadCopilotAgents(projectRoot) to get agents",
+      "Add agents to customAgents array in session config",
+      "Run pnpm typecheck"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Phase 5.1: Create build script for models snapshot generation",
+    "steps": [
+      "Create scripts/generate-models-snapshot.ts",
+      "Fetch from https://models.dev/api.json",
+      "Write to src/models/models-snapshot.ts as default export",
+      "Add timestamp comment to generated file",
+      "Handle errors gracefully, exit with error code on failure"
+    ],
+    "passes": true
+  },
+  {
+    "category": "refactor",
+    "description": "Phase 5.2: Add models snapshot generation to package.json",
+    "steps": [
+      "Open package.json",
+      "Add script: 'generate:models': 'bun run scripts/generate-models-snapshot.ts'",
+      "Add to prebuild or build script chain if appropriate",
+      "Consider adding to CI build step"
+    ],
+    "passes": true
+  },
+  {
+    "category": "performance",
+    "description": "Phase 5.3: Add debug logging for model resolution",
+    "steps": [
+      "In src/graph/compiled.ts resolveModel() function",
+      "Import debug logger (or use console.debug)",
+      "Log: 'Resolving model for node {nodeId}'",
+      "Log: 'Node model: {node.model}, Parent model: {parentContext?.model}, Default: {config.defaultModel}'",
+      "Log: 'Resolved to: {result}'",
+      "Ensure logs only appear at debug level"
+    ],
+    "passes": true
+  },
+  {
+    "category": "performance",
+    "description": "Phase 5.4: Add queue metrics logging",
+    "steps": [
+      "In useMessageQueue hook or ChatApp",
+      "Add logging for queue_count when messages are enqueued",
+      "Add logging for queue_processing_delay_ms when dequeuing",
+      "Calculate delay as time since enqueue",
+      "Use debug level logging"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 6.1: Write unit tests for lazy utility",
+    "steps": [
+      "Create test file src/util/__tests__/lazy.test.ts",
+      "Test: lazy() computes value only once",
+      "Test: lazy() returns same cached value on subsequent calls",
+      "Test: reset() allows recomputation",
+      "Test: async lazy function support",
+      "Run: pnpm test src/util/__tests__/lazy.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 6.2: Write unit tests for resolveModel function",
+    "steps": [
+      "Create test file src/graph/__tests__/resolve-model.test.ts",
+      "Test: node with explicit model (not 'inherit') returns node.model",
+      "Test: node with model='inherit' and parent context returns parent.model",
+      "Test: node with model='inherit', no parent, returns config.defaultModel",
+      "Test: node with no model, no parent, no default returns undefined",
+      "Test: 'inherit' at graph default level still falls through to undefined",
+      "Test: empty string model is treated as falsy (falls through)",
+      "Run: pnpm test src/graph/__tests__/resolve-model.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 6.3: Write unit tests for ModelsDev module",
+    "steps": [
+      "Create test file src/models/__tests__/models-dev.test.ts",
+      "Test: get() returns data from cache when available",
+      "Test: get() falls back to snapshot when cache missing",
+      "Test: get() fetches from API when cache and snapshot missing",
+      "Test: refresh() updates cache file",
+      "Test: refresh() resets lazy loader",
+      "Test: listModels() returns flattened array",
+      "Test: getModel() returns specific model",
+      "Test: getProvider() returns provider info",
+      "Mock fs and fetch for isolation",
+      "Run: pnpm test src/models/__tests__/models-dev.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 6.4: Write unit tests for model transformation functions",
+    "steps": [
+      "Create test file src/models/__tests__/model-transform.test.ts",
+      "Test: fromModelsDevModel creates correct Model object",
+      "Test: fromModelsDevModel handles missing optional fields",
+      "Test: fromModelsDevModel status defaults to 'active'",
+      "Test: fromModelsDevProvider transforms all models in provider",
+      "Test: cost field transformation (snake_case to camelCase)",
+      "Run: pnpm test src/models/__tests__/model-transform.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 6.5: Write unit tests for UnifiedModelOperations",
+    "steps": [
+      "Create test file src/models/__tests__/model-operations.test.ts",
+      "Test: listAvailableModels returns all models from ModelsDev",
+      "Test: setModel for Claude calls sdkSetModel",
+      "Test: setModel for OpenCode calls sdkSetModel",
+      "Test: setModel for Copilot returns requiresNewSession: true",
+      "Test: getCurrentModel returns current model",
+      "Test: resolveAlias returns alias for Claude agent type",
+      "Test: resolveAlias returns undefined for non-Claude agents",
+      "Test: getPendingModel returns pending model for Copilot",
+      "Run: pnpm test src/models/__tests__/model-operations.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 6.6: Write unit tests for /model command",
+    "steps": [
+      "Create test file src/ui/commands/__tests__/model-command.test.ts",
+      "Test: /model with no args shows current model",
+      "Test: /model with no args and no model set shows 'No model set'",
+      "Test: /model list shows all models grouped by provider",
+      "Test: /model list anthropic filters by provider",
+      "Test: /model list with no results shows appropriate message",
+      "Test: /model refresh calls ModelsDev.refresh()",
+      "Test: /model sonnet resolves Claude alias and switches",
+      "Test: /model anthropic/claude-sonnet-4-5 switches to full ID",
+      "Test: /model for Copilot returns requiresNewSession message",
+      "Test: /model invalid-model handles error gracefully",
+      "Mock ModelsDev and modelOps for isolation",
+      "Run: pnpm test src/ui/commands/__tests__/model-command.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 6.7: Write unit tests for groupByProvider and formatGroupedModels",
+    "steps": [
+      "In model-command.test.ts, add tests for helper functions",
+      "Test: groupByProvider groups models correctly",
+      "Test: groupByProvider handles empty array",
+      "Test: groupByProvider handles single provider",
+      "Test: formatGroupedModels formats output correctly",
+      "Test: formatGroupedModels includes status when not 'active'",
+      "Test: formatGroupedModels includes context size",
+      "Run: pnpm test"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 6.8: Write unit tests for useMessageQueue new methods",
+    "steps": [
+      "Create or update src/ui/hooks/__tests__/use-message-queue.test.ts",
+      "Test: updateAt updates message at correct index",
+      "Test: updateAt with invalid negative index returns unchanged",
+      "Test: updateAt with index >= length returns unchanged",
+      "Test: moveUp swaps message with previous",
+      "Test: moveUp at index 0 returns unchanged",
+      "Test: moveUp updates currentEditIndex",
+      "Test: moveDown swaps message with next",
+      "Test: moveDown at last index returns unchanged",
+      "Test: moveDown updates currentEditIndex",
+      "Test: setEditIndex updates currentEditIndex",
+      "Use React Testing Library with renderHook",
+      "Run: pnpm test src/ui/hooks/__tests__/use-message-queue.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 6.9: Write unit tests for QueueIndicator component",
+    "steps": [
+      "Create or update src/ui/components/__tests__/queue-indicator.test.ts",
+      "Test: renders nothing when count is 0",
+      "Test: renders count when count > 0",
+      "Test: renders message list when not compact",
+      "Test: applies editing style when editIndex matches",
+      "Test: calls onEdit callback when message clicked",
+      "Test: truncates long message content",
+      "Test: shows '› ' prefix for editing message",
+      "Test: shows '❯ ' prefix for non-editing messages",
+      "Run: pnpm test src/ui/components/__tests__/queue-indicator.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 6.10: Write unit tests for loadCopilotAgents",
+    "steps": [
+      "Create test file src/config/__tests__/copilot-manual.test.ts",
+      "Test: loadCopilotAgents returns empty array when no directories exist",
+      "Test: loadCopilotAgents loads agents from local directory",
+      "Test: loadCopilotAgents loads agents from global directory",
+      "Test: local agents override global agents with same name",
+      "Test: agents from both directories are combined when names differ",
+      "Test: parseMarkdownFrontmatter is called correctly",
+      "Test: loadCopilotInstructions returns local file when exists",
+      "Test: loadCopilotInstructions falls back to global",
+      "Test: loadCopilotInstructions returns null when neither exists",
+      "Mock fs for isolation",
+      "Run: pnpm test src/config/__tests__/copilot-manual.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 7.1: Write integration test for graph execution with per-node model",
+    "steps": [
+      "Create test file src/graph/__tests__/model-integration.test.ts",
+      "Create test graph with 3 nodes:",
+      "  - Node 1: model: 'opus'",
+      "  - Node 2: model: 'inherit'",
+      "  - Node 3: no model specified",
+      "Set graph config defaultModel: 'sonnet'",
+      "Execute graph and capture context.model at each node",
+      "Assert Node 1 gets 'opus'",
+      "Assert Node 2 inherits from parent (depends on execution order)",
+      "Assert Node 3 gets 'sonnet' (default)",
+      "Run: pnpm test src/graph/__tests__/model-integration.test.ts"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 7.2: Write integration test for model inheritance in nested nodes",
+    "steps": [
+      "Create test for nested/child node execution",
+      "Parent node with model: 'opus' spawns child node with model: 'inherit'",
+      "Assert child receives parent's 'opus' model",
+      "Test deeply nested inheritance (3+ levels)",
+      "Test inheritance breaks when child specifies own model"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 7.3: Write integration test for /model list with real API",
+    "steps": [
+      "Create test file src/ui/commands/__tests__/model-list-integration.test.ts",
+      "Skip test if ATOMIC_DISABLE_MODELS_FETCH is set",
+      "Execute /model list command with real models.dev data",
+      "Assert response includes known providers (anthropic, openai)",
+      "Assert response includes known models",
+      "Test /model list anthropic returns only Anthropic models",
+      "Handle network errors gracefully in test"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 7.4: Write integration test for queue indicator rendering",
+    "steps": [
+      "Create test file src/ui/__tests__/queue-integration.test.ts",
+      "Render ChatApp component with test provider",
+      "Simulate streaming state",
+      "Enqueue multiple messages via user input",
+      "Assert QueueIndicator renders with correct count",
+      "Assert editing is disabled during streaming",
+      "Simulate stream completion",
+      "Assert messages are dequeued and sent"
+    ],
+    "passes": true
+  },
+  {
+    "category": "ui",
+    "description": "Phase 7.5: Write integration test for queue editing keyboard navigation",
+    "steps": [
+      "Create test for keyboard navigation in queue editing",
+      "Enqueue 3 messages",
+      "Press up-arrow, assert edit mode entered at last message",
+      "Press up-arrow again, assert moves to previous message",
+      "Press down-arrow, assert moves to next message",
+      "Press Escape, assert exits edit mode",
+      "Press Enter, assert exits edit mode and allows input"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 8.1: Write E2E test setup for snake game scenario",
+    "steps": [
+      "Create test file tests/e2e/snake-game.test.ts",
+      "Set up test directory: /tmp/snake_game/{agent}",
+      "Clean up any existing test directories",
+      "Create utility functions for tmux-cli interactions",
+      "Create assertion helpers for expected outputs",
+      "Set up test timeouts appropriately (these will be slow)"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 8.2: E2E test - Snake game with -a claude",
+    "steps": [
+      "In snake-game.test.ts, create test 'Build snake game with Claude agent'",
+      "Start CLI: bun run src/cli.ts chat -a claude",
+      "Use tmux-cli to send commands",
+      "Test /help command - verify output",
+      "Test /model command - verify current model shown",
+      "Test /model list - verify models listed",
+      "Test /clear command",
+      "Request: 'Create a snake game in Rust in /tmp/snake_game/claude'",
+      "Wait for agent to complete",
+      "Verify files created: Cargo.toml, src/main.rs",
+      "Test ask_question tool by triggering a clarifying question",
+      "Test session history scrolling (up/down arrows)",
+      "Test tool calls are executed",
+      "Test MCP tool calls if configured",
+      "Test message queuing: type while streaming, verify queue",
+      "Build and run the snake game: cargo build && cargo run",
+      "Assert game compiles and runs"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 8.3: E2E test - Snake game with -a opencode",
+    "steps": [
+      "In snake-game.test.ts, create test 'Build snake game with OpenCode agent'",
+      "Start CLI: bun run src/cli.ts chat -a opencode",
+      "Use tmux-cli to send commands",
+      "Test /help command",
+      "Test /model command",
+      "Test /model list",
+      "Test /clear command",
+      "Request snake game creation in /tmp/snake_game/opencode",
+      "Verify file creation",
+      "Test ask_question tool",
+      "Test session history scrolling",
+      "Test tool calls",
+      "Test MCP tool calls",
+      "Test message queuing during streaming",
+      "Build and run snake game",
+      "Assert compilation and execution success"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 8.4: E2E test - Snake game with -a copilot",
+    "steps": [
+      "In snake-game.test.ts, create test 'Build snake game with Copilot agent'",
+      "Start CLI: bun run src/cli.ts chat -a copilot",
+      "Use tmux-cli to send commands",
+      "Test /help command",
+      "Test /model command",
+      "Test /model list",
+      "Test /model <new-model> - verify requiresNewSession message",
+      "Test /clear command",
+      "Request snake game creation in /tmp/snake_game/copilot",
+      "Verify file creation",
+      "Test ask_question tool",
+      "Test session history scrolling",
+      "Test tool calls",
+      "Test MCP tool calls",
+      "Test message queuing during streaming",
+      "Build and run snake game",
+      "Assert compilation and execution success"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 8.5: E2E test - Verify SDK parity across agents",
+    "steps": [
+      "Create test 'SDK parity verification'",
+      "For each agent type (claude, opencode, copilot):",
+      "  - Verify /help shows same commands",
+      "  - Verify /model shows model information",
+      "  - Verify /model list works",
+      "  - Verify /clear works",
+      "  - Verify message queuing works",
+      "  - Verify session history works",
+      "Document any intentional differences (e.g., Copilot model switching)",
+      "Assert no custom logic leaking between agent implementations"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 9.1: Audit and standardize agent subcommands",
+    "steps": [
+      "List all subcommands/features for each agent type",
+      "Identify any agent-specific commands that should be unified",
+      "Identify unavoidable SDK-specific differences",
+      "Create mapping document of command parity",
+      "Refactor any custom per-agent logic to be modular"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 9.2: Ensure modular code structure for agent handling",
+    "steps": [
+      "Review src/sdk/*.ts files for code duplication",
+      "Extract common patterns to shared utilities",
+      "Ensure agent-specific logic is isolated to agent-specific files",
+      "Use strategy pattern or similar for agent-specific behavior",
+      "Add comments documenting why certain logic is agent-specific"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 9.3: Handle edge case - invalid model name",
+    "steps": [
+      "In UnifiedModelOperations.setModel(), add validation",
+      "If model contains '/' ensure it's valid providerID/modelID format",
+      "Let SDK handle actual validation and return clear error",
+      "Surface SDK error message to user",
+      "Test with various invalid inputs"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 9.4: Handle edge case - models.dev API unavailable",
+    "steps": [
+      "Ensure fallback to bundled snapshot works",
+      "Add user-friendly error message when all sources fail",
+      "/model list should show message about offline/cache",
+      "Test by setting ATOMIC_DISABLE_MODELS_FETCH and clearing cache"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 9.5: Handle edge case - queue with many messages",
+    "steps": [
+      "Test queue behavior with 100+ messages",
+      "Ensure UI remains responsive",
+      "Consider adding max queue size warning",
+      "Test memory usage doesn't grow unbounded"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 9.6: Handle edge case - model switch during streaming",
+    "steps": [
+      "If user tries /model switch while streaming:",
+      "Queue the model switch or reject gracefully",
+      "Show appropriate message to user",
+      "Test behavior for each agent type"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 9.7: Handle edge case - concurrent model resolution",
+    "steps": [
+      "Test parallel node execution with different models",
+      "Ensure each node's context has correct model",
+      "Verify no race conditions in model resolution",
+      "Test with maxConcurrency > 1"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 10.1: Final integration testing",
+    "steps": [
+      "Run full test suite: pnpm test",
+      "Run type check: pnpm typecheck",
+      "Run linter: pnpm lint",
+      "Fix any failing tests or type errors",
+      "Verify all features work end-to-end"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 10.2: Manual testing checklist",
+    "steps": [
+      "Start CLI with -a claude, test all new features",
+      "Start CLI with -a opencode, test all new features",
+      "Start CLI with -a copilot, test all new features",
+      "Test /model command variations",
+      "Test queue editing with real typing",
+      "Test model inheritance in workflows",
+      "Document any issues found"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 10.3: Performance validation",
+    "steps": [
+      "Measure startup time with models.dev fetch",
+      "Measure time for /model list command",
+      "Ensure queue operations don't cause UI lag",
+      "Profile memory usage during extended sessions",
+      "Document baseline metrics"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Phase 10.4: Update type exports",
+    "steps": [
+      "Ensure ModelSpec type is exported from graph module",
+      "Ensure Model, AgentType, ModelOperations exported from models module",
+      "Ensure CopilotAgent exported from config module",
+      "Update any barrel files (index.ts) as needed"
+    ],
+    "passes": true
+  }
+]

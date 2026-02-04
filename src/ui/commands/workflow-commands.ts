@@ -26,7 +26,7 @@ import {
 } from "../../workflows/ralph/workflow.ts";
 import type { CompiledGraph, BaseState } from "../../graph/types.ts";
 import type { AtomicWorkflowState } from "../../graph/annotation.ts";
-import { setWorkflowResolver } from "../../graph/nodes.ts";
+import { setWorkflowResolver, type CompiledSubgraph } from "../../graph/nodes.ts";
 import {
   generateRalphSessionId,
   getRalphSessionPaths,
@@ -97,7 +97,7 @@ const DEFAULT_MAX_ITERATIONS = 100;
 export function parseRalphArgs(args: string): RalphCommandArgs {
   let trimmed = args.trim();
   let maxIterations = DEFAULT_MAX_ITERATIONS;
-  let featureListPath = RALPH_DEFAULTS.featureListPath;
+  let featureListPath: string = RALPH_DEFAULTS.featureListPath;
 
   // First, check for and extract --max-iterations flag anywhere in the string
   const maxIterMatch = trimmed.match(/^(.*?)--max-iterations\s+(\d+)\s*(.*?)$/s);
@@ -395,7 +395,7 @@ export function discoverWorkflowFiles(): { path: string; source: "local" | "glob
  * Dynamically loaded workflows from disk.
  * Populated by loadWorkflowsFromDisk().
  */
-let loadedWorkflows: WorkflowMetadata[] = [];
+let loadedWorkflows: WorkflowMetadata<BaseState>[] = [];
 
 /**
  * Load workflow definitions from .ts files on disk.
@@ -425,9 +425,9 @@ let loadedWorkflows: WorkflowMetadata[] = [];
  *
  * @returns Array of loaded workflow metadata (local workflows override global)
  */
-export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata[]> {
+export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata<BaseState>[]> {
   const discovered = discoverWorkflowFiles();
-  const loaded: WorkflowMetadata[] = [];
+  const loaded: WorkflowMetadata<BaseState>[] = [];
   const loadedNames = new Set<string>();
 
   for (const { path, source } of discovered) {
@@ -450,7 +450,7 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata[]> {
         continue;
       }
 
-      const metadata: WorkflowMetadata = {
+      const metadata: WorkflowMetadata<BaseState> = {
         name,
         description: module.description ?? `Custom workflow: ${name}`,
         aliases: module.aliases,
@@ -481,8 +481,8 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata[]> {
  * Get all workflows including built-in and dynamically loaded.
  * Local workflows override global, both override built-in.
  */
-export function getAllWorkflows(): WorkflowMetadata[] {
-  const allWorkflows: WorkflowMetadata[] = [];
+export function getAllWorkflows(): WorkflowMetadata<BaseState>[] {
+  const allWorkflows: WorkflowMetadata<BaseState>[] = [];
   const seenNames = new Set<string>();
 
   // First, add dynamically loaded workflows (local > global)
@@ -522,7 +522,7 @@ export function getAllWorkflows(): WorkflowMetadata[] {
  * Built-in workflows are included automatically.
  * Populated during loadWorkflowsFromDisk() or on first access.
  */
-let workflowRegistry: Map<string, WorkflowMetadata> = new Map();
+let workflowRegistry: Map<string, WorkflowMetadata<BaseState>> = new Map();
 
 /**
  * Flag to track if registry has been initialized.
@@ -573,7 +573,7 @@ function initializeRegistry(): void {
  * @param name - Workflow name or alias (case-insensitive)
  * @returns WorkflowMetadata if found, undefined otherwise
  */
-export function getWorkflowFromRegistry(name: string): WorkflowMetadata | undefined {
+export function getWorkflowFromRegistry(name: string): WorkflowMetadata<BaseState> | undefined {
   initializeRegistry();
   return workflowRegistry.get(name.toLowerCase());
 }
@@ -597,7 +597,7 @@ export function getWorkflowFromRegistry(name: string): WorkflowMetadata | undefi
  * }
  * ```
  */
-export function resolveWorkflowRef(name: string): CompiledGraph<BaseState> | null {
+export function resolveWorkflowRef(name: string): CompiledSubgraph<BaseState> | null {
   const lowerName = name.toLowerCase();
 
   // Check for circular dependency
@@ -618,7 +618,7 @@ export function resolveWorkflowRef(name: string): CompiledGraph<BaseState> | nul
 
     // Create workflow with default config
     const config = metadata.defaultConfig ?? {};
-    return metadata.createWorkflow(config) as CompiledGraph<BaseState>;
+    return metadata.createWorkflow(config) as unknown as CompiledSubgraph<BaseState>;
   } finally {
     // Always remove from stack, even if error
     resolutionStack.delete(lowerName);
@@ -681,7 +681,7 @@ const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata<BaseState>[] = [
         yolo: typeof config?.yolo === "boolean" ? config.yolo : false,
         userPrompt: typeof config?.userPrompt === "string" ? config.userPrompt : undefined,
       };
-      return createRalphWorkflow(ralphConfig) as CompiledGraph<BaseState>;
+      return createRalphWorkflow(ralphConfig) as unknown as CompiledGraph<BaseState>;
     },
     defaultConfig: {
       checkpointing: true,
@@ -707,7 +707,7 @@ export const WORKFLOW_DEFINITIONS = BUILTIN_WORKFLOW_DEFINITIONS;
  * @param metadata - Workflow metadata
  * @returns Command definition for the workflow
  */
-function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
+function createWorkflowCommand(metadata: WorkflowMetadata<BaseState>): CommandDefinition {
   // Use specialized handler for ralph workflow
   if (metadata.name === "ralph") {
     return createRalphCommand(metadata);
@@ -771,7 +771,7 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
  * @param metadata - Ralph workflow metadata
  * @returns Command definition with flag parsing
  */
-function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
+function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefinition {
   return {
     name: metadata.name,
     description: metadata.description,
@@ -984,7 +984,7 @@ export function registerWorkflowCommands(): void {
  * @param name - Workflow name
  * @returns WorkflowMetadata if found, undefined otherwise
  */
-export function getWorkflowMetadata(name: string): WorkflowMetadata | undefined {
+export function getWorkflowMetadata(name: string): WorkflowMetadata<BaseState> | undefined {
   const lowerName = name.toLowerCase();
   return getAllWorkflows().find(
     (w) =>
@@ -1003,7 +1003,7 @@ export function getWorkflowMetadata(name: string): WorkflowMetadata | undefined 
 export function createWorkflowByName(
   name: string,
   config?: Record<string, unknown>
-): CompiledGraph<AtomicWorkflowState> | undefined {
+): CompiledGraph<BaseState> | undefined {
   const metadata = getWorkflowMetadata(name);
   if (!metadata) {
     return undefined;

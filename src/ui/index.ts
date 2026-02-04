@@ -19,6 +19,7 @@ import type {
   Session,
   AgentMessage,
 } from "../sdk/types.ts";
+import { UnifiedModelOperations } from "../models/model-operations.ts";
 
 // ============================================================================
 // TYPES
@@ -46,6 +47,8 @@ export interface ChatUIConfig {
   workingDir?: string;
   /** Suggestion text for header */
   suggestion?: string;
+  /** Agent type for model operations */
+  agentType?: import("../models").AgentType;
 }
 
 /**
@@ -156,7 +159,11 @@ export async function startChatUI(
     tier,
     workingDir,
     suggestion,
+    agentType,
   } = config;
+
+  // Create model operations for the agent
+  const modelOps = agentType ? new UnifiedModelOperations(agentType) : undefined;
 
   // Initialize state
   const state: ChatUIState = {
@@ -613,6 +620,8 @@ export async function startChatUI(
             tier,
             workingDir,
             suggestion,
+            agentType,
+            modelOps,
             onSendMessage: handleSendMessage,
             onStreamMessage: handleStreamMessage,
             onExit: handleExit,

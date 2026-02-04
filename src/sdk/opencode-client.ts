@@ -30,6 +30,20 @@
  * Note: When running in non-interactive/CLI mode, OpenCode auto-approves all
  * permissions by default. The question.asked events are still emitted for
  * user-initiated questions (like AskUserQuestion tool).
+ *
+ * AGENT-SPECIFIC LOGIC (why this module exists):
+ * - OpenCode SDK uses SSE (Server-Sent Events) for real-time updates
+ * - OpenCode SDK may require spawning a local server (auto-start feature)
+ * - OpenCode SDK has unique agent modes (build, plan, general, explore)
+ * - OpenCode SDK permission model uses opencode.json config files
+ * - OpenCode SDK events (via SSE) require custom mapping to unified EventType
+ * - OpenCode SDK uses message parts with different types (text, tool-invocation)
+ * - OpenCode SDK has question.asked events for HITL workflows
+ *
+ * Common patterns (see base-client.ts) are duplicated here because:
+ * - SSE event stream requires async generator processing
+ * - Server lifecycle management (spawn/health check) is unique
+ * - Session wrapping involves complex async iteration for streaming
  */
 
 import type {
@@ -44,6 +58,8 @@ import type {
   ToolDefinition,
   OpenCodeAgentMode,
 } from "./types.ts";
+
+import { initOpenCodeConfigOverrides } from "./init.ts";
 
 // Import the real SDK
 import {
@@ -582,6 +598,7 @@ export class OpenCodeClient implements CodingAgentClient {
     const result = await this.sdkClient.session.create({
       directory: this.clientOptions.directory,
       title: config.sessionId ?? undefined,
+      permission: initOpenCodeConfigOverrides(),
     });
 
     if (result.error || !result.data) {

@@ -8,15 +8,15 @@
   },
   "enableAllProjectMcpServers": true,
   "enabledPlugins": {
-    "ralph@atomic-plugins": true,
+    "tmux-cli@cctools-plugins": true,
     "frontend-design@claude-plugins-official": true,
-    "tmux-cli@cctools-plugins": true
+    "ralph-loop@claude-plugins-official": true
   },
   "extraKnownMarketplaces": {
-    "atomic-plugins": {
+    "cctools-plugins": {
       "source": {
         "source": "github",
-        "repo": "flora131/atomic"
+        "repo": "pchalasani/claude-code-tools"
       }
     }
   }

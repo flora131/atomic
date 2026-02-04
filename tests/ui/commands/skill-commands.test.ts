@@ -165,6 +165,9 @@ describe("skillCommands", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     commitCmd!.execute("-m 'Fix bug'", context);
@@ -912,6 +915,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = commitCmd!.execute("", context);
@@ -936,6 +942,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = commitCmd!.execute("-m 'Fix bug in parser'", context);
@@ -961,6 +970,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = researchCmd!.execute("", context);
@@ -985,6 +997,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = researchCmd!.execute("authentication module", context);
@@ -1010,6 +1025,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = specCmd!.execute("", context);
@@ -1034,6 +1052,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = specCmd!.execute("add user authentication", context);
@@ -1059,6 +1080,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = featureListCmd!.execute("", context);
@@ -1083,6 +1107,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = featureListCmd!.execute("auth-module", context);
@@ -1108,6 +1135,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = implFeatureCmd!.execute("", context);
@@ -1132,6 +1162,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = implFeatureCmd!.execute("UserRepository", context);
@@ -1157,6 +1190,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = ghPrCmd!.execute("", context);
@@ -1181,6 +1217,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = ghPrCmd!.execute("Add user authentication", context);
@@ -1206,6 +1245,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = explainCodeCmd!.execute("", context);
@@ -1230,6 +1272,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = explainCodeCmd!.execute("src/utils/parser.ts:10-50", context);

@@ -356,6 +356,10 @@ describe("CommandRegistry", () => {
         state: { isStreaming: false, messageCount: 0 },
         addMessage: () => {},
         setStreaming: () => {},
+        sendMessage: () => {},
+        spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+        agentType: undefined,
+        modelOps: undefined,
       };
 
       await retrieved?.execute("some args", mockContext);
@@ -384,6 +388,10 @@ describe("CommandRegistry", () => {
         state: { isStreaming: false, messageCount: 0 },
         addMessage: () => {},
         setStreaming: () => {},
+        sendMessage: () => {},
+        spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+        agentType: undefined,
+        modelOps: undefined,
       };
 
       const result = (await retrieved?.execute("", mockContext)) as CommandResult;
@@ -412,6 +420,10 @@ describe("CommandRegistry", () => {
         state: { isStreaming: false, messageCount: 0 },
         addMessage: () => {},
         setStreaming: () => {},
+        sendMessage: () => {},
+        spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+        agentType: undefined,
+        modelOps: undefined,
       };
 
       const result = (await retrieved?.execute("", mockContext)) as CommandResult;

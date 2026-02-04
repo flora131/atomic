@@ -42,6 +42,8 @@ export interface WorkflowStatusBarProps {
   maxIterations?: number;
   /** Feature progress information (optional) */
   featureProgress?: FeatureProgress | null;
+  /** Number of messages queued for processing (optional) */
+  queueCount?: number;
 }
 
 // ============================================================================
@@ -173,6 +175,7 @@ export function WorkflowStatusBar({
   iteration,
   maxIterations,
   featureProgress,
+  queueCount,
 }: WorkflowStatusBarProps): React.ReactNode {
   const { theme } = useTheme();
 
@@ -230,6 +233,16 @@ export function WorkflowStatusBar({
         <StatusItem
           text={progressStr}
           color={theme.colors.muted}
+          separator={true}
+          separatorColor={theme.colors.muted}
+        />
+      )}
+
+      {/* Queue count indicator */}
+      {queueCount !== undefined && queueCount > 0 && (
+        <StatusItem
+          text={`📝 ${queueCount} queued`}
+          color={theme.colors.accent}
           separator={true}
           separatorColor={theme.colors.muted}
         />

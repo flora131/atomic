@@ -1571,6 +1571,9 @@ describe("createAgentCommand", () => {
       sendMessage: (content: string) => {
         sentMessage = content;
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = command.execute("", mockContext);
@@ -1598,6 +1601,9 @@ describe("createAgentCommand", () => {
       sendMessage: (content: string) => {
         sentMessage = content;
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = command.execute("analyze the login flow", mockContext);
@@ -1627,6 +1633,9 @@ describe("createAgentCommand", () => {
       sendMessage: (content: string) => {
         sentMessage = content;
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     // Empty whitespace args should not append User Request section
@@ -1738,6 +1747,9 @@ describe("registerBuiltinAgents", () => {
       sendMessage: (content: string) => {
         sentMessage = content;
       },
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     const result = command!.execute("test args", mockContext);

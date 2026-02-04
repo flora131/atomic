@@ -3,6 +3,15 @@
  *
  * This module exports all types and interfaces needed to interact with
  * various coding agent SDKs through a common abstraction layer.
+ *
+ * Architecture:
+ * - types.ts: Shared interfaces (CodingAgentClient, Session, etc.)
+ * - base-client.ts: Common utilities (EventEmitter, createAgentEvent)
+ * - init.ts: Agent-specific initialization helpers
+ * - *-client.ts: Agent-specific implementations (Claude, OpenCode, Copilot)
+ *
+ * Each agent client implements the CodingAgentClient interface (Strategy Pattern)
+ * while containing agent-specific logic for SDK integration.
  */
 
 // Type exports
@@ -17,6 +26,14 @@ export type {
 
 // Utility function exports
 export { formatModelDisplayName } from "./types.ts";
+
+// Base client utilities for shared patterns
+export {
+  EventEmitter,
+  createAgentEvent,
+  requireRunning,
+  type ClientState,
+} from "./base-client.ts";
 
 // Type exports (continued)
 export type {

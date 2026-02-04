@@ -64,6 +64,8 @@ function createMockContext(
     setStreaming: () => {},
     sendMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
+    agentType: undefined,
+    modelOps: undefined,
   };
 }
 
@@ -569,6 +571,10 @@ describe("ralph command --yolo flag", () => {
         messages.push({ role, content });
       },
       setStreaming: () => {},
+      sendMessage: () => {},
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     ralphCmd!.execute("--yolo implement auth", context);
@@ -733,6 +739,10 @@ describe("ralph command --resume flag", () => {
         messages.push({ role, content });
       },
       setStreaming: () => {},
+      sendMessage: () => {},
+      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      agentType: undefined,
+      modelOps: undefined,
     };
 
     ralphCmd!.execute(`--resume ${testSessionId}`, context);

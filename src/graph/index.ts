@@ -54,6 +54,9 @@ export type {
   // Utility types
   StateOf,
   StateUpdate,
+
+  // Model specification
+  ModelSpec,
 } from "./types.ts";
 
 // Value exports from types.ts

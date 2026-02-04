@@ -514,12 +514,12 @@ export class GraphBuilder<TState extends BaseState = BaseState> {
     }
 
     // Get first and last body nodes
-    const firstBodyNode = bodyNodeArray[0];
-    const lastBodyNode = bodyNodeArray[bodyNodeArray.length - 1];
+    const firstBodyNode = bodyNodeArray[0]!;
+    const lastBodyNode = bodyNodeArray[bodyNodeArray.length - 1]!;
 
     // Chain body nodes together: node1 -> node2 -> ... -> nodeN
     for (let i = 0; i < bodyNodeArray.length - 1; i++) {
-      this.addEdge(bodyNodeArray[i].id, bodyNodeArray[i + 1].id);
+      this.addEdge(bodyNodeArray[i]!.id, bodyNodeArray[i + 1]!.id);
     }
 
     // Loop structure: start -> first body -> ... -> last body -> check -> (continue to first body OR exit)

@@ -7,6 +7,18 @@
  * - Streaming message responses
  * - Native SDK hooks for event handling
  * - Custom tool registration via createSdkMcpServer
+ *
+ * AGENT-SPECIFIC LOGIC (why this module exists):
+ * - Claude SDK uses query() function instead of session objects
+ * - Claude SDK has unique HookEvent system (PreToolUse, PostToolUse, etc.)
+ * - Claude SDK uses MCP servers for tool registration (via createSdkMcpServer)
+ * - Claude SDK permission model uses canUseTool callback and permissionMode
+ * - Claude SDK event types (SDKMessage) require custom mapping to unified EventType
+ * - Claude SDK uses Zod schemas internally (requires 'any' casting for compatibility)
+ *
+ * Common patterns (see base-client.ts) are duplicated here because:
+ * - on() method extends base behavior with Claude-specific hook registration
+ * - emitEvent() is tightly coupled with internal session state
  */
 
 import {
@@ -38,6 +50,7 @@ import type {
   MessageContentType,
 } from "./types.ts";
 import { formatModelDisplayName } from "./types.ts";
+import { initClaudeOptions } from "./init.ts";
 
 /**
  * Configuration for Claude SDK native hooks
@@ -184,6 +197,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
    */
   private buildSdkOptions(config: SessionConfig, sessionId?: string): Options {
     const options: Options = {
+      ...initClaudeOptions(),
       model: config.model,
       maxTurns: config.maxTurns,
       maxBudgetUsd: config.maxBudgetUsd,

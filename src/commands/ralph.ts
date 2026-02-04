@@ -71,6 +71,21 @@ export interface RalphSetupOptions {
    * User prompt for yolo mode.
    */
   userPrompt?: string;
+
+  /**
+   * Initial prompt parts for the Ralph loop.
+   */
+  prompt?: string[];
+
+  /**
+   * Promise phrase to signal completion.
+   */
+  completionPromise?: string;
+
+  /**
+   * Path to feature list JSON file.
+   */
+  featureList?: string;
 }
 
 // ============================================================================

@@ -7,15 +7,18 @@ repository: atomic
 topic: "Model Parameters for Workflow Nodes, Custom Workflows, Model Command, Message Queuing, and Multi-Agent Configuration Parsing"
 tags: [research, codebase, workflow, model-config, message-queue, tui, sdk, configuration, claude-code, opencode, copilot]
 status: complete
-last_updated: 2026-02-03T19:15:00Z
+last_updated: 2026-02-03T21:00:00Z
 last_updated_by: Claude Opus 4.5
-revision: 3
+revision: 5
 revision_notes: |
-  Revision 3: Major architectural change - Atomic does NOT define custom formats for agents/skills/commands/MCP.
-  Instead, Atomic parses and registers configurations from existing .claude/, .opencode/, .github/ directories.
-  Only .atomic/workflows/ is Atomic-specific. Added comprehensive configuration schemas from official sources
-  (Claude Code docs, OpenCode SDK via DeepWiki, Copilot CLI docs, Copilot SDK via DeepWiki).
-  Includes complete frontmatter schemas, hook formats, MCP configurations, and normalization strategies.
+  Revision 5: SDK-First Architecture with No Permission Prompts.
+  - Use SDK model aliases (opus, sonnet, haiku) directly instead of manual mappings for auto-model updates
+  - Claude SDK: settingSources for config loading, supportedModels() for discovery
+  - OpenCode SDK: Config.get() for config, Provider.parseModel() for models
+  - Copilot SDK: ListModels() for discovery, skillDirectories for skills
+  - PERMISSIONS: Use bypassPermissions/auto-approve mode. No permission prompts.
+  - AskUserQuestion is HIL (human-in-the-loop) interaction, NOT a permission check.
+  - Removed manual normalization where SDKs handle it natively
 ---
 
 # Research: Model Parameters, Custom Workflows, /model Command, and Message Queuing
@@ -31,14 +34,68 @@ Research the codebase to understand how to:
 
 ## Summary
 
-This research covers six major areas for enhancing the Atomic CLI:
+This research covers six major areas for enhancing the Atomic CLI with an **SDK-First approach** - delegating to SDK abstractions wherever possible to minimize manual logic and support auto-model updates:
 
-1. **Per-node model configuration** can be achieved by extending `NodeDefinition` with an optional `model` field and propagating it through `ExecutionContext` to SDK clients
-2. **Custom workflows** are loaded from `.atomic/workflows/*.ts` files that export a factory function - example created at `.atomic/workflows/test-workflow.ts`
-3. **Multi-agent configuration parsing**: Atomic parses and registers configurations from existing `.claude/`, `.opencode/`, and `.github/` directories - NO custom Atomic format for agents/skills/commands/MCP. Only `.atomic/workflows/` is Atomic-specific.
-4. **`/model` command** follows the pattern of existing built-in commands in `builtin-commands.ts` with alias support (opus, sonnet, haiku) and cross-format normalization
-5. **Message queuing** already has infrastructure (`useMessageQueue` hook) but lacks UI integration; **Claude Code uses "Boundary-aware Queuing"** with queue display, editing via up-arrow, and "Press up to edit queued messages" placeholder
-6. **Configuration normalization** strategies documented for model formats, tool formats, and permissions across all three agent ecosystems
+1. **Per-node model configuration** - Extend `NodeDefinition` with SDK-native aliases (`'opus' | 'sonnet' | 'haiku' | 'inherit'`). SDKs resolve aliases to versioned model IDs automatically.
+2. **Custom workflows** - Loaded from `.atomic/workflows/*.ts` files that export a factory function. This is the ONLY Atomic-specific config format.
+3. **Multi-agent configuration loading** - **SDK-First**: Claude SDK auto-loads via `settingSources: ['project']`, OpenCode SDK auto-loads via `Config.get()`. Only Copilot agents/instructions require manual parsing.
+4. **`/model` command** - Uses SDK discovery (`supportedModels()`, `ListModels()`) instead of hardcoded mappings. Pass aliases directly to `setModel()` - SDK handles resolution.
+5. **Message queuing** - Infrastructure exists (`useMessageQueue` hook) but lacks UI integration. Implement Claude Code's "Boundary-aware Queuing" UX pattern.
+6. **Permissions** - **None**: Atomic auto-approves all tool executions (no permission prompts). `AskUserQuestion` is HIL for gathering input, not a permission mechanism.
+
+---
+
+## SDK Abstraction Reference (Key Findings)
+
+This section summarizes what each SDK provides that eliminates the need for manual implementation.
+
+### Claude Agent SDK Abstractions
+
+| Feature | SDK Method/Option | Description |
+|---------|-------------------|-------------|
+| Model aliases | `model: 'opus' \| 'sonnet' \| 'haiku' \| 'inherit'` | SDK resolves to latest versioned model ID |
+| Model discovery | `query.supportedModels()` | Returns `ModelInfo[]` with id, displayName, description |
+| Runtime model switch | `query.setModel('opus')` | Change model mid-session |
+| Config loading | `settingSources: ['project']` | Auto-loads `.claude/settings.json`, agents/, skills/, CLAUDE.md |
+| **No permissions** | `permissionMode: 'bypassPermissions'` | **Atomic uses bypass mode - no permission prompts** |
+| Hooks | `hooks: { PreToolUse: [...] }` | SDK executes hooks, handles responses |
+
+### OpenCode SDK Abstractions
+
+| Feature | SDK Method/Option | Description |
+|---------|-------------------|-------------|
+| Config loading | `Config.get()` | Auto-loads all `.opencode/` configs with precedence |
+| Model parsing | `Provider.parseModel('anthropic/claude-opus-4-5')` | Extracts providerID, modelID |
+| Model resolution | `Provider.getModel(providerID, modelID)` | Returns full model with metadata |
+| Model state | `local.model.current()`, `.set()`, `.list()` | Full model lifecycle management |
+| **No permissions** | `permission: { "*": "allow" }` | **Atomic auto-allows all tools** |
+
+### Copilot SDK Abstractions
+
+| Feature | SDK Method/Option | Description |
+|---------|-------------------|-------------|
+| Model discovery | `client.ListModels()` | Returns `ModelInfo[]` with capabilities, billing |
+| Model selection | `SessionConfig.model` | Pass model ID directly |
+| Skill loading | `skillDirectories: [...]` | SDK scans for SKILL.md files |
+| Tool filtering | `AvailableTools`, `ExcludedTools` | Whitelist/blacklist arrays |
+| **No permissions** | `OnPermissionRequest: () => ({ kind: 'approved' })` | **Atomic auto-approves all requests** |
+
+### Permission Philosophy
+
+**Atomic uses NO permission prompts.** All tool executions are auto-approved.
+
+- **AskUserQuestion** is a **Human-in-the-Loop (HIL)** tool for gathering user input, NOT a permission check
+- HIL is for clarifying requirements, not for approving tool usage
+- This simplifies UX and matches agentic coding patterns
+
+### What Atomic Must Implement (SDK Gaps)
+
+| Component | Reason |
+|-----------|--------|
+| `.atomic/workflows/*.ts` | Atomic-specific workflow format |
+| `.github/agents/*.md` parsing | Copilot SDK doesn't auto-load agents |
+| `.github/copilot-instructions.md` parsing | Copilot SDK doesn't auto-load instructions |
+| Cross-SDK agent merging | Unified @ autocomplete across all SDKs |
 
 ---
 
@@ -154,22 +211,47 @@ const context: ExecutionContext<TState> = {
 };
 ```
 
-#### SDK Model Configuration Patterns
+#### SDK Model Configuration Patterns (SDK-First Approach)
 
-**Claude Agent SDK**:
-- V1: `query({ prompt, options: { model: 'claude-sonnet-4-5' } })`
-- V2: `unstable_v2_createSession({ model: 'claude-sonnet-4-5' })`
-- Sub-agents: `model: 'sonnet' | 'opus' | 'haiku' | 'inherit'`
-- Runtime change: `query.setModel('claude-opus-4-5')` (streaming mode only)
+**IMPORTANT**: Use SDK-native model aliases and discovery instead of manual mappings. This ensures auto-model updates are supported without code changes.
 
-**OpenCode SDK**:
-- Global: `{ "model": "anthropic/claude-sonnet-4" }` in opencode.json
-- Agent-level: frontmatter `model: anthropic/claude-opus-4-5`
-- Provider variants: `{ "variants": { "high": { "thinking": { "budgetTokens": 10000 } } } }`
+**Claude Agent SDK** (use aliases directly - SDK resolves to latest versions):
+```typescript
+// Subagent definitions - use aliases directly
+const agentDef: AgentDefinition = {
+  model: 'sonnet',  // or 'opus', 'haiku', 'inherit'
+  // SDK auto-resolves to latest: claude-sonnet-4-5-YYYYMMDD
+};
 
-**Copilot SDK**:
-- Session creation: `client.createSession({ model: 'gpt-5' })`
-- No runtime model switching within sessions
+// Runtime model discovery (for /model list)
+const models = await query.supportedModels();
+// Returns: [{ value: 'claude-opus-4-5-...', displayName: 'Claude Opus 4.5', ... }]
+
+// Runtime model switching
+await query.setModel('opus');  // SDK resolves alias
+```
+
+**OpenCode SDK** (SDK handles resolution via Provider):
+```typescript
+// SDK handles model parsing and resolution
+const { providerID, modelID } = Provider.parseModel('anthropic/claude-sonnet-4');
+const model = Provider.getModel(providerID, modelID);
+
+// Use local.model context for state management
+local.model.set('anthropic/claude-sonnet-4');
+local.model.current();  // Get current model
+local.model.list();     // List available models
+```
+
+**Copilot SDK** (SDK provides model discovery):
+```typescript
+// List available models (for /model list)
+const models = await client.ListModels();
+// Returns: [{ id: 'claude-sonnet-4.5', name: '...', capabilities: {...} }]
+
+// Pass model ID directly - no mapping needed
+const session = await client.createSession({ model: 'claude-sonnet-4.5' });
+```
 
 ---
 
@@ -219,7 +301,7 @@ A custom workflow file must export:
 | `aliases` | No | `string[]` | Alternative command names |
 | `defaultConfig` | No | `Record<string, unknown>` | Default configuration |
 
-#### Example Workflow File
+#### Example Workflow File (Using SDK Aliases)
 
 **`.atomic/workflows/test-workflow.ts`**:
 ```typescript
@@ -230,7 +312,7 @@ export const description = "A basic test workflow for custom workflow validation
 export const aliases = ["test", "tw"];
 export const defaultConfig = {
   maxIterations: 5,
-  model: "claude-sonnet-4-5",
+  model: "sonnet",  // Use SDK alias - SDK resolves to latest version
 };
 
 interface TestWorkflowState extends BaseState {
@@ -241,6 +323,7 @@ interface TestWorkflowState extends BaseState {
 export default function createTestWorkflow(
   config: Record<string, unknown> = {}
 ): CompiledGraph<TestWorkflowState> {
+  // Use SDK alias directly - no need to map to full model ID
   const model = (config.model as string) ?? defaultConfig.model;
 
   const greetNode = toolNode<TestWorkflowState, void, string>({
@@ -255,7 +338,8 @@ export default function createTestWorkflow(
   const agentProcessNode = agentNode<TestWorkflowState>({
     id: "process",
     agentType: "claude",
-    sessionConfig: { model },
+    // Pass SDK alias directly - SDK handles resolution
+    sessionConfig: { model },  // 'sonnet' → claude-sonnet-4-5-YYYYMMDD
     buildMessage: (state) => `Process this: ${state.message}`,
     name: "Process with Agent",
     description: "Use agent to process the message",
@@ -271,77 +355,90 @@ export default function createTestWorkflow(
 
 ---
 
-### 3. Configuration Loading and Model Respect
+### 3. Configuration Loading (SDK-First Approach)
 
-#### Current Config Directories
+**Key Principle**: Delegate configuration loading to SDK abstractions wherever possible. Only implement custom parsing for Atomic-specific features (`.atomic/workflows/`).
 
-| Agent | Directory | Main Config | Model Location |
-|-------|-----------|-------------|----------------|
-| Claude | `.claude/` | `settings.json` | Command frontmatter `model:` |
-| OpenCode | `.opencode/` | `opencode.json` | Agent frontmatter `model:`, provider section |
-| Copilot | `.github/` | N/A | Not defined in config files |
+#### SDK Configuration Loading Capabilities
 
-#### Agent Frontmatter Parsing
+| SDK | Config Loading | What It Handles |
+|-----|----------------|-----------------|
+| **Claude** | `settingSources: ['project']` | `.claude/settings.json`, `.claude/agents/`, `.claude/skills/`, CLAUDE.md |
+| **OpenCode** | `Config.get()` | Full `.opencode/` directory, opencode.json, agents, commands, plugins |
+| **Copilot** | `skillDirectories` option | Skill loading from specified directories |
 
-**Location**: `src/ui/commands/agent-commands.ts:1003-1104`
-
-The `parseMarkdownFrontmatter()` function extracts metadata from agent definition files:
+#### Claude SDK Configuration Loading
 
 ```typescript
-function parseMarkdownFrontmatter(content: string): {
-  frontmatter: Record<string, unknown>;
-  body: string
-}
+// SDK loads all .claude/ configs automatically
+const result = query({
+  prompt: "...",
+  options: {
+    settingSources: ['project'],  // Loads .claude/settings.json, CLAUDE.md
+    systemPrompt: { type: 'preset', preset: 'claude_code' },  // Required for CLAUDE.md
+    // Agents from .claude/agents/ are auto-registered
+    // Model from frontmatter (opus, sonnet, haiku) is resolved by SDK
+  }
+});
 ```
 
-**Claude format** (`.claude/agents/*.md`):
+**Settings precedence** (SDK handles this):
+1. Local settings (`.claude/settings.local.json`) - highest
+2. Project settings (`.claude/settings.json`)
+3. User settings (`~/.claude/settings.json`) - lowest
+
+#### OpenCode SDK Configuration Loading
+
+```typescript
+// SDK handles ALL configuration loading
+const config = await Config.get();  // Merges all sources automatically
+
+// Config precedence (SDK handles):
+// 1. OPENCODE_CONFIG_CONTENT env var (highest)
+// 2. .opencode directories
+// 3. Project opencode.json
+// 4. OPENCODE_CONFIG path
+// 5. Global ~/.config/opencode/opencode.json
+// 6. Remote .well-known/opencode (lowest)
+```
+
+#### Copilot SDK Configuration Loading
+
+```typescript
+// Specify skill directories - SDK scans for SKILL.md files
+const session = await client.createSession({
+  skillDirectories: ['./.github/skills', './skills'],
+  // SDK parses SKILL.md frontmatter automatically
+});
+```
+
+**Note**: Copilot SDK does NOT auto-load `.github/copilot-instructions.md`. This requires manual parsing if needed.
+
+#### What Atomic Needs to Handle Manually
+
+Only these items require custom implementation:
+
+| Config | Reason |
+|--------|--------|
+| `.atomic/workflows/*.ts` | Atomic-specific format |
+| Cross-SDK agent merging | Combining agents from .claude/, .opencode/, .github/ |
+| Copilot instructions | `.github/copilot-instructions.md` not auto-loaded |
+
+#### Model Handling in Frontmatter
+
+**Use SDK aliases directly** - no normalization needed:
+
 ```yaml
----
+# Claude format - SDK resolves alias to latest version
 model: opus
-allowed-tools: Bash, Task, Edit
----
-```
 
-**OpenCode format** (`.opencode/agents/*.md`):
-```yaml
----
+# OpenCode format - SDK parses provider/model
 model: anthropic/claude-opus-4-5
-tools:
-  write: true
-  edit: true
-  bash: true
----
+
+# Both work because SDKs handle resolution internally
 ```
 
-#### Tool Normalization
-
-**Location**: `src/ui/commands/agent-commands.ts:1153-1169`
-
-Different formats are normalized:
-```typescript
-export function normalizeTools(
-  tools: string[] | Record<string, boolean> | undefined
-): string[] | undefined
-```
-
-#### Model Propagation Gap
-
-Currently, agent frontmatter parsing extracts `model` but it may not be consistently propagated to SDK session creation. The `AgentCommandInfo` interface includes `model`:
-
-```typescript
-export interface AgentCommandInfo {
-  name: string;
-  description: string;
-  source: AgentSource;
-  sourcePath?: string;
-  prompt?: string;
-  model?: string;  // Extracted from frontmatter
-  tools?: string[] | Record<string, boolean>;
-  // ...
-}
-```
-
-**Recommendation**: Ensure `AgentCommandInfo.model` is passed to SDK `SessionConfig.model` when creating sessions in agent command execution.
+**Recommendation**: Pass frontmatter `model` directly to SDK without transformation. The SDK handles alias resolution and version management.
 
 ---
 
@@ -365,7 +462,9 @@ export const modelCommand: CommandDefinition = {
 };
 ```
 
-#### Proposed `/model` Command
+#### Proposed `/model` Command (SDK-First)
+
+**Key Principle**: Use SDK model discovery and aliases instead of hardcoded mappings. This ensures auto-model updates work without code changes.
 
 ```typescript
 /**
@@ -375,7 +474,7 @@ export const modelCommand: CommandDefinition = {
  *   /model                    - Show current model
  *   /model <alias>            - Switch to model by alias (opus, sonnet, haiku)
  *   /model <full-name>        - Switch to specific model
- *   /model list               - List available models
+ *   /model list               - List available models (from SDK)
  */
 export const modelCommand: CommandDefinition = {
   name: "model",
@@ -385,8 +484,9 @@ export const modelCommand: CommandDefinition = {
   execute: async (args: string, context: CommandContext): Promise<CommandResult> => {
     const trimmed = args.trim().toLowerCase();
 
-    // Show current model
+    // Show current model - delegate to SDK
     if (!trimmed) {
+      // SDK provides display info
       const currentModel = context.session?.getModelDisplayInfo?.() ?? "No model set";
       return {
         success: true,
@@ -394,34 +494,30 @@ export const modelCommand: CommandDefinition = {
       };
     }
 
-    // List available models
+    // List available models - use SDK discovery
     if (trimmed === "list") {
-      const models = [
-        { alias: "opus", description: "Claude Opus 4.5 - complex reasoning" },
-        { alias: "sonnet", description: "Claude Sonnet 4.5 - daily coding" },
-        { alias: "haiku", description: "Claude Haiku - fast, simple tasks" },
-      ];
-      const lines = models.map(m => `  ${m.alias} - ${m.description}`);
+      // Claude SDK: query.supportedModels()
+      // OpenCode SDK: local.model.list()
+      // Copilot SDK: client.ListModels()
+      const models = await context.sdk.listAvailableModels();
+      const lines = models.map(m => `  ${m.alias ?? m.id} - ${m.displayName}`);
       return {
         success: true,
         message: `**Available Models**\n\n${lines.join("\n")}`,
       };
     }
 
-    // Switch model
-    const modelMap: Record<string, string> = {
-      opus: "claude-opus-4-5-20250929",
-      sonnet: "claude-sonnet-4-5-20250929",
-      haiku: "claude-haiku-3-5-20240307",
-    };
-
-    const modelId = modelMap[trimmed] ?? trimmed;
+    // Switch model - pass alias directly to SDK (no manual mapping!)
+    // SDK resolves: 'opus' → 'claude-opus-4-5-YYYYMMDD'
+    // SDK resolves: 'sonnet' → 'claude-sonnet-4-5-YYYYMMDD'
+    // SDK resolves: 'haiku' → 'claude-haiku-3-5-YYYYMMDD'
+    await context.sdk.setModel(trimmed);
 
     return {
       success: true,
       message: `Model switched to **${trimmed}**`,
       stateUpdate: {
-        model: modelId,
+        model: trimmed,  // Store alias, SDK resolves at runtime
       },
     };
   },
@@ -591,13 +687,10 @@ project-root/
   "model": "sonnet|opus|haiku|sonnet[1m]|opusplan",
   "alwaysThinkingEnabled": false,
 
-  // Permissions
+  // Permissions (Atomic uses bypassPermissions - NO PROMPTS)
   "permissions": {
-    "allow": ["Bash(npm run *)"],
-    "ask": ["Edit(./**)"],
-    "deny": ["Bash(rm -rf *)"],
-    "additionalDirectories": ["/path/to/dir"],
-    "defaultMode": "acceptEdits|askForAll|bypassPermissions"
+    "defaultMode": "bypassPermissions"  // Atomic: always bypass
+    // Other modes available: "acceptEdits", "askForAll", "default"
   },
 
   // MCP Configuration
@@ -644,7 +737,7 @@ description: When to delegate       # Required: Delegation criteria
 tools: Read, Grep, Glob, Bash       # Optional: Comma-separated allowlist
 disallowedTools: Write, Edit        # Optional: Tool denylist
 model: sonnet|opus|haiku|inherit    # Optional: Model override (default: inherit)
-permissionMode: default|acceptEdits|dontAsk|bypassPermissions|plan
+permissionMode: bypassPermissions          # Atomic default: NO PROMPTS
 skills:                             # Optional: Skills to preload
   - skill-name-1
 hooks:                              # Optional: Agent-scoped hooks
@@ -710,15 +803,17 @@ Dynamic context: !`shell command`
 | `PreCompact` | `manual\|auto` | Before context compaction |
 | `SessionEnd` | Exit reason | Session terminates |
 
-**Model Aliases**:
-| Alias | Description |
-|-------|-------------|
-| `sonnet` | Claude Sonnet 4.5 (latest) |
-| `opus` | Claude Opus 4.5 |
-| `haiku` | Claude Haiku (fast) |
-| `sonnet[1m]` | Sonnet with 1M context window |
-| `opusplan` | Opus for planning, Sonnet for execution |
-| `inherit` | Use parent conversation's model |
+**Model Aliases** (SDK-Native - Pass directly, SDK resolves to latest versions):
+| Alias | Description | SDK Resolution |
+|-------|-------------|----------------|
+| `sonnet` | Claude Sonnet 4.5 (latest) | → `claude-sonnet-4-5-YYYYMMDD` |
+| `opus` | Claude Opus 4.5 | → `claude-opus-4-5-YYYYMMDD` |
+| `haiku` | Claude Haiku (fast) | → `claude-haiku-3-5-YYYYMMDD` |
+| `sonnet[1m]` | Sonnet with 1M context window | → Extended context variant |
+| `opusplan` | Opus for planning, Sonnet for execution | → Multi-model orchestration |
+| `inherit` | Use parent conversation's model | → Parent's resolved model |
+
+**Key Point**: Use aliases directly in code. The SDK handles resolution to versioned model IDs, ensuring auto-updates work without code changes.
 
 ---
 
@@ -795,20 +890,10 @@ Dynamic context: !`shell command`
     }
   },
 
-  // Permission Configuration
+  // Permission Configuration (Atomic uses allow-all - NO PROMPTS)
   "permission": {
-    "*": "ask",
-    "read": "allow",
-    "edit": "ask",
-    "bash": {
-      "*": "ask",
-      "git *": "allow",
-      "rm *": "deny"
-    },
-    "external_directory": {
-      "*": "deny",
-      "~/projects/*": "allow"
-    }
+    "*": "allow"  // Atomic: auto-allow all tools
+    // Other actions available: "ask", "deny"
   },
 
   // Agent Configuration
@@ -856,9 +941,8 @@ hidden: false                        # Optional: Hide from @ autocomplete
 disable: false                       # Optional: Disable agent
 color: "#FF5733"                     # Optional: UI color
 steps: 50                            # Optional: Max iterations
-permission:                          # Optional: Permission overrides
-  "*": "ask"
-  edit: "allow"
+permission:                          # Atomic: auto-allow all
+  "*": "allow"
 ---
 
 System prompt content...
@@ -891,7 +975,7 @@ Skill content in Markdown...
 
 **Model Format**: `provider_id/model_id` (e.g., `anthropic/claude-opus-4-5`, `openai/gpt-5`)
 
-**Permission Actions**: `"allow"`, `"ask"`, `"deny"`
+**Permission Actions**: `"allow"` (Atomic default), `"ask"`, `"deny"` - **Atomic uses `"allow"` for all**
 
 **Available Tools**:
 | Tool | Description |
@@ -1016,7 +1100,7 @@ Skill instructions in Markdown...
 | `sessionStart` | `timestamp`, `cwd`, `source`, `initialPrompt` | - |
 | `sessionEnd` | `timestamp`, `cwd`, `reason` | - |
 | `userPromptSubmitted` | `timestamp`, `cwd`, `prompt` | - |
-| `preToolUse` | `timestamp`, `cwd`, `toolName`, `toolArgs` | `permissionDecision`, `permissionDecisionReason` |
+| `preToolUse` | `timestamp`, `cwd`, `toolName`, `toolArgs` | (Atomic: not used for permissions - auto-approve) |
 | `postToolUse` | `timestamp`, `cwd`, `toolName`, `toolArgs`, `toolResult` | - |
 | `errorOccurred` | `timestamp`, `cwd`, `error` | - |
 
@@ -1076,91 +1160,100 @@ Atomic loads and registers configurations from all three agent directories:
 
 ---
 
-#### 6.5 Configuration Normalization
+#### 6.5 Configuration Normalization (SDK-First)
 
-Atomic normalizes different configuration formats into a unified internal representation:
+**Key Principle**: Let SDKs handle normalization internally. Only normalize when bridging between SDKs.
 
-**Model Format Normalization**:
+**Model Format**: NO MANUAL NORMALIZATION NEEDED
+- Pass aliases (`opus`, `sonnet`, `haiku`) directly to Claude SDK
+- Pass `provider/model` format directly to OpenCode SDK
+- Pass model IDs directly to Copilot SDK
+- Each SDK handles its own resolution to versioned model IDs
 
-| Source | Input Format | Normalized Output |
-|--------|--------------|-------------------|
-| Claude Code | `opus`, `sonnet`, `haiku`, `inherit` | `claude-opus-4-5`, `claude-sonnet-4-5`, `claude-haiku-3-5`, `inherit` |
-| OpenCode | `anthropic/claude-opus-4-5` | `claude-opus-4-5` |
-| Copilot | `claude-opus-4-5`, `gpt-5` | `claude-opus-4-5`, `gpt-5` |
+**Tool Format**: MINIMAL NORMALIZATION
+- Claude SDK accepts comma-separated strings or arrays
+- OpenCode SDK has `fromConfig()` to normalize permission config
+- Copilot SDK accepts arrays directly
 
-**Tool Format Normalization**:
-
-| Source | Input Format | Normalized Output |
-|--------|--------------|-------------------|
-| Claude Code | `allowed-tools: Bash, Task, Edit` | `["Bash", "Task", "Edit"]` |
-| OpenCode | `tools: { bash: true, edit: false }` | `["bash"]` |
-| Copilot | `tools: ["read", "edit", "*"]` | `["read", "edit", "*"]` |
-
-**Permission Format Normalization**:
-
-| Source | Input Format |
-|--------|--------------|
-| Claude Code | `permissions.allow: ["Bash(npm *)"]` |
-| OpenCode | `permission: { bash: { "npm *": "allow" } }` |
-| Copilot | Hook-based via `preToolUse` returning `permissionDecision` |
-
-**Current Normalization Code** (`src/ui/commands/agent-commands.ts:1153-1169`):
 ```typescript
+// Only normalize OpenCode's object format to array if needed
 export function normalizeTools(
   tools: string[] | Record<string, boolean> | undefined
 ): string[] | undefined {
   if (!tools) return undefined;
-  if (Array.isArray(tools)) return tools;
+  if (Array.isArray(tools)) return tools;  // Already array - pass through
+  // OpenCode object format → array
   return Object.entries(tools)
     .filter(([_, enabled]) => enabled)
     .map(([name]) => name);
 }
 ```
 
+**Permission Format**: AUTO-APPROVE ALL (No Permission Prompts)
+
+**Atomic bypasses all permission checks.** Each SDK is configured to auto-approve:
+
+```typescript
+// Claude SDK - bypass all permissions
+query({ options: { permissionMode: 'bypassPermissions' } });
+
+// OpenCode SDK - allow all
+const config = { permission: { "*": "allow" } };
+
+// Copilot SDK - auto-approve callback
+const session = await client.createSession({
+  OnPermissionRequest: async () => ({ kind: 'approved' })
+});
+```
+
+**Note**: `AskUserQuestion` is a HIL (Human-in-the-Loop) tool for gathering user input, NOT a permission mechanism.
+
 ---
 
-#### 6.6 Implementation: Configuration Loading Architecture
+#### 6.6 Implementation: Configuration Loading Architecture (SDK-First)
 
-**Proposed Loading Flow**:
+**Simplified Loading Flow** - Delegate to SDKs wherever possible:
+
 ```
 initializeAsync()
     │
-    ├── loadClaudeConfig()
-    │   ├── Parse .claude/settings.json
-    │   ├── Parse .claude/agents/*.md
-    │   ├── Parse .claude/commands/*.md
-    │   ├── Parse .claude/skills/*/SKILL.md
-    │   └── Parse .mcp.json
+    ├── initClaudeSDK()
+    │   └── query({ options: { settingSources: ['project'] } })
+    │       └── SDK auto-loads: settings.json, agents/, skills/, CLAUDE.md
     │
-    ├── loadOpenCodeConfig()
-    │   ├── Parse .opencode/opencode.json
-    │   ├── Parse .opencode/agents/*.md
-    │   ├── Parse .opencode/command/*.md
-    │   └── Parse .opencode/skills/*/SKILL.md
+    ├── initOpenCodeSDK()
+    │   └── Config.get()
+    │       └── SDK auto-loads: opencode.json, agents/, commands/, skills/
     │
-    ├── loadCopilotConfig()
-    │   ├── Parse .github/agents/*.md
-    │   ├── Parse .github/skills/*/SKILL.md
-    │   ├── Parse .github/hooks/*.json
-    │   └── Parse ~/.copilot/mcp-config.json
+    ├── initCopilotSDK()
+    │   └── client.createSession({ skillDirectories: ['.github/skills'] })
+    │       └── SDK auto-loads: skills/
+    │   └── MANUAL: Parse .github/agents/*.md (SDK doesn't auto-load)
+    │   └── MANUAL: Parse .github/copilot-instructions.md (SDK doesn't auto-load)
     │
-    ├── loadAtomicConfig()
+    ├── loadAtomicConfig()  (ATOMIC-ONLY)
     │   └── Parse .atomic/workflows/*.ts
     │
-    └── registerAll()
-        ├── Normalize all configurations
-        ├── Register agents (dedupe by name, later wins)
-        ├── Register commands (dedupe by name)
-        ├── Register skills (dedupe by name)
-        ├── Register MCP servers (merge)
-        ├── Register workflows
-        └── Apply settings (merge with precedence)
+    └── registerCrossSDKAgents()  (ATOMIC-ONLY)
+        └── Merge agents from all three SDKs for unified @ autocomplete
 ```
 
+**What SDKs Handle vs. What Atomic Implements**:
+
+| Component | Claude SDK | OpenCode SDK | Copilot SDK | Atomic |
+|-----------|------------|--------------|-------------|--------|
+| Settings | ✅ Auto | ✅ Auto | ❌ Manual | - |
+| Agents | ✅ Auto | ✅ Auto | ❌ Manual | Cross-SDK merge |
+| Commands | ✅ Auto | ✅ Auto | N/A | - |
+| Skills | ✅ Auto | ✅ Auto | ✅ skillDirs | - |
+| MCP | ✅ .mcp.json | ✅ mcp section | ❌ Manual | - |
+| Hooks | ✅ Auto | N/A | ❌ Manual | - |
+| Workflows | N/A | N/A | N/A | ✅ .atomic/ |
+
 **Precedence Order** (later overrides earlier):
-1. `.opencode/` (lowest)
-2. `.github/`
-3. `.claude/`
+1. `.opencode/` (lowest) - via OpenCode SDK
+2. `.github/` - manual parsing for agents
+3. `.claude/` - via Claude SDK
 4. `.atomic/` (highest, workflows only)
 5. CLI flags (highest for model/permissions)
 
@@ -1204,30 +1297,35 @@ initializeAsync()
 
 ---
 
-## Architecture Documentation
+## Architecture Documentation (SDK-First)
 
-### Current Model Configuration Flow
+### Model Configuration Flow (SDK-First)
 
 ```
-User Request → ChatApp → SDK Client → createSession(SessionConfig) → Agent
+User Request → ChatApp → SDK Client
                  ↓
-         SessionConfig.model passed through
+         Pass model alias directly (e.g., 'opus', 'sonnet')
                  ↓
-         SDK handles model selection
+         SDK resolves alias → versioned model ID (e.g., claude-opus-4-5-20251101)
+                 ↓
+         SDK handles model selection and session creation
 ```
 
-### Proposed Per-Node Model Flow
+**Key Point**: No manual mapping needed. Pass aliases directly to SDK.
+
+### Per-Node Model Flow (Using SDK Aliases)
 
 ```
 Workflow Start → GraphExecutor → For each node:
                       ↓
-              Resolve model: node.model > parentContext.model > config.defaultModel
+              node.model (SDK alias: 'opus' | 'sonnet' | 'haiku' | 'inherit')
                       ↓
-              Build ExecutionContext with model
+              If 'inherit': use parentContext.model or config.defaultModel
+              Else: pass alias directly to SDK
                       ↓
               node.execute(context)
                       ↓
-              If agent node: context.model → SessionConfig.model
+              If agent node: context.model (alias) → SDK → resolved model ID
 ```
 
 ### Custom Workflow Loading Flow
@@ -1242,6 +1340,33 @@ Dynamic import each file → Extract exports (default, name, description, aliase
 Create WorkflowMetadata → Register in workflow registry
          ↓
 Generate CommandDefinition → Register in command registry
+```
+
+### SDK Initialization Flow
+
+```
+App Start → Initialize SDKs
+         ↓
+    ┌────┴────┐
+    │ Claude  │ → query({ settingSources: ['project'] })
+    │         │   └── Auto-loads: .claude/settings.json, agents/, skills/
+    └────┬────┘
+         │
+    ┌────┴────┐
+    │OpenCode │ → Config.get()
+    │         │   └── Auto-loads: .opencode/*, opencode.json
+    └────┬────┘
+         │
+    ┌────┴────┐
+    │ Copilot │ → client.createSession({ skillDirectories: [...] })
+    │         │   └── Auto-loads: skills from specified directories
+    │         │   └── MANUAL: Parse .github/agents/, copilot-instructions.md
+    └────┬────┘
+         │
+    ┌────┴────┐
+    │ Atomic  │ → loadWorkflowsFromDisk()
+    │         │   └── Parse .atomic/workflows/*.ts
+    └─────────┘
 ```
 
 ---
@@ -1265,125 +1390,156 @@ No prior research documents directly address these topics. This is the first com
 
 ## Open Questions
 
+### Resolved by SDK-First Approach
+
+1. ~~**Model availability**~~: Use SDK discovery methods:
+   - Claude: `query.supportedModels()`
+   - OpenCode: `local.model.list()`
+   - Copilot: `client.ListModels()`
+
+2. ~~**Permission system**~~: **NO PERMISSION PROMPTS** - Auto-approve all tool executions:
+   - Claude: `permissionMode: 'bypassPermissions'`
+   - OpenCode: `permission: { "*": "allow" }`
+   - Copilot: `OnPermissionRequest: () => ({ kind: 'approved' })`
+   - **Note**: `AskUserQuestion` is HIL (Human-in-the-Loop), not a permission check
+
+### Remaining Questions
+
 1. **Model inheritance semantics**: When a node specifies `model: 'inherit'`, should it inherit from:
    - The parent node that spawned it?
    - The graph-level default?
    - The current session model?
+   - **Recommendation**: Follow Claude SDK subagent behavior - inherit from parent conversation
 
-2. **Runtime model switching**: Should the `/model` command:
-   - Affect only new messages?
-   - Attempt to switch mid-session (SDK-dependent)?
-   - Clear context and restart with new model?
+2. **Runtime model switching**: The `/model` command should:
+   - Use `query.setModel()` (Claude) - works mid-session in streaming mode
+   - OpenCode/Copilot may require new session
+   - **Recommendation**: Attempt SDK switch, fallback to new session if not supported
 
 3. **Queue editing UX**: How should queue editing work when user presses up-arrow?
-   - Inline editing in queue display?
-   - Move to input box for editing?
-   - Modal/popup editor?
+   - **Recommendation**: Follow Claude Code pattern - move to input box for editing
 
 4. **Config validation**: Should custom workflow files be validated against a schema at load time?
+   - **Recommendation**: Yes, but defer to TypeScript type checking since workflows are `.ts` files
 
-5. **Model availability**: How to determine which models are available for the current SDK/account?
-
-6. **Configuration precedence**: When the same agent/skill/command name exists in multiple directories, what's the priority?
+5. **Configuration precedence**: When the same agent/skill/command name exists in multiple directories:
    - **Proposed**: `.claude/` > `.github/` > `.opencode/` (Claude Code takes precedence as primary target)
-   - Alternative: Last-loaded wins (alphabetical by directory name)
-   - Alternative: Merge with explicit conflict resolution
+   - SDKs don't handle cross-SDK merging - Atomic must implement
 
-7. **Hook system unification**: Claude Code and Copilot have different hook formats. How to handle?
-   - **Proposed**: Support both formats, translate internally to unified hook system
-   - Claude Code: `settings.json` hooks section
-   - Copilot: `.github/hooks/*.json` files
+6. **Hook system**: Each SDK has different hook mechanisms:
+   - Claude: Built-in `hooks` option
+   - OpenCode: No built-in hooks
+   - Copilot: JSON files in `.github/hooks/`
+   - **Recommendation**: Use SDK-native hooks where available, don't unify
 
-8. **MCP server merging**: Multiple sources define MCP servers. How to merge?
-   - **Proposed**: Merge all servers, later sources override on name conflict
-   - Sources: `.mcp.json` (Claude), `opencode.json` (OpenCode), `~/.copilot/mcp-config.json` (Copilot)
+7. **MCP server merging**: Multiple sources define MCP servers:
+   - Claude SDK handles `.mcp.json` automatically via `settingSources`
+   - OpenCode SDK handles `mcp` section in config
+   - Copilot: Manual parsing of `~/.copilot/mcp-config.json`
+   - **Recommendation**: Let each SDK manage its own MCP servers, don't merge
 
-9. **Permission system unification**: Each agent has different permission formats:
-   - Claude Code: `permissions.allow/deny` with tool patterns
-   - OpenCode: `permission` object with nested patterns
-   - Copilot: Hook-based via `preToolUse` returning `permissionDecision`
-   - **Proposed**: Normalize to unified permission model, execute Copilot hooks as permission checks
-
-10. **Skill directory collision**: Same skill name in multiple directories (e.g., `.claude/skills/my-skill/` and `.opencode/skills/my-skill/`):
-    - **Proposed**: Higher-precedence directory wins entirely (no merging within skills)
+8. **Skill directory collision**: Same skill name in multiple directories:
+   - SDKs load their own skills independently
+   - **Recommendation**: Higher-precedence SDK wins for @ autocomplete display
 
 ---
 
-## Implementation Recommendations
+## Implementation Recommendations (SDK-First)
 
 ### Priority Order
 
 1. **High Priority**:
    - ✅ Create example workflow in `.atomic/workflows/` (DONE: `.atomic/workflows/test-workflow.ts`)
-   - **Configuration Loading System**: Implement unified config loader that parses:
-     - `.claude/` (agents, commands, skills, settings, .mcp.json)
-     - `.opencode/` (agents, commands, skills, opencode.json)
-     - `.github/` (agents, skills, hooks)
+   - Implement `/model` command using SDK discovery (no manual mappings)
    - Update `QueueIndicator` to match Claude Code's UX pattern
-   - Implement `/model` command with alias support
-   - Add model normalization utilities for cross-agent compatibility
+   - Configure SDK settings sources for automatic config loading
 
 2. **Medium Priority**:
-   - Extend `NodeDefinition` with model field
+   - Extend `NodeDefinition` with model field (use SDK aliases: `'opus' | 'sonnet' | 'haiku' | 'inherit'`)
    - Update `ExecutionContext` with model propagation
-   - Ensure agent frontmatter `model` reaches SDK
-   - Implement tool normalization (already exists at `agent-commands.ts:1153-1169`)
+   - Cross-SDK agent merging for unified @ autocomplete
 
 3. **Lower Priority**:
-   - Model validation and availability checking
+   - Parse `.github/agents/` manually (Copilot SDK doesn't auto-load)
+   - Parse `.github/copilot-instructions.md` manually
    - Schema validation for custom workflows
-   - Hook system integration (Claude Code + Copilot formats)
 
 ### Specific Implementation Tasks
 
-#### Configuration Loading System (NEW)
-
-Create a unified configuration loader that respects all three agent ecosystems:
+#### SDK Initialization (Replaces Custom Config Loaders)
 
 ```typescript
-// src/config/loader.ts
-export interface UnifiedConfig {
-  agents: Map<string, AgentConfig>;      // Merged from all sources
-  commands: Map<string, CommandConfig>;  // Merged from all sources
-  skills: Map<string, SkillConfig>;      // Merged from all sources
-  mcpServers: Map<string, McpConfig>;    // Merged from all sources
-  workflows: Map<string, WorkflowConfig>; // Atomic-only
-  settings: MergedSettings;              // Merged with precedence
+// src/sdk/init.ts - SDK-first configuration loading with NO PERMISSION PROMPTS
+
+// Claude SDK - auto-loads .claude/ configs, bypasses permissions
+import { query } from '@anthropic-ai/claude-agent-sdk';
+
+export function initClaudeSession(prompt: string) {
+  return query({
+    prompt,
+    options: {
+      settingSources: ['project'],  // Auto-loads .claude/settings.json, agents/, etc.
+      systemPrompt: { type: 'preset', preset: 'claude_code' },  // Loads CLAUDE.md
+      permissionMode: 'bypassPermissions',  // NO PERMISSION PROMPTS
+      // Model from frontmatter (opus, sonnet, haiku) is resolved by SDK
+    }
+  });
 }
 
-export async function loadUnifiedConfig(projectRoot: string): Promise<UnifiedConfig> {
-  const [claude, opencode, copilot, atomic] = await Promise.all([
-    loadClaudeConfig(projectRoot),
-    loadOpenCodeConfig(projectRoot),
-    loadCopilotConfig(projectRoot),
-    loadAtomicConfig(projectRoot),
-  ]);
+// OpenCode SDK - auto-loads .opencode/ configs, auto-allows all
+import { Config, Provider } from 'opencode';
 
-  return mergeConfigs({ claude, opencode, copilot, atomic });
+export async function initOpenCodeSession() {
+  const config = await Config.get();  // Auto-loads everything
+  // Override permissions to allow all
+  config.permission = { "*": "allow" };  // NO PERMISSION PROMPTS
+  return config;
 }
 
-// Loader for each ecosystem
-async function loadClaudeConfig(root: string): Promise<ClaudeConfig> {
-  const settingsPath = path.join(root, '.claude', 'settings.json');
-  const agentsDir = path.join(root, '.claude', 'agents');
-  const commandsDir = path.join(root, '.claude', 'commands');
-  const skillsDir = path.join(root, '.claude', 'skills');
-  const mcpPath = path.join(root, '.mcp.json');
-  // ... parse each
-}
+// Copilot SDK - partial auto-loading, auto-approves all
+import { Client } from '@github/copilot-sdk';
 
-async function loadOpenCodeConfig(root: string): Promise<OpenCodeConfig> {
-  const configPath = path.join(root, '.opencode', 'opencode.json');
-  const agentsDir = path.join(root, '.opencode', 'agents');
-  // ... parse each
+export async function initCopilotSession(client: Client) {
+  return client.createSession({
+    skillDirectories: ['./.github/skills'],  // SDK loads skills
+    OnPermissionRequest: async () => ({ kind: 'approved' }),  // NO PERMISSION PROMPTS
+    // NOTE: Agents and instructions require manual parsing
+  });
 }
+```
 
-async function loadCopilotConfig(root: string): Promise<CopilotConfig> {
-  const agentsDir = path.join(root, '.github', 'agents');
-  const skillsDir = path.join(root, '.github', 'skills');
-  const hooksDir = path.join(root, '.github', 'hooks');
-  // ... parse each
-}
+**Note**: `AskUserQuestion` tool is for HIL (Human-in-the-Loop) interactions to gather user input - it is NOT a permission mechanism.
+
+#### /model Command (SDK-First, No Manual Mapping)
+
+```typescript
+// src/ui/commands/builtin-commands.ts
+export const modelCommand: CommandDefinition = {
+  name: "model",
+  aliases: ["m"],
+  category: "builtin",
+  description: "Switch or view the current model",
+  execute: async (args, context) => {
+    const trimmed = args.trim().toLowerCase();
+
+    if (!trimmed) {
+      return { success: true, message: `Current model: **${context.session.model}**` };
+    }
+
+    if (trimmed === "list") {
+      // Use SDK discovery - no hardcoded list!
+      const models = await context.sdk.supportedModels();
+      const lines = models.map(m => `  ${m.displayName}`);
+      return { success: true, message: `**Available Models**\n\n${lines.join("\n")}` };
+    }
+
+    // Pass alias directly to SDK - it handles resolution
+    // 'opus' → claude-opus-4-5-YYYYMMDD (SDK resolves)
+    // 'sonnet' → claude-sonnet-4-5-YYYYMMDD (SDK resolves)
+    await context.sdk.setModel(trimmed);
+    return { success: true, message: `Model switched to **${trimmed}**` };
+  },
+};
 ```
 
 #### Message Queue UI (Following Claude Code Pattern)
@@ -1405,47 +1561,53 @@ async function loadCopilotConfig(root: string): Promise<CopilotConfig> {
    - Add `moveUp(index)` / `moveDown(index)` for reordering
    - Add `currentEditIndex` state for navigation
 
-#### Model Command Implementation
-
-```typescript
-// src/ui/commands/builtin-commands.ts
-export const modelCommand: CommandDefinition = {
-  name: "model",
-  aliases: ["m"],
-  category: "builtin",
-  description: "Switch or view the current model",
-  execute: async (args, context) => {
-    // Supports all three formats:
-    // - Claude aliases: opus, sonnet, haiku
-    // - OpenCode format: anthropic/claude-opus-4-5
-    // - Direct model ID: claude-opus-4-5
-    const modelAliases: Record<string, string> = {
-      opus: "claude-opus-4-5-20251101",
-      sonnet: "claude-sonnet-4-5-20251101",
-      haiku: "claude-haiku-3-5-20240307",
-    };
-    // ... implementation with normalizeModel()
-  },
-};
-```
-
-#### Per-Node Model Configuration
+#### Per-Node Model Configuration (Using SDK Aliases)
 
 ```typescript
 // src/graph/types.ts additions
 export interface NodeDefinition<TState extends BaseState = BaseState> {
   // ...existing fields
-  model?: string | 'inherit';
+  // Use SDK aliases - SDK resolves to full model IDs
+  model?: 'opus' | 'sonnet' | 'haiku' | 'inherit' | string;
 }
 
 export interface ExecutionContext<TState extends BaseState = BaseState> {
   // ...existing fields
-  model?: string;
+  model?: string;  // Resolved by SDK at runtime
 }
 
 export interface GraphConfig<TState extends BaseState = BaseState> {
   // ...existing fields
-  defaultModel?: string;
+  defaultModel?: 'opus' | 'sonnet' | 'haiku' | string;
+}
+```
+
+#### Copilot-Specific Manual Parsing (SDK Doesn't Auto-Load)
+
+```typescript
+// src/config/copilot-manual.ts
+// Only parse what Copilot SDK doesn't auto-load
+
+import { parseMarkdownFrontmatter } from './utils';
+import * as fs from 'fs/promises';
+import * as path from 'path';
+
+export async function loadCopilotAgents(projectRoot: string) {
+  const agentsDir = path.join(projectRoot, '.github', 'agents');
+  // Manual parsing required - Copilot SDK doesn't auto-load agents
+  const files = await fs.readdir(agentsDir).catch(() => []);
+  return Promise.all(
+    files.filter(f => f.endsWith('.md')).map(async f => {
+      const content = await fs.readFile(path.join(agentsDir, f), 'utf-8');
+      return parseMarkdownFrontmatter(content);
+    })
+  );
+}
+
+export async function loadCopilotInstructions(projectRoot: string) {
+  const instructionsPath = path.join(projectRoot, '.github', 'copilot-instructions.md');
+  // Manual parsing required - Copilot SDK doesn't auto-load this file
+  return fs.readFile(instructionsPath, 'utf-8').catch(() => null);
 }
 ```
 
@@ -1456,17 +1618,20 @@ export interface GraphConfig<TState extends BaseState = BaseState> {
 ### Created
 - `.atomic/workflows/test-workflow.ts` - Example custom workflow demonstrating required exports
 
-### To Be Created
-- `src/config/loader.ts` - Unified configuration loader
-- `src/config/claude-loader.ts` - Claude Code config parser
-- `src/config/opencode-loader.ts` - OpenCode config parser
-- `src/config/copilot-loader.ts` - Copilot config parser
-- `src/config/normalizers.ts` - Model/tool/permission normalization utilities
+### To Be Created (Simplified - SDKs handle most loading)
+- `src/sdk/init.ts` - SDK initialization with proper settingSources/Config.get()
+- `src/config/copilot-manual.ts` - Manual parsing for Copilot (agents, instructions not auto-loaded)
+- `src/config/cross-sdk-merge.ts` - Merge agents from all three SDKs for unified @ autocomplete
+
+### NOT Needed (SDKs Handle or Not Used)
+- ~~`src/config/claude-loader.ts`~~ - Claude SDK auto-loads via `settingSources: ['project']`
+- ~~`src/config/opencode-loader.ts`~~ - OpenCode SDK auto-loads via `Config.get()`
+- ~~`src/config/normalizers.ts`~~ - SDKs handle model normalization; permissions not needed (auto-approve all)
+- ~~Permission handling code~~ - All SDKs configured to bypass/auto-approve
 
 ### To Be Modified
-- `src/graph/types.ts` - Add model fields to NodeDefinition, ExecutionContext, GraphConfig
+- `src/graph/types.ts` - Add model fields (use SDK aliases: `'opus' | 'sonnet' | 'haiku'`)
 - `src/ui/components/queue-indicator.tsx` - Add editing support, Claude Code UX pattern
 - `src/ui/chat.tsx` - Render QueueIndicator, handle queue editing
 - `src/ui/hooks/use-message-queue.ts` - Add editing/reordering methods
-- `src/ui/commands/builtin-commands.ts` - Add `/model` command
-- `src/ui/commands/agent-commands.ts` - Use unified config loader
+- `src/ui/commands/builtin-commands.ts` - Add `/model` command using SDK discovery

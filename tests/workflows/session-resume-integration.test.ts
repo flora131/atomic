@@ -55,8 +55,8 @@ import {
 import {
   RalphExecutor,
   createRalphExecutor,
-} from "../../src/workflows/ralph-executor.ts";
-import { createRalphWorkflow } from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/ralph/executor.ts";
+import { createRalphWorkflow } from "../../src/workflows/ralph/workflow.ts";
 import { parseRalphArgs } from "../../src/ui/commands/workflow-commands.ts";
 
 // ============================================================================

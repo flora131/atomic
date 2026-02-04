@@ -682,7 +682,7 @@ export class SessionDirSaver<TState extends BaseState = BaseState>
    */
   private extractCheckpointNumber(label: string): number | null {
     const match = label.match(/^node-(\d+)$/);
-    if (match) {
+    if (match && match[1]) {
       return parseInt(match[1], 10);
     }
     return null;

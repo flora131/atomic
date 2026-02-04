@@ -31,12 +31,21 @@ function createMockQueueState(): {
   dequeue: () => QueuedMessage | undefined;
   clear: () => void;
   count: () => number;
+  currentEditIndex: number;
+  setEditIndex: (index: number) => void;
+  updateAt: (index: number, content: string) => void;
+  moveUp: (index: number) => void;
+  moveDown: (index: number) => void;
 } {
   let queue: QueuedMessage[] = [];
+  let currentEditIndex = -1;
 
   return {
     get queue() {
       return queue;
+    },
+    get currentEditIndex() {
+      return currentEditIndex;
     },
     enqueue: (content: string) => {
       const message: QueuedMessage = {
@@ -58,6 +67,49 @@ function createMockQueueState(): {
       queue = [];
     },
     count: () => queue.length,
+    setEditIndex: (index: number) => {
+      currentEditIndex = index;
+    },
+    updateAt: (index: number, content: string) => {
+      if (index < 0 || index >= queue.length) {
+        return;
+      }
+      const message = queue[index];
+      if (!message) {
+        return;
+      }
+      const updated = [...queue];
+      updated[index] = {
+        id: message.id,
+        queuedAt: message.queuedAt,
+        content,
+      };
+      queue = updated;
+    },
+    moveUp: (index: number) => {
+      if (index <= 0 || index >= queue.length) {
+        return;
+      }
+      const updated = [...queue];
+      const temp = updated[index - 1]!;
+      updated[index - 1] = updated[index]!;
+      updated[index] = temp;
+      queue = updated;
+      if (currentEditIndex > 0) {
+        currentEditIndex = currentEditIndex - 1;
+      }
+    },
+    moveDown: (index: number) => {
+      if (index < 0 || index >= queue.length - 1) {
+        return;
+      }
+      const updated = [...queue];
+      [updated[index], updated[index + 1]] = [updated[index + 1]!, updated[index]!];
+      queue = updated;
+      if (currentEditIndex < queue.length - 1) {
+        currentEditIndex = currentEditIndex + 1;
+      }
+    },
   };
 }
 
@@ -490,6 +542,225 @@ describe("edge cases", () => {
 });
 
 // ============================================================================
+// UPDATE AT TESTS
+// ============================================================================
+
+describe("updateAt operation", () => {
+  test("updates message at correct index", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+    state.enqueue("Third");
+
+    state.updateAt(1, "Updated Second");
+
+    expect(state.queue[1]?.content).toBe("Updated Second");
+    expect(state.queue[0]?.content).toBe("First");
+    expect(state.queue[2]?.content).toBe("Third");
+  });
+
+  test("updateAt with invalid negative index returns unchanged", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+
+    const originalQueue = [...state.queue];
+    state.updateAt(-1, "Should not update");
+
+    expect(state.queue.map((m) => m.content)).toEqual(
+      originalQueue.map((m) => m.content)
+    );
+  });
+
+  test("updateAt with index >= length returns unchanged", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+
+    const originalQueue = [...state.queue];
+    state.updateAt(5, "Should not update");
+
+    expect(state.queue.map((m) => m.content)).toEqual(
+      originalQueue.map((m) => m.content)
+    );
+  });
+
+  test("updateAt preserves message id and queuedAt", () => {
+    const state = createMockQueueState();
+    state.enqueue("Original");
+    const originalId = state.queue[0]?.id;
+    const originalQueuedAt = state.queue[0]?.queuedAt;
+
+    state.updateAt(0, "Updated");
+
+    expect(state.queue[0]?.id).toBe(originalId);
+    expect(state.queue[0]?.queuedAt).toBe(originalQueuedAt);
+    expect(state.queue[0]?.content).toBe("Updated");
+  });
+});
+
+// ============================================================================
+// MOVE UP TESTS
+// ============================================================================
+
+describe("moveUp operation", () => {
+  test("swaps message with previous", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+    state.enqueue("Third");
+
+    state.moveUp(1);
+
+    expect(state.queue[0]?.content).toBe("Second");
+    expect(state.queue[1]?.content).toBe("First");
+    expect(state.queue[2]?.content).toBe("Third");
+  });
+
+  test("moveUp at index 0 returns unchanged", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+
+    const originalContents = state.queue.map((m) => m.content);
+    state.moveUp(0);
+
+    expect(state.queue.map((m) => m.content)).toEqual(originalContents);
+  });
+
+  test("moveUp with negative index returns unchanged", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+
+    const originalContents = state.queue.map((m) => m.content);
+    state.moveUp(-1);
+
+    expect(state.queue.map((m) => m.content)).toEqual(originalContents);
+  });
+
+  test("moveUp with index >= length returns unchanged", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+
+    const originalContents = state.queue.map((m) => m.content);
+    state.moveUp(5);
+
+    expect(state.queue.map((m) => m.content)).toEqual(originalContents);
+  });
+
+  test("moveUp updates currentEditIndex", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+    state.enqueue("Third");
+
+    state.setEditIndex(2);
+    state.moveUp(2);
+
+    expect(state.currentEditIndex).toBe(1);
+  });
+});
+
+// ============================================================================
+// MOVE DOWN TESTS
+// ============================================================================
+
+describe("moveDown operation", () => {
+  test("swaps message with next", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+    state.enqueue("Third");
+
+    state.moveDown(0);
+
+    expect(state.queue[0]?.content).toBe("Second");
+    expect(state.queue[1]?.content).toBe("First");
+    expect(state.queue[2]?.content).toBe("Third");
+  });
+
+  test("moveDown at last index returns unchanged", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+
+    const originalContents = state.queue.map((m) => m.content);
+    state.moveDown(1);
+
+    expect(state.queue.map((m) => m.content)).toEqual(originalContents);
+  });
+
+  test("moveDown with negative index returns unchanged", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+
+    const originalContents = state.queue.map((m) => m.content);
+    state.moveDown(-1);
+
+    expect(state.queue.map((m) => m.content)).toEqual(originalContents);
+  });
+
+  test("moveDown with index >= length returns unchanged", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+
+    const originalContents = state.queue.map((m) => m.content);
+    state.moveDown(5);
+
+    expect(state.queue.map((m) => m.content)).toEqual(originalContents);
+  });
+
+  test("moveDown updates currentEditIndex", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+    state.enqueue("Third");
+
+    state.setEditIndex(0);
+    state.moveDown(0);
+
+    expect(state.currentEditIndex).toBe(1);
+  });
+});
+
+// ============================================================================
+// SET EDIT INDEX TESTS
+// ============================================================================
+
+describe("setEditIndex operation", () => {
+  test("updates currentEditIndex", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+    state.enqueue("Second");
+
+    state.setEditIndex(1);
+
+    expect(state.currentEditIndex).toBe(1);
+  });
+
+  test("starts with currentEditIndex at -1", () => {
+    const state = createMockQueueState();
+
+    expect(state.currentEditIndex).toBe(-1);
+  });
+
+  test("allows setting to -1 to exit edit mode", () => {
+    const state = createMockQueueState();
+    state.enqueue("First");
+
+    state.setEditIndex(0);
+    expect(state.currentEditIndex).toBe(0);
+
+    state.setEditIndex(-1);
+    expect(state.currentEditIndex).toBe(-1);
+  });
+});
+
+// ============================================================================
 // USE MESSAGE QUEUE RETURN TYPE TESTS
 // ============================================================================
 
@@ -502,6 +773,11 @@ describe("UseMessageQueueReturn interface", () => {
       dequeue: () => undefined,
       clear: () => {},
       count: 0,
+      currentEditIndex: -1,
+      setEditIndex: () => {},
+      updateAt: () => {},
+      moveUp: () => {},
+      moveDown: () => {},
     };
 
     expect(mockReturn.queue).toBeDefined();
@@ -509,6 +785,8 @@ describe("UseMessageQueueReturn interface", () => {
     expect(typeof mockReturn.dequeue).toBe("function");
     expect(typeof mockReturn.clear).toBe("function");
     expect(typeof mockReturn.count).toBe("number");
+    expect(typeof mockReturn.currentEditIndex).toBe("number");
+    expect(typeof mockReturn.setEditIndex).toBe("function");
   });
 
   test("queue is QueuedMessage array type", () => {
@@ -524,6 +802,11 @@ describe("UseMessageQueueReturn interface", () => {
       dequeue: () => undefined,
       clear: () => {},
       count: 1,
+      currentEditIndex: -1,
+      setEditIndex: () => {},
+      updateAt: () => {},
+      moveUp: () => {},
+      moveDown: () => {},
     };
 
     expect(mockReturn.queue).toHaveLength(1);
@@ -543,6 +826,11 @@ describe("UseMessageQueueReturn interface", () => {
       dequeue: () => mockMessage,
       clear: () => {},
       count: 1,
+      currentEditIndex: -1,
+      setEditIndex: () => {},
+      updateAt: () => {},
+      moveUp: () => {},
+      moveDown: () => {},
     };
 
     const mockReturn2: UseMessageQueueReturn = {
@@ -551,6 +839,11 @@ describe("UseMessageQueueReturn interface", () => {
       dequeue: () => undefined,
       clear: () => {},
       count: 0,
+      currentEditIndex: -1,
+      setEditIndex: () => {},
+      updateAt: () => {},
+      moveUp: () => {},
+      moveDown: () => {},
     };
 
     expect(mockReturn1.dequeue()).toEqual(mockMessage);

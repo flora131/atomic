@@ -1,8 +1,21 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { runInitCommand, readConfigYaml } from "../test-helpers";
 import { getProvider } from "../../src/providers";
 
 describe("atomic init integration (Sapling)", () => {
+  let origCommandExists: unknown;
+
+  beforeEach(() => {
+    origCommandExists = (global as any).commandExists;
+    // Mock commandExists to return true for sl and gh
+    (global as any).commandExists = async (cmd: string) =>
+      cmd === "sl" || cmd === "gh";
+  });
+
+  afterEach(() => {
+    (global as any).commandExists = origCommandExists;
+  });
+
   it("should write provider: sapling to config.yaml", async () => {
     await runInitCommand({ provider: "sapling", saplingPrWorkflow: "stack" });
     const config = await readConfigYaml();
@@ -19,10 +32,8 @@ describe("atomic init integration (Sapling)", () => {
   });
 
   it("should error if Sapling CLI is missing", async () => {
-    // Simulate missing sl
-    const orig = (global as any).commandExists;
+    // Override mock to simulate missing sl
     (global as any).commandExists = async (cmd: string) => cmd !== "sl";
     await expect(runInitCommand({ provider: "sapling" })).rejects.toThrow(/Sapling CLI/);
-    (global as any).commandExists = orig;
   });
 });

@@ -93,7 +93,6 @@ atomic run claude "/research-codebase Research implementing GraphRAG using \
 ## Table of Contents
 
 - [What Engineers Use Atomic For](#what-engineers-use-atomic-for)
-- [Try It in 60 Seconds](#try-it-in-60-seconds)
 - [Set up Atomic](#set-up-atomic)
 - [The Flywheel](#the-flywheel)
 - [How It Works](#how-it-works)

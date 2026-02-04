@@ -326,5 +326,7 @@ async function main(): Promise<void> {
   }
 }
 
-// Run the CLI
-main();
+// Only run CLI when executed directly, not when imported
+if (import.meta.main) {
+  main();
+}

@@ -160,11 +160,14 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   // Source Control Provider Selection
   // ========================================
 
-  let selectedProvider: ProviderName;
+  let selectedProvider: ProviderName = "github"; // Default, will be overwritten if needed
   let saplingOptions: SaplingOptions | undefined;
 
   // Check if atomic config already exists
   const existingConfig = await readAtomicConfig(targetDir);
+
+  // Track whether we need to prompt for provider selection
+  let needsProviderSelection = true;
 
   if (options.provider) {
     // Non-interactive: provider specified via CLI flag
@@ -173,6 +176,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       process.exit(1);
     }
     selectedProvider = options.provider;
+    needsProviderSelection = false;
 
     if (selectedProvider === "sapling") {
       saplingOptions = {
@@ -183,10 +187,19 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     log.step(`Source control provider: ${getProvider(selectedProvider).displayName}`);
   } else if (existingConfig && !options.force) {
     // Use existing config if present (and not forcing reconfiguration)
-    selectedProvider = existingConfig.sourceControl.provider;
-    saplingOptions = existingConfig.sourceControl.sapling;
-    log.step(`Using existing source control provider: ${getProvider(selectedProvider).displayName}`);
-  } else if (!autoConfirm) {
+    // Validate provider before using it (handles corrupted/manually edited configs)
+    if (isValidProvider(existingConfig.sourceControl.provider)) {
+      selectedProvider = existingConfig.sourceControl.provider;
+      saplingOptions = existingConfig.sourceControl.sapling;
+      needsProviderSelection = false;
+      log.step(`Using existing source control provider: ${getProvider(selectedProvider).displayName}`);
+    } else {
+      // Invalid provider in config - will prompt/default below
+      log.warn(`Invalid provider '${existingConfig.sourceControl.provider}' in .atomic/config.yaml`);
+    }
+  }
+
+  if (needsProviderSelection && !autoConfirm) {
     // Interactive: prompt for provider selection
     const providerOptions = getProviderOptions();
 
@@ -220,7 +233,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
         prWorkflow: workflowSelection as SaplingOptions["prWorkflow"],
       };
     }
-  } else {
+  } else if (needsProviderSelection) {
     // Auto-confirm mode without provider specified: default to GitHub
     selectedProvider = "github";
     log.info("Defaulting to GitHub provider (use --provider to specify)");

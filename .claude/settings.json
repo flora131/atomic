@@ -21,7 +21,7 @@
     ]
   },
   "enabledPlugins": {
-    "ralph@atomic-plugins": false
+    "ralph@atomic-plugins": true
   },
   "extraKnownMarketplaces": {
     "atomic-plugins": {

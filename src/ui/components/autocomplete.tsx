@@ -147,7 +147,7 @@ export function Autocomplete({
   input,
   visible,
   selectedIndex,
-  onSelect,
+  onSelect: _onSelect,
   onIndexChange,
   maxSuggestions = 8,
 }: AutocompleteProps): React.ReactNode {

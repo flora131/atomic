@@ -130,7 +130,7 @@ interface StatusItemProps {
 function StatusItem({
   text,
   color,
-  bold = false,
+  bold: _bold = false,
   separator = false,
   separatorColor = "#666666",
 }: StatusItemProps): React.ReactNode {

@@ -53,6 +53,8 @@ export interface BuiltinSkill {
   prompt: string;
   /** Whether this skill is hidden from autocomplete */
   hidden?: boolean;
+  /** Hint text showing expected arguments (e.g., "[message] [--amend]") */
+  argumentHint?: string;
 }
 
 // ============================================================================
@@ -70,6 +72,7 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
     name: "commit",
     description: "Create well-formatted commits with conventional commit format",
     aliases: ["ci"],
+    argumentHint: "[message] [--amend]",
     prompt: `# Smart Git Commit
 
 Create well-formatted commit: $ARGUMENTS
@@ -223,6 +226,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
     name: "research-codebase",
     description: "Document codebase as-is with research directory for historical context",
     aliases: ["research"],
+    argumentHint: "[research-question]",
     prompt: `# Research Codebase
 
 Document the codebase structure and patterns: $ARGUMENTS
@@ -317,6 +321,7 @@ Analyze external dependencies:
     name: "create-spec",
     description: "Generate technical specification from research",
     aliases: ["spec"],
+    argumentHint: "[research-path]",
     prompt: `# Create Technical Specification
 
 Generate a technical specification for: $ARGUMENTS
@@ -421,6 +426,7 @@ Suggested sequence for implementation:
     name: "create-feature-list",
     description: "Break spec into implementable tasks",
     aliases: ["features"],
+    argumentHint: "[spec-path]",
     prompt: `# Create Feature List
 
 Break down the specification into implementable tasks: $ARGUMENTS
@@ -591,6 +597,7 @@ interface Feature {
     name: "implement-feature",
     description: "Implement next feature from list",
     aliases: ["impl"],
+    argumentHint: "[feature-name]",
     prompt: `# Implement Feature
 
 Implement the next feature from the feature list: $ARGUMENTS
@@ -729,6 +736,7 @@ If you encounter issues:
     name: "create-gh-pr",
     description: "Push and create pull request",
     aliases: ["pr"],
+    argumentHint: "[title] [--draft]",
     prompt: `# Create GitHub Pull Request
 
 Push changes and create a pull request: $ARGUMENTS
@@ -897,6 +905,7 @@ gh pr edit --title "New Title" --body "New Body"
     name: "explain-code",
     description: "Explain code functionality in detail",
     aliases: ["explain"],
+    argumentHint: "[file-path | concept]",
     prompt: `# Explain Code
 
 Explain the following code in detail: $ARGUMENTS
@@ -1206,6 +1215,7 @@ function createBuiltinSkillCommand(skill: BuiltinSkill): CommandDefinition {
     category: "skill",
     aliases: skill.aliases,
     hidden: skill.hidden,
+    argumentHint: skill.argumentHint,
     execute: (args: string, context: CommandContext): CommandResult => {
       const skillArgs = args.trim();
       // Use the embedded prompt directly and expand $ARGUMENTS

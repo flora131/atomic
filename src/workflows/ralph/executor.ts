@@ -17,7 +17,6 @@ import type { CompiledGraph } from "../../graph/types.ts";
 import type { RalphWorkflowState } from "../../graph/nodes/ralph-nodes.ts";
 import type { CreateRalphWorkflowConfig } from "./workflow.ts";
 import {
-  loadSession,
   saveSession,
   loadSessionIfExists,
 } from "./session.ts";

@@ -9,19 +9,28 @@
 
 ## 1. Executive Summary
 
-This RFC proposes a comprehensive architectural upgrade for the Atomic CLI, introducing two interconnected systems: (1) a **Unified SDK Abstraction Layer** that provides a common interface for Claude Agent SDK, GitHub Copilot SDK, and OpenCode SDK, and (2) a **Graph Execution Engine** implementing a Pregel-based StateGraph pattern with a fluent API for orchestrating agentic workflows.
+This RFC proposes a comprehensive architectural upgrade for the Atomic CLI, introducing two interconnected systems: (1) **Thin SDK Adapters** that expose native SDK functionality with minimal abstraction, and (2) a **Graph Execution Engine** implementing a Pregel-based StateGraph pattern with a fluent API for orchestrating agentic workflows.
+
+**Core Design Principle: Use SDK Features, Don't Reimplement**
+
+Rather than building a heavy abstraction layer, we leverage each SDK's native capabilities:
+- **Claude V2 SDK:** Use `send()`/`stream()` directly, auto-compaction via `PreCompact` hook
+- **OpenCode SDK:** Use native `session.summarize()`, event subscription, plugin system
+- **Copilot SDK:** Use native 31 event types, built-in `/compact` command
 
 **Key changes:**
-- Create `CodingAgentClient` interface abstracting all three AI agent SDKs (Claude, GitHub Copilot, OpenCode)
-- Implement `CopilotClient` using `@github/copilot-sdk` with full 31 event types support
+- Create thin `CodingAgentClient` adapters that delegate to native SDKs (no message transformation)
+- Expose native SDK sessions via `native` accessor for advanced features
+- Use SDK's built-in context compaction (not reimplemented)
+- Forward native SDK events to graph engine (passthrough, not mapping)
 - Implement type-safe graph execution with 6 node types (agent, tool, decision, wait, subgraph, parallel)
 - Enable declarative workflow definition via fluent API chaining (`.start()`, `.then()`, `.loop()`, etc.)
 - Build OpenTUI-based terminal chat interface with streaming, syntax highlighting, and sticky scroll
-- Integrate unified telemetry collection across all SDK clients and graph execution
+- Subscribe to native SDK events for telemetry (no wrapper pattern)
 - Support checkpointing for workflow resumption and progress tracking
 - Replace current hook-based Ralph implementation with graph-based orchestration
 
-**Impact:** This enables Atomic to orchestrate complex, multi-step AI workflows with any supported backend, reducing code duplication by ~60% and providing a foundation for advanced features like parallel agent execution, context window management, human-in-the-loop workflows, and a unified terminal UI experience.
+**Impact:** This enables Atomic to orchestrate complex, multi-step AI workflows leveraging the full power of each SDK, reducing code duplication by ~60% while preserving SDK-specific features. The thin adapter pattern ensures we benefit from SDK improvements automatically.
 
 **Research References:**
 - [research/docs/2026-01-31-claude-agent-sdk-research.md](../research/docs/2026-01-31-claude-agent-sdk-research.md)
@@ -97,21 +106,19 @@ The Atomic CLI currently supports three AI coding agents through separate, incom
 
 ### 3.1 Functional Goals
 
-**SDK Abstraction Layer:**
-- [ ] Create `CodingAgentClient` interface with common session management operations
-- [ ] Implement `ClaudeAgentClient` using `@anthropic-ai/claude-agent-sdk` V1 + V2 (V2 for sessions, V1 for advanced features)
-- [ ] Implement `OpenCodeClient` using `@opencode-ai/sdk/v2/client`
-- [ ] Implement `CopilotClient` using `@github/copilot-sdk` with full event support
-- [ ] Provide unified event subscription pattern across all clients
+**SDK Abstraction Layer (Thin Adapters):**
+- [ ] Create `CodingAgentClient` interface as thin adapter (delegates to native SDK)
+- [ ] Implement `ClaudeAgentClient` using V2 SDK directly (`send()`/`stream()` pattern)
+- [ ] Implement `OpenCodeClient` using native SDK with built-in `session.summarize()`
+- [ ] Implement `CopilotClient` using native 31 event types (no event mapping)
+- [ ] Expose native SDK sessions via `native` accessor for advanced use cases
 
-**Native Hook Migration:**
-- [ ] Migrate Claude hooks from `.claude/settings.json` to SDK `options.hooks` configuration
-- [ ] Migrate Copilot hooks from `.github/hooks/hooks.json` to SDK `session.on()` event handlers
-- [ ] Migrate OpenCode hooks from plugin files to SDK plugin hooks (`tool.execute.before/after`, etc.)
-- [ ] Create unified `HookManager` interface for cross-SDK hook registration
-- [ ] Support all Claude hook events: `PreToolUse`, `PostToolUse`, `SessionStart`, `SessionEnd`, `SubagentStart`, `SubagentStop`
-- [ ] Support all Copilot hook events: `sessionStart`, `userPromptSubmitted`, `sessionEnd` + 31 SDK event types
-- [ ] Support all OpenCode plugin hooks: `event`, `tool.execute.before/after`, `command.execute.before`, `chat.*`, `permission.ask`
+**Native SDK Integration (No Reimplementation):**
+- [ ] Use Claude V2's built-in context management (auto-compaction via `PreCompact` hook)
+- [ ] Use OpenCode's built-in `session.summarize()` for context compaction
+- [ ] Use Copilot's built-in `/compact` command for context management
+- [ ] Use native SDK hooks directly (no unified hook abstraction)
+- [ ] Use native SDK event streams (passthrough, not mapping)
 
 **Graph Execution Engine:**
 - [ ] Implement `GraphBuilder<TState>` with fluent API for workflow definition
@@ -255,440 +262,314 @@ flowchart TB
 
 ### 4.3 Key Components
 
-| Component            | Responsibility                            | Technology Stack                        | Justification                                                         |
-| -------------------- | ----------------------------------------- | --------------------------------------- | --------------------------------------------------------------------- |
-| `CodingAgentClient`  | Unified interface for AI agent sessions   | TypeScript interface                    | Enables backend-agnostic workflow orchestration                       |
-| `ClaudeAgentClient`  | Claude Agent SDK V1+V2 hybrid wrapper     | `@anthropic-ai/claude-agent-sdk`        | V2 for sessions, V1 for forking/async input                           |
-| `OpenCodeClient`     | OpenCode SDK V2 wrapper                   | `@opencode-ai/sdk/v2/client`            | Production-ready with best plugin system                              |
-| `CopilotClient`      | GitHub Copilot SDK wrapper                | `@github/copilot-sdk`                   | 31 event types, multi-language support, skills system                 |
-| `HookManager`        | Cross-SDK hook registration               | TypeScript unified event mapping        | Migrates config-based hooks to native SDK hooks                       |
-| `GraphBuilder<T>`    | Fluent API for workflow definition        | TypeScript generics + method chaining   | Type-safe, declarative workflow construction                          |
-| `CompiledGraph<T>`   | Executable graph with state management    | BFS traversal + immutable state         | Deterministic execution with streaming support                        |
-| `Checkpointer`       | State persistence for workflow resumption | Interface with Memory/File/ResearchDir  | Enables long-running workflows and failure recovery                   |
-| `Annotation<T>`      | Type-safe state with custom reducers      | TypeScript + reducer functions          | Enables complex state merging (arrays concatenate, maps merge by key) |
-| `ChatInterface`      | Terminal chat UI with streaming           | `@opentui/react` + `@opentui/core`      | Native terminal rendering, flexbox layout, streaming support          |
-| `TelemetryCollector` | Unified event collection across SDKs      | TypeScript + JSONL + Azure App Insights | Consent-based, cross-SDK analytics for workflow optimization          |
+| Component            | Responsibility                            | Technology Stack                        | Justification                                                                 |
+| -------------------- | ----------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------------- |
+| `CodingAgentClient`  | Thin adapter interface for AI agents      | TypeScript interface                    | **Minimal abstraction** - delegates to native SDK methods                     |
+| `ClaudeAgentClient`  | Thin wrapper over Claude V2 SDK           | `@anthropic-ai/claude-agent-sdk`        | **Uses V2 `send()`/`stream()` directly** - V1 only for advanced features      |
+| `OpenCodeClient`     | Thin wrapper over OpenCode SDK            | `@opencode-ai/sdk/v2/client`            | **Uses native `session.summarize()`**, event subscriptions, and plugin system |
+| `CopilotClient`      | Thin wrapper over Copilot SDK             | `@github/copilot-sdk`                   | **Uses native event system** with 31 event types - no custom event mapping    |
+| `EventBridge`        | Unified event forwarding (not mapping)    | TypeScript passthrough                  | **Forwards native SDK events** to graph engine - no transformation            |
+| `GraphBuilder<T>`    | Fluent API for workflow definition        | TypeScript generics + method chaining   | Type-safe, declarative workflow construction                                  |
+| `CompiledGraph<T>`   | Executable graph with state management    | BFS traversal + immutable state         | Deterministic execution with streaming support                                |
+| `Checkpointer`       | State persistence for workflow resumption | Interface with Memory/File/ResearchDir  | Enables long-running workflows and failure recovery                           |
+| `Annotation<T>`      | Type-safe state with custom reducers      | TypeScript + reducer functions          | Enables complex state merging (arrays concatenate, maps merge by key)         |
+| `ChatInterface`      | Terminal chat UI with streaming           | `@opentui/react` + `@opentui/core`      | Native terminal rendering, flexbox layout, streaming support                  |
+| `TelemetryCollector` | Listens to native SDK events              | TypeScript + JSONL + Azure App Insights | **Subscribes to SDK event streams** - no wrapper needed                       |
+
+**Design Principle: Thin Adapters, Not Wrappers**
+
+The SDK clients are intentionally thin adapters that:
+1. **Expose native SDK types directly** where possible (no type re-mapping)
+2. **Forward to native SDK methods** without adding logic
+3. **Use SDK's built-in features** (context compaction, streaming, hooks)
+4. **Only abstract where truly necessary** (unified session lifecycle for graph nodes)
+
+### 4.4 SDK Features to Use (Not Reimplement)
+
+| Feature                 | Claude SDK                             | OpenCode SDK            | Copilot SDK               | Don't Build               |
+| ----------------------- | -------------------------------------- | ----------------------- | ------------------------- | ------------------------- |
+| **Context compaction**  | Auto via `PreCompact` hook             | `session.summarize()`   | `/compact` command        | ❌ Custom compaction       |
+| **Streaming**           | `session.stream()` yields `SDKMessage` | `event.subscribe()` SSE | `session.on()` callbacks  | ❌ Message transformation  |
+| **Tool execution**      | MCP servers via `options.mcpServers`   | Plugin tools            | `defineTool()`            | ❌ Custom tool system      |
+| **Hooks/Events**        | `options.hooks` (12 event types)       | Plugin hooks            | `session.on()` (31 types) | ❌ Unified event mapping   |
+| **Session persistence** | `sessionId` from messages              | Session CRUD API        | `resumeSession()`         | ❌ Custom persistence      |
+| **Permissions**         | `permissionMode` + `canUseTool`        | Plugin `permission.ask` | `onPermissionRequest`     | ❌ Custom permission layer |
+| **Subagents**           | `agents` option                        | Built-in agent system   | Custom agents             | ❌ Agent orchestration     |
+
+**What We DO Build (SDK Doesn't Provide):**
+
+| Feature                | Justification                                  |
+| ---------------------- | ---------------------------------------------- |
+| Graph Execution Engine | Workflow orchestration across SDK boundaries   |
+| Fluent API Builder     | Declarative workflow definition                |
+| Checkpointing          | Cross-SDK state persistence for long workflows |
+| OpenTUI Chat Interface | Unified terminal UI (SDKs are headless)        |
+| Telemetry Aggregation  | Cross-SDK analytics (each SDK has its own)     |
 
 ## 5. Detailed Design
 
 ### 5.1 SDK Abstraction Layer
 
-#### 5.1.1 CodingAgentClient Interface
+#### 5.1.1 CodingAgentClient Interface (Thin Adapter Pattern)
+
+The interface is intentionally minimal - it exposes native SDK sessions and only abstracts what's necessary for graph orchestration.
 
 ```typescript
 // src/sdk/types.ts
 
-export interface SessionConfig {
-  /** Model to use (e.g., 'claude-sonnet-4-5-20250929') */
-  model: string;
-  /** Optional session ID for resumption */
-  sessionId?: string;
-  /** System prompt or preset */
-  systemPrompt?: string | { type: 'preset'; preset: 'claude_code' };
-  /** Available tools */
-  tools?: ToolDefinition[];
-  /** MCP server configurations */
-  mcpServers?: Record<string, McpServerConfig>;
-  /** Permission mode */
-  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
-  /** Maximum cost budget */
-  maxBudgetUsd?: number;
-  /** Maximum turns per query */
-  maxTurns?: number;
-}
+import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+import type { Client as OpenCodeClient } from '@opencode-ai/sdk/v2/client';
 
-export interface Session {
+/**
+ * Minimal session interface - delegates to native SDK sessions
+ * Each SDK client returns its native session type wrapped in this interface
+ */
+export interface CodingAgentSession {
   /** Session identifier */
   readonly id: string;
-  /** Send a message to the agent */
+
+  /**
+   * Send a message - delegates to native SDK
+   * Claude: session.send()
+   * OpenCode: session.prompt()
+   * Copilot: session.send()
+   */
   send(message: string): Promise<void>;
-  /** Stream responses from the agent */
-  stream(): AsyncGenerator<AgentMessage>;
-  /** Summarize/compact context (if supported) */
-  summarize?(): Promise<void>;
-  /** Get current context window usage (0-1) */
-  getContextUsage?(): Promise<number>;
-  /** Destroy session and cleanup */
-  destroy(): Promise<void>;
+
+  /**
+   * Stream responses - returns native SDK message types
+   * No transformation - graph nodes handle SDK-specific types
+   */
+  stream(): AsyncGenerator<unknown>; // Native SDK message type
+
+  /**
+   * Context compaction - uses native SDK implementation
+   * Claude: session recreation (SDK handles internally)
+   * OpenCode: session.summarize() (built-in)
+   * Copilot: /compact command (SDK handles internally)
+   */
+  compact?(): Promise<void>;
+
+  /** Close session - delegates to native SDK */
+  close(): Promise<void>;
+
+  /** Access to underlying native session for advanced use cases */
+  readonly native: unknown;
 }
 
-export interface AgentMessage {
-  type: 'text' | 'tool_use' | 'tool_result' | 'thinking' | 'error';
-  content: string;
-  metadata?: Record<string, unknown>;
-}
+/**
+ * Thin adapter interface - no custom event system
+ * SDKs provide their own event subscriptions
+ */
+export interface CodingAgentClient<TSession = CodingAgentSession> {
+  /** Create session using native SDK - returns wrapped native session */
+  createSession(config: CodingAgentSessionConfig): Promise<TSession>;
 
-export type EventType =
-  | 'session.start'
-  | 'session.idle'
-  | 'session.error'
-  | 'message.delta'
-  | 'message.complete'
-  | 'tool.start'
-  | 'tool.complete'
-  | 'subagent.start'
-  | 'subagent.complete';
+  /** Resume session using native SDK */
+  resumeSession(sessionId: string): Promise<TSession>;
 
-export interface AgentEvent {
-  type: EventType;
-  sessionId: string;
-  timestamp: Date;
-  data?: unknown;
-}
+  /**
+   * Subscribe to native SDK events (passthrough, not transformation)
+   * Returns native SDK event stream
+   */
+  events(): AsyncGenerator<unknown>;
 
-export type EventHandler = (event: AgentEvent) => void | Promise<void>;
-export type Unsubscribe = () => void;
-
-export interface CodingAgentClient {
-  /** Create a new agent session */
-  createSession(config: SessionConfig): Promise<Session>;
-  /** Resume an existing session by ID */
-  resumeSession(sessionId: string, config?: Partial<SessionConfig>): Promise<Session>;
-  /** Subscribe to agent events */
-  on(event: EventType | '*', handler: EventHandler): Unsubscribe;
-  /** Register a custom tool */
-  registerTool(tool: ToolDefinition): void;
-  /** Start the client (e.g., spawn CLI for Copilot) */
+  /** Lifecycle methods */
   start(): Promise<void>;
-  /** Stop the client and cleanup */
   stop(): Promise<void>;
+}
+
+/**
+ * Session config - passes through to native SDK options
+ * Each client maps to its SDK's native config format
+ */
+export interface CodingAgentSessionConfig {
+  model: string;
+  sessionId?: string;
+  systemPrompt?: string | { type: 'preset'; preset: 'claude_code' };
+  permissionMode?: 'default' | 'acceptEdits' | 'bypassPermissions' | 'plan';
+  maxTurns?: number;
+  // SDK-specific options passed through
+  nativeOptions?: Record<string, unknown>;
 }
 ```
 
+**Design Rationale:**
+- **No custom `AgentMessage` type** - use native SDK message types directly
+- **No unified event mapping** - subscribe to native SDK event streams
+- **`native` accessor** - allows advanced use cases to access full SDK features
+- **`compact()`** - uses SDK's built-in context management (not reimplemented)
+
 **Research Reference:** [2026-01-31-sdk-migration-and-graph-execution.md](../research/docs/2026-01-31-sdk-migration-and-graph-execution.md) "Unified SDK Abstraction Layer" section
 
-#### 5.1.2 ClaudeAgentClient Implementation (V1 + V2 Hybrid)
+#### 5.1.2 ClaudeAgentClient Implementation (V2-First, Thin Adapter)
 
-The Claude Agent SDK provides two API versions:
-- **V2 (Preview):** Simplified `send()`/`stream()` pattern for multi-turn conversations
-- **V1:** Full feature set including session forking, advanced streaming patterns, and async generator input
-
-We use V2 for standard session management and V1 for advanced features V2 doesn't support.
+**Design Principle:** Use Claude V2 SDK directly - no session wrapping, no message transformation, native hooks.
 
 ```typescript
 // src/sdk/claude-client.ts
 
 import {
-  // V2 API - Simplified session management
   unstable_v2_createSession,
   unstable_v2_resumeSession,
   type Session as ClaudeV2Session,
-  // V1 API - Full feature set for advanced use cases
-  query,
-  type Query,
-  type SDKUserMessage,
-  // Shared types and utilities
-  createSdkMcpServer,
-  tool,
-  type HookEvent,
+  type SDKMessage,
+  type Options,
 } from '@anthropic-ai/claude-agent-sdk';
-import type { CodingAgentClient, Session, SessionConfig, EventHandler, AgentMessage, ToolDefinition } from './types';
+import type { CodingAgentClient, CodingAgentSession, CodingAgentSessionConfig } from './types';
 
-/** Hook configuration for Claude SDK */
-export interface ClaudeHookConfig {
-  PreToolUse?: Array<(params: HookEvent) => void | Promise<void>>;
-  PostToolUse?: Array<(params: HookEvent) => void | Promise<void>>;
-  PostToolUseFailure?: Array<(params: HookEvent) => void | Promise<void>>;
-  SessionStart?: Array<(params: HookEvent) => void | Promise<void>>;
-  SessionEnd?: Array<(params: HookEvent) => void | Promise<void>>;
-  SubagentStart?: Array<(params: HookEvent) => void | Promise<void>>;
-  SubagentStop?: Array<(params: HookEvent) => void | Promise<void>>;
-  PermissionRequest?: Array<(params: HookEvent) => void | Promise<void>>;
-  Notification?: Array<(params: HookEvent) => void | Promise<void>>;
-}
+/**
+ * Thin adapter over Claude Agent SDK V2
+ * - Exposes native V2 session directly
+ * - No message transformation
+ * - Hooks passed through to SDK
+ */
+export class ClaudeAgentClient implements CodingAgentClient<ClaudeSession> {
+  private sessions = new Map<string, ClaudeV2Session>();
 
-export class ClaudeAgentClient implements CodingAgentClient {
-  private eventHandlers = new Map<string, Set<EventHandler>>();
-  private v2Sessions = new Map<string, ClaudeV2Session>();
-  private v1Queries = new Map<string, Query>();
-  private hooks: ClaudeHookConfig = {};
-  private mcpServers: Record<string, any> = {};
-
-  constructor(private defaultConfig?: Partial<SessionConfig>) {}
+  constructor(private defaultOptions?: Partial<Options>) {}
 
   /**
-   * Register hooks that will be applied to all sessions
-   * Migrates from .claude/settings.json hooks to native SDK hooks
+   * Create session - delegates to V2 SDK, returns thin wrapper
    */
-  registerHooks(hooks: ClaudeHookConfig): void {
-    this.hooks = { ...this.hooks, ...hooks };
-  }
-
-  /**
-   * Create session using V2 API (simplified multi-turn)
-   */
-  async createSession(config: SessionConfig): Promise<Session> {
-    const sessionId = config.sessionId ?? crypto.randomUUID();
-
-    // Emit session start event
-    this.emitHook('SessionStart', { sessionId });
-
-    const claudeSession = unstable_v2_createSession({
+  async createSession(config: CodingAgentSessionConfig): Promise<ClaudeSession> {
+    const session = unstable_v2_createSession({
       model: config.model,
       systemPrompt: config.systemPrompt,
       permissionMode: config.permissionMode ?? 'default',
       maxTurns: config.maxTurns,
-      options: {
-        mcpServers: { ...this.mcpServers, ...config.mcpServers },
-        hooks: this.buildNativeHooks(sessionId),
-      },
+      // Pass through any SDK-specific options
+      ...config.nativeOptions,
+      ...this.defaultOptions,
     });
 
-    this.v2Sessions.set(sessionId, claudeSession);
-    return this.wrapV2Session(sessionId, claudeSession);
-  }
-
-  /**
-   * Create session using V1 API for advanced features
-   * Use when you need: session forking, async generator input, advanced streaming
-   */
-  async createAdvancedSession(config: SessionConfig & {
-    enableForking?: boolean;
-    asyncInput?: AsyncIterable<SDKUserMessage>;
-  }): Promise<Session & { fork: () => Promise<Session> }> {
     const sessionId = config.sessionId ?? crypto.randomUUID();
+    this.sessions.set(sessionId, session);
 
-    this.emitHook('SessionStart', { sessionId });
+    return new ClaudeSession(sessionId, session);
+  }
 
-    const v1Query = query({
-      prompt: config.asyncInput ?? '',
-      options: {
-        model: config.model,
-        systemPrompt: config.systemPrompt,
-        permissionMode: config.permissionMode ?? 'default',
-        maxTurns: config.maxTurns,
-        mcpServers: { ...this.mcpServers, ...config.mcpServers },
-        hooks: this.buildNativeHooks(sessionId),
-      },
+  async resumeSession(sessionId: string): Promise<ClaudeSession> {
+    const session = unstable_v2_resumeSession(sessionId, {
+      model: this.defaultOptions?.model ?? 'claude-sonnet-4-5-20250929',
     });
-
-    this.v1Queries.set(sessionId, v1Query);
-
-    const baseSession = this.wrapV1Session(sessionId, v1Query);
-
-    return {
-      ...baseSession,
-      fork: async () => {
-        // V1 supports session forking - V2 does not
-        const forkedId = `${sessionId}-fork-${Date.now()}`;
-        const forkedQuery = v1Query.fork();
-        this.v1Queries.set(forkedId, forkedQuery);
-        return this.wrapV1Session(forkedId, forkedQuery);
-      },
-    };
-  }
-
-  async resumeSession(sessionId: string, config?: Partial<SessionConfig>): Promise<Session> {
-    const claudeSession = unstable_v2_resumeSession(sessionId, {
-      model: config?.model ?? 'claude-sonnet-4-5-20250929',
-    });
-
-    this.v2Sessions.set(sessionId, claudeSession);
-    return this.wrapV2Session(sessionId, claudeSession);
-  }
-
-  private wrapV2Session(sessionId: string, claudeSession: ClaudeV2Session): Session {
-    const self = this;
-    return {
-      id: sessionId,
-      send: async (message: string) => {
-        await claudeSession.send(message);
-      },
-      stream: async function* (): AsyncGenerator<AgentMessage> {
-        for await (const msg of claudeSession.stream()) {
-          yield {
-            type: msg.type === 'text' ? 'text' : msg.type,
-            content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
-            metadata: { raw: msg },
-          };
-        }
-      },
-      summarize: undefined, // V2 handles context automatically
-      getContextUsage: undefined,
-      destroy: async () => {
-        self.emitHook('SessionEnd', { sessionId });
-        self.v2Sessions.delete(sessionId);
-      },
-    };
-  }
-
-  private wrapV1Session(sessionId: string, v1Query: Query): Session {
-    const self = this;
-    return {
-      id: sessionId,
-      send: async (message: string) => {
-        // V1 uses async generator pattern - push message
-        // This requires the asyncInput pattern
-        throw new Error('V1 sessions require asyncInput for multi-turn. Use createAdvancedSession with asyncInput.');
-      },
-      stream: async function* (): AsyncGenerator<AgentMessage> {
-        for await (const msg of v1Query) {
-          yield {
-            type: msg.type,
-            content: typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content),
-            metadata: { raw: msg },
-          };
-        }
-      },
-      summarize: undefined,
-      getContextUsage: undefined,
-      destroy: async () => {
-        self.emitHook('SessionEnd', { sessionId });
-        v1Query.abort();
-        self.v1Queries.delete(sessionId);
-      },
-    };
+    this.sessions.set(sessionId, session);
+    return new ClaudeSession(sessionId, session);
   }
 
   /**
-   * Build native SDK hooks from registered handlers
+   * Events are accessed via native session.stream()
+   * No separate event subscription - messages include all events
    */
-  private buildNativeHooks(sessionId: string): Record<string, Array<(params: any) => void>> {
-    const nativeHooks: Record<string, Array<(params: any) => void>> = {};
-
-    // Map our hooks to native SDK hooks
-    const hookMapping: Record<keyof ClaudeHookConfig, string> = {
-      PreToolUse: 'PreToolUse',
-      PostToolUse: 'PostToolUse',
-      PostToolUseFailure: 'PostToolUseFailure',
-      SessionStart: 'SessionStart',
-      SessionEnd: 'SessionEnd',
-      SubagentStart: 'SubagentStart',
-      SubagentStop: 'SubagentStop',
-      PermissionRequest: 'PermissionRequest',
-      Notification: 'Notification',
-    };
-
-    for (const [key, sdkHookName] of Object.entries(hookMapping)) {
-      const handlers = this.hooks[key as keyof ClaudeHookConfig];
-      if (handlers && handlers.length > 0) {
-        nativeHooks[sdkHookName] = handlers.map((handler) => (params: any) => {
-          // Emit to unified event system
-          this.emit(this.mapHookToEventType(key), { sessionId, ...params });
-          // Call the handler
-          handler(params);
-        });
-      }
-    }
-
-    // Always add default handlers for event emission
-    nativeHooks.PreToolUse = [
-      ...(nativeHooks.PreToolUse ?? []),
-      (params) => this.emit('tool.start', { sessionId, ...params }),
-    ];
-    nativeHooks.PostToolUse = [
-      ...(nativeHooks.PostToolUse ?? []),
-      (params) => this.emit('tool.complete', { sessionId, ...params }),
-    ];
-    nativeHooks.SubagentStart = [
-      ...(nativeHooks.SubagentStart ?? []),
-      (params) => this.emit('subagent.start', { sessionId, ...params }),
-    ];
-    nativeHooks.SubagentStop = [
-      ...(nativeHooks.SubagentStop ?? []),
-      (params) => this.emit('subagent.complete', { sessionId, ...params }),
-    ];
-
-    return nativeHooks;
-  }
-
-  private mapHookToEventType(hookName: string): string {
-    const mapping: Record<string, string> = {
-      PreToolUse: 'tool.start',
-      PostToolUse: 'tool.complete',
-      SessionStart: 'session.start',
-      SessionEnd: 'session.idle',
-      SubagentStart: 'subagent.start',
-      SubagentStop: 'subagent.complete',
-    };
-    return mapping[hookName] ?? hookName.toLowerCase();
-  }
-
-  private emitHook(hookName: keyof ClaudeHookConfig, params: any): void {
-    const handlers = this.hooks[hookName];
-    if (handlers) {
-      for (const handler of handlers) {
-        handler(params);
-      }
-    }
-  }
-
-  on(event: string, handler: EventHandler): () => void {
-    if (!this.eventHandlers.has(event)) {
-      this.eventHandlers.set(event, new Set());
-    }
-    this.eventHandlers.get(event)!.add(handler);
-    return () => this.eventHandlers.get(event)?.delete(handler);
-  }
-
-  private emit(type: string, data: unknown): void {
-    const handlers = this.eventHandlers.get(type) ?? new Set();
-    const wildcardHandlers = this.eventHandlers.get('*') ?? new Set();
-    const event = { type, sessionId: (data as any)?.sessionId ?? '', timestamp: new Date(), data };
-    for (const handler of [...handlers, ...wildcardHandlers]) {
-      handler(event as any);
-    }
-  }
-
-  /**
-   * Register a custom tool via MCP server
-   */
-  registerTool(toolDef: ToolDefinition): void {
-    // Create an MCP server for custom tools
-    const serverName = `custom-tools-${Date.now()}`;
-    const server = createSdkMcpServer({
-      name: serverName,
-      tools: [
-        tool(toolDef.name, toolDef.description, toolDef.schema, toolDef.handler),
-      ],
-    });
-    this.mcpServers[serverName] = server;
+  async *events(): AsyncGenerator<SDKMessage> {
+    // Claude V2 streams events through session.stream()
+    // Graph nodes subscribe per-session, not globally
+    throw new Error('Use session.stream() for Claude events');
   }
 
   async start(): Promise<void> {
-    // Claude SDK doesn't require explicit start
+    // V2 SDK handles connection automatically
   }
 
   async stop(): Promise<void> {
-    // Cleanup all sessions
-    for (const [sessionId] of this.v2Sessions) {
-      this.emitHook('SessionEnd', { sessionId });
+    for (const session of this.sessions.values()) {
+      session.close();
     }
-    for (const [sessionId, query] of this.v1Queries) {
-      this.emitHook('SessionEnd', { sessionId });
-      query.abort();
-    }
-    this.v2Sessions.clear();
-    this.v1Queries.clear();
+    this.sessions.clear();
+  }
+}
+
+/**
+ * Thin wrapper - exposes native session with minimal abstraction
+ */
+export class ClaudeSession implements CodingAgentSession {
+  constructor(
+    public readonly id: string,
+    private readonly session: ClaudeV2Session
+  ) {}
+
+  /** Delegates directly to V2 SDK */
+  async send(message: string): Promise<void> {
+    await this.session.send(message);
+  }
+
+  /**
+   * Returns native SDKMessage stream - no transformation
+   * Graph nodes handle SDK-specific message types
+   */
+  async *stream(): AsyncGenerator<SDKMessage> {
+    yield* this.session.stream();
+  }
+
+  /**
+   * V2 SDK handles context management internally via auto-compaction
+   * No manual compaction needed - SDK triggers PreCompact hook
+   */
+  async compact(): Promise<void> {
+    // V2 SDK handles this automatically when approaching context limit
+    // Manual compaction not exposed in V2 - use V1 query() if needed
+  }
+
+  async close(): Promise<void> {
+    this.session.close();
+  }
+
+  /** Access native session for advanced features (hooks, forking via V1) */
+  get native(): ClaudeV2Session {
+    return this.session;
   }
 }
 ```
 
-**V1 vs V2 Usage Decision Matrix:**
+**What We DON'T Implement (SDK Provides):**
 
-| Feature                  | V2 API              | V1 API                          | Recommendation   |
-| ------------------------ | ------------------- | ------------------------------- | ---------------- |
-| Multi-turn conversations | `send()`/`stream()` | Async generator                 | Use V2 - simpler |
-| Session forking          | Not supported       | `query.fork()`                  | Use V1 if needed |
-| Custom tools             | Via MCP servers     | Via MCP servers                 | Same in both     |
-| Hooks                    | `options.hooks`     | `options.hooks`                 | Same in both     |
-| Streaming                | `session.stream()`  | `for await (of query)`          | Use V2 - cleaner |
-| Async input              | Not supported       | `AsyncIterable<SDKUserMessage>` | Use V1 if needed |
+| Feature             | SDK Provides                           | Our Implementation               |
+| ------------------- | -------------------------------------- | -------------------------------- |
+| Message streaming   | `session.stream()` yields `SDKMessage` | Pass through directly            |
+| Context compaction  | Auto-compaction via `PreCompact` hook  | No wrapper needed                |
+| Tool execution      | SDK calls tools via MCP servers        | Configure MCP servers in options |
+| Hooks               | `options.hooks` with all event types   | Pass hooks in config             |
+| Session persistence | SDK manages session state              | Use `sessionId` from messages    |
+
+**When to Use V1 API:**
+
+For advanced features not in V2, use `query()` directly:
+
+```typescript
+import { query } from '@anthropic-ai/claude-agent-sdk';
+
+// Session forking (not in V2)
+const q = query({ prompt, options });
+const forked = q.fork();
+
+// Async input stream (not in V2)
+const q = query({
+  prompt: asyncInputGenerator,
+  options,
+});
+```
 
 **Research Reference:** [2026-01-31-claude-agent-sdk-research.md](../research/docs/2026-01-31-claude-agent-sdk-research.md) "V1 API" and "V2 API" sections
 
-#### 5.1.3 OpenCodeClient Implementation
+#### 5.1.3 OpenCodeClient Implementation (Native SDK, Built-in Compaction)
+
+**Design Principle:** OpenCode SDK provides the richest feature set - use it directly with no abstraction.
 
 ```typescript
 // src/sdk/opencode-client.ts
 
 import { createOpencodeClient, type Client } from '@opencode-ai/sdk/v2/client';
-import type { CodingAgentClient, Session, SessionConfig, EventHandler, AgentMessage } from './types';
+import type { CodingAgentClient, CodingAgentSession, CodingAgentSessionConfig } from './types';
 
-export class OpenCodeClient implements CodingAgentClient {
+/**
+ * Thin adapter over OpenCode SDK
+ * - Uses native event subscription (SSE)
+ * - Uses built-in session.summarize() for context compaction
+ * - No message transformation
+ */
+export class OpenCodeClient implements CodingAgentClient<OpenCodeSession> {
   private client: Client;
-  private eventHandlers = new Map<string, Set<EventHandler>>();
-  private eventSubscription?: AsyncIterable<any>;
+  private eventStream?: AsyncGenerator<unknown>;
 
   constructor(private config: { baseUrl: string; directory: string }) {
     this.client = createOpencodeClient({
@@ -697,7 +578,7 @@ export class OpenCodeClient implements CodingAgentClient {
     });
   }
 
-  async createSession(config: SessionConfig): Promise<Session> {
+  async createSession(config: CodingAgentSessionConfig): Promise<OpenCodeSession> {
     const response = await this.client.session.create({
       body: {
         title: config.sessionId ?? `session-${Date.now()}`,
@@ -706,116 +587,146 @@ export class OpenCodeClient implements CodingAgentClient {
       },
     });
 
-    const sessionId = response.id;
-    return this.wrapSession(sessionId);
+    return new OpenCodeSession(response.id, this.client);
   }
 
-  async resumeSession(sessionId: string): Promise<Session> {
+  async resumeSession(sessionId: string): Promise<OpenCodeSession> {
     // Verify session exists
     await this.client.session.get({ path: { sessionID: sessionId } });
-    return this.wrapSession(sessionId);
+    return new OpenCodeSession(sessionId, this.client);
   }
 
-  private wrapSession(sessionId: string): Session {
-    const client = this.client;
-
-    return {
-      id: sessionId,
-      send: async (message: string) => {
-        await client.session.prompt({
-          path: { id: sessionId },
-          body: { parts: [{ type: 'text', text: message }] },
-        });
-      },
-      stream: async function* (): AsyncGenerator<AgentMessage> {
-        const events = await client.event.subscribe();
-        for await (const event of events.stream) {
-          if (event.properties?.sessionID !== sessionId) continue;
-
-          if (event.type === 'message.part.updated') {
-            yield {
-              type: 'text',
-              content: event.properties.content ?? '',
-              metadata: { raw: event },
-            };
-          } else if (event.type === 'session.status' && event.properties.status === 'idle') {
-            break;
-          }
-        }
-      },
-      summarize: async () => {
-        await client.session.summarize({ path: { id: sessionId } });
-      },
-      getContextUsage: async () => {
-        // OpenCode doesn't expose context usage directly
-        // Would need to estimate from message count
-        return 0;
-      },
-      destroy: async () => {
-        await client.session.delete({ path: { sessionID: sessionId } });
-      },
-    };
-  }
-
-  on(event: string, handler: EventHandler): () => void {
-    if (!this.eventHandlers.has(event)) {
-      this.eventHandlers.set(event, new Set());
-    }
-    this.eventHandlers.get(event)!.add(handler);
-    return () => this.eventHandlers.get(event)?.delete(handler);
-  }
-
-  registerTool(tool: ToolDefinition): void {
-    // Tools registered via plugin system in opencode.json
-    throw new Error('Use plugin configuration for OpenCode tools');
+  /**
+   * Native SSE event stream - no transformation
+   * Yields events like: session.idle, message.part.updated, tool.execute.before/after
+   */
+  async *events(): AsyncGenerator<unknown> {
+    const events = await this.client.event.subscribe();
+    yield* events.stream;
   }
 
   async start(): Promise<void> {
-    // Subscribe to events
-    const events = await this.client.event.subscribe();
-    this.eventSubscription = events.stream;
-
-    // Process events in background
-    (async () => {
-      for await (const event of events.stream) {
-        this.emit(event.type, event);
-      }
-    })();
-  }
-
-  private emit(type: string, data: unknown): void {
-    const handlers = this.eventHandlers.get(type) ?? new Set();
-    const wildcardHandlers = this.eventHandlers.get('*') ?? new Set();
-    const event = { type, sessionId: '', timestamp: new Date(), data };
-    for (const handler of [...handlers, ...wildcardHandlers]) {
-      handler(event as any);
-    }
+    // SDK handles connection on first API call
   }
 
   async stop(): Promise<void> {
-    // Event subscription cleanup handled by AsyncIterable
+    // Cleanup handled by event stream
+  }
+
+  /** Access native client for advanced operations */
+  get native(): Client {
+    return this.client;
+  }
+}
+
+/**
+ * Thin wrapper - uses SDK methods directly
+ */
+export class OpenCodeSession implements CodingAgentSession {
+  constructor(
+    public readonly id: string,
+    private readonly client: Client
+  ) {}
+
+  /** Delegates to SDK session.prompt() */
+  async send(message: string): Promise<void> {
+    await this.client.session.prompt({
+      path: { id: this.id },
+      body: { parts: [{ type: 'text', text: message }] },
+    });
+  }
+
+  /**
+   * Filter event stream for this session's messages
+   * Returns native event objects - no transformation
+   */
+  async *stream(): AsyncGenerator<unknown> {
+    const events = await this.client.event.subscribe();
+    for await (const event of events.stream) {
+      const props = (event as any).properties;
+      if (props?.sessionID !== this.id) continue;
+      yield event;
+      // Break on session idle
+      if ((event as any).type === 'session.status' && props.status === 'idle') {
+        break;
+      }
+    }
+  }
+
+  /**
+   * Uses SDK's built-in context compaction - no reimplementation
+   * SDK handles: token counting, overflow detection, summary generation
+   */
+  async compact(): Promise<void> {
+    await this.client.session.summarize({ path: { id: this.id } });
+  }
+
+  async close(): Promise<void> {
+    await this.client.session.delete({ path: { sessionID: this.id } });
+  }
+
+  get native(): Client {
+    return this.client;
   }
 }
 ```
 
+**SDK Features We Use Directly (No Reimplementation):**
+
+| Feature             | SDK Method                        | Notes                             |
+| ------------------- | --------------------------------- | --------------------------------- |
+| Context compaction  | `session.summarize()`             | Built-in token counting + summary |
+| Auto-compaction     | `compaction.auto` config          | SDK triggers at 95% context       |
+| Tool output pruning | `compaction.prune` config         | SDK prunes old outputs            |
+| Event subscription  | `event.subscribe()`               | SSE stream with all event types   |
+| Session forking     | `session.create({ parentID })`    | Native session hierarchy          |
+| Shell execution     | `session.shell()`                 | Execute commands in session       |
+| History revert      | `session.revert()` / `unrevert()` | Built-in undo/redo                |
+
+**Plugin Hooks (Use SDK's Plugin System):**
+
+Tools and hooks are configured via `.opencode/plugins/` or `opencode.json`:
+
+```typescript
+// .opencode/plugins/telemetry.ts
+import type { Plugin } from '@opencode-ai/plugin';
+
+export default {
+  event: async ({ event }) => {
+    // SDK passes all events - no need for custom event system
+    if (event.type === 'session.idle') {
+      await recordTelemetry(event);
+    }
+  },
+  'tool.execute.before': async ({ tool, args }) => {
+    // SDK's native hook - no wrapper needed
+  },
+} satisfies Plugin;
+```
+
 **Research Reference:** [2026-01-31-opencode-sdk-research.md](../research/docs/2026-01-31-opencode-sdk-research.md) "SDK Client API" section
 
-#### 5.1.4 CopilotClient Implementation
+#### 5.1.4 CopilotClient Implementation (Native SDK Events)
+
+**Design Principle:** Copilot SDK has 31 native event types - use them directly, no event mapping.
 
 ```typescript
 // src/sdk/copilot-client.ts
 
 import { CopilotClient as GHCopilotClient, defineTool } from '@github/copilot-sdk';
-import { z } from 'zod';
-import type { CodingAgentClient, Session, SessionConfig, EventHandler, AgentMessage, ToolDefinition } from './types';
+import type { CodingAgentClient, CodingAgentSession, CodingAgentSessionConfig } from './types';
 
-export class CopilotClient implements CodingAgentClient {
+/**
+ * Thin adapter over GitHub Copilot SDK
+ * - Uses native 31 event types directly
+ * - No event mapping or transformation
+ * - Delegates to SDK's built-in /compact command
+ */
+export class CopilotClient implements CodingAgentClient<CopilotSession> {
   private client: GHCopilotClient;
-  private eventHandlers = new Map<string, Set<EventHandler>>();
-  private registeredTools: ToolDefinition[] = [];
+  private sessions = new Map<string, any>();
 
-  constructor(private config: { useStdio?: boolean; port?: number; cliUrl?: string } = {}) {
-    // Connection mode selection per research
+  constructor(config: { useStdio?: boolean; port?: number; cliUrl?: string } = {}) {
     if (config.cliUrl) {
       this.client = new GHCopilotClient({ cliUrl: config.cliUrl });
     } else if (config.port) {
@@ -825,97 +736,56 @@ export class CopilotClient implements CodingAgentClient {
     }
   }
 
-  async createSession(config: SessionConfig): Promise<Session> {
-    const tools = this.registeredTools.map((tool) =>
-      defineTool({
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.schema,
-        handler: tool.handler,
-      })
-    );
-
+  async createSession(config: CodingAgentSessionConfig): Promise<CopilotSession> {
     const session = await this.client.createSession({
       sessionId: config.sessionId,
       model: config.model ?? 'gpt-5',
       systemMessages: config.systemPrompt ? [config.systemPrompt as string] : undefined,
-      tools,
+      // Pass through SDK-specific options
+      ...config.nativeOptions,
     });
 
-    // Subscribe to all 31 event types
-    session.on((event) => {
-      this.emit(event.type, event);
-    });
-
-    return this.wrapSession(session);
+    this.sessions.set(session.id, session);
+    return new CopilotSession(session.id, session);
   }
 
-  async resumeSession(sessionId: string, config?: Partial<SessionConfig>): Promise<Session> {
+  async resumeSession(sessionId: string): Promise<CopilotSession> {
     const session = await this.client.resumeSession(sessionId);
-    session.on((event) => this.emit(event.type, event));
-    return this.wrapSession(session);
+    this.sessions.set(sessionId, session);
+    return new CopilotSession(sessionId, session);
   }
 
-  private wrapSession(copilotSession: any): Session {
-    return {
-      id: copilotSession.id,
-      send: async (message: string) => {
-        await copilotSession.send({ prompt: message });
-      },
-      stream: async function* (): AsyncGenerator<AgentMessage> {
-        // Use sendAndWait for streaming via events
-        const response = await copilotSession.sendAndWait({ prompt: '' });
+  /**
+   * Subscribe to native Copilot events (31 event types)
+   * No mapping - returns SDK event types directly
+   */
+  async *events(): AsyncGenerator<unknown> {
+    // Copilot events come via session.on() callback
+    // This provides a unified async generator interface
+    const eventQueue: unknown[] = [];
+    let resolveNext: ((event: unknown) => void) | null = null;
 
-        // Events are emitted via session.on() - this returns final result
-        yield {
-          type: 'text',
-          content: response.content ?? '',
-          metadata: { raw: response },
-        };
-      },
-      // Copilot doesn't expose summarize API
-      summarize: undefined,
-      getContextUsage: undefined,
-      destroy: async () => {
-        await copilotSession.destroy();
-      },
-    };
-  }
-
-  on(event: string, handler: EventHandler): () => void {
-    if (!this.eventHandlers.has(event)) {
-      this.eventHandlers.set(event, new Set());
+    // Subscribe to all sessions' events
+    for (const session of this.sessions.values()) {
+      session.on((event: unknown) => {
+        if (resolveNext) {
+          resolveNext(event);
+          resolveNext = null;
+        } else {
+          eventQueue.push(event);
+        }
+      });
     }
-    this.eventHandlers.get(event)!.add(handler);
-    return () => this.eventHandlers.get(event)?.delete(handler);
-  }
 
-  private emit(type: string, data: unknown): void {
-    // Map Copilot event types to unified types
-    const typeMapping: Record<string, string> = {
-      'session.start': 'session.start',
-      'session.idle': 'session.idle',
-      'session.error': 'session.error',
-      'assistant.message': 'message.complete',
-      'assistant.message_delta': 'message.delta',
-      'tool.execution_start': 'tool.start',
-      'tool.execution_complete': 'tool.complete',
-      'subagent.started': 'subagent.start',
-      'subagent.completed': 'subagent.complete',
-    };
-
-    const unifiedType = typeMapping[type] ?? type;
-    const handlers = this.eventHandlers.get(unifiedType) ?? new Set();
-    const wildcardHandlers = this.eventHandlers.get('*') ?? new Set();
-    const event = { type: unifiedType, sessionId: '', timestamp: new Date(), data };
-
-    for (const handler of [...handlers, ...wildcardHandlers]) {
-      handler(event as any);
+    while (true) {
+      if (eventQueue.length > 0) {
+        yield eventQueue.shift()!;
+      } else {
+        yield await new Promise((resolve) => {
+          resolveNext = resolve;
+        });
+      }
     }
-  }
-
-  registerTool(tool: ToolDefinition): void {
-    this.registeredTools.push(tool);
   }
 
   async start(): Promise<void> {
@@ -924,301 +794,236 @@ export class CopilotClient implements CodingAgentClient {
 
   async stop(): Promise<void> {
     await this.client.stop();
+    this.sessions.clear();
+  }
+
+  get native(): GHCopilotClient {
+    return this.client;
   }
 }
 
 /**
- * Permission handler for Copilot SDK
- * Maps permission requests to unified approval flow
+ * Thin wrapper - exposes native session with minimal abstraction
  */
-export function createPermissionHandler(
-  approver: (request: { kind: string; details: unknown }) => Promise<boolean>
-) {
-  return async (request: any, invocation: any) => {
-    const approved = await approver({
-      kind: request.kind, // 'shell' | 'write' | 'read' | 'url' | 'mcp'
-      details: invocation,
+export class CopilotSession implements CodingAgentSession {
+  constructor(
+    public readonly id: string,
+    private readonly session: any
+  ) {}
+
+  async send(message: string): Promise<void> {
+    await this.session.send({ prompt: message });
+  }
+
+  /**
+   * Stream events for this session - returns native event objects
+   */
+  async *stream(): AsyncGenerator<unknown> {
+    const eventQueue: unknown[] = [];
+    let resolveNext: ((event: unknown) => void) | null = null;
+    let isDone = false;
+
+    this.session.on((event: any) => {
+      if (resolveNext) {
+        resolveNext(event);
+        resolveNext = null;
+      } else {
+        eventQueue.push(event);
+      }
+      // Session idle signals end of response
+      if (event.type === 'session.idle') {
+        isDone = true;
+      }
     });
 
-    if (approved) {
-      return { kind: 'approved' as const };
+    while (!isDone) {
+      if (eventQueue.length > 0) {
+        yield eventQueue.shift()!;
+      } else {
+        yield await new Promise((resolve) => {
+          resolveNext = resolve;
+        });
+      }
     }
-    return { kind: 'denied-interactively-by-user' as const };
-  };
+  }
+
+  /**
+   * Uses Copilot's built-in /compact command
+   * SDK handles context compression at 95% threshold automatically
+   */
+  async compact(): Promise<void> {
+    // Send /compact command - SDK handles internally
+    await this.session.send({ prompt: '/compact' });
+  }
+
+  async close(): Promise<void> {
+    await this.session.destroy();
+  }
+
+  get native(): any {
+    return this.session;
+  }
 }
+```
+
+**SDK Features We Use Directly (No Reimplementation):**
+
+| Feature             | SDK Provides                        | Notes                          |
+| ------------------- | ----------------------------------- | ------------------------------ |
+| 31 event types      | `session.on(callback)`              | All events passthrough         |
+| Auto-compaction     | Automatic at 95% context            | No manual trigger needed       |
+| Manual compact      | `/compact` slash command            | Via `send()`                   |
+| Permission handling | `onPermissionRequest` callback      | SDK's native permission system |
+| Custom agents       | Agent profiles in `.github/agents/` | SDK loads automatically        |
+| MCP servers         | `mcp-config.json`                   | SDK manages connections        |
+| Skills              | Skill definitions                   | SDK's skills system            |
+
+**Native Event Types (Use Directly, No Mapping):**
+
+```typescript
+// These are SDK event types - use directly in graph nodes
+type CopilotEvent =
+  | 'session.start' | 'session.idle' | 'session.error'
+  | 'assistant.message' | 'assistant.message_delta'
+  | 'tool.execution_start' | 'tool.execution_complete'
+  | 'subagent.started' | 'subagent.completed'
+  | 'file.edit' | 'file.create' | 'file.delete'
+  | 'permission.requested' | 'permission.granted' | 'permission.denied'
+  // ... and 16 more
 ```
 
 **Research Reference:** [2026-01-31-github-copilot-sdk-research.md](../research/docs/2026-01-31-github-copilot-sdk-research.md) "Session Lifecycle" and "31 Event Types" sections
 
-#### 5.1.5 Native Hook Migration
+#### 5.1.5 Event Bridge (Passthrough, Not Mapping)
 
-This section describes how to migrate existing hook scripts from configuration files to native SDK hook registration.
-
-##### Unified HookManager Interface
+**Design Principle:** Don't map events between SDKs - forward native events to graph engine. Each SDK has its own event semantics that should be preserved.
 
 ```typescript
-// src/sdk/hooks.ts
+// src/sdk/event-bridge.ts
 
-import type { CodingAgentClient } from './types';
-import type { ClaudeAgentClient, ClaudeHookConfig } from './claude-client';
-import type { CopilotClient } from './copilot-client';
-import type { OpenCodeClient } from './opencode-client';
-
-/** Unified hook event types across all SDKs */
-export type UnifiedHookEvent =
-  // Session lifecycle
-  | 'session.start'
-  | 'session.end'
-  | 'session.error'
-  // Tool execution
-  | 'tool.before'
-  | 'tool.after'
-  | 'tool.error'
-  // Message handling
-  | 'message.before'
-  | 'message.after'
-  // Permission
-  | 'permission.request'
-  // Subagent
-  | 'subagent.start'
-  | 'subagent.end';
-
-export interface HookContext {
-  sessionId: string;
-  agentType: 'claude' | 'copilot' | 'opencode';
-  timestamp: Date;
-  data: unknown;
-}
-
-export type HookHandler = (ctx: HookContext) => void | Promise<void>;
+import type { CodingAgentClient, CodingAgentSession } from './types';
 
 /**
- * Unified HookManager for cross-SDK hook registration
- * Migrates from config-based hooks to native SDK hooks
+ * EventBridge forwards native SDK events to graph execution
+ * - No event mapping or transformation
+ * - Graph nodes handle SDK-specific event types
+ * - Preserves native event semantics
  */
-export class HookManager {
-  private handlers = new Map<UnifiedHookEvent, Set<HookHandler>>();
+export class EventBridge {
+  private listeners = new Set<(event: NativeEvent) => void>();
 
   /**
-   * Register a hook handler for a unified event type
+   * Subscribe to all events from all SDKs (passthrough)
    */
-  on(event: UnifiedHookEvent, handler: HookHandler): () => void {
-    if (!this.handlers.has(event)) {
-      this.handlers.set(event, new Set());
-    }
-    this.handlers.get(event)!.add(handler);
-    return () => this.handlers.get(event)?.delete(handler);
+  subscribe(handler: (event: NativeEvent) => void): () => void {
+    this.listeners.add(handler);
+    return () => this.listeners.delete(handler);
   }
 
   /**
-   * Apply hooks to a Claude client
-   * Migrates from .claude/settings.json hooks
+   * Connect a client's event stream to the bridge
+   * Events are forwarded as-is with source tag
    */
-  applyToClaudeClient(client: ClaudeAgentClient): void {
-    const claudeHooks: ClaudeHookConfig = {
-      SessionStart: [
-        (params) => this.emit('session.start', 'claude', params),
-      ],
-      SessionEnd: [
-        (params) => this.emit('session.end', 'claude', params),
-      ],
-      PreToolUse: [
-        (params) => this.emit('tool.before', 'claude', params),
-      ],
-      PostToolUse: [
-        (params) => this.emit('tool.after', 'claude', params),
-      ],
-      PostToolUseFailure: [
-        (params) => this.emit('tool.error', 'claude', params),
-      ],
-      PermissionRequest: [
-        (params) => this.emit('permission.request', 'claude', params),
-      ],
-      SubagentStart: [
-        (params) => this.emit('subagent.start', 'claude', params),
-      ],
-      SubagentStop: [
-        (params) => this.emit('subagent.end', 'claude', params),
-      ],
-    };
-
-    client.registerHooks(claudeHooks);
-  }
-
-  /**
-   * Apply hooks to a Copilot client
-   * Migrates from .github/hooks/hooks.json
-   */
-  applyToCopilotClient(client: CopilotClient): void {
-    // Map Copilot's 31 event types to unified events
-    const eventMapping: Record<string, UnifiedHookEvent> = {
-      'session.start': 'session.start',
-      'session.idle': 'session.end',
-      'session.error': 'session.error',
-      'tool.execution_start': 'tool.before',
-      'tool.execution_complete': 'tool.after',
-      'subagent.started': 'subagent.start',
-      'subagent.completed': 'subagent.end',
-    };
-
-    // Subscribe to all mapped events
-    for (const [copilotEvent, unifiedEvent] of Object.entries(eventMapping)) {
-      client.on(copilotEvent as any, (event) => {
-        this.emit(unifiedEvent, 'copilot', event.data);
-      });
+  async connect(
+    client: CodingAgentClient,
+    source: 'claude' | 'copilot' | 'opencode'
+  ): Promise<void> {
+    // Stream native events and tag with source
+    for await (const event of client.events()) {
+      this.forward({ source, event });
     }
   }
 
-  /**
-   * Apply hooks to an OpenCode client
-   * Migrates from .opencode/plugin/*.ts hooks
-   */
-  applyToOpenCodeClient(client: OpenCodeClient): void {
-    // OpenCode uses event subscription
-    const eventMapping: Record<string, UnifiedHookEvent> = {
-      'session.created': 'session.start',
-      'session.deleted': 'session.end',
-      'session.status': 'session.end', // when status === 'idle'
-    };
-
-    for (const [openCodeEvent, unifiedEvent] of Object.entries(eventMapping)) {
-      client.on(openCodeEvent, (event) => {
-        this.emit(unifiedEvent, 'opencode', event.data);
-      });
+  private forward(nativeEvent: NativeEvent): void {
+    for (const listener of this.listeners) {
+      listener(nativeEvent);
     }
   }
+}
 
-  private emit(event: UnifiedHookEvent, agentType: 'claude' | 'copilot' | 'opencode', data: unknown): void {
-    const handlers = this.handlers.get(event);
-    if (!handlers) return;
+/** Native event with source tag - no transformation */
+export interface NativeEvent {
+  source: 'claude' | 'copilot' | 'opencode';
+  event: unknown; // Native SDK event type
+}
+```
 
-    const ctx: HookContext = {
-      sessionId: (data as any)?.sessionId ?? '',
-      agentType,
-      timestamp: new Date(),
-      data,
-    };
+**Why No Unified Event Mapping:**
 
-    for (const handler of handlers) {
-      try {
-        handler(ctx);
-      } catch (error) {
-        console.error(`Hook handler error for ${event}:`, error);
+1. **SDKs have different semantics** - Claude's `SessionEnd` vs Copilot's `session.idle` mean different things
+2. **Information loss** - Mapping loses SDK-specific metadata
+3. **Maintenance burden** - SDK updates require mapping updates
+4. **Graph nodes are SDK-aware** - They already handle SDK-specific types
+
+**Recommended Pattern: SDK-Aware Graph Nodes**
+
+Instead of unified events, graph nodes handle SDK-specific types:
+
+```typescript
+// Graph node that handles all SDK event types
+const sessionMonitorNode = agentNode<AtomicState>('monitor', {
+  execute: async (ctx) => {
+    const session = ctx.state.session;
+
+    // Handle events based on SDK type
+    for await (const event of session.stream()) {
+      // Claude events
+      if (isClaudeMessage(event)) {
+        if (event.type === 'result' && event.subtype === 'success') {
+          return { stateUpdate: { completed: true } };
+        }
+      }
+
+      // OpenCode events
+      if (isOpenCodeEvent(event)) {
+        if (event.type === 'session.status' && event.properties.status === 'idle') {
+          return { stateUpdate: { completed: true } };
+        }
+      }
+
+      // Copilot events
+      if (isCopilotEvent(event)) {
+        if (event.type === 'session.idle') {
+          return { stateUpdate: { completed: true } };
+        }
       }
     }
-  }
-}
+  },
+});
 ```
 
-##### Migration from Config-Based Hooks
+**Migration from Config-Based Hooks:**
 
-**Claude: From `.claude/settings.json` to SDK hooks**
+Config-based hooks (`.claude/settings.json`, `.github/hooks/hooks.json`) should be migrated to **native SDK hooks**, not a unified abstraction:
 
 ```typescript
-// Before: .claude/settings.json
-{
-  "hooks": {
-    "SessionEnd": [{
-      "type": "command",
-      "command": "bun run .claude/hooks/telemetry-stop.ts"
-    }]
-  }
-}
+// Claude: Use options.hooks directly
+const session = unstable_v2_createSession({
+  model: 'claude-sonnet-4-5-20250929',
+  hooks: {
+    SessionEnd: [(params) => collectTelemetry(params)],
+    PreToolUse: [(params) => validateToolUse(params)],
+  },
+});
 
-// After: Native SDK hooks
-const client = new ClaudeAgentClient();
-client.registerHooks({
-  SessionEnd: [
-    async (params) => {
-      // Run telemetry collection inline
-      await collectTelemetry(params);
-    },
-  ],
+// OpenCode: Use plugin system directly
+// .opencode/plugins/telemetry.ts
+export default {
+  event: async ({ event }) => {
+    if (event.type === 'session.idle') {
+      await collectTelemetry(event);
+    }
+  },
+} satisfies Plugin;
+
+// Copilot: Use session.on() directly
+const session = await client.createSession(config);
+session.on((event) => {
+  if (event.type === 'session.idle') {
+    collectTelemetry(event);
+  }
 });
 ```
-
-**Copilot: From `.github/hooks/hooks.json` to SDK events**
-
-```typescript
-// Before: .github/hooks/hooks.json
-{
-  "version": 1,
-  "hooks": {
-    "sessionStart": [{
-      "type": "command",
-      "bash": "bun run .github/scripts/start-ralph-session.ts",
-      "powershell": "bun run .github/scripts/start-ralph-session.ts"
-    }],
-    "userPromptSubmitted": [{
-      "type": "command",
-      "bash": "bun run .github/scripts/telemetry-session.ts"
-    }],
-    "sessionEnd": [{
-      "type": "command",
-      "bash": "bun run .github/scripts/telemetry-stop.ts"
-    }]
-  }
-}
-
-// After: Native SDK events
-const client = new CopilotClient();
-client.on('session.start', async (event) => {
-  await startRalphSession(event);
-});
-client.on('assistant.message', async (event) => {
-  await trackTelemetry(event);
-});
-client.on('session.idle', async (event) => {
-  await finalizeTelemetry(event);
-});
-```
-
-**OpenCode: From `.opencode/plugin/*.ts` to SDK plugin hooks**
-
-```typescript
-// Before: .opencode/plugin/ralph.ts (external plugin)
-export const RalphPlugin: Plugin = async ({ client }) => {
-  return {
-    event: async ({ event }) => {
-      if (event.type === 'session.status' && event.properties.status === 'idle') {
-        await continueRalphLoop(event);
-      }
-    },
-  };
-};
-
-// After: Integrated via OpenCodeClient
-const client = new OpenCodeClient({ baseUrl, directory });
-client.on('session.status', async (event) => {
-  if (event.data?.status === 'idle') {
-    await continueRalphLoop(event);
-  }
-});
-
-// Plugin hooks still supported via client methods
-client.registerPluginHook('tool.execute.before', async ({ tool, args }) => {
-  if (tool === 'bash' && args.command.includes('rm -rf')) {
-    throw new Error('Dangerous command blocked');
-  }
-  return { args };
-});
-```
-
-##### Full Hook Event Reference
-
-| Unified Event        | Claude SDK           | Copilot SDK               | OpenCode SDK            |
-| -------------------- | -------------------- | ------------------------- | ----------------------- |
-| `session.start`      | `SessionStart`       | `session.start`           | `session.created`       |
-| `session.end`        | `SessionEnd`         | `session.idle`            | `session.status` (idle) |
-| `session.error`      | -                    | `session.error`           | -                       |
-| `tool.before`        | `PreToolUse`         | `tool.execution_start`    | `tool.execute.before`   |
-| `tool.after`         | `PostToolUse`        | `tool.execution_complete` | `tool.execute.after`    |
-| `tool.error`         | `PostToolUseFailure` | -                         | -                       |
-| `message.before`     | -                    | -                         | `chat.message`          |
-| `message.after`      | -                    | `assistant.message`       | `chat.message`          |
-| `permission.request` | `PermissionRequest`  | `onPermissionRequest`     | `permission.ask`        |
-| `subagent.start`     | `SubagentStart`      | `subagent.started`        | -                       |
-| `subagent.end`       | `SubagentStop`       | `subagent.completed`      | -                       |
 
 **Research Reference:** [2026-01-31-claude-implementation-analysis.md](../research/docs/2026-01-31-claude-implementation-analysis.md), [2026-01-31-github-implementation-analysis.md](../research/docs/2026-01-31-github-implementation-analysis.md), [2026-01-31-opencode-implementation-analysis.md](../research/docs/2026-01-31-opencode-implementation-analysis.md)
 
@@ -2634,109 +2439,125 @@ export class UnifiedTelemetryCollector implements TelemetryCollector {
 }
 ```
 
-#### 5.5.2 SDK Telemetry Integration
+#### 5.5.2 SDK Telemetry Integration (Native Event Subscription)
+
+**Design Principle:** Subscribe to native SDK event streams - no wrapper pattern needed.
 
 ```typescript
 // src/telemetry/sdk-integration.ts
 
-import type { CodingAgentClient, EventHandler, AgentEvent } from '../sdk/types';
 import type { TelemetryCollector } from './types';
+import type { EventBridge, NativeEvent } from '../sdk/event-bridge';
 
 /**
- * Wrap a CodingAgentClient to automatically track telemetry events
+ * Subscribe to EventBridge for cross-SDK telemetry
+ * No wrapper pattern - just event subscription
  */
-export function withTelemetry(
-  client: CodingAgentClient,
+export function connectTelemetry(
+  bridge: EventBridge,
   collector: TelemetryCollector
-): CodingAgentClient {
-  const originalCreateSession = client.createSession.bind(client);
-  const originalResumeSession = client.resumeSession.bind(client);
-
-  return {
-    ...client,
-
-    async createSession(config) {
-      const session = await originalCreateSession(config);
-
-      collector.track({
-        eventType: 'sdk.session.created',
-        sessionId: session.id,
-        properties: {
-          model: config.model,
-          hasSystemPrompt: !!config.systemPrompt,
-          permissionMode: config.permissionMode,
-        },
-      });
-
-      return wrapSession(session, collector);
-    },
-
-    async resumeSession(sessionId, config) {
-      const session = await originalResumeSession(sessionId, config);
-
-      collector.track({
-        eventType: 'sdk.session.resumed',
-        sessionId: session.id,
-        properties: {},
-      });
-
-      return wrapSession(session, collector);
-    },
-
-    on(event, handler) {
-      const wrappedHandler: EventHandler = (agentEvent) => {
-        // Track all SDK events
-        collector.track({
-          eventType: mapEventType(agentEvent.type),
-          sessionId: agentEvent.sessionId,
-          properties: { originalType: agentEvent.type },
-        });
-
-        return handler(agentEvent);
-      };
-
-      return client.on(event, wrappedHandler);
-    },
-  };
+): () => void {
+  return bridge.subscribe((nativeEvent: NativeEvent) => {
+    // Track native events directly - no transformation
+    collector.track({
+      eventType: inferEventType(nativeEvent),
+      sessionId: extractSessionId(nativeEvent),
+      properties: {
+        source: nativeEvent.source,
+        nativeType: getNativeType(nativeEvent.event),
+        // Include native event for analysis (anonymized)
+        eventData: sanitizeForTelemetry(nativeEvent.event),
+      },
+    });
+  });
 }
 
-function wrapSession(session: Session, collector: TelemetryCollector): Session {
-  const originalSend = session.send.bind(session);
-  const originalDestroy = session.destroy.bind(session);
+/**
+ * Infer telemetry event type from native event
+ * Preserves SDK-specific event types in properties
+ */
+function inferEventType(event: NativeEvent): TelemetryEventType {
+  const nativeType = getNativeType(event.event);
 
-  return {
-    ...session,
+  // Session lifecycle
+  if (nativeType.includes('session.') || nativeType.includes('Session')) {
+    if (nativeType.includes('start') || nativeType.includes('created') || nativeType.includes('Start')) {
+      return 'sdk.session.created';
+    }
+    if (nativeType.includes('idle') || nativeType.includes('End') || nativeType.includes('deleted')) {
+      return 'sdk.session.destroyed';
+    }
+    if (nativeType.includes('error')) {
+      return 'sdk.error';
+    }
+  }
 
-    async send(message) {
-      collector.track({
-        eventType: 'sdk.message.sent',
-        sessionId: session.id,
-        properties: { messageLength: message.length },
-      });
+  // Tool execution
+  if (nativeType.includes('tool') || nativeType.includes('Tool')) {
+    return 'sdk.tool.executed';
+  }
 
-      return originalSend(message);
-    },
+  // Messages
+  if (nativeType.includes('message') || nativeType.includes('assistant')) {
+    return 'sdk.message.received';
+  }
 
-    async destroy() {
-      collector.track({
-        eventType: 'sdk.session.destroyed',
-        sessionId: session.id,
-        properties: {},
-      });
-
-      return originalDestroy();
-    },
-  };
+  return 'sdk.message.received';
 }
 
-function mapEventType(sdkEventType: string): TelemetryEventType {
-  const mapping: Record<string, TelemetryEventType> = {
-    'message.complete': 'sdk.message.received',
-    'tool.complete': 'sdk.tool.executed',
-    'session.error': 'sdk.error',
-  };
-  return mapping[sdkEventType] ?? 'sdk.message.received';
+function getNativeType(event: unknown): string {
+  return (event as any)?.type ?? (event as any)?.hook_event_name ?? 'unknown';
 }
+
+function extractSessionId(event: NativeEvent): string {
+  const e = event.event as any;
+  return e?.session_id ?? e?.sessionId ?? e?.properties?.sessionID ?? '';
+}
+
+function sanitizeForTelemetry(event: unknown): Record<string, unknown> {
+  // Remove sensitive fields, keep structure for analysis
+  const e = event as Record<string, unknown>;
+  const sanitized: Record<string, unknown> = {};
+
+  // Safe fields to include
+  const safeFields = ['type', 'subtype', 'hook_event_name', 'status'];
+  for (const field of safeFields) {
+    if (e[field] !== undefined) {
+      sanitized[field] = e[field];
+    }
+  }
+
+  return sanitized;
+}
+```
+
+**Alternative: Direct SDK Hook Integration**
+
+For SDK-specific telemetry, use native hooks directly:
+
+```typescript
+// Claude: Use options.hooks
+const session = unstable_v2_createSession({
+  model: 'claude-sonnet-4-5-20250929',
+  hooks: {
+    SessionStart: [(params) => collector.track({ eventType: 'sdk.session.created', ... })],
+    SessionEnd: [(params) => collector.track({ eventType: 'sdk.session.destroyed', ... })],
+    PostToolUse: [(params) => collector.track({ eventType: 'sdk.tool.executed', ... })],
+  },
+});
+
+// OpenCode: Use plugin system
+// .opencode/plugins/telemetry.ts
+export default {
+  event: async ({ event }) => {
+    collector.track({ eventType: inferEventType(event), ... });
+  },
+} satisfies Plugin;
+
+// Copilot: Use session.on()
+session.on((event) => {
+  collector.track({ eventType: inferEventType(event), ... });
+});
 ```
 
 #### 5.5.3 Graph Telemetry Integration
@@ -3064,19 +2885,24 @@ describe('ClaudeAgentClient', () => {
 - [ ] Implement signal handling (context warning, human input)
 - [ ] Add integration tests for execution
 
-### Phase 4: SDK Clients and Hook Migration (Week 4)
-- [ ] Create `src/sdk/types.ts` with unified interface
-- [ ] Create `src/sdk/claude-client.ts` using V1+V2 hybrid approach
-- [ ] Implement `ClaudeAgentClient.registerHooks()` for native hook registration
-- [ ] Implement `ClaudeAgentClient.createAdvancedSession()` for V1 features (forking, async input)
-- [ ] Create `src/sdk/opencode-client.ts` using V2 client
-- [ ] Create `src/sdk/copilot-client.ts` using Copilot SDK
-- [ ] Implement `createPermissionHandler` for Copilot
-- [ ] Create `src/sdk/hooks.ts` with `HookManager` class
-- [ ] Implement unified hook event mapping across all SDKs
-- [ ] Migrate `.claude/settings.json` hooks to `ClaudeAgentClient.registerHooks()`
-- [ ] Migrate `.github/hooks/hooks.json` to `CopilotClient.on()` subscriptions
-- [ ] Migrate `.opencode/plugin/*.ts` hooks to `OpenCodeClient` event handlers
+### Phase 4: SDK Clients (Week 4) - Thin Adapters
+- [ ] Create `src/sdk/types.ts` with thin adapter interface (delegates to native SDKs)
+- [ ] Create `src/sdk/claude-client.ts` as thin wrapper over V2 SDK
+  - Uses `unstable_v2_createSession()` / `unstable_v2_resumeSession()` directly
+  - Returns native `SDKMessage` from `stream()` - no transformation
+  - Exposes `native` accessor for V1 features when needed
+- [ ] Create `src/sdk/opencode-client.ts` as thin wrapper
+  - Uses native `session.summarize()` for compaction
+  - Uses native event subscription via `event.subscribe()`
+  - No custom event mapping
+- [ ] Create `src/sdk/copilot-client.ts` as thin wrapper
+  - Uses native 31 event types - no mapping
+  - Uses `/compact` command for context management
+- [ ] Create `src/sdk/event-bridge.ts` for event passthrough (not mapping)
+- [ ] Document which SDK features to use for each capability:
+  - Context compaction: SDK built-in (not reimplemented)
+  - Event subscription: Native SDK streams (not unified)
+  - Session forking: Claude V1 `query().fork()` when needed
 - [ ] Add unit tests with mocked SDKs
 - [ ] Add integration tests with real SDKs (optional, requires API keys)
 
@@ -3127,11 +2953,11 @@ describe('ClaudeAgentClient', () => {
 ```
 src/
 ├── sdk/
-│   ├── types.ts                  # CodingAgentClient interface
-│   ├── claude-client.ts          # Claude Agent SDK V1+V2 hybrid wrapper
-│   ├── opencode-client.ts        # OpenCode SDK wrapper
-│   ├── copilot-client.ts         # GitHub Copilot SDK wrapper
-│   ├── hooks.ts                  # HookManager for cross-SDK hook migration
+│   ├── types.ts                  # Thin adapter interface (delegates to native SDKs)
+│   ├── claude-client.ts          # Thin wrapper over Claude V2 SDK (no transformation)
+│   ├── opencode-client.ts        # Thin wrapper using native summarize(), events
+│   ├── copilot-client.ts         # Thin wrapper using native 31 event types
+│   ├── event-bridge.ts           # Event passthrough to graph engine (no mapping)
 │   └── index.ts                  # Re-exports
 ├── graph/
 │   ├── types.ts                  # Graph type definitions
@@ -3160,10 +2986,10 @@ src/
 
 tests/
 ├── sdk/
-│   ├── claude-client.test.ts
-│   ├── opencode-client.test.ts
-│   ├── copilot-client.test.ts
-│   └── hooks.test.ts             # HookManager and migration tests
+│   ├── claude-client.test.ts     # Test V2 SDK delegation
+│   ├── opencode-client.test.ts   # Test native summarize(), events
+│   ├── copilot-client.test.ts    # Test native event passthrough
+│   └── event-bridge.test.ts      # Test event forwarding
 ├── graph/
 │   ├── builder.test.ts
 │   ├── compiled.test.ts

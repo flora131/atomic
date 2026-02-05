@@ -7,12 +7,8 @@
  * coding agent backends (Claude, OpenCode, Copilot).
  */
 
-import type {
-  CodingAgentClient,
-  SessionConfig,
-  PermissionMode,
-  McpServerConfig,
-} from "./types.ts";
+// Types imported from types.ts are defined but not directly used in this module.
+// They serve as documentation for what the init functions configure.
 
 import type { Options as ClaudeOptions } from "@anthropic-ai/claude-agent-sdk";
 

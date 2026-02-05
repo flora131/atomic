@@ -11,6 +11,7 @@ import React from "react";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { createRoot, type Root } from "@opentui/react";
 import { ChatApp, type OnToolStart, type OnToolComplete, type OnPermissionRequest as ChatOnPermissionRequest, type OnInterrupt, type OnAskUserQuestion } from "./chat.tsx";
+import type { ParallelAgent } from "./components/parallel-agents-tree.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
 import { initializeCommandsAsync } from "./commands/index.ts";
 import type {
@@ -113,6 +114,10 @@ interface ChatUIState {
   streamAbortController: AbortController | null;
   /** Whether streaming is currently active */
   isStreaming: boolean;
+  /** Registered handler for parallel agent updates (from ChatApp's setParallelAgents) */
+  parallelAgentHandler: ((agents: ParallelAgent[]) => void) | null;
+  /** Current list of parallel agents tracked from SDK events */
+  parallelAgents: ParallelAgent[];
 }
 
 // ============================================================================
@@ -187,6 +192,8 @@ export async function startChatUI(
     activeToolNames: new Set(),
     streamAbortController: null,
     isStreaming: false,
+    parallelAgentHandler: null,
+    parallelAgents: [],
   };
 
   // Create a promise that resolves when the UI exits
@@ -369,11 +376,58 @@ export async function startChatUI(
       }
     });
 
+    // Subscribe to subagent.start events to update ParallelAgentsTree
+    const unsubSubagentStart = client.on("subagent.start", (event) => {
+      const data = event.data as {
+        subagentId?: string;
+        subagentType?: string;
+        task?: string;
+      };
+
+      if (state.parallelAgentHandler && data.subagentId) {
+        const newAgent: ParallelAgent = {
+          id: data.subagentId,
+          name: data.subagentType ?? "agent",
+          task: data.task ?? "",
+          status: "running",
+          startedAt: event.timestamp ?? new Date().toISOString(),
+        };
+        state.parallelAgents = [...state.parallelAgents, newAgent];
+        state.parallelAgentHandler(state.parallelAgents);
+      }
+    });
+
+    // Subscribe to subagent.complete events to update ParallelAgentsTree
+    const unsubSubagentComplete = client.on("subagent.complete", (event) => {
+      const data = event.data as {
+        subagentId?: string;
+        success?: boolean;
+        result?: unknown;
+      };
+
+      if (state.parallelAgentHandler && data.subagentId) {
+        const status = data.success !== false ? "completed" : "error";
+        state.parallelAgents = state.parallelAgents.map((a) =>
+          a.id === data.subagentId
+            ? {
+                ...a,
+                status,
+                result: data.result ? String(data.result) : undefined,
+                durationMs: Date.now() - new Date(a.startedAt).getTime(),
+              }
+            : a
+        );
+        state.parallelAgentHandler(state.parallelAgents);
+      }
+    });
+
     return () => {
       unsubStart();
       unsubComplete();
       unsubPermission();
       unsubHumanInput();
+      unsubSubagentStart();
+      unsubSubagentComplete();
     };
   }
 
@@ -590,6 +644,10 @@ export async function startChatUI(
       state.askUserQuestionHandler = handler;
     };
 
+    const registerParallelAgentHandler = (handler: (agents: ParallelAgent[]) => void) => {
+      state.parallelAgentHandler = handler;
+    };
+
     const registerCtrlCWarningHandler = (handler: (show: boolean) => void) => {
       state.showCtrlCWarning = handler;
     };
@@ -630,6 +688,7 @@ export async function startChatUI(
             registerToolCompleteHandler,
             registerPermissionRequestHandler,
             registerAskUserQuestionHandler,
+            registerParallelAgentHandler,
             registerCtrlCWarningHandler,
             getSession,
           }),

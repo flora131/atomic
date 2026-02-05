@@ -26,3 +26,30 @@
 - All 152 existing tests still pass across 9 test files
 
 **Commit**: Pending
+
+### 2026-02-05: Feature 2 - Wire Subagent Event Subscriptions (COMPLETE)
+
+**Feature**: Wire subagent.start and subagent.complete event subscriptions in startChatUI's subscribeToToolEvents()
+
+**Files Modified**:
+- `src/ui/index.ts` - Added subagent event wiring in subscribeToToolEvents(), parallelAgentHandler state, and registerParallelAgentHandler prop
+
+**Files Created**:
+- `src/ui/__tests__/subagent-event-wiring.test.ts` - 13 unit tests
+
+**Implementation Details**:
+- Added `parallelAgentHandler` and `parallelAgents` fields to `ChatUIState` interface
+- Imported `ParallelAgent` type from `./components/parallel-agents-tree.tsx`
+- Added `client.on("subagent.start")` subscription that creates a new `ParallelAgent` with `status: "running"`
+- Added `client.on("subagent.complete")` subscription that updates matching agent to `"completed"` or `"error"` status based on `success` field
+- Tracked agents in `state.parallelAgents` array to maintain state between events
+- Created `registerParallelAgentHandler` callback and wired it to `ChatApp` props in the render call
+- Unsubscribe functions for both event handlers returned in cleanup function alongside existing ones
+
+**Verification**:
+- 13 unit tests passing (41 expect() calls) covering: start events, complete events, error handling, unsubscribe cleanup, null handler safety, full lifecycle
+- TypeScript typecheck clean
+- oxlint clean (0 warnings, 0 errors)
+- All 112 existing tests still pass across 7 test files
+
+**Commit**: Pending

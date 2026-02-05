@@ -35,8 +35,8 @@ import {
   type RalphSession,
   type RalphFeature,
   isRalphSession,
-} from "../../src/workflows/ralph-session.ts";
-import { createRalphWorkflow } from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/index.ts";
+import { createRalphWorkflow } from "../../src/workflows/index.ts";
 
 // ============================================================================
 // TEST HELPERS
@@ -453,7 +453,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const loaded = await loadSession(sessionDir);
       expect(Array.isArray(loaded.features)).toBe(true);
       expect(loaded.features.length).toBe(1);
-      expect(loaded.features[0].name).toBe("Test feature");
+      expect(loaded.features[0]?.name).toBe("Test feature");
     });
 
     test("session.json can be loaded with loadSession()", async () => {
@@ -723,7 +723,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
 
       expect(lines.length).toBe(1);
 
-      const entry = JSON.parse(lines[0]);
+      const entry = JSON.parse(lines[0]!);
       expect(entry.action).toBe("execute");
       expect(entry.tool).toBe("Bash");
       expect(entry.timestamp).toBeDefined();
@@ -993,13 +993,13 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       });
 
       await saveSession(sessionDir, session);
-      await appendProgress(sessionDir, session.features[0], true);
+      await appendProgress(sessionDir, session.features[0]!, true);
       await appendLog(sessionDir, "test-log", { persisted: true });
 
       // Read and verify all artifacts
       const loadedSession = await loadSession(sessionDir);
       expect(loadedSession.sessionId).toBe(sessionId);
-      expect(loadedSession.features[0].name).toBe("Persistent feature");
+      expect(loadedSession.features[0]?.name).toBe("Persistent feature");
 
       const progressContent = await fs.readFile(
         path.join(sessionDir, "progress.txt"),

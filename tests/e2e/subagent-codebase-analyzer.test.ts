@@ -192,7 +192,7 @@ function createMockSubagentClient(): CodingAgentClient & {
   let isRunning = false;
 
   return {
-    agentType: "mock",
+    agentType: "claude",
     sessions,
     eventHandlers,
 
@@ -357,14 +357,14 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       expect(sentMessage).toContain("analyze login handler");
     });
 
-    test("/codebase-analyzer handles empty arguments", () => {
+    test("/codebase-analyzer handles empty arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-analyzer");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      const result = command!.execute("", context);
+      const result = await command!.execute("", context);
 
       expect(result.success).toBe(true);
       // Should still send the base prompt without user request section
@@ -605,26 +605,26 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
   // ============================================================================
 
   describe("5. Verify result returned", () => {
-    test("command execute returns success result", () => {
+    test("command execute returns success result", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-analyzer");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      const result = command!.execute("test query", context);
+      const result = await command!.execute("test query", context);
 
       expect(result.success).toBe(true);
     });
 
-    test("command execute does not return error message on success", () => {
+    test("command execute does not return error message on success", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-analyzer");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      const result = command!.execute("analyze code", context);
+      const result = await command!.execute("analyze code", context);
 
       expect(result.success).toBe(true);
       // Success result may not have message field or has empty message
@@ -658,17 +658,17 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       expect(sentMessage).toContain("authentication flow");
     });
 
-    test("multiple invocations each return independent results", () => {
+    test("multiple invocations each return independent results", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-analyzer");
       expect(command).toBeDefined();
 
       const context1 = createMockCommandContext();
-      const result1 = command!.execute("query 1", context1);
+      const result1 = await command!.execute("query 1", context1);
 
       const context2 = createMockCommandContext();
-      const result2 = command!.execute("query 2", context2);
+      const result2 = await command!.execute("query 2", context2);
 
       // Both should succeed
       expect(result1.success).toBe(true);
@@ -679,14 +679,14 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       expect(context2.sentMessages[0]).toContain("query 2");
     });
 
-    test("command result type is CommandResult", () => {
+    test("command result type is CommandResult", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-analyzer");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      const result: CommandResult = command!.execute("test", context);
+      const result: CommandResult = await command!.execute("test", context);
 
       // Verify result matches CommandResult interface
       expect(typeof result.success).toBe("boolean");
@@ -701,7 +701,7 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
   // ============================================================================
 
   describe("Integration: Full /codebase-analyzer workflow", () => {
-    test("complete flow: register, lookup, execute, verify", () => {
+    test("complete flow: register, lookup, execute, verify", async () => {
       // 1. Register builtin agents
       registerBuiltinAgents();
 
@@ -712,7 +712,7 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
 
       // 3. Execute with typical user input
       const context = createMockCommandContext();
-      const result = command!.execute("analyze authentication flow", context);
+      const result = await command!.execute("analyze authentication flow", context);
 
       // 4. Verify result
       expect(result.success).toBe(true);
@@ -724,7 +724,7 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       expect(message).toContain("analyze authentication flow");
     });
 
-    test("agent command works with session context", () => {
+    test("agent command works with session context", async () => {
       registerBuiltinAgents();
 
       const mockSession = createMockSubagentSession("test-session");
@@ -734,7 +734,7 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       });
 
       const command = globalRegistry.get("codebase-analyzer");
-      const result = command!.execute("find auth handlers", context);
+      const result = await command!.execute("find auth handlers", context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages).toHaveLength(1);
@@ -812,53 +812,53 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
   // ============================================================================
 
   describe("Edge cases", () => {
-    test("handles whitespace-only arguments", () => {
+    test("handles whitespace-only arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-analyzer");
       const context = createMockCommandContext();
 
-      const result = command!.execute("   ", context);
+      const result = await command!.execute("   ", context);
 
       expect(result.success).toBe(true);
       // Should send prompt without user request section (whitespace trimmed)
       expect(context.sentMessages).toHaveLength(1);
     });
 
-    test("handles very long arguments", () => {
+    test("handles very long arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-analyzer");
       const context = createMockCommandContext();
 
       const longArg = "a".repeat(10000);
-      const result = command!.execute(longArg, context);
+      const result = await command!.execute(longArg, context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages[0]).toContain(longArg);
     });
 
-    test("handles special characters in arguments", () => {
+    test("handles special characters in arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-analyzer");
       const context = createMockCommandContext();
 
       const specialArgs = "analyze <user> & 'auth' | $PATH";
-      const result = command!.execute(specialArgs, context);
+      const result = await command!.execute(specialArgs, context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages[0]).toContain(specialArgs);
     });
 
-    test("handles newlines in arguments", () => {
+    test("handles newlines in arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-analyzer");
       const context = createMockCommandContext();
 
       const multilineArgs = "line 1\nline 2\nline 3";
-      const result = command!.execute(multilineArgs, context);
+      const result = await command!.execute(multilineArgs, context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages[0]).toContain("line 1");

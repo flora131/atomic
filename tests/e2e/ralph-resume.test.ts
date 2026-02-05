@@ -32,8 +32,8 @@ import {
   createRalphFeature,
   type RalphSession,
   type RalphFeature,
-} from "../../src/workflows/ralph-session.ts";
-import { createRalphWorkflow } from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/index.ts";
+import { createRalphWorkflow } from "../../src/workflows/index.ts";
 import {
   globalRegistry,
   type CommandContext,
@@ -201,40 +201,40 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       await fs.writeFile(featureListPath, createTestFeatureListContent());
     });
 
-    test("session starts with unique UUID", () => {
+    test("session starts with unique UUID", async () => {
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
       expect(command).toBeDefined();
 
-      const result = command!.execute("implement features", context);
+      const result = await command!.execute("implement features", context);
       expect(result.success).toBe(true);
       expect(result.stateUpdate?.ralphConfig?.sessionId).toBeDefined();
-      expect(isValidUUID(result.stateUpdate?.ralphConfig?.sessionId)).toBe(true);
+      expect(isValidUUID(result.stateUpdate?.ralphConfig?.sessionId ?? "")).toBe(true);
     });
 
-    test("session UUID is different for each start", () => {
+    test("session UUID is different for each start", async () => {
       const context1 = createMockContext();
       const context2 = createMockContext();
       const command = globalRegistry.get("ralph");
 
-      const result1 = command!.execute("implement features", context1);
-      const result2 = command!.execute("implement features", context2);
+      const result1 = await command!.execute("implement features", context1);
+      const result2 = await command!.execute("implement features", context2);
 
       expect(result1.stateUpdate?.ralphConfig?.sessionId).not.toBe(
         result2.stateUpdate?.ralphConfig?.sessionId
       );
     });
 
-    test("session message includes UUID for later reference", () => {
+    test("session message includes UUID for later reference", async () => {
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
 
-      const result = command!.execute("implement features", context);
+      const result = await command!.execute("implement features", context);
       const sessionId = result.stateUpdate?.ralphConfig?.sessionId;
 
       // The message should include the session UUID
       expect(result.message).toContain("Started Ralph session:");
-      expect(result.message).toContain(sessionId);
+      expect(result.message).toContain(sessionId ?? "");
     });
 
     test("session directory can be created and session saved", async () => {
@@ -450,29 +450,29 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
 
-      const result = command!.execute(`--resume ${sessionId}`, context);
+      const result = await command!.execute(`--resume ${sessionId}`, context);
 
       expect(result.success).toBe(true);
       expect(result.stateUpdate?.ralphConfig?.resumeSessionId).toBe(sessionId);
     });
 
-    test("/ralph --resume with non-existent UUID fails", () => {
+    test("/ralph --resume with non-existent UUID fails", async () => {
       const nonExistentId = generateSessionId();
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
 
-      const result = command!.execute(`--resume ${nonExistentId}`, context);
+      const result = await command!.execute(`--resume ${nonExistentId}`, context);
 
       expect(result.success).toBe(false);
       expect(result.message).toContain("Session not found");
     });
 
-    test("/ralph --resume with invalid UUID format fails", () => {
+    test("/ralph --resume with invalid UUID format fails", async () => {
       const invalidId = "not-a-uuid";
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
 
-      const result = command!.execute(`--resume ${invalidId}`, context);
+      const result = await command!.execute(`--resume ${invalidId}`, context);
 
       expect(result.success).toBe(false);
       expect(result.message).toContain("Invalid session ID format");
@@ -486,7 +486,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
 
-      const result = command!.execute(`--resume ${sessionId}`, context);
+      const result = await command!.execute(`--resume ${sessionId}`, context);
 
       expect(result.stateUpdate?.workflowActive).toBe(true);
       expect(result.stateUpdate?.workflowType).toBe("ralph");
@@ -508,7 +508,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
 
-      const result = command!.execute(`--resume ${sessionId}`, context);
+      const result = await command!.execute(`--resume ${sessionId}`, context);
 
       expect(result.message).toContain("Resuming");
       expect(result.message).toContain(sessionId);
@@ -522,7 +522,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
 
-      command!.execute(`--resume ${sessionId}`, context);
+      await command!.execute(`--resume ${sessionId}`, context);
 
       const messages = context.getMessages();
       const systemMessage = messages.find((m) => m.role === "system");
@@ -550,11 +550,11 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
 
       // New session
       const newContext = createMockContext();
-      const newResult = command!.execute("implement features", newContext);
+      const newResult = await command!.execute("implement features", newContext);
 
       // Resume session
       const resumeContext = createMockContext();
-      const resumeResult = command!.execute(`--resume ${sessionId}`, resumeContext);
+      const resumeResult = await command!.execute(`--resume ${sessionId}`, resumeContext);
 
       expect(newResult.message).toContain("Started Ralph session");
       expect(resumeResult.message).toContain("Resuming");
@@ -651,7 +651,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
 
-      const result = command!.execute(`--resume ${sessionId}`, context);
+      const result = await command!.execute(`--resume ${sessionId}`, context);
 
       // The workflow config should include the resume session ID
       // This tells the workflow to load existing state instead of starting fresh
@@ -735,7 +735,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       // Step 6: Execute /ralph --resume command
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
-      const result = command!.execute(`--resume ${sessionId}`, context);
+      const result = await command!.execute(`--resume ${sessionId}`, context);
 
       // Step 7: Verify command succeeds
       expect(result.success).toBe(true);
@@ -790,7 +790,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       // Final verify with command
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
-      const result = command!.execute(`--resume ${sessionId}`, context);
+      const result = await command!.execute(`--resume ${sessionId}`, context);
 
       expect(result.success).toBe(true);
     });
@@ -836,7 +836,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       // Execute resume command
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
-      const result = command!.execute(`--resume ${sessionId}`, context);
+      const result = await command!.execute(`--resume ${sessionId}`, context);
 
       expect(result.success).toBe(true);
     });
@@ -858,7 +858,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       });
       const command = globalRegistry.get("ralph");
 
-      const result = command!.execute(`--resume ${sessionId}`, context);
+      const result = await command!.execute(`--resume ${sessionId}`, context);
 
       expect(result.success).toBe(false);
       expect(result.message).toContain("workflow is already active");
@@ -896,7 +896,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       // Resume should still work even if all features are complete
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
-      const result = command!.execute(`--resume ${sessionId}`, context);
+      const result = await command!.execute(`--resume ${sessionId}`, context);
 
       expect(result.success).toBe(true);
     });
@@ -920,7 +920,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
 
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
-      const result = command!.execute(`--resume ${sessionId}`, context);
+      const result = await command!.execute(`--resume ${sessionId}`, context);
 
       expect(result.success).toBe(true);
     });
@@ -935,7 +935,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
 
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
-      const result = command!.execute(`--resume ${sessionId}`, context);
+      const result = await command!.execute(`--resume ${sessionId}`, context);
 
       // Note: Command only checks directory existence for basic validation.
       // The workflow executor would handle loading session.json and fail if missing.
@@ -969,7 +969,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       // Resume should still work for completed sessions
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
-      const result = command!.execute(`--resume ${sessionId}`, context);
+      const result = await command!.execute(`--resume ${sessionId}`, context);
 
       expect(result.success).toBe(true);
     });
@@ -998,7 +998,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       // Resume should still work for failed sessions
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
-      const result = command!.execute(`--resume ${sessionId}`, context);
+      const result = await command!.execute(`--resume ${sessionId}`, context);
 
       expect(result.success).toBe(true);
     });

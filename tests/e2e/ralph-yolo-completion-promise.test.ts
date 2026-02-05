@@ -31,12 +31,12 @@ import {
   createRalphSession,
   appendLog,
   type RalphSession,
-} from "../../src/workflows/ralph-session.ts";
+} from "../../src/workflows/index.ts";
 import {
   createRalphWorkflow,
   RALPH_NODE_IDS,
   type CreateRalphWorkflowConfig,
-} from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/index.ts";
 import {
   createRalphWorkflowState,
   YOLO_COMPLETION_INSTRUCTION,
@@ -59,6 +59,8 @@ function createMockExecutionContext(state: RalphWorkflowState) {
     executionId: state.executionId,
     emit: () => {},
     signal: new AbortController().signal,
+    config: {},
+    errors: [],
   };
 }
 
@@ -303,7 +305,7 @@ describe("E2E test: /ralph --yolo appends completion promise instruction", () =>
       expect(lines.length).toBeGreaterThan(0);
 
       // Parse the first log entry
-      const logEntry = JSON.parse(lines[lines.length - 1]);
+      const logEntry = JSON.parse(lines[lines.length - 1]!);
       expect(logEntry.action).toBe("yolo");
       expect(logEntry.yolo).toBe(true);
     });
@@ -613,7 +615,7 @@ describe("E2E test: /ralph --yolo appends completion promise instruction", () =>
       const prompt = outputs["implement-feature_prompt"] as string;
 
       // Verify all requirements
-      expect(prompt).toContain(args.prompt); // Original prompt
+      expect(prompt).toContain(args.prompt!); // Original prompt
       expect(prompt).toContain("<EXTREMELY_IMPORTANT>"); // Tag present
       expect(prompt).toContain("</EXTREMELY_IMPORTANT>"); // Closing tag
       expect(prompt).toContain("COMPLETE"); // Output instruction

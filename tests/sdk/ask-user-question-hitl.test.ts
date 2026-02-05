@@ -18,7 +18,7 @@ import type { AgentEvent, PermissionRequestedEventData } from "../../src/sdk/typ
 
 // Track permission events
 let permissionEvents: AgentEvent<"permission.requested">[] = [];
-let canUseToolCallback: ((toolName: string, toolInput: Record<string, unknown>, options: { signal: AbortSignal }) => Promise<{ behavior: "allow" | "deny"; updatedInput?: Record<string, unknown> }>) | null = null;
+let canUseToolCallback: ((toolName: string, toolInput: Record<string, unknown>, options: { signal: AbortSignal; toolUseID: string }) => Promise<{ behavior: "allow" | "deny"; updatedInput?: Record<string, unknown> }>) | null = null;
 
 // Mock the Claude Agent SDK
 const mockQuery = mock((params: { prompt: string; options: Options }) => {
@@ -125,7 +125,7 @@ describe("AskUserQuestion HITL Integration", () => {
         const resultPromise = canUseToolCallback(
           "AskUserQuestion",
           toolInput,
-          { signal: abortController.signal }
+          { signal: abortController.signal, toolUseID: "test-tool-use-1" }
         );
 
         // Wait a tick for the event to be emitted
@@ -133,7 +133,7 @@ describe("AskUserQuestion HITL Integration", () => {
 
         // Verify permission.requested event was emitted
         expect(permissionEvents.length).toBe(1);
-        const event = permissionEvents[0];
+        const event = permissionEvents[0]!;
         expect(event.type).toBe("permission.requested");
         expect(event.data.toolName).toBe("AskUserQuestion");
         expect(event.data.question).toBe("What is your favorite color?");
@@ -182,13 +182,13 @@ describe("AskUserQuestion HITL Integration", () => {
         const resultPromise = canUseToolCallback(
           "AskUserQuestion",
           toolInput,
-          { signal: abortController.signal }
+          { signal: abortController.signal, toolUseID: "test-tool-use-2" }
         );
 
         await new Promise((resolve) => setTimeout(resolve, 10));
 
         expect(permissionEvents.length).toBe(1);
-        const event = permissionEvents[0];
+        const event = permissionEvents[0]!;
         expect(event.data.question).toBe("Do you want to continue?");
 
         // Respond to continue
@@ -230,7 +230,7 @@ describe("AskUserQuestion HITL Integration", () => {
         const resultPromise = canUseToolCallback(
           "AskUserQuestion",
           toolInput,
-          { signal: abortController.signal }
+          { signal: abortController.signal, toolUseID: "test-tool-use-3" }
         );
 
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -238,8 +238,8 @@ describe("AskUserQuestion HITL Integration", () => {
         // AskUserQuestion should still emit event even in auto mode
         expect(permissionEvents.length).toBe(1);
 
-        if (permissionEvents[0].data.respond) {
-          permissionEvents[0].data.respond("React");
+        if (permissionEvents[0]!.data.respond) {
+          permissionEvents[0]!.data.respond("React");
         }
 
         const result = await resultPromise;
@@ -276,17 +276,17 @@ describe("AskUserQuestion HITL Integration", () => {
         const resultPromise = canUseToolCallback(
           "AskUserQuestion",
           toolInput,
-          { signal: abortController.signal }
+          { signal: abortController.signal, toolUseID: "test-tool-use-4" }
         );
 
         await new Promise((resolve) => setTimeout(resolve, 10));
 
         expect(permissionEvents.length).toBe(1);
-        expect(permissionEvents[0].data.multiSelect).toBe(true);
+        expect(permissionEvents[0]!.data.multiSelect).toBe(true);
 
         // Respond with multiple selections
-        if (permissionEvents[0].data.respond) {
-          permissionEvents[0].data.respond(["TypeScript", "ESLint"]);
+        if (permissionEvents[0]!.data.respond) {
+          permissionEvents[0]!.data.respond(["TypeScript", "ESLint"]);
         }
 
         const result = await resultPromise;
@@ -312,7 +312,7 @@ describe("AskUserQuestion HITL Integration", () => {
         const result = await canUseToolCallback(
           "Bash",
           { command: "ls -la" },
-          { signal: abortController.signal }
+          { signal: abortController.signal, toolUseID: "test-tool-use-5" }
         );
 
         // Regular tools should auto-approve without emitting permission.requested
@@ -347,7 +347,7 @@ describe("AskUserQuestion HITL Integration", () => {
         const resultPromise = canUseToolCallback(
           "AskUserQuestion",
           toolInput,
-          { signal: abortController.signal }
+          { signal: abortController.signal, toolUseID: "test-tool-use-6" }
         );
 
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -388,19 +388,20 @@ describe("AskUserQuestion HITL Integration", () => {
         const resultPromise = canUseToolCallback(
           "AskUserQuestion",
           toolInput,
-          { signal: abortController.signal }
+          { signal: abortController.signal, toolUseID: "test-tool-use-7" }
         );
 
         await new Promise((resolve) => setTimeout(resolve, 10));
 
         expect(permissionEvents.length).toBe(1);
         // Should have default Yes/No options
-        expect(permissionEvents[0].data.options.length).toBe(2);
-        expect(permissionEvents[0].data.options[0].label).toBe("Yes");
-        expect(permissionEvents[0].data.options[1].label).toBe("No");
+        const lastEvent = permissionEvents[0]!;
+        expect(lastEvent.data.options.length).toBe(2);
+        expect(lastEvent.data.options[0]!.label).toBe("Yes");
+        expect(lastEvent.data.options[1]!.label).toBe("No");
 
-        if (permissionEvents[0].data.respond) {
-          permissionEvents[0].data.respond("yes");
+        if (permissionEvents[0]!.data.respond) {
+          permissionEvents[0]!.data.respond("yes");
         }
 
         await resultPromise;
@@ -437,7 +438,7 @@ describe("AskUserQuestion HITL Integration", () => {
         const resultPromise = canUseToolCallback(
           "AskUserQuestion",
           toolInput,
-          { signal: abortController.signal }
+          { signal: abortController.signal, toolUseID: "test-tool-use-8" }
         );
 
         await new Promise((resolve) => setTimeout(resolve, 10));
@@ -451,8 +452,8 @@ describe("AskUserQuestion HITL Integration", () => {
         expect(receivedEvent!.data.question).toBe("Test question?");
         expect(receivedEvent!.data.header).toBe("Test Header");
         expect(receivedEvent!.data.options).toHaveLength(1);
-        expect(receivedEvent!.data.options[0].label).toBe("Option 1");
-        expect(receivedEvent!.data.options[0].description).toBe("Desc 1");
+        expect(receivedEvent!.data.options[0]!.label).toBe("Option 1");
+        expect(receivedEvent!.data.options[0]!.description).toBe("Desc 1");
         expect(receivedEvent!.data.multiSelect).toBe(false);
         expect(typeof receivedEvent!.data.respond).toBe("function");
 

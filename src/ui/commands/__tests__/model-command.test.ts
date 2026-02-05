@@ -96,7 +96,7 @@ describe("modelCommand", () => {
   });
 
   describe("/model with no args", () => {
-    test("shows current model when model is set", async () => {
+    test("shows model selector when model is set", async () => {
       const mockModelOps = createMockModelOps({
         getCurrentModel: mock(() => Promise.resolve("anthropic/claude-sonnet-4-5")),
       });
@@ -105,11 +105,11 @@ describe("modelCommand", () => {
       const result = await modelCommand.execute("", context);
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain("anthropic/claude-sonnet-4-5");
-      expect(result.message).toContain("Current model:");
+      // With no args, the command shows the interactive model selector
+      expect(result.showModelSelector).toBe(true);
     });
 
-    test("shows 'No model set' when no model is set", async () => {
+    test("shows model selector when no model is set", async () => {
       const mockModelOps = createMockModelOps({
         getCurrentModel: mock(() => Promise.resolve(undefined)),
       });
@@ -118,7 +118,8 @@ describe("modelCommand", () => {
       const result = await modelCommand.execute("", context);
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain("No model set");
+      // With no args, the command shows the interactive model selector
+      expect(result.showModelSelector).toBe(true);
     });
   });
 

@@ -715,7 +715,7 @@ describe("askUserNode", () => {
     const requestIdFromSignal = result.signals![0]!.data?.requestId;
 
     expect(requestIdFromState).toBeDefined();
-    expect(requestIdFromState).toBe(requestIdFromSignal);
+    expect(requestIdFromState as string).toBe(requestIdFromSignal as string);
   });
 
   test("includes options array in signal data", async () => {
@@ -1115,7 +1115,7 @@ describe("subgraphNode with string workflow reference", () => {
 
     const mockResolver: WorkflowResolver = mock((name: string) => {
       if (name === "research-codebase") {
-        return mockSubgraph as CompiledSubgraph<BaseState>;
+        return mockSubgraph as unknown as CompiledSubgraph<BaseState>;
       }
       return null;
     });
@@ -1188,7 +1188,7 @@ describe("subgraphNode with string workflow reference", () => {
 
     const mockResolver: WorkflowResolver = (name: string) => {
       if (name === "my-workflow") {
-        return mockSubgraph as CompiledSubgraph<BaseState>;
+        return mockSubgraph as unknown as CompiledSubgraph<BaseState>;
       }
       return null;
     };
@@ -1218,7 +1218,7 @@ describe("subgraphNode with string workflow reference", () => {
 
     const mockResolver: WorkflowResolver = (name: string) => {
       if (name === "mapped-workflow") {
-        return mockSubgraph as CompiledSubgraph<BaseState>;
+        return mockSubgraph as unknown as CompiledSubgraph<BaseState>;
       }
       return null;
     };
@@ -1278,7 +1278,7 @@ describe("subgraphNode with string workflow reference", () => {
     const calledNames: string[] = [];
     const mockResolver: WorkflowResolver = (name: string) => {
       calledNames.push(name);
-      return mockSubgraph as CompiledSubgraph<BaseState>;
+      return mockSubgraph as unknown as CompiledSubgraph<BaseState>;
     };
 
     setWorkflowResolver(mockResolver);
@@ -2143,8 +2143,8 @@ describe("Subgraph Node Execution", () => {
       });
       await node.execute(ctx);
 
-      expect(mappedFromParent).toBe("parent-value");
-      expect(mappedCount).toBe(42);
+      expect(mappedFromParent as unknown).toBe("parent-value");
+      expect(mappedCount as unknown).toBe(42);
     });
 
     test("parent outputs are preserved in inputMapper context", async () => {
@@ -2271,8 +2271,8 @@ describe("Subgraph Node Execution", () => {
       const ctx = createParentContext({ parentData: "from-parent" });
       const result = await node.execute(ctx);
 
-      expect(parentDataInMapper).toBe("from-parent");
-      expect(childDataInMapper).toBe("from-child");
+      expect(parentDataInMapper as unknown).toBe("from-parent");
+      expect(childDataInMapper as unknown).toBe("from-child");
       expect(result.stateUpdate?.mergedResult).toBe("from-parent+from-child");
     });
 

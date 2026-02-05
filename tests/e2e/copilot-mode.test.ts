@@ -40,10 +40,10 @@ import {
   loadSession,
   createRalphSession,
   createRalphFeature,
+  createRalphWorkflow,
   type RalphSession,
   type RalphFeature,
-} from "../../src/workflows/ralph-session.ts";
-import { createRalphWorkflow } from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/index.ts";
 import {
   createRalphWorkflowState,
   type RalphWorkflowState,
@@ -579,7 +579,7 @@ describe("E2E test: Run all functionality in copilot mode", () => {
       const loaded = await loadSession(sessionDir);
 
       expect(loaded.sessionId).toBe(sessionId);
-      expect(loaded.features[0].name).toBe("Copilot test feature");
+      expect(loaded.features[0]?.name).toBe("Copilot test feature");
     });
 
     test("yolo mode works in copilot configuration", async () => {

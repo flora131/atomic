@@ -289,12 +289,19 @@ export const modelCommand: CommandDefinition = {
     const { agentType, modelOps, state } = context;
     const trimmed = args.trim();
 
-    // No args: show current model
+    // No args: show interactive model selector
     if (!trimmed) {
-      const currentModel = await modelOps?.getCurrentModel();
       return {
         success: true,
-        message: `Current model: **${currentModel ?? "No model set"}**`,
+        showModelSelector: true,
+      };
+    }
+
+    // "select" subcommand: show interactive model selector
+    if (trimmed.toLowerCase() === "select") {
+      return {
+        success: true,
+        showModelSelector: true,
       };
     }
 

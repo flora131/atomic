@@ -390,7 +390,10 @@ describe("ClaudeAgentClient", () => {
       await client.createSession({ permissionMode: "bypass" });
       expect(mockQuery).toHaveBeenCalled();
       // Verify that the query was called with the correct options
-      const lastCallOptions = mockQuery.mock.calls[mockQuery.mock.calls.length - 1][0] as {
+      const calls = mockQuery.mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
+      const lastCall = calls[calls.length - 1]!;
+      const lastCallOptions = (lastCall as unknown[])[0] as {
         options?: Options;
       };
       expect(lastCallOptions?.options?.permissionMode).toBe("bypassPermissions");

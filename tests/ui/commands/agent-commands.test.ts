@@ -1552,7 +1552,7 @@ describe("createAgentCommand", () => {
     expect(command.category).toBe("agent");
   });
 
-  test("execute handler calls sendMessage with agent prompt", () => {
+  test("execute handler calls sendMessage with agent prompt", async () => {
     const agent: AgentDefinition = {
       name: "message-agent",
       description: "Agent that sends message",
@@ -1576,13 +1576,13 @@ describe("createAgentCommand", () => {
       modelOps: undefined,
     };
 
-    const result = command.execute("", mockContext);
+    const result = await command.execute("", mockContext);
 
     expect(result.success).toBe(true);
     expect(sentMessage).toBe("You are a helpful agent.");
   });
 
-  test("execute handler appends user args to prompt", () => {
+  test("execute handler appends user args to prompt", async () => {
     const agent: AgentDefinition = {
       name: "args-agent",
       description: "Agent with args",
@@ -1606,7 +1606,7 @@ describe("createAgentCommand", () => {
       modelOps: undefined,
     };
 
-    const result = command.execute("analyze the login flow", mockContext);
+    const result = await command.execute("analyze the login flow", mockContext);
 
     expect(result.success).toBe(true);
     expect(sentMessage).toContain("You are a helpful agent.");
@@ -1731,7 +1731,7 @@ describe("registerBuiltinAgents", () => {
     expect(countAfterSecond).toBe(countAfterFirst);
   });
 
-  test("registered commands can be executed", () => {
+  test("registered commands can be executed", async () => {
     globalRegistry.clear();
     registerBuiltinAgents();
 
@@ -1752,7 +1752,7 @@ describe("registerBuiltinAgents", () => {
       modelOps: undefined,
     };
 
-    const result = command!.execute("test args", mockContext);
+    const result = await command!.execute("test args", mockContext);
 
     expect(result.success).toBe(true);
     expect(sentMessage.length).toBeGreaterThan(0);

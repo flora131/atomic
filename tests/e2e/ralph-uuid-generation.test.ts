@@ -24,13 +24,13 @@ import {
   createSessionDirectory,
   saveSession,
   createRalphSession,
-} from "../../src/workflows/ralph-session.ts";
+} from "../../src/workflows/index.ts";
 import {
   globalRegistry,
   type CommandContext,
   type CommandContextState,
 } from "../../src/ui/commands/registry.ts";
-import { createRalphWorkflow } from "../../src/workflows/ralph.ts";
+import { createRalphWorkflow } from "../../src/workflows/index.ts";
 
 // ============================================================================
 // TEST HELPERS
@@ -361,7 +361,7 @@ describe("E2E test: /ralph generates random UUID for session ID", () => {
     test("UUID v4 has valid variant bits (8, 9, a, or b)", () => {
       const uuid = generateSessionId();
       // The 17th character (index 19 with hyphens) should be 8, 9, a, or b
-      const variantChar = uuid[19]?.toLowerCase();
+      const variantChar = uuid[19]!.toLowerCase();
       expect(["8", "9", "a", "b"]).toContain(variantChar);
     });
 

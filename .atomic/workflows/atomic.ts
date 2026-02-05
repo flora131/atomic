@@ -18,7 +18,7 @@
  * @see https://github.com/flora131/atomic
  */
 
-import type { CompiledGraph, BaseState, NodeDefinition, ExecutionContext, NodeResult } from "../../src/graph/types.ts";
+import type { CompiledGraph, BaseState, NodeDefinition, ExecutionContext, NodeResult, SignalData } from "../../src/graph/types.ts";
 import { graph } from "../../src/graph/index.ts";
 
 // ============================================================================
@@ -132,10 +132,6 @@ function createResearchNode(): NodeDefinition<AtomicWorkflowState> {
           phase: "spec",
           lastUpdated: new Date().toISOString(),
         },
-        messages: [{
-          role: "system",
-          content: `Research phase starting. Will analyze codebase for: "${state.userPrompt}"\n\nResearch will be saved to: ${researchPath}`,
-        }],
       };
     },
   };
@@ -152,7 +148,6 @@ function createSpecNode(): NodeDefinition<AtomicWorkflowState> {
     description: "Generate a technical specification based on the research findings",
     execute: async (ctx: ExecutionContext<AtomicWorkflowState>): Promise<NodeResult<AtomicWorkflowState>> => {
       const state = ctx.state;
-      const timestamp = new Date().toISOString().split("T")[0];
       const slugifiedPrompt = state.userPrompt
         .toLowerCase()
         .replace(/[^a-z0-9]+/g, "-")
@@ -167,10 +162,6 @@ function createSpecNode(): NodeDefinition<AtomicWorkflowState> {
           phase: "review",
           lastUpdated: new Date().toISOString(),
         },
-        messages: [{
-          role: "system",
-          content: `Specification phase. Creating technical spec at: ${specPath}\n\nBased on research from: ${state.researchPath}`,
-        }],
       };
     },
   };
@@ -191,17 +182,24 @@ function createReviewNode(): NodeDefinition<AtomicWorkflowState> {
       console.log(`[atomic] Waiting for spec approval: ${state.specPath}`);
 
       // This is a wait node - it will pause execution until human responds
-      return {
-        stateUpdate: {
-          lastUpdated: new Date().toISOString(),
-        },
-        waitForInput: {
+      // Emit a signal to request human input
+      const signals: SignalData[] = [{
+        type: "human_input_required",
+        message: `Please review the specification at: ${state.specPath}\n\nDo you approve this spec?`,
+        data: {
           prompt: `Please review the specification at: ${state.specPath}\n\nDo you approve this spec?`,
           options: [
             { label: "Approve", value: "approve" },
             { label: "Request Changes", value: "reject" },
           ],
         },
+      }];
+
+      return {
+        stateUpdate: {
+          lastUpdated: new Date().toISOString(),
+        },
+        signals,
       };
     },
   };
@@ -229,10 +227,6 @@ function createFeaturesNode(): NodeDefinition<AtomicWorkflowState> {
           currentFeature: 0,
           lastUpdated: new Date().toISOString(),
         },
-        messages: [{
-          role: "system",
-          content: `Feature breakdown phase. Creating feature list at: ${featureListPath}\n\nBased on spec: ${state.specPath}`,
-        }],
       };
     },
   };
@@ -262,10 +256,6 @@ function createImplementNode(): NodeDefinition<AtomicWorkflowState> {
           phase: isComplete ? "pr" : "implement",
           lastUpdated: new Date().toISOString(),
         },
-        messages: [{
-          role: "system",
-          content: `Implementation phase. Feature ${nextFeature}/${totalFeatures}${isComplete ? " - All features complete!" : ""}`,
-        }],
       };
     },
   };
@@ -291,14 +281,24 @@ function createPRNode(): NodeDefinition<AtomicWorkflowState> {
           phase: "complete",
           lastUpdated: new Date().toISOString(),
         },
-        messages: [{
-          role: "system",
-          content: `PR creation phase. Creating pull request for feature: "${state.userPrompt}"`,
-        }],
       };
     },
   };
 }
+
+// ============================================================================
+// NODE IDS (Exported for tests)
+// ============================================================================
+
+/** Node IDs for the Atomic workflow */
+export const ATOMIC_NODE_IDS = {
+  RESEARCH: "research",
+  CREATE_SPEC: "create-spec",
+  REVIEW_SPEC: "review-spec",
+  CREATE_FEATURES: "create-features",
+  IMPLEMENT_FEATURE: "implement-feature",
+  CREATE_PR: "create-pr",
+} as const;
 
 // ============================================================================
 // WORKFLOW FACTORY (Default Export)
@@ -314,7 +314,7 @@ function createPRNode(): NodeDefinition<AtomicWorkflowState> {
  * 1. Research - Analyze codebase
  * 2. Spec - Create technical specification
  * 3. Review - Wait for human approval (HITL)
- * 4. Features - Break into implementable tasks
+ * 4. Features - Break into implementable tasks (if approved)
  * 5. Implement - Loop through features
  * 6. PR - Create pull request
  *
@@ -336,12 +336,12 @@ export default function createAtomicWorkflow(
   const prNode = createPRNode();
 
   // Build the workflow graph
-  // Research → Spec → Review → Features → Implement (loop) → PR
+  // Research → Spec → Review → (if approved) Features → Implement (loop) → PR
   const builder = graph<AtomicWorkflowState>()
     .start(researchNode)
     .then(specNode)
     .then(reviewNode)
-    // Conditional: if approved, continue; if rejected, go back to spec
+    // Conditional: if approved, continue; if rejected, workflow ends (user can restart)
     .if((state) => state.specApproved)
       .then(featuresNode)
       // Loop through features until implementation is complete
@@ -350,9 +350,6 @@ export default function createAtomicWorkflow(
         maxIterations
       })
       .then(prNode)
-    .else()
-      // If spec rejected, go back to spec creation
-      .goto("create-spec")
     .endif()
     .end();
 
@@ -364,3 +361,6 @@ export default function createAtomicWorkflow(
     },
   });
 }
+
+// Re-export createAtomicWorkflow as named export for tests
+export { createAtomicWorkflow };

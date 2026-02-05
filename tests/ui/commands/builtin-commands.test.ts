@@ -12,6 +12,8 @@ import {
   themeCommand,
   clearCommand,
   compactCommand,
+  exitCommand,
+  modelCommand,
   builtinCommands,
   registerBuiltinCommands,
 } from "../../../src/ui/commands/builtin-commands.ts";
@@ -348,12 +350,13 @@ describe("builtinCommands array", () => {
     expect(builtinCommands).toContain(themeCommand);
     expect(builtinCommands).toContain(clearCommand);
     expect(builtinCommands).toContain(compactCommand);
+    expect(builtinCommands).toContain(exitCommand);
+    expect(builtinCommands).toContain(modelCommand);
   });
 
-  test("has 4 commands", () => {
-    // /status command removed - progress tracked via research/progress.txt instead
-    // /reject command removed - spec approval is now manual before workflow
-    expect(builtinCommands.length).toBe(4);
+  test("has 6 commands", () => {
+    // Commands: help, theme, clear, compact, exit, model
+    expect(builtinCommands.length).toBe(6);
   });
 });
 
@@ -375,6 +378,8 @@ describe("registerBuiltinCommands", () => {
     expect(globalRegistry.has("theme")).toBe(true);
     expect(globalRegistry.has("clear")).toBe(true);
     expect(globalRegistry.has("compact")).toBe(true);
+    expect(globalRegistry.has("exit")).toBe(true);
+    expect(globalRegistry.has("model")).toBe(true);
     // /reject command removed - spec approval is now manual before workflow
     expect(globalRegistry.has("reject")).toBe(false);
   });
@@ -388,6 +393,11 @@ describe("registerBuiltinCommands", () => {
     expect(globalRegistry.has("s")).toBe(false);
     expect(globalRegistry.has("cls")).toBe(true);
     expect(globalRegistry.has("c")).toBe(true);
+    // exit aliases
+    expect(globalRegistry.has("quit")).toBe(true);
+    expect(globalRegistry.has("q")).toBe(true);
+    // model alias
+    expect(globalRegistry.has("m")).toBe(true);
     // /reject "no" alias removed - spec approval is now manual before workflow
     expect(globalRegistry.has("no")).toBe(false);
   });
@@ -397,9 +407,8 @@ describe("registerBuiltinCommands", () => {
     registerBuiltinCommands();
 
     // Should not throw and should still have correct count
-    // /status command removed - now 4 commands instead of 5
-    // /reject command removed - spec approval is now manual before workflow
-    expect(globalRegistry.size()).toBe(4);
+    // Commands: help, theme, clear, compact, exit, model
+    expect(globalRegistry.size()).toBe(6);
   });
 
   test("commands are executable after registration", async () => {

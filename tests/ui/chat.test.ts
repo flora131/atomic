@@ -579,6 +579,7 @@ describe("WorkflowChatState type", () => {
       showAutocomplete: true,
       autocompleteInput: "test",
       selectedSuggestionIndex: 5,
+      argumentHint: "[test-hint]",
       workflowActive: true,
       workflowType: "atomic",
       initialPrompt: "test prompt",

@@ -107,7 +107,7 @@ describe("ClaudeAgentClient", () => {
     test("getModelDisplayInfo returns formatted model name from hint", async () => {
       await client.start();
       const info = await client.getModelDisplayInfo("claude-opus-4-5-20251101");
-      expect(info.model).toBe("Opus 4.5");
+      expect(info.model).toBe("opus");
       expect(info.tier).toBe("Claude Code");
     });
 
@@ -123,7 +123,7 @@ describe("ClaudeAgentClient", () => {
       await client.start();
       // Even if the SDK returns a different model, the hint should be used
       const info = await client.getModelDisplayInfo("claude-sonnet-4-5");
-      expect(info.model).toBe("Sonnet 4.5");
+      expect(info.model).toBe("sonnet");
     });
   });
 

@@ -42,7 +42,6 @@ import {
   type SessionEventType as SdkSessionEventType,
   type PermissionHandler as SdkPermissionHandler,
   type PermissionRequest as SdkPermissionRequest,
-  type PermissionRequestResult as SdkPermissionResult,
   type Tool as SdkTool,
   type ResumeSessionConfig as SdkResumeSessionConfig,
   type CustomAgentConfig as SdkCustomAgentConfig,
@@ -259,6 +258,7 @@ export class CopilotClient implements CodingAgentClient {
       },
 
       stream: (message: string): AsyncIterable<AgentMessage> => {
+        // eslint-disable-next-line @typescript-eslint/no-this-alias
         const self = this;
         return {
           [Symbol.asyncIterator]: async function* () {

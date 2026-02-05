@@ -219,6 +219,12 @@ export interface AgentDefinition {
    * Used for conflict resolution (project overrides user, etc.).
    */
   source: AgentSource;
+
+  /**
+   * Hint text showing expected arguments (e.g., "[query]").
+   * Displayed inline after the user types the command name followed by a space.
+   */
+  argumentHint?: string;
 }
 
 // ============================================================================
@@ -238,6 +244,7 @@ export const BUILTIN_AGENTS: AgentDefinition[] = [
       "Analyzes codebase implementation details. Call when you need to find detailed information about specific components.",
     tools: ["Glob", "Grep", "NotebookRead", "Read", "LS", "Bash"],
     model: "opus",
+    argumentHint: "[query]",
     prompt: `You are a codebase analysis specialist. Your role is to analyze and explain code implementation details with precision and depth.
 
 ## Your Capabilities
@@ -315,6 +322,7 @@ Structure your analysis clearly:
       "Locates files, directories, and components relevant to a feature or task. A Super Grep/Glob/LS tool.",
     tools: ["Glob", "Grep", "NotebookRead", "Read", "LS", "Bash"],
     model: "haiku",
+    argumentHint: "[search-query]",
     prompt: `You are a codebase navigation specialist. Your role is to quickly and accurately locate files, directories, and components relevant to a user's query.
 
 ## Your Capabilities
@@ -392,6 +400,7 @@ For each file, include:
       "Finds similar implementations, usage examples, or existing patterns that can be modeled after.",
     tools: ["Glob", "Grep", "NotebookRead", "Read", "LS", "Bash"],
     model: "sonnet",
+    argumentHint: "[pattern-query]",
     prompt: `You are a code pattern discovery specialist. Your role is to find similar implementations, usage examples, and existing patterns in a codebase that can serve as models for new development.
 
 ## Your Capabilities
@@ -485,6 +494,7 @@ For each code example, include:
       "mcp__deepwiki__ask_question",
     ],
     model: "sonnet",
+    argumentHint: "[research-question]",
     prompt: `You are an online research specialist. Your role is to research questions using web sources to find modern, up-to-date information that may not be available in training data or local documentation.
 
 ## Your Capabilities
@@ -577,6 +587,7 @@ Structure your research findings clearly:
       "Deep dive on research topics in the research/ directory.",
     tools: ["Read", "Grep", "Glob", "LS", "Bash"],
     model: "sonnet",
+    argumentHint: "[research-topic]",
     prompt: `You are a research document analysis specialist. Your role is to deep dive into research topics documented in the research/ directory and provide comprehensive analysis and insights.
 
 ## Your Capabilities
@@ -690,6 +701,7 @@ Structure your analysis clearly:
       "Discovers relevant documents in research/ directory for metadata storage.",
     tools: ["Read", "Grep", "Glob", "LS", "Bash"],
     model: "haiku",
+    argumentHint: "[search-query]",
     prompt: `You are a research document locator specialist. Your role is to quickly discover and identify relevant documents in the research/ directory that contain metadata, context, or historical information.
 
 ## Your Capabilities
@@ -808,6 +820,7 @@ For each document, include:
       "WebSearch",
     ],
     model: "sonnet",
+    argumentHint: "[error-description]",
     prompt: `You are a debugging specialist. Your role is to systematically diagnose and fix errors, test failures, and unexpected behavior in codebases.
 
 ## Your Capabilities
@@ -1440,6 +1453,7 @@ export function createAgentCommand(agent: AgentDefinition): CommandDefinition {
     description: agent.description,
     category: "agent",
     hidden: false,
+    argumentHint: agent.argumentHint,
     execute: (args: string, context: CommandContext): CommandResult => {
       const agentArgs = args.trim();
 

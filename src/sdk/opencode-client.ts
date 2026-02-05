@@ -65,7 +65,6 @@ import { initOpenCodeConfigOverrides } from "./init.ts";
 import {
   createOpencodeClient as createSdkClient,
   type OpencodeClient as SdkClient,
-  type OpencodeClientConfig,
 } from "@opencode-ai/sdk/v2/client";
 import {
   createOpencodeServer,
@@ -643,6 +642,7 @@ export class OpenCodeClient implements CodingAgentClient {
    * Wrap a session ID into a unified Session interface
    */
   private wrapSession(sessionId: string, config: SessionConfig): Session {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
     const client = this;
     // Use agent mode from session config, falling back to client default, then "build"
     const agentMode =

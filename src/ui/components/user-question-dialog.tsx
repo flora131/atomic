@@ -311,12 +311,20 @@ export function UserQuestionDialog({
               const labelColor = isHighlighted ? colors.accent : colors.foreground;
               const descColor = isHighlighted ? colors.accent : colors.muted;
 
+              // Check if previous option had a description (need spacing)
+              const prevOption = index > 0 ? allOptions[index - 1] : null;
+              const needsSpacingAfterDescription = prevOption?.description && !showSeparator;
+
               return (
                 <React.Fragment key={option.value}>
                   {showSeparator && (
                     <box marginTop={1} marginBottom={0}>
                       <text style={{ fg: colors.muted }}>{" "}</text>
                     </box>
+                  )}
+                  {/* Add newline spacing after previous option's description */}
+                  {needsSpacingAfterDescription && (
+                    <box height={1} />
                   )}
                   {/* Label line: ❯ N. Label */}
                   <text>
@@ -334,10 +342,10 @@ export function UserQuestionDialog({
                       </span>
                     </span>
                   </text>
-                  {/* Description on next line - indented to align under label */}
+                  {/* Description on next line - indented past number to avoid blending */}
                   {option.description && (
                     <text style={{ fg: descColor }}>
-                      {"   "}{option.description}
+                      {"     "}{option.description}
                     </text>
                   )}
                 </React.Fragment>

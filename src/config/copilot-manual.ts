@@ -1,4 +1,4 @@
-import fs from "fs/promises";
+import defaultFs from "fs/promises";
 import path from "path";
 import os from "os";
 import { parseMarkdownFrontmatter } from "../ui/commands/agent-commands";
@@ -20,35 +20,52 @@ export interface CopilotAgent {
 }
 
 /**
+ * File system operations interface for dependency injection.
+ * Allows testing with mock implementations.
+ */
+export interface FsOps {
+  readdir: typeof defaultFs.readdir;
+  readFile: typeof defaultFs.readFile;
+}
+
+/** Default fs operations using Node.js fs/promises */
+export const defaultFsOps: FsOps = {
+  readdir: defaultFs.readdir,
+  readFile: defaultFs.readFile,
+};
+
+/**
  * Load agents from a directory containing .md files.
  * Each markdown file should have frontmatter with agent configuration.
  *
  * @param agentsDir - Path to directory containing agent .md files
  * @param source - Whether agents are 'local' (project) or 'global' (user)
+ * @param fsOps - Optional fs operations for testing (defaults to Node.js fs/promises)
  * @returns Array of parsed CopilotAgent objects
  */
 export async function loadAgentsFromDir(
   agentsDir: string,
-  source: "local" | "global"
+  source: "local" | "global",
+  fsOps: FsOps = defaultFsOps
 ): Promise<CopilotAgent[]> {
   try {
-    const files = await fs.readdir(agentsDir);
-    const mdFiles = files.filter((f) => f.endsWith(".md"));
+    const files = await fsOps.readdir(agentsDir);
+    const mdFiles = (files as string[]).filter((f) => f.endsWith(".md"));
 
     const agents: CopilotAgent[] = [];
 
     for (const file of mdFiles) {
       try {
         const filePath = path.join(agentsDir, file);
-        const content = await fs.readFile(filePath, "utf-8");
-        const parsed = parseMarkdownFrontmatter(content);
+        const content = await fsOps.readFile(filePath, "utf-8");
+        const parsed = parseMarkdownFrontmatter(content as string);
 
         if (!parsed) {
           // No frontmatter, use file content as system prompt
           agents.push({
             name: file.replace(/\.md$/, ""),
             description: `Agent: ${file.replace(/\.md$/, "")}`,
-            systemPrompt: content.trim(),
+            systemPrompt: (content as string).trim(),
             source,
           });
           continue;
@@ -94,10 +111,12 @@ export async function loadAgentsFromDir(
  * Local agents (project-specific) override global agents with the same name.
  *
  * @param projectRoot - Path to the project root directory
+ * @param fsOps - Optional fs operations for testing (defaults to Node.js fs/promises)
  * @returns Array of CopilotAgent objects with local taking priority over global
  */
 export async function loadCopilotAgents(
-  projectRoot: string
+  projectRoot: string,
+  fsOps: FsOps = defaultFsOps
 ): Promise<CopilotAgent[]> {
   const localDir = path.join(projectRoot, ".github", "agents");
   const globalDir = path.join(os.homedir(), ".copilot", "agents");
@@ -106,13 +125,13 @@ export async function loadCopilotAgents(
   const agentMap = new Map<string, CopilotAgent>();
 
   // Load global agents first (lower priority)
-  const globalAgents = await loadAgentsFromDir(globalDir, "global");
+  const globalAgents = await loadAgentsFromDir(globalDir, "global", fsOps);
   for (const agent of globalAgents) {
     agentMap.set(agent.name.toLowerCase(), agent);
   }
 
   // Load local agents (override global with same name)
-  const localAgents = await loadAgentsFromDir(localDir, "local");
+  const localAgents = await loadAgentsFromDir(localDir, "local", fsOps);
   for (const agent of localAgents) {
     agentMap.set(agent.name.toLowerCase(), agent);
   }
@@ -125,24 +144,26 @@ export async function loadCopilotAgents(
  * Local instructions (.github/copilot-instructions.md) take priority over global (~/.copilot/copilot-instructions.md).
  *
  * @param projectRoot - Path to the project root directory
+ * @param fsOps - Optional fs operations for testing (defaults to Node.js fs/promises)
  * @returns The instructions content or null if not found
  */
 export async function loadCopilotInstructions(
-  projectRoot: string
+  projectRoot: string,
+  fsOps: FsOps = defaultFsOps
 ): Promise<string | null> {
   const localPath = path.join(projectRoot, ".github", "copilot-instructions.md");
   const globalPath = path.join(os.homedir(), ".copilot", "copilot-instructions.md");
 
   // Try local first (higher priority)
   try {
-    return await fs.readFile(localPath, "utf-8");
+    return (await fsOps.readFile(localPath, "utf-8")) as string;
   } catch {
     // Local not found, try global
   }
 
   // Try global
   try {
-    return await fs.readFile(globalPath, "utf-8");
+    return (await fsOps.readFile(globalPath, "utf-8")) as string;
   } catch {
     // Neither found
     return null;

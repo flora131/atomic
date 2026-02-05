@@ -97,8 +97,8 @@ describe("AGENT_STATE_DIRS", () => {
 });
 
 describe("RALPH_CONFIG", () => {
-  test("maxIterations defaults to 100", () => {
-    expect(RALPH_CONFIG.maxIterations).toBe(100);
+  test("maxIterations defaults to 0 (unlimited)", () => {
+    expect(RALPH_CONFIG.maxIterations).toBe(0);
   });
 
   test("checkpointing defaults to true", () => {
@@ -128,7 +128,7 @@ describe("RalphWorkflowConfig type", () => {
 
   test("RALPH_CONFIG conforms to RalphWorkflowConfig", () => {
     const config: RalphWorkflowConfig = RALPH_CONFIG;
-    expect(config.maxIterations).toBe(100);
+    expect(config.maxIterations).toBe(0);  // 0 = unlimited
     expect(config.checkpointing).toBe(true);
   });
 });

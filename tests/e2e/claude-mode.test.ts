@@ -1213,18 +1213,21 @@ describe("E2E test: Run all functionality in claude mode", () => {
   describe("Model display information", () => {
     test("formatModelDisplayName handles claude-opus-4-5 format", () => {
       const { formatModelDisplayName } = require("../../src/sdk/types.ts");
-      expect(formatModelDisplayName("claude-opus-4-5-20251101")).toBe("Opus 4.5");
+      // Returns lowercase family name for consistency
+      expect(formatModelDisplayName("claude-opus-4-5-20251101")).toBe("opus");
     });
 
     test("formatModelDisplayName handles claude-sonnet-4-5 format", () => {
       const { formatModelDisplayName } = require("../../src/sdk/types.ts");
-      expect(formatModelDisplayName("claude-sonnet-4-5-20250929")).toBe("Sonnet 4.5");
+      // Returns lowercase family name for consistency
+      expect(formatModelDisplayName("claude-sonnet-4-5-20250929")).toBe("sonnet");
     });
 
     test("formatModelDisplayName handles claude-haiku format", () => {
       const { formatModelDisplayName } = require("../../src/sdk/types.ts");
       const result = formatModelDisplayName("claude-3-haiku");
-      expect(result).toContain("Haiku");
+      // Returns lowercase family name for consistency
+      expect(result).toBe("haiku");
     });
 
     test("getModelDisplayInfo returns Claude Code tier", async () => {

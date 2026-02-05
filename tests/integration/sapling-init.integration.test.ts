@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { runInitCommand, readConfigYaml } from "../test-helpers";
+import { runInitCommand, readConfigYaml, cleanupLastInitTestDir } from "../test-helpers";
 import { getProvider } from "../../src/providers";
 
 describe("atomic init integration (Sapling)", () => {
@@ -12,8 +12,9 @@ describe("atomic init integration (Sapling)", () => {
       cmd === "sl" || cmd === "gh";
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     (global as any).commandExists = origCommandExists;
+    await cleanupLastInitTestDir();
   });
 
   it("should write provider: sapling to config.yaml", async () => {

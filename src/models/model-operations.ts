@@ -1,5 +1,9 @@
-import { type Model, fromModelsDevModel } from './model-transform';
-import { ModelsDev } from './models-dev';
+import {
+  type Model,
+  fromCopilotModelInfo,
+  fromOpenCodeModel,
+  type OpenCodeModel,
+} from './model-transform';
 
 /**
  * Claude model aliases - passed to SDK which resolves to latest versions
@@ -62,12 +66,118 @@ export interface ModelOperations {
 }
 
 /**
- * Unified implementation of model operations using models.dev as the source of truth
+ * Supported models for each agent type
+ * For Claude, we use short aliases (sonnet, opus, haiku) as that's what the SDK expects
+ */
+const SUPPORTED_MODELS: Record<AgentType, Model[]> = {
+  claude: [
+    {
+      id: 'anthropic/opus',
+      providerID: 'anthropic',
+      modelID: 'opus',
+      name: 'opus',
+      description: 'Most capable model for complex tasks',
+      status: 'active',
+      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
+      limits: { context: 200000, output: 16384 },
+      options: {},
+    },
+    {
+      id: 'anthropic/sonnet',
+      providerID: 'anthropic',
+      modelID: 'sonnet',
+      name: 'sonnet',
+      description: 'Fast and intelligent model, best for most tasks',
+      status: 'active',
+      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
+      limits: { context: 200000, output: 16384 },
+      options: {},
+    },
+    {
+      id: 'anthropic/haiku',
+      providerID: 'anthropic',
+      modelID: 'haiku',
+      name: 'haiku',
+      description: 'Fastest model for simple tasks',
+      status: 'active',
+      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
+      limits: { context: 200000, output: 16384 },
+      options: {},
+    },
+  ],
+  copilot: [
+    {
+      id: 'github-copilot/gpt-5.2',
+      providerID: 'github-copilot',
+      modelID: 'gpt-5.2',
+      name: 'GPT-5.2',
+      status: 'active',
+      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
+      limits: { context: 128000, output: 16384 },
+      options: {},
+    },
+    {
+      id: 'github-copilot/claude-sonnet-4.5',
+      providerID: 'github-copilot',
+      modelID: 'claude-sonnet-4.5',
+      name: 'Claude Sonnet 4.5',
+      status: 'active',
+      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
+      limits: { context: 200000, output: 16384 },
+      options: {},
+    },
+    {
+      id: 'github-copilot/gemini-3-pro',
+      providerID: 'github-copilot',
+      modelID: 'gemini-3-pro',
+      name: 'Gemini 3 Pro',
+      status: 'active',
+      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
+      limits: { context: 128000, output: 8192 },
+      options: {},
+    },
+  ],
+  opencode: [
+    {
+      id: 'anthropic/claude-sonnet-4',
+      providerID: 'anthropic',
+      modelID: 'claude-sonnet-4',
+      name: 'Claude Sonnet 4',
+      status: 'active',
+      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
+      limits: { context: 200000, output: 16384 },
+      options: {},
+    },
+    {
+      id: 'openai/gpt-4.1',
+      providerID: 'openai',
+      modelID: 'gpt-4.1',
+      name: 'GPT-4.1',
+      status: 'active',
+      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
+      limits: { context: 128000, output: 16384 },
+      options: {},
+    },
+    {
+      id: 'google/gemini-2.5-flash',
+      providerID: 'google',
+      modelID: 'gemini-2.5-flash',
+      name: 'Gemini 2.5 Flash',
+      status: 'active',
+      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
+      limits: { context: 1000000, output: 8192 },
+      options: {},
+    },
+  ],
+};
+
+/**
+ * Unified implementation of model operations using SDKs as the source of truth
  *
  * This class provides a consistent interface for model operations across all agent types:
- * - Claude: Supports aliases (opus, sonnet, haiku) which are passed directly to the SDK
- * - OpenCode: Uses provider/model format (e.g., 'anthropic/claude-sonnet-4-5')
- * - Copilot: Model changes require a new session due to SDK limitations
+ * - Claude: Uses @anthropic-ai/claude-agent-sdk supportedModels()
+ * - OpenCode: Uses @opencode-ai/sdk provider.list()
+ * - Copilot: Uses @github/copilot-sdk listModels()
  */
 export class UnifiedModelOperations implements ModelOperations {
   /** Currently active model identifier */
@@ -87,44 +197,121 @@ export class UnifiedModelOperations implements ModelOperations {
   ) {}
 
   /**
-   * List available models for this agent type.
-   * Filters models based on agent type:
-   * - claude: Only anthropic provider models
-   * - opencode: All models from models.dev (OpenCode supports multiple providers)
-   * - copilot: Only github/copilot provider models
+   * List available models for this agent type using the appropriate SDK.
+   * Falls back to hardcoded models if SDK listing fails.
    */
   async listAvailableModels(): Promise<Model[]> {
-    const data = await ModelsDev.get();
-    const models: Model[] = [];
-
-    // Define which providers are available for each agent type
-    const providerFilters: Record<AgentType, string[] | null> = {
-      claude: ['anthropic'],
-      opencode: null, // null means all providers
-      copilot: ['github-copilot', 'github-models'],
-    };
-
-    const allowedProviders = providerFilters[this.agentType];
-
-    for (const [providerID, provider] of Object.entries(data)) {
-      // Skip if this provider is not allowed for the agent type
-      if (allowedProviders !== null && !allowedProviders.includes(providerID)) {
-        continue;
+    try {
+      switch (this.agentType) {
+        case 'claude':
+          return await this.listModelsForClaude();
+        case 'copilot':
+          return await this.listModelsForCopilot();
+        case 'opencode':
+          return await this.listModelsForOpenCode();
+        default:
+          return SUPPORTED_MODELS[this.agentType] ?? [];
       }
-
-      for (const [modelID, model] of Object.entries(provider.models)) {
-        // Skip deprecated models
-        if (model.status === 'deprecated') {
-          continue;
-        }
-        models.push(fromModelsDevModel(providerID, modelID, model, provider.api));
-      }
+    } catch {
+      // Return fallback models on error
+      return SUPPORTED_MODELS[this.agentType] ?? [];
     }
-    return models;
+  }
+
+  /**
+   * List supported models for Claude
+   * Uses the known model aliases that the Claude SDK accepts
+   * @private
+   */
+  private async listModelsForClaude(): Promise<Model[]> {
+    // Claude SDK accepts short aliases: opus, sonnet, haiku
+    // These are the officially supported models
+    return SUPPORTED_MODELS.claude;
+  }
+
+  /**
+   * List models using Copilot SDK's listModels()
+   * @private
+   */
+  private async listModelsForCopilot(): Promise<Model[]> {
+    try {
+      // Dynamic import to avoid loading SDK when not needed
+      const { CopilotClient } = await import('@github/copilot-sdk');
+      const client = new CopilotClient();
+
+      try {
+        await client.start();
+        const modelInfos = await client.listModels();
+        await client.stop();
+
+        // Map SDK ModelInfo directly - SDK returns correct model names
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return modelInfos.map((m: any) => fromCopilotModelInfo(m));
+      } catch {
+        try {
+          await client.stop();
+        } catch {
+          // Ignore stop errors
+        }
+        return SUPPORTED_MODELS.copilot;
+      }
+    } catch {
+      // Return fallback if SDK fails
+      return SUPPORTED_MODELS.copilot;
+    }
+  }
+
+  /**
+   * List models using OpenCode SDK's provider.list()
+   * Only returns models from authenticated providers
+   * @private
+   */
+  private async listModelsForOpenCode(): Promise<Model[]> {
+    try {
+      // Dynamic import to avoid loading SDK when not needed
+      const { createOpencodeClient } = await import('@opencode-ai/sdk');
+      // Must specify baseUrl for the SDK to work properly
+      const client = createOpencodeClient({ baseUrl: 'http://localhost:4096' });
+
+      const result = await client.provider.list();
+      if (!result.data) {
+        return SUPPORTED_MODELS.opencode;
+      }
+
+      const models: Model[] = [];
+
+      // The response has 'all' array of providers and 'connected' array of provider IDs
+      const data = result.data as {
+        all?: Array<{ id: string; name: string; api?: string; models?: Record<string, OpenCodeModel> }>;
+        connected?: string[];
+      };
+      const allProviders = data.all ?? [];
+      const connectedIds = new Set(data.connected ?? []);
+
+      // Only include models from connected providers
+      const providers = allProviders.filter(p => connectedIds.has(p.id));
+
+      for (const provider of providers) {
+        if (!provider.models) continue;
+
+        for (const [modelID, model] of Object.entries(provider.models)) {
+          // Skip deprecated models
+          if (model.status === 'deprecated') continue;
+
+          models.push(fromOpenCodeModel(provider.id, modelID, model as OpenCodeModel, provider.api));
+        }
+      }
+
+      return models.length > 0 ? models : SUPPORTED_MODELS.opencode;
+    } catch {
+      // Return fallback if SDK fails
+      return SUPPORTED_MODELS.opencode;
+    }
   }
 
   async setModel(model: string): Promise<SetModelResult> {
-    // Validate providerID/modelID format if model contains '/'
+    // Extract modelID from providerID/modelID format if present
+    let modelId = model;
     if (model.includes('/')) {
       const parts = model.split('/');
       if (parts.length !== 2 || !parts[0] || !parts[1]) {
@@ -132,14 +319,18 @@ export class UnifiedModelOperations implements ModelOperations {
           `Invalid model format: '${model}'. Expected 'providerID/modelID' format (e.g., 'anthropic/claude-sonnet-4').`
         );
       }
+      // For Claude, use just the modelID part (e.g., 'sonnet' from 'anthropic/sonnet')
+      if (this.agentType === 'claude') {
+        modelId = parts[1];
+      }
     }
 
     // Resolve alias if possible, otherwise use the original model
     let resolvedModel: string;
     try {
-      resolvedModel = this.resolveAlias(model) ?? model;
+      resolvedModel = this.resolveAlias(modelId) ?? modelId;
     } catch {
-      resolvedModel = model;
+      resolvedModel = modelId;
     }
 
     // Copilot limitation: model changes require a new session

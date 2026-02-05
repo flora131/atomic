@@ -572,7 +572,7 @@ const DIM_BLUE = "#8899AA";
  */
 export function AtomicHeader({
   version = "0.1.0",
-  model = "Opus 4.5",
+  model = "sonnet",
   tier = "Claude Max",
   workingDir = "~/",
 }: AtomicHeaderProps): React.ReactNode {
@@ -849,7 +849,7 @@ export function ChatApp({
   title: _title,
   syntaxStyle,
   version = "0.1.0",
-  model = "Opus 4.5",
+  model = "sonnet",
   tier = "Claude Max",
   workingDir = "~/",
   suggestion: _suggestion,
@@ -902,6 +902,17 @@ export function ChatApp({
   const [showModelSelector, setShowModelSelector] = useState(false);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [currentModelId, setCurrentModelId] = useState<string | undefined>(undefined);
+  // Store the display name separately to match what's shown in the selector dropdown
+  const [currentModelDisplayName, setCurrentModelDisplayName] = useState<string | undefined>(undefined);
+
+  // Compute display model name reactively
+  // Uses stored display name when available, falls back to initial model prop
+  const displayModel = useMemo(() => {
+    if (currentModelDisplayName) {
+      return currentModelDisplayName;
+    }
+    return model; // Fallback to initial prop
+  }, [currentModelDisplayName, model]);
 
   // State for queue editing mode
   const [isEditingQueue, setIsEditingQueue] = useState(false);
@@ -1379,17 +1390,19 @@ export function ChatApp({
   /**
    * Handle model selection from the ModelSelectorDialog.
    */
-  const handleModelSelect = useCallback(async (model: Model) => {
+  const handleModelSelect = useCallback(async (selectedModel: Model) => {
     setShowModelSelector(false);
 
     try {
-      const result = await modelOps?.setModel(model.id);
+      const result = await modelOps?.setModel(selectedModel.id);
       if (result?.requiresNewSession) {
-        addMessage("assistant", `Model **${model.name}** will be used for the next session.`);
+        addMessage("assistant", `Model **${selectedModel.name}** will be used for the next session.`);
       } else {
-        addMessage("assistant", `Switched to model **${model.name}**`);
+        addMessage("assistant", `Switched to model **${selectedModel.name}**`);
       }
-      setCurrentModelId(model.id);
+      setCurrentModelId(selectedModel.id);
+      // Store the display name to match what's shown in the selector dropdown
+      setCurrentModelDisplayName(selectedModel.name);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       addMessage("assistant", `Failed to switch model: ${errorMessage}`);
@@ -1675,7 +1688,57 @@ export function ChatApp({
   useKeyboard(
     useCallback(
       (event: KeyEvent) => {
-        // Skip ALL keyboard handling when a dialog is active
+        // Ctrl+C handling must work everywhere (even in dialogs) for double-press exit
+        if (event.ctrl && event.name === "c") {
+          const textarea = textareaRef.current;
+          // If textarea has selection and no dialog is active, copy instead of interrupt/exit
+          if (!activeQuestion && !showModelSelector && textarea?.hasSelection()) {
+            void handleCopy();
+            return;
+          }
+
+          // If streaming, interrupt (abort) the current operation
+          if (isStreaming) {
+            onInterrupt?.();
+            // Reset interrupt counter after interrupting
+            setInterruptCount(0);
+            if (interruptTimeoutRef.current) {
+              clearTimeout(interruptTimeoutRef.current);
+              interruptTimeoutRef.current = null;
+            }
+            setCtrlCPressed(false);
+            return;
+          }
+
+          // Not streaming: use double-press to exit
+          const newCount = interruptCount + 1;
+          if (newCount >= 2) {
+            // Double press - exit
+            setInterruptCount(0);
+            if (interruptTimeoutRef.current) {
+              clearTimeout(interruptTimeoutRef.current);
+              interruptTimeoutRef.current = null;
+            }
+            setCtrlCPressed(false);
+            onExit?.();
+            return;
+          }
+
+          // First press - show warning and set timeout
+          setInterruptCount(newCount);
+          setCtrlCPressed(true);
+          if (interruptTimeoutRef.current) {
+            clearTimeout(interruptTimeoutRef.current);
+          }
+          interruptTimeoutRef.current = setTimeout(() => {
+            setInterruptCount(0);
+            setCtrlCPressed(false);
+            interruptTimeoutRef.current = null;
+          }, 1000);
+          return;
+        }
+
+        // Skip other keyboard handling when a dialog is active
         // The dialog components handle their own keyboard events via their own useKeyboard hooks
         if (activeQuestion || showModelSelector) {
           // Don't call stopPropagation - let the event continue to the dialog's handler
@@ -1868,57 +1931,6 @@ export function ChatApp({
         // Ctrl+Shift+V - paste from clipboard (backup for bracketed paste)
         if (event.ctrl && event.shift && event.name === "v") {
           void handlePaste();
-          return;
-        }
-
-        // Ctrl+C - interrupt streaming, or double-press to exit when idle
-        // Handled as keyboard event since exitOnCtrlC is disabled in renderer
-        if (event.ctrl && event.name === "c") {
-          const textarea = textareaRef.current;
-          // If textarea has selection, copy instead of interrupt/exit
-          if (textarea?.hasSelection()) {
-            void handleCopy();
-            return;
-          }
-
-          // If streaming, interrupt (abort) the current operation
-          if (isStreaming) {
-            onInterrupt?.();
-            // Reset interrupt counter after interrupting
-            setInterruptCount(0);
-            if (interruptTimeoutRef.current) {
-              clearTimeout(interruptTimeoutRef.current);
-              interruptTimeoutRef.current = null;
-            }
-            setCtrlCPressed(false);
-            return;
-          }
-
-          // Not streaming: use double-press to exit
-          const newCount = interruptCount + 1;
-          if (newCount >= 2) {
-            // Double press - exit
-            setInterruptCount(0);
-            if (interruptTimeoutRef.current) {
-              clearTimeout(interruptTimeoutRef.current);
-              interruptTimeoutRef.current = null;
-            }
-            setCtrlCPressed(false);
-            onExit?.();
-            return;
-          }
-
-          // First press - show warning and set timeout
-          setInterruptCount(newCount);
-          setCtrlCPressed(true);
-          if (interruptTimeoutRef.current) {
-            clearTimeout(interruptTimeoutRef.current);
-          }
-          interruptTimeoutRef.current = setTimeout(() => {
-            setInterruptCount(0);
-            setCtrlCPressed(false);
-            interruptTimeoutRef.current = null;
-          }, 1000);
           return;
         }
 
@@ -2119,7 +2131,7 @@ export function ChatApp({
       {/* Header */}
       <AtomicHeader
         version={version}
-        model={model}
+        model={displayModel}
         tier={tier}
         workingDir={workingDir}
       />
@@ -2197,8 +2209,8 @@ export function ChatApp({
         )}
 
         {/* Input Area - inside scrollbox, flows after messages */}
-        {/* Hidden when question dialog is active (Claude Code behavior) */}
-        {!activeQuestion && (
+        {/* Hidden when question dialog or model selector is active */}
+        {!activeQuestion && !showModelSelector && (
           <>
             <box
               border

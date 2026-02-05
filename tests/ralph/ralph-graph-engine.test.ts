@@ -79,7 +79,7 @@ describe("Ralph Graph Engine Execution", () => {
 
   describe("Workflow configuration", () => {
     test("createAtomicWorkflow accepts configuration options", async () => {
-      const { createAtomicWorkflow } = await import("../../src/workflows/atomic.ts");
+      const { createAtomicWorkflow } = await import("../../.atomic/workflows/atomic.ts");
 
       const workflow = createAtomicWorkflow({
         maxIterations: 50,
@@ -110,7 +110,7 @@ describe("Ralph Graph Engine Execution", () => {
 
   describe("Graph execution streaming", () => {
     test("streamGraph yields step results", async () => {
-      const { createAtomicWorkflow, createAtomicState } = await import("../../src/workflows/atomic.ts");
+      const { createAtomicWorkflow, createAtomicWorkflowState } = await import("../../.atomic/workflows/atomic.ts");
       const { streamGraph } = await import("../../src/graph/compiled.ts");
 
       // Create a minimal test workflow that auto-approves
@@ -120,7 +120,7 @@ describe("Ralph Graph Engine Execution", () => {
         autoApproveSpec: true,
       });
 
-      const initialState = createAtomicState();
+      const initialState = createAtomicWorkflowState("test feature");
       const steps: Array<{ nodeId: string; status: string }> = [];
 
       // We just want to verify the stream works without actually running the full workflow
@@ -154,12 +154,12 @@ describe("Ralph Graph Engine Execution", () => {
 
   describe("Node display names", () => {
     test("ATOMIC_NODE_IDS contains expected nodes", async () => {
-      const { ATOMIC_NODE_IDS } = await import("../../src/workflows/atomic.ts");
+      const { ATOMIC_NODE_IDS } = await import("../../.atomic/workflows/atomic.ts");
 
       expect(ATOMIC_NODE_IDS.RESEARCH).toBe("research");
       expect(ATOMIC_NODE_IDS.CREATE_SPEC).toBe("create-spec");
-      expect(ATOMIC_NODE_IDS.WAIT_FOR_APPROVAL).toBe("wait-for-approval");
-      expect(ATOMIC_NODE_IDS.CREATE_FEATURE_LIST).toBe("create-feature-list");
+      expect(ATOMIC_NODE_IDS.REVIEW_SPEC).toBe("review-spec");
+      expect(ATOMIC_NODE_IDS.CREATE_FEATURES).toBe("create-features");
       expect(ATOMIC_NODE_IDS.IMPLEMENT_FEATURE).toBe("implement-feature");
       expect(ATOMIC_NODE_IDS.CREATE_PR).toBe("create-pr");
     });

@@ -34,12 +34,10 @@ describe("RALPH_NODE_IDS", () => {
     expect(RALPH_NODE_IDS.CHECK_COMPLETION).toBe("check-completion");
   });
 
-  test("defines CREATE_PR constant", () => {
-    expect(RALPH_NODE_IDS.CREATE_PR).toBe("create-pr");
-  });
-
-  test("has exactly 5 node IDs", () => {
-    expect(Object.keys(RALPH_NODE_IDS).length).toBe(5);
+  test("has exactly 4 node IDs", () => {
+    // RALPH_NODE_IDS contains: INIT_SESSION, CLEAR_CONTEXT, IMPLEMENT_FEATURE, CHECK_COMPLETION
+    // Note: CREATE_PR was removed - PR creation is handled externally
+    expect(Object.keys(RALPH_NODE_IDS).length).toBe(4);
   });
 });
 
@@ -91,7 +89,6 @@ describe("createRalphWorkflow", () => {
     const config: CreateRalphWorkflowConfig = {
       maxIterations: 25,
       checkpointing: true,
-      checkpointDir: "custom/checkpoints",
       featureListPath: "specs/features.json",
       yolo: false,
       userPrompt: undefined,
@@ -209,12 +206,14 @@ describe("CreateRalphWorkflowConfig", () => {
     expect(typeof config.checkpointing).toBe("boolean");
   });
 
-  test("checkpointDir accepts string", () => {
+  test("checkpointing accepts truthy value", () => {
+    // Note: checkpointDir was removed - checkpoints are now saved per-session
+    // in .ralph/sessions/{sessionId}/checkpoints/ using SessionDirSaver
     const config: CreateRalphWorkflowConfig = {
-      checkpointDir: "custom/dir",
+      checkpointing: true,
     };
 
-    expect(typeof config.checkpointDir).toBe("string");
+    expect(config.checkpointing).toBe(true);
   });
 
   test("featureListPath accepts string", () => {
@@ -300,10 +299,15 @@ describe("Ralph workflow integration", () => {
     expect(workflow.nodes.has(RALPH_NODE_IDS.CHECK_COMPLETION)).toBe(true);
   });
 
-  test("workflow contains create PR node", () => {
+  test("workflow has 4 core Ralph nodes", () => {
+    // Note: CREATE_PR node was removed - PR creation is now handled externally
+    // The workflow now focuses on feature implementation only
     const workflow = createRalphWorkflow();
 
-    expect(workflow.nodes.has(RALPH_NODE_IDS.CREATE_PR)).toBe(true);
+    expect(workflow.nodes.has(RALPH_NODE_IDS.INIT_SESSION)).toBe(true);
+    expect(workflow.nodes.has(RALPH_NODE_IDS.CLEAR_CONTEXT)).toBe(true);
+    expect(workflow.nodes.has(RALPH_NODE_IDS.IMPLEMENT_FEATURE)).toBe(true);
+    expect(workflow.nodes.has(RALPH_NODE_IDS.CHECK_COMPLETION)).toBe(true);
   });
 
   test("workflow starts with init session node", () => {

@@ -523,7 +523,7 @@ describe("Full workflow execution with mock SDK", () => {
     test("executes workflow with mock SDK nodes", async () => {
       const workflow = graph<WorkflowTestState>()
         .start(createTrackingNode("pre-sdk", { preProcessed: true }))
-        .then(createMockSDKNode(mockClient, mockClient, "Process this"))
+        .then(createMockSDKNode("sdk-node", mockClient, "Process this"))
         .then(createTrackingNode("post-sdk", { postProcessed: true }))
         .end()
         .compile();
@@ -540,7 +540,7 @@ describe("Full workflow execution with mock SDK", () => {
 
     test("mock SDK session is created and tracked", async () => {
       const workflow = graph<WorkflowTestState>()
-        .start(createMockSDKNode(mockClient, mockClient, "Hello SDK"))
+        .start(createMockSDKNode("sdk-main", mockClient, "Hello SDK"))
         .end()
         .compile();
 
@@ -560,7 +560,7 @@ describe("Full workflow execution with mock SDK", () => {
     });
 
     test("multiple mock SDK calls accumulate responses", async () => {
-      const node1 = createMockSDKNode(mockClient, mockClient, "Message 1");
+      const node1 = createMockSDKNode("sdk-1", mockClient, "Message 1");
       const node2 = createNode<WorkflowTestState>("sdk-2", "agent", async (ctx) => {
         const session = await mockClient.createSession({
           sessionId: "sdk-2-session",
@@ -795,7 +795,7 @@ describe("Full workflow execution with mock SDK", () => {
     test("executes workflow with mixed node types", async () => {
       const workflow = graph<WorkflowTestState>()
         .start(createTrackingNode("init", { phase: "init" }))
-        .then(createMockSDKNode(mockClient, mockClient, "Analyze"))
+        .then(createMockSDKNode("sdk-analyze", mockClient, "Analyze"))
         .if((state) => state.mockResponses.length > 0)
         .then(createTrackingNode("has-response", { hasResponse: true }))
         .else()

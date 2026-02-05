@@ -1231,9 +1231,9 @@ describe("ralph command session UUID display", () => {
     expect(sessionId).toBeDefined();
 
     // The UUID format is valid for use with --resume flag
-    const resumeArgs = `--resume ${sessionId}`;
+    const resumeArgs = `--resume ${sessionId!}`;
     const parsed = parseRalphArgs(resumeArgs);
-    expect(parsed.resumeSessionId).toBe(sessionId);
+    expect(parsed.resumeSessionId).toBe(sessionId!);
   });
 
   test("ralph command --resume flag does not generate new session UUID", () => {
@@ -1734,7 +1734,7 @@ export default function createWorkflow(config) {
     test("resolves leaf workflow without error", () => {
       const graph = resolveWorkflowRef("leaf-workflow");
       expect(graph).toBeDefined();
-      expect(graph?.nodes).toBeInstanceOf(Map);
+      expect((graph as unknown as { nodes: Map<string, unknown> })?.nodes).toBeInstanceOf(Map);
     });
 
     test("multiple resolutions of same workflow do not throw", () => {
@@ -1774,8 +1774,8 @@ export default function createWorkflow(config) {
       expect(ralphGraph).toBeDefined();
 
       // Both should resolve without interfering with each other
-      expect(leafGraph?.nodes).toBeInstanceOf(Map);
-      expect(ralphGraph?.nodes).toBeInstanceOf(Map);
+      expect((leafGraph as unknown as { nodes: Map<string, unknown> })?.nodes).toBeInstanceOf(Map);
+      expect((ralphGraph as unknown as { nodes: Map<string, unknown> })?.nodes).toBeInstanceOf(Map);
     });
   });
 
@@ -2283,7 +2283,7 @@ export default function createWorkflow() {
       // Should not throw when loading
       let loaded: WorkflowMetadata[] = [];
       await expect(async () => {
-        loaded = await loadWorkflowsFromDisk();
+        loaded = (await loadWorkflowsFromDisk()) as unknown as WorkflowMetadata[];
       }).not.toThrow();
 
       // Should not include the errored workflow

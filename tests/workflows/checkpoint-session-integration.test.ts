@@ -50,7 +50,7 @@ import {
   saveSession,
   loadSession,
   loadSessionIfExists,
-} from "../../src/workflows/ralph-session.ts";
+} from "../../src/workflows/index.ts";
 
 // ============================================================================
 // Test State Types

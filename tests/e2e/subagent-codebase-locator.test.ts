@@ -191,7 +191,7 @@ function createMockSubagentClient(): CodingAgentClient & {
   let isRunning = false;
 
   return {
-    agentType: "mock",
+    agentType: "claude",
     sessions,
     eventHandlers,
 
@@ -327,28 +327,28 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       expect(result.success).toBe(true);
     });
 
-    test("/codebase-locator sends message with user arguments appended", () => {
+    test("/codebase-locator sends message with user arguments appended", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      command!.execute("find routing files", context);
+      await command!.execute("find routing files", context);
 
       // Should have sent a message containing the argument
       expect(context.sentMessages.length).toBeGreaterThan(0);
       expect(context.sentMessages[0]).toContain("find routing files");
     });
 
-    test("/codebase-locator appends user request section to prompt", () => {
+    test("/codebase-locator appends user request section to prompt", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      command!.execute("find all API endpoints", context);
+      await command!.execute("find all API endpoints", context);
 
       // Sent message should include both agent prompt and user request
       const sentMessage = context.sentMessages[0];
@@ -356,14 +356,14 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       expect(sentMessage).toContain("find all API endpoints");
     });
 
-    test("/codebase-locator handles empty arguments", () => {
+    test("/codebase-locator handles empty arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      const result = command!.execute("", context);
+      const result = await command!.execute("", context);
 
       expect(result.success).toBe(true);
       // Should still send the base prompt without user request section
@@ -440,7 +440,7 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       expect(prompt).toContain("LS");
     });
 
-    test("sendMessage includes full system prompt", () => {
+    test("sendMessage includes full system prompt", async () => {
       registerBuiltinAgents();
 
       const agent = getBuiltinAgent("codebase-locator");
@@ -448,7 +448,7 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      command!.execute("test query", context);
+      await command!.execute("test query", context);
 
       // Sent message should start with the system prompt content
       const sentMessage = context.sentMessages[0];
@@ -562,70 +562,70 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
   // ============================================================================
 
   describe("4. Verify files located and returned", () => {
-    test("command execute returns success result", () => {
+    test("command execute returns success result", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      const result = command!.execute("find config files", context);
+      const result = await command!.execute("find config files", context);
 
       expect(result.success).toBe(true);
     });
 
-    test("command execute does not return error message on success", () => {
+    test("command execute does not return error message on success", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      const result = command!.execute("locate test files", context);
+      const result = await command!.execute("locate test files", context);
 
       expect(result.success).toBe(true);
       // Success result may not have message field or has empty message
       expect(result.message).toBeUndefined();
     });
 
-    test("command sends message to context", () => {
+    test("command sends message to context", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      command!.execute("find utils", context);
+      await command!.execute("find utils", context);
 
       // Message should be sent
       expect(context.sentMessages).toHaveLength(1);
       expect(context.sentMessages[0]).toBeTruthy();
     });
 
-    test("result includes user request in sent message", () => {
+    test("result includes user request in sent message", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      command!.execute("find all routing files in the project", context);
+      await command!.execute("find all routing files in the project", context);
 
       const sentMessage = context.sentMessages[0];
       expect(sentMessage).toContain("routing files");
     });
 
-    test("multiple invocations each return independent results", () => {
+    test("multiple invocations each return independent results", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       expect(command).toBeDefined();
 
       const context1 = createMockCommandContext();
-      const result1 = command!.execute("find controllers", context1);
+      const result1 = await command!.execute("find controllers", context1);
 
       const context2 = createMockCommandContext();
-      const result2 = command!.execute("find services", context2);
+      const result2 = await command!.execute("find services", context2);
 
       // Both should succeed
       expect(result1.success).toBe(true);
@@ -636,14 +636,14 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       expect(context2.sentMessages[0]).toContain("find services");
     });
 
-    test("command result type is CommandResult", () => {
+    test("command result type is CommandResult", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      const result: CommandResult = command!.execute("test", context);
+      const result: CommandResult = await command!.execute("test", context);
 
       // Verify result matches CommandResult interface
       expect(typeof result.success).toBe("boolean");
@@ -757,7 +757,7 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
   // ============================================================================
 
   describe("Integration: Full /codebase-locator workflow", () => {
-    test("complete flow: register, lookup, execute, verify", () => {
+    test("complete flow: register, lookup, execute, verify", async () => {
       // 1. Register builtin agents
       registerBuiltinAgents();
 
@@ -768,7 +768,7 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
 
       // 3. Execute with typical user input
       const context = createMockCommandContext();
-      const result = command!.execute("find routing files", context);
+      const result = await command!.execute("find routing files", context);
 
       // 4. Verify result
       expect(result.success).toBe(true);
@@ -780,7 +780,7 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       expect(message).toContain("find routing files");
     });
 
-    test("agent command works with session context", () => {
+    test("agent command works with session context", async () => {
       registerBuiltinAgents();
 
       const mockSession = createMockSubagentSession("test-session");
@@ -790,7 +790,7 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       });
 
       const command = globalRegistry.get("codebase-locator");
-      const result = command!.execute("find auth handlers", context);
+      const result = await command!.execute("find auth handlers", context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages).toHaveLength(1);
@@ -840,22 +840,22 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       expect(locatorInResults).toBe(true);
     });
 
-    test("multiple user queries work sequentially", () => {
+    test("multiple user queries work sequentially", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       const context = createMockCommandContext();
 
       // Query 1
-      command!.execute("find controllers", context);
+      await command!.execute("find controllers", context);
       expect(context.sentMessages[0]).toContain("find controllers");
 
       // Query 2 (same context, appends)
-      command!.execute("find services", context);
+      await command!.execute("find services", context);
       expect(context.sentMessages[1]).toContain("find services");
 
       // Query 3
-      command!.execute("find middleware", context);
+      await command!.execute("find middleware", context);
       expect(context.sentMessages[2]).toContain("find middleware");
 
       expect(context.sentMessages).toHaveLength(3);
@@ -867,53 +867,53 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
   // ============================================================================
 
   describe("Edge cases", () => {
-    test("handles whitespace-only arguments", () => {
+    test("handles whitespace-only arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       const context = createMockCommandContext();
 
-      const result = command!.execute("   ", context);
+      const result = await command!.execute("   ", context);
 
       expect(result.success).toBe(true);
       // Should send prompt without user request section (whitespace trimmed)
       expect(context.sentMessages).toHaveLength(1);
     });
 
-    test("handles very long arguments", () => {
+    test("handles very long arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       const context = createMockCommandContext();
 
       const longArg = "a".repeat(10000);
-      const result = command!.execute(longArg, context);
+      const result = await command!.execute(longArg, context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages[0]).toContain(longArg);
     });
 
-    test("handles special characters in arguments", () => {
+    test("handles special characters in arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       const context = createMockCommandContext();
 
       const specialArgs = "find <user> & 'auth' | $PATH files";
-      const result = command!.execute(specialArgs, context);
+      const result = await command!.execute(specialArgs, context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages[0]).toContain(specialArgs);
     });
 
-    test("handles newlines in arguments", () => {
+    test("handles newlines in arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       const context = createMockCommandContext();
 
       const multilineArgs = "find file1\nfind file2\nfind file3";
-      const result = command!.execute(multilineArgs, context);
+      const result = await command!.execute(multilineArgs, context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages[0]).toContain("find file1");
@@ -956,14 +956,14 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       expect(agent2?.name).toBe(agent3?.name);
     });
 
-    test("handles glob pattern-like arguments", () => {
+    test("handles glob pattern-like arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-locator");
       const context = createMockCommandContext();
 
       const globPatternArg = "find **/*.ts files";
-      const result = command!.execute(globPatternArg, context);
+      const result = await command!.execute(globPatternArg, context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages[0]).toContain("**/*.ts");
@@ -1070,8 +1070,8 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       const patternFinder = getBuiltinAgent("codebase-pattern-finder");
 
       // Locator should be the fastest
-      expect(modelSpeed[locator!.model!]).toBeGreaterThan(modelSpeed[analyzer!.model!]);
-      expect(modelSpeed[locator!.model!]).toBeGreaterThan(modelSpeed[patternFinder!.model!]);
+      expect(modelSpeed[locator!.model!] ?? 0).toBeGreaterThan(modelSpeed[analyzer!.model!] ?? 0);
+      expect(modelSpeed[locator!.model!] ?? 0).toBeGreaterThan(modelSpeed[patternFinder!.model!] ?? 0);
     });
   });
 });

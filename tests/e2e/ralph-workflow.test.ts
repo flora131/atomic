@@ -32,8 +32,8 @@ import {
   createRalphFeature,
   type RalphSession,
   type RalphFeature,
-} from "../../src/workflows/ralph-session.ts";
-import { createRalphWorkflow } from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/index.ts";
+import { createRalphWorkflow } from "../../src/workflows/index.ts";
 import {
   globalRegistry,
   type CommandContext,
@@ -324,7 +324,7 @@ describe("E2E test: /ralph command starts workflow with feature-list", () => {
       expect(workflow.nodes.has("clear-context")).toBe(true);
       expect(workflow.nodes.has("implement-feature")).toBe(true);
       expect(workflow.nodes.has("check-completion")).toBe(true);
-      expect(workflow.nodes.has("create-pr")).toBe(true);
+      // Note: create-pr is not a node in the Ralph workflow - it only has 4 nodes
     });
 
     test("workflow starts with init-session node", () => {
@@ -545,8 +545,8 @@ describe("E2E test: /ralph command starts workflow with feature-list", () => {
       );
 
       expect(ralphFeatures.length).toBe(3);
-      expect(ralphFeatures[0].status).toBe("pending");
-      expect(ralphFeatures[0].name).toContain("user authentication");
+      expect(ralphFeatures[0]?.status).toBe("pending");
+      expect(ralphFeatures[0]?.name).toContain("user authentication");
     });
 
     test("features are loaded with pending status by default", async () => {
@@ -626,7 +626,7 @@ describe("E2E test: /ralph command starts workflow with feature-list", () => {
       const loaded = await loadSession(sessionDir);
 
       expect(loaded.features.length).toBe(3);
-      expect(loaded.features[0].name).toContain("user authentication");
+      expect(loaded.features[0]?.name).toContain("user authentication");
       expect(loaded.sourceFeatureListPath).toBe(featureListPath);
     });
 
@@ -803,13 +803,13 @@ describe("E2E test: /ralph command starts workflow with feature-list", () => {
 
       // Update and save again
       session.iteration = 2;
-      session.features[0].status = "in_progress";
+      session.features[0]!.status = "in_progress";
       await saveSession(sessionDir, session);
 
       // Load and verify
       const final = await loadSession(sessionDir);
       expect(final.iteration).toBe(2);
-      expect(final.features[0].status).toBe("in_progress");
+      expect(final.features[0]?.status).toBe("in_progress");
     });
   });
 });

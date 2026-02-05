@@ -30,8 +30,8 @@ import {
   appendProgress,
   type RalphSession,
   type RalphFeature,
-} from "../../src/workflows/ralph-session.ts";
-import { createRalphWorkflow } from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/index.ts";
+import { createRalphWorkflow } from "../../src/workflows/index.ts";
 import { isValidUUID } from "../../src/ui/commands/workflow-commands.ts";
 
 // ============================================================================
@@ -181,6 +181,10 @@ async function workOnFeature(
   // Reload session again to get any changes made during "work" (simulates real behavior)
   session = await loadSession(sessionDir);
   const updatedFeature = session.features[featureIndex];
+
+  if (!updatedFeature) {
+    throw new Error(`Feature at index ${featureIndex} not found`);
+  }
 
   // Mark as passing or failing
   updatedFeature.status = passed ? "passing" : "failing";
@@ -404,12 +408,12 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
 
       // Verify session 1 data
       const loaded1 = await loadSession(terminal1.session!.sessionDir);
-      expect(loaded1.sessionId).toBe(terminal1.sessionId);
+      expect(loaded1.sessionId).toBe(terminal1.sessionId!);
       expect(loaded1.features.length).toBe(3);
 
       // Verify session 2 data
       const loaded2 = await loadSession(terminal2.session!.sessionDir);
-      expect(loaded2.sessionId).toBe(terminal2.sessionId);
+      expect(loaded2.sessionId).toBe(terminal2.sessionId!);
       expect(loaded2.features.length).toBe(3);
     });
   });
@@ -442,8 +446,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const loaded1 = await loadSession(terminal1.session!.sessionDir);
       const loaded2 = await loadSession(terminal2.session!.sessionDir);
 
-      expect(loaded1.features[0].status).toBe("passing");
-      expect(loaded2.features[0].status).toBe("passing");
+      expect(loaded1.features[0]?.status).toBe("passing");
+      expect(loaded2.features[0]?.status).toBe("passing");
     });
 
     test("terminals work on different feature sets", async () => {
@@ -459,8 +463,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       ]);
 
       // Verify feature names are different
-      expect(terminal1.session!.features[0].name).toContain("terminal-1");
-      expect(terminal2.session!.features[0].name).toContain("terminal-2");
+      expect(terminal1.session!.features[0]?.name).toContain("terminal-1");
+      expect(terminal2.session!.features[0]?.name).toContain("terminal-2");
     });
 
     test("concurrent feature work across different sessions does not corrupt data", async () => {
@@ -497,14 +501,14 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const loaded2 = await loadSession(terminal2.session!.sessionDir);
 
       // Terminal 1: features 0, 2 passed
-      expect(loaded1.features[0].status).toBe("passing");
-      expect(loaded1.features[1].status).toBe("failing");
-      expect(loaded1.features[2].status).toBe("passing");
+      expect(loaded1.features[0]?.status).toBe("passing");
+      expect(loaded1.features[1]?.status).toBe("failing");
+      expect(loaded1.features[2]?.status).toBe("passing");
 
       // Terminal 2: feature 1 passed
-      expect(loaded2.features[0].status).toBe("failing");
-      expect(loaded2.features[1].status).toBe("passing");
-      expect(loaded2.features[2].status).toBe("failing");
+      expect(loaded2.features[0]?.status).toBe("failing");
+      expect(loaded2.features[1]?.status).toBe("passing");
+      expect(loaded2.features[2]?.status).toBe("failing");
     });
 
     test("iteration counts are independent", async () => {
@@ -753,7 +757,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const loaded2 = await loadSession(terminal2.session!.sessionDir);
 
       // Session 1 validation
-      expect(loaded1.sessionId).toBe(terminal1.sessionId);
+      expect(loaded1.sessionId).toBe(terminal1.sessionId!);
       expect(loaded1.status).toBe("running");
       expect(loaded1.features).toHaveLength(3);
       expect(loaded1.completedFeatures).toHaveLength(2);
@@ -761,7 +765,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       expect(loaded1.completedFeatures).toContain("terminal-1-feat-002");
 
       // Session 2 validation
-      expect(loaded2.sessionId).toBe(terminal2.sessionId);
+      expect(loaded2.sessionId).toBe(terminal2.sessionId!);
       expect(loaded2.status).toBe("running");
       expect(loaded2.features).toHaveLength(3);
       expect(loaded2.completedFeatures).toHaveLength(2);
@@ -1052,8 +1056,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       expect(loaded2.completedFeatures).toHaveLength(3);
 
       // No data leakage
-      expect(loaded1.sessionId).toBe(terminal1.sessionId);
-      expect(loaded2.sessionId).toBe(terminal2.sessionId);
+      expect(loaded1.sessionId).toBe(terminal1.sessionId!);
+      expect(loaded2.sessionId).toBe(terminal2.sessionId!);
       expect(loaded1.sessionId).not.toBe(loaded2.sessionId);
     });
 
@@ -1092,7 +1096,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
         const loaded = await loadSession(terminal.session!.sessionDir);
         expect(loaded.status).toBe("completed");
         expect(loaded.completedFeatures).toHaveLength(3);
-        expect(loaded.sessionId).toBe(terminal.sessionId);
+        expect(loaded.sessionId).toBe(terminal.sessionId!);
       }
 
       // Verify all session IDs are unique
@@ -1164,7 +1168,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       // Terminal 2's session should still exist and be valid
       expect(existsSync(terminal2.session!.sessionDir)).toBe(true);
       const loaded2 = await loadSession(terminal2.session!.sessionDir);
-      expect(loaded2.sessionId).toBe(terminal2.sessionId);
+      expect(loaded2.sessionId).toBe(terminal2.sessionId!);
     });
 
     test("rapid session creation and deletion doesn't cause issues", async () => {
@@ -1186,7 +1190,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
 
       // Verify odd-indexed sessions still exist
       for (let i = 0; i < 10; i++) {
-        const sessionDir = getSessionDir(sessionIds[i]);
+        const sessionDir = getSessionDir(sessionIds[i]!);
         if (i % 2 === 0) {
           expect(existsSync(sessionDir)).toBe(false);
         } else {

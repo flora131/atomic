@@ -32,6 +32,10 @@ import {
   type QuestionAnswer,
 } from "./components/user-question-dialog.tsx";
 import {
+  ModelSelectorDialog,
+} from "./components/model-selector-dialog.tsx";
+import type { Model } from "../models/model-transform.ts";
+import {
   useStreamingState,
   type ToolExecutionStatus,
   type ToolExecutionState,
@@ -718,7 +722,8 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
 
     // Check if first segment is text (for bullet point prefix)
     const firstTextSegment = segments.find(s => s.type === "text");
-    const hasLeadingText = segments.length > 0 && segments[0].type === "text";
+    const firstSegment = segments[0];
+    const hasLeadingText = segments.length > 0 && firstSegment?.type === "text";
 
     // Loading animation when no content yet
     if (showLoadingAnimation) {
@@ -892,6 +897,11 @@ export function ChatApp({
 
   // State for showing user question dialog
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
+
+  // State for showing model selector dialog
+  const [showModelSelector, setShowModelSelector] = useState(false);
+  const [availableModels, setAvailableModels] = useState<Model[]>([]);
+  const [currentModelId, setCurrentModelId] = useState<string | undefined>(undefined);
 
   // State for queue editing mode
   const [isEditingQueue, setIsEditingQueue] = useState(false);
@@ -1088,7 +1098,7 @@ export function ChatApp({
                 id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
                 role: "assistant",
                 content: chunk,
-                timestamp: new Date(),
+                timestamp: new Date().toISOString(),
                 streaming: true,
                 toolCalls: [],
               };
@@ -1367,6 +1377,33 @@ export function ChatApp({
   }, []);
 
   /**
+   * Handle model selection from the ModelSelectorDialog.
+   */
+  const handleModelSelect = useCallback(async (model: Model) => {
+    setShowModelSelector(false);
+
+    try {
+      const result = await modelOps?.setModel(model.id);
+      if (result?.requiresNewSession) {
+        addMessage("assistant", `Model **${model.name}** will be used for the next session.`);
+      } else {
+        addMessage("assistant", `Switched to model **${model.name}**`);
+      }
+      setCurrentModelId(model.id);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Unknown error";
+      addMessage("assistant", `Failed to switch model: ${errorMessage}`);
+    }
+  }, [modelOps, addMessage]);
+
+  /**
+   * Handle model selector cancellation.
+   */
+  const handleModelSelectorCancel = useCallback(() => {
+    setShowModelSelector(false);
+  }, []);
+
+  /**
    * Execute a slash command by name with arguments.
    * Creates the CommandContext and calls the command's execute function.
    *
@@ -1427,6 +1464,25 @@ export function ChatApp({
           };
         }
 
+        // Create a unique agent ID
+        const agentId = crypto.randomUUID().slice(0, 8);
+
+        // Determine agent name from options or use default
+        const agentName = options.model ?? "general-purpose";
+
+        // Create and track the parallel agent
+        const parallelAgent: ParallelAgent = {
+          id: agentId,
+          name: agentName,
+          task: options.message.slice(0, 100) + (options.message.length > 100 ? "..." : ""),
+          status: "running",
+          startedAt: new Date().toISOString(),
+          model: options.model,
+        };
+
+        // Add the agent to the parallel agents list
+        setParallelAgents(prev => [...prev, parallelAgent]);
+
         try {
           // Build the combined prompt with system prompt context
           const taskMessage = `[Sub-agent task]\n\nSystem Context: ${options.systemPrompt}\n\nTask: ${options.message}`;
@@ -1436,11 +1492,31 @@ export function ChatApp({
             sendMessageRef.current(taskMessage);
           }
 
+          // Mark agent as completed after a brief delay
+          // (In future, this should track actual completion via events)
+          setTimeout(() => {
+            setParallelAgents(prev => prev.map(a =>
+              a.id === agentId
+                ? { ...a, status: "completed" as const, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+                : a
+            ));
+            // Remove completed agents after a short display period
+            setTimeout(() => {
+              setParallelAgents(prev => prev.filter(a => a.id !== agentId));
+            }, 3000);
+          }, 500);
+
           return {
             success: true,
             output: "Sub-agent task sent through message flow",
           };
         } catch (error) {
+          // Mark agent as error
+          setParallelAgents(prev => prev.map(a =>
+            a.id === agentId
+              ? { ...a, status: "error" as const, error: error instanceof Error ? error.message : "Unknown error" }
+              : a
+          ));
           return {
             success: false,
             output: "",
@@ -1493,6 +1569,16 @@ export function ChatApp({
         setTimeout(() => {
           onExit?.();
         }, 100);
+      }
+
+      // Handle model selector request
+      if (result.showModelSelector) {
+        // Fetch available models and show the selector
+        const models = await modelOps?.listAvailableModels() ?? [];
+        const currentModel = await modelOps?.getCurrentModel();
+        setAvailableModels(models);
+        setCurrentModelId(currentModel);
+        setShowModelSelector(true);
       }
 
       return result.success;
@@ -1589,9 +1675,9 @@ export function ChatApp({
   useKeyboard(
     useCallback(
       (event: KeyEvent) => {
-        // Skip ALL keyboard handling when question dialog is active
-        // The dialog component handles its own keyboard events via its own useKeyboard hook
-        if (activeQuestion) {
+        // Skip ALL keyboard handling when a dialog is active
+        // The dialog components handle their own keyboard events via their own useKeyboard hooks
+        if (activeQuestion || showModelSelector) {
           // Don't call stopPropagation - let the event continue to the dialog's handler
           return;
         }
@@ -1849,7 +1935,7 @@ export function ChatApp({
           handleInputChange(value);
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand, activeQuestion, ctrlCPressed, messageQueue, setIsEditingQueue]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue]
     )
   );
 
@@ -2080,6 +2166,17 @@ export function ChatApp({
           <UserQuestionDialog
             question={activeQuestion}
             onAnswer={handleQuestionAnswer}
+            visible={true}
+          />
+        )}
+
+        {/* Model Selector Dialog - for interactive model selection */}
+        {showModelSelector && (
+          <ModelSelectorDialog
+            models={availableModels}
+            currentModel={currentModelId}
+            onSelect={handleModelSelect}
+            onCancel={handleModelSelectorCancel}
             visible={true}
           />
         )}

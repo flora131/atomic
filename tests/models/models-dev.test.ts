@@ -222,7 +222,7 @@ describe("ModelsDev", () => {
 
       expect(model).toBeDefined();
       expect(model!.name).toBe("Claude Sonnet 4");
-      expect(model!.cost.input).toBe(0.003);
+      expect(model!.cost!.input).toBe(0.003);
     });
 
     test("returns undefined for non-existent model", async () => {

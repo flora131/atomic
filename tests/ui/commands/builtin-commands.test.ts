@@ -69,15 +69,15 @@ describe("helpCommand", () => {
     expect(helpCommand.aliases).toContain("?");
   });
 
-  test("returns success when no commands registered", () => {
+  test("returns success when no commands registered", async () => {
     const context = createMockContext();
-    const result = helpCommand.execute("", context);
+    const result = await helpCommand.execute("", context);
 
     expect(result.success).toBe(true);
     expect(result.message).toBe("No commands available.");
   });
 
-  test("lists all registered commands", () => {
+  test("lists all registered commands", async () => {
     globalRegistry.register({
       name: "test",
       description: "Test command",
@@ -86,14 +86,14 @@ describe("helpCommand", () => {
     });
 
     const context = createMockContext();
-    const result = helpCommand.execute("", context);
+    const result = await helpCommand.execute("", context);
 
     expect(result.success).toBe(true);
     expect(result.message).toContain("test");
     expect(result.message).toContain("Test command");
   });
 
-  test("groups commands by category", () => {
+  test("groups commands by category", async () => {
     globalRegistry.register({
       name: "builtin-cmd",
       description: "Builtin",
@@ -108,13 +108,13 @@ describe("helpCommand", () => {
     });
 
     const context = createMockContext();
-    const result = helpCommand.execute("", context);
+    const result = await helpCommand.execute("", context);
 
     expect(result.message).toContain("Built-in");
     expect(result.message).toContain("Workflows");
   });
 
-  test("shows aliases in help output", () => {
+  test("shows aliases in help output", async () => {
     globalRegistry.register({
       name: "test",
       description: "Test",
@@ -124,12 +124,12 @@ describe("helpCommand", () => {
     });
 
     const context = createMockContext();
-    const result = helpCommand.execute("", context);
+    const result = await helpCommand.execute("", context);
 
     expect(result.message).toContain("t, tst");
   });
 
-  test("shows Ralph workflow documentation when /ralph is registered", () => {
+  test("shows Ralph workflow documentation when /ralph is registered", async () => {
     globalRegistry.register({
       name: "ralph",
       description: "Start the Ralph autonomous implementation workflow",
@@ -138,7 +138,7 @@ describe("helpCommand", () => {
     });
 
     const context = createMockContext();
-    const result = helpCommand.execute("", context);
+    const result = await helpCommand.execute("", context);
 
     // Check Ralph workflow section is present
     expect(result.message).toContain("**Ralph Workflow**");
@@ -158,7 +158,7 @@ describe("helpCommand", () => {
     expect(result.message).toContain("Esc");
   });
 
-  test("does not show Ralph documentation when /ralph is not registered", () => {
+  test("does not show Ralph documentation when /ralph is not registered", async () => {
     globalRegistry.register({
       name: "other-workflow",
       description: "Other workflow",
@@ -167,14 +167,14 @@ describe("helpCommand", () => {
     });
 
     const context = createMockContext();
-    const result = helpCommand.execute("", context);
+    const result = await helpCommand.execute("", context);
 
     // Ralph section should not be present
     expect(result.message).not.toContain("**Ralph Workflow**");
     expect(result.message).not.toContain("--yolo");
   });
 
-  test("shows Sub-Agents section when agent commands are registered", () => {
+  test("shows Sub-Agents section when agent commands are registered", async () => {
     globalRegistry.register({
       name: "codebase-analyzer",
       description: "Analyzes codebase implementation details",
@@ -189,7 +189,7 @@ describe("helpCommand", () => {
     });
 
     const context = createMockContext();
-    const result = helpCommand.execute("", context);
+    const result = await helpCommand.execute("", context);
 
     // Check Sub-Agent Details section is present
     expect(result.message).toContain("**Sub-Agent Details**");
@@ -202,7 +202,7 @@ describe("helpCommand", () => {
     expect(result.message).toContain("Debug errors");
   });
 
-  test("shows all builtin agent details correctly", () => {
+  test("shows all builtin agent details correctly", async () => {
     // Register all builtin agents
     const builtinAgents = [
       { name: "codebase-analyzer", desc: "Analyzes code" },
@@ -224,7 +224,7 @@ describe("helpCommand", () => {
     }
 
     const context = createMockContext();
-    const result = helpCommand.execute("", context);
+    const result = await helpCommand.execute("", context);
 
     // Check all agents are listed with correct models
     expect(result.message).toContain("/codebase-analyzer (opus)");
@@ -236,7 +236,7 @@ describe("helpCommand", () => {
     expect(result.message).toContain("/debugger (sonnet)");
   });
 
-  test("shows custom agents without hardcoded details", () => {
+  test("shows custom agents without hardcoded details", async () => {
     globalRegistry.register({
       name: "custom-agent",
       description: "A custom agent for testing",
@@ -245,14 +245,14 @@ describe("helpCommand", () => {
     });
 
     const context = createMockContext();
-    const result = helpCommand.execute("", context);
+    const result = await helpCommand.execute("", context);
 
     // Custom agents should show their description directly
     expect(result.message).toContain("/custom-agent");
     expect(result.message).toContain("A custom agent for testing");
   });
 
-  test("does not show Sub-Agents section when no agent commands registered", () => {
+  test("does not show Sub-Agents section when no agent commands registered", async () => {
     globalRegistry.register({
       name: "test",
       description: "Test command",
@@ -261,12 +261,12 @@ describe("helpCommand", () => {
     });
 
     const context = createMockContext();
-    const result = helpCommand.execute("", context);
+    const result = await helpCommand.execute("", context);
 
     expect(result.message).not.toContain("**Sub-Agent Details**");
   });
 
-  test("groups agent commands under Sub-Agents category in command list", () => {
+  test("groups agent commands under Sub-Agents category in command list", async () => {
     globalRegistry.register({
       name: "codebase-analyzer",
       description: "Analyzes codebase",
@@ -275,7 +275,7 @@ describe("helpCommand", () => {
     });
 
     const context = createMockContext();
-    const result = helpCommand.execute("", context);
+    const result = await helpCommand.execute("", context);
 
     // Agent commands should be listed under Sub-Agents category
     expect(result.message).toContain("**Sub-Agents**");
@@ -291,33 +291,33 @@ describe("themeCommand", () => {
     expect(themeCommand.category).toBe("builtin");
   });
 
-  test("toggles theme without argument", () => {
+  test("toggles theme without argument", async () => {
     const context = createMockContext();
-    const result = themeCommand.execute("", context);
+    const result = await themeCommand.execute("", context);
 
     expect(result.success).toBe(true);
     expect(result.message).toContain("toggled");
   });
 
-  test("switches to dark theme explicitly", () => {
+  test("switches to dark theme explicitly", async () => {
     const context = createMockContext();
-    const result = themeCommand.execute("dark", context);
+    const result = await themeCommand.execute("dark", context);
 
     expect(result.success).toBe(true);
     expect(result.message).toContain("dark");
   });
 
-  test("switches to light theme explicitly", () => {
+  test("switches to light theme explicitly", async () => {
     const context = createMockContext();
-    const result = themeCommand.execute("light", context);
+    const result = await themeCommand.execute("light", context);
 
     expect(result.success).toBe(true);
     expect(result.message).toContain("light");
   });
 
-  test("is case-insensitive for theme name", () => {
+  test("is case-insensitive for theme name", async () => {
     const context = createMockContext();
-    const result = themeCommand.execute("DARK", context);
+    const result = await themeCommand.execute("DARK", context);
 
     expect(result.success).toBe(true);
     expect(result.message).toContain("dark");
@@ -332,9 +332,9 @@ describe("clearCommand", () => {
     expect(clearCommand.aliases).toContain("c");
   });
 
-  test("clears messages and returns success", () => {
+  test("clears messages and returns success", async () => {
     const context = createMockContext({ messageCount: 10 });
-    const result = clearCommand.execute("", context);
+    const result = await clearCommand.execute("", context);
 
     expect(result.success).toBe(true);
     expect(result.clearMessages).toBe(true);

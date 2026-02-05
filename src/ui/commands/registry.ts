@@ -141,6 +141,8 @@ export interface CommandResult {
   clearMessages?: boolean;
   /** If true, exit the application */
   shouldExit?: boolean;
+  /** If true, show the interactive model selector dialog */
+  showModelSelector?: boolean;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, mock, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { createProgram } from "../src/cli";
 import { AGENT_CONFIG, isValidAgent } from "../src/config";
 import { ralphSetup, type RalphSetupOptions } from "../src/commands/ralph";
@@ -397,13 +397,23 @@ describe("Ralph setup integration tests", () => {
   const path = require("path");
   
   const STATE_FILE = ".claude/ralph-loop.local.md";
-  
-  // Clean up state file before each test
+  const FEATURE_LIST = "research/feature-list.json";
+  let featureListExistedBefore: boolean;
+
+  // Clean up state file and ensure feature list fixture before/after each test
   beforeEach(() => {
-    try {
-      fs.unlinkSync(STATE_FILE);
-    } catch {
-      // File may not exist
+    try { fs.unlinkSync(STATE_FILE); } catch { /* may not exist */ }
+    featureListExistedBefore = fs.existsSync(FEATURE_LIST);
+    if (!featureListExistedBefore) {
+      fs.mkdirSync("research", { recursive: true });
+      fs.writeFileSync(FEATURE_LIST, "[]", "utf-8");
+    }
+  });
+
+  afterEach(() => {
+    try { fs.unlinkSync(STATE_FILE); } catch { /* may not exist */ }
+    if (!featureListExistedBefore && fs.existsSync(FEATURE_LIST)) {
+      fs.unlinkSync(FEATURE_LIST);
     }
   });
 

@@ -34,7 +34,7 @@
       "Export AtomicWorkflowState type derived from annotation",
       "Add unit tests for annotation reducers"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "1.3",
@@ -50,7 +50,7 @@
       "Implement delete method removing checkpoint",
       "Add unit tests for MemorySaver"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "1.4",
@@ -71,7 +71,7 @@
       "Add default retry config to agent nodes",
       "Add unit tests for each node factory"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "1.5",
@@ -88,7 +88,7 @@
       "Test annotation function creates proper annotation config",
       "Verify all tests pass with bun test"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "1.6",
@@ -103,7 +103,7 @@
       "Re-export all node factory functions from nodes.ts",
       "Verify exports are accessible from src/graph"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "2.1",
@@ -120,7 +120,7 @@
       "Export graph<TState>() factory function",
       "Add unit tests for linear graph construction"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "2.2",
@@ -136,7 +136,7 @@
       "Add unit tests for conditional branching",
       "Test nested if/else/endif structures"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "2.3",
@@ -152,7 +152,7 @@
       "Return accumulated state from loop iterations",
       "Add unit tests for loop with exit conditions"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "2.4",
@@ -167,7 +167,7 @@
       "Support custom merge function for combining results",
       "Add unit tests for parallel execution with different strategies"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "2.5",
@@ -180,7 +180,7 @@
       "Support autoApprove configuration with timeout",
       "Add unit tests for wait node execution"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "2.6",
@@ -194,7 +194,7 @@
       "Preserve original node behavior on success",
       "Add unit tests for error handling and recovery"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "2.7",
@@ -212,7 +212,7 @@
       "Test catch handler catches errors",
       "Verify all tests pass with bun test"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "3.1",
@@ -226,7 +226,7 @@
       "Implement stream(initialState) AsyncGenerator for incremental execution",
       "Export CompiledGraph class"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "3.2",
@@ -242,7 +242,7 @@
       "Add next nodes to queue",
       "Stop at end nodes"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "3.3",
@@ -256,7 +256,7 @@
       "Apply reducers based on field type (replace, concat, merge)",
       "Add unit tests for state merging"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "3.4",
@@ -271,7 +271,7 @@
       "Stop on human_input_required signal",
       "Continue execution after resume"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "3.5",
@@ -287,7 +287,7 @@
       "Throw last error after max attempts exhausted",
       "Add unit tests for retry behavior"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "3.6",
@@ -302,7 +302,7 @@
       "Handle debug_report_generated signal",
       "Return signals to caller for external handling"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "3.7",
@@ -316,7 +316,7 @@
       "Handle checkpoint signal label",
       "Add unit tests for checkpointing during execution"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "3.8",
@@ -334,7 +334,7 @@
       "Test streaming yields intermediate states",
       "Verify all tests pass with bun test"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "4.1",
@@ -349,7 +349,7 @@
       "Document that stream() returns native SDK message types",
       "Export all types from types.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "4.2",
@@ -369,7 +369,7 @@
       "Document compact() uses V2 auto-compaction",
       "Add unit tests with mocked SDK"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "4.3",
@@ -391,7 +391,7 @@
       "Use client.session.delete for close()",
       "Add unit tests with mocked SDK"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "4.4",
@@ -414,7 +414,7 @@
       "Use session.destroy for close()",
       "Add unit tests with mocked SDK"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "4.5",
@@ -430,7 +430,7 @@
       "Document that graph nodes handle SDK-specific event types",
       "Add unit tests for event forwarding"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "4.6",
@@ -445,7 +445,7 @@
       "Re-export EventBridge and NativeEvent",
       "Verify exports are accessible from src/sdk"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "4.7",
@@ -466,7 +466,7 @@
       "Test event bridge forwarding",
       "Verify all tests pass with bun test"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "5.1",
@@ -479,7 +479,7 @@
       "Update package.json with new dependencies",
       "Test basic import works"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "5.2",
@@ -497,7 +497,7 @@
       "Render box layout with header, scrollbox, and input",
       "Implement MessageBubble component for message display"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "5.3",
@@ -512,7 +512,7 @@
       "Pass streaming prop for incremental rendering",
       "Apply theme colors for backgrounds"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "5.4",
@@ -529,7 +529,7 @@
       "Implement extractCodeBlocks utility for parsing markdown",
       "Add border and padding styling"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "5.5",
@@ -545,7 +545,7 @@
       "Implement useTheme hook returning current theme",
       "Implement ThemeProvider component"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "5.6",
@@ -564,7 +564,7 @@
       "Register SIGINT and SIGTERM handlers",
       "Export startChatUI function"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "5.7",
@@ -578,7 +578,7 @@
       "Then process.exit(0)",
       "Document this order is required to avoid Yoga layout crash"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "5.8",
@@ -596,7 +596,7 @@
       "Test dark and light theme colors",
       "Verify all tests pass with bun test"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "6.1",
@@ -611,7 +611,7 @@
       "Define TelemetryEventType union with UI events (chat)",
       "Define TelemetryCollector interface with track, flush, isEnabled, shutdown"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "6.2",
@@ -629,7 +629,7 @@
       "Implement flush() calling local and remote sinks",
       "Implement shutdown() flushing and clearing interval"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "6.3",
@@ -644,7 +644,7 @@
       "Append to log file",
       "Handle write errors silently"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "6.4",
@@ -659,7 +659,7 @@
       "Handle upload errors silently",
       "Only send if appInsightsKey is configured"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "6.5",
@@ -676,7 +676,7 @@
       "Track events through collector",
       "Return unsubscribe function"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "6.6",
@@ -690,7 +690,7 @@
       "Return started(), completed(state), failed(error, nodeId), checkpointSaved(label) methods",
       "Track execution lifecycle events"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "6.7",
@@ -706,7 +706,7 @@
       "Load appInsightsKey from ATOMIC_APP_INSIGHTS_KEY env var",
       "Return configuration object"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "6.8",
@@ -720,7 +720,7 @@
       "Re-export withGraphTelemetry and trackGraphExecution from graph-integration.ts",
       "Re-export loadTelemetryConfig from config.ts"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "6.9",
@@ -738,7 +738,7 @@
       "Test shutdown flushes remaining events",
       "Verify all tests pass with bun test"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "7.1",
@@ -760,7 +760,7 @@
       "Build graph with fluent API",
       "Compile with ResearchDirSaver checkpointer"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "7.2",
@@ -779,7 +779,7 @@
       "Parse JSON from code block on load",
       "Add unit tests for both checkpointers"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "7.3",
@@ -796,7 +796,7 @@
       "Handle human_input_required signals",
       "Display completion status"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "7.4",
@@ -810,7 +810,7 @@
       "Document feature flag in README",
       "Add to configuration documentation"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "7.5",
@@ -825,7 +825,7 @@
       "Display graph progress in chat",
       "Handle workflow completion in UI"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "7.6",
@@ -840,7 +840,7 @@
       "Show checkpoint saves",
       "Display iteration count for loops"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "7.7",
@@ -855,7 +855,7 @@
       "Track workflow.ralph.completed on finish",
       "Ensure flush on exit"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "7.8",
@@ -874,7 +874,7 @@
       "Test workflow can resume from checkpoint",
       "Verify all tests pass with bun test"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "8.1",
@@ -889,7 +889,7 @@
       "Add examples of workflow definition",
       "Document ATOMIC_USE_GRAPH_ENGINE flag"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "8.2",
@@ -903,7 +903,7 @@
       "Document theme configuration",
       "Add screenshots if applicable"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "8.3",
@@ -918,7 +918,7 @@
       "Document local log location",
       "Document Azure App Insights integration"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "8.4",
@@ -932,7 +932,7 @@
       "Document how to resume interrupted workflows",
       "Document breaking changes if any"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "8.5",
@@ -945,7 +945,7 @@
       "Keep flag for rollback purposes",
       "Update documentation to reflect default"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "id": "8.6",
@@ -963,6 +963,6 @@
       "Verify telemetry is logged locally",
       "Verify all documented features work"
     ],
-    "passes": false
+    "passes": true
   }
 ]

@@ -1,1035 +1,967 @@
 [
   {
+    "id": "1.1",
     "category": "functional",
-    "description": "Phase 1.1: Create src/graph/types.ts with BaseState interface",
+    "phase": 1,
+    "description": "Create src/graph/types.ts with all graph type definitions (BaseState, ExecutionContext, NodeResult, NodeDefinition, RetryConfig, GraphConfig, Signal, ExecutionError, DebugReport)",
     "steps": [
-      "Create src/graph/types.ts file",
-      "Define BaseState interface with executionId: string, lastUpdated: Date, outputs: Record<string, unknown>",
-      "Add JSDoc documentation explaining BaseState is the foundation for all workflow states",
-      "Export the interface",
-      "Run pnpm typecheck to verify"
+      "Create src/graph directory structure",
+      "Define BaseState interface with executionId, lastUpdated, outputs",
+      "Define ExecutionContext interface with state, config, errors, abortSignal",
+      "Define NodeResult interface with stateUpdate, goto, signals",
+      "Define NodeDefinition interface with id, type, execute, retry",
+      "Define RetryConfig interface with maxAttempts, backoffMs, backoffMultiplier",
+      "Define GraphConfig interface with checkpointer, maxConcurrency, timeout, onProgress",
+      "Define Signal type union for context_window_warning, checkpoint, human_input_required, debug_report_generated",
+      "Define ExecutionError interface with nodeId, error, timestamp, attempt",
+      "Define DebugReport interface with errorSummary, stackTrace, relevantFiles, suggestedFixes",
+      "Define NodeType as 'agent' | 'tool' | 'decision' | 'wait' | 'subgraph' | 'parallel'",
+      "Export all types from index.ts"
     ],
     "passes": true
   },
   {
+    "id": "1.2",
     "category": "functional",
-    "description": "Phase 1.2: Add ExecutionContext interface to graph types",
+    "phase": 1,
+    "description": "Create src/graph/annotation.ts with state annotation system (Annotation interface, annotation function, AnnotationRoot type, Reducers)",
     "steps": [
-      "In src/graph/types.ts, add ExecutionContext<TState extends BaseState> interface",
-      "Include fields: state: Readonly<TState>, config: GraphConfig, errors: ExecutionError[], abortSignal?: AbortSignal, contextWindowUsage?: number",
-      "Add JSDoc documentation explaining context passed to all nodes",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Phase 1.3: Add NodeResult interface to graph types",
-    "steps": [
-      "In src/graph/types.ts, add NodeResult<TState extends BaseState> interface",
-      "Include fields: stateUpdate?: Partial<TState>, goto?: NodeId | NodeId[], signals?: Signal[]",
-      "Add JSDoc documentation explaining result returned by node execution",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Phase 1.4: Add NodeType enum and NodeDefinition interface",
-    "steps": [
-      "In src/graph/types.ts, add NodeId type as string alias",
-      "Add NodeType union type: 'agent' | 'tool' | 'decision' | 'wait' | 'subgraph' | 'parallel'",
-      "Add NodeDefinition<TState> interface with id: NodeId, type: NodeType, execute: (ctx: ExecutionContext<TState>) => Promise<NodeResult<TState>>, retry?: RetryConfig",
-      "Add RetryConfig interface with maxAttempts, backoffMs, backoffMultiplier?, retryOn?",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Phase 1.5: Add GraphConfig and Signal types",
-    "steps": [
-      "In src/graph/types.ts, add GraphConfig interface with checkpointer?, maxConcurrency?, timeout?, onProgress?",
-      "Add Signal union type with: context_window_warning, checkpoint, human_input_required, debug_report_generated",
-      "Add ExecutionError interface with nodeId, error, timestamp, attempt",
-      "Add DebugReport interface with errorSummary, stackTrace, relevantFiles, suggestedFixes",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Phase 1.6: Create src/graph/annotation.ts with Annotation type",
-    "steps": [
-      "Create src/graph/annotation.ts file",
-      "Define Annotation<T> interface with default: T, reducer?: (current: T, update: T) => T",
-      "Create annotation<T>(config: Annotation<T>) factory function",
-      "Add AnnotationRoot<T> type for combining multiple annotations",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Phase 1.7: Add Reducers object with common reducer functions",
-    "steps": [
-      "In src/graph/annotation.ts, add Reducers object",
-      "Implement replace<T> reducer (returns new value)",
-      "Implement concat<T> reducer for arrays (concatenates)",
-      "Implement merge<T extends object> reducer for objects (shallow merge)",
-      "Implement mergeById<T extends { id: string }> reducer for arrays with unique IDs",
-      "Run pnpm typecheck to verify"
+      "Define Annotation<T> interface with default value and optional reducer",
+      "Implement annotation<T> factory function",
+      "Define AnnotationRoot type for combining annotations",
+      "Implement Reducers object with replace, concat, merge, mergeById functions",
+      "Create AtomicStateAnnotation example with all workflow state fields",
+      "Export AtomicWorkflowState type derived from annotation",
+      "Add unit tests for annotation reducers"
     ],
     "passes": false
   },
   {
+    "id": "1.3",
     "category": "functional",
-    "description": "Phase 1.8: Create AtomicStateAnnotation example",
+    "phase": 1,
+    "description": "Create src/graph/checkpointer.ts with MemorySaver implementation",
     "steps": [
-      "In src/graph/annotation.ts, create AtomicStateAnnotation object",
-      "Include: executionId, lastUpdated, outputs, researchDoc, specDoc, specApproved, featureList, currentFeature, allFeaturesPassing, debugReports, prUrl, contextWindowUsage, iteration",
-      "Use appropriate reducers (mergeById for featureList, concat for debugReports)",
-      "Export AtomicWorkflowState type from AnnotationRoot",
-      "Run pnpm typecheck to verify"
+      "Define Checkpointer<TState> interface with save, load, list, delete methods",
+      "Implement MemorySaver class with Map-based storage",
+      "Implement save method using structuredClone",
+      "Implement load method returning undefined for missing IDs",
+      "Implement list method returning all execution IDs",
+      "Implement delete method removing checkpoint",
+      "Add unit tests for MemorySaver"
     ],
     "passes": false
   },
   {
+    "id": "1.4",
     "category": "functional",
-    "description": "Phase 1.9: Create src/graph/checkpointer.ts with Checkpointer interface",
+    "phase": 1,
+    "description": "Create src/graph/nodes.ts with node factory functions (agentNode, toolNode, decisionNode, waitNode, parallelNode)",
     "steps": [
-      "Create src/graph/checkpointer.ts file",
-      "Define Checkpointer<TState extends BaseState> interface",
-      "Add methods: save(state), load(executionId), list(), delete(executionId)",
-      "Add JSDoc documentation for each method",
-      "Run pnpm typecheck to verify"
+      "Define AgentNodeConfig interface with agentType, systemPrompt, tools, outputMapper, sessionConfig",
+      "Implement agentNode factory function with session creation and streaming",
+      "Define ToolNodeConfig interface with toolName, args, outputMapper, timeout",
+      "Implement toolNode factory function with tool execution",
+      "Define DecisionNodeConfig interface with condition and fallback",
+      "Implement decisionNode factory function with condition evaluation",
+      "Define WaitNodeConfig interface with prompt, autoApprove, inputMapper",
+      "Implement waitNode factory function returning human_input_required signal",
+      "Define ParallelNodeConfig interface with branches, mergeStrategy, merge",
+      "Implement parallelNode factory function with Promise.all/race/any support",
+      "Add default retry config to agent nodes",
+      "Add unit tests for each node factory"
     ],
     "passes": false
   },
   {
+    "id": "1.5",
     "category": "functional",
-    "description": "Phase 1.10: Implement MemorySaver checkpointer",
+    "phase": 1,
+    "description": "Add unit tests for Phase 1 types and annotations",
     "steps": [
-      "In src/graph/checkpointer.ts, implement MemorySaver<TState> class",
-      "Use Map<string, TState> for in-memory storage",
-      "Implement save() using structuredClone for deep copy",
-      "Implement load() returning cloned state or undefined",
-      "Implement list() returning array of execution IDs",
-      "Implement delete() removing from map",
-      "Add unit tests for MemorySaver",
-      "Run pnpm test to verify"
+      "Create tests/graph/types.test.ts with type validation tests",
+      "Create tests/graph/annotation.test.ts with reducer tests",
+      "Test replace reducer overwrites values",
+      "Test concat reducer appends arrays",
+      "Test merge reducer combines objects",
+      "Test mergeById reducer merges by ID field",
+      "Test annotation function creates proper annotation config",
+      "Verify all tests pass with bun test"
     ],
     "passes": false
   },
   {
+    "id": "1.6",
     "category": "functional",
-    "description": "Phase 2.1: Create src/graph/builder.ts with GraphBuilder class skeleton",
+    "phase": 1,
+    "description": "Create src/graph/index.ts re-exporting all graph module types and functions",
     "steps": [
-      "Create src/graph/builder.ts file",
-      "Define GraphBuilder<TState extends BaseState> class",
-      "Add private fields: nodes (Map), edges (Array), startNode, endNodes (Set), currentNode",
-      "Add constructor",
+      "Create index.ts file in src/graph directory",
+      "Re-export all types from types.ts",
+      "Re-export all functions from annotation.ts",
+      "Re-export Checkpointer and MemorySaver from checkpointer.ts",
+      "Re-export all node factory functions from nodes.ts",
+      "Verify exports are accessible from src/graph"
+    ],
+    "passes": false
+  },
+  {
+    "id": "2.1",
+    "category": "functional",
+    "phase": 2,
+    "description": "Create src/graph/builder.ts with GraphBuilder class and fluent API (.start, .then, .end)",
+    "steps": [
+      "Define Edge interface with from, to, condition",
+      "Create GraphBuilder<TState> class with nodes Map and edges array",
+      "Implement start(nodeId) method setting startNode and currentNode",
+      "Implement then(node) method adding node and edge from current",
+      "Implement end(...nodeIds) method marking terminal nodes",
+      "Implement compile(config) method returning CompiledGraph",
       "Export graph<TState>() factory function",
-      "Run pnpm typecheck to verify"
+      "Add unit tests for linear graph construction"
     ],
     "passes": false
   },
   {
+    "id": "2.2",
     "category": "functional",
-    "description": "Phase 2.2: Implement start() and then() methods",
+    "phase": 2,
+    "description": "Implement .if(), .else(), .endif() conditional logic in GraphBuilder",
     "steps": [
-      "In GraphBuilder, implement start(nodeId: NodeId): this",
-      "Set startNode and currentNode to nodeId",
-      "Implement then(node: NodeDefinition<TState>): this",
-      "Add node to nodes map, add edge from currentNode if exists",
-      "Update currentNode to new node's id",
-      "Return this for chaining",
-      "Run pnpm typecheck to verify"
+      "Add conditionalStack array for tracking nested conditionals",
+      "Implement if(condition) method creating decision node placeholder",
+      "Implement else() method storing else branch starting node",
+      "Implement endif() method popping conditional stack and wiring edges",
+      "Handle nested conditionals properly",
+      "Add unit tests for conditional branching",
+      "Test nested if/else/endif structures"
     ],
     "passes": false
   },
   {
+    "id": "2.3",
     "category": "functional",
-    "description": "Phase 2.3: Implement end() method",
+    "phase": 2,
+    "description": "Implement .loop() method with exit conditions in GraphBuilder",
     "steps": [
-      "In GraphBuilder, implement end(...nodeIds: NodeId[]): this",
-      "Add each nodeId to endNodes set",
-      "Return this for chaining",
-      "Run pnpm typecheck to verify"
+      "Define LoopConfig<TState> interface with until condition and maxIterations",
+      "Implement loop(node, config) method creating loop subgraph node",
+      "Implement loop execution with iteration counter",
+      "Add maxIterations safety limit",
+      "Handle human_input_required signal breaking loop",
+      "Return accumulated state from loop iterations",
+      "Add unit tests for loop with exit conditions"
     ],
     "passes": false
   },
   {
+    "id": "2.4",
     "category": "functional",
-    "description": "Phase 2.4: Implement if(), else(), endif() conditional methods",
+    "phase": 2,
+    "description": "Implement .parallel() method with merge strategies in GraphBuilder",
     "steps": [
-      "In GraphBuilder, add conditionalStack array for tracking nested conditionals",
-      "Implement if(condition: (ctx) => boolean): this",
-      "Push decision context to stack",
-      "Implement else(): this to set alternative branch",
-      "Implement endif(): this to pop from stack and finalize conditional edges",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 2.5: Implement loop() method",
-    "steps": [
-      "In GraphBuilder, define LoopConfig<TState> interface with until: (ctx) => boolean, maxIterations?",
-      "Implement loop(node, config): this",
-      "Create loop node wrapper that executes until condition is true or maxIterations reached",
-      "Handle signals that should break the loop (e.g., human_input_required)",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 2.6: Implement parallel() method",
-    "steps": [
-      "In GraphBuilder, implement parallel(nodes, config?): this",
-      "Create parallel node that executes branches concurrently",
-      "Support merge strategies: 'all', 'first', 'any'",
+      "Implement parallel(nodes, config) method creating parallel node",
+      "Support 'all' merge strategy using Promise.all",
+      "Support 'first' merge strategy using Promise.race",
+      "Support 'any' merge strategy using Promise.any",
       "Support custom merge function for combining results",
-      "Run pnpm typecheck to verify"
+      "Add unit tests for parallel execution with different strategies"
     ],
     "passes": false
   },
   {
+    "id": "2.5",
     "category": "functional",
-    "description": "Phase 2.7: Implement wait() method for human-in-the-loop",
+    "phase": 2,
+    "description": "Implement .wait() for human-in-the-loop in GraphBuilder",
     "steps": [
-      "In GraphBuilder, implement wait(prompt, config?): this",
-      "Create wait node that emits human_input_required signal",
-      "Support optional autoApprove with timeout",
-      "Support inputMapper for processing human response",
-      "Run pnpm typecheck to verify"
+      "Implement wait(prompt, config) method creating wait node",
+      "Return human_input_required signal with prompt",
+      "Support autoApprove configuration with timeout",
+      "Add unit tests for wait node execution"
     ],
     "passes": false
   },
   {
+    "id": "2.6",
     "category": "functional",
-    "description": "Phase 2.8: Implement catch() error handler method",
+    "phase": 2,
+    "description": "Implement .catch() for error handling in GraphBuilder",
     "steps": [
-      "In GraphBuilder, implement catch(handler): this",
-      "Wrap previous node's execute function with try-catch",
-      "Call handler on error, which returns NodeResult for recovery",
-      "Run pnpm typecheck to verify"
+      "Implement catch(handler) method wrapping previous node's execute",
+      "Handler receives error and context, returns NodeResult",
+      "Support goto for redirecting to error recovery node",
+      "Preserve original node behavior on success",
+      "Add unit tests for error handling and recovery"
     ],
     "passes": false
   },
   {
+    "id": "2.7",
     "category": "functional",
-    "description": "Phase 2.9: Implement compile() method",
-    "steps": [
-      "In GraphBuilder, implement compile(config?): CompiledGraph<TState>",
-      "Validate startNode exists",
-      "Create and return new CompiledGraph instance with nodes, edges, startNode, endNodes, config",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 2.10: Add unit tests for GraphBuilder",
+    "phase": 2,
+    "description": "Add unit tests for all GraphBuilder methods",
     "steps": [
       "Create tests/graph/builder.test.ts",
-      "Test: builds linear graph with start().then().then().compile()",
-      "Test: handles conditional with if().then().else().then().endif()",
-      "Test: loop exits on condition",
-      "Test: parallel executes branches concurrently",
-      "Test: wait emits human_input_required signal",
-      "Test: catch handles errors gracefully",
-      "Run pnpm test to verify all pass"
+      "Test linear graph builds correctly",
+      "Test conditional branching selects correct path",
+      "Test loop exits when condition met",
+      "Test loop exits at maxIterations",
+      "Test parallel execution merges results",
+      "Test wait node returns signal",
+      "Test catch handler catches errors",
+      "Verify all tests pass with bun test"
     ],
     "passes": false
   },
   {
+    "id": "3.1",
     "category": "functional",
-    "description": "Phase 3.1: Create src/graph/compiled.ts with CompiledGraph class skeleton",
+    "phase": 3,
+    "description": "Create src/graph/compiled.ts with CompiledGraph class",
     "steps": [
-      "Create src/graph/compiled.ts file",
-      "Define CompiledGraph<TState extends BaseState> class",
-      "Add constructor taking nodes, edges, startNode, endNodes, config",
-      "Add execute(initialState) method signature",
-      "Add stream(initialState) method signature returning AsyncGenerator<TState>",
-      "Run pnpm typecheck to verify"
+      "Create CompiledGraph<TState> class with nodes, edges, startNode, endNodes, config",
+      "Implement constructor validating required fields",
+      "Implement execute(initialState) method running graph to completion",
+      "Implement stream(initialState) AsyncGenerator for incremental execution",
+      "Export CompiledGraph class"
     ],
     "passes": false
   },
   {
+    "id": "3.2",
     "category": "functional",
-    "description": "Phase 3.2: Implement initializeState() private method",
+    "phase": 3,
+    "description": "Implement BFS traversal with visited tracking in CompiledGraph",
     "steps": [
-      "In CompiledGraph, implement private initializeState(partial: Partial<TState>): TState",
-      "Generate executionId using crypto.randomUUID()",
-      "Set lastUpdated to new Date()",
-      "Initialize outputs to empty object",
-      "Merge with partial state",
-      "Run pnpm typecheck to verify"
+      "Create queue starting with startNode",
+      "Track visited nodes in Set",
+      "Skip already visited nodes (except loop nodes)",
+      "Get outgoing edges for current node",
+      "Apply edge conditions to filter next nodes",
+      "Add next nodes to queue",
+      "Stop at end nodes"
     ],
     "passes": false
   },
   {
+    "id": "3.3",
     "category": "functional",
-    "description": "Phase 3.3: Implement mergeState() private method",
+    "phase": 3,
+    "description": "Implement state merging with annotation reducers in CompiledGraph",
     "steps": [
-      "In CompiledGraph, implement private mergeState(current: TState, update: Partial<TState>): TState",
-      "Use annotation reducers if available",
-      "Default to shallow merge for simple properties",
-      "Update lastUpdated timestamp",
-      "Return new state (immutable update)",
-      "Run pnpm typecheck to verify"
+      "Implement initializeState(partial) creating full state with defaults",
+      "Implement mergeState(current, update) using annotation reducers",
+      "Handle Date serialization for lastUpdated",
+      "Apply reducers based on field type (replace, concat, merge)",
+      "Add unit tests for state merging"
     ],
     "passes": false
   },
   {
+    "id": "3.4",
     "category": "functional",
-    "description": "Phase 3.4: Implement executeWithRetry() private method",
+    "phase": 3,
+    "description": "Implement streaming via AsyncGenerator in CompiledGraph",
     "steps": [
-      "In CompiledGraph, implement private executeWithRetry(node, ctx): Promise<NodeResult<TState>>",
-      "Get retry config from node or use default (maxAttempts: 1)",
-      "Loop up to maxAttempts, catching errors",
-      "Check retryOn condition if provided",
-      "Apply exponential backoff between attempts",
-      "Throw last error if all attempts fail",
-      "Run pnpm typecheck to verify"
+      "Yield state after each node execution",
+      "Update lastUpdated timestamp on state changes",
+      "Handle goto for dynamic routing",
+      "Handle signals in stream output",
+      "Stop on human_input_required signal",
+      "Continue execution after resume"
     ],
     "passes": false
   },
   {
+    "id": "3.5",
     "category": "functional",
-    "description": "Phase 3.5: Implement stream() execution method",
+    "phase": 3,
+    "description": "Implement retry logic with exponential backoff in CompiledGraph",
     "steps": [
-      "In CompiledGraph, implement async *stream(initialState): AsyncGenerator<TState>",
-      "Initialize state with initializeState()",
-      "Use BFS traversal with queue starting from startNode",
-      "Track visited nodes to prevent infinite loops (except loop nodes)",
-      "For each node: build context, executeWithRetry, mergeState, checkpoint, yield state",
-      "Handle signals (human_input_required pauses execution)",
-      "Follow edges or goto from result",
-      "Stop at end nodes or when queue empty",
-      "Run pnpm typecheck to verify"
+      "Implement executeWithRetry(node, ctx) method",
+      "Use node.retry config for maxAttempts and backoff",
+      "Calculate delay with backoffMultiplier",
+      "Support retryOn predicate for conditional retry",
+      "Track attempts in ExecutionError",
+      "Throw last error after max attempts exhausted",
+      "Add unit tests for retry behavior"
     ],
     "passes": false
   },
   {
+    "id": "3.6",
     "category": "functional",
-    "description": "Phase 3.6: Implement execute() method",
+    "phase": 3,
+    "description": "Implement signal handling in CompiledGraph (context warning, human input)",
     "steps": [
-      "In CompiledGraph, implement async execute(initialState): Promise<TState>",
-      "Call stream() and iterate to completion",
-      "Return final state",
-      "Run pnpm typecheck to verify"
+      "Process signals array from node results",
+      "Handle context_window_warning signal",
+      "Handle human_input_required signal by pausing execution",
+      "Handle checkpoint signal by triggering save",
+      "Handle debug_report_generated signal",
+      "Return signals to caller for external handling"
     ],
     "passes": false
   },
   {
+    "id": "3.7",
     "category": "functional",
-    "description": "Phase 3.7: Add checkpointing to execution",
+    "phase": 3,
+    "description": "Integrate checkpointing into CompiledGraph execution",
     "steps": [
-      "In stream() method, after state update check if checkpointer exists",
-      "Call checkpointer.save(state) after each successful node execution",
-      "Add getCheckpointedState() method to retrieve last checkpoint",
-      "Run pnpm typecheck to verify"
+      "Call checkpointer.save(state) after each node completion",
+      "Implement resume from checkpoint by loading state",
+      "Implement getCheckpointedState() method",
+      "Handle checkpoint signal label",
+      "Add unit tests for checkpointing during execution"
     ],
     "passes": false
   },
   {
+    "id": "3.8",
     "category": "functional",
-    "description": "Phase 3.8: Add unit tests for CompiledGraph execution",
+    "phase": 3,
+    "description": "Add integration tests for CompiledGraph execution",
     "steps": [
       "Create tests/graph/compiled.test.ts",
-      "Test: executes linear graph in correct order",
-      "Test: streaming yields state after each node",
-      "Test: retry with exponential backoff",
-      "Test: checkpoints saved after each node",
-      "Test: human_input_required signal pauses execution",
-      "Test: handles errors and populates errors array",
-      "Run pnpm test to verify all pass"
+      "Test simple linear graph execution",
+      "Test conditional branching execution",
+      "Test loop execution with exit condition",
+      "Test parallel node execution",
+      "Test retry on transient failure",
+      "Test checkpoint save and load",
+      "Test streaming yields intermediate states",
+      "Verify all tests pass with bun test"
     ],
     "passes": false
   },
   {
+    "id": "4.1",
     "category": "functional",
-    "description": "Phase 4.1: Create src/sdk/types.ts with CodingAgentSession interface",
+    "phase": 4,
+    "description": "Create src/sdk/types.ts with thin adapter interface (CodingAgentClient, CodingAgentSession, CodingAgentSessionConfig)",
     "steps": [
-      "Create src/sdk/types.ts file",
-      "Define CodingAgentSession interface with: id (readonly string), send(message), stream() (AsyncGenerator<unknown>), compact()?, close(), native (readonly unknown)",
-      "Add JSDoc documenting thin adapter pattern",
-      "Run pnpm typecheck to verify"
+      "Define CodingAgentSession interface with id, send, stream, compact, close, native",
+      "Define CodingAgentClient<TSession> interface with createSession, resumeSession, events, start, stop",
+      "Define CodingAgentSessionConfig with model, sessionId, systemPrompt, permissionMode, maxTurns, nativeOptions",
+      "Document that native accessor provides access to underlying SDK session",
+      "Document that stream() returns native SDK message types",
+      "Export all types from types.ts"
     ],
     "passes": false
   },
   {
+    "id": "4.2",
     "category": "functional",
-    "description": "Phase 4.2: Add CodingAgentClient and CodingAgentSessionConfig interfaces",
+    "phase": 4,
+    "description": "Create src/sdk/claude-client.ts as thin wrapper over Claude V2 SDK",
     "steps": [
-      "In src/sdk/types.ts, define CodingAgentClient<TSession> interface",
-      "Add methods: createSession(config), resumeSession(sessionId), events(), start(), stop()",
-      "Define CodingAgentSessionConfig interface with model, sessionId?, systemPrompt?, permissionMode?, maxTurns?, nativeOptions?",
-      "Add JSDoc explaining SDK-specific options passed through nativeOptions",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 4.3: Create src/sdk/claude-client.ts ClaudeAgentClient class",
-    "steps": [
-      "Create src/sdk/claude-client.ts file",
-      "Import from @anthropic-ai/claude-agent-sdk (unstable_v2_createSession, unstable_v2_resumeSession, SDKMessage)",
+      "Import unstable_v2_createSession, unstable_v2_resumeSession from @anthropic-ai/claude-agent-sdk",
       "Implement ClaudeAgentClient class implementing CodingAgentClient<ClaudeSession>",
-      "Add sessions Map for tracking",
-      "Implement createSession() using V2 SDK directly",
-      "Implement resumeSession()",
-      "Implement start(), stop() lifecycle methods",
-      "Add JSDoc documenting thin adapter pattern",
-      "Run pnpm typecheck to verify"
+      "Implement createSession using unstable_v2_createSession directly",
+      "Implement resumeSession using unstable_v2_resumeSession",
+      "Implement events() throwing error directing to session.stream()",
+      "Implement start() as no-op (V2 handles automatically)",
+      "Implement stop() closing all sessions",
+      "Implement ClaudeSession class with send, stream, compact, close, native",
+      "Return native SDKMessage from stream() without transformation",
+      "Document compact() uses V2 auto-compaction",
+      "Add unit tests with mocked SDK"
     ],
     "passes": false
   },
   {
+    "id": "4.3",
     "category": "functional",
-    "description": "Phase 4.4: Implement ClaudeSession class",
+    "phase": 4,
+    "description": "Create src/sdk/opencode-client.ts as thin wrapper using native summarize() and events",
     "steps": [
-      "In src/sdk/claude-client.ts, implement ClaudeSession class",
-      "Constructor takes id and native V2 session",
-      "send() delegates to session.send()",
-      "stream() yields native SDKMessage (no transformation)",
-      "compact() is no-op (V2 SDK handles auto-compaction)",
-      "close() delegates to session.close()",
-      "native getter returns underlying session",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 4.5: Create src/sdk/opencode-client.ts OpenCodeClient class",
-    "steps": [
-      "Create src/sdk/opencode-client.ts file",
       "Import createOpencodeClient from @opencode-ai/sdk/v2/client",
       "Implement OpenCodeClient class implementing CodingAgentClient<OpenCodeSession>",
-      "Constructor creates SDK client with baseUrl and directory",
-      "Implement createSession() using client.session.create()",
-      "Implement resumeSession() using client.session.get()",
-      "Implement events() yielding from client.event.subscribe().stream",
-      "Run pnpm typecheck to verify"
+      "Implement createSession using client.session.create",
+      "Implement resumeSession verifying session exists then returning wrapper",
+      "Implement events() yielding from client.event.subscribe()",
+      "Implement start() as no-op",
+      "Implement stop() cleaning up",
+      "Implement OpenCodeSession class with send, stream, compact, close, native",
+      "Use client.session.prompt for send",
+      "Filter event stream for session ID in stream()",
+      "Use client.session.summarize for compact()",
+      "Use client.session.delete for close()",
+      "Add unit tests with mocked SDK"
     ],
     "passes": false
   },
   {
+    "id": "4.4",
     "category": "functional",
-    "description": "Phase 4.6: Implement OpenCodeSession class",
+    "phase": 4,
+    "description": "Create src/sdk/copilot-client.ts as thin wrapper using native 31 event types",
     "steps": [
-      "In src/sdk/opencode-client.ts, implement OpenCodeSession class",
-      "Constructor takes id and client reference",
-      "send() uses client.session.prompt()",
-      "stream() filters event.subscribe() for this session, yields native events",
-      "compact() uses client.session.summarize() (SDK's built-in)",
-      "close() uses client.session.delete()",
-      "native getter returns client",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 4.7: Create src/sdk/copilot-client.ts CopilotClient class",
-    "steps": [
-      "Create src/sdk/copilot-client.ts file",
-      "Import CopilotClient as GHCopilotClient from @github/copilot-sdk",
+      "Import CopilotClient from @github/copilot-sdk",
       "Implement CopilotClient class implementing CodingAgentClient<CopilotSession>",
-      "Constructor supports stdio, port, or cliUrl configuration",
-      "Implement createSession() using client.createSession()",
-      "Implement resumeSession() using client.resumeSession()",
-      "Implement events() converting callback-based events to async generator",
-      "Run pnpm typecheck to verify"
+      "Support stdio, port, and cliUrl connection modes",
+      "Implement createSession using client.createSession",
+      "Implement resumeSession using client.resumeSession",
+      "Implement events() converting callback to AsyncGenerator",
+      "Implement start() calling client.start()",
+      "Implement stop() calling client.stop()",
+      "Implement CopilotSession with send, stream, compact, close, native",
+      "Use session.send for message sending",
+      "Convert session.on callback to stream generator",
+      "Use /compact command for compact()",
+      "Use session.destroy for close()",
+      "Add unit tests with mocked SDK"
     ],
     "passes": false
   },
   {
+    "id": "4.5",
     "category": "functional",
-    "description": "Phase 4.8: Implement CopilotSession class",
+    "phase": 4,
+    "description": "Create src/sdk/event-bridge.ts for event passthrough (not mapping)",
     "steps": [
-      "In src/sdk/copilot-client.ts, implement CopilotSession class",
-      "Constructor takes id and native session",
-      "send() uses session.send({ prompt })",
-      "stream() converts session.on() callbacks to async generator",
-      "compact() sends '/compact' command (SDK's built-in)",
-      "close() uses session.destroy()",
-      "native getter returns session",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 4.9: Create src/sdk/event-bridge.ts EventBridge class",
-    "steps": [
-      "Create src/sdk/event-bridge.ts file",
-      "Define NativeEvent interface with source ('claude' | 'copilot' | 'opencode') and event (unknown)",
+      "Define NativeEvent interface with source and event fields",
       "Implement EventBridge class with listeners Set",
       "Implement subscribe(handler) returning unsubscribe function",
-      "Implement connect(client, source) that forwards native events with source tag",
-      "Add JSDoc explaining passthrough pattern (no event mapping)",
-      "Run pnpm typecheck to verify"
+      "Implement connect(client, source) forwarding events with source tag",
+      "Forward events as-is without transformation",
+      "Document that graph nodes handle SDK-specific event types",
+      "Add unit tests for event forwarding"
     ],
     "passes": false
   },
   {
+    "id": "4.6",
     "category": "functional",
-    "description": "Phase 4.10: Add unit tests for SDK clients",
+    "phase": 4,
+    "description": "Create src/sdk/index.ts re-exporting SDK types and clients",
     "steps": [
-      "Create tests/sdk/claude-client.test.ts with mocked SDK",
-      "Test: creates session and returns ClaudeSession",
-      "Test: stream() yields native SDKMessage",
-      "Create tests/sdk/opencode-client.test.ts with mocked SDK",
-      "Test: creates session with proper config",
-      "Test: compact() calls session.summarize()",
-      "Create tests/sdk/copilot-client.test.ts with mocked SDK",
-      "Test: events() converts callbacks to async generator",
-      "Run pnpm test to verify all pass"
+      "Re-export all types from types.ts",
+      "Re-export ClaudeAgentClient and ClaudeSession",
+      "Re-export OpenCodeClient and OpenCodeSession",
+      "Re-export CopilotClient and CopilotSession",
+      "Re-export EventBridge and NativeEvent",
+      "Verify exports are accessible from src/sdk"
     ],
     "passes": false
   },
   {
-    "category": "ui",
-    "description": "Phase 5.1: Install OpenTUI dependencies",
+    "id": "4.7",
+    "category": "functional",
+    "phase": 4,
+    "description": "Add unit tests for SDK clients with mocked SDKs",
     "steps": [
-      "Run: pnpm add @opentui/core @opentui/react",
-      "Verify packages installed in package.json",
-      "Run pnpm typecheck to ensure types are available"
+      "Create tests/sdk/claude-client.test.ts",
+      "Create tests/sdk/opencode-client.test.ts",
+      "Create tests/sdk/copilot-client.test.ts",
+      "Create tests/sdk/event-bridge.test.ts",
+      "Mock SDK methods for testing",
+      "Test session creation and configuration passing",
+      "Test message sending",
+      "Test streaming response handling",
+      "Test compact() calls native SDK method",
+      "Test session close cleanup",
+      "Test event bridge forwarding",
+      "Verify all tests pass with bun test"
     ],
     "passes": false
   },
   {
+    "id": "5.1",
     "category": "ui",
-    "description": "Phase 5.2: Create src/ui/chat.tsx ChatApp component structure",
+    "phase": 5,
+    "description": "Install @opentui/core and @opentui/react dependencies",
     "steps": [
-      "Create src/ui/chat.tsx file",
-      "Import from @opentui/react (render, useKeyboard, useTerminalDimensions)",
-      "Import from @opentui/core (createCliRenderer)",
-      "Define ChatMessage interface with id, role, content, timestamp, streaming?",
-      "Define ChatAppProps interface with onSendMessage, onStreamMessage, onExit",
-      "Create ChatApp functional component skeleton",
-      "Run pnpm typecheck to verify"
+      "Run bun add @opentui/core @opentui/react",
+      "Verify packages are installed in node_modules",
+      "Update package.json with new dependencies",
+      "Test basic import works"
     ],
     "passes": false
   },
   {
+    "id": "5.2",
     "category": "ui",
-    "description": "Phase 5.3: Implement ChatApp state and hooks",
+    "phase": 5,
+    "description": "Create src/ui/chat.tsx with main ChatApp component",
     "steps": [
-      "In ChatApp, add messages state with useState<ChatMessage[]>",
-      "Add isStreaming state",
-      "Use useTerminalDimensions() for width/height",
-      "Use useKeyboard() to handle ESC and Ctrl+C for exit",
-      "Run pnpm typecheck to verify"
+      "Import render, useKeyboard, useTerminalDimensions from @opentui/react",
+      "Define ChatMessage interface with id, role, content, timestamp, streaming",
+      "Define ChatAppProps with onSendMessage, onStreamMessage, onExit",
+      "Implement ChatApp component with useState for messages and isStreaming",
+      "Use useTerminalDimensions for responsive layout",
+      "Use useKeyboard for ESC and Ctrl+C handling",
+      "Implement handleSubmit for message sending and streaming",
+      "Render box layout with header, scrollbox, and input",
+      "Implement MessageBubble component for message display"
     ],
     "passes": false
   },
   {
+    "id": "5.3",
     "category": "ui",
-    "description": "Phase 5.4: Implement handleSubmit callback",
+    "phase": 5,
+    "description": "Implement MessageBubble with markdown rendering in ChatApp",
     "steps": [
-      "In ChatApp, implement handleSubmit with useCallback",
-      "Check for empty input or streaming state",
-      "Add user message to messages state",
-      "Create placeholder assistant message with streaming: true",
-      "Call onSendMessage and stream response",
-      "Update assistant message content as chunks arrive",
-      "Set streaming: false when complete",
-      "Run pnpm typecheck to verify"
+      "Create MessageBubble function component",
+      "Style user vs assistant messages differently",
+      "Display role and streaming indicator",
+      "Render content using markdown component",
+      "Pass streaming prop for incremental rendering",
+      "Apply theme colors for backgrounds"
     ],
     "passes": false
   },
   {
+    "id": "5.4",
     "category": "ui",
-    "description": "Phase 5.5: Implement ChatApp JSX layout",
+    "phase": 5,
+    "description": "Create src/ui/code-block.tsx with syntax highlighting",
     "steps": [
-      "In ChatApp, implement return JSX with OpenTUI components",
-      "Add header box with title and help text",
-      "Add scrollbox with stickyScroll and viewportCulling for message history",
-      "Map messages to MessageBubble components",
-      "Add input box with textarea or input component",
-      "Run pnpm typecheck to verify"
+      "Import CodeRenderable from @opentui/core",
+      "Define CodeBlockProps with content, language, streaming",
+      "Implement CodeBlock component using code renderable",
+      "Set filetype for syntax highlighting",
+      "Use monokai syntax style",
+      "Support streaming mode for incremental highlighting",
+      "Implement extractCodeBlocks utility for parsing markdown",
+      "Add border and padding styling"
     ],
     "passes": false
   },
   {
+    "id": "5.5",
     "category": "ui",
-    "description": "Phase 5.6: Create MessageBubble component",
+    "phase": 5,
+    "description": "Create src/ui/theme.ts with dark/light themes",
     "steps": [
-      "In src/ui/chat.tsx, create MessageBubble component",
-      "Accept message prop of type ChatMessage",
-      "Style differently for user vs assistant messages",
-      "Show 'typing...' indicator when streaming",
-      "Render content with markdown component (streaming support)",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "ui",
-    "description": "Phase 5.7: Create src/ui/code-block.tsx CodeBlock component",
-    "steps": [
-      "Create src/ui/code-block.tsx file",
-      "Define CodeBlockProps with content, language, streaming?",
-      "Implement CodeBlock using OpenTUI code component",
-      "Set syntaxStyle to 'monokai'",
-      "Support streaming prop",
-      "Implement extractCodeBlocks() helper for parsing markdown",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "ui",
-    "description": "Phase 5.8: Create src/ui/theme.ts with Theme system",
-    "steps": [
-      "Create src/ui/theme.ts file",
       "Define Theme interface with name and colors object",
-      "Include colors: background, foreground, accent, border, userMessage, assistantMessage, error, success, warning",
-      "Create darkTheme constant",
-      "Create lightTheme constant",
-      "Create ThemeContext and useTheme hook",
-      "Create ThemeProvider component",
-      "Run pnpm typecheck to verify"
+      "Define color fields: background, foreground, accent, border, userMessage, assistantMessage, error, success, warning",
+      "Implement darkTheme with dark colors",
+      "Implement lightTheme with light colors",
+      "Create ThemeContext with React.createContext",
+      "Implement useTheme hook returning current theme",
+      "Implement ThemeProvider component"
     ],
     "passes": false
   },
   {
+    "id": "5.6",
     "category": "ui",
-    "description": "Phase 5.9: Create src/ui/index.ts with startChatUI function",
+    "phase": 5,
+    "description": "Create src/ui/index.ts with CLI integration (startChatUI function)",
     "steps": [
-      "Create src/ui/index.ts file",
-      "Import render from @opentui/react, createCliRenderer from @opentui/core",
-      "Import ChatApp from ./chat",
+      "Import render from @opentui/react",
+      "Import createCliRenderer from @opentui/core",
+      "Import ChatApp and theme components",
       "Implement startChatUI(client, sessionConfig) async function",
-      "Create renderer, session variables",
-      "Implement handleSendMessage, handleStreamMessage, handleExit",
-      "IMPORTANT: Call root.unmount() BEFORE renderer.destroy() to avoid Yoga crash",
-      "Handle process signals (SIGINT, SIGTERM)",
-      "Run pnpm typecheck to verify"
+      "Create CLI renderer instance",
+      "Manage session lifecycle",
+      "Wire up message handlers to client",
+      "Handle exit by unmounting before destroying renderer",
+      "Register SIGINT and SIGTERM handlers",
+      "Export startChatUI function"
     ],
     "passes": false
   },
   {
+    "id": "5.7",
     "category": "ui",
-    "description": "Phase 5.10: Add unit tests for UI components",
+    "phase": 5,
+    "description": "Handle renderer lifecycle (unmount before destroy to avoid Yoga crash)",
+    "steps": [
+      "Store root reference from render()",
+      "In handleExit, call root.unmount() first",
+      "Then call renderer.destroy()",
+      "Then process.exit(0)",
+      "Document this order is required to avoid Yoga layout crash"
+    ],
+    "passes": false
+  },
+  {
+    "id": "5.8",
+    "category": "ui",
+    "phase": 5,
+    "description": "Add unit tests for UI components",
     "steps": [
       "Create tests/ui/chat.test.tsx",
-      "Test: ChatApp renders header, message list, input",
-      "Test: handleSubmit adds messages correctly",
-      "Test: keyboard shortcuts work",
       "Create tests/ui/theme.test.ts",
-      "Test: useTheme returns current theme",
-      "Test: ThemeProvider passes theme to children",
-      "Run pnpm test to verify all pass"
+      "Test ChatApp renders without errors",
+      "Test message submission adds user message",
+      "Test streaming updates assistant message",
+      "Test ESC key triggers onExit",
+      "Test theme provider provides correct theme",
+      "Test dark and light theme colors",
+      "Verify all tests pass with bun test"
     ],
     "passes": false
   },
   {
+    "id": "6.1",
     "category": "functional",
-    "description": "Phase 6.1: Create src/telemetry/types.ts with TelemetryEvent types",
+    "phase": 6,
+    "description": "Create src/telemetry/types.ts with TelemetryEvent types",
     "steps": [
-      "Create src/telemetry/types.ts file",
-      "Define TelemetryEvent interface with eventId, timestamp, eventType, sessionId?, executionId?, properties",
-      "Define TelemetryEventType union with SDK events (session.*, message.*, tool.*), graph events (graph.*, node.*, checkpoint.*), workflow events (workflow.*, feature.*), UI events (ui.*)",
-      "Define TelemetryCollector interface with track(), flush(), isEnabled(), shutdown()",
-      "Run pnpm typecheck to verify"
+      "Define TelemetryEvent interface with eventId, timestamp, eventType, sessionId, executionId, properties",
+      "Define TelemetryEventType union with SDK events (session, message, tool, error)",
+      "Define TelemetryEventType union with graph events (execution, node, checkpoint)",
+      "Define TelemetryEventType union with workflow events (ralph, feature)",
+      "Define TelemetryEventType union with UI events (chat)",
+      "Define TelemetryCollector interface with track, flush, isEnabled, shutdown"
     ],
     "passes": false
   },
   {
+    "id": "6.2",
     "category": "functional",
-    "description": "Phase 6.2: Create src/telemetry/collector.ts UnifiedTelemetryCollector class",
+    "phase": 6,
+    "description": "Create src/telemetry/collector.ts with UnifiedTelemetryCollector",
     "steps": [
-      "Create src/telemetry/collector.ts file",
-      "Implement UnifiedTelemetryCollector class implementing TelemetryCollector",
-      "Add private events array, anonymousId, flushInterval",
-      "Set batchSize to 100, flushIntervalMs to 30000 (30 seconds)",
-      "Implement generateAnonymousId() using machine hash",
-      "Implement constructor with config (enabled, localLogPath?, appInsightsKey?)",
-      "Run pnpm typecheck to verify"
+      "Define collector configuration interface",
+      "Implement UnifiedTelemetryCollector class",
+      "Generate stable anonymous ID from machine characteristics",
+      "Implement isEnabled() respecting DO_NOT_TRACK and ATOMIC_TELEMETRY env vars",
+      "Implement track(event) adding metadata and queueing event",
+      "Implement auto-flush at batch size threshold",
+      "Implement flush interval timer",
+      "Implement flush() calling local and remote sinks",
+      "Implement shutdown() flushing and clearing interval"
     ],
     "passes": false
   },
   {
+    "id": "6.3",
     "category": "functional",
-    "description": "Phase 6.3: Implement TelemetryCollector methods",
+    "phase": 6,
+    "description": "Implement local JSONL logging in TelemetryCollector",
     "steps": [
-      "In UnifiedTelemetryCollector, implement isEnabled()",
-      "Check DO_NOT_TRACK and ATOMIC_TELEMETRY env vars",
-      "Implement track() to add event with generated eventId and timestamp",
-      "Add anonymousId, platform, nodeVersion to properties",
-      "Auto-flush if batch size reached",
-      "Implement flush() to write to local log and/or App Insights",
-      "Implement shutdown() to clear interval and final flush",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 6.4: Implement writeToLocalLog() private method",
-    "steps": [
-      "In UnifiedTelemetryCollector, implement writeToLocalLog(events)",
-      "Create log directory if needed using fs.mkdir",
-      "Generate filename with date: telemetry-YYYY-MM-DD.jsonl",
+      "Implement writeToLocalLog(events) method",
+      "Create log directory if not exists",
+      "Generate daily log file name with ISO date",
       "Convert events to JSONL format (one JSON per line)",
-      "Append to file using fs.appendFile",
-      "Run pnpm typecheck to verify"
+      "Append to log file",
+      "Handle write errors silently"
     ],
     "passes": false
   },
   {
+    "id": "6.4",
     "category": "functional",
-    "description": "Phase 6.5: Implement sendToAppInsights() private method",
+    "phase": 6,
+    "description": "Implement Azure Application Insights upload in TelemetryCollector",
     "steps": [
-      "In UnifiedTelemetryCollector, implement sendToAppInsights(events)",
-      "Use Azure App Insights ingestion endpoint",
-      "Transform events to App Insights EventData format",
-      "Send POST request with JSON body",
-      "Fail silently on network errors (telemetry should not break app)",
-      "Run pnpm typecheck to verify"
+      "Implement sendToAppInsights(events) method",
+      "Map events to Application Insights EventData format",
+      "Set iKey from configuration",
+      "POST to dc.services.visualstudio.com/v2/track",
+      "Handle upload errors silently",
+      "Only send if appInsightsKey is configured"
     ],
     "passes": false
   },
   {
+    "id": "6.5",
     "category": "functional",
-    "description": "Phase 6.6: Create src/telemetry/sdk-integration.ts",
+    "phase": 6,
+    "description": "Create src/telemetry/sdk-integration.ts with connectTelemetry function",
     "steps": [
-      "Create src/telemetry/sdk-integration.ts file",
+      "Import TelemetryCollector and EventBridge types",
       "Implement connectTelemetry(bridge, collector) function",
-      "Subscribe to EventBridge events",
-      "Call collector.track() with inferred event type",
-      "Implement inferEventType() to map native events to TelemetryEventType",
-      "Implement extractSessionId() helper",
-      "Implement sanitizeForTelemetry() to remove sensitive fields",
-      "Return unsubscribe function",
-      "Run pnpm typecheck to verify"
+      "Subscribe to EventBridge for all SDK events",
+      "Infer telemetry event type from native event type",
+      "Extract session ID from various event formats",
+      "Sanitize event data for privacy",
+      "Track events through collector",
+      "Return unsubscribe function"
     ],
     "passes": false
   },
   {
+    "id": "6.6",
     "category": "functional",
-    "description": "Phase 6.7: Create src/telemetry/graph-integration.ts",
+    "phase": 6,
+    "description": "Create src/telemetry/graph-integration.ts with graph telemetry hooks",
     "steps": [
-      "Create src/telemetry/graph-integration.ts file",
       "Implement withGraphTelemetry(config, collector) function",
-      "Return augmented GraphConfig with onProgress tracking",
-      "Implement trackGraphExecution() returning started, completed, failed, checkpointSaved callbacks",
-      "Track node execution events with duration",
-      "Run pnpm typecheck to verify"
+      "Wrap onProgress to track node completion events",
+      "Implement trackGraphExecution(collector, executionId) factory",
+      "Return started(), completed(state), failed(error, nodeId), checkpointSaved(label) methods",
+      "Track execution lifecycle events"
     ],
     "passes": false
   },
   {
+    "id": "6.7",
     "category": "functional",
-    "description": "Phase 6.8: Create src/telemetry/config.ts",
+    "phase": 6,
+    "description": "Create src/telemetry/config.ts with configuration loader",
     "steps": [
-      "Create src/telemetry/config.ts file",
       "Define TelemetryConfig interface",
       "Implement loadTelemetryConfig() function",
       "Check DO_NOT_TRACK and ATOMIC_TELEMETRY env vars",
-      "Set default localLogPath based on platform (XDG_DATA_HOME or LOCALAPPDATA)",
-      "Read ATOMIC_APP_INSIGHTS_KEY from env",
-      "Run pnpm typecheck to verify"
+      "Determine data directory based on platform",
+      "Set localLogPath in data directory",
+      "Load appInsightsKey from ATOMIC_APP_INSIGHTS_KEY env var",
+      "Return configuration object"
     ],
     "passes": false
   },
   {
+    "id": "6.8",
     "category": "functional",
-    "description": "Phase 6.9: Add unit tests for telemetry",
+    "phase": 6,
+    "description": "Create src/telemetry/index.ts re-exporting telemetry module",
+    "steps": [
+      "Re-export types from types.ts",
+      "Re-export UnifiedTelemetryCollector from collector.ts",
+      "Re-export connectTelemetry from sdk-integration.ts",
+      "Re-export withGraphTelemetry and trackGraphExecution from graph-integration.ts",
+      "Re-export loadTelemetryConfig from config.ts"
+    ],
+    "passes": false
+  },
+  {
+    "id": "6.9",
+    "category": "functional",
+    "phase": 6,
+    "description": "Add unit tests for telemetry collector",
     "steps": [
       "Create tests/telemetry/collector.test.ts",
-      "Test: track() adds event to queue",
-      "Test: flush() writes to JSONL file",
-      "Test: isEnabled() respects DO_NOT_TRACK",
-      "Test: auto-flush at batch size",
-      "Create tests/telemetry/integration.test.ts",
-      "Test: connectTelemetry receives events from bridge",
-      "Test: trackGraphExecution tracks lifecycle",
-      "Run pnpm test to verify all pass"
+      "Test isEnabled respects DO_NOT_TRACK",
+      "Test isEnabled respects ATOMIC_TELEMETRY=0",
+      "Test track adds events to queue",
+      "Test auto-flush at batch size",
+      "Test flush writes to local log",
+      "Test anonymous ID is stable",
+      "Test shutdown flushes remaining events",
+      "Verify all tests pass with bun test"
     ],
     "passes": false
   },
   {
+    "id": "7.1",
     "category": "functional",
-    "description": "Phase 7.1: Create src/workflows/atomic.ts with createAtomicWorkflow function",
+    "phase": 7,
+    "description": "Create src/workflows/atomic.ts with Atomic workflow definition",
     "steps": [
-      "Create src/workflows/atomic.ts file",
-      "Import graph utilities and node factories",
+      "Import graph builder and node factories",
       "Import AtomicWorkflowState type",
-      "Implement createAtomicWorkflow(client) function skeleton",
-      "Return compiled graph",
-      "Run pnpm typecheck to verify"
+      "Implement createAtomicWorkflow(client) function",
+      "Define research agent node",
+      "Define createSpec agent node",
+      "Define reviewSpec decision node",
+      "Define waitForApproval wait node",
+      "Define createFeatureList agent node",
+      "Define selectFeature decision node",
+      "Define implementFeature agent node with loop",
+      "Define createPR tool node",
+      "Build graph with fluent API",
+      "Compile with ResearchDirSaver checkpointer"
     ],
     "passes": false
   },
   {
+    "id": "7.2",
     "category": "functional",
-    "description": "Phase 7.2: Implement research node",
+    "phase": 7,
+    "description": "Implement FileSaver and ResearchDirSaver checkpointers",
     "steps": [
-      "In createAtomicWorkflow, create research agentNode",
-      "Set agentType to 'codebase-research-analyzer'",
-      "Set systemPrompt for analyzing codebase and research documents",
-      "Map output to researchDoc state field",
-      "Run pnpm typecheck to verify"
+      "Implement FileSaver class with directory-based storage",
+      "Implement save writing JSON file",
+      "Implement load reading JSON file",
+      "Implement list using readdir",
+      "Implement delete using unlink",
+      "Implement ResearchDirSaver extending FileSaver pattern",
+      "Use research/checkpoints directory",
+      "Save as markdown with YAML frontmatter and JSON code block",
+      "Parse JSON from code block on load",
+      "Add unit tests for both checkpointers"
     ],
     "passes": false
   },
   {
+    "id": "7.3",
     "category": "functional",
-    "description": "Phase 7.3: Implement createSpec node",
+    "phase": 7,
+    "description": "Update atomic ralph setup command to use graph engine",
     "steps": [
-      "In createAtomicWorkflow, create createSpec agentNode",
-      "Set agentType to 'general'",
-      "Set systemPrompt for creating technical specification",
-      "Map output to specDoc state field",
-      "Run pnpm typecheck to verify"
+      "Locate existing ralph setup command",
+      "Import createAtomicWorkflow function",
+      "Create SDK client based on -a flag",
+      "Create workflow graph",
+      "Execute graph with initial state",
+      "Handle streaming execution with progress display",
+      "Handle human_input_required signals",
+      "Display completion status"
     ],
     "passes": false
   },
   {
+    "id": "7.4",
     "category": "functional",
-    "description": "Phase 7.4: Implement reviewSpec and waitForApproval nodes",
+    "phase": 7,
+    "description": "Add ATOMIC_USE_GRAPH_ENGINE feature flag",
     "steps": [
-      "In createAtomicWorkflow, create reviewSpec decisionNode",
-      "Route to createFeatureList if specApproved, else waitForApproval",
-      "Create waitForApproval waitNode with spec review prompt",
-      "Run pnpm typecheck to verify"
+      "Check ATOMIC_USE_GRAPH_ENGINE environment variable",
+      "Default to true for new installations",
+      "Support =0 to disable graph engine",
+      "Document feature flag in README",
+      "Add to configuration documentation"
     ],
     "passes": false
   },
   {
+    "id": "7.5",
     "category": "functional",
-    "description": "Phase 7.5: Implement createFeatureList node",
+    "phase": 7,
+    "description": "Integrate OpenTUI chat interface with workflows",
     "steps": [
-      "In createAtomicWorkflow, create createFeatureList agentNode",
-      "Set agentType to 'codebase-analyzer'",
-      "Set systemPrompt for extracting features from spec",
-      "Parse output as JSON feature list",
-      "Map to featureList state field, set allFeaturesPassing to false",
-      "Run pnpm typecheck to verify"
+      "Import startChatUI from src/ui",
+      "Create client based on agent selection",
+      "Start chat UI with client and session config",
+      "Wire up workflow graph execution to chat",
+      "Display graph progress in chat",
+      "Handle workflow completion in UI"
     ],
     "passes": false
   },
   {
+    "id": "7.6",
     "category": "functional",
-    "description": "Phase 7.6: Implement selectFeature and implementFeature nodes",
+    "phase": 7,
+    "description": "Update CLI to display graph execution progress",
     "steps": [
-      "In createAtomicWorkflow, create selectFeature decisionNode",
-      "Find first feature with passes=false",
-      "Route to implementFeature if found, else createPR",
-      "Create implementFeature agentNode",
-      "Update feature in list to passes=true",
-      "Increment iteration counter",
-      "Run pnpm typecheck to verify"
+      "Subscribe to graph execution events",
+      "Display node start/complete messages",
+      "Show progress indicator during execution",
+      "Display error messages with context",
+      "Show checkpoint saves",
+      "Display iteration count for loops"
     ],
     "passes": false
   },
   {
+    "id": "7.7",
     "category": "functional",
-    "description": "Phase 7.7: Implement createPR node",
+    "phase": 7,
+    "description": "Wire up telemetry for workflow events",
     "steps": [
-      "In createAtomicWorkflow, create createPR toolNode",
-      "Use gh tool with pr create subcommand",
-      "Build args from state (title, body from specDoc)",
-      "Map output (PR URL) to prUrl state field",
-      "Run pnpm typecheck to verify"
+      "Create telemetry collector in workflow command",
+      "Track workflow.ralph.started on start",
+      "Track workflow.ralph.iteration on each loop",
+      "Track workflow.feature.started/completed for features",
+      "Track workflow.ralph.completed on finish",
+      "Ensure flush on exit"
     ],
     "passes": false
   },
   {
+    "id": "7.8",
     "category": "functional",
-    "description": "Phase 7.8: Build and compile the atomic workflow graph",
-    "steps": [
-      "In createAtomicWorkflow, use graph() builder",
-      "Chain: start('research').then(research).then(createSpec).then(reviewSpec).then(waitForApproval).then(createFeatureList)",
-      "Add loop for implementFeature with until: allFeaturesPassing",
-      "Add createPR after loop",
-      "Mark createPR as end node",
-      "Compile with ResearchDirSaver checkpointer",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 7.9: Implement FileSaver checkpointer",
-    "steps": [
-      "In src/graph/checkpointer.ts, implement FileSaver<TState> class",
-      "Constructor takes directory path",
-      "save() creates directory and writes JSON file",
-      "load() reads and parses JSON file",
-      "list() reads directory and returns execution IDs",
-      "delete() removes file",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 7.10: Implement ResearchDirSaver checkpointer",
-    "steps": [
-      "In src/graph/checkpointer.ts, implement ResearchDirSaver<TState> class",
-      "Constructor takes projectRoot (defaults to cwd)",
-      "Store checkpoints in research/checkpoints/",
-      "save() writes as .md with YAML frontmatter + JSON code block",
-      "load() parses JSON from markdown code block",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 7.11: Update CLI to use graph engine for ralph command",
-    "steps": [
-      "Update atomic ralph setup command to use createAtomicWorkflow",
-      "Add ATOMIC_USE_GRAPH_ENGINE feature flag check",
-      "Create client based on -a flag",
-      "Execute workflow with compiled graph",
-      "Display progress via streaming state updates",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 7.12: Integrate OpenTUI chat interface with workflows",
-    "steps": [
-      "Update atomic run command to use startChatUI",
-      "Create appropriate SDK client based on -a flag",
-      "Configure session with system prompt and permissions",
-      "Wire up telemetry collector",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 7.13: Add end-to-end tests for atomic workflow",
+    "phase": 7,
+    "description": "Add end-to-end tests for Ralph workflow",
     "steps": [
       "Create tests/workflows/atomic.test.ts",
-      "Test: workflow executes all nodes in order with mocked client",
-      "Test: checkpoint saved after each node",
-      "Test: human approval flow works",
-      "Test: feature loop continues until all pass",
-      "Test: PR created at end",
-      "Run pnpm test to verify all pass"
+      "Mock SDK client for testing",
+      "Test workflow executes research node",
+      "Test workflow creates spec",
+      "Test workflow waits for approval",
+      "Test workflow loops through features",
+      "Test workflow creates PR",
+      "Test checkpoints are saved",
+      "Test workflow can resume from checkpoint",
+      "Verify all tests pass with bun test"
     ],
     "passes": false
   },
   {
-    "category": "refactor",
-    "description": "Phase 8.1: Create graph module index file",
+    "id": "8.1",
+    "category": "documentation",
+    "phase": 8,
+    "description": "Update README with graph engine documentation",
     "steps": [
-      "Create src/graph/index.ts",
-      "Export all types from ./types",
-      "Export annotation utilities from ./annotation",
-      "Export GraphBuilder and graph() from ./builder",
-      "Export CompiledGraph from ./compiled",
-      "Export checkpointer implementations from ./checkpointer",
-      "Run pnpm typecheck to verify"
+      "Add Graph Execution Engine section to README",
+      "Document GraphBuilder fluent API",
+      "Document node types and their purposes",
+      "Document checkpointing and resumption",
+      "Add examples of workflow definition",
+      "Document ATOMIC_USE_GRAPH_ENGINE flag"
     ],
     "passes": false
   },
   {
-    "category": "refactor",
-    "description": "Phase 8.2: Create SDK module index file",
+    "id": "8.2",
+    "category": "documentation",
+    "phase": 8,
+    "description": "Document OpenTUI chat interface usage",
     "steps": [
-      "Create src/sdk/index.ts",
-      "Export types from ./types",
-      "Export ClaudeAgentClient from ./claude-client",
-      "Export OpenCodeClient from ./opencode-client",
-      "Export CopilotClient from ./copilot-client",
-      "Export EventBridge from ./event-bridge",
-      "Run pnpm typecheck to verify"
+      "Add UI section to documentation",
+      "Document chat interface features",
+      "Document keyboard shortcuts",
+      "Document theme configuration",
+      "Add screenshots if applicable"
     ],
     "passes": false
   },
   {
-    "category": "refactor",
-    "description": "Phase 8.3: Create telemetry module index file",
+    "id": "8.3",
+    "category": "documentation",
+    "phase": 8,
+    "description": "Document telemetry collection and opt-out",
     "steps": [
-      "Create src/telemetry/index.ts",
-      "Export types from ./types",
-      "Export UnifiedTelemetryCollector from ./collector",
-      "Export connectTelemetry from ./sdk-integration",
-      "Export withGraphTelemetry, trackGraphExecution from ./graph-integration",
-      "Export loadTelemetryConfig from ./config",
-      "Run pnpm typecheck to verify"
+      "Add Telemetry section to documentation",
+      "Document what data is collected",
+      "Document DO_NOT_TRACK support",
+      "Document ATOMIC_TELEMETRY=0 opt-out",
+      "Document local log location",
+      "Document Azure App Insights integration"
     ],
     "passes": false
   },
   {
-    "category": "refactor",
-    "description": "Phase 8.4: Create workflows module index file",
+    "id": "8.4",
+    "category": "documentation",
+    "phase": 8,
+    "description": "Create migration guide for existing Ralph users",
     "steps": [
-      "Create src/workflows/index.ts",
-      "Export createAtomicWorkflow from ./atomic",
-      "Run pnpm typecheck to verify"
+      "Document changes from hook-based to graph-based execution",
+      "Document new command syntax if changed",
+      "Document checkpoint file locations",
+      "Document how to resume interrupted workflows",
+      "Document breaking changes if any"
     ],
     "passes": false
   },
   {
+    "id": "8.5",
     "category": "functional",
-    "description": "Phase 8.5: Add graph node factory functions",
-    "steps": [
-      "Create src/graph/nodes.ts file",
-      "Define AgentNodeConfig<TState> interface",
-      "Implement agentNode() factory function",
-      "Define ToolNodeConfig<TState> interface",
-      "Implement toolNode() factory function",
-      "Define DecisionNodeConfig<TState> interface",
-      "Implement decisionNode() factory function",
-      "Define WaitNodeConfig<TState> interface",
-      "Implement waitNode() factory function",
-      "Define ParallelNodeConfig<TState> interface",
-      "Implement parallelNode() factory function",
-      "Run pnpm typecheck to verify"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 8.6: Run full test suite and fix issues",
-    "steps": [
-      "Run pnpm typecheck and fix any type errors",
-      "Run pnpm lint and fix any lint errors",
-      "Run pnpm test and fix any failing tests",
-      "Ensure all new code has >80% test coverage",
-      "Document any open issues or known limitations"
-    ],
-    "passes": false
-  },
-  {
-    "category": "functional",
-    "description": "Phase 8.7: Enable graph engine by default",
+    "phase": 8,
+    "description": "Enable graph engine by default",
     "steps": [
       "Set ATOMIC_USE_GRAPH_ENGINE default to true",
-      "Update README with graph engine documentation",
-      "Document OpenTUI chat interface usage",
-      "Document telemetry collection and opt-out options",
-      "Create migration guide for existing Ralph users"
+      "Remove feature flag checks from main code paths",
+      "Keep flag for rollback purposes",
+      "Update documentation to reflect default"
     ],
     "passes": false
   },
   {
+    "id": "8.6",
     "category": "functional",
-    "description": "Phase 8.8: Create integration tests for full workflow",
+    "phase": 8,
+    "description": "Final integration testing and verification",
     "steps": [
-      "Create tests/e2e/graph-workflow.test.ts",
-      "Test: atomic ralph setup -a claude executes full workflow",
-      "Test: checkpoints created in research/checkpoints/",
-      "Test: context compaction triggered at threshold",
-      "Test: error recovery with retry",
-      "Run tests with ATOMIC_USE_GRAPH_ENGINE=1"
+      "Run full test suite with bun test",
+      "Run bun lint for code quality",
+      "Run bun type-check for type safety",
+      "Test atomic ralph setup -a claude manually",
+      "Test atomic ralph setup -a copilot manually",
+      "Test atomic ralph setup -a opencode manually",
+      "Verify checkpoints are created",
+      "Verify telemetry is logged locally",
+      "Verify all documented features work"
     ],
     "passes": false
   }

@@ -28,11 +28,11 @@ import {
   loadSessionIfExists,
   createRalphSession,
   type RalphSession,
-} from "../../src/workflows/ralph-session.ts";
+} from "../../src/workflows/index.ts";
 import {
   createRalphWorkflow,
   type CreateRalphWorkflowConfig,
-} from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/index.ts";
 import {
   createRalphWorkflowState,
   YOLO_COMPLETION_INSTRUCTION,
@@ -456,7 +456,7 @@ Thank you for your patience.`;
       expect(yoloWorkflow.nodes.has("clear-context")).toBe(true);
       expect(yoloWorkflow.nodes.has("implement-feature")).toBe(true);
       expect(yoloWorkflow.nodes.has("check-completion")).toBe(true);
-      expect(yoloWorkflow.nodes.has("create-pr")).toBe(true);
+      // Note: create-pr is not a node in the Ralph workflow - it only has 4 nodes
     });
 
     test("yolo workflow starts with init-session node", () => {

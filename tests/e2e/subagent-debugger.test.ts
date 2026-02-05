@@ -191,7 +191,7 @@ function createMockSubagentClient(): CodingAgentClient & {
   let isRunning = false;
 
   return {
-    agentType: "mock",
+    agentType: "claude",
     sessions,
     eventHandlers,
 
@@ -327,28 +327,28 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       expect(result.success).toBe(true);
     });
 
-    test("/debugger sends message with user arguments appended", () => {
+    test("/debugger sends message with user arguments appended", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      command!.execute("fix TypeError in parser.ts", context);
+      await command!.execute("fix TypeError in parser.ts", context);
 
       // Should have sent a message containing the argument
       expect(context.sentMessages.length).toBeGreaterThan(0);
       expect(context.sentMessages[0]).toContain("fix TypeError in parser.ts");
     });
 
-    test("/debugger appends user request section to prompt", () => {
+    test("/debugger appends user request section to prompt", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      command!.execute("fix undefined error in handler", context);
+      await command!.execute("fix undefined error in handler", context);
 
       // Sent message should include both agent prompt and user request
       const sentMessage = context.sentMessages[0];
@@ -356,21 +356,21 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       expect(sentMessage).toContain("fix undefined error in handler");
     });
 
-    test("/debugger handles empty arguments", () => {
+    test("/debugger handles empty arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      const result = command!.execute("", context);
+      const result = await command!.execute("", context);
 
       expect(result.success).toBe(true);
       // Should still send the base prompt without user request section
       expect(context.sentMessages.length).toBeGreaterThan(0);
     });
 
-    test("/debugger handles complex error descriptions", () => {
+    test("/debugger handles complex error descriptions", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
@@ -379,7 +379,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const context = createMockCommandContext();
       const complexError =
         "TypeError: Cannot read property 'map' of undefined at parser.ts:42 in parseTokens()";
-      command!.execute(complexError, context);
+      await command!.execute(complexError, context);
 
       const sentMessage = context.sentMessages[0];
       expect(sentMessage).toContain(complexError);
@@ -463,7 +463,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       expect(prompt).toContain("Grep");
     });
 
-    test("sendMessage includes full system prompt", () => {
+    test("sendMessage includes full system prompt", async () => {
       registerBuiltinAgents();
 
       const agent = getBuiltinAgent("debugger");
@@ -471,7 +471,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      command!.execute("test query", context);
+      await command!.execute("test query", context);
 
       // Sent message should start with the system prompt content
       const sentMessage = context.sentMessages[0];
@@ -656,71 +656,71 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
   // ============================================================================
 
   describe("4. Verify agent can analyze and fix issue", () => {
-    test("command execute returns success result", () => {
+    test("command execute returns success result", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      const result = command!.execute("fix TypeError in parser.ts", context);
+      const result = await command!.execute("fix TypeError in parser.ts", context);
 
       expect(result.success).toBe(true);
     });
 
-    test("command execute does not return error message on success", () => {
+    test("command execute does not return error message on success", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      const result = command!.execute("debug test failure", context);
+      const result = await command!.execute("debug test failure", context);
 
       expect(result.success).toBe(true);
       // Success result may not have message field or has empty message
       expect(result.message).toBeUndefined();
     });
 
-    test("command sends message to context", () => {
+    test("command sends message to context", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      command!.execute("fix auth issue", context);
+      await command!.execute("fix auth issue", context);
 
       // Message should be sent
       expect(context.sentMessages).toHaveLength(1);
       expect(context.sentMessages[0]).toBeTruthy();
     });
 
-    test("result includes user request in sent message", () => {
+    test("result includes user request in sent message", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      command!.execute("fix the TypeError Cannot read property of undefined", context);
+      await command!.execute("fix the TypeError Cannot read property of undefined", context);
 
       const sentMessage = context.sentMessages[0];
       expect(sentMessage).toContain("TypeError");
       expect(sentMessage).toContain("Cannot read property of undefined");
     });
 
-    test("multiple invocations each return independent results", () => {
+    test("multiple invocations each return independent results", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
       expect(command).toBeDefined();
 
       const context1 = createMockCommandContext();
-      const result1 = command!.execute("fix error 1", context1);
+      const result1 = await command!.execute("fix error 1", context1);
 
       const context2 = createMockCommandContext();
-      const result2 = command!.execute("fix error 2", context2);
+      const result2 = await command!.execute("fix error 2", context2);
 
       // Both should succeed
       expect(result1.success).toBe(true);
@@ -731,14 +731,14 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       expect(context2.sentMessages[0]).toContain("fix error 2");
     });
 
-    test("command result type is CommandResult", () => {
+    test("command result type is CommandResult", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
       expect(command).toBeDefined();
 
       const context = createMockCommandContext();
-      const result: CommandResult = command!.execute("test", context);
+      const result: CommandResult = await command!.execute("test", context);
 
       // Verify result matches CommandResult interface
       expect(typeof result.success).toBe("boolean");
@@ -851,7 +851,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
   // ============================================================================
 
   describe("Integration: Full /debugger workflow", () => {
-    test("complete flow: register, lookup, execute, verify", () => {
+    test("complete flow: register, lookup, execute, verify", async () => {
       // 1. Register builtin agents
       registerBuiltinAgents();
 
@@ -862,7 +862,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       // 3. Execute with typical user input
       const context = createMockCommandContext();
-      const result = command!.execute("fix TypeError in parser.ts", context);
+      const result = await command!.execute("fix TypeError in parser.ts", context);
 
       // 4. Verify result
       expect(result.success).toBe(true);
@@ -874,7 +874,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       expect(message).toContain("fix TypeError in parser.ts");
     });
 
-    test("agent command works with session context", () => {
+    test("agent command works with session context", async () => {
       registerBuiltinAgents();
 
       const mockSession = createMockSubagentSession("test-session");
@@ -884,7 +884,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       });
 
       const command = globalRegistry.get("debugger");
-      const result = command!.execute("fix failing tests", context);
+      const result = await command!.execute("fix failing tests", context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages).toHaveLength(1);
@@ -934,22 +934,22 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       expect(debuggerInResults).toBe(true);
     });
 
-    test("multiple user queries work sequentially", () => {
+    test("multiple user queries work sequentially", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
       const context = createMockCommandContext();
 
       // Query 1
-      command!.execute("fix syntax error", context);
+      await command!.execute("fix syntax error", context);
       expect(context.sentMessages[0]).toContain("fix syntax error");
 
       // Query 2 (same context, appends)
-      command!.execute("fix runtime error", context);
+      await command!.execute("fix runtime error", context);
       expect(context.sentMessages[1]).toContain("fix runtime error");
 
       // Query 3
-      command!.execute("fix type error", context);
+      await command!.execute("fix type error", context);
       expect(context.sentMessages[2]).toContain("fix type error");
 
       expect(context.sentMessages).toHaveLength(3);
@@ -961,46 +961,46 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
   // ============================================================================
 
   describe("Edge cases", () => {
-    test("handles whitespace-only arguments", () => {
+    test("handles whitespace-only arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
       const context = createMockCommandContext();
 
-      const result = command!.execute("   ", context);
+      const result = await command!.execute("   ", context);
 
       expect(result.success).toBe(true);
       // Should send prompt without user request section (whitespace trimmed)
       expect(context.sentMessages).toHaveLength(1);
     });
 
-    test("handles very long arguments", () => {
+    test("handles very long arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
       const context = createMockCommandContext();
 
       const longArg = "a".repeat(10000);
-      const result = command!.execute(longArg, context);
+      const result = await command!.execute(longArg, context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages[0]).toContain(longArg);
     });
 
-    test("handles special characters in arguments", () => {
+    test("handles special characters in arguments", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
       const context = createMockCommandContext();
 
       const specialArgs = "fix error at <file>:42 & 'test' | $PATH";
-      const result = command!.execute(specialArgs, context);
+      const result = await command!.execute(specialArgs, context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages[0]).toContain(specialArgs);
     });
 
-    test("handles newlines in arguments (stack traces)", () => {
+    test("handles newlines in arguments (stack traces)", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
@@ -1010,7 +1010,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
     at parseTokens (parser.ts:42)
     at parse (parser.ts:100)
     at main (index.ts:10)`;
-      const result = command!.execute(stackTrace, context);
+      const result = await command!.execute(stackTrace, context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages[0]).toContain("parser.ts:42");
@@ -1053,7 +1053,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       expect(agent2?.name).toBe(agent3?.name);
     });
 
-    test("handles error message with file path and line numbers", () => {
+    test("handles error message with file path and line numbers", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
@@ -1061,7 +1061,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       const errorWithPath =
         "fix error at /home/user/project/src/parser.ts:42:15";
-      const result = command!.execute(errorWithPath, context);
+      const result = await command!.execute(errorWithPath, context);
 
       expect(result.success).toBe(true);
       expect(context.sentMessages[0]).toContain("/home/user/project/src/parser.ts:42:15");

@@ -42,21 +42,25 @@ export namespace ModelsDev {
   /**
    * Cost information for model usage
    * All costs are per-token prices
+   * Uses .passthrough() to allow additional cost fields from the evolving API
+   * Note: context_over_200k can be either a number or an object with nested pricing
    */
   export const Cost = z.object({
     input: z.number(),
     output: z.number(),
     cache_read: z.number().optional(),
     cache_write: z.number().optional(),
-    context_over_200k: z.number().optional()
-  });
+    context_over_200k: z.union([z.number(), z.object({}).passthrough()]).optional(),
+    reasoning: z.number().optional()
+  }).passthrough();
 
   /**
    * Token limits for the model
+   * Note: `input` is optional because not all models in models.dev API provide it
    */
   export const Limit = z.object({
     context: z.number(),
-    input: z.number(),
+    input: z.number().optional(),
     output: z.number()
   });
 
@@ -82,27 +86,29 @@ export namespace ModelsDev {
 
   /**
    * Complete Model schema representing a model from models.dev
+   * Uses .passthrough() to allow additional fields from the evolving API
+   * Most fields are optional as the API doesn't always include all fields for all models
    */
   export const Model = z.object({
     id: z.string(),
     name: z.string(),
     family: z.string().optional(),
-    release_date: z.string(),
-    attachment: z.boolean(),
-    reasoning: z.boolean(),
-    temperature: z.boolean(),
-    tool_call: z.boolean(),
+    release_date: z.string().optional(),
+    attachment: z.boolean().optional(),
+    reasoning: z.boolean().optional(),
+    temperature: z.boolean().optional(),
+    tool_call: z.boolean().optional(),
     interleaved: Interleaved.optional(),
-    cost: Cost,
-    limit: Limit,
-    modalities: Modalities,
+    cost: Cost.optional(),
+    limit: Limit.optional(),
+    modalities: Modalities.optional(),
     experimental: z.boolean().optional(),
     status: Status.optional(),
-    options: z.record(z.string(), z.any()),
+    options: z.record(z.string(), z.any()).optional(),
     headers: z.record(z.string(), z.string()).optional(),
     provider: ModelProvider.optional(),
     variants: z.record(z.string(), z.record(z.string(), z.any())).optional()
-  });
+  }).passthrough();
 
   export type Interleaved = z.infer<typeof Interleaved>;
   export type Cost = z.infer<typeof Cost>;
@@ -114,7 +120,8 @@ export namespace ModelsDev {
 
   /**
    * Provider schema representing a provider from models.dev database
-   * Based on OpenCode's provider definition structure (lines 72-79)
+   * Based on OpenCode's provider definition structure
+   * Uses .passthrough() to allow additional fields from the evolving API
    */
   export const Provider = z.object({
     api: z.string().optional(),
@@ -123,7 +130,7 @@ export namespace ModelsDev {
     id: z.string(),
     npm: z.string().optional(),
     models: z.record(z.string(), Model)
-  });
+  }).passthrough();
 
   export type Provider = z.infer<typeof Provider>;
 

@@ -59,7 +59,7 @@ describe("UnifiedModelOperations", () => {
   });
 
   describe("listAvailableModels", () => {
-    test("returns all models from ModelsDev", async () => {
+    test("for Claude only returns anthropic models", async () => {
       // Mock ModelsDev.get
       const getSpy = spyOn(ModelsDev, "get").mockResolvedValue(mockModelsData);
 
@@ -68,15 +68,141 @@ describe("UnifiedModelOperations", () => {
 
       expect(getSpy).toHaveBeenCalled();
       expect(Array.isArray(models)).toBe(true);
-      expect(models.length).toBe(2);
+      expect(models.length).toBe(1);
 
       const anthropicModel = models.find((m) => m.providerID === "anthropic");
       expect(anthropicModel).toBeDefined();
       expect(anthropicModel!.modelID).toBe("claude-sonnet-4");
 
+      // Should NOT include OpenAI models
+      const openaiModel = models.find((m) => m.providerID === "openai");
+      expect(openaiModel).toBeUndefined();
+
+      getSpy.mockRestore();
+    });
+
+    test("for OpenCode returns all models", async () => {
+      // Mock ModelsDev.get
+      const getSpy = spyOn(ModelsDev, "get").mockResolvedValue(mockModelsData);
+
+      const ops = new UnifiedModelOperations("opencode");
+      const models = await ops.listAvailableModels();
+
+      expect(getSpy).toHaveBeenCalled();
+      expect(Array.isArray(models)).toBe(true);
+      expect(models.length).toBe(2);
+
+      const anthropicModel = models.find((m) => m.providerID === "anthropic");
+      expect(anthropicModel).toBeDefined();
+
       const openaiModel = models.find((m) => m.providerID === "openai");
       expect(openaiModel).toBeDefined();
-      expect(openaiModel!.modelID).toBe("gpt-4o");
+
+      getSpy.mockRestore();
+    });
+
+    test("for Copilot only returns github-copilot and github-models models", async () => {
+      // Add github-copilot and github-models providers to mock data
+      const mockDataWithGithub = {
+        ...mockModelsData,
+        "github-copilot": {
+          id: "github-copilot",
+          name: "GitHub Copilot",
+          api: "github-copilot",
+          env: ["GITHUB_TOKEN"],
+          models: {
+            "copilot-gpt-4": {
+              id: "copilot-gpt-4",
+              name: "Copilot GPT-4",
+              release_date: "2024-01-01",
+              cost: { input: 0, output: 0 },
+              limit: { context: 128000, input: 64000, output: 64000 },
+              modalities: { input: ["text"], output: ["text"] },
+              options: {},
+            },
+          },
+        },
+        "github-models": {
+          id: "github-models",
+          name: "GitHub Models",
+          api: "github-models",
+          env: ["GITHUB_TOKEN"],
+          models: {
+            "gpt-4o": {
+              id: "gpt-4o",
+              name: "GPT-4o",
+              release_date: "2024-05-01",
+              cost: { input: 0.005, output: 0.015 },
+              limit: { context: 128000, input: 64000, output: 64000 },
+              modalities: { input: ["text"], output: ["text"] },
+              options: {},
+            },
+          },
+        },
+      };
+
+      const getSpy = spyOn(ModelsDev, "get").mockResolvedValue(mockDataWithGithub);
+
+      const ops = new UnifiedModelOperations("copilot");
+      const models = await ops.listAvailableModels();
+
+      expect(getSpy).toHaveBeenCalled();
+      expect(Array.isArray(models)).toBe(true);
+      expect(models.length).toBe(2);
+
+      const copilotModel = models.find((m) => m.providerID === "github-copilot");
+      expect(copilotModel).toBeDefined();
+      expect(copilotModel!.modelID).toBe("copilot-gpt-4");
+
+      const githubModelsModel = models.find((m) => m.providerID === "github-models");
+      expect(githubModelsModel).toBeDefined();
+      expect(githubModelsModel!.modelID).toBe("gpt-4o");
+
+      // Should NOT include other providers
+      const anthropicModel = models.find((m) => m.providerID === "anthropic");
+      expect(anthropicModel).toBeUndefined();
+
+      getSpy.mockRestore();
+    });
+
+    test("filters out deprecated models", async () => {
+      const mockDataWithDeprecated = {
+        anthropic: {
+          id: "anthropic",
+          name: "Anthropic",
+          api: "anthropic",
+          env: ["ANTHROPIC_API_KEY"],
+          models: {
+            "claude-sonnet-4": {
+              id: "claude-sonnet-4",
+              name: "Claude Sonnet 4",
+              release_date: "2025-01-01",
+              cost: { input: 0.003, output: 0.015 },
+              limit: { context: 200000, input: 100000, output: 100000 },
+              modalities: { input: ["text"], output: ["text"] },
+              options: {},
+            },
+            "claude-2": {
+              id: "claude-2",
+              name: "Claude 2",
+              status: "deprecated" as const,
+              release_date: "2023-01-01",
+              cost: { input: 0.01, output: 0.03 },
+              limit: { context: 100000, input: 50000, output: 50000 },
+              modalities: { input: ["text"], output: ["text"] },
+              options: {},
+            },
+          },
+        },
+      };
+
+      const getSpy = spyOn(ModelsDev, "get").mockResolvedValue(mockDataWithDeprecated);
+
+      const ops = new UnifiedModelOperations("claude");
+      const models = await ops.listAvailableModels();
+
+      expect(models.length).toBe(1);
+      expect(models[0]!.modelID).toBe("claude-sonnet-4");
 
       getSpy.mockRestore();
     });

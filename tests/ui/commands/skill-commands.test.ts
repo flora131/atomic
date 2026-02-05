@@ -26,6 +26,7 @@ import {
   type CommandContext,
   type CommandContextState,
 } from "../../../src/ui/commands/registry.ts";
+import type { Session } from "../../../src/sdk/types.ts";
 
 // ============================================================================
 // TEST HELPERS
@@ -36,7 +37,7 @@ import {
  */
 function createMockContext(
   options: {
-    session?: object | null;
+    session?: Session | null;
     stateOverrides?: Partial<CommandContextState>;
     onSendMessage?: (content: string) => void;
   } = {}
@@ -44,7 +45,7 @@ function createMockContext(
   const messages: Array<{ role: string; content: string }> = [];
   const sentMessages: string[] = [];
   return {
-    session: options.session ?? null,
+    session: options.session ?? (null as Session | null),
     state: {
       isStreaming: false,
       messageCount: 0,
@@ -116,12 +117,12 @@ describe("skillCommands", () => {
     }
   });
 
-  test("commit command works without session (uses sendMessage)", () => {
+  test("commit command works without session (uses sendMessage)", async () => {
     const commitCmd = skillCommands.find((c) => c.name === "commit");
     expect(commitCmd).toBeDefined();
 
     const context = createMockContext({ session: null });
-    const result = commitCmd!.execute("", context);
+    const result = await commitCmd!.execute("", context);
 
     // Should succeed and send message through sendMessage
     expect(result.success).toBe(true);
@@ -132,12 +133,12 @@ describe("skillCommands", () => {
     expect(context.sentMessages[0]!.length).toBeGreaterThan(0);
   });
 
-  test("commit command sends expanded prompt with args", () => {
+  test("commit command sends expanded prompt with args", async () => {
     const commitCmd = skillCommands.find((c) => c.name === "commit");
     expect(commitCmd).toBeDefined();
 
     const context = createMockContext({ session: null });
-    const result = commitCmd!.execute("-m 'Fix bug'", context);
+    const result = await commitCmd!.execute("-m 'Fix bug'", context);
 
     expect(result.success).toBe(true);
     expect(context.sentMessages).toHaveLength(1);
@@ -177,12 +178,12 @@ describe("skillCommands", () => {
     expect(sentMessages.length).toBe(1);
   });
 
-  test("skill command does not set streaming state directly", () => {
+  test("skill command does not set streaming state directly", async () => {
     const commitCmd = skillCommands.find((c) => c.name === "commit");
     expect(commitCmd).toBeDefined();
 
     const context = createMockContext({ session: null });
-    const result = commitCmd!.execute("", context);
+    const result = await commitCmd!.execute("", context);
 
     // sendMessage handles streaming state, not the command result
     expect(result.stateUpdate?.isStreaming).toBeUndefined();
@@ -210,16 +211,16 @@ describe("builtinSkillCommands", () => {
     for (const cmd of builtinSkillCommands) {
       const builtin = BUILTIN_SKILLS.find((s) => s.name === cmd.name);
       expect(builtin).toBeDefined();
-      expect(cmd.description).toBe(builtin?.description);
+      expect(cmd.description).toBe(builtin!.description);
     }
   });
 
-  test("commands use embedded prompts directly", () => {
+  test("commands use embedded prompts directly", async () => {
     const commitCmd = builtinSkillCommands.find((c) => c.name === "commit");
     expect(commitCmd).toBeDefined();
 
     const context = createMockContext({ session: null });
-    const result = commitCmd!.execute("test args", context);
+    const result = await commitCmd!.execute("test args", context);
 
     expect(result.success).toBe(true);
     expect(context.sentMessages).toHaveLength(1);
@@ -270,14 +271,14 @@ describe("registerBuiltinSkills", () => {
     expect(globalRegistry.size()).toBe(BUILTIN_SKILLS.length);
   });
 
-  test("registered commands use embedded prompts", () => {
+  test("registered commands use embedded prompts", async () => {
     registerBuiltinSkills();
 
     const commitCmd = globalRegistry.get("commit");
     expect(commitCmd).toBeDefined();
 
     const context = createMockContext({ session: null });
-    const result = commitCmd!.execute("", context);
+    const result = await commitCmd!.execute("", context);
 
     expect(result.success).toBe(true);
     expect(context.sentMessages).toHaveLength(1);
@@ -346,14 +347,14 @@ describe("registerSkillCommands", () => {
     expect(globalRegistry.size()).toBe(SKILL_DEFINITIONS.length);
   });
 
-  test("commands are executable after registration", () => {
+  test("commands are executable after registration", async () => {
     registerSkillCommands();
 
     const commitCmd = globalRegistry.get("commit");
     expect(commitCmd).toBeDefined();
 
     const context = createMockContext({ session: null });
-    const result = commitCmd!.execute("", context);
+    const result = await commitCmd!.execute("", context);
 
     expect(result.success).toBe(true);
     // Should send either expanded prompt or slash command fallback
@@ -902,7 +903,7 @@ describe("getBuiltinSkill", () => {
 });
 
 describe("builtin skill execution", () => {
-  test("commit command uses embedded prompt", () => {
+  test("commit command uses embedded prompt", async () => {
     const commitCmd = skillCommands.find((c) => c.name === "commit");
     expect(commitCmd).toBeDefined();
 
@@ -920,7 +921,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = commitCmd!.execute("", context);
+    const result = await commitCmd!.execute("", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
@@ -929,7 +930,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).toContain("[no arguments provided]");
   });
 
-  test("commit command expands $ARGUMENTS with provided args", () => {
+  test("commit command expands $ARGUMENTS with provided args", async () => {
     const commitCmd = skillCommands.find((c) => c.name === "commit");
     expect(commitCmd).toBeDefined();
 
@@ -947,7 +948,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = commitCmd!.execute("-m 'Fix bug in parser'", context);
+    const result = await commitCmd!.execute("-m 'Fix bug in parser'", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
@@ -957,7 +958,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });
 
-  test("research-codebase command uses embedded prompt", () => {
+  test("research-codebase command uses embedded prompt", async () => {
     const researchCmd = skillCommands.find((c) => c.name === "research-codebase");
     expect(researchCmd).toBeDefined();
 
@@ -975,7 +976,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = researchCmd!.execute("", context);
+    const result = await researchCmd!.execute("", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
@@ -984,7 +985,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).toContain("[no arguments provided]");
   });
 
-  test("research-codebase command expands $ARGUMENTS with provided args", () => {
+  test("research-codebase command expands $ARGUMENTS with provided args", async () => {
     const researchCmd = skillCommands.find((c) => c.name === "research-codebase");
     expect(researchCmd).toBeDefined();
 
@@ -1002,7 +1003,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = researchCmd!.execute("authentication module", context);
+    const result = await researchCmd!.execute("authentication module", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
@@ -1012,7 +1013,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });
 
-  test("create-spec command uses embedded prompt", () => {
+  test("create-spec command uses embedded prompt", async () => {
     const specCmd = skillCommands.find((c) => c.name === "create-spec");
     expect(specCmd).toBeDefined();
 
@@ -1030,7 +1031,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = specCmd!.execute("", context);
+    const result = await specCmd!.execute("", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
@@ -1039,7 +1040,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).toContain("[no arguments provided]");
   });
 
-  test("create-spec command expands $ARGUMENTS with provided args", () => {
+  test("create-spec command expands $ARGUMENTS with provided args", async () => {
     const specCmd = skillCommands.find((c) => c.name === "create-spec");
     expect(specCmd).toBeDefined();
 
@@ -1057,7 +1058,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = specCmd!.execute("add user authentication", context);
+    const result = await specCmd!.execute("add user authentication", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
@@ -1067,7 +1068,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });
 
-  test("create-feature-list command uses embedded prompt", () => {
+  test("create-feature-list command uses embedded prompt", async () => {
     const featureListCmd = skillCommands.find((c) => c.name === "create-feature-list");
     expect(featureListCmd).toBeDefined();
 
@@ -1085,7 +1086,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = featureListCmd!.execute("", context);
+    const result = await featureListCmd!.execute("", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
@@ -1094,7 +1095,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).toContain("[no arguments provided]");
   });
 
-  test("create-feature-list command expands $ARGUMENTS with provided args", () => {
+  test("create-feature-list command expands $ARGUMENTS with provided args", async () => {
     const featureListCmd = skillCommands.find((c) => c.name === "create-feature-list");
     expect(featureListCmd).toBeDefined();
 
@@ -1112,7 +1113,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = featureListCmd!.execute("auth-module", context);
+    const result = await featureListCmd!.execute("auth-module", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
@@ -1122,7 +1123,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });
 
-  test("implement-feature command uses embedded prompt", () => {
+  test("implement-feature command uses embedded prompt", async () => {
     const implFeatureCmd = skillCommands.find((c) => c.name === "implement-feature");
     expect(implFeatureCmd).toBeDefined();
 
@@ -1140,7 +1141,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = implFeatureCmd!.execute("", context);
+    const result = await implFeatureCmd!.execute("", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
@@ -1149,7 +1150,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).toContain("[no arguments provided]");
   });
 
-  test("implement-feature command expands $ARGUMENTS with provided args", () => {
+  test("implement-feature command expands $ARGUMENTS with provided args", async () => {
     const implFeatureCmd = skillCommands.find((c) => c.name === "implement-feature");
     expect(implFeatureCmd).toBeDefined();
 
@@ -1167,7 +1168,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = implFeatureCmd!.execute("UserRepository", context);
+    const result = await implFeatureCmd!.execute("UserRepository", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
@@ -1177,7 +1178,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });
 
-  test("create-gh-pr command uses embedded prompt", () => {
+  test("create-gh-pr command uses embedded prompt", async () => {
     const ghPrCmd = skillCommands.find((c) => c.name === "create-gh-pr");
     expect(ghPrCmd).toBeDefined();
 
@@ -1195,7 +1196,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = ghPrCmd!.execute("", context);
+    const result = await ghPrCmd!.execute("", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
@@ -1204,7 +1205,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).toContain("[no arguments provided]");
   });
 
-  test("create-gh-pr command expands $ARGUMENTS with provided args", () => {
+  test("create-gh-pr command expands $ARGUMENTS with provided args", async () => {
     const ghPrCmd = skillCommands.find((c) => c.name === "create-gh-pr");
     expect(ghPrCmd).toBeDefined();
 
@@ -1222,7 +1223,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = ghPrCmd!.execute("Add user authentication", context);
+    const result = await ghPrCmd!.execute("Add user authentication", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
@@ -1232,7 +1233,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });
 
-  test("explain-code command uses embedded prompt", () => {
+  test("explain-code command uses embedded prompt", async () => {
     const explainCodeCmd = skillCommands.find((c) => c.name === "explain-code");
     expect(explainCodeCmd).toBeDefined();
 
@@ -1250,7 +1251,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = explainCodeCmd!.execute("", context);
+    const result = await explainCodeCmd!.execute("", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
@@ -1259,7 +1260,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).toContain("[no arguments provided]");
   });
 
-  test("explain-code command expands $ARGUMENTS with provided args", () => {
+  test("explain-code command expands $ARGUMENTS with provided args", async () => {
     const explainCodeCmd = skillCommands.find((c) => c.name === "explain-code");
     expect(explainCodeCmd).toBeDefined();
 
@@ -1277,7 +1278,7 @@ describe("builtin skill execution", () => {
       modelOps: undefined,
     };
 
-    const result = explainCodeCmd!.execute("src/utils/parser.ts:10-50", context);
+    const result = await explainCodeCmd!.execute("src/utils/parser.ts:10-50", context);
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);

@@ -1563,12 +1563,12 @@ describe("Ctrl+O Keyboard Shortcut for Verbose Mode", () => {
 
     // Test Ctrl+O handling
     keyboardHandler({ name: "o", ctrl: true, shift: false });
-    expect(handledEvent).toBe("Ctrl+O");
+    expect(handledEvent as unknown).toBe("Ctrl+O");
     expect(verboseMode).toBe(true);
 
     // Test that other events don't affect verboseMode
     keyboardHandler({ name: "c", ctrl: true, shift: false });
-    expect(handledEvent).toBe("Ctrl+C");
+    expect(handledEvent as unknown).toBe("Ctrl+C");
     expect(verboseMode).toBe(true); // Should still be true
   });
 });
@@ -1773,7 +1773,7 @@ describe("SPINNER_VERBS", () => {
 
     // Run multiple times to ensure it returns valid verbs
     for (let i = 0; i < 10; i++) {
-      const verb = getRandomVerb();
+      const verb = getRandomVerb()!;
       expect(SPINNER_VERBS).toContain(verb);
     }
   });
@@ -2106,8 +2106,8 @@ describe("handleAskUserQuestion response flow", () => {
     handleResponse("test-request-id", "Approve", context);
 
     expect(resumeWithAnswerCalled).toBe(true);
-    expect(resumeArgs?.requestId).toBe("test-request-id");
-    expect(resumeArgs?.answer).toBe("Approve");
+    expect(resumeArgs!.requestId).toBe("test-request-id");
+    expect(resumeArgs!.answer).toBe("Approve");
   });
 
   test("standalone mode calls session.send", () => {
@@ -2146,7 +2146,7 @@ describe("handleAskUserQuestion response flow", () => {
     handleResponse("test-request-id", "Approve", context);
 
     expect(sessionSendCalled).toBe(true);
-    expect(sentMessage).toBe("Approve");
+    expect(sentMessage as unknown).toBe("Approve");
   });
 
   test("array answer is joined with comma for session.send", () => {
@@ -2171,7 +2171,7 @@ describe("handleAskUserQuestion response flow", () => {
 
     handleResponse(["Option A", "Option B", "Option C"], context);
 
-    expect(sentMessage).toBe("Option A, Option B, Option C");
+    expect(sentMessage as unknown).toBe("Option A, Option B, Option C");
   });
 
   test("no action when session is null in standalone mode", () => {
@@ -2489,7 +2489,7 @@ describe("human_input_required event wiring", () => {
     };
 
     if (registeredHandler) {
-      registeredHandler(eventData);
+      (registeredHandler as (data: unknown) => void)(eventData);
     }
 
     expect(receivedData).toEqual(eventData);

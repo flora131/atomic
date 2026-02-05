@@ -86,11 +86,37 @@ export class UnifiedModelOperations implements ModelOperations {
     private sdkSetModel?: (model: string) => Promise<void>
   ) {}
 
+  /**
+   * List available models for this agent type.
+   * Filters models based on agent type:
+   * - claude: Only anthropic provider models
+   * - opencode: All models from models.dev (OpenCode supports multiple providers)
+   * - copilot: Only github/copilot provider models
+   */
   async listAvailableModels(): Promise<Model[]> {
     const data = await ModelsDev.get();
     const models: Model[] = [];
+
+    // Define which providers are available for each agent type
+    const providerFilters: Record<AgentType, string[] | null> = {
+      claude: ['anthropic'],
+      opencode: null, // null means all providers
+      copilot: ['github-copilot', 'github-models'],
+    };
+
+    const allowedProviders = providerFilters[this.agentType];
+
     for (const [providerID, provider] of Object.entries(data)) {
+      // Skip if this provider is not allowed for the agent type
+      if (allowedProviders !== null && !allowedProviders.includes(providerID)) {
+        continue;
+      }
+
       for (const [modelID, model] of Object.entries(provider.models)) {
+        // Skip deprecated models
+        if (model.status === 'deprecated') {
+          continue;
+        }
         models.push(fromModelsDevModel(providerID, modelID, model, provider.api));
       }
     }

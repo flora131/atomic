@@ -73,15 +73,15 @@ export function fromModelsDevModel(
     api: providerApi,
     status: model.status ?? 'active',
     capabilities: {
-      reasoning: model.reasoning,
-      attachment: model.attachment,
-      temperature: model.temperature,
-      toolCall: model.tool_call
+      reasoning: model.reasoning ?? false,
+      attachment: model.attachment ?? false,
+      temperature: model.temperature ?? false,
+      toolCall: model.tool_call ?? false
     },
     limits: {
-      context: model.limit.context,
-      input: model.limit.input,
-      output: model.limit.output
+      context: model.limit?.context ?? 0,
+      input: model.limit?.input,
+      output: model.limit?.output ?? 0
     },
     cost: model.cost ? {
       input: model.cost.input,
@@ -90,7 +90,7 @@ export function fromModelsDevModel(
       cacheWrite: model.cost.cache_write
     } : undefined,
     modalities: model.modalities,
-    options: model.options,
+    options: model.options ?? {},
     headers: model.headers
   };
 }

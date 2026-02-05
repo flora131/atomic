@@ -887,16 +887,17 @@ describe("Integration test: Permission bypass configuration per SDK", () => {
 
         // Verify question is pending
         expect(session.pendingUserQuestions).toHaveLength(1);
-        expect(session.pendingUserQuestions[0]?.question).toBe(
+        expect(session.pendingUserQuestions[0]!.question).toBe(
           "What is your favorite color?"
         );
 
         // Verify permission.requested event was emitted
         expect(permissionRequested).toBe(true);
-        expect(requestData?.toolName).toBe("AskUserQuestion");
+        expect(requestData).not.toBeNull();
+        expect(requestData!.toolName).toBe("AskUserQuestion");
 
         // Simulate user response
-        session.pendingUserQuestions[0]?.respond("blue");
+        session.pendingUserQuestions[0]!.respond("blue");
 
         // Wait for send to complete
         const result = await sendPromise;
@@ -1021,11 +1022,11 @@ describe("Integration test: Permission bypass configuration per SDK", () => {
 
         expect(eventEmitted).toBe(true);
         expect(eventData).not.toBeNull();
-        expect(eventData?.toolName).toBe("AskUserQuestion");
-        expect(eventData?.question).toBe("Select an option");
-        expect(eventData?.options).toBeDefined();
+        expect(eventData!.toolName).toBe("AskUserQuestion");
+        expect(eventData!.question).toBe("Select an option");
+        expect(eventData!.options).toBeDefined();
 
-        session.pendingUserQuestions[0]?.respond("option1");
+        session.pendingUserQuestions[0]!.respond("option1");
         await sendPromise;
       } finally {
         await client.stop();

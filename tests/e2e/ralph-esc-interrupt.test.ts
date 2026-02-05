@@ -30,13 +30,13 @@ import {
   SESSION_SUBDIRECTORIES,
   type RalphSession,
   type RalphFeature,
-} from "../../src/workflows/ralph-session.ts";
+} from "../../src/workflows/index.ts";
 import {
   RalphExecutor,
   createRalphExecutor,
   type RalphExecutorResult,
-} from "../../src/workflows/ralph-executor.ts";
-import { createRalphWorkflow } from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/index.ts";
+import { createRalphWorkflow } from "../../src/workflows/index.ts";
 import {
   globalRegistry,
   type CommandContext,
@@ -366,12 +366,12 @@ describe("E2E test: Esc stops execution and marks session as paused", () => {
       expect(mockStdin.isRaw).toBe(false);
     });
 
-    test("Ralph session can be started for Esc interrupt testing", () => {
+    test("Ralph session can be started for Esc interrupt testing", async () => {
       const context = createMockContext();
       const command = globalRegistry.get("ralph");
       expect(command).toBeDefined();
 
-      const result = command!.execute("implement features", context);
+      const result = await command!.execute("implement features", context);
       expect(result.success).toBe(true);
       expect(result.stateUpdate?.workflowActive).toBe(true);
       expect(result.stateUpdate?.ralphConfig?.sessionId).toBeDefined();

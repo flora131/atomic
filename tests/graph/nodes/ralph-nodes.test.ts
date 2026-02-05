@@ -303,8 +303,8 @@ describe("RalphWorkflowState", () => {
       const state = createRalphWorkflowState({ features });
 
       expect(state.features).toHaveLength(2);
-      expect(state.features[0].id).toBe("feat-1");
-      expect(state.features[1].id).toBe("feat-2");
+      expect(state.features[0]!.id).toBe("feat-1");
+      expect(state.features[1]!.id).toBe("feat-2");
     });
 
     test("generates unique session IDs", () => {
@@ -479,7 +479,7 @@ describe("State Conversion", () => {
       session.currentFeatureIndex = 0;
       const state = sessionToWorkflowState(session);
 
-      expect(state.currentFeature).toEqual(session.features[0]);
+      expect(state.currentFeature).toEqual(session.features[0]!);
     });
 
     test("sets currentFeature to null if index out of bounds", () => {
@@ -688,12 +688,12 @@ describe("File system re-exports", () => {
     const lines = content.trim().split("\n");
     expect(lines).toHaveLength(2);
 
-    const entry1 = JSON.parse(lines[0]);
+    const entry1 = JSON.parse(lines[0]!);
     expect(entry1.action).toBe("test");
     expect(entry1.value).toBe(42);
     expect(entry1.timestamp).toBeDefined();
 
-    const entry2 = JSON.parse(lines[1]);
+    const entry2 = JSON.parse(lines[1]!);
     expect(entry2.action).toBe("test2");
     expect(entry2.value).toBe(43);
   });
@@ -761,7 +761,7 @@ describe("Integration", () => {
     // 3. Simulate some work
     initialState.currentFeatureIndex = 1;
     initialState.iteration = 5;
-    initialState.features[0].status = "passing";
+    initialState.features[0]!.status = "passing";
     initialState.completedFeatures = ["f1"];
 
     // 4. Save session
@@ -775,7 +775,7 @@ describe("Integration", () => {
     });
 
     // 6. Record progress
-    await appendProgress(testSessionDir, initialState.features[0], true);
+    await appendProgress(testSessionDir, initialState.features[0]!, true);
 
     // 7. Load and resume
     const loadedSession = await loadSession(testSessionDir);
@@ -786,8 +786,8 @@ describe("Integration", () => {
     expect(resumedState.currentFeatureIndex).toBe(1);
     expect(resumedState.iteration).toBe(5);
     expect(resumedState.completedFeatures).toEqual(["f1"]);
-    expect(resumedState.features[0].status).toBe("passing");
-    expect(resumedState.features[1].status).toBe("pending");
+    expect(resumedState.features[0]!.status).toBe("passing");
+    expect(resumedState.features[1]!.status).toBe("pending");
 
     // Verify control flags are set correctly
     expect(resumedState.shouldContinue).toBe(true); // status was running
@@ -836,7 +836,7 @@ describe("initRalphSessionNode", () => {
     const defaultState = createRalphWorkflowState();
     return {
       state: { ...defaultState, ...state },
-      config: {} as GraphConfig<RalphWorkflowState>,
+      config: {} as any,
       errors: [] as ExecutionError[],
     };
   }
@@ -952,7 +952,7 @@ describe("initRalphSessionNode", () => {
       const ctx = createMockContext();
       const result = await node.execute(ctx);
 
-      const sessionDir = result.stateUpdate!.ralphSessionDir;
+      const sessionDir = result.stateUpdate!.ralphSessionDir!;
       expect(existsSync(sessionDir)).toBe(true);
       expect(existsSync(`${sessionDir}checkpoints`)).toBe(true);
       expect(existsSync(`${sessionDir}research`)).toBe(true);
@@ -984,11 +984,11 @@ describe("initRalphSessionNode", () => {
       const result = await node.execute(ctx);
 
       expect(result.stateUpdate!.features).toHaveLength(2);
-      expect(result.stateUpdate!.features![0].name).toBe("Feature one");
-      expect(result.stateUpdate!.features![0].status).toBe("pending");
-      expect(result.stateUpdate!.features![0].acceptanceCriteria).toEqual(["Step A", "Step B"]);
-      expect(result.stateUpdate!.features![1].name).toBe("Feature two");
-      expect(result.stateUpdate!.features![1].status).toBe("passing");
+      expect(result.stateUpdate!.features![0]!.name).toBe("Feature one");
+      expect(result.stateUpdate!.features![0]!.status).toBe("pending");
+      expect(result.stateUpdate!.features![0]!.acceptanceCriteria).toEqual(["Step A", "Step B"]);
+      expect(result.stateUpdate!.features![1]!.name).toBe("Feature two");
+      expect(result.stateUpdate!.features![1]!.status).toBe("passing");
     });
 
     test("creates progress.txt with session header", async () => {
@@ -1224,7 +1224,7 @@ describe("initRalphSessionNode", () => {
       expect(result.stateUpdate!.ralphSessionId).toBe(testSessionId);
       expect(result.stateUpdate!.iteration).toBe(10);
       expect(result.stateUpdate!.completedFeatures).toEqual(["f1"]);
-      expect(result.stateUpdate!.features![0].name).toBe("Existing Feature");
+      expect(result.stateUpdate!.features![0]!.name).toBe("Existing Feature");
     });
 
     test("logs resume action to agent-calls.jsonl", async () => {
@@ -1498,7 +1498,7 @@ describe("implementFeatureNode", () => {
     });
     return {
       state: { ...state, ...overrides },
-      config: {} as GraphConfig<RalphWorkflowState>,
+      config: {} as any,
       errors: [] as ExecutionError[],
     };
   }
@@ -1582,7 +1582,7 @@ describe("implementFeatureNode", () => {
       const ctx = createImplementMockContext(features);
       const result = await node.execute(ctx);
 
-      expect(result.stateUpdate!.features![0].status).toBe("in_progress");
+      expect(result.stateUpdate!.features![0]!.status).toBe("in_progress");
     });
 
     test("sets shouldContinue to true when pending feature found", async () => {
@@ -2115,8 +2115,8 @@ describe("processFeatureImplementationResult", () => {
 
     const result = await processFeatureImplementationResult(state, true);
 
-    expect(result.features![0].status).toBe("passing");
-    expect(result.features![0].implementedAt).toBeDefined();
+    expect(result.features![0]!.status).toBe("passing");
+    expect(result.features![0]!.implementedAt).toBeDefined();
   });
 
   test("updates feature to failing status when passed=false", async () => {
@@ -2138,8 +2138,8 @@ describe("processFeatureImplementationResult", () => {
 
     const result = await processFeatureImplementationResult(state, false);
 
-    expect(result.features![0].status).toBe("failing");
-    expect(result.features![0].implementedAt).toBeUndefined();
+    expect(result.features![0]!.status).toBe("failing");
+    expect(result.features![0]!.implementedAt).toBeUndefined();
   });
 
   test("adds feature to completedFeatures when passing", async () => {
@@ -2365,7 +2365,7 @@ describe("Yolo Mode", () => {
     });
     return {
       state: { ...state, ...overrides },
-      config: {} as GraphConfig<RalphWorkflowState>,
+      config: {} as any,
       errors: [] as ExecutionError[],
     };
   }
@@ -2793,7 +2793,7 @@ describe("checkCompletionNode", () => {
     });
     return {
       state: { ...state, ...overrides },
-      config: {} as GraphConfig<RalphWorkflowState>,
+      config: {} as any,
       errors: [] as ExecutionError[],
     };
   }
@@ -3421,7 +3421,7 @@ describe("createPRNode", () => {
     });
     return {
       state: { ...state, ...overrides },
-      config: {} as GraphConfig<RalphWorkflowState>,
+      config: {} as any,
       errors: [] as ExecutionError[],
     };
   }
@@ -4168,7 +4168,7 @@ describe("Debug Reports Accumulation", () => {
   test("sessionToWorkflowState handles missing debugReports gracefully", () => {
     const session = createRalphSession();
     // Simulate old session without debugReports by deleting it
-    delete (session as Record<string, unknown>).debugReports;
+    delete (session as unknown as Record<string, unknown>).debugReports;
 
     const state = sessionToWorkflowState(session);
     expect(Array.isArray(state.debugReports)).toBe(true);

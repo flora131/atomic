@@ -414,8 +414,8 @@ describe("AskUserQuestion Node Integration", () => {
       expect(eventData.question).toBe("What is your favorite color?");
       expect(eventData.header).toBe("Color Selection");
       expect(eventData.options).toHaveLength(2);
-      expect(eventData.options![0].label).toBe("Red");
-      expect(eventData.options![1].label).toBe("Blue");
+      expect(eventData.options![0]!.label).toBe("Red");
+      expect(eventData.options![1]!.label).toBe("Blue");
       expect(eventData.nodeId).toBe("ask-question");
       expect(eventData.requestId).toBeDefined();
     });
@@ -448,7 +448,7 @@ describe("AskUserQuestion Node Integration", () => {
       );
 
       const eventData = humanInputSignal!.data as unknown as AskUserQuestionEventData;
-      expect(eventData.requestId).toBe(askStep!.state.__askUserRequestId);
+      expect(eventData.requestId).toBe(askStep!.state.__askUserRequestId!);
     });
   });
 

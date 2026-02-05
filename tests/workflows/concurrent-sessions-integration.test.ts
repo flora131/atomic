@@ -26,7 +26,7 @@ import {
   getSessionDir,
   type RalphSession,
   type RalphFeature,
-} from "../../src/workflows/ralph-session.ts";
+} from "../../src/workflows/index.ts";
 
 // Node fs/path imports
 const { rm, stat, readFile, writeFile, readdir, mkdir } = require("node:fs/promises");
@@ -267,7 +267,7 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
 
       expect(loadedSessions.length).toBe(sessionCount);
       for (let i = 0; i < sessionCount; i++) {
-        expect(loadedSessions[i].sessionId).toBe(sessionIds[i]);
+        expect(loadedSessions[i]!.sessionId).toBe(sessionIds[i]!);
       }
     });
   });
@@ -417,7 +417,7 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
         features: session1.features.map((f, i) =>
           i === 0 ? { ...f, status: "passing", implementedAt: new Date().toISOString() } : f
         ),
-        completedFeatures: [features1[0].id],
+        completedFeatures: [features1[0]!.id],
       };
       await saveSession(session1.sessionDir, updatedSession1);
 
@@ -426,7 +426,7 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
       expect(loaded2.iteration).toBe(1);
       expect(loaded2.status).toBe("running");
       expect(loaded2.completedFeatures).toEqual([]);
-      expect(loaded2.features[0].status).toBe("pending");
+      expect(loaded2.features[0]!.status).toBe("pending");
     });
 
     test("appending logs to session 1 does not affect session 2 logs", async () => {
@@ -480,8 +480,8 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
       ]);
 
       // Append progress to session 1
-      await appendProgress(session1.sessionDir, features1[0], true);
-      await appendProgress(session1.sessionDir, features1[1], false);
+      await appendProgress(session1.sessionDir, features1[0]!, true);
+      await appendProgress(session1.sessionDir, features1[1]!, false);
 
       // Verify session 1 has progress
       const progressPath1 = join(session1.sessionDir, "progress.txt");
@@ -788,13 +788,13 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
         features: session1.features.map((f, i) =>
           i === 0 ? { ...f, status: "passing", implementedAt: new Date().toISOString() } : f
         ),
-        completedFeatures: [session1.features[0].id],
+        completedFeatures: [session1.features[0]!.id],
       };
       await saveSession(session1.sessionDir, updatedSession1);
 
       // Session 2's features should still be pending
       const loaded2 = await loadSession(session2.sessionDir);
-      expect(loaded2.features[0].status).toBe("pending");
+      expect(loaded2.features[0]!.status).toBe("pending");
       expect(loaded2.completedFeatures).toEqual([]);
     });
 

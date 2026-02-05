@@ -30,12 +30,12 @@ import {
   createRalphSession,
   appendLog,
   type RalphSession,
-} from "../../src/workflows/ralph-session.ts";
+} from "../../src/workflows/index.ts";
 import {
   createRalphWorkflow,
   RALPH_NODE_IDS,
   type CreateRalphWorkflowConfig,
-} from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/index.ts";
 import {
   createRalphWorkflowState,
   YOLO_COMPLETION_INSTRUCTION,
@@ -527,7 +527,7 @@ describe("E2E test: /ralph --yolo --max-iterations 0 runs until COMPLETE", () =>
 
       const logContent = await fs.readFile(logPath, "utf-8");
       const lines = logContent.trim().split("\n");
-      const lastEntry = JSON.parse(lines[lines.length - 1]);
+      const lastEntry = JSON.parse(lines[lines.length - 1]!);
 
       expect(lastEntry.action).toBe("yolo-result");
       expect(lastEntry.iteration).toBe(500);

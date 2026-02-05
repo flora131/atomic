@@ -34,12 +34,12 @@ import {
   appendLog,
   appendProgress,
   type RalphSession,
-} from "../../src/workflows/ralph-session.ts";
+} from "../../src/workflows/index.ts";
 import {
   createRalphWorkflow,
   RALPH_NODE_IDS,
   type CreateRalphWorkflowConfig,
-} from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/index.ts";
 import {
   createRalphWorkflowState,
   YOLO_COMPLETION_INSTRUCTION,
@@ -934,7 +934,7 @@ describe("E2E test: Build snake game in Rust using /ralph --yolo", () => {
       expect(workflow.nodes.has(RALPH_NODE_IDS.INIT_SESSION)).toBe(true);
       expect(workflow.nodes.has(RALPH_NODE_IDS.IMPLEMENT_FEATURE)).toBe(true);
       expect(workflow.nodes.has(RALPH_NODE_IDS.CHECK_COMPLETION)).toBe(true);
-      expect(workflow.nodes.has(RALPH_NODE_IDS.CREATE_PR)).toBe(true);
+      // Note: CREATE_PR node was removed - PR creation is now handled externally
     });
 
     test("session tracks snake game project completion", async () => {

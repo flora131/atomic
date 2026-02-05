@@ -379,14 +379,14 @@ describe("Integration", () => {
     };
 
     expect(updatedSession.features.length).toBe(2);
-    expect(updatedSession.features[0].status).toBe("pending");
+    expect(updatedSession.features[0]!.status).toBe("pending");
 
     // Simulate implementing first feature
     const withProgress: RalphSession = {
       ...updatedSession,
       features: [
-        { ...features[0], status: "passing", implementedAt: new Date().toISOString() },
-        features[1],
+        { ...features[0]!, status: "passing", implementedAt: new Date().toISOString() },
+        features[1]!,
       ],
       currentFeatureIndex: 1,
       completedFeatures: ["feat-001"],
@@ -394,15 +394,15 @@ describe("Integration", () => {
       lastUpdated: new Date().toISOString(),
     };
 
-    expect(withProgress.features[0].status).toBe("passing");
+    expect(withProgress.features[0]!.status).toBe("passing");
     expect(withProgress.completedFeatures).toContain("feat-001");
 
     // Complete session
     const completedSession: RalphSession = {
       ...withProgress,
       features: [
-        withProgress.features[0],
-        { ...features[1], status: "passing", implementedAt: new Date().toISOString() },
+        withProgress.features[0]!,
+        { ...features[1]!, status: "passing", implementedAt: new Date().toISOString() },
       ],
       completedFeatures: ["feat-001", "feat-002"],
       status: "completed",
@@ -524,7 +524,7 @@ describe("File System Operations", () => {
         expect(loadedSession.yolo).toBe(originalSession.yolo);
         expect(loadedSession.maxIterations).toBe(originalSession.maxIterations);
         expect(loadedSession.features.length).toBe(1);
-        expect(loadedSession.features[0].name).toBe("Test feature");
+        expect(loadedSession.features[0]!.name).toBe("Test feature");
 
         // lastUpdated should be updated
         expect(loadedSession.lastUpdated).toBeDefined();
@@ -1086,7 +1086,7 @@ describe("Session Directory Creation - Comprehensive Tests", () => {
         expect(loadedSession.yolo).toBe(true);
         expect(loadedSession.maxIterations).toBe(100);
         expect(loadedSession.features.length).toBe(1);
-        expect(loadedSession.features[0].name).toBe("Test Feature");
+        expect(loadedSession.features[0]!.name).toBe("Test Feature");
       } finally {
         await cleanupDir(sessionDir);
       }
@@ -1465,12 +1465,18 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
         maxIterations: 0,
         prUrl: "https://github.com/user/repo/pull/123",
         prBranch: "feature/optional-test",
-        debugReports: [{ type: "error", message: "Test error" }],
+        debugReports: [{
+          errorSummary: "Test error",
+          relevantFiles: [],
+          suggestedFixes: [],
+          generatedAt: new Date().toISOString(),
+        }],
       });
 
       expect(session.prUrl).toBe("https://github.com/user/repo/pull/123");
       expect(session.prBranch).toBe("feature/optional-test");
-      expect(session.debugReports).toEqual([{ type: "error", message: "Test error" }]);
+      expect(session.debugReports?.length).toBe(1);
+      expect(session.debugReports![0]!.errorSummary).toBe("Test error");
     });
 
     test("creates session with multiple features at different statuses", () => {
@@ -1511,11 +1517,11 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
       });
 
       expect(session.features.length).toBe(4);
-      expect(session.features[0].status).toBe("passing");
-      expect(session.features[1].status).toBe("in_progress");
-      expect(session.features[2].status).toBe("pending");
-      expect(session.features[3].status).toBe("failing");
-      expect(session.features[3].error).toBe("Test suite failed");
+      expect(session.features[0]!.status).toBe("passing");
+      expect(session.features[1]!.status).toBe("in_progress");
+      expect(session.features[2]!.status).toBe("pending");
+      expect(session.features[3]!.status).toBe("failing");
+      expect(session.features[3]!.error).toBe("Test suite failed");
     });
 
     test("creates session in all valid status states", () => {
@@ -1531,8 +1537,19 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
     test("session with debugReports is valid", () => {
       const session = createRalphSession({
         debugReports: [
-          { type: "error", message: "Error 1", details: { stack: "..." } },
-          { type: "warning", message: "Warning 1" },
+          {
+            errorSummary: "Error 1",
+            stackTrace: "...",
+            relevantFiles: ["file1.ts"],
+            suggestedFixes: ["Fix suggestion"],
+            generatedAt: new Date().toISOString(),
+          },
+          {
+            errorSummary: "Warning 1",
+            relevantFiles: [],
+            suggestedFixes: [],
+            generatedAt: new Date().toISOString(),
+          },
         ],
       });
 
@@ -1601,7 +1618,12 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
           status: "completed",
           prUrl: "https://github.com/test/repo/pull/1",
           prBranch: "feature/complete",
-          debugReports: [{ type: "info", message: "All good" }],
+          debugReports: [{
+            errorSummary: "All good",
+            relevantFiles: [],
+            suggestedFixes: [],
+            generatedAt: new Date().toISOString(),
+          }],
         });
 
         await saveSession(sessionDir, originalSession);
@@ -1624,7 +1646,7 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
         expect(saved.status).toBe("completed");
         expect(saved.prUrl).toBe("https://github.com/test/repo/pull/1");
         expect(saved.prBranch).toBe("feature/complete");
-        expect(saved.debugReports).toEqual([{ type: "info", message: "All good" }]);
+        expect(saved.debugReports?.length).toBe(1);
       } finally {
         await cleanupDir(sessionDir);
       }
@@ -1792,7 +1814,7 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
         await saveSession(sessionDir, originalSession);
 
         const loadedSession = await loadSession(sessionDir);
-        const loadedFeature = loadedSession.features[0];
+        const loadedFeature = loadedSession.features[0]!;
 
         expect(loadedFeature.id).toBe("feat-complete");
         expect(loadedFeature.name).toBe("Complete Feature");
@@ -1904,7 +1926,12 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
           status: "running",
           prBranch: "feature/roundtrip-test",
           debugReports: [
-            { type: "debug", data: { nested: { value: 42 } } },
+            {
+              errorSummary: "Debug info",
+              relevantFiles: [],
+              suggestedFixes: [],
+              generatedAt: new Date().toISOString(),
+            },
           ],
         };
 

@@ -101,3 +101,11 @@ export {
   type AgentStatus,
 } from "./parallel-agents-tree.tsx";
 
+// ============================================================================
+// MODEL SELECTOR DIALOG COMPONENT
+// ============================================================================
+
+export {
+  ModelSelectorDialog,
+  type ModelSelectorDialogProps,
+} from "./model-selector-dialog.tsx";

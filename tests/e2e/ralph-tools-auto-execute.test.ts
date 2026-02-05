@@ -42,8 +42,8 @@ import {
   createRalphFeature,
   type RalphSession,
   type RalphFeature,
-} from "../../src/workflows/ralph-session.ts";
-import { createRalphWorkflow } from "../../src/workflows/ralph.ts";
+} from "../../src/workflows/index.ts";
+import { createRalphWorkflow } from "../../src/workflows/index.ts";
 import {
   createRalphWorkflowState,
   type RalphWorkflowState,
@@ -235,7 +235,7 @@ function createMockToolClient(
   };
 
   return {
-    agentType: "mock",
+    agentType: "claude" as const,
     sessions,
     eventHandlers,
     permissionMode,
@@ -574,8 +574,8 @@ describe("E2E test: All tools auto-execute without prompts", () => {
 
       const execution = session.toolExecutions[0];
       expect(execution?.timestamp).toBeDefined();
-      expect(execution?.timestamp >= beforeTime).toBe(true);
-      expect(execution?.timestamp <= afterTime).toBe(true);
+      expect(execution!.timestamp! >= beforeTime).toBe(true);
+      expect(execution!.timestamp! <= afterTime).toBe(true);
 
       await client.stop();
     });

@@ -1,18 +1,16 @@
 /**
  * ModelSelectorDialog Component for Interactive Model Selection
  *
- * A dialog component that displays available models in a searchable list,
- * inspired by OpenCode's model selector. Features:
- * - Fuzzy search filtering
- * - Keyboard navigation (j/k, arrows)
- * - Grouped by provider
- * - Context size and status display
- *
- * Reference: OpenCode's DialogModel component pattern
+ * A refined dialog component that displays available models grouped by provider.
+ * Features:
+ * - Keyboard navigation (j/k, arrows, number keys)
+ * - Provider-based grouping with visual hierarchy
+ * - Elegant selection indicators and current model markers
+ * - Capability badges for model features
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from "react";
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
+import React, { useState, useCallback, useEffect, useMemo } from "react";
+import { useKeyboard } from "@opentui/react";
 import type { KeyEvent } from "@opentui/core";
 import { useTheme } from "../theme.tsx";
 import type { Model } from "../../models/model-transform.ts";
@@ -36,76 +34,79 @@ export interface ModelSelectorDialogProps {
 
 interface GroupedModels {
   providerID: string;
-  providerName: string;
+  displayName: string;
   models: Model[];
 }
 
 // ============================================================================
-// UTILITY FUNCTIONS
+// CONSTANTS
+// ============================================================================
+
+/** Provider display names */
+const PROVIDER_CONFIG: Record<string, { name: string }> = {
+  anthropic: { name: "Anthropic" },
+  "github-copilot": { name: "GitHub Copilot" },
+  openai: { name: "OpenAI" },
+  google: { name: "Google" },
+  opencode: { name: "OpenCode" },
+  default: { name: "Other" },
+};
+
+
+// ============================================================================
+// HELPER FUNCTIONS
 // ============================================================================
 
 /**
- * Simple fuzzy match - checks if query characters appear in order in target
+ * Get provider display config
  */
-function fuzzyMatch(query: string, target: string): boolean {
-  const lowerQuery = query.toLowerCase();
-  const lowerTarget = target.toLowerCase();
-
-  let queryIndex = 0;
-  for (let i = 0; i < lowerTarget.length && queryIndex < lowerQuery.length; i++) {
-    if (lowerTarget[i] === lowerQuery[queryIndex]) {
-      queryIndex++;
-    }
-  }
-  return queryIndex === lowerQuery.length;
+function getProviderConfig(providerID: string): { name: string } {
+  return PROVIDER_CONFIG[providerID] ?? PROVIDER_CONFIG["default"]!;
 }
 
 /**
  * Group models by provider
  */
 function groupModelsByProvider(models: Model[]): GroupedModels[] {
-  const grouped = new Map<string, Model[]>();
+  const groups = new Map<string, Model[]>();
 
   for (const model of models) {
-    const arr = grouped.get(model.providerID) ?? [];
+    const arr = groups.get(model.providerID) ?? [];
     arr.push(model);
-    grouped.set(model.providerID, arr);
+    groups.set(model.providerID, arr);
   }
 
-  // Sort providers alphabetically, with anthropic and openai first
-  const priorityProviders = ['anthropic', 'openai'];
-  const entries = Array.from(grouped.entries()).sort((a, b) => {
-    const aIdx = priorityProviders.indexOf(a[0]);
-    const bIdx = priorityProviders.indexOf(b[0]);
-    if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-    if (aIdx !== -1) return -1;
-    if (bIdx !== -1) return 1;
-    return a[0].localeCompare(b[0]);
+  // Sort providers: anthropic first, then alphabetically
+  const sortedProviders = Array.from(groups.keys()).sort((a, b) => {
+    if (a === "anthropic") return -1;
+    if (b === "anthropic") return 1;
+    return a.localeCompare(b);
   });
 
-  return entries.map(([providerID, providerModels]) => ({
+  return sortedProviders.map((providerID) => ({
     providerID,
-    providerName: providerID.charAt(0).toUpperCase() + providerID.slice(1),
-    models: providerModels.sort((a, b) => a.name.localeCompare(b.name)),
+    displayName: getProviderConfig(providerID).name,
+    models: groups.get(providerID) ?? [],
   }));
 }
 
 /**
- * Flatten grouped models into a flat list for navigation
+ * Format context window size
  */
-function flattenGroupedModels(groups: GroupedModels[]): Model[] {
-  return groups.flatMap(g => g.models);
+function formatContextSize(context: number): string {
+  if (context >= 1000000) return `${(context / 1000000).toFixed(1)}M`;
+  if (context >= 1000) return `${Math.round(context / 1000)}k`;
+  return String(context);
 }
 
 /**
- * Format context size for display
+ * Get capability info for a model (context size only, no icons)
  */
-function formatContextSize(limits?: { context?: number }): string {
-  if (!limits?.context) return '';
-  const ctx = limits.context;
-  if (ctx >= 1000000) return `${Math.round(ctx / 1000000)}M ctx`;
-  if (ctx >= 1000) return `${Math.round(ctx / 1000)}k ctx`;
-  return `${ctx} ctx`;
+function getCapabilityInfo(model: Model): string | null {
+  if (model.limits?.context) {
+    return formatContextSize(model.limits.context);
+  }
+  return null;
 }
 
 // ============================================================================
@@ -121,35 +122,24 @@ export function ModelSelectorDialog({
 }: ModelSelectorDialogProps): React.ReactNode {
   const { theme } = useTheme();
   const colors = theme.colors;
-  const { height: terminalHeight } = useTerminalDimensions();
 
-  const [searchQuery, setSearchQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
 
-  // Filter models based on search query
-  const filteredModels = useMemo(() => {
-    if (!searchQuery) return models;
-    return models.filter(model =>
-      fuzzyMatch(searchQuery, model.name) ||
-      fuzzyMatch(searchQuery, model.id) ||
-      fuzzyMatch(searchQuery, model.providerID) ||
-      (model.family && fuzzyMatch(searchQuery, model.family))
-    );
-  }, [models, searchQuery]);
+  // Group models by provider
+  const groupedModels = useMemo(() => groupModelsByProvider(models), [models]);
 
-  // Group filtered models
-  const groupedModels = useMemo(() => groupModelsByProvider(filteredModels), [filteredModels]);
-  const flatModels = useMemo(() => flattenGroupedModels(groupedModels), [groupedModels]);
+  // Flatten for navigation (maintain order)
+  const flatModels = useMemo(
+    () => groupedModels.flatMap((g) => g.models),
+    [groupedModels]
+  );
 
-  // Reset selection when filter changes
-  useEffect(() => {
-    setSelectedIndex(0);
-  }, [searchQuery]);
-
-  // Find index of current model
+  // Find index of current model on mount
   useEffect(() => {
     if (currentModel && flatModels.length > 0) {
-      const idx = flatModels.findIndex(m => m.id === currentModel);
+      const idx = flatModels.findIndex(
+        (m) => m.id === currentModel || m.modelID === currentModel
+      );
       if (idx !== -1) {
         setSelectedIndex(idx);
       }
@@ -162,7 +152,6 @@ export function ModelSelectorDialog({
       (event: KeyEvent): boolean => {
         if (!visible) return false;
 
-        // Stop propagation to prevent other handlers from running
         event.stopPropagation();
 
         const key = event.name ?? "";
@@ -170,21 +159,23 @@ export function ModelSelectorDialog({
 
         // Navigation
         if (key === "up" || key === "k") {
-          setSelectedIndex(prev => (prev <= 0 ? totalItems - 1 : prev - 1));
+          setSelectedIndex((prev) => (prev <= 0 ? totalItems - 1 : prev - 1));
           return true;
         }
         if (key === "down" || key === "j") {
-          setSelectedIndex(prev => (prev >= totalItems - 1 ? 0 : prev + 1));
+          setSelectedIndex((prev) => (prev >= totalItems - 1 ? 0 : prev + 1));
           return true;
         }
 
-        // Page navigation
-        if (key === "pageup") {
-          setSelectedIndex(prev => Math.max(0, prev - 10));
-          return true;
-        }
-        if (key === "pagedown") {
-          setSelectedIndex(prev => Math.min(totalItems - 1, prev + 10));
+        // Number keys for quick selection (1-9)
+        if (/^[1-9]$/.test(key)) {
+          const num = parseInt(key, 10) - 1;
+          if (num < totalItems) {
+            setSelectedIndex(num);
+            if (flatModels[num]) {
+              onSelect(flatModels[num]);
+            }
+          }
           return true;
         }
 
@@ -202,18 +193,6 @@ export function ModelSelectorDialog({
           return true;
         }
 
-        // Search input - allow alphanumeric and common characters
-        if (key.length === 1 && /[\w\-./]/.test(key)) {
-          setSearchQuery(prev => prev + key);
-          return true;
-        }
-
-        // Backspace
-        if (key === "backspace") {
-          setSearchQuery(prev => prev.slice(0, -1));
-          return true;
-        }
-
         return false;
       },
       [visible, flatModels, selectedIndex, onSelect, onCancel]
@@ -222,104 +201,132 @@ export function ModelSelectorDialog({
 
   if (!visible) return null;
 
-  // Calculate dimensions
-  const maxVisibleItems = Math.min(15, terminalHeight - 10);
-
-  // Calculate scroll offset to keep selected item visible
-  const scrollOffset = Math.max(0, selectedIndex - Math.floor(maxVisibleItems / 2));
+  // Calculate global index for each model
+  let globalIndex = 0;
 
   return (
     <box
       style={{
         flexDirection: "column",
         width: "100%",
+        paddingTop: 1,
+        paddingBottom: 1,
       }}
     >
       {/* Header */}
-      <box style={{ flexDirection: "column", padding: 1 }}>
-        <text style={{ fg: colors.accent }}>Select Model</text>
+      <box style={{ flexDirection: "column", paddingLeft: 2, paddingBottom: 1 }}>
+        <text style={{ fg: colors.accent }} attributes={1}>
+          Select Model
+        </text>
         <text style={{ fg: colors.muted }}>
-          Use arrows or j/k to navigate, Enter to select, Esc to cancel
+          Choose a model for this session
         </text>
       </box>
 
-      {/* Search Input */}
-      <box style={{ padding: 1 }}>
-        <text style={{ fg: colors.muted }}>Search: </text>
-        <text style={{ fg: searchQuery ? colors.accent : colors.muted }}>
-          {searchQuery || "Type to filter..."}
-        </text>
-      </box>
-
-      {/* Models List */}
+      {/* Models List - Grouped by Provider */}
       <box
         style={{
           flexDirection: "column",
-          padding: 1,
-          flexGrow: 1,
+          paddingLeft: 2,
         }}
       >
-        {groupedModels.length === 0 ? (
-          <text style={{ fg: colors.muted }}>
-            No models found matching "{searchQuery}"
-          </text>
+        {flatModels.length === 0 ? (
+          <box style={{ paddingLeft: 2, paddingTop: 1, paddingBottom: 1 }}>
+            <text style={{ fg: colors.muted }}>
+              No models available
+            </text>
+          </box>
         ) : (
-          groupedModels.map((group) => {
-            // Find the first model index for this group in flat list
-            const groupStartIndex = flatModels.findIndex(
-              m => m.providerID === group.providerID
-            );
-
-            // Check if any model in this group should be visible
-            const groupEndIndex = groupStartIndex + group.models.length - 1;
-            const visibleStart = scrollOffset;
-            const visibleEnd = scrollOffset + maxVisibleItems - 1;
-
-            // Skip group if entirely outside visible range
-            if (groupEndIndex < visibleStart || groupStartIndex > visibleEnd) {
-              return null;
-            }
+          groupedModels.map((group, groupIdx) => {
+            const config = getProviderConfig(group.providerID);
+            const isLastGroup = groupIdx === groupedModels.length - 1;
 
             return (
               <box key={group.providerID} style={{ flexDirection: "column" }}>
                 {/* Provider Header */}
-                <text style={{ fg: colors.accent }}>
-                  {group.providerName}
-                </text>
+                <box style={{ paddingTop: groupIdx > 0 ? 1 : 0 }}>
+                  <text style={{ fg: colors.foreground }}>
+                    {config.name}
+                  </text>
+                </box>
 
-                {/* Models in this provider */}
+                {/* Models in this group */}
                 {group.models.map((model) => {
-                  const modelIndex = flatModels.indexOf(model);
-                  const isSelected = modelIndex === selectedIndex;
-                  const isCurrent = model.id === currentModel;
+                  const currentGlobalIndex = globalIndex++;
+                  const isSelected = currentGlobalIndex === selectedIndex;
+                  const isCurrent =
+                    model.id === currentModel || model.modelID === currentModel;
+                  const contextInfo = getCapabilityInfo(model);
 
-                  // Skip if outside visible range
-                  if (modelIndex < scrollOffset || modelIndex >= scrollOffset + maxVisibleItems) {
-                    return null;
-                  }
-
-                  const contextStr = formatContextSize(model.limits);
-                  const statusStr = model.status && model.status !== 'active'
-                    ? `[${model.status}]`
-                    : '';
-
-                  // Build the display text
-                  let displayText = `  ${isSelected ? ">" : " "} ${model.modelID || model.name}`;
-                  if (isCurrent) displayText += " (current)";
-                  if (contextStr) displayText += ` (${contextStr})`;
-                  if (statusStr) displayText += ` ${statusStr}`;
+                  // Selection indicator and number
+                  const indicator = isSelected ? "❯" : " ";
+                  const number = currentGlobalIndex + 1;
 
                   return (
-                    <text
+                    <box
                       key={model.id}
                       style={{
-                        fg: isSelected ? colors.accent : (isCurrent ? colors.success : colors.foreground),
+                        flexDirection: "row",
+                        paddingLeft: 2,
                       }}
                     >
-                      {displayText}
-                    </text>
+                      {/* Selection indicator */}
+                      <text
+                        style={{
+                          fg: isSelected ? colors.accent : colors.muted,
+                        }}
+                      >
+                        {indicator}
+                      </text>
+
+                      {/* Number */}
+                      <text
+                        style={{
+                          fg: isSelected ? colors.accent : colors.muted,
+                        }}
+                      >
+                        {" "}{number < 10 ? ` ${number}` : number}.{" "}
+                      </text>
+
+                      {/* Model name */}
+                      <text
+                        style={{
+                          fg: isSelected
+                            ? colors.accent
+                            : isCurrent
+                              ? colors.success
+                              : colors.foreground,
+                        }}
+                        attributes={isSelected ? 1 : undefined}
+                      >
+                        {model.name}
+                      </text>
+
+                      {/* Current marker */}
+                      {isCurrent && (
+                        <text style={{ fg: colors.success }}>
+                          {" "}(current)
+                        </text>
+                      )}
+
+                      {/* Context size info */}
+                      {contextInfo && (
+                        <text style={{ fg: colors.muted }}>
+                          {"  "}{contextInfo}
+                        </text>
+                      )}
+                    </box>
                   );
                 })}
+
+                {/* Separator between groups */}
+                {!isLastGroup && (
+                  <box style={{ paddingTop: 0 }}>
+                    <text style={{ fg: colors.border }}>
+                      {"  "}{"─".repeat(30)}
+                    </text>
+                  </box>
+                )}
               </box>
             );
           })
@@ -327,10 +334,9 @@ export function ModelSelectorDialog({
       </box>
 
       {/* Footer */}
-      <box style={{ padding: 1 }}>
+      <box style={{ paddingLeft: 2, paddingTop: 1 }}>
         <text style={{ fg: colors.muted }}>
-          {flatModels.length} model{flatModels.length !== 1 ? 's' : ''} available
-          {searchQuery && ` (filtered from ${models.length})`}
+          j/k navigate · enter select · esc cancel
         </text>
       </box>
     </box>

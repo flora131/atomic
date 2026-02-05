@@ -460,7 +460,7 @@ export async function loadSessionIfExists(
 ): Promise<RalphSession | null> {
   try {
     return await loadSession(sessionDir);
-  } catch (error) {
+  } catch {
     // Return null for any error (file not found, invalid JSON, etc.)
     // This makes the function safe to use for checking existence
     return null;

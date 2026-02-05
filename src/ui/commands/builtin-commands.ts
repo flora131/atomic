@@ -30,6 +30,7 @@ export const helpCommand: CommandDefinition = {
   description: "Show all available commands",
   category: "builtin",
   aliases: ["h", "?"],
+  argumentHint: "[command]",
   execute: (_args: string, _context: CommandContext): CommandResult => {
     const commands = globalRegistry.all();
 
@@ -168,6 +169,7 @@ export const themeCommand: CommandDefinition = {
   name: "theme",
   description: "Toggle between dark and light theme",
   category: "builtin",
+  argumentHint: "[dark | light]",
   execute: (args: string, _context: CommandContext): CommandResult => {
     // Parse optional theme argument
     const targetTheme = args.trim().toLowerCase();
@@ -284,6 +286,7 @@ export const modelCommand: CommandDefinition = {
   description: "Switch or view the current model",
   category: "builtin",
   aliases: ["m"],
+  argumentHint: "[model | list | select]",
   execute: async (args: string, context: CommandContext): Promise<CommandResult> => {
     const { agentType, modelOps, state } = context;
     const trimmed = args.trim();

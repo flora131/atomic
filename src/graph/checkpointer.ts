@@ -819,7 +819,7 @@ export class SessionDirSaver<TState extends BaseState = BaseState>
   /**
    * List all checkpoint labels for an execution.
    */
-  async list(executionId: string): Promise<string[]> {
+  async list(_executionId: string): Promise<string[]> {
     if (typeof this.sessionDirGetter !== "string") {
       throw new Error(
         "SessionDirSaver.list() requires a static session directory. " +

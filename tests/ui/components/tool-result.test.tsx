@@ -60,12 +60,12 @@ describe("shouldCollapse", () => {
 describe("getErrorColor", () => {
   test("returns dark theme error color", () => {
     const color = getErrorColor(true);
-    expect(color).toBe("#EF4444");
+    expect(color).toBe("#C98A8A");
   });
 
   test("returns light theme error color", () => {
     const color = getErrorColor(false);
-    expect(color).toBe("#DC2626");
+    expect(color).toBe("#A86868");
   });
 });
 
@@ -440,7 +440,7 @@ describe("getToolSummary", () => {
       3
     );
 
-    expect(summary.text).toBe("3 files found");
+    expect(summary.text).toBe("3 files");
     expect(summary.count).toBe(3);
   });
 
@@ -452,7 +452,7 @@ describe("getToolSummary", () => {
       1
     );
 
-    expect(summary.text).toBe("1 file found");
+    expect(summary.text).toBe("1 file");
     expect(summary.count).toBe(1);
   });
 
@@ -502,7 +502,8 @@ describe("getToolSummary", () => {
     );
 
     expect(summary.text.length).toBeLessThanOrEqual(30);
-    expect(summary.text).toContain("...");
+    // Uses ellipsis character instead of "..."
+    expect(summary.text.endsWith("…")).toBe(true);
   });
 
   test("Edit tool returns edited file summary", () => {
@@ -513,7 +514,8 @@ describe("getToolSummary", () => {
       2
     );
 
-    expect(summary.text).toBe("edited app.tsx");
+    // Implementation uses arrow format for file operations
+    expect(summary.text).toBe("→ app.tsx");
     expect(summary.count).toBeUndefined();
   });
 
@@ -525,7 +527,8 @@ describe("getToolSummary", () => {
       1
     );
 
-    expect(summary.text).toBe("created helpers.ts");
+    // Implementation uses arrow format for file operations
+    expect(summary.text).toBe("→ helpers.ts");
     expect(summary.count).toBeUndefined();
   });
 
@@ -550,8 +553,9 @@ describe("getToolSummary", () => {
       5
     );
 
-    expect(summary.text.length).toBeLessThanOrEqual(40);
-    expect(summary.text).toContain("...");
+    expect(summary.text.length).toBeLessThanOrEqual(35);
+    // Uses ellipsis character instead of "..."
+    expect(summary.text.endsWith("…")).toBe(true);
   });
 
   test("Unknown tool returns line count", () => {

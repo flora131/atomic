@@ -40,41 +40,41 @@ import type {
 import { formatModelDisplayName } from "../../src/sdk/types.ts";
 
 describe("formatModelDisplayName", () => {
-  test("formats claude-opus-4-5-20251101 to Opus 4.5", () => {
-    expect(formatModelDisplayName("claude-opus-4-5-20251101")).toBe("Opus 4.5");
+  test("formats claude-opus-4-5-20251101 to opus", () => {
+    expect(formatModelDisplayName("claude-opus-4-5-20251101")).toBe("opus");
   });
 
-  test("formats claude-sonnet-4-5-20250929 to Sonnet 4.5", () => {
-    expect(formatModelDisplayName("claude-sonnet-4-5-20250929")).toBe("Sonnet 4.5");
+  test("formats claude-sonnet-4-5-20250929 to sonnet", () => {
+    expect(formatModelDisplayName("claude-sonnet-4-5-20250929")).toBe("sonnet");
   });
 
-  test("formats claude-haiku-3-5 to Haiku 3.5", () => {
-    expect(formatModelDisplayName("claude-haiku-3-5")).toBe("Haiku 3.5");
+  test("formats claude-haiku-3-5 to haiku", () => {
+    expect(formatModelDisplayName("claude-haiku-3-5")).toBe("haiku");
   });
 
-  test("formats claude-3-opus to Opus", () => {
-    expect(formatModelDisplayName("claude-3-opus")).toBe("Opus");
+  test("formats claude-3-opus to opus", () => {
+    expect(formatModelDisplayName("claude-3-opus")).toBe("opus");
   });
 
-  test("formats claude-3-sonnet to Sonnet", () => {
-    expect(formatModelDisplayName("claude-3-sonnet")).toBe("Sonnet");
+  test("formats claude-3-sonnet to sonnet", () => {
+    expect(formatModelDisplayName("claude-3-sonnet")).toBe("sonnet");
   });
 
-  test("formats claude-opus-4 to Opus 4", () => {
-    expect(formatModelDisplayName("claude-opus-4")).toBe("Opus 4");
+  test("formats claude-opus-4 to opus", () => {
+    expect(formatModelDisplayName("claude-opus-4")).toBe("opus");
   });
 
   test("returns Claude for empty string", () => {
     expect(formatModelDisplayName("")).toBe("Claude");
   });
 
-  test("returns Claude for just claude", () => {
-    expect(formatModelDisplayName("claude")).toBe("Claude");
+  test("returns claude for just claude", () => {
+    expect(formatModelDisplayName("claude")).toBe("claude");
   });
 
   test("handles case insensitivity", () => {
-    expect(formatModelDisplayName("CLAUDE-OPUS-4-5")).toBe("Opus 4.5");
-    expect(formatModelDisplayName("Claude-Sonnet-4")).toBe("Sonnet 4");
+    expect(formatModelDisplayName("CLAUDE-OPUS-4-5")).toBe("opus");
+    expect(formatModelDisplayName("Claude-Sonnet-4")).toBe("sonnet");
   });
 });
 

@@ -10,8 +10,8 @@
  * Reference: Feature 3 - Implement workflow command registration
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
-import { join, dirname } from "path";
+import { existsSync } from "fs";
+import { join } from "path";
 import type {
   CommandDefinition,
   CommandContext,
@@ -22,7 +22,6 @@ import { globalRegistry } from "./registry.ts";
 import {
   createRalphWorkflow,
   type CreateRalphWorkflowConfig,
-  type RalphWorkflowState,
 } from "../../workflows/ralph/workflow.ts";
 import type { CompiledGraph, BaseState } from "../../graph/types.ts";
 import type { AtomicWorkflowState } from "../../graph/annotation.ts";
@@ -221,6 +220,8 @@ export interface WorkflowMetadata<TState extends BaseState = AtomicWorkflowState
   defaultConfig?: Record<string, unknown>;
   /** Source: built-in, global (~/.atomic/workflows), or local (.atomic/workflows) */
   source?: "builtin" | "global" | "local";
+  /** Hint text showing expected arguments (e.g., "PROMPT [--yolo]") */
+  argumentHint?: string;
 }
 
 /**
@@ -673,6 +674,7 @@ const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata<BaseState>[] = [
     name: "ralph",
     description: "Start the Ralph autonomous implementation workflow",
     aliases: ["loop"],
+    argumentHint: "PROMPT [--yolo] [--resume UUID] [--max-iterations N]",
     createWorkflow: (config?: Record<string, unknown>) => {
       const ralphConfig: CreateRalphWorkflowConfig = {
         maxIterations: typeof config?.maxIterations === "number" ? config.maxIterations : undefined,
@@ -718,6 +720,7 @@ function createWorkflowCommand(metadata: WorkflowMetadata<BaseState>): CommandDe
     description: metadata.description,
     category: "workflow",
     aliases: metadata.aliases,
+    argumentHint: metadata.argumentHint,
     execute: (args: string, context: CommandContext): CommandResult => {
       // Check if already in a workflow
       if (context.state.workflowActive) {
@@ -777,6 +780,7 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
     description: metadata.description,
     category: "workflow",
     aliases: metadata.aliases,
+    argumentHint: metadata.argumentHint,
     execute: (args: string, context: CommandContext): CommandResult => {
       // Check if already in a workflow
       if (context.state.workflowActive) {

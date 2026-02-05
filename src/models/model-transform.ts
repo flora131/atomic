@@ -101,6 +101,19 @@ export function fromClaudeModelInfo(modelInfo: {
 export function fromCopilotModelInfo(modelInfo: any): Model {
   const limits = modelInfo.capabilities?.limits ?? {};
   const supports = modelInfo.capabilities?.supports ?? {};
+
+  // Handle supports as either an array or an object
+  const supportsArray = Array.isArray(supports);
+  const hasReasoning = supportsArray
+    ? supports.includes("reasoning") || supports.includes("reasoningEffort")
+    : (supports.reasoningEffort ?? supports.reasoning ?? false);
+  const hasAttachment = supportsArray
+    ? supports.includes("vision") || supports.includes("attachment")
+    : (supports.vision ?? supports.attachment ?? false);
+  const hasTools = supportsArray
+    ? supports.includes("tools")
+    : (supports.tools ?? true);
+
   return {
     id: `github-copilot/${modelInfo.id}`,
     providerID: 'github-copilot',
@@ -108,10 +121,10 @@ export function fromCopilotModelInfo(modelInfo: any): Model {
     name: modelInfo.name,
     status: 'active',
     capabilities: {
-      reasoning: supports.reasoningEffort ?? supports.reasoning ?? false,
-      attachment: supports.vision ?? supports.attachment ?? false,
+      reasoning: hasReasoning,
+      attachment: hasAttachment,
       temperature: true,
-      toolCall: supports.tools ?? true,
+      toolCall: hasTools,
     },
     limits: {
       context: limits.maxContextWindowTokens ?? limits.context ?? DEFAULT_LIMITS.context,

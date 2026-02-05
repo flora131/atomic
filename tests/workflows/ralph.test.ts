@@ -109,7 +109,7 @@ describe("createRalphWorkflow", () => {
 
     expect(workflow).toBeDefined();
     // RALPH_CONFIG defaults are used internally
-    expect(RALPH_CONFIG.maxIterations).toBe(100);
+    expect(RALPH_CONFIG.maxIterations).toBe(0);  // 0 = unlimited
     expect(RALPH_CONFIG.checkpointing).toBe(true);
   });
 

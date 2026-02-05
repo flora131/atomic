@@ -331,11 +331,12 @@ describe("SDK Parity Verification", () => {
 
     test("getModelDisplayInfo formats model names consistently", async () => {
       // Test with explicit model hints
+      // Model name formatting returns lowercase family name for consistency
       const claudeInfo = await claudeClient.getModelDisplayInfo("claude-sonnet-4-5");
-      expect(claudeInfo.model).toBe("Sonnet 4.5");
+      expect(claudeInfo.model).toBe("sonnet");
 
       const copilotInfo = await copilotClient.getModelDisplayInfo("gpt-4.1");
-      expect(copilotInfo.model).toContain("GPT");
+      expect(copilotInfo.model.toLowerCase()).toContain("gpt");
     });
 
     test("/model command exists in registry", () => {

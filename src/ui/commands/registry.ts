@@ -166,6 +166,8 @@ export interface CommandDefinition {
   aliases?: string[];
   /** Whether to hide from autocomplete list */
   hidden?: boolean;
+  /** Hint text showing expected arguments (e.g., "[model]", "PROMPT [--yolo]") */
+  argumentHint?: string;
 }
 
 // ============================================================================

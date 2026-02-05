@@ -78,17 +78,16 @@ describe("Ralph Graph Engine Execution", () => {
   });
 
   describe("Workflow configuration", () => {
-    test("createAtomicWorkflow accepts configuration options", async () => {
-      const { createAtomicWorkflow } = await import("../../.atomic/workflows/atomic.ts");
+    test("createRalphWorkflow accepts configuration options", async () => {
+      const { createRalphWorkflow } = await import("../../src/workflows/ralph/workflow.ts");
 
-      const workflow = createAtomicWorkflow({
+      const workflow = createRalphWorkflow({
         maxIterations: 50,
         checkpointing: false,
-        autoApproveSpec: true,
       });
 
       expect(workflow).toBeDefined();
-      expect(workflow.startNode).toBe("research");
+      expect(workflow.startNode).toBe("init-session");
       expect(workflow.nodes.size).toBeGreaterThan(0);
     });
 
@@ -110,17 +109,23 @@ describe("Ralph Graph Engine Execution", () => {
 
   describe("Graph execution streaming", () => {
     test("streamGraph yields step results", async () => {
-      const { createAtomicWorkflow, createAtomicWorkflowState } = await import("../../.atomic/workflows/atomic.ts");
+      const { createTestRalphWorkflow } = await import("../../src/workflows/ralph/workflow.ts");
+      const { createRalphWorkflowState } = await import("../../src/graph/nodes/ralph-nodes.ts");
       const { streamGraph } = await import("../../src/graph/compiled.ts");
 
-      // Create a minimal test workflow that auto-approves
-      const workflow = createAtomicWorkflow({
+      // Create a minimal test workflow
+      const workflow = createTestRalphWorkflow({
         maxIterations: 1,
         checkpointing: false,
-        autoApproveSpec: true,
+        yolo: true,
+        userPrompt: "test prompt",
       });
 
-      const initialState = createAtomicWorkflowState("test feature");
+      const initialState = createRalphWorkflowState({
+        yolo: true,
+        userPrompt: "test prompt",
+        maxIterations: 1,
+      });
       const steps: Array<{ nodeId: string; status: string }> = [];
 
       // We just want to verify the stream works without actually running the full workflow
@@ -153,15 +158,13 @@ describe("Ralph Graph Engine Execution", () => {
   });
 
   describe("Node display names", () => {
-    test("ATOMIC_NODE_IDS contains expected nodes", async () => {
-      const { ATOMIC_NODE_IDS } = await import("../../.atomic/workflows/atomic.ts");
+    test("RALPH_NODE_IDS contains expected nodes", async () => {
+      const { RALPH_NODE_IDS } = await import("../../src/workflows/ralph/workflow.ts");
 
-      expect(ATOMIC_NODE_IDS.RESEARCH).toBe("research");
-      expect(ATOMIC_NODE_IDS.CREATE_SPEC).toBe("create-spec");
-      expect(ATOMIC_NODE_IDS.REVIEW_SPEC).toBe("review-spec");
-      expect(ATOMIC_NODE_IDS.CREATE_FEATURES).toBe("create-features");
-      expect(ATOMIC_NODE_IDS.IMPLEMENT_FEATURE).toBe("implement-feature");
-      expect(ATOMIC_NODE_IDS.CREATE_PR).toBe("create-pr");
+      expect(RALPH_NODE_IDS.INIT_SESSION).toBe("init-session");
+      expect(RALPH_NODE_IDS.CLEAR_CONTEXT).toBe("clear-context");
+      expect(RALPH_NODE_IDS.IMPLEMENT_FEATURE).toBe("implement-feature");
+      expect(RALPH_NODE_IDS.CHECK_COMPLETION).toBe("check-completion");
     });
   });
 

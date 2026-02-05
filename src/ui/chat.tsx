@@ -14,6 +14,7 @@ import type {
   SyntaxStyle,
   TextareaRenderable,
   KeyBinding,
+  PasteEvent,
 } from "@opentui/core";
 import { MacOSScrollAccel } from "@opentui/core";
 import { copyToClipboard, pasteFromClipboard } from "../utils/clipboard.ts";
@@ -38,7 +39,6 @@ import type { Model } from "../models/model-transform.ts";
 import {
   useStreamingState,
   type ToolExecutionStatus,
-  type ToolExecutionState,
 } from "./hooks/use-streaming-state.ts";
 import { useMessageQueue } from "./hooks/use-message-queue.ts";
 import {
@@ -322,6 +322,8 @@ export interface WorkflowChatState {
   autocompleteInput: string;
   /** Index of the currently selected suggestion in autocomplete */
   selectedSuggestionIndex: number;
+  /** Hint text showing expected arguments for the current command */
+  argumentHint: string;
 
   // Workflow execution state
   /** Whether a workflow is currently active */
@@ -356,6 +358,7 @@ export const defaultWorkflowChatState: WorkflowChatState = {
   showAutocomplete: false,
   autocompleteInput: "",
   selectedSuggestionIndex: 0,
+  argumentHint: "",
 
   // Workflow defaults
   workflowActive: false,
@@ -553,11 +556,11 @@ const ATOMIC_PINK = "#D4A5A5";
 /** Secondary pink - muted rose for borders */
 const ATOMIC_PINK_DIM = "#B8878A";
 /** User message color - pale sky blue for contrast */
-const USER_SKY = "#A8C5D8";
+const _USER_SKY = "#A8C5D8";
 /** Muted color for timestamps and secondary text */
 const MUTED_LAVENDER = "#9A9AAC";
 /** Dim text for subtle elements */
-const DIM_BLUE = "#8899AA";
+const _DIM_BLUE = "#8899AA";
 
 // ============================================================================
 // ATOMIC HEADER COMPONENT
@@ -690,7 +693,7 @@ function buildContentSegments(content: string, toolCalls: MessageToolCall[]): Co
  * - Assistant messages: bullet point (●) prefix, no header
  * Tool calls are rendered inline at their correct chronological positions.
  */
-export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false, hideAskUserQuestion = false, hideLoading = false }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false }: MessageBubbleProps): React.ReactNode {
   // Show loading animation only before any content arrives, and not when question dialog is active
   const showLoadingAnimation = message.streaming && !message.content.trim() && !hideLoading;
 
@@ -718,12 +721,12 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
   if (message.role === "assistant") {
     // Build interleaved content segments
     const segments = buildContentSegments(message.content, message.toolCalls || []);
-    const hasContent = segments.length > 0;
+    const _hasContent = segments.length > 0;
 
     // Check if first segment is text (for bullet point prefix)
     const firstTextSegment = segments.find(s => s.type === "text");
     const firstSegment = segments[0];
-    const hasLeadingText = segments.length > 0 && firstSegment?.type === "text";
+    const _hasLeadingText = segments.length > 0 && firstSegment?.type === "text";
 
     // Loading animation when no content yet
     if (showLoadingAnimation) {
@@ -760,7 +763,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
               <box key={segment.key} flexDirection="row" alignItems="flex-start" marginBottom={index < segments.length - 1 ? 1 : 0}>
                 {isFirst && <text style={{ fg: ATOMIC_PINK }}>● </text>}
                 {!isFirst && <text>  </text>}
-                <box flexGrow={1}>
+                <box flexGrow={1} flexShrink={1} minWidth={0}>
                   <markdown
                     content={segment.content}
                     syntaxStyle={syntaxStyle}
@@ -845,7 +848,7 @@ export function ChatApp({
   onStreamMessage,
   onExit,
   onInterrupt,
-  placeholder = "Type a message...",
+  placeholder: _placeholder = "Type a message...",
   title: _title,
   syntaxStyle,
   version = "0.1.0",
@@ -893,7 +896,7 @@ export function ChatApp({
   const messageQueue = useMessageQueue();
 
   // Verbose mode state for expanded tool outputs and timestamps
-  const [verboseMode, setVerboseMode] = useState(false);
+  const [verboseMode, _setVerboseMode] = useState(false);
 
   // State for showing user question dialog
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
@@ -1328,7 +1331,7 @@ export function ChatApp({
   /**
    * Update workflow progress state (called by workflow execution).
    */
-  const updateWorkflowProgress = useCallback((updates: {
+  const _updateWorkflowProgress = useCallback((updates: {
     currentNode?: string | null;
     iteration?: number;
     featureProgress?: FeatureProgress | null;
@@ -1345,38 +1348,45 @@ export function ChatApp({
   /**
    * Handle input changes to detect slash command prefix.
    * Shows autocomplete when input starts with "/" and has no space.
+   * Shows argument hints when a space follows a valid command name.
    */
   const handleInputChange = useCallback((value: string) => {
     // Check if input starts with "/" (slash command)
     if (value.startsWith("/")) {
       // Extract the command prefix (text after "/" without spaces)
       const afterSlash = value.slice(1);
+      const spaceIndex = afterSlash.indexOf(" ");
 
       // Only show autocomplete if there's no space (still typing command name)
-      if (!afterSlash.includes(" ")) {
+      if (spaceIndex === -1) {
         updateWorkflowState({
           showAutocomplete: true,
           autocompleteInput: afterSlash,
           selectedSuggestionIndex: 0, // Reset selection on input change
+          argumentHint: "", // Clear hint while typing command name
         });
       } else {
-        // Hide autocomplete when there's a space (user is typing arguments)
+        // Space present - hide autocomplete, show argument hint if command has one
+        const commandName = afterSlash.slice(0, spaceIndex);
+        const command = globalRegistry.get(commandName);
         updateWorkflowState({
           showAutocomplete: false,
           autocompleteInput: "",
+          argumentHint: command?.argumentHint || "",
         });
       }
     } else {
-      // Hide autocomplete for non-slash commands
-      if (workflowState.showAutocomplete) {
+      // Hide autocomplete and hints for non-slash commands
+      if (workflowState.showAutocomplete || workflowState.argumentHint) {
         updateWorkflowState({
           showAutocomplete: false,
           autocompleteInput: "",
           selectedSuggestionIndex: 0,
+          argumentHint: "",
         });
       }
     }
-  }, [workflowState.showAutocomplete, updateWorkflowState]);
+  }, [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState]);
 
   /**
    * Helper to add a message to the chat.
@@ -1664,7 +1674,8 @@ export function ChatApp({
     }
   }, []);
 
-  // Handle clipboard paste - inserts text from system clipboard
+  // Handle clipboard paste via Ctrl+V - inserts text from system clipboard
+  // This is a fallback for terminals that don't use bracketed paste mode
   const handlePaste = useCallback(async () => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -1678,6 +1689,21 @@ export function ChatApp({
       // Silently fail - clipboard may not be available
     }
   }, []);
+
+  // Handle bracketed paste events from OpenTUI
+  // This is the primary paste handler for modern terminals that support bracketed paste mode
+  const handleBracketedPaste = useCallback((_event: PasteEvent) => {
+    // OpenTUI's textarea will automatically insert the text by default
+    // We don't need to call preventDefault() - just let the default behavior happen
+    // The event.text contains the pasted content which will be inserted at cursor position
+
+    // After paste, update autocomplete state based on new input
+    // Use setTimeout to let the textarea update first
+    setTimeout(() => {
+      const value = textareaRef.current?.plainText ?? "";
+      handleInputChange(value);
+    }, 0);
+  }, [handleInputChange]);
 
   // Get current autocomplete suggestions count for navigation
   const autocompleteSuggestions = workflowState.showAutocomplete
@@ -2058,12 +2084,13 @@ export function ChatApp({
         textareaRef.current.deleteChar();
       }
 
-      // Hide autocomplete if visible
-      if (workflowState.showAutocomplete) {
+      // Hide autocomplete and argument hint if visible
+      if (workflowState.showAutocomplete || workflowState.argumentHint) {
         updateWorkflowState({
           showAutocomplete: false,
           autocompleteInput: "",
           selectedSuggestionIndex: 0,
+          argumentHint: "",
         });
       }
 
@@ -2085,7 +2112,7 @@ export function ChatApp({
       // Send the message
       sendMessage(trimmedValue);
     },
-    [workflowState.showAutocomplete, updateWorkflowState, executeCommand, messageQueue, sendMessage]
+    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, executeCommand, messageQueue, sendMessage]
   );
 
   // Get the visible messages (limit to MAX_VISIBLE_MESSAGES for performance)
@@ -2229,9 +2256,13 @@ export function ChatApp({
                 focused={inputFocused}
                 keyBindings={textareaKeyBindings}
                 onSubmit={handleSubmit}
+                onPaste={handleBracketedPaste}
                 flexGrow={1}
                 height={1}
               />
+              {workflowState.argumentHint && (
+                <text style={{ fg: "#6A6A7C" }}> {workflowState.argumentHint}</text>
+              )}
             </box>
             {/* Streaming hint - shows "esc to interrupt" during streaming */}
             {isStreaming && (

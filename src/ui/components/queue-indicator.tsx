@@ -98,7 +98,7 @@ export function QueueIndicator({
   compact = true,
   editable = false,
   editIndex = -1,
-  onEdit,
+  onEdit: _onEdit,
 }: QueueIndicatorProps): React.ReactNode {
   const { theme } = useTheme();
 

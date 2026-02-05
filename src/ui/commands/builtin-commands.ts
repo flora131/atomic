@@ -15,7 +15,6 @@ import type {
   CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
-import { ModelsDev } from "../../models";
 
 // ============================================================================
 // COMMAND IMPLEMENTATIONS
@@ -275,8 +274,8 @@ export const exitCommand: CommandDefinition = {
  * /model - Switch or view the current model.
  *
  * Subcommands:
- *   (no args) - Show current model
- *   refresh   - Refresh models cache from models.dev
+ *   (no args) - Show interactive model selector
+ *   select    - Show interactive model selector
  *   list      - List available models
  *   <model>   - Switch to specified model
  */
@@ -307,34 +306,18 @@ export const modelCommand: CommandDefinition = {
 
     const lowerTrimmed = trimmed.toLowerCase();
 
-    // Refresh subcommand
-    if (lowerTrimmed === "refresh") {
-      await ModelsDev.refresh();
-      return {
-        success: true,
-        message: "Models cache refreshed from models.dev",
-      };
-    }
-
     // List subcommand
     if (lowerTrimmed === "list" || lowerTrimmed.startsWith("list ")) {
       const providerFilter = lowerTrimmed.startsWith("list ")
         ? trimmed.substring(5).trim()
         : undefined;
       const models = await modelOps?.listAvailableModels();
-      const dataSource = ModelsDev.getDataSource();
-      
-      // Handle offline mode with user-friendly message
+
+      // Handle no models available
       if (!models || models.length === 0) {
-        if (dataSource === 'offline') {
-          return {
-            success: true,
-            message: "⚠️ **No models available** - Running in offline mode.\n\nThe models.dev API is unavailable and no cached data exists.\nRun `/model refresh` when you have internet access to populate the models list.",
-          };
-        }
         return {
           success: true,
-          message: "No models available.",
+          message: "No models available. SDK connection may have failed.",
         };
       }
       const filtered = providerFilter
@@ -348,18 +331,10 @@ export const modelCommand: CommandDefinition = {
       }
       const grouped = groupByProvider(filtered);
       const lines = formatGroupedModels(grouped);
-      
-      // Add source indicator for non-API sources
-      let sourceNote = "";
-      if (dataSource === 'cache') {
-        sourceNote = " *(from cache)*";
-      } else if (dataSource === 'snapshot') {
-        sourceNote = " *(from bundled snapshot - run `/model refresh` for latest)*";
-      }
-      
+
       return {
         success: true,
-        message: `**Available Models** (via models.dev)${sourceNote}\n\n${lines.join("\n")}`,
+        message: `**Available Models**\n\n${lines.join("\n")}`,
       };
     }
 

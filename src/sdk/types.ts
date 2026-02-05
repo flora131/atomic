@@ -67,32 +67,20 @@ export function formatModelDisplayName(modelId: string): string {
 
   const lower = modelId.toLowerCase();
 
-  // Handle Claude model formats
-  if (lower.includes("claude")) {
-    // Extract model family (opus, sonnet, haiku)
-    let family = "";
-    if (lower.includes("opus")) family = "Opus";
-    else if (lower.includes("sonnet")) family = "Sonnet";
-    else if (lower.includes("haiku")) family = "Haiku";
+  // Handle short aliases (sonnet, opus, haiku) directly
+  // These are the aliases used by Claude SDK - lowercase for consistency
+  if (lower === "sonnet" || lower === "anthropic/sonnet") return "sonnet";
+  if (lower === "opus" || lower === "anthropic/opus") return "opus";
+  if (lower === "haiku" || lower === "anthropic/haiku") return "haiku";
+  if (lower === "default") return "default";
 
-    if (!family) return "Claude";
-
-    // Extract version number (e.g., "4-5" or "4.5" or just "4")
-    // Match patterns like "opus-4-5", "opus-4.5", "sonnet-4-5-20250929"
-    const versionMatch = lower.match(
-      /(?:opus|sonnet|haiku)[- ]?(\d+)(?:[.-](\d+))?/
-    );
-
-    if (versionMatch) {
-      const major = versionMatch[1];
-      const minor = versionMatch[2];
-      if (minor) {
-        return `${family} ${major}.${minor}`;
-      }
-      return `${family} ${major}`;
-    }
-
-    return family;
+  // Handle Claude model formats with full IDs (e.g., "claude-opus-4-5-20251101")
+  // Return lowercase family name for consistency
+  if (lower.includes("claude") || lower.includes("opus") || lower.includes("sonnet") || lower.includes("haiku")) {
+    if (lower.includes("opus")) return "opus";
+    if (lower.includes("sonnet")) return "sonnet";
+    if (lower.includes("haiku")) return "haiku";
+    return "claude";
   }
 
   // Handle GPT models

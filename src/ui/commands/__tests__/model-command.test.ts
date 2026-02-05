@@ -5,12 +5,11 @@
  * refreshing, and switching models.
  */
 
-import { test, expect, describe, beforeEach, spyOn, mock } from "bun:test";
+import { test, expect, describe, mock } from "bun:test";
 import { modelCommand, groupByProvider, formatGroupedModels } from "../builtin-commands.ts";
 import type { CommandContext, CommandContextState } from "../registry.ts";
 import type { ModelOperations } from "../../../models";
 import type { Model } from "../../../models/model-transform";
-import { ModelsDev } from "../../../models";
 
 // ============================================================================
 // TEST HELPERS
@@ -193,21 +192,6 @@ describe("modelCommand", () => {
 
       expect(result.success).toBe(true);
       expect(result.message).toContain("No models available");
-    });
-  });
-
-  describe("/model refresh", () => {
-    test("calls ModelsDev.refresh()", async () => {
-      const refreshSpy = spyOn(ModelsDev, "refresh").mockResolvedValue(undefined);
-      const context = createMockContext();
-
-      const result = await modelCommand.execute("refresh", context);
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain("Models cache refreshed");
-      expect(refreshSpy).toHaveBeenCalled();
-
-      refreshSpy.mockRestore();
     });
   });
 

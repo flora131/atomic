@@ -34,7 +34,6 @@ import { chatCommand } from "./commands/chat";
 import { cleanupWindowsLeftoverFiles } from "./utils/cleanup";
 import { isTelemetryEnabledSync } from "./utils/telemetry";
 import { handleTelemetryUpload } from "./utils/telemetry/telemetry-upload";
-import { startModelsDevRefresh } from "./models";
 
 /**
  * Create and configure the main CLI program
@@ -353,9 +352,6 @@ async function main(): Promise<void> {
   // Clean up leftover Windows files from previous uninstall/update operations
   // This is a no-op on non-Windows platforms
   await cleanupWindowsLeftoverFiles();
-
-  // Start background model refresh (non-blocking, errors handled internally)
-  startModelsDevRefresh();
 
   try {
     // Parse and execute the command

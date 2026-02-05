@@ -153,7 +153,7 @@ function parseYaml(content: string): AtomicConfig {
 function serializeYaml(config: AtomicConfig): string {
   const lines: string[] = [
     "# Atomic project configuration",
-    "# yaml-language-server: $schema=https://atomic.dev/schema/config.json",
+    "# See: https://github.com/atomicagents/atomic for documentation",
     "",
     `version: ${config.version}`,
     "",
@@ -196,7 +196,9 @@ export async function readAtomicConfig(
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
       return null;
     }
-    throw error;
+    // Malformed YAML should not crash the CLI — return null so init can
+    // fall through to the interactive provider-selection prompt.
+    return null;
   }
 }
 

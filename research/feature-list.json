@@ -30,7 +30,7 @@
       "Ensure unsubscribe functions are returned for cleanup alongside existing event unsubscribers",
       "Verify SubagentStartEventData and SubagentCompleteEventData types from src/sdk/types.ts are imported correctly"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

@@ -1,0 +1,211 @@
+[
+  {
+    "category": "functional",
+    "description": "Create SubagentSessionManager class that creates, tracks, and cleans up independent sub-agent sessions with spawn(), spawnParallel(), cancel(), and destroy() methods",
+    "steps": [
+      "Create new file src/ui/subagent-session-manager.ts",
+      "Define SubagentSpawnOptions interface with agentId, agentName, task, systemPrompt, model, and tools fields",
+      "Define SubagentResult interface with agentId, success, output, error, toolUses, and durationMs fields",
+      "Define SubagentStatusCallback type for status update notifications",
+      "Implement SubagentSessionManager class with sessions Map, client, and onStatusUpdate callback",
+      "Implement spawn() method: call client.createSession(), store session, emit status update, stream task, track tool uses, handle completion, destroy session in finally block",
+      "Implement spawnParallel() method using Promise.allSettled() to run multiple agents concurrently",
+      "Implement cancel() method to destroy a specific session and remove from map",
+      "Implement cancelAll() method to destroy all active sessions",
+      "Implement destroy() method for full cleanup",
+      "Add activeCount getter property",
+      "Add maxConcurrentSubagents config (default: 5) with queuing for excess spawn requests"
+    ],
+    "passes": true
+  },
+  {
+    "category": "functional",
+    "description": "Wire subagent.start and subagent.complete event subscriptions in startChatUI's subscribeToToolEvents()",
+    "steps": [
+      "Open src/ui/index.ts and locate subscribeToToolEvents() function (lines 274-378)",
+      "Add subscription for client.on('subagent.start') that updates ParallelAgent status to 'running'",
+      "Add subscription for client.on('subagent.complete') that updates ParallelAgent status to 'completed' or 'error'",
+      "Add parallelAgentHandler field to ChatUIState interface",
+      "Connect registerParallelAgentHandler prop from ChatApp to the state in the state.root.render() call",
+      "Ensure unsubscribe functions are returned for cleanup alongside existing event unsubscribers",
+      "Verify SubagentStartEventData and SubagentCompleteEventData types from src/sdk/types.ts are imported correctly"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Rewrite spawnSubagent() in chat.tsx to delegate to SubagentSessionManager instead of using placeholder timeouts",
+    "steps": [
+      "Open src/ui/chat.tsx and locate spawnSubagent() (lines 1477-1549)",
+      "Add createSubagentSession factory function prop to ChatAppProps interface (Option B from spec Section 5.7)",
+      "Create subagentManagerRef using useRef<SubagentSessionManager | null>(null)",
+      "Initialize SubagentSessionManager in useEffect when session becomes available, passing createSubagentSession factory and a status update callback that calls setParallelAgents",
+      "Replace placeholder implementation: generate agentId, create ParallelAgent object, add to state, call subagentManager.spawn() with options",
+      "Remove the fake 500ms/3500ms setTimeout completion logic",
+      "Add proper error handling for when client/session is unavailable",
+      "Return SubagentResult with success, output, and error fields to the caller"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Pass createSubagentSession factory function from startChatUI to ChatApp via props",
+    "steps": [
+      "Open src/ui/index.ts and locate where ChatApp is rendered",
+      "Create createSubagentSession factory that calls client.createSession(config)",
+      "Pass createSubagentSession as a prop to ChatApp in the render call",
+      "Verify the CodingAgentClient interface exposes createSession() method in src/sdk/types.ts",
+      "Test that the factory correctly creates independent Session objects"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Verify SDK clients emit subagent.start and subagent.complete events correctly for all three backends",
+    "steps": [
+      "Check src/sdk/claude-client.ts for subagent.start → SubagentStart and subagent.complete → SubagentStop event mapping (lines 111-112)",
+      "Check src/sdk/copilot-client.ts for equivalent event mappings (lines 130-132, 479-495)",
+      "Check src/sdk/opencode-client.ts for equivalent event mappings",
+      "Verify SubagentStartEventData includes subagentId, agentName, and task fields",
+      "Verify SubagentCompleteEventData includes subagentId, success, result, and error fields",
+      "Ensure events are emitted at correct lifecycle points during session streaming",
+      "Test Copilot workaround: multiple independent CopilotSession objects for context isolation"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Update ParallelAgentsTree sub-status text to show 'Initializing...' for running and 'Done' for completed agents",
+    "steps": [
+      "Open src/ui/components/parallel-agents-tree.tsx",
+      "Locate the AgentRow compact mode sub-line rendering",
+      "Add default sub-status text logic: show currentTool if set, otherwise 'Initializing...' for running status, 'Done' for completed status",
+      "Verify sub-status text renders correctly when currentTool transitions from null to a tool name during streaming",
+      "Test that sub-status correctly shows tool name during active tool use"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Update ParallelAgentsTree status dot colors to match target UI (amber for running, red for completed)",
+    "steps": [
+      "Open src/ui/components/parallel-agents-tree.tsx",
+      "Locate status dot color assignments",
+      "Change running status dot to yellow/amber (#fbbf24) instead of themeColors.accent",
+      "Change completed status dot to red/pink (#f87171) to match target UI",
+      "Verify error status has a distinct color"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Update ParallelAgentsTree header text to use 'finished' instead of 'completed' to match target UI",
+    "steps": [
+      "Open src/ui/components/parallel-agents-tree.tsx",
+      "Locate header text rendering for completed state",
+      "Change 'completed' to 'finished' in the header template (e.g., '4 Explore agents finished')",
+      "Verify header text for running state matches target: 'Running 3 Explore agents... (ctrl+o to expand)'",
+      "Test header text with different agent counts and states"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Implement ctrl+o keyboard shortcut to toggle expand/collapse of ParallelAgentsTree",
+    "steps": [
+      "Open src/ui/chat.tsx and add agentTreeExpanded state using useState(false)",
+      "Locate useKeyboard handler and add ctrl+o key binding to toggle agentTreeExpanded",
+      "Pass compact={!agentTreeExpanded} and maxVisible props to ParallelAgentsTree component",
+      "Set maxVisible to 20 when expanded, 5 when compact",
+      "Update ParallelAgentsTree hint text to show 'ctrl+o to expand' or 'ctrl+o to collapse' based on current state",
+      "Test that ctrl+o toggles between compact tree view and expanded detail view"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Implement sub-agent result collection and return summary to parent context",
+    "steps": [
+      "In SubagentSessionManager.spawn(), accumulate text messages from session.stream() into a summary string",
+      "Truncate summary to a reasonable length (e.g., 2000 chars) to avoid polluting parent context",
+      "Return the summary as SubagentResult.output",
+      "In spawnSubagent() in chat.tsx, return the result output to the calling command",
+      "Verify sub-agent results are not injected as assistant messages into the parent conversation",
+      "Test with different sub-agent types to ensure summary generation works across all agent types"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Add error handling for sub-agent session creation failures, streaming failures, and partial failures in parallel execution",
+    "steps": [
+      "In SubagentSessionManager.spawn(), wrap client.createSession() in try-catch and mark agent as 'error' status on failure",
+      "In spawn(), wrap session.stream() in try-catch and mark agent as 'error' with error message on streaming failure",
+      "Ensure session.destroy() is always called in finally block matching pattern from src/graph/nodes.ts:257-259",
+      "In spawnParallel(), verify Promise.allSettled() handles partial failures correctly",
+      "Handle case where client is unavailable (getSession returns null) by returning error result immediately",
+      "Add logging for sub-agent lifecycle events (start, complete, error) with agent ID and duration"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Add concurrency limiting with maxConcurrentSubagents config (default: 5) and request queuing",
+    "steps": [
+      "Add maxConcurrentSubagents option to SubagentSessionManager constructor",
+      "Implement a concurrency semaphore or queue in SubagentSessionManager",
+      "When activeCount >= maxConcurrentSubagents, queue incoming spawn requests",
+      "Process queued requests as active sessions complete",
+      "Expose maxConcurrentSubagents as a configurable option (via constructor parameter)",
+      "Test that queued requests execute in order after active sessions complete"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Write unit tests for SubagentSessionManager",
+    "steps": [
+      "Create test file src/ui/__tests__/subagent-session-manager.test.ts",
+      "Test spawn() creates a session via client.createSession(), streams, and destroys",
+      "Test spawn() calls onStatusUpdate with correct status transitions (running → completed)",
+      "Test spawn() handles session creation failures gracefully (marks as error)",
+      "Test spawnParallel() runs multiple agents concurrently",
+      "Test spawnParallel() with Promise.allSettled handles partial failures",
+      "Test cancel() destroys the session and marks agent as error",
+      "Test destroy() cleans up all active sessions",
+      "Test concurrency limiting queues excess requests"
+    ],
+    "passes": false
+  },
+  {
+    "category": "ui",
+    "description": "Write unit tests for ParallelAgentsTree component updates",
+    "steps": [
+      "Create or update test file src/ui/__tests__/parallel-agents-tree.test.ts",
+      "Test default sub-status text renders 'Initializing...' for running agents without currentTool",
+      "Test default sub-status text renders 'Done' for completed agents",
+      "Test sub-status text shows currentTool when set",
+      "Test header text uses 'finished' not 'completed'",
+      "Test status dot uses correct colors (amber for running, red for completed)",
+      "Test compact vs expanded mode via compact prop"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Integration testing: end-to-end sub-agent flow from command invocation through session creation, streaming, completion, UI update, and cleanup",
+    "steps": [
+      "Test event wiring: subagent.start event updates ParallelAgent status in ChatApp",
+      "Test event wiring: subagent.complete event updates ParallelAgent status in ChatApp",
+      "Test full flow: command invocation → sub-agent spawn → session creation → streaming → completion → UI update → cleanup",
+      "Test with Claude Agent SDK backend (bun run src/cli.ts chat -a claude)",
+      "Test with OpenCode SDK backend (bun run src/cli.ts chat -a opencode)",
+      "Test with Copilot SDK backend (bun run src/cli.ts chat -a copilot)",
+      "Verify /explore command spawns parallel agents visible in tree",
+      "Verify agents show real tool use counts during execution",
+      "Verify agents transition from 'Initializing...' to 'Done' on actual completion",
+      "Verify ctrl+o toggles between compact and expanded views"
+    ],
+    "passes": false
+  }
+]

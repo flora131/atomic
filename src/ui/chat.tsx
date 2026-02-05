@@ -2097,6 +2097,8 @@ export function ChatApp({
       // Check if this is a slash command
       const parsed = parseSlashCommand(trimmedValue);
       if (parsed.isCommand) {
+        // Add the slash command to conversation history like any regular user message
+        addMessage("user", trimmedValue);
         // Execute the slash command (allowed even during streaming)
         void executeCommand(parsed.name, parsed.args);
         return;
@@ -2112,7 +2114,7 @@ export function ChatApp({
       // Send the message
       sendMessage(trimmedValue);
     },
-    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, executeCommand, messageQueue, sendMessage]
+    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage]
   );
 
   // Get the visible messages (limit to MAX_VISIBLE_MESSAGES for performance)

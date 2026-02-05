@@ -67,7 +67,7 @@
       "Add AnnotationRoot<T> type for combining multiple annotations",
       "Run pnpm typecheck to verify"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

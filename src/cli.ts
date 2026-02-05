@@ -84,6 +84,14 @@ export function createProgram() {
       "-a, --agent <name>",
       `Pre-select agent to configure (${agentChoices})`
     )
+    .option(
+      "--provider <provider>",
+      "Source control provider (github, sapling)"
+    )
+    .option(
+      "--sapling-pr-workflow <workflow>",
+      "Sapling PR workflow (stack, branch)"
+    )
     .action(async (localOpts) => {
       const globalOpts = program.opts();
 
@@ -92,6 +100,8 @@ export function createProgram() {
         preSelectedAgent: localOpts.agent as AgentKey | undefined,
         force: globalOpts.force,
         yes: globalOpts.yes,
+        provider: localOpts.provider as import("./providers").ProviderName | undefined,
+        saplingPrWorkflow: localOpts.saplingPrWorkflow as import("./providers").SaplingOptions["prWorkflow"] | undefined,
       });
     });
 
@@ -326,5 +336,7 @@ async function main(): Promise<void> {
   }
 }
 
-// Run the CLI
-main();
+// Only run CLI when executed directly, not when imported
+if (import.meta.main) {
+  main();
+}

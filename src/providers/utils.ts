@@ -13,15 +13,6 @@ import { spawn } from "child_process";
  * @returns Promise resolving to true if the command exists, false otherwise
  */
 export async function commandExists(command: string): Promise<boolean> {
-  const globalOverride = (globalThis as any).commandExists;
-  if (typeof globalOverride === "function" && globalOverride !== commandExists) {
-    try {
-      return await globalOverride(command);
-    } catch {
-      return false;
-    }
-  }
-
   return new Promise((resolve) => {
     const isWindows = process.platform === "win32";
     const checkCommand = isWindows ? "where" : "which";

@@ -20,23 +20,15 @@ let lastTestDir: string | null = null;
 export async function runInitCommand(opts: {
   provider: ProviderName;
   saplingPrWorkflow?: SaplingOptions["prWorkflow"];
+  commandExists?: (cmd: string) => Promise<boolean>;
 }): Promise<void> {
   const testDir = await mkdtemp(join(tmpdir(), "atomic-init-integration-"));
   lastTestDir = testDir;
 
-  // Prerequisite behavior for these integration tests:
-  // - If provider prereqs are missing, reject (test expects rejection)
-  // - Allow tests to inject commandExists via globalThis.commandExists
   if (opts.provider === "sapling") {
-    const injectedCommandExists = (globalThis as any).commandExists;
-    const commandExistsFn =
-      typeof injectedCommandExists === "function"
-        ? (injectedCommandExists as (cmd: string) => Promise<boolean>)
-        : undefined;
-
     const provider = createSaplingProvider(
       { prWorkflow: opts.saplingPrWorkflow ?? "stack" },
-      commandExistsFn
+      opts.commandExists
     );
     const prereqs = await provider.checkPrerequisites();
     if (!prereqs.satisfied) {

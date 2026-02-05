@@ -173,3 +173,6 @@ ralph-sessions.jsonl
 
 atomic
 atomic.exe
+
+# npm lock file (project uses Bun)
+package-lock.json

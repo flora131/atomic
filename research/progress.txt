@@ -1,0 +1,28 @@
+## Progress Log
+
+### 2026-02-05: Feature 1 - SubagentSessionManager (COMPLETE)
+
+**Feature**: Create SubagentSessionManager class that creates, tracks, and cleans up independent sub-agent sessions with spawn(), spawnParallel(), cancel(), and destroy() methods
+
+**Files Created**:
+- `src/ui/subagent-session-manager.ts` - Main implementation
+- `src/ui/__tests__/subagent-session-manager.test.ts` - 19 unit tests
+
+**Implementation Details**:
+- `SubagentSessionManager` class with `CreateSessionFn` factory pattern (decoupled from CodingAgentClient)
+- `spawn()`: Creates independent session, streams task, tracks tool uses, emits status updates, destroys in finally block
+- `spawnParallel()`: Uses `Promise.allSettled()` for concurrent execution with partial failure tolerance
+- `cancel()`: Destroys specific session, also handles queued requests
+- `cancelAll()`: Destroys all active sessions and resolves pending queue
+- `destroy()`: Prevents new spawns and cleans up everything
+- `activeCount` getter for tracking active sessions
+- Concurrency limiting with configurable `maxConcurrentSubagents` (default: 5) and FIFO request queuing
+- Output truncation to 2000 chars to prevent parent context pollution
+
+**Verification**:
+- 19 unit tests passing (59 expect() calls)
+- TypeScript typecheck clean
+- oxlint clean (0 warnings, 0 errors)
+- All 152 existing tests still pass across 9 test files
+
+**Commit**: Pending

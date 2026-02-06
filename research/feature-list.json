@@ -71,7 +71,7 @@
       "Ensure events are emitted at correct lifecycle points during session streaming",
       "Test Copilot workaround: multiple independent CopilotSession objects for context isolation"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -133,7 +133,7 @@
       "Verify sub-agent results are not injected as assistant messages into the parent conversation",
       "Test with different sub-agent types to ensure summary generation works across all agent types"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -146,7 +146,7 @@
       "Handle case where client is unavailable (getSession returns null) by returning error result immediately",
       "Add logging for sub-agent lifecycle events (start, complete, error) with agent ID and duration"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -159,7 +159,7 @@
       "Expose maxConcurrentSubagents as a configurable option (via constructor parameter)",
       "Test that queued requests execute in order after active sessions complete"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -175,7 +175,7 @@
       "Test destroy() cleans up all active sessions",
       "Test concurrency limiting queues excess requests"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

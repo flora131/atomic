@@ -381,7 +381,7 @@ export function ParallelAgentsTree({
         <text style={{ fg: runningCount > 0 ? "#fbbf24" : completedCount > 0 ? "#f87171" : themeColors.muted }}>
           {headerIcon} {headerText}
         </text>
-        <text style={{ fg: themeColors.muted }}> (ctrl+o to expand)</text>
+        <text style={{ fg: themeColors.muted }}> (ctrl+o to {compact ? "expand" : "collapse"})</text>
       </box>
 
       {/* Agent tree */}

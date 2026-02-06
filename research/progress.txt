@@ -135,4 +135,17 @@
 - oxlint clean (0 warnings, 0 errors)
 - All 225 tests pass across 14 test files
 
+**Commit**: 2ac1930
+
+### 2026-02-05: Features 7 & 8 - Header Dot Colors and Text (COMPLETE)
+
+**Feature 7**: Update ParallelAgentsTree status dot colors to match target UI (amber for running, red for completed)
+**Feature 8**: Update ParallelAgentsTree header text to use 'finished' instead of 'completed'
+
+**Files Modified**:
+- `src/ui/components/parallel-agents-tree.tsx` - Header dot color: running=#fbbf24 (amber), completed=#f87171 (red), other=muted. Header text: "completed" → "finished"
+
+**Verification**:
+- TypeScript typecheck clean, oxlint clean, all 225 tests pass
+
 **Commit**: Pending

@@ -53,3 +53,33 @@
 - All 112 existing tests still pass across 7 test files
 
 **Commit**: Pending
+
+### 2026-02-05: Features 3 & 4 - spawnSubagent delegation + createSubagentSession factory (COMPLETE)
+
+**Feature 3**: Rewrite spawnSubagent() in chat.tsx to delegate to SubagentSessionManager instead of using placeholder timeouts
+**Feature 4**: Pass createSubagentSession factory function from startChatUI to ChatApp via props
+
+**Files Modified**:
+- `src/ui/chat.tsx` - Replaced placeholder spawnSubagent with SubagentSessionManager delegation, added createSubagentSession prop, SubagentSessionManager ref + useEffect lifecycle
+- `src/ui/index.ts` - Added createSubagentSession factory (delegates to client.createSession) and passed as prop to ChatApp
+
+**Files Created**:
+- `src/ui/__tests__/spawn-subagent-integration.test.ts` - 7 integration tests
+
+**Implementation Details**:
+- Added `createSubagentSession?: CreateSessionFn` prop to `ChatAppProps` interface
+- Added `subagentManagerRef = useRef<SubagentSessionManager | null>(null)` in ChatApp
+- Added `useEffect` to initialize SubagentSessionManager when `createSubagentSession` is available, with cleanup on unmount
+- Replaced placeholder `spawnSubagent` (fake setTimeout-based completion) with real delegation to `SubagentSessionManager.spawn()`
+- Maps `SpawnSubagentOptions` (command interface) → `SubagentSpawnOptions` (manager interface)
+- Status updates from SubagentSessionManager propagate to `setParallelAgents` via `onStatusUpdate` callback
+- In `index.ts`: `createSubagentSession = (config?) => client.createSession(config)` factory delegates to CodingAgentClient
+- Removed all fake setTimeout/delay-based completion logic
+
+**Verification**:
+- 7 new integration tests passing (27 expect() calls) covering: spawn delegation, status updates, error handling, option mapping, destroy behavior, factory pattern, session independence
+- TypeScript typecheck clean
+- oxlint clean (0 warnings, 0 errors)
+- All 4573 existing tests still pass across 116 test files
+
+**Commit**: Pending

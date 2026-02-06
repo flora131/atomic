@@ -28,6 +28,11 @@ import {
   type ParallelAgent,
 } from "./components/parallel-agents-tree.tsx";
 import {
+  SubagentSessionManager,
+  type SubagentSpawnOptions as ManagerSpawnOptions,
+  type CreateSessionFn,
+} from "./subagent-session-manager.ts";
+import {
   UserQuestionDialog,
   type UserQuestion,
   type QuestionAnswer,
@@ -308,6 +313,11 @@ export interface ChatAppProps {
   parallelAgents?: ParallelAgent[];
   /** Register callback to receive parallel agent updates */
   registerParallelAgentHandler?: (handler: (agents: ParallelAgent[]) => void) => void;
+  /**
+   * Factory function to create independent sub-agent sessions.
+   * Delegates to client.createSession() for context isolation.
+   */
+  createSubagentSession?: CreateSessionFn;
 }
 
 /**
@@ -867,6 +877,7 @@ export function ChatApp({
   modelOps,
   parallelAgents: initialParallelAgents = [],
   registerParallelAgentHandler,
+  createSubagentSession,
 }: ChatAppProps): React.ReactNode {
   // title and suggestion are deprecated, kept for backwards compatibility
   void _title;
@@ -922,6 +933,9 @@ export function ChatApp({
 
   // State for parallel agents display
   const [parallelAgents, setParallelAgents] = useState<ParallelAgent[]>(initialParallelAgents);
+
+  // SubagentSessionManager ref for delegating sub-agent spawning
+  const subagentManagerRef = useRef<SubagentSessionManager | null>(null);
 
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
@@ -1265,6 +1279,30 @@ export function ChatApp({
     }
   }, [registerParallelAgentHandler]);
 
+  // Initialize SubagentSessionManager when createSubagentSession is available
+  useEffect(() => {
+    if (!createSubagentSession) {
+      subagentManagerRef.current = null;
+      return;
+    }
+
+    const manager = new SubagentSessionManager({
+      createSession: createSubagentSession,
+      onStatusUpdate: (agentId, update) => {
+        setParallelAgents((prev) =>
+          prev.map((a) => (a.id === agentId ? { ...a, ...update } : a))
+        );
+      },
+    });
+
+    subagentManagerRef.current = manager;
+
+    return () => {
+      manager.destroy();
+      subagentManagerRef.current = null;
+    };
+  }, [createSubagentSession]);
+
   /**
    * Handle user answering a question from UserQuestionDialog.
    * Claude Code behavior: Just respond and continue streaming, no "User selected" messages.
@@ -1475,25 +1513,19 @@ export function ChatApp({
         }
       },
       spawnSubagent: async (options) => {
-        // Implementation for spawning a sub-agent
-        // This is a placeholder that sends the task through the normal message flow
-        // In the future, this should spawn a dedicated sub-agent session
-        const session = getSession?.();
-        if (!session) {
+        const manager = subagentManagerRef.current;
+        if (!manager) {
           return {
             success: false,
             output: "",
-            error: "No active session to spawn sub-agent",
+            error: "Sub-agent session manager not available (no createSubagentSession factory)",
           };
         }
 
-        // Create a unique agent ID
         const agentId = crypto.randomUUID().slice(0, 8);
-
-        // Determine agent name from options or use default
         const agentName = options.model ?? "general-purpose";
 
-        // Create and track the parallel agent
+        // Add the agent to the parallel agents list before spawning
         const parallelAgent: ParallelAgent = {
           id: agentId,
           name: agentName,
@@ -1502,50 +1534,25 @@ export function ChatApp({
           startedAt: new Date().toISOString(),
           model: options.model,
         };
+        setParallelAgents((prev) => [...prev, parallelAgent]);
 
-        // Add the agent to the parallel agents list
-        setParallelAgents(prev => [...prev, parallelAgent]);
+        // Delegate to SubagentSessionManager for independent session execution
+        const spawnOptions: ManagerSpawnOptions = {
+          agentId,
+          agentName,
+          task: options.message,
+          systemPrompt: options.systemPrompt,
+          model: options.model,
+          tools: options.tools,
+        };
 
-        try {
-          // Build the combined prompt with system prompt context
-          const taskMessage = `[Sub-agent task]\n\nSystem Context: ${options.systemPrompt}\n\nTask: ${options.message}`;
+        const result = await manager.spawn(spawnOptions);
 
-          // Send through normal message flow
-          if (sendMessageRef.current) {
-            sendMessageRef.current(taskMessage);
-          }
-
-          // Mark agent as completed after a brief delay
-          // (In future, this should track actual completion via events)
-          setTimeout(() => {
-            setParallelAgents(prev => prev.map(a =>
-              a.id === agentId
-                ? { ...a, status: "completed" as const, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                : a
-            ));
-            // Remove completed agents after a short display period
-            setTimeout(() => {
-              setParallelAgents(prev => prev.filter(a => a.id !== agentId));
-            }, 3000);
-          }, 500);
-
-          return {
-            success: true,
-            output: "Sub-agent task sent through message flow",
-          };
-        } catch (error) {
-          // Mark agent as error
-          setParallelAgents(prev => prev.map(a =>
-            a.id === agentId
-              ? { ...a, status: "error" as const, error: error instanceof Error ? error.message : "Unknown error" }
-              : a
-          ));
-          return {
-            success: false,
-            output: "",
-            error: error instanceof Error ? error.message : "Unknown error spawning sub-agent",
-          };
-        }
+        return {
+          success: result.success,
+          output: result.output,
+          error: result.error,
+        };
       },
       agentType,
       modelOps,

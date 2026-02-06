@@ -95,7 +95,7 @@
       "Change completed status dot to red/pink (#f87171) to match target UI",
       "Verify error status has a distinct color"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",
@@ -107,7 +107,7 @@
       "Verify header text for running state matches target: 'Running 3 Explore agents... (ctrl+o to expand)'",
       "Test header text with different agent counts and states"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

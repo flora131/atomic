@@ -367,7 +367,7 @@ export function ParallelAgentsTree({
   const headerText = runningCount > 0
     ? `Running ${runningCount} ${dominantType} agent${runningCount !== 1 ? "s" : ""}…`
     : completedCount > 0
-      ? `${completedCount} ${dominantType} agent${completedCount !== 1 ? "s" : ""} completed`
+      ? `${completedCount} ${dominantType} agent${completedCount !== 1 ? "s" : ""} finished`
       : `${pendingCount} ${dominantType} agent${pendingCount !== 1 ? "s" : ""} pending`;
 
   return (
@@ -378,7 +378,7 @@ export function ParallelAgentsTree({
     >
       {/* Header - Claude Code style */}
       <box flexDirection="row">
-        <text style={{ fg: runningCount > 0 ? themeColors.accent : themeColors.success }}>
+        <text style={{ fg: runningCount > 0 ? "#fbbf24" : completedCount > 0 ? "#f87171" : themeColors.muted }}>
           {headerIcon} {headerText}
         </text>
         <text style={{ fg: themeColors.muted }}> (ctrl+o to expand)</text>

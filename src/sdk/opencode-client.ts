@@ -476,6 +476,22 @@ export class OpenCodeClient implements CodingAgentClient {
               success: toolState?.status === "completed",
             });
           }
+        } else if (part?.type === "agent") {
+          // AgentPart: { type: "agent", name, id, sessionID, messageID }
+          // Map agent parts to subagent.start events
+          this.emitEvent("subagent.start", partSessionId, {
+            subagentId: (part?.id as string) ?? "",
+            subagentType: (part?.name as string) ?? "",
+          });
+        } else if (part?.type === "step-finish") {
+          // StepFinishPart signals the end of a sub-agent step
+          // Map to subagent.complete with success based on reason
+          const reason = (part?.reason as string) ?? "";
+          this.emitEvent("subagent.complete", partSessionId, {
+            subagentId: (part?.id as string) ?? "",
+            success: reason !== "error",
+            result: reason,
+          });
         }
         break;
       }

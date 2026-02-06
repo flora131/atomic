@@ -83,3 +83,33 @@
 - All 4573 existing tests still pass across 116 test files
 
 **Commit**: Pending
+
+### 2026-02-05: Feature 5 - Verify SDK Subagent Event Mappings (COMPLETE)
+
+**Feature**: Verify SDK clients emit subagent.start and subagent.complete events correctly for all three backends
+
+**Files Modified**:
+- `src/sdk/claude-client.ts` - Added subagent-specific field mapping in on() hook callback (agent_id → subagentId, agent_type → subagentType, SubagentStop → success=true)
+- `src/sdk/opencode-client.ts` - Added AgentPart → subagent.start and StepFinishPart → subagent.complete event mappings in handleSdkEvent()
+
+**Files Created**:
+- `src/sdk/__tests__/subagent-event-mapping.test.ts` - 14 unit tests across all 3 backends
+
+**Implementation Details**:
+- **Claude client**: Hook system maps `subagent.start` → `SubagentStart` and `subagent.complete` → `SubagentStop`. Added mapping of `agent_id` → `subagentId`, `agent_type` → `subagentType` in hook callback. SubagentStop sets `success=true`.
+- **OpenCode client**: Added handling for `part.type === "agent"` (emits `subagent.start` with `subagentId` from part.id and `subagentType` from part.name) and `part.type === "step-finish"` (emits `subagent.complete` with success based on `reason !== "error"`).
+- **Copilot client**: Already correctly mapped `subagent.started` → `subagent.start`, `subagent.completed` → `subagent.complete`, `subagent.failed` → `session.error`. No changes needed.
+
+**Also marked as complete (already implemented by Feature 1)**:
+- Feature 10: Sub-agent result collection (output truncation to 2000 chars in SubagentSessionManager)
+- Feature 11: Error handling (try-catch + finally destroy in spawn())
+- Feature 12: Concurrency limiting (maxConcurrentSubagents with FIFO queue)
+- Feature 13: SubagentSessionManager unit tests (19 tests already exist)
+
+**Verification**:
+- 14 new tests passing (49 expect() calls) covering: Claude hook registration, field mapping, return values; OpenCode AgentPart/StepFinishPart mapping, missing field defaults, unsubscribe; Copilot started/completed/failed event mapping
+- TypeScript typecheck clean
+- oxlint clean (0 warnings, 0 errors)
+- All 206 existing tests still pass across 13 test files
+
+**Commit**: Pending

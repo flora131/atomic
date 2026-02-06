@@ -690,6 +690,20 @@ export class ClaudeAgentClient implements CodingAgentClient {
           eventData.error = hookInput.error;
         }
 
+        // Map subagent-specific fields for subagent.start and subagent.complete events
+        // SubagentStartHookInput: { agent_id, agent_type }
+        // SubagentStopHookInput: { agent_id, agent_transcript_path }
+        if (hookInput.agent_id) {
+          eventData.subagentId = hookInput.agent_id;
+        }
+        if (hookInput.agent_type) {
+          eventData.subagentType = hookInput.agent_type;
+        }
+        if (hookEvent === "SubagentStop") {
+          // SubagentStop implies successful completion
+          eventData.success = true;
+        }
+
         const event: AgentEvent<T> = {
           type: eventType,
           sessionId: input.session_id,

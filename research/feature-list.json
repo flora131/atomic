@@ -120,7 +120,7 @@
       "Update ParallelAgentsTree hint text to show 'ctrl+o to expand' or 'ctrl+o to collapse' based on current state",
       "Test that ctrl+o toggles between compact tree view and expanded detail view"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -189,7 +189,7 @@
       "Test status dot uses correct colors (amber for running, red for completed)",
       "Test compact vs expanded mode via compact prop"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

@@ -45,7 +45,7 @@
       "Add proper error handling for when client/session is unavailable",
       "Return SubagentResult with success, output, and error fields to the caller"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",
@@ -57,7 +57,7 @@
       "Verify the CodingAgentClient interface exposes createSession() method in src/sdk/types.ts",
       "Test that the factory correctly creates independent Session objects"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "functional",

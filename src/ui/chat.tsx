@@ -933,6 +933,8 @@ export function ChatApp({
 
   // State for parallel agents display
   const [parallelAgents, setParallelAgents] = useState<ParallelAgent[]>(initialParallelAgents);
+  // State for parallel agents tree expand/collapse (ctrl+o)
+  const [agentTreeExpanded, setAgentTreeExpanded] = useState(false);
 
   // SubagentSessionManager ref for delegating sub-agent spawning
   const subagentManagerRef = useRef<SubagentSessionManager | null>(null);
@@ -1771,6 +1773,12 @@ export function ChatApp({
           return;
         }
 
+        // Ctrl+O - toggle parallel agents tree expand/collapse
+        if (event.ctrl && event.name === "o") {
+          setAgentTreeExpanded(prev => !prev);
+          return;
+        }
+
         // Skip other keyboard handling when a dialog is active
         // The dialog components handle their own keyboard events via their own useKeyboard hooks
         if (activeQuestion || showModelSelector) {
@@ -2187,8 +2195,8 @@ export function ChatApp({
       {parallelAgents.length > 0 && (
         <ParallelAgentsTree
           agents={parallelAgents}
-          compact={true}
-          maxVisible={5}
+          compact={!agentTreeExpanded}
+          maxVisible={agentTreeExpanded ? 20 : 5}
         />
       )}
 

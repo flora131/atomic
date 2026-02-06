@@ -148,4 +148,23 @@
 **Verification**:
 - TypeScript typecheck clean, oxlint clean, all 225 tests pass
 
+**Commit**: 5a63a1e
+
+### 2026-02-05: Feature 9 - ctrl+o Expand/Collapse Shortcut (COMPLETE)
+
+**Feature**: Implement ctrl+o keyboard shortcut to toggle expand/collapse of ParallelAgentsTree
+
+**Files Modified**:
+- `src/ui/chat.tsx` - Added `agentTreeExpanded` state, ctrl+o key binding in useKeyboard, dynamic compact/maxVisible props
+- `src/ui/components/parallel-agents-tree.tsx` - Dynamic hint text: "ctrl+o to expand" / "ctrl+o to collapse"
+
+**Implementation Details**:
+- `agentTreeExpanded` state initialized to `false` (compact by default)
+- ctrl+o toggles `agentTreeExpanded` — placed before dialog skip check so it works globally
+- `compact={!agentTreeExpanded}`, `maxVisible={agentTreeExpanded ? 20 : 5}`
+- Hint text in ParallelAgentsTree header dynamically shows "expand" or "collapse" based on `compact` prop
+
+**Verification**:
+- TypeScript typecheck clean, oxlint clean, all 225 tests pass across 14 test files
+
 **Commit**: Pending

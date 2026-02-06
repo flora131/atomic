@@ -206,6 +206,6 @@
       "Verify agents transition from 'Initializing...' to 'Done' on actual completion",
       "Verify ctrl+o toggles between compact and expanded views"
     ],
-    "passes": false
+    "passes": true
   }
 ]

@@ -665,6 +665,13 @@ export async function startChatUI(
      */
     const getSession = () => state.session;
 
+    /**
+     * Factory for creating independent sub-agent sessions.
+     * Delegates to client.createSession() to give each sub-agent its own context.
+     */
+    const createSubagentSession = (config?: SessionConfig) =>
+      client.createSession(config);
+
     state.root.render(
       React.createElement(
         ThemeProvider,
@@ -691,6 +698,7 @@ export async function startChatUI(
             registerParallelAgentHandler,
             registerCtrlCWarningHandler,
             getSession,
+            createSubagentSession,
           }),
         }
       )

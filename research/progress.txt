@@ -112,4 +112,27 @@
 - oxlint clean (0 warnings, 0 errors)
 - All 206 existing tests still pass across 13 test files
 
+**Commit**: 5f50411
+
+### 2026-02-05: Feature 6 - ParallelAgentsTree Sub-Status Text (COMPLETE)
+
+**Feature**: Update ParallelAgentsTree sub-status text to show 'Initializing...' for running and 'Done' for completed agents
+
+**Files Modified**:
+- `src/ui/components/parallel-agents-tree.tsx` - Added `getSubStatusText()` function and updated `AgentRow` compact/full modes to always show sub-status line
+
+**Files Created**:
+- `src/ui/__tests__/parallel-agents-tree.test.ts` - 19 unit tests covering getSubStatusText and existing utility functions
+
+**Implementation Details**:
+- Added exported `getSubStatusText(agent)` function that returns: `currentTool` if set, `"Initializing..."` for running/pending, `"Done"` for completed, error message for error status, `null` for background
+- Updated both compact and full mode `AgentRow` to use `getSubStatusText` instead of only showing `currentTool`
+- Sub-status line now always appears when there's a status to show (previously only appeared when `currentTool` was set)
+
+**Verification**:
+- 19 new tests passing (27 expect() calls) covering: currentTool precedence, running/pending/completed/error/background defaults, utility functions
+- TypeScript typecheck clean
+- oxlint clean (0 warnings, 0 errors)
+- All 225 tests pass across 14 test files
+
 **Commit**: Pending

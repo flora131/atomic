@@ -83,7 +83,7 @@
       "Verify sub-status text renders correctly when currentTool transitions from null to a tool name during streaming",
       "Test that sub-status correctly shows tool name during active tool use"
     ],
-    "passes": false
+    "passes": true
   },
   {
     "category": "ui",

@@ -155,6 +155,27 @@ export function getElapsedTime(startedAt: string): string {
   return formatDuration(now - start);
 }
 
+/**
+ * Get default sub-status text based on agent state.
+ * Shows currentTool if active, otherwise a status-appropriate default.
+ */
+export function getSubStatusText(agent: ParallelAgent): string | null {
+  if (agent.currentTool) {
+    return agent.currentTool;
+  }
+  switch (agent.status) {
+    case "running":
+    case "pending":
+      return "Initializing...";
+    case "completed":
+      return "Done";
+    case "error":
+      return agent.error ?? "Error";
+    default:
+      return null;
+  }
+}
+
 // ============================================================================
 // AGENT ROW COMPONENT
 // ============================================================================
@@ -199,6 +220,9 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
     agent.tokens !== undefined ? formatTokens(agent.tokens) : "",
   ].filter(Boolean).join(" · ");
 
+  // Compute sub-status text (currentTool or default based on status)
+  const subStatus = getSubStatusText(agent);
+
   if (compact) {
     // Compact mode: Claude Code style - task · metrics
     return (
@@ -212,13 +236,13 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
             <text style={{ fg: themeColors.muted }}> · {metricsText}</text>
           )}
         </box>
-        {/* Current tool operation */}
-        {agent.currentTool && (
+        {/* Sub-status: current tool or default status text */}
+        {subStatus && (
           <box flexDirection="row">
             <text style={{ fg: themeColors.muted }}>
               {isLast ? TREE_CHARS.space : TREE_CHARS.vertical}  ⎿  </text>
             <text style={{ fg: themeColors.muted }}>
-              {truncateText(agent.currentTool, 50)}
+              {truncateText(subStatus, 50)}
             </text>
           </box>
         )}
@@ -238,13 +262,13 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
           <text style={{ fg: themeColors.muted }}> · {metricsText}</text>
         )}
       </box>
-      {/* Current tool operation */}
-      {agent.currentTool && (
+      {/* Sub-status: current tool or default status text */}
+      {subStatus && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
             {isLast ? TREE_CHARS.space : TREE_CHARS.vertical}  ⎿  </text>
           <text style={{ fg: themeColors.muted }}>
-            {agent.currentTool}
+            {subStatus}
           </text>
         </box>
       )}

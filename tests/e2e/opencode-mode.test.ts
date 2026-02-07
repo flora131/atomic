@@ -355,6 +355,7 @@ function createMockContextWithOpenCode(
     sendMessage: (content) => {
       messages.push({ role: "user", content });
     },
+    sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "Mock OpenCode sub-agent output" }),
     getMessages: () => messages,
   };
@@ -628,7 +629,7 @@ describe("E2E test: Run all functionality in opencode mode", () => {
 
       const agent = getBuiltinAgent("codebase-locator");
       expect(agent).toBeDefined();
-      expect(agent?.model).toBe("haiku");
+      expect(agent?.model).toBe("opus");
 
       const context = createMockContextWithOpenCode();
       const command = createAgentCommand(agent!);
@@ -645,7 +646,7 @@ describe("E2E test: Run all functionality in opencode mode", () => {
 
       const agent = getBuiltinAgent("debugger");
       expect(agent).toBeDefined();
-      expect(agent?.model).toBe("sonnet");
+      expect(agent?.model).toBe("opus");
 
       const context = createMockContextWithOpenCode();
       const command = createAgentCommand(agent!);

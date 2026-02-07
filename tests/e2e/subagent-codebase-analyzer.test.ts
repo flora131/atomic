@@ -156,6 +156,10 @@ function createMockCommandContext(options?: {
       sentMessages.push(content);
     },
 
+    sendSilentMessage(content: string): void {
+      sentMessages.push(content);
+    },
+
     async spawnSubagent(
       opts: SpawnSubagentOptions
     ): Promise<SpawnSubagentResult> {
@@ -384,11 +388,11 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const prompt = agent!.prompt;
 
       // Verify key sections exist in prompt
-      expect(prompt).toContain("codebase analysis specialist");
-      expect(prompt).toContain("## Your Capabilities");
-      expect(prompt).toContain("## Analysis Process");
+      expect(prompt).toContain("specialist at understanding HOW code works");
+      expect(prompt).toContain("## Core Responsibilities");
+      expect(prompt).toContain("## Analysis Strategy");
       expect(prompt).toContain("## Output Format");
-      expect(prompt).toContain("## Guidelines");
+      expect(prompt).toContain("## Important Guidelines");
     });
 
     test("system prompt describes codebase analysis role", () => {
@@ -409,9 +413,9 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const prompt = agent!.prompt;
 
       // Should describe analysis process steps
-      expect(prompt).toContain("Understand the Request");
-      expect(prompt).toContain("Gather Context");
-      expect(prompt).toContain("Analyze Structure");
+      expect(prompt).toContain("Read Entry Points");
+      expect(prompt).toContain("Follow the Code Path");
+      expect(prompt).toContain("Document Key Logic");
       expect(prompt).toContain("Trace Data Flow");
     });
 
@@ -423,9 +427,9 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
 
       // Should describe expected output structure
       expect(prompt).toContain("Overview");
-      expect(prompt).toContain("Architecture");
-      expect(prompt).toContain("Key Components");
-      expect(prompt).toContain("Dependencies");
+      expect(prompt).toContain("Entry Points");
+      expect(prompt).toContain("Core Implementation");
+      expect(prompt).toContain("Data Flow");
     });
 
     test("system prompt describes tool usage", () => {
@@ -435,9 +439,9 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const prompt = agent!.prompt;
 
       // Should explain how to use available tools
-      expect(prompt).toContain("Glob");
-      expect(prompt).toContain("Grep");
       expect(prompt).toContain("Read");
+      expect(prompt).toContain("file:line references");
+      expect(prompt).toContain("Trace actual code paths");
     });
 
     test("sendMessage includes full system prompt", () => {
@@ -452,7 +456,7 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
 
       // Sent message should start with the system prompt content
       const sentMessage = context.sentMessages[0];
-      expect(sentMessage).toContain("codebase analysis specialist");
+      expect(sentMessage).toContain("specialist at understanding HOW code works");
       expect(sentMessage).toContain(agent!.prompt);
     });
   });
@@ -521,16 +525,16 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       expect(agent?.tools).not.toContain("Edit");
     });
 
-    test("system prompt mentions all specified tools", () => {
+    test("system prompt mentions key analysis capabilities", () => {
       const agent = getBuiltinAgent("codebase-analyzer");
       expect(agent).toBeDefined();
 
       const prompt = agent!.prompt;
 
-      // All tools should be mentioned in the prompt
-      for (const tool of agent!.tools!) {
-        expect(prompt).toContain(tool);
-      }
+      // Key analysis capabilities should be mentioned in the prompt
+      expect(prompt).toContain("Read");
+      expect(prompt).toContain("file:line");
+      expect(prompt).toContain("Trace");
     });
   });
 
@@ -576,16 +580,16 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       expect(agent?.model).toBe("opus");
     });
 
-    test("other agents may use different models", () => {
-      // Verify model selection varies by agent purpose
+    test("all codebase agents use opus model", () => {
+      // All codebase agents now use opus for highest capability
       const locatorAgent = getBuiltinAgent("codebase-locator");
       const patternAgent = getBuiltinAgent("codebase-pattern-finder");
 
-      // Locator uses haiku (fast, simple task)
-      expect(locatorAgent?.model).toBe("haiku");
+      // Locator uses opus (highest capability)
+      expect(locatorAgent?.model).toBe("opus");
 
-      // Pattern finder uses sonnet (balanced)
-      expect(patternAgent?.model).toBe("sonnet");
+      // Pattern finder uses opus (highest capability)
+      expect(patternAgent?.model).toBe("opus");
     });
 
     test("agent definition preserves model in command", () => {
@@ -720,7 +724,7 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
 
       // 5. Verify message content
       const message = context.sentMessages[0];
-      expect(message).toContain("codebase analysis specialist");
+      expect(message).toContain("specialist at understanding HOW code works");
       expect(message).toContain("analyze authentication flow");
     });
 

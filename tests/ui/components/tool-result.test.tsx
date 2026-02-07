@@ -316,7 +316,7 @@ describe("Icon and title display", () => {
 
   test("Edit tool icon and title", () => {
     const renderer = getToolRenderer("Edit");
-    expect(renderer.icon).toBe("✏️");
+    expect(renderer.icon).toBe("△");
 
     const title = renderer.getTitle({ input: { file_path: "/src/file.ts" } });
     expect(title).toBe("file.ts");

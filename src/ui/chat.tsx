@@ -13,10 +13,12 @@ import type {
   KeyEvent,
   SyntaxStyle,
   TextareaRenderable,
+  ScrollBoxRenderable,
   KeyBinding,
   PasteEvent,
 } from "@opentui/core";
 import { MacOSScrollAccel } from "@opentui/core";
+import { useThemeColors } from "./theme.tsx";
 import { copyToClipboard, pasteFromClipboard } from "../utils/clipboard.ts";
 import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplete.tsx";
 import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
@@ -249,6 +251,8 @@ export interface ChatAppProps {
   ) => void | Promise<void>;
   /** Callback when user exits the chat */
   onExit?: () => void | Promise<void>;
+  /** Callback to destroy and reset the current session (e.g., for /clear) */
+  onResetSession?: () => void | Promise<void>;
   /**
    * Callback when user interrupts streaming (single Escape/Ctrl+C during streaming).
    * Called to abort the current operation. If not streaming, double press exits.
@@ -479,30 +483,10 @@ export const SPINNER_VERBS = [
 ];
 
 /**
- * Animation frames for the wave dot loading indicator.
- * Creates a smooth left-to-right wave effect using varying dot sizes.
+ * Spinner frames matching Claude Code TUI style.
+ * Single character cycles through shapes for a clean, minimal animation.
  */
-const LOADING_FRAMES = [
-  ["●", "∙", "∙"],
-  ["●", "•", "∙"],
-  ["•", "●", "∙"],
-  ["∙", "●", "•"],
-  ["∙", "•", "●"],
-  ["∙", "∙", "●"],
-  ["∙", "•", "●"],
-  ["∙", "●", "•"],
-  ["•", "●", "∙"],
-  ["●", "•", "∙"],
-];
-
-/**
- * Gradient colors for the loading dots - uses ATOMIC branding
- */
-const LOADING_DOT_COLORS = [
-  "#E8B4B8", // Dusty pink
-  "#D49CA0", // Soft rose
-  "#8AA0B4", // Pale steel blue
-];
+const SPINNER_FRAMES = ["●", "✻", "✶", "✢", "·", "✢", "✶", "✻", "✽"];
 
 /**
  * Select a random verb from the SPINNER_VERBS array.
@@ -523,9 +507,9 @@ interface LoadingIndicatorProps {
 }
 
 /**
- * Animated loading indicator with a wave effect and random verb text.
- * Three dots animate left-to-right with gradient colors.
- * A random verb is selected on mount and displayed as "Verb..." with the animation.
+ * Animated loading indicator matching Claude Code TUI style.
+ * Single spinning character with a random verb and Unicode ellipsis.
+ * Muted rose color for the spinner, gray for the verb text.
  *
  * Returns span elements (not wrapped in text) so it can be composed
  * inside other text elements. Wrap in <text> when using standalone.
@@ -537,22 +521,18 @@ export function LoadingIndicator({ speed = 120 }: LoadingIndicatorProps): React.
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setFrameIndex((prev) => (prev + 1) % LOADING_FRAMES.length);
+      setFrameIndex((prev) => (prev + 1) % SPINNER_FRAMES.length);
     }, speed);
 
     return () => clearInterval(interval);
   }, [speed]);
 
-  const frame = LOADING_FRAMES[frameIndex] as string[];
+  const spinChar = SPINNER_FRAMES[frameIndex] as string;
 
   return (
     <>
-      <span style={{ fg: "#9A9AAC" }}>{verb}... </span>
-      {frame.map((dot, i) => (
-        <span key={i} style={{ fg: LOADING_DOT_COLORS[i] }}>
-          {dot}
-        </span>
-      ))}
+      <span style={{ fg: "#D4A5A5" }}>{spinChar} </span>
+      <span style={{ fg: "#9A9AAC" }}>{verb}\u2026</span>
     </>
   );
 }
@@ -571,6 +551,17 @@ const _USER_SKY = "#A8C5D8";
 const MUTED_LAVENDER = "#9A9AAC";
 /** Dim text for subtle elements */
 const _DIM_BLUE = "#8899AA";
+/** Input scrollbar thumb color when textarea content overflows */
+const INPUT_SCROLLBAR_FG = "#BFA6AC";
+/** Input scrollbar track color when textarea content overflows */
+const INPUT_SCROLLBAR_BG = "#5A4C50";
+
+interface InputScrollbarState {
+  visible: boolean;
+  viewportHeight: number;
+  thumbTop: number;
+  thumbSize: number;
+}
 
 // ============================================================================
 // ATOMIC HEADER COMPONENT
@@ -704,6 +695,7 @@ function buildContentSegments(content: string, toolCalls: MessageToolCall[]): Co
  * Tool calls are rendered inline at their correct chronological positions.
  */
 export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false }: MessageBubbleProps): React.ReactNode {
+  const themeColors = useThemeColors();
   // Show loading animation only before any content arrives, and not when question dialog is active
   const showLoadingAnimation = message.streaming && !message.content.trim() && !hideLoading;
 
@@ -720,9 +712,11 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
         paddingLeft={1}
         paddingRight={1}
       >
-        <text>
-          <span style={{ bg: "#3A3A4A", fg: "#E0E0E0" }}> {message.content} </span>
-        </text>
+        <box flexGrow={1} flexShrink={1} minWidth={0}>
+          <text wrapMode="char">
+            <span style={{ bg: "#3A3A4A", fg: "#E0E0E0" }}> {message.content} </span>
+          </text>
+        </box>
       </box>
     );
   }
@@ -782,11 +776,13 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
                 </box>
               </box>
             ) : (
-              <text key={segment.key} wrapMode="word">
-                {isFirst && <span style={{ fg: ATOMIC_PINK }}>● </span>}
-                {!isFirst && "  "}
-                {segment.content}
-              </text>
+              <box key={segment.key} flexDirection="row" alignItems="flex-start" marginBottom={index < segments.length - 1 ? 1 : 0}>
+                {isFirst && <text style={{ fg: ATOMIC_PINK }}>● </text>}
+                {!isFirst && <text>  </text>}
+                <box flexGrow={1} flexShrink={1} minWidth={0}>
+                  <text wrapMode="char">{segment.content}</text>
+                </box>
+              </box>
             );
           } else if (segment.type === "tool" && segment.toolCall) {
             // Tool call segment
@@ -817,7 +813,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
     );
   }
 
-  // System message: keep with header for visibility (yellow)
+  // System message: inline red text (no separate header/modal)
   return (
     <box
       flexDirection="column"
@@ -825,8 +821,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
       paddingLeft={1}
       paddingRight={1}
     >
-      <text style={{ fg: "#FBBF24", attributes: 1 }}>System</text>
-      <text wrapMode="word">{message.content}</text>
+      <text wrapMode="char" style={{ fg: themeColors.error }}>{message.content}</text>
     </box>
   );
 }
@@ -857,6 +852,7 @@ export function ChatApp({
   onSendMessage,
   onStreamMessage,
   onExit,
+  onResetSession,
   onInterrupt,
   placeholder: _placeholder = "Type a message...",
   title: _title,
@@ -935,6 +931,13 @@ export function ChatApp({
   const [parallelAgents, setParallelAgents] = useState<ParallelAgent[]>(initialParallelAgents);
   // State for parallel agents tree expand/collapse (ctrl+o)
   const [agentTreeExpanded, setAgentTreeExpanded] = useState(false);
+  // State for input textarea scrollbar (shown only when input overflows)
+  const [inputScrollbar, setInputScrollbar] = useState<InputScrollbarState>({
+    visible: false,
+    viewportHeight: 1,
+    thumbTop: 0,
+    thumbSize: 1,
+  });
 
   // SubagentSessionManager ref for delegating sub-agent spawning
   const subagentManagerRef = useRef<SubagentSessionManager | null>(null);
@@ -947,8 +950,7 @@ export function ChatApp({
   // This avoids race conditions where React state hasn't updated yet
   const isStreamingRef = useRef(false);
   // Ref for scrollbox to enable programmatic scrolling
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const scrollboxRef = useRef<any>(null);
+  const scrollboxRef = useRef<ScrollBoxRenderable>(null);
 
   // Create macOS-style scroll acceleration for smooth mouse wheel scrolling
   const scrollAcceleration = useMemo(() => new MacOSScrollAccel(), []);
@@ -1199,6 +1201,13 @@ export function ChatApp({
     respond: (answer: string | string[]) => void,
     header?: string
   ) => {
+    // During Ralph autonomous execution, auto-approve permission requests
+    if (workflowState.workflowActive) {
+      const autoAnswer = options[0]?.value ?? "allow";
+      respond(autoAnswer);
+      return;
+    }
+
     // Store the respond callback
     permissionRespondRef.current = respond;
 
@@ -1217,7 +1226,7 @@ export function ChatApp({
 
     // Show the question dialog
     handleHumanInputRequired(userQuestion);
-  }, [handleHumanInputRequired]);
+  }, [handleHumanInputRequired, workflowState.workflowActive]);
 
   // Store the requestId for askUserNode questions (for workflow resumption)
   const askUserQuestionRequestIdRef = useRef<string | null>(null);
@@ -1234,6 +1243,15 @@ export function ChatApp({
    * - Otherwise, call session.send() with the user's answer for standalone agents
    */
   const handleAskUserQuestion = useCallback((eventData: AskUserQuestionEventData) => {
+    // During Ralph autonomous execution, auto-respond to questions
+    if (workflowState.workflowActive) {
+      const autoAnswer = eventData.options?.[0]?.label ?? "continue";
+      if (onWorkflowResumeWithAnswer && eventData.requestId) {
+        onWorkflowResumeWithAnswer(eventData.requestId, autoAnswer);
+      }
+      return;
+    }
+
     // Store the requestId for response correlation
     askUserQuestionRequestIdRef.current = eventData.requestId;
 
@@ -1251,7 +1269,7 @@ export function ChatApp({
 
     // Show the question dialog
     handleHumanInputRequired(userQuestion);
-  }, [handleHumanInputRequired]);
+  }, [handleHumanInputRequired, workflowState.workflowActive, onWorkflowResumeWithAnswer]);
 
   // Register askUserQuestion handler with parent component
   useEffect(() => {
@@ -1382,6 +1400,36 @@ export function ChatApp({
   // Ref for textarea to access value and clear it
   const textareaRef = useRef<TextareaRenderable>(null);
 
+  const syncInputScrollbar = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const viewportHeight = Math.max(1, Math.floor(textarea.editorView.getViewport().height));
+    const totalLines = Math.max(1, textarea.editorView.getTotalVirtualLineCount());
+    const maxScrollTop = Math.max(0, totalLines - viewportHeight);
+    const scrollTop = Math.max(0, Math.floor(textarea.scrollY));
+    const visible = maxScrollTop > 0;
+    const thumbSize = visible
+      ? Math.max(1, Math.round((viewportHeight / totalLines) * viewportHeight))
+      : viewportHeight;
+    const maxThumbTop = Math.max(0, viewportHeight - thumbSize);
+    const thumbTop = maxScrollTop > 0
+      ? Math.round((scrollTop / maxScrollTop) * maxThumbTop)
+      : 0;
+
+    setInputScrollbar((prev) => {
+      if (
+        prev.visible === visible &&
+        prev.viewportHeight === viewportHeight &&
+        prev.thumbTop === thumbTop &&
+        prev.thumbSize === thumbSize
+      ) {
+        return prev;
+      }
+      return { visible, viewportHeight, thumbTop, thumbSize };
+    });
+  }, []);
+
   // Ref for sendMessage to allow executeCommand to call it without circular dependencies
   const sendMessageRef = useRef<((content: string) => void) | null>(null);
 
@@ -1390,7 +1438,9 @@ export function ChatApp({
    * Shows autocomplete when input starts with "/" and has no space.
    * Shows argument hints when a space follows a valid command name.
    */
-  const handleInputChange = useCallback((value: string) => {
+  const handleInputChange = useCallback((rawValue: string) => {
+    // Trim leading whitespace to prevent leading space from breaking slash command detection
+    const value = rawValue.trimStart();
     // Check if input starts with "/" (slash command)
     if (value.startsWith("/")) {
       // Extract the command prefix (text after "/" without spaces)
@@ -1406,13 +1456,14 @@ export function ChatApp({
           argumentHint: "", // Clear hint while typing command name
         });
       } else {
-        // Space present - hide autocomplete, show argument hint if command has one
+        // Space present - hide autocomplete, show argument hint only when no args typed yet
         const commandName = afterSlash.slice(0, spaceIndex);
+        const afterCommandSpace = afterSlash.slice(spaceIndex + 1);
         const command = globalRegistry.get(commandName);
         updateWorkflowState({
           showAutocomplete: false,
           autocompleteInput: "",
-          argumentHint: command?.argumentHint || "",
+          argumentHint: afterCommandSpace.length === 0 ? (command?.argumentHint || "") : "",
         });
       }
     } else {
@@ -1427,6 +1478,16 @@ export function ChatApp({
       }
     }
   }, [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState]);
+
+  const handleTextareaContentChange = useCallback(() => {
+    const value = textareaRef.current?.plainText ?? "";
+    handleInputChange(value);
+    syncInputScrollbar();
+  }, [handleInputChange, syncInputScrollbar]);
+
+  const handleTextareaCursorChange = useCallback(() => {
+    syncInputScrollbar();
+  }, [syncInputScrollbar]);
 
   /**
    * Helper to add a message to the chat.
@@ -1514,6 +1575,69 @@ export function ChatApp({
           sendMessageRef.current(content);
         }
       },
+      sendSilentMessage: (content: string) => {
+        // Send to agent without displaying as user message
+        // Call send handler (fire and forget)
+        if (onSendMessage) {
+          void Promise.resolve(onSendMessage(content));
+        }
+        // Handle streaming response if handler provided
+        if (onStreamMessage) {
+          isStreamingRef.current = true;
+          setIsStreaming(true);
+          streamingStartRef.current = Date.now();
+
+          // Create placeholder assistant message for the response
+          const assistantMessage = createMessage("assistant", "", true);
+          streamingMessageIdRef.current = assistantMessage.id;
+          setMessages((prev: ChatMessage[]) => [...prev, assistantMessage]);
+
+          const handleChunk = (chunk: string) => {
+            const messageId = streamingMessageIdRef.current;
+            if (messageId) {
+              setMessages((prev: ChatMessage[]) =>
+                prev.map((msg: ChatMessage) =>
+                  msg.id === messageId
+                    ? { ...msg, content: msg.content + chunk }
+                    : msg
+                )
+              );
+            }
+          };
+
+          const handleComplete = () => {
+            const messageId = streamingMessageIdRef.current;
+            const durationMs = streamingStartRef.current
+              ? Date.now() - streamingStartRef.current
+              : undefined;
+
+            if (messageId) {
+              setMessages((prev: ChatMessage[]) =>
+                prev.map((msg: ChatMessage) =>
+                  msg.id === messageId
+                    ? { ...msg, streaming: false, durationMs, modelId: model }
+                    : msg
+                )
+              );
+            }
+            streamingMessageIdRef.current = null;
+            streamingStartRef.current = null;
+            isStreamingRef.current = false;
+            setIsStreaming(false);
+
+            const nextMessage = messageQueue.dequeue();
+            if (nextMessage) {
+              setTimeout(() => {
+                if (sendMessageRef.current) {
+                  sendMessageRef.current(nextMessage.content);
+                }
+              }, 50);
+            }
+          };
+
+          void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete));
+        }
+      },
       spawnSubagent: async (options) => {
         const manager = subagentManagerRef.current;
         if (!manager) {
@@ -1564,6 +1688,15 @@ export function ChatApp({
       // Execute the command (may be sync or async)
       const result = await Promise.resolve(command.execute(args, context));
 
+      // Handle destroySession flag (e.g., /clear)
+      if (result.destroySession && onResetSession) {
+        void Promise.resolve(onResetSession());
+        // Reset workflow state when session is destroyed
+        updateWorkflowState({
+          ...defaultWorkflowChatState,
+        });
+      }
+
       // Handle clearMessages flag
       if (result.clearMessages) {
         setMessages([]);
@@ -1572,16 +1705,16 @@ export function ChatApp({
       // Apply state updates if present
       if (result.stateUpdate) {
         updateWorkflowState({
-          workflowActive: result.stateUpdate.workflowActive ?? workflowState.workflowActive,
-          workflowType: result.stateUpdate.workflowType ?? workflowState.workflowType,
-          initialPrompt: result.stateUpdate.initialPrompt ?? workflowState.initialPrompt,
-          currentNode: result.stateUpdate.currentNode ?? workflowState.currentNode,
-          iteration: result.stateUpdate.iteration ?? workflowState.iteration,
-          maxIterations: result.stateUpdate.maxIterations ?? workflowState.maxIterations,
-          featureProgress: result.stateUpdate.featureProgress ?? workflowState.featureProgress,
-          pendingApproval: result.stateUpdate.pendingApproval ?? workflowState.pendingApproval,
-          specApproved: result.stateUpdate.specApproved ?? workflowState.specApproved,
-          feedback: result.stateUpdate.feedback ?? workflowState.feedback,
+          workflowActive: result.stateUpdate.workflowActive !== undefined ? result.stateUpdate.workflowActive : workflowState.workflowActive,
+          workflowType: result.stateUpdate.workflowType !== undefined ? result.stateUpdate.workflowType : workflowState.workflowType,
+          initialPrompt: result.stateUpdate.initialPrompt !== undefined ? result.stateUpdate.initialPrompt : workflowState.initialPrompt,
+          currentNode: result.stateUpdate.currentNode !== undefined ? result.stateUpdate.currentNode : workflowState.currentNode,
+          iteration: result.stateUpdate.iteration !== undefined ? result.stateUpdate.iteration : workflowState.iteration,
+          maxIterations: result.stateUpdate.maxIterations !== undefined ? result.stateUpdate.maxIterations : workflowState.maxIterations,
+          featureProgress: result.stateUpdate.featureProgress !== undefined ? result.stateUpdate.featureProgress : workflowState.featureProgress,
+          pendingApproval: result.stateUpdate.pendingApproval !== undefined ? result.stateUpdate.pendingApproval : workflowState.pendingApproval,
+          specApproved: result.stateUpdate.specApproved !== undefined ? result.stateUpdate.specApproved : workflowState.specApproved,
+          feedback: result.stateUpdate.feedback !== undefined ? result.stateUpdate.feedback : workflowState.feedback,
         });
 
         // Also update isStreaming if specified
@@ -1636,11 +1769,12 @@ export function ChatApp({
     textareaRef.current.gotoBufferEnd({ select: true });
     textareaRef.current.deleteChar();
 
-    // Hide autocomplete
+    // Hide autocomplete and set argument hint for complete action
     updateWorkflowState({
       showAutocomplete: false,
       autocompleteInput: "",
       selectedSuggestionIndex: 0,
+      argumentHint: action === "complete" ? (command.argumentHint || "") : "",
     });
 
     if (action === "complete") {
@@ -1662,8 +1796,14 @@ export function ChatApp({
   // Key bindings for textarea: Enter submits, Shift+Enter adds newline
   const textareaKeyBindings: KeyBinding[] = [
     { name: "return", action: "submit" },
+    { name: "linefeed", action: "submit" },
     { name: "return", shift: true, action: "newline" },
+    { name: "linefeed", shift: true, action: "newline" },
   ];
+
+  const normalizePastedText = useCallback((text: string) => {
+    return text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  }, []);
 
   // Handle clipboard copy - copies selected text to system clipboard
   const handleCopy = useCallback(async () => {
@@ -1692,27 +1832,24 @@ export function ChatApp({
     try {
       const text = await pasteFromClipboard();
       if (text) {
-        textarea.insertText(text);
+        textarea.insertText(normalizePastedText(text));
+        handleInputChange(textarea.plainText ?? "");
       }
     } catch {
       // Silently fail - clipboard may not be available
     }
-  }, []);
+  }, [handleInputChange, normalizePastedText]);
 
   // Handle bracketed paste events from OpenTUI
   // This is the primary paste handler for modern terminals that support bracketed paste mode
-  const handleBracketedPaste = useCallback((_event: PasteEvent) => {
-    // OpenTUI's textarea will automatically insert the text by default
-    // We don't need to call preventDefault() - just let the default behavior happen
-    // The event.text contains the pasted content which will be inserted at cursor position
+  const handleBracketedPaste = useCallback((event: PasteEvent) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
 
-    // After paste, update autocomplete state based on new input
-    // Use setTimeout to let the textarea update first
-    setTimeout(() => {
-      const value = textareaRef.current?.plainText ?? "";
-      handleInputChange(value);
-    }, 0);
-  }, [handleInputChange]);
+    event.preventDefault();
+    textarea.insertText(normalizePastedText(event.text));
+    handleInputChange(textarea.plainText ?? "");
+  }, [handleInputChange, normalizePastedText]);
 
   // Get current autocomplete suggestions count for navigation
   const autocompleteSuggestions = workflowState.showAutocomplete
@@ -1735,7 +1872,25 @@ export function ChatApp({
           // If streaming, interrupt (abort) the current operation
           if (isStreaming) {
             onInterrupt?.();
-            // Reset interrupt counter after interrupting
+          }
+          // Cancel active workflow regardless of streaming state
+          // (workflow may be active but between API calls, e.g. after error)
+          if (workflowState.workflowActive) {
+            updateWorkflowState({
+              workflowActive: false,
+              workflowType: null,
+              initialPrompt: null,
+            });
+            setInterruptCount(0);
+            if (interruptTimeoutRef.current) {
+              clearTimeout(interruptTimeoutRef.current);
+              interruptTimeoutRef.current = null;
+            }
+            setCtrlCPressed(false);
+            return;
+          }
+          // If streaming but no workflow, just interrupt
+          if (isStreaming) {
             setInterruptCount(0);
             if (interruptTimeoutRef.current) {
               clearTimeout(interruptTimeoutRef.current);
@@ -1809,6 +1964,18 @@ export function ChatApp({
           // If streaming, interrupt (abort) the current operation
           if (isStreaming) {
             onInterrupt?.();
+          }
+          // Cancel active workflow regardless of streaming state
+          if (workflowState.workflowActive) {
+            updateWorkflowState({
+              workflowActive: false,
+              workflowType: null,
+              initialPrompt: null,
+            });
+            return;
+          }
+          // If streaming but no workflow, just interrupt and return
+          if (isStreaming) {
             return;
           }
 
@@ -1931,6 +2098,7 @@ export function ChatApp({
               showAutocomplete: false,
               autocompleteInput: "",
               selectedSuggestionIndex: 0,
+              argumentHint: selectedCommand.argumentHint || "",
             });
           }
           return;
@@ -1986,11 +2154,31 @@ export function ChatApp({
         setTimeout(() => {
           const value = textareaRef.current?.plainText ?? "";
           handleInputChange(value);
+          syncInputScrollbar();
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue]
     )
   );
+
+  useEffect(() => {
+    setTimeout(() => {
+      syncInputScrollbar();
+    }, 0);
+  }, [syncInputScrollbar, workflowState.argumentHint]);
+
+  // Keep input scrollbar synced for all scroll paths (keyboard, mouse wheel, drag).
+  useEffect(() => {
+    if (activeQuestion || showModelSelector) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      syncInputScrollbar();
+    }, 80);
+
+    return () => clearInterval(interval);
+  }, [syncInputScrollbar, activeQuestion, showModelSelector]);
 
   /**
    * Send a message and handle streaming response.
@@ -2208,10 +2396,13 @@ export function ChatApp({
         flexGrow={1}
         stickyScroll={true}
         stickyStart="bottom"
+        scrollY={true}
+        scrollX={false}
         viewportCulling={false}
         paddingLeft={1}
         paddingRight={1}
-        scrollbarOptions={{ visible: false }}
+        verticalScrollbarOptions={{ visible: false }}
+        horizontalScrollbarOptions={{ visible: false }}
         scrollAcceleration={scrollAcceleration}
       >
         {/* Messages */}
@@ -2264,7 +2455,7 @@ export function ChatApp({
               paddingRight={1}
               marginTop={messages.length > 0 ? 1 : 0}
               flexDirection="row"
-              alignItems="center"
+              alignItems="flex-start"
             >
               <text style={{ fg: ATOMIC_PINK }}>❯{" "}</text>
               <textarea
@@ -2274,16 +2465,40 @@ export function ChatApp({
                 keyBindings={textareaKeyBindings}
                 onSubmit={handleSubmit}
                 onPaste={handleBracketedPaste}
-                flexGrow={1}
-                height={1}
+                onContentChange={handleTextareaContentChange}
+                onCursorChange={handleTextareaCursorChange}
+                wrapMode="char"
+                flexGrow={workflowState.argumentHint ? 0 : 1}
+                flexShrink={1}
+                flexBasis={workflowState.argumentHint ? undefined : 0}
+                minWidth={0}
+                minHeight={1}
+                maxHeight={8}
               />
               {workflowState.argumentHint && (
-                <text style={{ fg: "#6A6A7C" }}> {workflowState.argumentHint}</text>
+                <text style={{ fg: "#6A6A7C" }}>{workflowState.argumentHint}</text>
+              )}
+              {workflowState.argumentHint && <box flexGrow={1} />}
+              {inputScrollbar.visible && (
+                <box flexDirection="column" marginLeft={1}>
+                  {Array.from({ length: inputScrollbar.viewportHeight }).map((_, i) => {
+                    const inThumb = i >= inputScrollbar.thumbTop
+                      && i < inputScrollbar.thumbTop + inputScrollbar.thumbSize;
+                    return (
+                      <text
+                        key={`input-scroll-${i}`}
+                        style={{ fg: inThumb ? INPUT_SCROLLBAR_FG : INPUT_SCROLLBAR_BG }}
+                      >
+                        {inThumb ? "█" : "│"}
+                      </text>
+                    );
+                  })}
+                </box>
               )}
             </box>
             {/* Streaming hint - shows "esc to interrupt" during streaming */}
             {isStreaming && (
-              <box marginLeft={2}>
+              <box paddingLeft={2}>
                 <text style={{ fg: MUTED_LAVENDER }}>
                   esc to interrupt
                 </text>
@@ -2307,7 +2522,7 @@ export function ChatApp({
 
         {/* Ctrl+C warning message */}
         {ctrlCPressed && (
-          <box marginTop={1}>
+          <box marginTop={1} paddingLeft={2}>
             <text style={{ fg: MUTED_LAVENDER }}>
               Press Ctrl-C again to exit
             </text>

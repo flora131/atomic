@@ -61,6 +61,12 @@ function createMockContext(
         options.onSendMessage(content);
       }
     },
+    sendSilentMessage: (content: string) => {
+      sentMessages.push(content);
+      if (options.onSendMessage) {
+        options.onSendMessage(content);
+      }
+    },
     spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
     sentMessages,
   };
@@ -166,6 +172,9 @@ describe("skillCommands", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      sendSilentMessage: (content) => {
+        sentMessages.push(content);
+      },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -190,7 +199,7 @@ describe("skillCommands", () => {
   });
 
   test("hidden skill is created with hidden flag", () => {
-    const antiPatterns = skillCommands.find((c) => c.name === "testing-anti-patterns");
+    const antiPatterns = builtinSkillCommands.find((c) => c.name === "testing-anti-patterns");
     expect(antiPatterns).toBeDefined();
     expect(antiPatterns?.hidden).toBe(true);
   });
@@ -344,7 +353,8 @@ describe("registerSkillCommands", () => {
     registerSkillCommands();
 
     // Should not throw and should still have correct count
-    expect(globalRegistry.size()).toBe(SKILL_DEFINITIONS.length);
+    // BUILTIN_SKILLS take priority; legacy SKILL_DEFINITIONS only add non-overlapping entries
+    expect(globalRegistry.size()).toBe(BUILTIN_SKILLS.length);
   });
 
   test("commands are executable after registration", async () => {
@@ -580,7 +590,7 @@ describe("BUILTIN_SKILLS", () => {
   test("contains commit skill", () => {
     const commit = BUILTIN_SKILLS.find((s) => s.name === "commit");
     expect(commit).toBeDefined();
-    expect(commit?.description).toBe("Create well-formatted commits with conventional commit format");
+    expect(commit?.description).toBe("Create well-formatted commits with conventional commit format.");
     expect(commit?.aliases).toContain("ci");
     expect(commit?.prompt).toBeDefined();
     expect(commit?.prompt.length).toBeGreaterThan(100);
@@ -631,25 +641,25 @@ describe("BUILTIN_SKILLS", () => {
     expect(research?.prompt).toContain("$ARGUMENTS");
   });
 
-  test("research-codebase skill includes research directory structure", () => {
+  test("research-codebase skill includes research workflow steps", () => {
     const research = BUILTIN_SKILLS.find((s) => s.name === "research-codebase");
-    expect(research?.prompt).toContain("research/architecture.md");
-    expect(research?.prompt).toContain("research/directory-structure.md");
-    expect(research?.prompt).toContain("research/tech-stack.md");
-    expect(research?.prompt).toContain("research/entry-points.md");
-    expect(research?.prompt).toContain("research/patterns.md");
+    expect(research?.prompt).toContain("codebase-locator");
+    expect(research?.prompt).toContain("codebase-analyzer");
+    expect(research?.prompt).toContain("codebase-research-locator");
+    expect(research?.prompt).toContain("codebase-research-analyzer");
+    expect(research?.prompt).toContain("codebase-online-researcher");
   });
 
   test("research-codebase skill includes documentation guidelines", () => {
     const research = BUILTIN_SKILLS.find((s) => s.name === "research-codebase");
-    expect(research?.prompt).toContain("Document what EXISTS");
-    expect(research?.prompt).toContain("Be objective and factual");
+    expect(research?.prompt).toContain("documentarians, not evaluators");
+    expect(research?.prompt).toContain("Document what IS, not what SHOULD BE");
   });
 
   test("contains create-spec skill", () => {
     const spec = BUILTIN_SKILLS.find((s) => s.name === "create-spec");
     expect(spec).toBeDefined();
-    expect(spec?.description).toBe("Generate technical specification from research");
+    expect(spec?.description).toBe("Create a detailed execution plan for implementing features or refactors in a codebase by leveraging existing research in the specified \`research\` directory.");
     expect(spec?.aliases).toContain("spec");
     expect(spec?.prompt).toBeDefined();
     expect(spec?.prompt.length).toBeGreaterThan(100);
@@ -662,25 +672,25 @@ describe("BUILTIN_SKILLS", () => {
 
   test("create-spec skill includes spec structure sections", () => {
     const spec = BUILTIN_SKILLS.find((s) => s.name === "create-spec");
-    expect(spec?.prompt).toContain("research/spec.md");
-    expect(spec?.prompt).toContain("Technical Approach");
-    expect(spec?.prompt).toContain("Component Design");
-    expect(spec?.prompt).toContain("Data Model Changes");
-    expect(spec?.prompt).toContain("Testing Strategy");
-    expect(spec?.prompt).toContain("Implementation Order");
+    expect(spec?.prompt).toContain("Executive Summary");
+    expect(spec?.prompt).toContain("Context and Motivation");
+    expect(spec?.prompt).toContain("Proposed Solution");
+    expect(spec?.prompt).toContain("Detailed Design");
+    expect(spec?.prompt).toContain("Alternatives Considered");
+    expect(spec?.prompt).toContain("Cross-Cutting Concerns");
   });
 
-  test("create-spec skill references research directory", () => {
+  test("create-spec skill references research artifacts", () => {
     const spec = BUILTIN_SKILLS.find((s) => s.name === "create-spec");
-    expect(spec?.prompt).toContain("research/architecture.md");
-    expect(spec?.prompt).toContain("research/patterns.md");
-    expect(spec?.prompt).toContain("research/tech-stack.md");
+    expect(spec?.prompt).toContain("codebase-research-locator");
+    expect(spec?.prompt).toContain("codebase-research-analyzer");
+    expect(spec?.prompt).toContain("specs");
   });
 
   test("contains create-feature-list skill", () => {
     const featureList = BUILTIN_SKILLS.find((s) => s.name === "create-feature-list");
     expect(featureList).toBeDefined();
-    expect(featureList?.description).toBe("Break spec into implementable tasks");
+    expect(featureList?.description).toBe("Create a detailed \`research/feature-list.json\` and \`research/progress.txt\` for implementing features or refactors in a codebase from a spec.");
     expect(featureList?.aliases).toContain("features");
     expect(featureList?.prompt).toBeDefined();
     expect(featureList?.prompt.length).toBeGreaterThan(100);
@@ -705,22 +715,22 @@ describe("BUILTIN_SKILLS", () => {
     const featureList = BUILTIN_SKILLS.find((s) => s.name === "create-feature-list");
     expect(featureList?.prompt).toContain("functional");
     expect(featureList?.prompt).toContain("refactor");
-    expect(featureList?.prompt).toContain("test");
-    expect(featureList?.prompt).toContain("documentation");
+    expect(featureList?.prompt).toContain("performance");
+    expect(featureList?.prompt).toContain("ui");
   });
 
   test("contains implement-feature skill", () => {
     const implFeature = BUILTIN_SKILLS.find((s) => s.name === "implement-feature");
     expect(implFeature).toBeDefined();
-    expect(implFeature?.description).toBe("Implement next feature from list");
+    expect(implFeature?.description).toBe("Implement a SINGLE feature from \`research/feature-list.json\` based on the provided execution plan.");
     expect(implFeature?.aliases).toContain("impl");
     expect(implFeature?.prompt).toBeDefined();
     expect(implFeature?.prompt.length).toBeGreaterThan(100);
   });
 
-  test("implement-feature skill has $ARGUMENTS placeholder", () => {
+  test("implement-feature skill does not use $ARGUMENTS placeholder", () => {
     const implFeature = BUILTIN_SKILLS.find((s) => s.name === "implement-feature");
-    expect(implFeature?.prompt).toContain("$ARGUMENTS");
+    expect(implFeature?.prompt).not.toContain("$ARGUMENTS");
   });
 
   test("implement-feature skill includes implementation process", () => {
@@ -728,51 +738,49 @@ describe("BUILTIN_SKILLS", () => {
     expect(implFeature?.prompt).toContain("research/feature-list.json");
     expect(implFeature?.prompt).toContain("research/progress.txt");
     expect(implFeature?.prompt).toContain("passes");
-    expect(implFeature?.prompt).toContain("Write Tests");
+    expect(implFeature?.prompt).toContain("Test-Driven Development");
   });
 
-  test("implement-feature skill includes feature categories", () => {
+  test("implement-feature skill includes design principles", () => {
     const implFeature = BUILTIN_SKILLS.find((s) => s.name === "implement-feature");
-    expect(implFeature?.prompt).toContain("functional");
-    expect(implFeature?.prompt).toContain("refactor");
-    expect(implFeature?.prompt).toContain("test");
-    expect(implFeature?.prompt).toContain("documentation");
-    expect(implFeature?.prompt).toContain("ui");
-    expect(implFeature?.prompt).toContain("e2e");
+    expect(implFeature?.prompt).toContain("SOLID");
+    expect(implFeature?.prompt).toContain("KISS");
+    expect(implFeature?.prompt).toContain("YAGNI");
+    expect(implFeature?.prompt).toContain("Separation of Concerns");
   });
 
   test("contains create-gh-pr skill", () => {
     const ghPr = BUILTIN_SKILLS.find((s) => s.name === "create-gh-pr");
     expect(ghPr).toBeDefined();
-    expect(ghPr?.description).toBe("Push and create pull request");
+    expect(ghPr?.description).toBe("Commit unstaged changes, push changes, submit a pull request.");
     expect(ghPr?.aliases).toContain("pr");
     expect(ghPr?.prompt).toBeDefined();
-    expect(ghPr?.prompt.length).toBeGreaterThan(100);
+    expect(ghPr?.prompt.length).toBeGreaterThan(50);
   });
 
-  test("create-gh-pr skill has $ARGUMENTS placeholder", () => {
+  test("create-gh-pr skill does not use $ARGUMENTS placeholder", () => {
     const ghPr = BUILTIN_SKILLS.find((s) => s.name === "create-gh-pr");
-    expect(ghPr?.prompt).toContain("$ARGUMENTS");
+    expect(ghPr?.prompt).not.toContain("$ARGUMENTS");
   });
 
-  test("create-gh-pr skill includes gh CLI commands", () => {
+  test("create-gh-pr skill includes PR workflow steps", () => {
     const ghPr = BUILTIN_SKILLS.find((s) => s.name === "create-gh-pr");
-    expect(ghPr?.prompt).toContain("gh pr create");
-    expect(ghPr?.prompt).toContain("gh pr view");
-    expect(ghPr?.prompt).toContain("git push");
+    expect(ghPr?.prompt).toContain("/commit");
+    expect(ghPr?.prompt).toContain("pull request");
+    expect(ghPr?.prompt).toContain("push");
   });
 
-  test("create-gh-pr skill includes PR template format", () => {
+  test("create-gh-pr skill includes PR behavior description", () => {
     const ghPr = BUILTIN_SKILLS.find((s) => s.name === "create-gh-pr");
-    expect(ghPr?.prompt).toContain("## Summary");
-    expect(ghPr?.prompt).toContain("## Changes");
-    expect(ghPr?.prompt).toContain("## Testing");
+    expect(ghPr?.prompt).toContain("Creates logical commits");
+    expect(ghPr?.prompt).toContain("Pushes branch to remote");
+    expect(ghPr?.prompt).toContain("Creates pull request");
   });
 
   test("contains explain-code skill", () => {
     const explainCode = BUILTIN_SKILLS.find((s) => s.name === "explain-code");
     expect(explainCode).toBeDefined();
-    expect(explainCode?.description).toBe("Explain code functionality in detail");
+    expect(explainCode?.description).toBe("Explain code functionality in detail.");
     expect(explainCode?.aliases).toContain("explain");
     expect(explainCode?.prompt).toBeDefined();
     expect(explainCode?.prompt.length).toBeGreaterThan(100);
@@ -785,17 +793,18 @@ describe("BUILTIN_SKILLS", () => {
 
   test("explain-code skill includes explanation structure", () => {
     const explainCode = BUILTIN_SKILLS.find((s) => s.name === "explain-code");
-    expect(explainCode?.prompt).toContain("Overview");
-    expect(explainCode?.prompt).toContain("Control Flow");
-    expect(explainCode?.prompt).toContain("Data Flow");
+    expect(explainCode?.prompt).toContain("High-Level Overview");
+    expect(explainCode?.prompt).toContain("Code Structure Breakdown");
+    expect(explainCode?.prompt).toContain("data flow");
     expect(explainCode?.prompt).toContain("Error Handling");
   });
 
-  test("explain-code skill includes input types", () => {
+  test("explain-code skill includes language-specific sections", () => {
     const explainCode = BUILTIN_SKILLS.find((s) => s.name === "explain-code");
-    expect(explainCode?.prompt).toContain("File Path");
-    expect(explainCode?.prompt).toContain("Function or Class Name");
-    expect(explainCode?.prompt).toContain("Conceptual Query");
+    expect(explainCode?.prompt).toContain("JavaScript/TypeScript");
+    expect(explainCode?.prompt).toContain("Python");
+    expect(explainCode?.prompt).toContain("Go");
+    expect(explainCode?.prompt).toContain("Rust");
   });
 });
 
@@ -916,6 +925,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      sendSilentMessage: (content) => {
+        sentMessages.push(content);
+      },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -941,6 +953,9 @@ describe("builtin skill execution", () => {
       addMessage: () => {},
       setStreaming: () => {},
       sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+      sendSilentMessage: (content) => {
         sentMessages.push(content);
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
@@ -971,6 +986,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      sendSilentMessage: (content) => {
+        sentMessages.push(content);
+      },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -980,8 +998,8 @@ describe("builtin skill execution", () => {
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
-    // Should use embedded prompt with research directory structure
-    expect(sentMessages[0]).toContain("research/architecture.md");
+    // Should use embedded prompt with research workflow
+    expect(sentMessages[0]).toContain("codebase-locator");
     expect(sentMessages[0]).toContain("[no arguments provided]");
   });
 
@@ -996,6 +1014,9 @@ describe("builtin skill execution", () => {
       addMessage: () => {},
       setStreaming: () => {},
       sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+      sendSilentMessage: (content) => {
         sentMessages.push(content);
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
@@ -1026,6 +1047,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      sendSilentMessage: (content) => {
+        sentMessages.push(content);
+      },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -1036,7 +1060,7 @@ describe("builtin skill execution", () => {
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
     // Should use embedded prompt with spec structure
-    expect(sentMessages[0]).toContain("research/spec.md");
+    expect(sentMessages[0]).toContain("Executive Summary");
     expect(sentMessages[0]).toContain("[no arguments provided]");
   });
 
@@ -1051,6 +1075,9 @@ describe("builtin skill execution", () => {
       addMessage: () => {},
       setStreaming: () => {},
       sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+      sendSilentMessage: (content) => {
         sentMessages.push(content);
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
@@ -1081,6 +1108,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      sendSilentMessage: (content) => {
+        sentMessages.push(content);
+      },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -1106,6 +1136,9 @@ describe("builtin skill execution", () => {
       addMessage: () => {},
       setStreaming: () => {},
       sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+      sendSilentMessage: (content) => {
         sentMessages.push(content);
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
@@ -1136,6 +1169,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      sendSilentMessage: (content) => {
+        sentMessages.push(content);
+      },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -1147,10 +1183,11 @@ describe("builtin skill execution", () => {
     expect(sentMessages).toHaveLength(1);
     // Should use embedded prompt with implementation process
     expect(sentMessages[0]).toContain("research/feature-list.json");
-    expect(sentMessages[0]).toContain("[no arguments provided]");
+    // No $ARGUMENTS in this prompt, so no placeholder substitution
+    expect(sentMessages[0]).not.toContain("$ARGUMENTS");
   });
 
-  test("implement-feature command expands $ARGUMENTS with provided args", async () => {
+  test("implement-feature command sends prompt without argument expansion", async () => {
     const implFeatureCmd = skillCommands.find((c) => c.name === "implement-feature");
     expect(implFeatureCmd).toBeDefined();
 
@@ -1163,6 +1200,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      sendSilentMessage: (content) => {
+        sentMessages.push(content);
+      },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -1172,10 +1212,9 @@ describe("builtin skill execution", () => {
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
-    // Should have expanded $ARGUMENTS with the provided args
-    expect(sentMessages[0]).toContain("UserRepository");
+    // implement-feature does not use $ARGUMENTS, so args are not injected into prompt
+    expect(sentMessages[0]).toContain("research/feature-list.json");
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
-    expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });
 
   test("create-gh-pr command uses embedded prompt", async () => {
@@ -1191,6 +1230,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      sendSilentMessage: (content) => {
+        sentMessages.push(content);
+      },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -1200,12 +1242,13 @@ describe("builtin skill execution", () => {
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
-    // Should use embedded prompt with gh CLI commands
-    expect(sentMessages[0]).toContain("gh pr create");
-    expect(sentMessages[0]).toContain("[no arguments provided]");
+    // Should use embedded prompt with PR workflow
+    expect(sentMessages[0]).toContain("/commit");
+    // No $ARGUMENTS in this prompt, so no placeholder substitution
+    expect(sentMessages[0]).not.toContain("$ARGUMENTS");
   });
 
-  test("create-gh-pr command expands $ARGUMENTS with provided args", async () => {
+  test("create-gh-pr command sends prompt without argument expansion", async () => {
     const ghPrCmd = skillCommands.find((c) => c.name === "create-gh-pr");
     expect(ghPrCmd).toBeDefined();
 
@@ -1218,6 +1261,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      sendSilentMessage: (content) => {
+        sentMessages.push(content);
+      },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -1227,10 +1273,9 @@ describe("builtin skill execution", () => {
 
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
-    // Should have expanded $ARGUMENTS with the provided args
-    expect(sentMessages[0]).toContain("Add user authentication");
+    // create-gh-pr does not use $ARGUMENTS, so args are not injected into prompt
+    expect(sentMessages[0]).toContain("/commit");
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
-    expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });
 
   test("explain-code command uses embedded prompt", async () => {
@@ -1246,6 +1291,9 @@ describe("builtin skill execution", () => {
       sendMessage: (content) => {
         sentMessages.push(content);
       },
+      sendSilentMessage: (content) => {
+        sentMessages.push(content);
+      },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -1256,7 +1304,7 @@ describe("builtin skill execution", () => {
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
     // Should use embedded prompt with explanation structure
-    expect(sentMessages[0]).toContain("Explain Code");
+    expect(sentMessages[0]).toContain("Analyze and Explain Code Functionality");
     expect(sentMessages[0]).toContain("[no arguments provided]");
   });
 
@@ -1271,6 +1319,9 @@ describe("builtin skill execution", () => {
       addMessage: () => {},
       setStreaming: () => {},
       sendMessage: (content) => {
+        sentMessages.push(content);
+      },
+      sendSilentMessage: (content) => {
         sentMessages.push(content);
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),

@@ -361,6 +361,7 @@ function createMockContextWithCopilot(
     sendMessage: (content) => {
       messages.push({ role: "user", content });
     },
+    sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "Mock Copilot sub-agent output" }),
     getMessages: () => messages,
   };
@@ -637,7 +638,7 @@ describe("E2E test: Run all functionality in copilot mode", () => {
 
       const agent = getBuiltinAgent("codebase-locator");
       expect(agent).toBeDefined();
-      expect(agent?.model).toBe("haiku");
+      expect(agent?.model).toBe("opus");
 
       const context = createMockContextWithCopilot();
       const command = createAgentCommand(agent!);
@@ -654,7 +655,7 @@ describe("E2E test: Run all functionality in copilot mode", () => {
 
       const agent = getBuiltinAgent("debugger");
       expect(agent).toBeDefined();
-      expect(agent?.model).toBe("sonnet");
+      expect(agent?.model).toBe("opus");
 
       const context = createMockContextWithCopilot();
       const command = createAgentCommand(agent!);

@@ -63,6 +63,7 @@ function createMockContext(
     },
     setStreaming: () => {},
     sendMessage: () => {},
+    sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
     agentType: undefined,
     modelOps: undefined,
@@ -572,6 +573,7 @@ describe("ralph command --yolo flag", () => {
       },
       setStreaming: () => {},
       sendMessage: () => {},
+      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -626,7 +628,9 @@ describe("parseRalphArgs --resume flag", () => {
     const result = parseRalphArgs("--resume");
     expect(result.yolo).toBe(false);
     expect(result.prompt).toBeNull();
-    expect(result.resumeSessionId).toBeNull();
+    // Empty string indicates --resume was used but no UUID provided
+    // (null means --resume flag was not used at all)
+    expect(result.resumeSessionId).toBe("");
   });
 
   test("parses --resume with leading/trailing whitespace", () => {
@@ -740,6 +744,7 @@ describe("ralph command --resume flag", () => {
       },
       setStreaming: () => {},
       sendMessage: () => {},
+      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,

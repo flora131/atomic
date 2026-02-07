@@ -24,6 +24,7 @@ import { Command, Argument, InvalidArgumentError } from "@commander-js/extra-typ
 import { VERSION } from "./version";
 import { COLORS } from "./utils/colors";
 import { AGENT_CONFIG, type AgentKey } from "./config";
+import type { AgentType } from "./utils/telemetry/types";
 import { initCommand } from "./commands/init";
 import { runAgentCommand } from "./commands/run-agent";
 import { configCommand } from "./commands/config";
@@ -230,7 +231,7 @@ Slash Commands (in workflow mode):
   // Add ralph command for self-referential development loops
   const ralphCmd = program
     .command("ralph")
-    .description("Self-referential development loop for Claude Code");
+    .description("Self-referential development loop for coding agents");
 
   /**
    * Parse and validate --max-iterations argument
@@ -247,7 +248,7 @@ Slash Commands (in workflow mode):
   ralphCmd
     .command("setup")
     .description("Initialize and start a Ralph loop")
-    .requiredOption("-a, --agent <name>", "Agent to use (currently only 'claude' is supported)")
+    .requiredOption("-a, --agent <name>", "Agent to use (claude, opencode, copilot)")
     .argument("[prompt...]", "Initial prompt to start the loop")
     .option("--max-iterations <n>", "Maximum iterations before auto-stop (default: unlimited)", parseIterations)
     .option("--completion-promise <text>", "Promise phrase to signal completion")
@@ -257,8 +258,8 @@ Slash Commands (in workflow mode):
       `
 Examples:
   $ atomic ralph setup -a claude                       Use default prompt, run until all features pass
-  $ atomic ralph setup -a claude --max-iterations 20   Limit to 20 iterations
-  $ atomic ralph setup -a claude Build a todo API --completion-promise 'DONE' --max-iterations 20
+  $ atomic ralph setup -a opencode --max-iterations 20 Limit to 20 iterations
+  $ atomic ralph setup -a copilot Build a todo API --completion-promise 'DONE' --max-iterations 20
   $ atomic ralph setup -a claude Refactor cache layer  Custom prompt, runs forever
 
 Stopping:
@@ -268,17 +269,10 @@ Stopping:
   - All features in --feature-list are passing (when max_iterations = 0)`
     )
     .action(async (promptParts: string[], localOpts) => {
-      // Validate agent is 'claude' (only supported agent for ralph)
-      if (localOpts.agent !== "claude") {
-        console.error(`${COLORS.red}Error: Ralph loop currently only supports 'claude' agent${COLORS.reset}`);
-        console.error(`You provided: ${localOpts.agent}`);
-        console.error("\n(Run 'atomic ralph setup --help' for usage information)");
-        process.exit(1);
-      }
-
       // Pass options directly to ralphSetup (Commander.js handles all parsing)
       const exitCode = await ralphSetup({
         prompt: promptParts,
+        agentType: localOpts.agent as AgentType,
         maxIterations: localOpts.maxIterations,
         completionPromise: localOpts.completionPromise,
         featureList: localOpts.featureList,

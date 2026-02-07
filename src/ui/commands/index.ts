@@ -33,6 +33,7 @@ import { globalRegistry } from "./registry.ts";
 import { registerBuiltinCommands } from "./builtin-commands.ts";
 import { registerWorkflowCommands, loadWorkflowsFromDisk } from "./workflow-commands.ts";
 import { registerSkillCommands } from "./skill-commands.ts";
+import { registerAgentCommands } from "./agent-commands.ts";
 
 // ============================================================================
 // RE-EXPORTS FROM COMMAND MODULES
@@ -140,6 +141,10 @@ export async function initializeCommandsAsync(): Promise<number> {
 
   // Register skill commands
   registerSkillCommands();
+
+  // Discover and register agent commands from .claude/agents/*.md etc.
+  // Disk agents override builtins with the same name (project > builtin priority)
+  await registerAgentCommands();
 
   const afterCount = globalRegistry.size();
   return afterCount - beforeCount;

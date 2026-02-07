@@ -1,6 +1,7 @@
 # Atomic CLI
 
 ## Overview
+
 This project is a TUI application built on OpenTUI and powered in the backend by coding agent SDKs: OpenCode SDK, Claude Agent SDK, and Copilot SDK.
 
 It works out of the box by reading and configuring `.claude`, `.opencode`, `.github` configurations for the Claude Code, OpenCode, and Copilot CLI coding agents and allowing users to build powerful agent workflows defined by TypeScript files.
@@ -60,7 +61,7 @@ Environment:
 The E2E test for changes involve creating a snake game from scratch in Rust, using a CLI. The app must be a fully working prototype and built in a `/tmp/snake_game/<agent>` directory to prevent overwriting files in the current project. Here are some guidelines:
 
 1. Run `bun run ~/Documents/projects/atomic/src/cli.ts chat -a <agent>` (you will need an abs path when testing the `/tmp` snake project) where agent is either opencode, copilot, or claude
-2. All interactions must be executed using the `tmux-cli` tool you have (reference the tmux-cli skill for details).
+2. All interactions must be executed using the `tmux-cli` tool you have (reference the tmux-cli skill for details). Monitor UI by running `tmux capture-pane -p -e > ./tmux-screenshots/pane-$(date +%s).txt`
 3. All built-in commands, ask_question tool, session history scrolling, tool calls, MCP tool calls, and message queuing MUST be tested explicity in the use-case.
 4. Ensure full parity with the `opencode`, `claude`, and `copilot` SDKs (`<agent>` subcommands) including all features exposed to the user.
 5. Make sure all agent subcommands are similarly exposed to the user. Avoid custom logic per agent and standardize practices and modular code.
@@ -85,15 +86,15 @@ Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
       1. [Hooks](../docs/copilot-cli/hooks.md)
       2. [Skills](../docs/copilot-cli/skills.md)
 4. Claude Agent SDK:
-  a. [TypeScript V2 SDK](../docs/claude-agent-sdk/typescript-v2-sdk.md), preferred (fallback to v1 if something is not supported)
-  b. [TypeScript SDK](../docs/claude-agent-sdk/typescript-sdk.md)
+   a. [TypeScript V2 SDK](../docs/claude-agent-sdk/typescript-v2-sdk.md), preferred (fallback to v1 if something is not supported)
+   b. [TypeScript SDK](../docs/claude-agent-sdk/typescript-sdk.md)
 
 ## Tips
 
 1. Note: for the `.github` config for GitHub Copilot CLI, ignore the `.github/workflows` and `.github/dependabot.yml` files as they are NOT for Copilot CLI.
 2. Use many research sub-agents in parallel for documentation overview to avoid populating your entire
-context window. Spawn as many sub-agents as you need. You are an agent and can execute tasks until you
-believe you are finished with the task even if it takes hundreds of iterations.
+   context window. Spawn as many sub-agents as you need. You are an agent and can execute tasks until you
+   believe you are finished with the task even if it takes hundreds of iterations.
 
 <EXTREMELY_IMPORTANT>
 This is a `bun` project. Do NOT use `node`, `npm`, `npx`, `yarn`, or `pnpm` commands. Always use `bun` commands.

@@ -170,17 +170,20 @@ export const themeCommand: CommandDefinition = {
   category: "builtin",
   argumentHint: "[dark | light]",
   execute: (args: string, _context: CommandContext): CommandResult => {
-    // Parse optional theme argument
     const targetTheme = args.trim().toLowerCase();
 
     if (targetTheme === "dark" || targetTheme === "light") {
       return {
         success: true,
         message: `Switched to ${targetTheme} theme.`,
-        stateUpdate: {
-          // Custom state update to indicate theme change
-          // The ChatApp component should handle this
-        },
+        themeChange: targetTheme,
+      };
+    }
+
+    if (targetTheme && targetTheme !== "dark" && targetTheme !== "light") {
+      return {
+        success: false,
+        message: `Unknown theme '${args.trim()}'. Use 'dark' or 'light'.`,
       };
     }
 
@@ -188,9 +191,7 @@ export const themeCommand: CommandDefinition = {
     return {
       success: true,
       message: "Theme toggled.",
-      stateUpdate: {
-        // Custom state update to indicate theme toggle
-      },
+      themeChange: "toggle",
     };
   },
 };
@@ -246,8 +247,9 @@ export const compactCommand: CommandDefinition = {
       // Clear visible messages after context compaction
       return {
         success: true,
-        message: "compacted (ctrl+o for history)",
+        message: "Conversation compacted (ctrl+o for history)",
         clearMessages: true,
+        compactionSummary: "Conversation context was compacted to reduce token usage. Previous messages are summarized above.",
       };
     } catch (error) {
       context.setStreaming(false);

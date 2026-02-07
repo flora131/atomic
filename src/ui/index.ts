@@ -120,6 +120,41 @@ interface ChatUIState {
   parallelAgents: ParallelAgent[];
 }
 
+/**
+ * Wraps an AsyncIterable so that each `iterator.next()` call races against an
+ * AbortSignal. This ensures that abort takes effect immediately even while the
+ * iterator is blocked waiting on the network (e.g. Claude extended thinking,
+ * OpenCode 30s timeout, Copilot infinite wait).
+ */
+async function* abortableAsyncIterable<T>(
+  iterable: AsyncIterable<T>,
+  signal: AbortSignal
+): AsyncGenerator<T> {
+  const iterator = iterable[Symbol.asyncIterator]();
+  const abortPromise = new Promise<never>((_, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("The operation was aborted", "AbortError"));
+      return;
+    }
+    signal.addEventListener(
+      "abort",
+      () => {
+        reject(new DOMException("The operation was aborted", "AbortError"));
+      },
+      { once: true }
+    );
+  });
+  try {
+    while (true) {
+      const result = await Promise.race([iterator.next(), abortPromise]);
+      if (result.done) break;
+      yield result.value;
+    }
+  } finally {
+    await iterator.return?.();
+  }
+}
+
 // ============================================================================
 // CHAT UI IMPLEMENTATION
 // ============================================================================
@@ -478,15 +513,15 @@ export async function startChatUI(
     state.isStreaming = true;
 
     try {
-      // Stream the response
+      // Stream the response, wrapped so abort takes effect immediately
+      // even while iterator.next() is blocked on the network
       const stream = state.session.stream(content);
+      const abortableStream = abortableAsyncIterable(
+        stream,
+        state.streamAbortController.signal
+      );
 
-      for await (const message of stream) {
-        // Check if stream was aborted
-        if (state.streamAbortController?.signal.aborted) {
-          break;
-        }
-
+      for await (const message of abortableStream) {
         // Handle text content
         if (message.type === "text" && typeof message.content === "string") {
           onChunk(message.content);
@@ -847,7 +882,9 @@ export async function startMockChatUI(
 
 export {
   ChatApp,
+  CompletionSummary,
   LoadingIndicator,
+  StreamingBullet,
   MAX_VISIBLE_MESSAGES,
   type ChatAppProps,
   type ChatMessage,

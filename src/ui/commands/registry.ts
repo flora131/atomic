@@ -150,6 +150,10 @@ export interface CommandResult {
   shouldExit?: boolean;
   /** If true, show the interactive model selector dialog */
   showModelSelector?: boolean;
+  /** Theme to switch to: "dark", "light", or "toggle" */
+  themeChange?: "dark" | "light" | "toggle";
+  /** Compaction summary text (stored for Ctrl+O history display) */
+  compactionSummary?: string;
 }
 
 /**

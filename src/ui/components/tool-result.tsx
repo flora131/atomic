@@ -40,10 +40,38 @@ export interface ToolSummary {
 
 const STATUS_ICONS: Record<ToolExecutionStatus, string> = {
   pending: "○",
-  running: "◐",
+  running: "●",
   completed: "●",
   error: "✕",
+  interrupted: "●",
 };
+
+/**
+ * Animated blinking indicator for running tool state.
+ * Alternates opacity by toggling between ● and · to simulate a blink.
+ */
+function AnimatedStatusIndicator({
+  color,
+  speed = 500,
+}: {
+  color: string;
+  speed?: number;
+}): React.ReactNode {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setVisible((prev) => !prev);
+    }, speed);
+    return () => clearInterval(interval);
+  }, [speed]);
+
+  return (
+    <text style={{ fg: color }}>
+      {visible ? "●" : "·"}
+    </text>
+  );
+}
 
 function StatusIndicator({
   status,
@@ -60,10 +88,17 @@ function StatusIndicator({
     running: colors.accent,
     completed: colors.success,
     error: colors.error,
+    interrupted: colors.warning,
   };
 
-  const icon = STATUS_ICONS[status];
   const color = statusColors[status];
+
+  // Running state uses animated blinking ●
+  if (status === "running") {
+    return <AnimatedStatusIndicator color={color} speed={500} />;
+  }
+
+  const icon = STATUS_ICONS[status];
 
   return (
     <text style={{ fg: color }}>
@@ -265,6 +300,9 @@ export function ToolResult({
     <box flexDirection="column" marginBottom={1}>
       {/* Header line */}
       <box flexDirection="row" gap={1} alignItems="center">
+        {/* Status indicator — first element on the line */}
+        <StatusIndicator status={status} theme={theme} />
+
         {/* Tool icon */}
         <text style={{ fg: iconColor }}>
           {renderer.icon}
@@ -279,9 +317,6 @@ export function ToolResult({
         <text style={{ fg: colors.muted }}>
           {title}
         </text>
-
-        {/* Status indicator */}
-        <StatusIndicator status={status} theme={theme} />
 
         {/* Summary when collapsed */}
         {status === "completed" && !isExpanded && (

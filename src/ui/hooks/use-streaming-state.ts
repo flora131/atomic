@@ -17,7 +17,7 @@ import type { UserQuestion } from "../components/user-question-dialog.tsx";
 /**
  * Status of a tool execution.
  */
-export type ToolExecutionStatus = "pending" | "running" | "completed" | "error";
+export type ToolExecutionStatus = "pending" | "running" | "completed" | "error" | "interrupted";
 
 /**
  * Timestamps for tool execution tracking.
@@ -81,6 +81,8 @@ export interface UseStreamingStateReturn {
   handleToolComplete: (id: string, output: unknown) => void;
   /** Handle tool execution error */
   handleToolError: (id: string, error: string) => void;
+  /** Handle tool execution interruption */
+  handleToolInterrupt: (id: string) => void;
   /** Add a pending question */
   addPendingQuestion: (question: UserQuestion) => void;
   /** Remove a pending question (after it's answered) */
@@ -324,6 +326,32 @@ export function useStreamingState(): UseStreamingStateReturn {
   }, []);
 
   /**
+   * Handle tool execution interruption.
+   */
+  const handleToolInterrupt = useCallback((id: string) => {
+    setState((prev) => {
+      const newExecutions = new Map(prev.toolExecutions);
+      const existing = newExecutions.get(id);
+
+      if (existing) {
+        newExecutions.set(id, {
+          ...existing,
+          status: "interrupted",
+          timestamps: {
+            ...existing.timestamps,
+            completedAt: getCurrentTimestamp(),
+          },
+        });
+      }
+
+      return {
+        ...prev,
+        toolExecutions: newExecutions,
+      };
+    });
+  }, []);
+
+  /**
    * Add a pending question to the queue.
    */
   const addPendingQuestion = useCallback((question: UserQuestion) => {
@@ -379,6 +407,7 @@ export function useStreamingState(): UseStreamingStateReturn {
     handleToolStart,
     handleToolComplete,
     handleToolError,
+    handleToolInterrupt,
     addPendingQuestion,
     removePendingQuestion,
     clearToolExecutions,

@@ -7,7 +7,7 @@
  * Reference: Issue #4 - Add UI for visualizing parallel agents
  */
 
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { useTheme } from "../theme.tsx";
 
 // ============================================================================
@@ -17,7 +17,7 @@ import { useTheme } from "../theme.tsx";
 /**
  * Status of a parallel agent.
  */
-export type AgentStatus = "pending" | "running" | "completed" | "error" | "background";
+export type AgentStatus = "pending" | "running" | "completed" | "error" | "background" | "interrupted";
 
 /**
  * Definition of a running parallel agent.
@@ -72,10 +72,11 @@ export interface ParallelAgentsTreeProps {
  */
 export const STATUS_ICONS: Record<AgentStatus, string> = {
   pending: "○",
-  running: "◐",
+  running: "●",
   completed: "●",
   error: "✕",
   background: "◌",
+  interrupted: "●",
 };
 
 /**
@@ -171,9 +172,162 @@ export function getSubStatusText(agent: ParallelAgent): string | null {
       return "Done";
     case "error":
       return agent.error ?? "Error";
+    case "interrupted":
+      return "Interrupted";
     default:
       return null;
   }
+}
+
+// ============================================================================
+// CLAUDE CODE COLOR CONSTANTS (ANSI 256 compatible)
+// ============================================================================
+
+/** Completed agent ● — green matching ANSI 38;5;114 */
+const COMPLETED_GREEN = "#72D58A";
+/** Interrupted agent ● — pink/red matching ANSI 38;5;211 */
+const INTERRUPTED_PINK = "#FF87AF";
+/** Muted text — gray matching ANSI 38;5;246 */
+const MUTED_GRAY = "#949494";
+
+// ============================================================================
+// THEME COLORS TYPE
+// ============================================================================
+
+interface ThemeColors {
+  foreground: string;
+  muted: string;
+  accent: string;
+  error: string;
+  success: string;
+  warning: string;
+}
+
+// ============================================================================
+// SINGLE AGENT VIEW COMPONENT
+// ============================================================================
+
+/**
+ * Props for SingleAgentView component.
+ */
+interface SingleAgentViewProps {
+  agent: ParallelAgent;
+  compact: boolean;
+  themeColors: ThemeColors;
+}
+
+/**
+ * Inline view for a single sub-agent (no tree layout).
+ * Claude Code style: `● AgentType(task description)` with sub-status below.
+ */
+function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps): React.ReactNode {
+  const isRunning = agent.status === "running" || agent.status === "pending";
+  const isCompleted = agent.status === "completed";
+  const isInterrupted = agent.status === "interrupted";
+  const isError = agent.status === "error";
+
+  // Build metrics text
+  const metricsParts: string[] = [];
+  if (agent.toolUses !== undefined) metricsParts.push(`${agent.toolUses} tool uses`);
+  if (agent.tokens !== undefined) metricsParts.push(formatTokens(agent.tokens));
+  if (agent.durationMs !== undefined) metricsParts.push(formatDuration(agent.durationMs));
+  const metricsText = metricsParts.join(" · ");
+
+  // Compute sub-status text
+  const subStatus = getSubStatusText(agent);
+
+  // Done summary line: "⎿  Done (N tool uses · Nk tokens · Ns)"
+  const doneSummary = isCompleted
+    ? `Done${metricsText ? ` (${metricsText})` : ""}`
+    : null;
+
+  // Status indicator color
+  const indicatorColor = isRunning
+    ? themeColors.accent
+    : isCompleted
+      ? COMPLETED_GREEN
+      : isInterrupted
+        ? INTERRUPTED_PINK
+        : isError
+          ? themeColors.error
+          : MUTED_GRAY;
+
+  // Header line: "● AgentType(task description)"
+  const headerText = `${agent.name}(${truncateText(agent.task, 60)})`;
+
+  return (
+    <box flexDirection="column" paddingLeft={1} marginTop={1}>
+      {/* Header: ● AgentType(task) */}
+      <box flexDirection="row">
+        {isRunning ? (
+          <text>
+            <AnimatedHeaderIcon color={indicatorColor} />
+            <span style={{ fg: themeColors.foreground }}> {headerText}</span>
+          </text>
+        ) : (
+          <text>
+            <span style={{ fg: indicatorColor }}>● </span>
+            <span style={{ fg: themeColors.foreground }}>{headerText}</span>
+          </text>
+        )}
+      </box>
+
+      {/* Sub-status line when running: current tool or "Initializing…" */}
+      {isRunning && subStatus && (
+        <box flexDirection="row">
+          <text style={{ fg: MUTED_GRAY }}>
+            {"     ⎿  "}{truncateText(subStatus, 50)}
+          </text>
+        </box>
+      )}
+
+      {/* Collapsed tool uses hint */}
+      {isRunning && compact && agent.toolUses !== undefined && agent.toolUses > 0 && (
+        <box flexDirection="row">
+          <text style={{ fg: MUTED_GRAY }}>
+            {"     +"}
+            {agent.toolUses} more tool use{agent.toolUses !== 1 ? "s" : ""} (ctrl+o to expand)
+          </text>
+        </box>
+      )}
+
+      {/* Background hint when running */}
+      {isRunning && (
+        <box flexDirection="row">
+          <text style={{ fg: MUTED_GRAY }}>
+            {"     "}ctrl+b ctrl+b (twice) to run in background
+          </text>
+        </box>
+      )}
+
+      {/* Done summary for completed agents */}
+      {isCompleted && doneSummary && (
+        <box flexDirection="row">
+          <text style={{ fg: MUTED_GRAY }}>
+            {"  ⎿  "}{doneSummary}
+          </text>
+        </box>
+      )}
+
+      {/* Error summary */}
+      {isError && agent.error && (
+        <box flexDirection="row">
+          <text style={{ fg: themeColors.error }}>
+            {"  ⎿  "}{truncateText(agent.error, 60)}
+          </text>
+        </box>
+      )}
+
+      {/* Interrupted summary */}
+      {isInterrupted && (
+        <box flexDirection="row">
+          <text style={{ fg: INTERRUPTED_PINK }}>
+            {"  ⎿  "}Interrupted
+          </text>
+        </box>
+      )}
+    </box>
+  );
 }
 
 // ============================================================================
@@ -187,13 +341,7 @@ interface AgentRowProps {
   agent: ParallelAgent;
   isLast: boolean;
   compact: boolean;
-  themeColors: {
-    foreground: string;
-    muted: string;
-    accent: string;
-    error: string;
-    success: string;
-  };
+  themeColors: ThemeColors;
 }
 
 /**
@@ -225,6 +373,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
 
   if (compact) {
     // Compact mode: Claude Code style - task · metrics
+    const isRunning = agent.status === "running" || agent.status === "pending";
     return (
       <box flexDirection="column">
         <box flexDirection="row">
@@ -243,6 +392,14 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
               {isLast ? TREE_CHARS.space : TREE_CHARS.vertical}  ⎿  </text>
             <text style={{ fg: themeColors.muted }}>
               {truncateText(subStatus, 50)}
+            </text>
+          </box>
+        )}
+        {/* Collapsed tool uses hint */}
+        {isRunning && agent.toolUses !== undefined && agent.toolUses > 0 && (
+          <box flexDirection="row">
+            <text style={{ fg: themeColors.muted }}>
+              {isLast ? TREE_CHARS.space : TREE_CHARS.vertical}  +{agent.toolUses} more tool use{agent.toolUses !== 1 ? "s" : ""} (ctrl+o to expand)
             </text>
           </box>
         )}
@@ -292,8 +449,39 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
           </text>
         </box>
       )}
+      {/* Interrupted message for cancelled agents */}
+      {agent.status === "interrupted" && (
+        <box flexDirection="row">
+          <text style={{ fg: themeColors.muted }}>
+            {isLast ? TREE_CHARS.space : TREE_CHARS.vertical}  </text>
+          <text style={{ fg: themeColors.warning }}>
+            ⎿  Interrupted
+          </text>
+        </box>
+      )}
     </box>
   );
+}
+
+// ============================================================================
+// ANIMATED HEADER ICON
+// ============================================================================
+
+/**
+ * Animated blinking ● for the tree header when agents are running.
+ * Alternates between ● and · to simulate a blink.
+ */
+function AnimatedHeaderIcon({ color, speed = 500 }: { color: string; speed?: number }): React.ReactNode {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setVisible((prev) => !prev);
+    }, speed);
+    return () => clearInterval(interval);
+  }, [speed]);
+
+  return <span style={{ fg: color }}>{visible ? "●" : "·"}</span>;
 }
 
 // ============================================================================
@@ -335,7 +523,8 @@ export function ParallelAgentsTree({
       pending: 1,
       background: 2,
       completed: 3,
-      error: 4,
+      interrupted: 4,
+      error: 5,
     };
     return order[a.status] - order[b.status];
   });
@@ -354,16 +543,38 @@ export function ParallelAgentsTree({
   const dominantType = agentTypes.length === 1 ? agentTypes[0] : "agents";
 
   // Theme colors
-  const themeColors = {
+  const themeColors: ThemeColors = {
     foreground: theme.colors.foreground,
     muted: theme.colors.muted,
     accent: theme.colors.accent,
     error: theme.colors.error,
-    success: theme.colors.success,
+    success: COMPLETED_GREEN,
+    warning: INTERRUPTED_PINK,
   };
+
+  // Single agent: render inline view without tree layout
+  if (agents.length === 1) {
+    return (
+      <SingleAgentView
+        agent={agents[0]!}
+        compact={compact}
+        themeColors={themeColors}
+      />
+    );
+  }
+
+  // Count interrupted agents
+  const interruptedCount = agents.filter(a => a.status === "interrupted").length;
 
   // Build header text - Claude Code style: "● Running N {Type} agents…"
   const headerIcon = runningCount > 0 ? "●" : completedCount > 0 ? "●" : "○";
+  const headerColor = runningCount > 0
+    ? themeColors.accent
+    : interruptedCount > 0
+      ? INTERRUPTED_PINK
+      : completedCount > 0
+        ? COMPLETED_GREEN
+        : MUTED_GRAY;
   const headerText = runningCount > 0
     ? `Running ${runningCount} ${dominantType} agent${runningCount !== 1 ? "s" : ""}…`
     : completedCount > 0
@@ -376,11 +587,18 @@ export function ParallelAgentsTree({
       paddingLeft={1}
       marginTop={1}
     >
-      {/* Header - Claude Code style */}
+      {/* Header - Claude Code style with animated ● when running */}
       <box flexDirection="row">
-        <text style={{ fg: runningCount > 0 ? themeColors.accent : completedCount > 0 ? themeColors.success : themeColors.muted }}>
-          {headerIcon} {headerText}
-        </text>
+        {runningCount > 0 ? (
+          <text>
+            <AnimatedHeaderIcon color={headerColor} />
+            <span style={{ fg: headerColor }}> {headerText}</span>
+          </text>
+        ) : (
+          <text style={{ fg: headerColor }}>
+            {headerIcon} {headerText}
+          </text>
+        )}
         <text style={{ fg: themeColors.muted }}> (ctrl+o to {compact ? "expand" : "collapse"})</text>
       </box>
 

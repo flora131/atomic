@@ -18,7 +18,7 @@ import type {
   PasteEvent,
 } from "@opentui/core";
 import { MacOSScrollAccel } from "@opentui/core";
-import { useThemeColors } from "./theme.tsx";
+import { useTheme, useThemeColors, darkTheme, lightTheme } from "./theme.tsx";
 import { copyToClipboard, pasteFromClipboard } from "../utils/clipboard.ts";
 import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplete.tsx";
 import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
@@ -184,6 +184,8 @@ export interface ChatMessage {
   durationMs?: number;
   /** Model ID used for this message */
   modelId?: string;
+  /** Whether the message was interrupted (esc/ctrl+c) before completion */
+  wasInterrupted?: boolean;
 }
 
 /**
@@ -405,6 +407,10 @@ export interface MessageBubbleProps {
   hideAskUserQuestion?: boolean;
   /** Whether to hide loading indicator (when question dialog is active) */
   hideLoading?: boolean;
+  /** Parallel agents to display inline (only for streaming assistant message) */
+  parallelAgents?: ParallelAgent[];
+  /** Whether the agent tree is expanded */
+  agentTreeExpanded?: boolean;
 }
 
 // ============================================================================
@@ -486,7 +492,7 @@ export const SPINNER_VERBS = [
  * Spinner frames matching Claude Code TUI style.
  * Single character cycles through shapes for a clean, minimal animation.
  */
-const SPINNER_FRAMES = ["●", "✻", "✶", "✢", "·", "✢", "✶", "✻", "✽"];
+const SPINNER_FRAMES = ["✻", "✶", "✢", "·", "✢", "✶", "✻", "✽"];
 
 /**
  * Select a random verb from the SPINNER_VERBS array.
@@ -532,9 +538,104 @@ export function LoadingIndicator({ speed = 120 }: LoadingIndicatorProps): React.
   return (
     <>
       <span style={{ fg: "#D4A5A5" }}>{spinChar} </span>
-      <span style={{ fg: "#9A9AAC" }}>{verb}\u2026</span>
+      <span style={{ fg: "#D4A5A5" }}>{verb}…</span>
     </>
   );
+}
+
+// ============================================================================
+// COMPLETION SUMMARY COMPONENT
+// ============================================================================
+
+/**
+ * Past-tense verbs for the completion summary line.
+ * Displayed after a response finishes: "✻ Worked for 1m 6s"
+ */
+const COMPLETION_VERBS = [
+  "Worked",
+  "Crafted",
+  "Processed",
+  "Computed",
+  "Reasoned",
+  "Composed",
+  "Delivered",
+  "Produced",
+];
+
+/**
+ * Pick a random completion verb.
+ */
+function getRandomCompletionVerb(): string {
+  const index = Math.floor(Math.random() * COMPLETION_VERBS.length);
+  return COMPLETION_VERBS[index] as string;
+}
+
+/**
+ * Pick a random spinner frame (excluding ● which is reserved for completed content).
+ */
+function getRandomSpinnerChar(): string {
+  const chars = ["✻", "✶", "✢", "✽"];
+  const index = Math.floor(Math.random() * chars.length);
+  return chars[index] as string;
+}
+
+/**
+ * Format milliseconds into a human-readable duration string.
+ * e.g., 66000 → "1m 6s", 3000 → "3s", 125 → "<1s"
+ */
+function formatCompletionDuration(ms: number): string {
+  if (ms < 1000) return "<1s";
+  const totalSeconds = Math.round(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds}s`;
+  if (seconds === 0) return `${minutes}m`;
+  return `${minutes}m ${seconds}s`;
+}
+
+interface CompletionSummaryProps {
+  /** Duration in milliseconds */
+  durationMs: number;
+}
+
+/**
+ * Completion summary line shown after an assistant response finishes.
+ * Matches Claude Code style: "✻ Worked for 1m 6s"
+ */
+export function CompletionSummary({ durationMs }: CompletionSummaryProps): React.ReactNode {
+  const [verb] = useState(() => getRandomCompletionVerb());
+  const [spinChar] = useState(() => getRandomSpinnerChar());
+
+  return (
+    <box flexDirection="row">
+      <text style={{ fg: "#9A9AAC" }}>
+        <span style={{ fg: "#D4A5A5" }}>{spinChar} </span>
+        <span>{verb} for {formatCompletionDuration(durationMs)}</span>
+      </text>
+    </box>
+  );
+}
+
+// ============================================================================
+// STREAMING BULLET PREFIX COMPONENT
+// ============================================================================
+
+/**
+ * Animated blinking ● prefix for text that is currently streaming.
+ * Alternates between ● and · to simulate a blink (like tool-result's AnimatedStatusIndicator).
+ * Once streaming is done, the parent renders a static colored ● instead.
+ */
+export function StreamingBullet({ speed = 500 }: { speed?: number }): React.ReactNode {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setVisible((prev) => !prev);
+    }, speed);
+    return () => clearInterval(interval);
+  }, [speed]);
+
+  return <text style={{ fg: "#D4A5A5" }}>{visible ? "●" : "·"} </text>;
 }
 
 // ============================================================================
@@ -694,10 +795,8 @@ function buildContentSegments(content: string, toolCalls: MessageToolCall[]): Co
  * - Assistant messages: bullet point (●) prefix, no header
  * Tool calls are rendered inline at their correct chronological positions.
  */
-export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, parallelAgents, agentTreeExpanded }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
-  // Show loading animation only before any content arrives, and not when question dialog is active
-  const showLoadingAnimation = message.streaming && !message.content.trim() && !hideLoading;
 
   // Hide the entire message when question dialog is active and there's no content yet
   // This prevents showing a stray "●" bullet before the dialog
@@ -732,26 +831,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
     const firstSegment = segments[0];
     const _hasLeadingText = segments.length > 0 && firstSegment?.type === "text";
 
-    // Loading animation when no content yet
-    if (showLoadingAnimation) {
-      return (
-        <box
-          flexDirection="column"
-          marginBottom={isLast ? 0 : 1}
-          paddingLeft={1}
-          paddingRight={1}
-        >
-          <box flexDirection="row" alignItems="flex-start">
-            <text style={{ fg: ATOMIC_PINK }}>● </text>
-            <text>
-              <LoadingIndicator speed={120} />
-            </text>
-          </box>
-        </box>
-      );
-    }
-
-    // Render interleaved segments
+    // Render interleaved segments (loading spinner is at the bottom, after all content)
     return (
       <box
         flexDirection="column"
@@ -763,22 +843,27 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
           if (segment.type === "text" && segment.content) {
             // Text segment - add bullet prefix to first text segment
             const isFirst = segment === firstTextSegment;
+            // Show animated blinking ● while streaming, static colored ● when done
+            const isActivelyStreaming = message.streaming && index === segments.length - 1;
+            // ● color: always foreground (white) for regular text — only sub-agents/tools change color
+            const bulletColor = themeColors.foreground;
+            const bulletPrefix = isFirst
+              ? (isActivelyStreaming ? <StreamingBullet speed={500} /> : <text style={{ fg: bulletColor }}>● </text>)
+              : <text>  </text>;
             return syntaxStyle ? (
               <box key={segment.key} flexDirection="row" alignItems="flex-start" marginBottom={index < segments.length - 1 ? 1 : 0}>
-                {isFirst && <text style={{ fg: ATOMIC_PINK }}>● </text>}
-                {!isFirst && <text>  </text>}
+                {bulletPrefix}
                 <box flexGrow={1} flexShrink={1} minWidth={0}>
                   <markdown
                     content={segment.content}
                     syntaxStyle={syntaxStyle}
-                    streaming={message.streaming && index === segments.length - 1}
+                    streaming={isActivelyStreaming}
                   />
                 </box>
               </box>
             ) : (
               <box key={segment.key} flexDirection="row" alignItems="flex-start" marginBottom={index < segments.length - 1 ? 1 : 0}>
-                {isFirst && <text style={{ fg: ATOMIC_PINK }}>● </text>}
-                {!isFirst && <text>  </text>}
+                {bulletPrefix}
                 <box flexGrow={1} flexShrink={1} minWidth={0}>
                   <text wrapMode="char">{segment.content}</text>
                 </box>
@@ -800,6 +885,29 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
           }
           return null;
         })}
+
+        {/* Inline parallel agents tree — between tool/text content and loading spinner */}
+        {parallelAgents && parallelAgents.length > 0 && (
+          <ParallelAgentsTree
+            agents={parallelAgents}
+            compact={!agentTreeExpanded}
+            maxVisible={agentTreeExpanded ? 20 : 5}
+          />
+        )}
+
+        {/* Loading spinner — always at bottom of streamed content */}
+        {message.streaming && !hideLoading && (
+          <box flexDirection="row" alignItems="flex-start" paddingLeft={1}>
+            <text>
+              <LoadingIndicator speed={120} />
+            </text>
+          </box>
+        )}
+
+        {/* Completion summary: "✻ Worked for 1m 6s" after response finishes */}
+        {!message.streaming && message.durationMs != null && message.durationMs >= 60000 && (
+          <CompletionSummary durationMs={message.durationMs} />
+        )}
 
         {/* Timestamp display in verbose mode (only for completed assistant messages) */}
         {verboseMode && !message.streaming && (
@@ -927,10 +1035,16 @@ export function ChatApp({
   // State for queue editing mode
   const [isEditingQueue, setIsEditingQueue] = useState(false);
 
+  // Theme context for /theme command
+  const { toggleTheme, setTheme } = useTheme();
+
   // State for parallel agents display
   const [parallelAgents, setParallelAgents] = useState<ParallelAgent[]>(initialParallelAgents);
   // State for parallel agents tree expand/collapse (ctrl+o)
   const [agentTreeExpanded, setAgentTreeExpanded] = useState(false);
+  // Compaction state: stores summary text after /compact for Ctrl+O history
+  const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
+  const [showCompactionHistory, setShowCompactionHistory] = useState(false);
   // State for input textarea scrollbar (shown only when input overflows)
   const [inputScrollbar, setInputScrollbar] = useState<InputScrollbarState>({
     visible: false,
@@ -1615,7 +1729,16 @@ export function ChatApp({
               setMessages((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
                   msg.id === messageId
-                    ? { ...msg, streaming: false, durationMs, modelId: model }
+                    ? {
+                        ...msg,
+                        streaming: false,
+                        durationMs,
+                        modelId: model,
+                        // Mark any still-running tools as interrupted
+                        toolCalls: msg.toolCalls?.map((tc) =>
+                          tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
+                        ),
+                      }
                     : msg
                 )
               );
@@ -1695,11 +1818,22 @@ export function ChatApp({
         updateWorkflowState({
           ...defaultWorkflowChatState,
         });
+        // Reset UI state on session destroy (/clear)
+        setCompactionSummary(null);
+        setShowCompactionHistory(false);
+        setParallelAgents([]);
+        setAgentTreeExpanded(false);
       }
 
       // Handle clearMessages flag
       if (result.clearMessages) {
         setMessages([]);
+      }
+
+      // Store compaction summary if present (from /compact command)
+      if (result.compactionSummary) {
+        setCompactionSummary(result.compactionSummary);
+        setShowCompactionHistory(false);
       }
 
       // Apply state updates if present
@@ -1746,6 +1880,15 @@ export function ChatApp({
         setShowModelSelector(true);
       }
 
+      // Handle theme change request
+      if (result.themeChange) {
+        if (result.themeChange === "toggle") {
+          toggleTheme();
+        } else {
+          setTheme(result.themeChange === "light" ? lightTheme : darkTheme);
+        }
+      }
+
       return result.success;
     } catch (error) {
       // Handle execution error (as assistant message, not system)
@@ -1753,7 +1896,7 @@ export function ChatApp({
       addMessage("assistant", `Error executing /${commandName}: ${errorMessage}`);
       return false;
     }
-  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState]);
+  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme]);
 
   /**
    * Handle autocomplete selection (Tab for complete, Enter for execute).
@@ -1871,7 +2014,29 @@ export function ChatApp({
 
           // If streaming, interrupt (abort) the current operation
           if (isStreaming) {
+            // Mark the streaming message as interrupted before aborting
+            const interruptedId = streamingMessageIdRef.current;
+            if (interruptedId) {
+              setMessages((prev: ChatMessage[]) =>
+                prev.map((msg: ChatMessage) =>
+                  msg.id === interruptedId ? { ...msg, wasInterrupted: true } : msg
+                )
+              );
+            }
             onInterrupt?.();
+
+            // Cancel running sub-agents
+            if (subagentManagerRef.current) {
+              void subagentManagerRef.current.cancelAll().then(() => {
+                setParallelAgents((prev) =>
+                  prev.map((a) =>
+                    a.status === "error" && a.error === "Cancelled"
+                      ? { ...a, status: "interrupted" as const, error: undefined }
+                      : a
+                  )
+                );
+              });
+            }
           }
           // Cancel active workflow regardless of streaming state
           // (workflow may be active but between API calls, e.g. after error)
@@ -1928,9 +2093,15 @@ export function ChatApp({
           return;
         }
 
-        // Ctrl+O - toggle parallel agents tree expand/collapse
+        // Ctrl+O - dual purpose: toggle agent tree expand/collapse, or compaction history
         if (event.ctrl && event.name === "o") {
-          setAgentTreeExpanded(prev => !prev);
+          if (parallelAgents.length > 0) {
+            // Agents visible: toggle tree expand/collapse
+            setAgentTreeExpanded(prev => !prev);
+          } else if (compactionSummary) {
+            // No agents but compaction summary exists: toggle compaction history
+            setShowCompactionHistory(prev => !prev);
+          }
           return;
         }
 
@@ -1963,7 +2134,29 @@ export function ChatApp({
 
           // If streaming, interrupt (abort) the current operation
           if (isStreaming) {
+            // Mark the streaming message as interrupted before aborting
+            const interruptedId = streamingMessageIdRef.current;
+            if (interruptedId) {
+              setMessages((prev: ChatMessage[]) =>
+                prev.map((msg: ChatMessage) =>
+                  msg.id === interruptedId ? { ...msg, wasInterrupted: true } : msg
+                )
+              );
+            }
             onInterrupt?.();
+
+            // Cancel running sub-agents
+            if (subagentManagerRef.current) {
+              void subagentManagerRef.current.cancelAll().then(() => {
+                setParallelAgents((prev) =>
+                  prev.map((a) =>
+                    a.status === "error" && a.error === "Cancelled"
+                      ? { ...a, status: "interrupted" as const, error: undefined }
+                      : a
+                  )
+                );
+              });
+            }
           }
           // Cancel active workflow regardless of streaming state
           if (workflowState.workflowActive) {
@@ -2085,6 +2278,22 @@ export function ChatApp({
           return;
         }
 
+        // Arrow key scrolling: when idle and input is empty, up/down scroll the scrollbox
+        if (
+          (event.name === "up" || event.name === "down") &&
+          !workflowState.showAutocomplete &&
+          !isEditingQueue &&
+          !isStreaming &&
+          messageQueue.count === 0
+        ) {
+          const inputValue = textareaRef.current?.plainText ?? "";
+          if (inputValue.trim() === "" && scrollboxRef.current) {
+            const lineHeight = 1;
+            scrollboxRef.current.scrollBy(event.name === "up" ? -lineHeight : lineHeight);
+            return;
+          }
+        }
+
         // Autocomplete: Tab - complete the selected command
         if (event.name === "tab" && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
           const selectedCommand = autocompleteSuggestions[workflowState.selectedSuggestionIndex];
@@ -2157,7 +2366,7 @@ export function ChatApp({
           syncInputScrollbar();
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary]
     )
   );
 
@@ -2234,7 +2443,16 @@ export function ChatApp({
             setMessages((prev: ChatMessage[]) =>
               prev.map((msg: ChatMessage) =>
                 msg.id === messageId
-                  ? { ...msg, streaming: false, durationMs, modelId: model }
+                  ? {
+                      ...msg,
+                      streaming: false,
+                      durationMs,
+                      modelId: model,
+                      // Mark any still-running tools as interrupted
+                      toolCalls: msg.toolCalls?.map((tc) =>
+                        tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
+                      ),
+                    }
                   : msg
               )
             );
@@ -2349,6 +2567,8 @@ export function ChatApp({
           verboseMode={verboseMode}
           hideAskUserQuestion={activeQuestion !== null}
           hideLoading={activeQuestion !== null}
+          parallelAgents={index === visibleMessages.length - 1 ? parallelAgents : undefined}
+          agentTreeExpanded={agentTreeExpanded}
         />
       ))}
     </>
@@ -2379,13 +2599,17 @@ export function ChatApp({
         queueCount={messageQueue.count}
       />
 
-      {/* Parallel Agents Tree - shows running sub-agents */}
-      {parallelAgents.length > 0 && (
-        <ParallelAgentsTree
-          agents={parallelAgents}
-          compact={!agentTreeExpanded}
-          maxVisible={agentTreeExpanded ? 20 : 5}
-        />
+      {/* Compaction History - shows expanded compaction summary (Ctrl+O) */}
+      {showCompactionHistory && compactionSummary && parallelAgents.length === 0 && (
+        <box flexDirection="column" paddingLeft={2} paddingRight={2} marginTop={1} marginBottom={1}>
+          <box flexDirection="column" border borderStyle="rounded" borderColor={MUTED_LAVENDER} paddingLeft={1} paddingRight={1}>
+            <text style={{ fg: MUTED_LAVENDER }} attributes={1}>Compaction Summary</text>
+            <text style={{ fg: "#E0E0E0" }} wrapMode="char">{compactionSummary}</text>
+          </box>
+          <text style={{ fg: MUTED_LAVENDER }}>
+            Showing detailed transcript · ctrl+o to toggle
+          </text>
+        </box>
       )}
 
       {/* Main content area - scrollable when content overflows */}

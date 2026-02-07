@@ -695,7 +695,9 @@ export class OpenCodeClient implements CodingAgentClient {
         });
 
         if (result.error) {
-          throw new Error(`Failed to send message: ${result.error}`);
+          const err = result.error as Record<string, unknown>;
+          const errorDetail = typeof err === "string" ? err : JSON.stringify(err);
+          throw new Error(`Failed to send message: ${errorDetail}`);
         }
 
         // Extract text content from parts

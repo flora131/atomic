@@ -279,6 +279,7 @@ describe("SDK Parity Verification", () => {
           addMessage: () => {},
           setStreaming: () => {},
           sendMessage: () => {},
+          sendSilentMessage: () => {},
           spawnSubagent: async () => ({ success: true, output: "" }),
           agentType,
         };
@@ -375,6 +376,7 @@ describe("SDK Parity Verification", () => {
           addMessage: () => {},
           setStreaming: () => {},
           sendMessage: () => {},
+          sendSilentMessage: () => {},
           spawnSubagent: async () => ({ success: true, output: "" }),
           agentType: client.agentType as "claude" | "opencode" | "copilot",
           modelOps: {
@@ -415,6 +417,7 @@ describe("SDK Parity Verification", () => {
           addMessage: () => {},
           setStreaming: () => {},
           sendMessage: () => {},
+          sendSilentMessage: () => {},
           spawnSubagent: async () => ({ success: true, output: "" }),
           agentType: client.agentType as "claude" | "opencode" | "copilot",
         };

@@ -70,6 +70,7 @@ function createMockContext(
     },
     setStreaming: () => {},
     sendMessage: () => {},
+    sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
     getMessages: () => messages,
   };
@@ -1006,7 +1007,9 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
     test("parseRalphArgs handles --resume without UUID", () => {
       const args = parseRalphArgs("--resume");
 
-      expect(args.resumeSessionId).toBeNull();
+      // Empty string indicates --resume was used but no UUID provided
+      // (null means --resume flag was not used at all)
+      expect(args.resumeSessionId).toBe("");
     });
 
     test("parseRalphArgs handles --resume with extra whitespace", () => {

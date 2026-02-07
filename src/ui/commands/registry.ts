@@ -63,6 +63,11 @@ export interface CommandContext {
    */
   sendMessage: (content: string) => void;
   /**
+   * Send a message to the agent without displaying it as a user message in the chat.
+   * Use this for commands that need to invoke agent interactions silently (e.g., skill prompts).
+   */
+  sendSilentMessage: (content: string) => void;
+  /**
    * Spawn a sub-agent with specific configuration.
    * Use this for commands that need to delegate tasks to specialized agents.
    *
@@ -139,6 +144,8 @@ export interface CommandResult {
   stateUpdate?: Partial<CommandContextState>;
   /** If true, clear all messages from the chat */
   clearMessages?: boolean;
+  /** If true, destroy the current session and reset it (a new session will be created on next message) */
+  destroySession?: boolean;
   /** If true, exit the application */
   shouldExit?: boolean;
   /** If true, show the interactive model selector dialog */
@@ -232,6 +239,28 @@ export class CommandRegistry {
         this.aliases.set(aliasLower, name);
       }
     }
+  }
+
+  /**
+   * Unregister a command by name, removing it and its aliases.
+   *
+   * @param name - Command name to unregister
+   * @returns True if the command was found and removed
+   */
+  unregister(name: string): boolean {
+    const key = name.toLowerCase();
+    const command = this.commands.get(key);
+    if (!command) return false;
+
+    // Remove aliases pointing to this command
+    if (command.aliases) {
+      for (const alias of command.aliases) {
+        this.aliases.delete(alias.toLowerCase());
+      }
+    }
+
+    this.commands.delete(key);
+    return true;
   }
 
   /**

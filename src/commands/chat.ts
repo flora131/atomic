@@ -12,8 +12,10 @@
  * Reference: Feature 30 - Chat interface with SDK clients
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { AgentType } from "../utils/telemetry/types.ts";
-import type { CodingAgentClient } from "../sdk/types.ts";
+import type { CodingAgentClient, McpServerConfig } from "../sdk/types.ts";
 
 // SDK client imports
 import { createClaudeAgentClient } from "../sdk/claude-client.ts";
@@ -165,10 +167,30 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     // Pass the model from CLI options if provided for accurate display
     const modelDisplayInfo = await client.getModelDisplayInfo(model);
 
+    // Read MCP server config from .mcp.json
+    let mcpServers: McpServerConfig[] | undefined;
+    try {
+      const raw = readFileSync(join(process.cwd(), ".mcp.json"), "utf-8");
+      const parsed = JSON.parse(raw) as { mcpServers?: Record<string, Record<string, unknown>> };
+      if (parsed.mcpServers) {
+        mcpServers = Object.entries(parsed.mcpServers).map(([name, cfg]) => ({
+          name,
+          type: cfg.type as McpServerConfig["type"],
+          command: cfg.command as string | undefined,
+          args: cfg.args as string[] | undefined,
+          env: cfg.env as Record<string, string> | undefined,
+          url: cfg.url as string | undefined,
+        }));
+      }
+    } catch {
+      // No .mcp.json or invalid -- continue without MCP
+    }
+
     // Build chat UI configuration
     const chatConfig: ChatUIConfig = {
       sessionConfig: {
         model,
+        mcpServers,
       },
       theme: getTheme(theme),
       title: `Chat - ${agentName}`,

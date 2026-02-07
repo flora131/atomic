@@ -69,6 +69,7 @@ function createMockContext(
     },
     setStreaming: () => {},
     sendMessage: () => {},
+    sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
     agentType: undefined,
     modelOps: undefined,

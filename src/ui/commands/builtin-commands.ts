@@ -30,7 +30,6 @@ export const helpCommand: CommandDefinition = {
   description: "Show all available commands",
   category: "builtin",
   aliases: ["h", "?"],
-  argumentHint: "[command]",
   execute: (_args: string, _context: CommandContext): CommandResult => {
     const commands = globalRegistry.all();
 
@@ -113,27 +112,27 @@ export const helpCommand: CommandDefinition = {
         },
         "codebase-locator": {
           desc: "Find files and components quickly",
-          model: "haiku",
+          model: "opus",
         },
         "codebase-pattern-finder": {
           desc: "Find similar implementations and patterns",
-          model: "sonnet",
+          model: "opus",
         },
         "codebase-online-researcher": {
           desc: "Research using web sources",
-          model: "sonnet",
+          model: "opus",
         },
         "codebase-research-analyzer": {
           desc: "Analyze research/ directory documents",
-          model: "sonnet",
+          model: "opus",
         },
         "codebase-research-locator": {
           desc: "Find documents in research/ directory",
-          model: "haiku",
+          model: "opus",
         },
         debugger: {
           desc: "Debug errors and test failures",
-          model: "sonnet",
+          model: "opus",
         },
       };
 
@@ -197,19 +196,21 @@ export const themeCommand: CommandDefinition = {
 };
 
 /**
- * /clear - Clear all messages from the chat.
+ * /clear - Clear all messages and reset the session.
  *
- * Resets the message array to empty.
+ * Destroys the current session to clear the context window.
+ * A new session will be created automatically on the next message.
  */
 export const clearCommand: CommandDefinition = {
   name: "clear",
-  description: "Clear all messages from the chat",
+  description: "Clear all messages and reset the session",
   category: "builtin",
   aliases: ["cls", "c"],
   execute: (_args: string, _context: CommandContext): CommandResult => {
     return {
       success: true,
       clearMessages: true,
+      destroySession: true,
     };
   },
 };
@@ -233,16 +234,23 @@ export const compactCommand: CommandDefinition = {
     }
 
     try {
+      // Show loading spinner during compaction
+      context.setStreaming(true);
+      context.addMessage("assistant", "");
+
       // Call the session's summarize method to compact context
       await context.session.summarize();
+
+      context.setStreaming(false);
 
       // Clear visible messages after context compaction
       return {
         success: true,
-        message: "Context compacted successfully.",
+        message: "compacted (ctrl+o for history)",
         clearMessages: true,
       };
     } catch (error) {
+      context.setStreaming(false);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       return {
         success: false,
@@ -286,7 +294,7 @@ export const modelCommand: CommandDefinition = {
   description: "Switch or view the current model",
   category: "builtin",
   aliases: ["m"],
-  argumentHint: "[model | list | select]",
+  argumentHint: "[model | list [provider] | select]",
   execute: async (args: string, context: CommandContext): Promise<CommandResult> => {
     const { agentType, modelOps, state } = context;
     const trimmed = args.trim();

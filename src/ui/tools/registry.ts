@@ -130,7 +130,7 @@ export const readToolRenderer: ToolRenderer = {
  * Handles both Claude SDK (file_path) and OpenCode (path, filePath) parameter names.
  */
 export const editToolRenderer: ToolRenderer = {
-  icon: "✏️",
+  icon: "△",
 
   getTitle(props: ToolRenderProps): string {
     // Handle multiple parameter name conventions
@@ -503,6 +503,55 @@ export const defaultToolRenderer: ToolRenderer = {
 };
 
 // ============================================================================
+// MCP TOOL RENDERER
+// ============================================================================
+
+/**
+ * Parse an MCP tool name into server and tool components.
+ * MCP tools follow the convention: mcp__<server>__<tool>
+ *
+ * @returns Parsed server/tool names, or null if not an MCP tool name
+ */
+export function parseMcpToolName(toolName: string): { server: string; tool: string } | null {
+  const match = toolName.match(/^mcp__(.+?)__(.+)$/);
+  if (!match || !match[1] || !match[2]) return null;
+  return { server: match[1], tool: match[2] };
+}
+
+/**
+ * Renderer for MCP (Model Context Protocol) tools.
+ * Displays server/tool name and input/output.
+ */
+export const mcpToolRenderer: ToolRenderer = {
+  icon: "🔌",
+
+  getTitle(props: ToolRenderProps): string {
+    const firstKey = Object.keys(props.input)[0];
+    if (firstKey) {
+      const val = props.input[firstKey];
+      if (typeof val === "string" && val.length < 60) return val;
+    }
+    return "MCP tool call";
+  },
+
+  render(props: ToolRenderProps): ToolRenderResult {
+    const content: string[] = [];
+    content.push("Input:");
+    content.push(JSON.stringify(props.input, null, 2));
+    if (props.output !== undefined) {
+      content.push("");
+      content.push("Output:");
+      if (typeof props.output === "string") {
+        content.push(...props.output.split("\n"));
+      } else {
+        content.push(JSON.stringify(props.output, null, 2));
+      }
+    }
+    return { title: "MCP Tool Result", content, expandable: true };
+  },
+};
+
+// ============================================================================
 // TOOL RENDERERS REGISTRY
 // ============================================================================
 
@@ -536,7 +585,9 @@ export const TOOL_RENDERERS: Record<string, ToolRenderer> = {
  * @returns The tool renderer
  */
 export function getToolRenderer(toolName: string): ToolRenderer {
-  return TOOL_RENDERERS[toolName] || defaultToolRenderer;
+  if (TOOL_RENDERERS[toolName]) return TOOL_RENDERERS[toolName];
+  if (parseMcpToolName(toolName)) return mcpToolRenderer;
+  return defaultToolRenderer;
 }
 
 /**

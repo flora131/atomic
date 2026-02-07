@@ -319,5 +319,14 @@ async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number>
  * @param options - Configuration options for the Ralph workflow
  */
 export async function ralphSetup(options: RalphSetupOptions): Promise<number> {
+  // Validate feature list path exists before entering interactive workflow
+  if (options.featureList) {
+    const { existsSync } = await import("fs");
+    if (!existsSync(options.featureList)) {
+      console.error(`Feature list not found: ${options.featureList}`);
+      return 1;
+    }
+  }
+
   return executeGraphWorkflow(options);
 }

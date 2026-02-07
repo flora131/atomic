@@ -358,8 +358,8 @@ export function ParallelAgentsTree({
     foreground: theme.colors.foreground,
     muted: theme.colors.muted,
     accent: theme.colors.accent,
-    error: "#ef4444",
-    success: "#22c55e",
+    error: theme.colors.error,
+    success: theme.colors.success,
   };
 
   // Build header text - Claude Code style: "● Running N {Type} agents…"
@@ -378,7 +378,7 @@ export function ParallelAgentsTree({
     >
       {/* Header - Claude Code style */}
       <box flexDirection="row">
-        <text style={{ fg: runningCount > 0 ? "#fbbf24" : completedCount > 0 ? "#f87171" : themeColors.muted }}>
+        <text style={{ fg: runningCount > 0 ? themeColors.accent : completedCount > 0 ? themeColors.success : themeColors.muted }}>
           {headerIcon} {headerText}
         </text>
         <text style={{ fg: themeColors.muted }}> (ctrl+o to {compact ? "expand" : "collapse"})</text>

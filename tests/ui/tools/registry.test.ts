@@ -77,7 +77,7 @@ describe("readToolRenderer", () => {
 
 describe("editToolRenderer", () => {
   test("has correct icon", () => {
-    expect(editToolRenderer.icon).toBe("✏️");
+    expect(editToolRenderer.icon).toBe("△");
   });
 
   test("getTitle returns filename from path", () => {

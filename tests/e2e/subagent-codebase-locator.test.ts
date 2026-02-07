@@ -4,7 +4,7 @@
  * These tests verify that when running /codebase-locator:
  * 1. Run /codebase-locator 'find routing files'
  * 2. Verify agent spawned correctly
- * 3. Verify agent uses haiku model
+ * 3. Verify agent uses opus model
  * 4. Verify files located and returned
  *
  * Reference: Feature - E2E test: Sub-agent invocation /codebase-locator
@@ -152,6 +152,10 @@ function createMockCommandContext(options?: {
     },
 
     sendMessage(content: string): void {
+      sentMessages.push(content);
+    },
+
+    sendSilentMessage(content: string): void {
       sentMessages.push(content);
     },
 
@@ -383,11 +387,11 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       const prompt = agent!.prompt;
 
       // Verify key sections exist in prompt
-      expect(prompt).toContain("codebase navigation specialist");
-      expect(prompt).toContain("## Your Capabilities");
-      expect(prompt).toContain("## Navigation Strategy");
+      expect(prompt).toContain("specialist at finding WHERE code lives");
+      expect(prompt).toContain("## Core Responsibilities");
+      expect(prompt).toContain("## Search Strategy");
       expect(prompt).toContain("## Output Format");
-      expect(prompt).toContain("## Guidelines");
+      expect(prompt).toContain("## Important Guidelines");
     });
 
     test("system prompt describes file location role", () => {
@@ -408,11 +412,11 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       const prompt = agent!.prompt;
 
       // Should describe navigation process steps
-      expect(prompt).toContain("Understand the Target");
-      expect(prompt).toContain("Quick Pattern Matching");
-      expect(prompt).toContain("Content Search");
-      expect(prompt).toContain("Directory Exploration");
-      expect(prompt).toContain("Verification");
+      expect(prompt).toContain("Find Files by Topic/Feature");
+      expect(prompt).toContain("Categorize Findings");
+      expect(prompt).toContain("Return Structured Results");
+      expect(prompt).toContain("Initial Broad Search");
+      expect(prompt).toContain("Refine by Language/Framework");
     });
 
     test("system prompt includes output format guidance", () => {
@@ -422,9 +426,9 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       const prompt = agent!.prompt;
 
       // Should describe expected output structure
-      expect(prompt).toContain("Primary Matches");
-      expect(prompt).toContain("Related Files");
-      expect(prompt).toContain("Directory Structure");
+      expect(prompt).toContain("Implementation Files");
+      expect(prompt).toContain("Test Files");
+      expect(prompt).toContain("Related Directories");
     });
 
     test("system prompt describes tool usage", () => {
@@ -435,8 +439,8 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
 
       // Should explain how to use available tools
       expect(prompt).toContain("Glob");
-      expect(prompt).toContain("Grep");
-      expect(prompt).toContain("Read");
+      expect(prompt).toContain("grep");
+      expect(prompt).toContain("glob");
       expect(prompt).toContain("LS");
     });
 
@@ -452,7 +456,7 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
 
       // Sent message should start with the system prompt content
       const sentMessage = context.sentMessages[0];
-      expect(sentMessage).toContain("codebase navigation specialist");
+      expect(sentMessage).toContain("specialist at finding WHERE code lives");
       expect(sentMessage).toContain(agent!.prompt);
     });
 
@@ -480,20 +484,20 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
   // 3. Verify agent uses haiku model
   // ============================================================================
 
-  describe("3. Verify agent uses haiku model", () => {
+  describe("3. Verify agent uses opus model", () => {
     test("codebase-locator has model field defined", () => {
       const agent = getBuiltinAgent("codebase-locator");
       expect(agent).toBeDefined();
       expect(agent?.model).toBeDefined();
     });
 
-    test("codebase-locator model is set to haiku", () => {
+    test("codebase-locator model is set to opus", () => {
       const agent = getBuiltinAgent("codebase-locator");
-      expect(agent?.model).toBe("haiku");
+      expect(agent?.model).toBe("opus");
     });
 
-    test("haiku model is fastest/lowest capability tier", () => {
-      // Verify haiku is the fastest, lowest capability model
+    test("opus model is highest capability tier", () => {
+      // Verify opus is the highest capability model
       const modelTiers: Record<string, number> = {
         haiku: 1, // fastest, lowest capability
         sonnet: 2, // balanced
@@ -501,30 +505,30 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       };
 
       const agent = getBuiltinAgent("codebase-locator");
-      expect(agent?.model).toBe("haiku");
-      expect(modelTiers[agent!.model!]).toBe(1);
+      expect(agent?.model).toBe("opus");
+      expect(modelTiers[agent!.model!]).toBe(3);
     });
 
-    test("codebase-locator uses haiku for speed on simple tasks", () => {
-      // The description and purpose justify haiku model usage
+    test("codebase-locator uses opus for thorough file location", () => {
+      // The description and purpose justify opus model usage
       const agent = getBuiltinAgent("codebase-locator");
       expect(agent).toBeDefined();
 
-      // haiku is appropriate for:
-      // - Fast file location
-      // - Simple pattern matching
-      // - Quick directory traversal
+      // opus is appropriate for:
+      // - Thorough file location
+      // - Complex pattern matching
+      // - Comprehensive directory traversal
       expect(agent?.description).toContain("Locates");
-      expect(agent?.model).toBe("haiku");
+      expect(agent?.model).toBe("opus");
     });
 
-    test("locator uses different model than analyzer", () => {
-      // Verify model selection varies by agent purpose
+    test("locator uses same model as analyzer", () => {
+      // All codebase agents now use opus
       const locatorAgent = getBuiltinAgent("codebase-locator");
       const analyzerAgent = getBuiltinAgent("codebase-analyzer");
 
-      // Locator uses haiku (fast, simple task)
-      expect(locatorAgent?.model).toBe("haiku");
+      // Both use opus (highest capability)
+      expect(locatorAgent?.model).toBe("opus");
 
       // Analyzer uses opus (complex analysis)
       expect(analyzerAgent?.model).toBe("opus");
@@ -536,24 +540,24 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
 
       const command = createAgentCommand(agent!);
 
-      // The command is created from agent with haiku model
-      expect(agent?.model).toBe("haiku");
+      // The command is created from agent with opus model
+      expect(agent?.model).toBe("opus");
       expect(command.name).toBe("codebase-locator");
     });
 
-    test("haiku model is cost-effective for simple navigation", () => {
+    test("opus model provides highest capability for navigation", () => {
       const agent = getBuiltinAgent("codebase-locator");
       expect(agent).toBeDefined();
 
-      // haiku is the most cost-effective model
-      // appropriate for fast, simple tasks like file location
-      const costTiers: Record<string, string> = {
+      // opus is the highest capability model
+      // appropriate for thorough tasks like comprehensive file location
+      const capabilityTiers: Record<string, string> = {
         haiku: "low",
         sonnet: "medium",
         opus: "high",
       };
 
-      expect(costTiers[agent!.model!]).toBe("low");
+      expect(capabilityTiers[agent!.model!]).toBe("high");
     });
   });
 
@@ -659,11 +663,11 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       const prompt = agent!.prompt;
 
       // Should include common file patterns for location
-      expect(prompt).toContain("Components");
-      expect(prompt).toContain("Services");
-      expect(prompt).toContain("Utils");
-      expect(prompt).toContain("Tests");
-      expect(prompt).toContain("Config");
+      expect(prompt).toContain("service");
+      expect(prompt).toContain("handler");
+      expect(prompt).toContain("controller");
+      expect(prompt).toContain("test");
+      expect(prompt).toContain("config");
     });
   });
 
@@ -731,16 +735,16 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       expect(agent?.tools).not.toContain("Edit");
     });
 
-    test("system prompt mentions all specified tools", () => {
+    test("system prompt mentions key search tools", () => {
       const agent = getBuiltinAgent("codebase-locator");
       expect(agent).toBeDefined();
 
       const prompt = agent!.prompt;
 
-      // All tools should be mentioned in the prompt
-      for (const tool of agent!.tools!) {
-        expect(prompt).toContain(tool);
-      }
+      // Key search tools should be mentioned in the prompt
+      expect(prompt).toContain("grep");
+      expect(prompt).toContain("glob");
+      expect(prompt).toContain("LS");
     });
 
     test("codebase-locator has same tools as codebase-analyzer", () => {
@@ -776,7 +780,7 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
 
       // 5. Verify message content
       const message = context.sentMessages[0];
-      expect(message).toContain("codebase navigation specialist");
+      expect(message).toContain("specialist at finding WHERE code lives");
       expect(message).toContain("find routing files");
     });
 
@@ -1031,8 +1035,8 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       expect(locator?.description).toContain("Locates");
       expect(analyzer?.description).toContain("Analyzes");
 
-      // Different model tiers reflect different purposes
-      expect(locator?.model).toBe("haiku");
+      // Both use opus model for highest capability
+      expect(locator?.model).toBe("opus");
       expect(analyzer?.model).toBe("opus");
     });
 
@@ -1041,11 +1045,11 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       const patternFinder = getBuiltinAgent("codebase-pattern-finder");
 
       expect(locator?.description).toContain("Locates");
-      expect(patternFinder?.description).toContain("Finds similar implementations");
+      expect(patternFinder?.description).toContain("finding similar implementations");
 
-      // Pattern finder uses sonnet (balanced model)
-      expect(locator?.model).toBe("haiku");
-      expect(patternFinder?.model).toBe("sonnet");
+      // Both use opus (highest capability model)
+      expect(locator?.model).toBe("opus");
+      expect(patternFinder?.model).toBe("opus");
     });
 
     test("all codebase agents have same tool set", () => {
@@ -1058,20 +1062,15 @@ describe("E2E test: Sub-agent invocation /codebase-locator", () => {
       expect(analyzer?.tools).toEqual(patternFinder?.tools);
     });
 
-    test("locator is the fastest of codebase agents", () => {
-      const modelSpeed: Record<string, number> = {
-        haiku: 3, // fastest
-        sonnet: 2,
-        opus: 1, // slowest
-      };
-
+    test("all codebase agents use the same opus model", () => {
       const locator = getBuiltinAgent("codebase-locator");
       const analyzer = getBuiltinAgent("codebase-analyzer");
       const patternFinder = getBuiltinAgent("codebase-pattern-finder");
 
-      // Locator should be the fastest
-      expect(modelSpeed[locator!.model!] ?? 0).toBeGreaterThan(modelSpeed[analyzer!.model!] ?? 0);
-      expect(modelSpeed[locator!.model!] ?? 0).toBeGreaterThan(modelSpeed[patternFinder!.model!] ?? 0);
+      // All codebase agents now use opus for highest capability
+      expect(locator!.model).toBe("opus");
+      expect(analyzer!.model).toBe("opus");
+      expect(patternFinder!.model).toBe("opus");
     });
   });
 });

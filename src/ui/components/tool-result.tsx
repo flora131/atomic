@@ -9,6 +9,7 @@ import React, { useState, useMemo, useEffect } from "react";
 import { useTheme } from "../theme.tsx";
 import {
   getToolRenderer,
+  parseMcpToolName,
   type ToolRenderProps,
   type ToolRenderResult,
 } from "../tools/registry.ts";
@@ -231,6 +232,8 @@ export function ToolResult({
   const [expanded, setExpanded] = useState(initialExpanded);
 
   const renderer = useMemo(() => getToolRenderer(toolName), [toolName]);
+  const mcpParsed = useMemo(() => parseMcpToolName(toolName), [toolName]);
+  const displayLabel = mcpParsed ? `${mcpParsed.server} / ${mcpParsed.tool}` : toolName;
   const renderProps: ToolRenderProps = useMemo(() => ({ input, output }), [input, output]);
   const renderResult: ToolRenderResult = useMemo(() => renderer.render(renderProps), [renderer, renderProps]);
   const title = useMemo(() => renderer.getTitle(renderProps), [renderer, renderProps]);
@@ -267,9 +270,9 @@ export function ToolResult({
           {renderer.icon}
         </text>
 
-        {/* Tool name */}
+        {/* Tool name (parsed for MCP tools) */}
         <text style={{ fg: colors.accent }}>
-          {toolName}
+          {displayLabel}
         </text>
 
         {/* Title (e.g., filename) */}

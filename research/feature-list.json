@@ -1,211 +1,280 @@
 [
   {
     "category": "functional",
-    "description": "Create SubagentSessionManager class that creates, tracks, and cleans up independent sub-agent sessions with spawn(), spawnParallel(), cancel(), and destroy() methods",
+    "description": "File provider utility for cached git ls-files results",
     "steps": [
-      "Create new file src/ui/subagent-session-manager.ts",
-      "Define SubagentSpawnOptions interface with agentId, agentName, task, systemPrompt, model, and tools fields",
-      "Define SubagentResult interface with agentId, success, output, error, toolUses, and durationMs fields",
-      "Define SubagentStatusCallback type for status update notifications",
-      "Implement SubagentSessionManager class with sessions Map, client, and onStatusUpdate callback",
-      "Implement spawn() method: call client.createSession(), store session, emit status update, stream task, track tool uses, handle completion, destroy session in finally block",
-      "Implement spawnParallel() method using Promise.allSettled() to run multiple agents concurrently",
-      "Implement cancel() method to destroy a specific session and remove from map",
-      "Implement cancelAll() method to destroy all active sessions",
-      "Implement destroy() method for full cleanup",
-      "Add activeCount getter property",
-      "Add maxConcurrentSubagents config (default: 5) with queuing for excess spawn requests"
+      "Create new file src/ui/utils/file-provider.ts",
+      "Implement FileCache interface with files array and timestamp",
+      "Implement getProjectFiles() async function using Bun.spawn(['git', 'ls-files'])",
+      "Add 30-second TTL cache (CACHE_TTL_MS = 30_000) returning cached results when fresh",
+      "Implement invalidateFileCache() to clear the cache",
+      "Implement filterFiles(files, query, limit) with case-insensitive includes matching",
+      "Add prefix-match priority sorting (startsWith ranked higher)",
+      "Add depth sorting (fewer slashes ranked higher) as secondary sort",
+      "Add alphabetical sort as tertiary sort",
+      "Implement getTopLevelEntries(files, limit) for no-query case showing unique top-level files and directories",
+      "Handle error case in getProjectFiles() returning cached files or empty array on failure",
+      "Verify filterFiles returns at most 'limit' results (default 10)"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Wire subagent.start and subagent.complete event subscriptions in startChatUI's subscribeToToolEvents()",
+    "description": "MentionRef and MentionOption type definitions",
     "steps": [
-      "Open src/ui/index.ts and locate subscribeToToolEvents() function (lines 274-378)",
-      "Add subscription for client.on('subagent.start') that updates ParallelAgent status to 'running'",
-      "Add subscription for client.on('subagent.complete') that updates ParallelAgent status to 'completed' or 'error'",
-      "Add parallelAgentHandler field to ChatUIState interface",
-      "Connect registerParallelAgentHandler prop from ChatApp to the state in the state.root.render() call",
-      "Ensure unsubscribe functions are returned for cleanup alongside existing event unsubscribers",
-      "Verify SubagentStartEventData and SubagentCompleteEventData types from src/sdk/types.ts are imported correctly"
+      "Define MentionRef interface with type ('file' | 'directory' | 'agent'), displayText (string), and value (string)",
+      "Define MentionOption interface with display (string), type ('file' | 'directory' | 'agent'), insertText (string), optional description (string), and ref (MentionRef)",
+      "Place types in an appropriate location accessible by both chat.tsx and mention-autocomplete.tsx",
+      "Verify types align with the file provider output (directories end with '/') and agent registry output"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Rewrite spawnSubagent() in chat.tsx to delegate to SubagentSessionManager instead of using placeholder timeouts",
+    "description": "Extend WorkflowChatState with mention autocomplete state fields",
     "steps": [
-      "Open src/ui/chat.tsx and locate spawnSubagent() (lines 1477-1549)",
-      "Add createSubagentSession factory function prop to ChatAppProps interface (Option B from spec Section 5.7)",
-      "Create subagentManagerRef using useRef<SubagentSessionManager | null>(null)",
-      "Initialize SubagentSessionManager in useEffect when session becomes available, passing createSubagentSession factory and a status update callback that calls setParallelAgents",
-      "Replace placeholder implementation: generate agentId, create ParallelAgent object, add to state, call subagentManager.spawn() with options",
-      "Remove the fake 500ms/3500ms setTimeout completion logic",
-      "Add proper error handling for when client/session is unavailable",
-      "Return SubagentResult with success, output, and error fields to the caller"
+      "Open src/ui/chat.tsx and locate WorkflowChatState interface definition (around line 328-336)",
+      "Add showMentionAutocomplete: boolean field",
+      "Add mentionTriggerIndex: number field",
+      "Add mentionFilter: string field",
+      "Add selectedMentionIndex: number field",
+      "Locate defaultWorkflowChatState and add default values: showMentionAutocomplete: false, mentionTriggerIndex: -1, mentionFilter: '', selectedMentionIndex: 0",
+      "Add mentionRefsRef using useRef<MentionRef[]>([]) in the ChatApp component for tracking mention metadata without re-renders",
+      "Verify TypeScript compiles with no errors after state extension"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Pass createSubagentSession factory function from startChatUI to ChatApp via props",
+    "description": "@ trigger detection in handleInputChange",
     "steps": [
-      "Open src/ui/index.ts and locate where ChatApp is rendered",
-      "Create createSubagentSession factory that calls client.createSession(config)",
-      "Pass createSubagentSession as a prop to ChatApp in the render call",
-      "Verify the CodingAgentClient interface exposes createSession() method in src/sdk/types.ts",
-      "Test that the factory correctly creates independent Session objects"
+      "Locate handleInputChange in src/ui/chat.tsx (around line 1449-1486)",
+      "Add @ detection logic after the existing '/' slash command detection block",
+      "Find the last '@' character in the input value using lastIndexOf('@')",
+      "Check that the character before '@' is undefined (start of input) or whitespace (guard against user@email false triggers)",
+      "Extract filter text: everything after '@' up to the next space or end of input",
+      "If no space after '@', show mention autocomplete by updating state: showMentionAutocomplete: true, mentionTriggerIndex, mentionFilter, selectedMentionIndex: 0",
+      "If a space exists after the filter, close the mention autocomplete",
+      "Hide mention autocomplete when no valid '@' trigger is found (reset all mention state fields)",
+      "Ensure slash commands (/) still take priority over @ mentions",
+      "Verify @ detection is disabled during queue editing mode (isEditingQueue)",
+      "Test @ at start of input, after space, after newline, and verify no trigger mid-word"
     ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Verify SDK clients emit subagent.start and subagent.complete events correctly for all three backends",
-    "steps": [
-      "Check src/sdk/claude-client.ts for subagent.start → SubagentStart and subagent.complete → SubagentStop event mapping (lines 111-112)",
-      "Check src/sdk/copilot-client.ts for equivalent event mappings (lines 130-132, 479-495)",
-      "Check src/sdk/opencode-client.ts for equivalent event mappings",
-      "Verify SubagentStartEventData includes subagentId, agentName, and task fields",
-      "Verify SubagentCompleteEventData includes subagentId, success, result, and error fields",
-      "Ensure events are emitted at correct lifecycle points during session streaming",
-      "Test Copilot workaround: multiple independent CopilotSession objects for context isolation"
-    ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Update ParallelAgentsTree sub-status text to show 'Initializing...' for running and 'Done' for completed agents",
+    "description": "MentionAutocomplete dropdown component",
     "steps": [
-      "Open src/ui/components/parallel-agents-tree.tsx",
-      "Locate the AgentRow compact mode sub-line rendering",
-      "Add default sub-status text logic: show currentTool if set, otherwise 'Initializing...' for running status, 'Done' for completed status",
-      "Verify sub-status text renders correctly when currentTool transitions from null to a tool name during streaming",
-      "Test that sub-status correctly shows tool name during active tool use"
+      "Create new file src/ui/components/mention-autocomplete.tsx",
+      "Define MentionAutocompleteProps interface with options, visible, selectedIndex, onSelect, onIndexChange, and optional maxItems (default 8)",
+      "Implement MentionAutocomplete component modeled after existing Autocomplete component (src/ui/components/autocomplete.tsx:146-234)",
+      "Render a <box> wrapper containing a <scrollbox> with mapped MentionRow children",
+      "Implement MentionRow rendering with icon prefixes: '+' for files and directories, '*' for agents",
+      "Show agent description text after agent name (e.g., '* debugger (agent) -- Debugging specialist...')",
+      "Apply selected-state styling using accent color for the currently selected item",
+      "Use the same theme colors as the existing Autocomplete component for consistency",
+      "Limit visible items to maxItems (default 8) with scrollbox overflow handling",
+      "Export the component for use in chat.tsx"
     ],
-    "passes": true
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Build combined mention options list from agents and files",
+    "steps": [
+      "In ChatApp (src/ui/chat.tsx), create agentOptions memo using globalRegistry.all().filter(cmd => cmd.category === 'agent')",
+      "Map agent commands to MentionOption objects with display: 'name (agent)', type: 'agent', insertText: '@name', description from cmd.description",
+      "Create fileOptions state with useState<MentionOption[]>([])",
+      "Add useEffect that triggers getProjectFiles() when showMentionAutocomplete is true",
+      "Apply filterFiles() to the fetched files using workflowState.mentionFilter",
+      "Map filtered files to MentionOption objects, detecting directories by trailing '/' in path",
+      "Create mentionOptions memo combining filtered agents (first) and file options, sliced to max 10 items",
+      "Filter agents by matching mentionFilter against both agent name and description",
+      "Verify agents appear before files in the combined options list",
+      "Verify options update reactively when mentionFilter changes"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Keyboard navigation for mention autocomplete (Escape/Up/Down/Tab/Enter)",
+    "steps": [
+      "Locate the useKeyboard handler in src/ui/chat.tsx (around line 1850-2049)",
+      "Add mention autocomplete keyboard checks after existing slash autocomplete checks and before queue editing checks",
+      "Implement Escape key: hide mention dropdown by resetting all mention state fields",
+      "Implement Up key: navigate up with circular wrapping (use same navigateUp pattern as existing autocomplete)",
+      "Implement Down key: navigate down with circular wrapping (use same navigateDown pattern)",
+      "Implement Tab key for file selection: call handleMentionSelect with the selected option",
+      "Implement Tab key for directory selection: update mentionFilter to directory path and reset selectedMentionIndex to 0 (keep dropdown open for drill-down)",
+      "Implement Tab key for agent selection: call handleMentionSelect with the selected option",
+      "Implement Enter key: same as Tab for files and agents (select current item)",
+      "Ensure keyboard handlers only activate when showMentionAutocomplete is true and options.length > 0",
+      "Ensure mention dropdown is hidden during streaming, when activeQuestion dialog is open, or when showModelSelector is active",
+      "Verify that only one dropdown (slash or mention) can be visible at a time"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Selection handler for inserting mention text and tracking refs",
+    "steps": [
+      "Implement handleMentionSelect callback in ChatApp component",
+      "Get current textarea text via textareaRef.current.plainText",
+      "Calculate the text range to replace: from mentionTriggerIndex to triggerIndex + 1 + mentionFilter.length",
+      "Build replacement text: before + option.insertText + trailing space + after",
+      "Replace textarea content using gotoBufferHome(), gotoBufferEnd({ select: true }), deleteChar(), insertText()",
+      "Push the selected option.ref to mentionRefsRef.current array",
+      "Reset mention autocomplete state (showMentionAutocomplete: false, mentionTriggerIndex: -1, mentionFilter: '', selectedMentionIndex: 0)",
+      "Skip insertion for directory type (handled by keyboard drill-down logic instead)",
+      "Verify trailing space is added after inserted mention for natural typing continuation",
+      "Verify multiple mentions can be inserted in a single input (mentionRefs accumulates)"
+    ],
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Update ParallelAgentsTree status dot colors to match target UI (amber for running, red for completed)",
+    "description": "Render MentionAutocomplete dropdown in chat UI",
     "steps": [
-      "Open src/ui/components/parallel-agents-tree.tsx",
-      "Locate status dot color assignments",
-      "Change running status dot to yellow/amber (#fbbf24) instead of themeColors.accent",
-      "Change completed status dot to red/pink (#f87171) to match target UI",
-      "Verify error status has a distinct color"
+      "Locate the existing Autocomplete rendering JSX in src/ui/chat.tsx",
+      "Add MentionAutocomplete rendering below the existing Autocomplete block",
+      "Conditionally render only when workflowState.showMentionAutocomplete is true",
+      "Pass mentionOptions, selectedMentionIndex, handleMentionSelect, and onIndexChange props",
+      "Wrap in a <box> element matching the existing autocomplete wrapper styling",
+      "Verify only one dropdown is visible at a time (slash autocomplete vs mention autocomplete are mutually exclusive)",
+      "Import MentionAutocomplete component from src/ui/components/mention-autocomplete",
+      "Verify dropdown renders below the input area matching existing autocomplete positioning"
     ],
-    "passes": true
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Send handler integration to consume mentionRefs for file content and agent context",
+    "steps": [
+      "Locate the submit/send handler in src/ui/chat.tsx",
+      "Before sending the message, iterate over mentionRefsRef.current",
+      "For file mentions (type === 'file'): read file content and prepend as markdown code block context (e.g., [File: path]\\n```\\n...content...\\n```)",
+      "For agent mentions (type === 'agent'): resolve AgentDefinition from CommandRegistry, extract agent system prompt",
+      "Prepend agent context/system prompt to the message for agent mentions",
+      "Handle multiple file mentions by concatenating all file contexts",
+      "Handle mixed file + agent mentions in a single message",
+      "Clear mentionRefsRef.current after message submission",
+      "Consider file content size limits (e.g., 2000 lines max to match Claude Code's limit)",
+      "Add error handling for files that no longer exist or are unreadable at send time"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Directory drill-down navigation in mention dropdown",
+    "steps": [
+      "When Tab is pressed on a directory entry, update mentionFilter to the directory path (e.g., 'src/')",
+      "Reset selectedMentionIndex to 0",
+      "Keep the dropdown open (do not reset showMentionAutocomplete)",
+      "Update the textarea text to reflect the new filter (replace @oldfilter with @newfilter)",
+      "Trigger filterFiles with the new directory prefix to show directory contents",
+      "Verify drill-down works for nested directories (e.g., src/ -> src/ui/ -> src/ui/components/)",
+      "Verify files within the drilled-down directory are shown correctly",
+      "Verify user can continue typing after drill-down to further filter results"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Guard against false @ triggers (email addresses, mid-word @)",
+    "steps": [
+      "Verify @ only triggers when preceded by whitespace or at start of input",
+      "Verify typing 'user@example.com' does NOT trigger the mention dropdown",
+      "Verify typing 'test@' mid-word (no whitespace before @) does NOT trigger",
+      "Verify @ after a newline character triggers correctly",
+      "Verify @ after multiple spaces triggers correctly",
+      "Verify @ at the very start of an empty input triggers correctly",
+      "Test edge cases: '@@', '@ @', '@file @file2' (multiple mentions)"
+    ],
+    "passes": false
+  },
+  {
+    "category": "functional",
+    "description": "Multiple @ mentions in a single prompt",
+    "steps": [
+      "Verify typing 'look at @src/cli.ts and @package.json' produces two mentionRefs",
+      "Verify each mention is independently resolved (first Tab inserts first file, second Tab inserts second file)",
+      "Verify mentionRefs array accumulates correctly across multiple selections",
+      "Verify the dropdown correctly detects the latest/active @ trigger position",
+      "Verify send handler processes all mentionRefs and inlines all file contents",
+      "Test mixed mentions: file + agent in same prompt (e.g., '@debugger fix @src/cli.ts')"
+    ],
+    "passes": false
+  },
+  {
+    "category": "performance",
+    "description": "File provider caching and performance optimization",
+    "steps": [
+      "Verify git ls-files results are cached for 30 seconds (CACHE_TTL_MS)",
+      "Verify subsequent @ triggers within 30 seconds use cached file list (no new subprocess spawn)",
+      "Verify cache invalidation (invalidateFileCache) clears the cache and forces fresh git ls-files on next call",
+      "Verify filterFiles is fast for large file lists (up to 10,000 files)",
+      "Verify the dropdown renders at most maxItems (default 8) visible items to limit render overhead",
+      "Verify no unnecessary re-renders when typing characters that don't affect mention state",
+      "Test graceful degradation when git ls-files fails (returns cached or empty array)"
+    ],
+    "passes": false
   },
   {
     "category": "ui",
-    "description": "Update ParallelAgentsTree header text to use 'finished' instead of 'completed' to match target UI",
+    "description": "Visual distinction between file and agent entries in dropdown",
     "steps": [
-      "Open src/ui/components/parallel-agents-tree.tsx",
-      "Locate header text rendering for completed state",
-      "Change 'completed' to 'finished' in the header template (e.g., '4 Explore agents finished')",
-      "Verify header text for running state matches target: 'Running 3 Explore agents... (ctrl+o to expand)'",
-      "Test header text with different agent counts and states"
+      "Verify file entries display with '+' prefix (e.g., '+ src/cli.ts')",
+      "Verify directory entries display with '+' prefix (e.g., '+ src/ui/')",
+      "Verify agent entries display with '*' prefix (e.g., '* debugger (agent)')",
+      "Verify agent entries include description text after the name",
+      "Verify selected item has accent color highlight",
+      "Verify theme colors match the existing slash command autocomplete dropdown",
+      "Verify dropdown positioning is consistent with slash command autocomplete (below input area)"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Implement ctrl+o keyboard shortcut to toggle expand/collapse of ParallelAgentsTree",
+    "description": "Interaction guards: disable mention dropdown during streaming, dialogs, and queue editing",
     "steps": [
-      "Open src/ui/chat.tsx and add agentTreeExpanded state using useState(false)",
-      "Locate useKeyboard handler and add ctrl+o key binding to toggle agentTreeExpanded",
-      "Pass compact={!agentTreeExpanded} and maxVisible props to ParallelAgentsTree component",
-      "Set maxVisible to 20 when expanded, 5 when compact",
-      "Update ParallelAgentsTree hint text to show 'ctrl+o to expand' or 'ctrl+o to collapse' based on current state",
-      "Test that ctrl+o toggles between compact tree view and expanded detail view"
+      "Verify @ mention dropdown is hidden during message streaming",
+      "Verify @ mention detection is disabled during queue editing mode (isEditingQueue)",
+      "Verify @ mention keyboard handlers are bypassed when activeQuestion dialog is open",
+      "Verify @ mention keyboard handlers are bypassed when showModelSelector is active",
+      "Verify transitioning to streaming while mention dropdown is open hides the dropdown",
+      "Verify existing slash command autocomplete behavior is not affected by mention state changes"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Implement sub-agent result collection and return summary to parent context",
+    "description": "Unit tests for file provider, trigger detection, option building, and selection",
     "steps": [
-      "In SubagentSessionManager.spawn(), accumulate text messages from session.stream() into a summary string",
-      "Truncate summary to a reasonable length (e.g., 2000 chars) to avoid polluting parent context",
-      "Return the summary as SubagentResult.output",
-      "In spawnSubagent() in chat.tsx, return the result output to the calling command",
-      "Verify sub-agent results are not injected as assistant messages into the parent conversation",
-      "Test with different sub-agent types to ensure summary generation works across all agent types"
+      "Write unit tests for filterFiles() with various queries: empty, partial match, prefix match, no matches",
+      "Write unit tests for getTopLevelEntries() verifying directory deduplication",
+      "Write unit tests for getProjectFiles() caching behavior (mock Bun.spawn)",
+      "Write unit tests for @ trigger detection: start of input, after whitespace, after newline, mid-word rejection",
+      "Write unit tests for filter text extraction from various input states",
+      "Write unit tests for option building: agents from registry, files from provider, combined ordering",
+      "Write unit tests for selection handler: text replacement, mentionRef tracking, trailing space",
+      "Write unit tests for keyboard navigation: Up/Down wrapping, Tab select, Enter select, Escape dismiss",
+      "Write unit tests for directory drill-down: filter update, dropdown stays open"
     ],
-    "passes": true
+    "passes": false
   },
   {
     "category": "functional",
-    "description": "Add error handling for sub-agent session creation failures, streaming failures, and partial failures in parallel execution",
+    "description": "Integration tests for multi-mention, drill-down, and send flow",
     "steps": [
-      "In SubagentSessionManager.spawn(), wrap client.createSession() in try-catch and mark agent as 'error' status on failure",
-      "In spawn(), wrap session.stream() in try-catch and mark agent as 'error' with error message on streaming failure",
-      "Ensure session.destroy() is always called in finally block matching pattern from src/graph/nodes.ts:257-259",
-      "In spawnParallel(), verify Promise.allSettled() handles partial failures correctly",
-      "Handle case where client is unavailable (getSession returns null) by returning error result immediately",
-      "Add logging for sub-agent lifecycle events (start, complete, error) with agent ID and duration"
+      "Write integration test: multiple @ references produce correct mentionRefs array",
+      "Write integration test: Tab on directory updates filter and keeps dropdown open showing directory contents",
+      "Write integration test: send with file mentions inlines file content as markdown code blocks",
+      "Write integration test: send with agent mention prepends agent system prompt",
+      "Write integration test: full flow - type @src/cli.ts, Tab, verify insertion, type message, Enter, verify file context sent",
+      "Write integration test: agent flow - type @debugger, Tab, verify insertion, type issue, Enter, verify agent invocation",
+      "Write integration test: mixed flow - type 'look at @src/cli.ts and @package.json', verify both files attached on send"
     ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Add concurrency limiting with maxConcurrentSubagents config (default: 5) and request queuing",
-    "steps": [
-      "Add maxConcurrentSubagents option to SubagentSessionManager constructor",
-      "Implement a concurrency semaphore or queue in SubagentSessionManager",
-      "When activeCount >= maxConcurrentSubagents, queue incoming spawn requests",
-      "Process queued requests as active sessions complete",
-      "Expose maxConcurrentSubagents as a configurable option (via constructor parameter)",
-      "Test that queued requests execute in order after active sessions complete"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Write unit tests for SubagentSessionManager",
-    "steps": [
-      "Create test file src/ui/__tests__/subagent-session-manager.test.ts",
-      "Test spawn() creates a session via client.createSession(), streams, and destroys",
-      "Test spawn() calls onStatusUpdate with correct status transitions (running → completed)",
-      "Test spawn() handles session creation failures gracefully (marks as error)",
-      "Test spawnParallel() runs multiple agents concurrently",
-      "Test spawnParallel() with Promise.allSettled handles partial failures",
-      "Test cancel() destroys the session and marks agent as error",
-      "Test destroy() cleans up all active sessions",
-      "Test concurrency limiting queues excess requests"
-    ],
-    "passes": true
-  },
-  {
-    "category": "ui",
-    "description": "Write unit tests for ParallelAgentsTree component updates",
-    "steps": [
-      "Create or update test file src/ui/__tests__/parallel-agents-tree.test.ts",
-      "Test default sub-status text renders 'Initializing...' for running agents without currentTool",
-      "Test default sub-status text renders 'Done' for completed agents",
-      "Test sub-status text shows currentTool when set",
-      "Test header text uses 'finished' not 'completed'",
-      "Test status dot uses correct colors (amber for running, red for completed)",
-      "Test compact vs expanded mode via compact prop"
-    ],
-    "passes": true
-  },
-  {
-    "category": "functional",
-    "description": "Integration testing: end-to-end sub-agent flow from command invocation through session creation, streaming, completion, UI update, and cleanup",
-    "steps": [
-      "Test event wiring: subagent.start event updates ParallelAgent status in ChatApp",
-      "Test event wiring: subagent.complete event updates ParallelAgent status in ChatApp",
-      "Test full flow: command invocation → sub-agent spawn → session creation → streaming → completion → UI update → cleanup",
-      "Test with Claude Agent SDK backend (bun run src/cli.ts chat -a claude)",
-      "Test with OpenCode SDK backend (bun run src/cli.ts chat -a opencode)",
-      "Test with Copilot SDK backend (bun run src/cli.ts chat -a copilot)",
-      "Verify /explore command spawns parallel agents visible in tree",
-      "Verify agents show real tool use counts during execution",
-      "Verify agents transition from 'Initializing...' to 'Done' on actual completion",
-      "Verify ctrl+o toggles between compact and expanded views"
-    ],
-    "passes": true
+    "passes": false
   }
 ]

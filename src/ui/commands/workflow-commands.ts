@@ -18,6 +18,7 @@ import type {
   CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
+import { getBuiltinSkill } from "./skill-commands.ts";
 
 import {
   createRalphWorkflow,
@@ -152,7 +153,9 @@ export function parseRalphArgs(args: string): RalphCommandArgs {
   if (trimmed.startsWith("--resume")) {
     // Extract everything after --resume as the session ID
     const afterFlag = trimmed.slice("--resume".length).trim();
-    const sessionId = afterFlag.length > 0 ? afterFlag.split(/\s+/)[0] ?? null : null;
+    // Return empty string when --resume is used without a UUID so the caller
+    // can distinguish "no --resume flag" (null) from "flag present, no value" ("")
+    const sessionId = afterFlag.length > 0 ? (afterFlag.split(/\s+/)[0] ?? "") : "";
     return {
       yolo: false,
       prompt: null,
@@ -674,7 +677,7 @@ const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata<BaseState>[] = [
     name: "ralph",
     description: "Start the Ralph autonomous implementation workflow",
     aliases: ["loop"],
-    argumentHint: "PROMPT [--yolo] [--resume UUID] [--max-iterations N]",
+    argumentHint: "[PROMPT] [--yolo] [--resume UUID] [--max-iterations N (100)] [--feature-list PATH (research/feature-list.json)]",
     createWorkflow: (config?: Record<string, unknown>) => {
       const ralphConfig: CreateRalphWorkflowConfig = {
         maxIterations: typeof config?.maxIterations === "number" ? config.maxIterations : undefined,
@@ -793,8 +796,16 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
       // Parse ralph-specific flags
       const parsed = parseRalphArgs(args);
 
-      // Handle --resume flag
+      // Handle --resume flag (non-null means --resume was used)
       if (parsed.resumeSessionId !== null) {
+        // Check if UUID was actually provided
+        if (parsed.resumeSessionId === "") {
+          return {
+            success: false,
+            message: `Missing session ID. Please provide a UUID to resume.\nUsage: /ralph --resume <uuid>`,
+          };
+        }
+
         // Validate UUID format
         if (!isValidUUID(parsed.resumeSessionId)) {
           return {
@@ -850,6 +861,14 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
         };
       }
 
+      // Non-yolo mode with no prompt requires the user to provide a prompt
+      if (!parsed.yolo && !parsed.prompt) {
+        return {
+          success: false,
+          message: `Please provide a prompt for the ralph workflow.\nUsage: /ralph <your task description>\n       /ralph --yolo <prompt>\n       /ralph --resume <uuid>`,
+        };
+      }
+
       // In non-yolo mode, validate feature list file exists
       if (!parsed.yolo && !existsSync(parsed.featureListPath)) {
         return {
@@ -858,12 +877,14 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
         };
       }
 
-      // Normal mode also requires a prompt (for now - could be optional with feature list)
+      // Use implement-feature default prompt when prompt is minimal
       if (!parsed.prompt) {
-        return {
-          success: false,
-          message: `Please provide a prompt for the ralph workflow.\nUsage: /ralph <your task description>\n       /ralph --yolo <your task description>\n       /ralph --resume <uuid>`,
-        };
+        const implSkill = getBuiltinSkill("implement-feature");
+        if (implSkill) {
+          parsed.prompt = implSkill.prompt.replace(/\$ARGUMENTS/g, "");
+        } else {
+          parsed.prompt = "Implement the next feature from the feature list.";
+        }
       }
 
       // Generate a new session ID for this Ralph session

@@ -155,6 +155,10 @@ function createMockCommandContext(options?: {
       sentMessages.push(content);
     },
 
+    sendSilentMessage(content: string): void {
+      sentMessages.push(content);
+    },
+
     async spawnSubagent(
       opts: SpawnSubagentOptions
     ): Promise<SpawnSubagentResult> {
@@ -400,11 +404,11 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const prompt = agent!.prompt;
 
       // Verify key sections exist in prompt
-      expect(prompt).toContain("debugging specialist");
-      expect(prompt).toContain("## Your Capabilities");
-      expect(prompt).toContain("## Debugging Process");
-      expect(prompt).toContain("## Debug Report Format");
-      expect(prompt).toContain("## Guidelines");
+      expect(prompt).toContain("tasked with debugging and identifying errors");
+      expect(prompt).toContain("Available tools");
+      expect(prompt).toContain("Debugging process");
+      expect(prompt).toContain("For each issue, provide");
+      expect(prompt).toContain("Focus on documenting the underlying issue");
     });
 
     test("system prompt describes debugging role", () => {
@@ -425,14 +429,14 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const prompt = agent!.prompt;
 
       // Should describe debugging process steps
-      expect(prompt).toContain("Understand the Problem");
-      expect(prompt).toContain("Reproduce the Issue");
-      expect(prompt).toContain("Gather Evidence");
-      expect(prompt).toContain("Form Hypotheses");
-      expect(prompt).toContain("Test Hypotheses");
-      expect(prompt).toContain("Implement Fix");
-      expect(prompt).toContain("Verify Fix");
-      expect(prompt).toContain("Document Findings");
+      expect(prompt).toContain("Capture error message");
+      expect(prompt).toContain("Identify reproduction steps");
+      expect(prompt).toContain("Isolate the failure location");
+      expect(prompt).toContain("debugging report");
+      expect(prompt).toContain("Form and test hypotheses");
+      expect(prompt).toContain("Inspect variable states");
+      expect(prompt).toContain("Analyze error messages and logs");
+      expect(prompt).toContain("Check recent code changes");
     });
 
     test("system prompt includes debug report format", () => {
@@ -442,12 +446,11 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const prompt = agent!.prompt;
 
       // Should describe expected debug report structure
-      expect(prompt).toContain("Error Summary");
-      expect(prompt).toContain("Root Cause");
-      expect(prompt).toContain("Investigation Steps");
-      expect(prompt).toContain("Fix Applied");
-      expect(prompt).toContain("Verification");
-      expect(prompt).toContain("Recommendations");
+      expect(prompt).toContain("Root cause explanation");
+      expect(prompt).toContain("Evidence supporting the diagnosis");
+      expect(prompt).toContain("Suggested code fix");
+      expect(prompt).toContain("Testing approach");
+      expect(prompt).toContain("Prevention recommendations");
     });
 
     test("system prompt describes tool usage for debugging", () => {
@@ -457,10 +460,10 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const prompt = agent!.prompt;
 
       // Should explain how to use available tools for debugging
-      expect(prompt).toContain("Bash");
-      expect(prompt).toContain("Edit");
-      expect(prompt).toContain("Read");
-      expect(prompt).toContain("Grep");
+      expect(prompt).toContain("DeepWiki");
+      expect(prompt).toContain("WebFetch");
+      expect(prompt).toContain("WebSearch");
+      expect(prompt).toContain("ask_question");
     });
 
     test("sendMessage includes full system prompt", async () => {
@@ -475,7 +478,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       // Sent message should start with the system prompt content
       const sentMessage = context.sentMessages[0];
-      expect(sentMessage).toContain("debugging specialist");
+      expect(sentMessage).toContain("tasked with debugging and identifying errors");
       expect(sentMessage).toContain(agent!.prompt);
     });
 
@@ -486,10 +489,10 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const prompt = agent!.prompt;
 
       // Should describe common debugging patterns
-      expect(prompt).toContain("Test Failures");
-      expect(prompt).toContain("Runtime Errors");
-      expect(prompt).toContain("Type Errors");
-      expect(prompt).toContain("Build/Compile Errors");
+      expect(prompt).toContain("Analyze error messages and logs");
+      expect(prompt).toContain("Form and test hypotheses");
+      expect(prompt).toContain("Inspect variable states");
+      expect(prompt).toContain("Add strategic debug logging");
     });
 
     test("debugger agent description is specific to debugging", () => {
@@ -573,9 +576,9 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       expect(agent?.tools).toContain("WebSearch");
     });
 
-    test("debugger has exactly 10 tools", () => {
+    test("debugger has exactly 16 tools", () => {
       const agent = getBuiltinAgent("debugger");
-      expect(agent?.tools).toHaveLength(10);
+      expect(agent?.tools).toHaveLength(16);
     });
 
     test("debugger tools match expected set", () => {
@@ -587,8 +590,14 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
         "Edit",
         "Glob",
         "Grep",
+        "NotebookEdit",
+        "NotebookRead",
         "Read",
+        "TodoWrite",
         "Write",
+        "ListMcpResourcesTool",
+        "ReadMcpResourceTool",
+        "mcp__deepwiki__ask_question",
         "WebFetch",
         "WebSearch",
       ];
@@ -620,34 +629,34 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       expect(analyzerAgent?.tools).not.toContain("Write");
     });
 
-    test("system prompt mentions Edit tool for implementing fixes", () => {
+    test("system prompt mentions fix implementation guidance", () => {
       const agent = getBuiltinAgent("debugger");
       expect(agent).toBeDefined();
 
       const prompt = agent!.prompt;
 
-      expect(prompt).toContain("Edit");
-      expect(prompt).toContain("Modify source files");
+      expect(prompt).toContain("Suggested code fix");
+      expect(prompt).toContain("file:line references");
     });
 
-    test("system prompt mentions Write tool for creating files", () => {
+    test("system prompt mentions evidence-based diagnosis", () => {
       const agent = getBuiltinAgent("debugger");
       expect(agent).toBeDefined();
 
       const prompt = agent!.prompt;
 
-      expect(prompt).toContain("Write");
-      expect(prompt).toContain("Create new files");
+      expect(prompt).toContain("Evidence supporting the diagnosis");
+      expect(prompt).toContain("root causes");
     });
 
-    test("system prompt mentions Task tool for delegation", () => {
+    test("system prompt mentions external research tools", () => {
       const agent = getBuiltinAgent("debugger");
       expect(agent).toBeDefined();
 
       const prompt = agent!.prompt;
 
-      expect(prompt).toContain("Task");
-      expect(prompt).toContain("Delegate");
+      expect(prompt).toContain("DeepWiki");
+      expect(prompt).toContain("external library documentation");
     });
   });
 
@@ -756,15 +765,15 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       // Should include strategies for finding and fixing issues
       expect(prompt).toContain("stack trace");
       expect(prompt).toContain("root cause");
-      expect(prompt).toContain("regression");
+      expect(prompt).toContain("error message");
     });
 
-    test("debugger uses sonnet model for balanced analysis", () => {
+    test("debugger uses opus model for deep analysis", () => {
       const agent = getBuiltinAgent("debugger");
       expect(agent).toBeDefined();
 
-      // Debugger uses sonnet for balance between speed and capability
-      expect(agent?.model).toBe("sonnet");
+      // Debugger uses opus for maximum debugging capability
+      expect(agent?.model).toBe("opus");
     });
   });
 
@@ -772,20 +781,19 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
   // 5. Verify agent uses sonnet model
   // ============================================================================
 
-  describe("5. Verify agent uses sonnet model", () => {
+  describe("5. Verify agent uses opus model", () => {
     test("debugger has model field defined", () => {
       const agent = getBuiltinAgent("debugger");
       expect(agent).toBeDefined();
       expect(agent?.model).toBeDefined();
     });
 
-    test("debugger model is set to sonnet", () => {
+    test("debugger model is set to opus", () => {
       const agent = getBuiltinAgent("debugger");
-      expect(agent?.model).toBe("sonnet");
+      expect(agent?.model).toBe("opus");
     });
 
-    test("sonnet model is balanced capability tier", () => {
-      // Verify sonnet is the balanced capability model
+    test("opus model is highest capability tier", () => {
       const modelTiers: Record<string, number> = {
         haiku: 1, // fastest, lowest capability
         sonnet: 2, // balanced
@@ -793,45 +801,33 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       };
 
       const agent = getBuiltinAgent("debugger");
-      expect(agent?.model).toBe("sonnet");
-      expect(modelTiers[agent!.model!]).toBe(2);
+      expect(agent?.model).toBe("opus");
+      expect(modelTiers[agent!.model!]).toBe(3);
     });
 
-    test("debugger uses sonnet for balanced debugging capability", () => {
-      // The description and purpose justify sonnet model usage
+    test("debugger uses opus for deep debugging capability", () => {
       const agent = getBuiltinAgent("debugger");
       expect(agent).toBeDefined();
 
-      // sonnet is appropriate for:
-      // - Balanced speed and capability for debugging
-      // - Sufficient for analyzing code and errors
-      // - Not as expensive as opus for routine debugging
       expect(agent?.description).toContain("Debugging specialist");
-      expect(agent?.model).toBe("sonnet");
+      expect(agent?.model).toBe("opus");
     });
 
-    test("debugger uses different model than analyzer (opus)", () => {
-      // Verify model selection varies by agent purpose
+    test("debugger uses same model as analyzer (opus)", () => {
       const debuggerAgent = getBuiltinAgent("debugger");
       const analyzerAgent = getBuiltinAgent("codebase-analyzer");
 
-      // Analyzer uses opus (highest capability for deep analysis)
+      // Both use opus for deep analysis capability
       expect(analyzerAgent?.model).toBe("opus");
-
-      // Debugger uses sonnet (balanced for routine debugging)
-      expect(debuggerAgent?.model).toBe("sonnet");
+      expect(debuggerAgent?.model).toBe("opus");
     });
 
-    test("debugger uses different model than locator (haiku)", () => {
-      // Verify model selection varies by agent purpose
+    test("debugger uses same model as locator (opus)", () => {
       const debuggerAgent = getBuiltinAgent("debugger");
       const locatorAgent = getBuiltinAgent("codebase-locator");
 
-      // Locator uses haiku (fast, simple task)
-      expect(locatorAgent?.model).toBe("haiku");
-
-      // Debugger uses sonnet (balanced for debugging)
-      expect(debuggerAgent?.model).toBe("sonnet");
+      expect(locatorAgent?.model).toBe("opus");
+      expect(debuggerAgent?.model).toBe("opus");
     });
 
     test("agent definition preserves model in command", () => {
@@ -840,8 +836,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       const command = createAgentCommand(agent!);
 
-      // The command is created from agent with sonnet model
-      expect(agent?.model).toBe("sonnet");
+      expect(agent?.model).toBe("opus");
       expect(command.name).toBe("debugger");
     });
   });
@@ -870,7 +865,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       // 5. Verify message content
       const message = context.sentMessages[0];
-      expect(message).toContain("debugging specialist");
+      expect(message).toContain("tasked with debugging and identifying errors");
       expect(message).toContain("fix TypeError in parser.ts");
     });
 
@@ -1157,8 +1152,8 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const analyzerAgent = getBuiltinAgent("codebase-analyzer");
       const locatorAgent = getBuiltinAgent("codebase-locator");
 
-      // Debugger has Edit and Write (10 tools total)
-      expect(debuggerAgent?.tools?.length).toBe(10);
+      // Debugger has full toolset including MCP tools (16 tools total)
+      expect(debuggerAgent?.tools?.length).toBe(16);
 
       // Analyzer and locator are read-only (6 tools)
       expect(analyzerAgent?.tools?.length).toBe(6);
@@ -1170,16 +1165,16 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       );
     });
 
-    test("debugger uses intermediate model tier", () => {
+    test("debugger uses opus model tier", () => {
       const debuggerAgent = getBuiltinAgent("debugger");
       const analyzerAgent = getBuiltinAgent("codebase-analyzer");
       const locatorAgent = getBuiltinAgent("codebase-locator");
       const patternAgent = getBuiltinAgent("codebase-pattern-finder");
 
       // Verify model distribution across agents
-      expect(locatorAgent?.model).toBe("haiku"); // Simple/fast
-      expect(patternAgent?.model).toBe("sonnet"); // Balanced
-      expect(debuggerAgent?.model).toBe("sonnet"); // Balanced
+      expect(locatorAgent?.model).toBe("opus"); // Simple/fast
+      expect(patternAgent?.model).toBe("opus"); // Balanced
+      expect(debuggerAgent?.model).toBe("opus"); // Powerful
       expect(analyzerAgent?.model).toBe("opus"); // Powerful
     });
 
@@ -1235,29 +1230,26 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       const prompt = agent!.prompt;
 
-      // Should include markdown template for debug report
-      expect(prompt).toContain("## Debug Report");
-      expect(prompt).toContain("### Error Summary");
-      expect(prompt).toContain("### Error Details");
-      expect(prompt).toContain("### Root Cause");
-      expect(prompt).toContain("### Investigation Steps");
-      expect(prompt).toContain("### Fix Applied");
-      expect(prompt).toContain("### Verification");
-      expect(prompt).toContain("### Recommendations");
+      // Should include guidance for debug report content
+      expect(prompt).toContain("Root cause explanation");
+      expect(prompt).toContain("Evidence supporting the diagnosis");
+      expect(prompt).toContain("Suggested code fix");
+      expect(prompt).toContain("Testing approach");
+      expect(prompt).toContain("Prevention recommendations");
     });
 
-    test("prompt includes error type classification", () => {
+    test("prompt includes error investigation guidance", () => {
       const agent = getBuiltinAgent("debugger");
       expect(agent).toBeDefined();
 
       const prompt = agent!.prompt;
 
-      // Should classify error types
-      expect(prompt).toContain("syntax");
-      expect(prompt).toContain("runtime");
-      expect(prompt).toContain("logic");
-      expect(prompt).toContain("type");
-      expect(prompt).toContain("test failure");
+      // Should describe error investigation approaches
+      expect(prompt).toContain("error message");
+      expect(prompt).toContain("stack trace");
+      expect(prompt).toContain("reproduction steps");
+      expect(prompt).toContain("failure location");
+      expect(prompt).toContain("test failures");
     });
 
     test("prompt includes location format guidance", () => {

@@ -357,6 +357,7 @@ describe("CommandRegistry", () => {
         addMessage: () => {},
         setStreaming: () => {},
         sendMessage: () => {},
+        sendSilentMessage: () => {},
         spawnSubagent: async () => ({ success: true, output: "Mock output" }),
         agentType: undefined,
         modelOps: undefined,
@@ -389,6 +390,7 @@ describe("CommandRegistry", () => {
         addMessage: () => {},
         setStreaming: () => {},
         sendMessage: () => {},
+        sendSilentMessage: () => {},
         spawnSubagent: async () => ({ success: true, output: "Mock output" }),
         agentType: undefined,
         modelOps: undefined,
@@ -421,6 +423,7 @@ describe("CommandRegistry", () => {
         addMessage: () => {},
         setStreaming: () => {},
         sendMessage: () => {},
+        sendSilentMessage: () => {},
         spawnSubagent: async () => ({ success: true, output: "Mock output" }),
         agentType: undefined,
         modelOps: undefined,
@@ -538,6 +541,7 @@ describe("CommandContext interface", () => {
       addMessage: () => {},
       setStreaming: () => {},
       sendMessage: () => {},
+      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "" }),
     };
 
@@ -551,6 +555,7 @@ describe("CommandContext interface", () => {
       addMessage: () => {},
       setStreaming: () => {},
       sendMessage: () => {},
+      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "" }),
     };
 
@@ -571,6 +576,7 @@ describe("CommandContext interface", () => {
       },
       setStreaming: () => {},
       sendMessage: () => {},
+      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "" }),
     };
 
@@ -591,6 +597,7 @@ describe("CommandContext interface", () => {
         capturedStreaming = streaming;
       },
       sendMessage: () => {},
+      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "" }),
     };
 
@@ -610,6 +617,7 @@ describe("CommandContext interface", () => {
       sendMessage: (content) => {
         capturedContent = content;
       },
+      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "" }),
     };
 
@@ -625,6 +633,7 @@ describe("CommandContext interface", () => {
       addMessage: () => {},
       setStreaming: () => {},
       sendMessage: () => {},
+      sendSilentMessage: () => {},
       spawnSubagent: async (options) => ({
         success: true,
         output: `Executed with prompt: ${options.systemPrompt}`,

@@ -46,6 +46,12 @@ function createMockContext(
         options.onSendMessage(content);
       }
     },
+    sendSilentMessage: (content: string) => {
+      sentMessages.push(content);
+      if (options.onSendMessage) {
+        options.onSendMessage(content);
+      }
+    },
     spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
     sentMessages,
   };

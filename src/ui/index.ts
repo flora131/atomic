@@ -108,8 +108,8 @@ interface ChatUIState {
   showCtrlCWarning: ((show: boolean) => void) | null;
   /** Whether tool events are being received via hooks (to avoid duplicates from stream) */
   toolEventsViaHooks: boolean;
-  /** Set of active tool names (for deduplication) */
-  activeToolNames: Set<string>;
+  /** Set of active tool IDs (for deduplication of duplicate events) */
+  activeToolIds: Set<string>;
   /** AbortController for the current stream (to interrupt on Escape/Ctrl+C) */
   streamAbortController: AbortController | null;
   /** Whether streaming is currently active */
@@ -189,7 +189,7 @@ export async function startChatUI(
     ctrlCTimeout: null,
     showCtrlCWarning: null,
     toolEventsViaHooks: false,
-    activeToolNames: new Set(),
+    activeToolIds: new Set(),
     streamAbortController: null,
     isStreaming: false,
     parallelAgentHandler: null,
@@ -286,18 +286,27 @@ export async function startChatUI(
     // This prevents duplicate tool events from stream processing
     state.toolEventsViaHooks = true;
 
+    // Track tool name → stack of tool IDs (for concurrent same-name tools)
+    const toolNameToIds = new Map<string, string[]>();
+
     // Subscribe to tool.start events
     const unsubStart = client.on("tool.start", (event) => {
       const data = event.data as { toolName?: string; toolInput?: unknown };
       if (state.toolStartHandler && data.toolName) {
-        // Check for duplicate tool starts (same tool already running)
-        if (state.activeToolNames.has(data.toolName)) {
-          return; // Skip duplicate
-        }
-        state.activeToolNames.add(data.toolName);
-
         const toolId = `tool_${++state.toolIdCounter}`;
+
+        // Check for duplicate events (same toolId already tracked)
+        if (state.activeToolIds.has(toolId)) {
+          return; // Skip duplicate event
+        }
+        state.activeToolIds.add(toolId);
+
+        // Track name → ID stack (allows concurrent same-name tools)
+        const ids = toolNameToIds.get(data.toolName) ?? [];
+        ids.push(toolId);
+        toolNameToIds.set(data.toolName, ids);
         toolNameToId.set(data.toolName, toolId);
+
         state.toolStartHandler(
           toolId,
           data.toolName,
@@ -310,10 +319,20 @@ export async function startChatUI(
     const unsubComplete = client.on("tool.complete", (event) => {
       const data = event.data as { toolName?: string; toolResult?: unknown; success?: boolean; error?: string; toolInput?: Record<string, unknown> };
       if (state.toolCompleteHandler) {
-        // Try to find the tool ID from our map, or use the counter
-        const toolId = data.toolName
-          ? (toolNameToId.get(data.toolName) ?? `tool_${state.toolIdCounter}`)
-          : `tool_${state.toolIdCounter}`;
+        // Find the matching tool ID from the stack (FIFO order)
+        let toolId: string;
+        if (data.toolName) {
+          const ids = toolNameToIds.get(data.toolName);
+          toolId = ids?.shift() ?? toolNameToId.get(data.toolName) ?? `tool_${state.toolIdCounter}`;
+          if (ids && ids.length === 0) {
+            toolNameToIds.delete(data.toolName);
+            toolNameToId.delete(data.toolName);
+          } else if (ids && ids.length > 0) {
+            toolNameToId.set(data.toolName, ids[0] as string);
+          }
+        } else {
+          toolId = `tool_${state.toolIdCounter}`;
+        }
 
         state.toolCompleteHandler(
           toolId,
@@ -324,10 +343,7 @@ export async function startChatUI(
         );
 
         // Clean up tracking
-        if (data.toolName) {
-          toolNameToId.delete(data.toolName);
-          state.activeToolNames.delete(data.toolName);
-        }
+        state.activeToolIds.delete(toolId);
       }
     });
 
@@ -666,6 +682,21 @@ export async function startChatUI(
     const getSession = () => state.session;
 
     /**
+     * Reset the current session (destroy and nullify).
+     * A new session will be created automatically on the next message.
+     */
+    const resetSession = async () => {
+      if (state.session) {
+        try {
+          await state.session.destroy();
+        } catch {
+          // Session may already be destroyed
+        }
+        state.session = null;
+      }
+    };
+
+    /**
      * Factory for creating independent sub-agent sessions.
      * Delegates to client.createSession() to give each sub-agent its own context.
      */
@@ -690,6 +721,7 @@ export async function startChatUI(
             onSendMessage: handleSendMessage,
             onStreamMessage: handleStreamMessage,
             onExit: handleExit,
+            onResetSession: resetSession,
             onInterrupt: handleInterruptFromUI,
             registerToolStartHandler,
             registerToolCompleteHandler,

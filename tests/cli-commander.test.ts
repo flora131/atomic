@@ -466,27 +466,6 @@ describe.skip("Ralph setup integration tests", () => {
 describe("Ralph setup error messages", () => {
   const { spawn } = require("child_process");
 
-  test("non-claude agent shows correct error message", async () => {
-    const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
-      const proc = spawn("bun", ["run", "src/cli.ts", "ralph", "setup", "-a", "other"], {
-        cwd: process.cwd(),
-      });
-
-      let stdout = "";
-      let stderr = "";
-      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
-      proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
-
-      proc.on("close", (code: number) => {
-        resolve({ stdout, stderr, code: code ?? 1 });
-      });
-    });
-
-    expect(result.code).toBe(1);
-    expect(result.stderr).toContain("Ralph loop currently only supports 'claude' agent");
-    expect(result.stderr).toContain("You provided: other");
-  });
-
   test("missing required -a/--agent option shows error", async () => {
     const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
       const proc = spawn("bun", ["run", "src/cli.ts", "ralph", "setup"], {

@@ -258,8 +258,6 @@ export class CopilotClient implements CodingAgentClient {
       },
 
       stream: (message: string): AsyncIterable<AgentMessage> => {
-        // eslint-disable-next-line @typescript-eslint/no-this-alias
-        const self = this;
         return {
           [Symbol.asyncIterator]: async function* () {
             if (state.isClosed) {
@@ -317,34 +315,20 @@ export class CopilotClient implements CodingAgentClient {
                   });
                   notifyConsumer();
                 }
-                // Reset hasYieldedDeltas for the next turn (after tool execution)
-                hasYieldedDeltas = false;
+                // NOTE: Do NOT reset hasYieldedDeltas here. In multi-turn agentic
+                // flows (tool call → agent responds again), resetting would allow
+                // a subsequent assistant.message to push full accumulated text into
+                // chunks[], duplicating all previously streamed delta content.
+                // hasYieldedDeltas will be set to true naturally when new deltas arrive.
                 // Don't set done = true here - wait for session.idle
                 // Tool execution may cause multiple assistant.message events
               } else if (event.type === "session.idle") {
                 done = true;
                 notifyConsumer();
-              } else if (event.type === "tool.execution_start") {
-                // Track toolCallId -> toolName mapping for the complete event
-                if (event.data.toolCallId && event.data.toolName) {
-                  state.toolCallIdToName.set(event.data.toolCallId, event.data.toolName);
-                }
-                self.emitEvent("tool.start", sessionId, {
-                  toolName: event.data.toolName,
-                  toolInput: event.data.arguments,
-                });
-              } else if (event.type === "tool.execution_complete") {
-                // Look up the actual tool name from the toolCallId
-                const toolName = state.toolCallIdToName.get(event.data.toolCallId) ?? event.data.toolCallId;
-                // Clean up the mapping
-                state.toolCallIdToName.delete(event.data.toolCallId);
-                self.emitEvent("tool.complete", sessionId, {
-                  toolName,
-                  success: event.data.success,
-                  toolResult: event.data.result?.content,
-                  error: event.data.error?.message,
-                });
               }
+              // NOTE: tool.execution_start and tool.execution_complete are handled
+              // by handleSdkEvent (via the wrapSession subscription). Do NOT emit
+              // unified tool events here to avoid duplicate event delivery.
             };
 
             const unsub = state.sdkSession.on(eventHandler);
@@ -598,6 +582,26 @@ export class CopilotClient implements CodingAgentClient {
       tools: this.registeredTools.map((t) => this.convertTool(t)),
       onPermissionRequest: permissionHandler,
       customAgents: customAgents.length > 0 ? customAgents : undefined,
+      mcpServers: config.mcpServers
+        ? Object.fromEntries(
+            config.mcpServers.map((s) => {
+              if (s.url) {
+                return [s.name, {
+                  type: (s.type === "sse" ? "sse" : "http") as "http" | "sse",
+                  url: s.url,
+                  tools: ["*"],
+                }];
+              }
+              return [s.name, {
+                type: "stdio" as const,
+                command: s.command ?? "",
+                args: s.args ?? [],
+                env: s.env,
+                tools: ["*"],
+              }];
+            })
+          )
+        : undefined,
     };
 
     const sdkSession = await this.sdkClient.createSession(sdkConfig);
@@ -612,9 +616,12 @@ export class CopilotClient implements CodingAgentClient {
       throw new Error("Client not started. Call start() first.");
     }
 
-    // Check if session is already active locally
+    // Check if session is already active locally — reuse without re-wrapping
+    // to avoid adding duplicate sdkSession.on() subscriptions
     const existingState = this.sessions.get(sessionId);
     if (existingState && !existingState.isClosed) {
+      // Unsubscribe old handler before re-wrapping to prevent subscription accumulation
+      existingState.unsubscribe();
       return this.wrapSession(existingState.sdkSession, existingState.config);
     }
 

@@ -162,7 +162,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
   private eventHandlers: Map<EventType, Set<EventHandler<EventType>>> =
     new Map();
   private sessions: Map<string, ClaudeSessionState> = new Map();
-  private registeredHooks: ClaudeHookConfig = {};
+  private registeredHooks: Record<string, HookCallback[]> = {};
   private registeredTools: Map<string, McpSdkServerConfigWithInstance> =
     new Map();
   private isRunning = false;
@@ -271,12 +271,24 @@ export class ClaudeAgentClient implements CodingAgentClient {
     if (config.mcpServers && config.mcpServers.length > 0) {
       options.mcpServers = {};
       for (const server of config.mcpServers) {
-        options.mcpServers[server.name] = {
-          type: "stdio",
-          command: server.command,
-          args: server.args,
-          env: server.env,
-        };
+        if (server.url && server.type === "sse") {
+          options.mcpServers[server.name] = {
+            type: "sse" as const,
+            url: server.url,
+          };
+        } else if (server.url) {
+          options.mcpServers[server.name] = {
+            type: "http" as const,
+            url: server.url,
+          };
+        } else if (server.command) {
+          options.mcpServers[server.name] = {
+            type: "stdio" as const,
+            command: server.command,
+            args: server.args,
+            env: server.env,
+          };
+        }
       }
     }
 

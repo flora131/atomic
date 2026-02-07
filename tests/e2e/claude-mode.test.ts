@@ -360,6 +360,7 @@ function createMockContextWithClaude(
     sendMessage: (content) => {
       messages.push({ role: "user", content });
     },
+    sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "Mock Claude sub-agent output" }),
     agentType: "claude",
     modelOps: undefined,
@@ -633,7 +634,7 @@ describe("E2E test: Run all functionality in claude mode", () => {
 
       const agent = getBuiltinAgent("codebase-locator");
       expect(agent).toBeDefined();
-      expect(agent?.model).toBe("haiku");
+      expect(agent?.model).toBe("opus");
 
       const context = createMockContextWithClaude();
       const command = createAgentCommand(agent!);
@@ -650,7 +651,7 @@ describe("E2E test: Run all functionality in claude mode", () => {
 
       const agent = getBuiltinAgent("debugger");
       expect(agent).toBeDefined();
-      expect(agent?.model).toBe("sonnet");
+      expect(agent?.model).toBe("opus");
 
       const context = createMockContextWithClaude();
       const command = createAgentCommand(agent!);

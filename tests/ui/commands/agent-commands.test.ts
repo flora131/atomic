@@ -318,13 +318,13 @@ When analyzing code:
       name: "codebase-locator",
       description: "Locates files, directories, and components relevant to a feature or task.",
       tools: ["Glob", "Grep", "NotebookRead", "Read", "LS", "Bash"],
-      model: "haiku",
+      model: "opus",
       prompt: "You are a file locator specialist. Find relevant files and components quickly.",
       source: "builtin",
     };
 
     expect(codebaseLocator.name).toBe("codebase-locator");
-    expect(codebaseLocator.model).toBe("haiku");
+    expect(codebaseLocator.model).toBe("opus");
     expect(codebaseLocator.source).toBe("builtin");
   });
 
@@ -332,8 +332,8 @@ When analyzing code:
     const debugger_agent: AgentDefinition = {
       name: "debugger",
       description: "Debugging specialist for errors, test failures, and unexpected behavior.",
-      tools: ["Bash", "Task", "AskUserQuestion", "Edit", "Glob", "Grep", "Read", "Write", "WebFetch", "WebSearch"],
-      model: "sonnet",
+      tools: ["Bash", "Task", "AskUserQuestion", "Edit", "Glob", "Grep", "NotebookEdit", "NotebookRead", "Read", "TodoWrite", "Write", "ListMcpResourcesTool", "ReadMcpResourceTool", "mcp__deepwiki__ask_question", "WebFetch", "WebSearch"],
+      model: "opus",
       prompt: "You are a debugging specialist. Analyze errors, identify root causes, and provide fixes.",
       source: "builtin",
     };
@@ -341,7 +341,7 @@ When analyzing code:
     expect(debugger_agent.name).toBe("debugger");
     expect(debugger_agent.tools).toContain("Edit");
     expect(debugger_agent.tools).toContain("Write");
-    expect(debugger_agent.model).toBe("sonnet");
+    expect(debugger_agent.model).toBe("opus");
   });
 });
 
@@ -981,15 +981,15 @@ describe("codebase-analyzer builtin agent", () => {
   });
 
   test("prompt includes analysis process steps", () => {
-    expect(analyzer!.prompt).toContain("Understand the Request");
-    expect(analyzer!.prompt).toContain("Gather Context");
-    expect(analyzer!.prompt).toContain("Analyze Structure");
+    expect(analyzer!.prompt).toContain("Read Entry Points");
+    expect(analyzer!.prompt).toContain("Follow the Code Path");
+    expect(analyzer!.prompt).toContain("Document Key Logic");
   });
 
   test("prompt includes output format guidelines", () => {
     expect(analyzer!.prompt).toContain("Overview");
-    expect(analyzer!.prompt).toContain("Architecture");
-    expect(analyzer!.prompt).toContain("Key Components");
+    expect(analyzer!.prompt).toContain("Entry Points");
+    expect(analyzer!.prompt).toContain("Core Implementation");
   });
 
   test("has builtin source", () => {
@@ -1023,34 +1023,34 @@ describe("codebase-locator builtin agent", () => {
     expect(locator!.tools).toContain("NotebookRead");
   });
 
-  test("has haiku model for speed", () => {
-    expect(locator!.model).toBe("haiku");
+  test("has opus model", () => {
+    expect(locator!.model).toBe("opus");
   });
 
   test("has comprehensive system prompt", () => {
     expect(locator!.prompt.length).toBeGreaterThan(500);
-    expect(locator!.prompt).toContain("navigation");
+    expect(locator!.prompt).toContain("finding WHERE code lives");
     expect(locator!.prompt).toContain("locate");
   });
 
-  test("prompt includes navigation strategy steps", () => {
-    expect(locator!.prompt).toContain("Understand the Target");
-    expect(locator!.prompt).toContain("Quick Pattern Matching");
-    expect(locator!.prompt).toContain("Content Search");
-    expect(locator!.prompt).toContain("Directory Exploration");
-    expect(locator!.prompt).toContain("Verification");
+  test("prompt includes search strategy steps", () => {
+    expect(locator!.prompt).toContain("Find Files by Topic/Feature");
+    expect(locator!.prompt).toContain("Categorize Findings");
+    expect(locator!.prompt).toContain("Return Structured Results");
+    expect(locator!.prompt).toContain("Initial Broad Search");
+    expect(locator!.prompt).toContain("Refine by Language/Framework");
   });
 
   test("prompt includes common file patterns", () => {
     expect(locator!.prompt).toContain("components");
     expect(locator!.prompt).toContain("services");
-    expect(locator!.prompt).toContain("utils");
+    expect(locator!.prompt).toContain("lib");
   });
 
   test("prompt includes output format guidelines", () => {
-    expect(locator!.prompt).toContain("Primary Matches");
-    expect(locator!.prompt).toContain("Related Files");
-    expect(locator!.prompt).toContain("Directory Structure");
+    expect(locator!.prompt).toContain("Implementation Files");
+    expect(locator!.prompt).toContain("Test Files");
+    expect(locator!.prompt).toContain("Related Directories");
   });
 
   test("has builtin source", () => {
@@ -1088,7 +1088,7 @@ describe("getBuiltinAgent", () => {
     const agent = getBuiltinAgent("codebase-locator");
     expect(agent).toBeDefined();
     expect(agent!.name).toBe("codebase-locator");
-    expect(agent!.model).toBe("haiku");
+    expect(agent!.model).toBe("opus");
   });
 
   test("finds codebase-locator case-insensitively", () => {
@@ -1101,7 +1101,7 @@ describe("getBuiltinAgent", () => {
     const agent = getBuiltinAgent("codebase-pattern-finder");
     expect(agent).toBeDefined();
     expect(agent!.name).toBe("codebase-pattern-finder");
-    expect(agent!.model).toBe("sonnet");
+    expect(agent!.model).toBe("opus");
   });
 
   test("finds codebase-pattern-finder case-insensitively", () => {
@@ -1114,7 +1114,7 @@ describe("getBuiltinAgent", () => {
     const agent = getBuiltinAgent("codebase-online-researcher");
     expect(agent).toBeDefined();
     expect(agent!.name).toBe("codebase-online-researcher");
-    expect(agent!.model).toBe("sonnet");
+    expect(agent!.model).toBe("opus");
   });
 
   test("finds codebase-online-researcher case-insensitively", () => {
@@ -1136,7 +1136,7 @@ describe("codebase-pattern-finder builtin agent", () => {
   });
 
   test("has appropriate description", () => {
-    expect(patternFinder!.description).toContain("Finds");
+    expect(patternFinder!.description).toContain("finding similar implementations");
     expect(patternFinder!.description).toContain("patterns");
   });
 
@@ -1151,7 +1151,7 @@ describe("codebase-pattern-finder builtin agent", () => {
   });
 
   test("has sonnet model", () => {
-    expect(patternFinder!.model).toBe("sonnet");
+    expect(patternFinder!.model).toBe("opus");
   });
 
   test("has comprehensive system prompt", () => {
@@ -1161,26 +1161,23 @@ describe("codebase-pattern-finder builtin agent", () => {
   });
 
   test("prompt includes pattern finding strategy steps", () => {
-    expect(patternFinder!.prompt).toContain("Understand the Request");
-    expect(patternFinder!.prompt).toContain("Search for Similar Structures");
-    expect(patternFinder!.prompt).toContain("Identify Code Patterns");
-    expect(patternFinder!.prompt).toContain("Analyze Found Examples");
-    expect(patternFinder!.prompt).toContain("Extract Actionable Insights");
+    expect(patternFinder!.prompt).toContain("Identify Pattern Types");
+    expect(patternFinder!.prompt).toContain("Read and Extract");
+    expect(patternFinder!.prompt).toContain("Find Similar Implementations");
   });
 
   test("prompt includes pattern categories", () => {
-    expect(patternFinder!.prompt).toContain("Structural Patterns");
-    expect(patternFinder!.prompt).toContain("Naming Conventions");
-    expect(patternFinder!.prompt).toContain("Implementation Patterns");
-    expect(patternFinder!.prompt).toContain("Error Handling");
+    expect(patternFinder!.prompt).toContain("API Patterns");
+    expect(patternFinder!.prompt).toContain("Data Patterns");
+    expect(patternFinder!.prompt).toContain("Component Patterns");
+    expect(patternFinder!.prompt).toContain("Testing Patterns");
   });
 
   test("prompt includes output format guidelines", () => {
-    expect(patternFinder!.prompt).toContain("Pattern Summary");
-    expect(patternFinder!.prompt).toContain("Best Examples");
-    expect(patternFinder!.prompt).toContain("Implementation Details");
-    expect(patternFinder!.prompt).toContain("Usage Guidelines");
-    expect(patternFinder!.prompt).toContain("Variations");
+    expect(patternFinder!.prompt).toContain("Pattern Examples");
+    expect(patternFinder!.prompt).toContain("Key aspects");
+    expect(patternFinder!.prompt).toContain("Pattern Usage in Codebase");
+    expect(patternFinder!.prompt).toContain("Related Utilities");
   });
 
   test("has builtin source", () => {
@@ -1200,7 +1197,7 @@ describe("codebase-online-researcher builtin agent", () => {
   });
 
   test("has appropriate description", () => {
-    expect(researcher!.description).toContain("Researches");
+    expect(researcher!.description).toContain("information");
     expect(researcher!.description).toContain("web");
   });
 
@@ -1215,8 +1212,8 @@ describe("codebase-online-researcher builtin agent", () => {
     expect(researcher!.tools).toContain("mcp__deepwiki__ask_question");
   });
 
-  test("has sonnet model", () => {
-    expect(researcher!.model).toBe("sonnet");
+  test("has opus model", () => {
+    expect(researcher!.model).toBe("opus");
   });
 
   test("has comprehensive system prompt", () => {
@@ -1226,24 +1223,22 @@ describe("codebase-online-researcher builtin agent", () => {
   });
 
   test("prompt includes research strategy steps", () => {
-    expect(researcher!.prompt).toContain("Understand the Research Goal");
-    expect(researcher!.prompt).toContain("Check Local Context First");
-    expect(researcher!.prompt).toContain("Search the Web");
-    expect(researcher!.prompt).toContain("Fetch Specific Resources");
-    expect(researcher!.prompt).toContain("Query Repository Documentation");
+    expect(researcher!.prompt).toContain("Analyze the Query");
+    expect(researcher!.prompt).toContain("Execute Strategic Searches");
+    expect(researcher!.prompt).toContain("Fetch and Analyze Content");
+    expect(researcher!.prompt).toContain("Synthesize Findings");
   });
 
   test("prompt includes output format guidelines", () => {
     expect(researcher!.prompt).toContain("Summary");
-    expect(researcher!.prompt).toContain("Key Findings");
-    expect(researcher!.prompt).toContain("Sources");
-    expect(researcher!.prompt).toContain("Code Examples");
-    expect(researcher!.prompt).toContain("Recommendations");
-    expect(researcher!.prompt).toContain("Caveats");
+    expect(researcher!.prompt).toContain("Detailed Findings");
+    expect(researcher!.prompt).toContain("Additional Resources");
+    expect(researcher!.prompt).toContain("Gaps or Limitations");
   });
 
   test("prompt mentions DeepWiki tool", () => {
-    expect(researcher!.prompt).toContain("mcp__deepwiki__ask_question");
+    expect(researcher!.prompt).toContain("DeepWiki");
+    expect(researcher!.prompt).toContain("ask_question");
   });
 
   test("has builtin source", () => {
@@ -1263,8 +1258,8 @@ describe("codebase-research-analyzer builtin agent", () => {
   });
 
   test("has appropriate description", () => {
-    expect(researchAnalyzer!.description).toContain("Deep dive");
     expect(researchAnalyzer!.description).toContain("research");
+    expect(researchAnalyzer!.description).toContain("codebase-analyzer");
   });
 
   test("has tools array with research analysis tools", () => {
@@ -1276,37 +1271,33 @@ describe("codebase-research-analyzer builtin agent", () => {
     expect(researchAnalyzer!.tools).toContain("Bash");
   });
 
-  test("has sonnet model", () => {
-    expect(researchAnalyzer!.model).toBe("sonnet");
+  test("has opus model", () => {
+    expect(researchAnalyzer!.model).toBe("opus");
   });
 
   test("has comprehensive system prompt", () => {
     expect(researchAnalyzer!.prompt.length).toBeGreaterThan(500);
-    expect(researchAnalyzer!.prompt).toContain("research");
-    expect(researchAnalyzer!.prompt).toContain("analysis");
+    expect(researchAnalyzer!.prompt).toContain("insights");
+    expect(researchAnalyzer!.prompt).toContain("documents");
   });
 
   test("prompt includes research analysis strategy steps", () => {
-    expect(researchAnalyzer!.prompt).toContain("Survey the Research Landscape");
-    expect(researchAnalyzer!.prompt).toContain("Understand the Context");
-    expect(researchAnalyzer!.prompt).toContain("Deep Dive Analysis");
-    expect(researchAnalyzer!.prompt).toContain("Extract Insights");
-    expect(researchAnalyzer!.prompt).toContain("Synthesize Knowledge");
+    expect(researchAnalyzer!.prompt).toContain("Read with Purpose");
+    expect(researchAnalyzer!.prompt).toContain("Extract Strategically");
+    expect(researchAnalyzer!.prompt).toContain("Filter Ruthlessly");
   });
 
-  test("prompt includes document types", () => {
-    expect(researchAnalyzer!.prompt).toContain("research/progress.txt");
-    expect(researchAnalyzer!.prompt).toContain("research/feature-list.json");
-    expect(researchAnalyzer!.prompt).toContain("research/spec.md");
-    expect(researchAnalyzer!.prompt).toContain("research/architecture.md");
+  test("prompt includes quality filters", () => {
+    expect(researchAnalyzer!.prompt).toContain("Include Only If");
+    expect(researchAnalyzer!.prompt).toContain("Exclude If");
   });
 
   test("prompt includes output format guidelines", () => {
-    expect(researchAnalyzer!.prompt).toContain("Research Overview");
-    expect(researchAnalyzer!.prompt).toContain("Key Findings");
-    expect(researchAnalyzer!.prompt).toContain("Current State");
-    expect(researchAnalyzer!.prompt).toContain("Gaps Identified");
-    expect(researchAnalyzer!.prompt).toContain("Recommendations");
+    expect(researchAnalyzer!.prompt).toContain("Document Context");
+    expect(researchAnalyzer!.prompt).toContain("Key Decisions");
+    expect(researchAnalyzer!.prompt).toContain("Critical Constraints");
+    expect(researchAnalyzer!.prompt).toContain("Actionable Insights");
+    expect(researchAnalyzer!.prompt).toContain("Relevance Assessment");
   });
 
   test("has builtin source", () => {
@@ -1319,7 +1310,7 @@ describe("getBuiltinAgent for codebase-research-analyzer", () => {
     const agent = getBuiltinAgent("codebase-research-analyzer");
     expect(agent).toBeDefined();
     expect(agent!.name).toBe("codebase-research-analyzer");
-    expect(agent!.model).toBe("sonnet");
+    expect(agent!.model).toBe("opus");
   });
 
   test("finds codebase-research-analyzer case-insensitively", () => {
@@ -1365,8 +1356,8 @@ describe("codebase-research-locator builtin agent", () => {
     expect(researchLocator!.tools).toContain("Bash");
   });
 
-  test("has haiku model for speed", () => {
-    expect(researchLocator!.model).toBe("haiku");
+  test("has opus model", () => {
+    expect(researchLocator!.model).toBe("opus");
   });
 
   test("has comprehensive system prompt", () => {
@@ -1376,24 +1367,21 @@ describe("codebase-research-locator builtin agent", () => {
   });
 
   test("prompt includes document discovery strategy steps", () => {
-    expect(researchLocator!.prompt).toContain("Understand the Search Goal");
-    expect(researchLocator!.prompt).toContain("Quick Directory Survey");
-    expect(researchLocator!.prompt).toContain("Pattern-Based Search");
-    expect(researchLocator!.prompt).toContain("Content Verification");
-    expect(researchLocator!.prompt).toContain("Provide Targeted Results");
+    expect(researchLocator!.prompt).toContain("Search research/ directory structure");
+    expect(researchLocator!.prompt).toContain("Categorize findings by type");
+    expect(researchLocator!.prompt).toContain("Return organized results");
   });
 
-  test("prompt includes common research document types", () => {
-    expect(researchLocator!.prompt).toContain("progress.txt");
-    expect(researchLocator!.prompt).toContain("feature-list.json");
-    expect(researchLocator!.prompt).toContain("spec.md");
-    expect(researchLocator!.prompt).toContain("architecture.md");
+  test("prompt includes research directory structure", () => {
+    expect(researchLocator!.prompt).toContain("tickets/");
+    expect(researchLocator!.prompt).toContain("docs/");
+    expect(researchLocator!.prompt).toContain("notes/");
   });
 
   test("prompt includes output format guidelines", () => {
-    expect(researchLocator!.prompt).toContain("Primary Matches");
+    expect(researchLocator!.prompt).toContain("Related Tickets");
     expect(researchLocator!.prompt).toContain("Related Documents");
-    expect(researchLocator!.prompt).toContain("Document Structure");
+    expect(researchLocator!.prompt).toContain("Related Discussions");
   });
 
   test("has builtin source", () => {
@@ -1406,7 +1394,7 @@ describe("getBuiltinAgent for codebase-research-locator", () => {
     const agent = getBuiltinAgent("codebase-research-locator");
     expect(agent).toBeDefined();
     expect(agent!.name).toBe("codebase-research-locator");
-    expect(agent!.model).toBe("haiku");
+    expect(agent!.model).toBe("opus");
   });
 
   test("finds codebase-research-locator case-insensitively", () => {
@@ -1457,8 +1445,8 @@ describe("debugger builtin agent", () => {
     expect(debuggerAgent!.tools).toContain("WebSearch");
   });
 
-  test("has sonnet model", () => {
-    expect(debuggerAgent!.model).toBe("sonnet");
+  test("has opus model", () => {
+    expect(debuggerAgent!.model).toBe("opus");
   });
 
   test("has comprehensive system prompt", () => {
@@ -1468,29 +1456,23 @@ describe("debugger builtin agent", () => {
   });
 
   test("prompt includes debugging process steps", () => {
-    expect(debuggerAgent!.prompt).toContain("Understand the Problem");
-    expect(debuggerAgent!.prompt).toContain("Reproduce the Issue");
-    expect(debuggerAgent!.prompt).toContain("Gather Evidence");
-    expect(debuggerAgent!.prompt).toContain("Form Hypotheses");
-    expect(debuggerAgent!.prompt).toContain("Test Hypotheses");
-    expect(debuggerAgent!.prompt).toContain("Implement Fix");
-    expect(debuggerAgent!.prompt).toContain("Verify Fix");
-    expect(debuggerAgent!.prompt).toContain("Document Findings");
+    expect(debuggerAgent!.prompt).toContain("Capture error message and stack trace");
+    expect(debuggerAgent!.prompt).toContain("Identify reproduction steps");
+    expect(debuggerAgent!.prompt).toContain("Isolate the failure location");
+    expect(debuggerAgent!.prompt).toContain("debugging report");
   });
 
-  test("prompt includes debug report format", () => {
-    expect(debuggerAgent!.prompt).toContain("Debug Report");
-    expect(debuggerAgent!.prompt).toContain("Error Summary");
-    expect(debuggerAgent!.prompt).toContain("Root Cause");
-    expect(debuggerAgent!.prompt).toContain("Investigation Steps");
-    expect(debuggerAgent!.prompt).toContain("Fix Applied");
+  test("prompt includes debugging techniques", () => {
+    expect(debuggerAgent!.prompt).toContain("Analyze error messages and logs");
+    expect(debuggerAgent!.prompt).toContain("Form and test hypotheses");
+    expect(debuggerAgent!.prompt).toContain("Inspect variable states");
   });
 
-  test("prompt includes common debugging patterns", () => {
-    expect(debuggerAgent!.prompt).toContain("Test Failures");
-    expect(debuggerAgent!.prompt).toContain("Runtime Errors");
-    expect(debuggerAgent!.prompt).toContain("Type Errors");
-    expect(debuggerAgent!.prompt).toContain("Build/Compile Errors");
+  test("prompt includes output requirements", () => {
+    expect(debuggerAgent!.prompt).toContain("Root cause explanation");
+    expect(debuggerAgent!.prompt).toContain("Evidence supporting the diagnosis");
+    expect(debuggerAgent!.prompt).toContain("Suggested code fix");
+    expect(debuggerAgent!.prompt).toContain("Prevention recommendations");
   });
 
   test("has builtin source", () => {
@@ -1503,7 +1485,7 @@ describe("getBuiltinAgent for debugger", () => {
     const agent = getBuiltinAgent("debugger");
     expect(agent).toBeDefined();
     expect(agent!.name).toBe("debugger");
-    expect(agent!.model).toBe("sonnet");
+    expect(agent!.model).toBe("opus");
   });
 
   test("finds debugger case-insensitively", () => {
@@ -1571,6 +1553,7 @@ describe("createAgentCommand", () => {
       sendMessage: (content: string) => {
         sentMessage = content;
       },
+      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -1601,6 +1584,7 @@ describe("createAgentCommand", () => {
       sendMessage: (content: string) => {
         sentMessage = content;
       },
+      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -1633,6 +1617,7 @@ describe("createAgentCommand", () => {
       sendMessage: (content: string) => {
         sentMessage = content;
       },
+      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -1747,6 +1732,7 @@ describe("registerBuiltinAgents", () => {
       sendMessage: (content: string) => {
         sentMessage = content;
       },
+      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,

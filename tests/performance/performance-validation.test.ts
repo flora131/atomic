@@ -130,6 +130,7 @@ function createTestContext(models: Model[]): CommandContext {
     addMessage: () => {},
     setStreaming: () => {},
     sendMessage: () => {},
+    sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "Mock output" }),
     agentType: undefined,
     modelOps: createTestModelOps(models),

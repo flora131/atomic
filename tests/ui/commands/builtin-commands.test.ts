@@ -49,6 +49,7 @@ function createMockContext(
     addMessage: () => {},
     setStreaming: () => {},
     sendMessage: () => {},
+    sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
     agentType: undefined,
     modelOps: undefined,
@@ -200,7 +201,7 @@ describe("helpCommand", () => {
     // Check builtin agents with model info
     expect(result.message).toContain("/codebase-analyzer (opus)");
     expect(result.message).toContain("Deep code analysis");
-    expect(result.message).toContain("/debugger (sonnet)");
+    expect(result.message).toContain("/debugger (opus)");
     expect(result.message).toContain("Debug errors");
   });
 
@@ -230,12 +231,12 @@ describe("helpCommand", () => {
 
     // Check all agents are listed with correct models
     expect(result.message).toContain("/codebase-analyzer (opus)");
-    expect(result.message).toContain("/codebase-locator (haiku)");
-    expect(result.message).toContain("/codebase-pattern-finder (sonnet)");
-    expect(result.message).toContain("/codebase-online-researcher (sonnet)");
-    expect(result.message).toContain("/codebase-research-analyzer (sonnet)");
-    expect(result.message).toContain("/codebase-research-locator (haiku)");
-    expect(result.message).toContain("/debugger (sonnet)");
+    expect(result.message).toContain("/codebase-locator (opus)");
+    expect(result.message).toContain("/codebase-pattern-finder (opus)");
+    expect(result.message).toContain("/codebase-online-researcher (opus)");
+    expect(result.message).toContain("/codebase-research-analyzer (opus)");
+    expect(result.message).toContain("/codebase-research-locator (opus)");
+    expect(result.message).toContain("/debugger (opus)");
   });
 
   test("shows custom agents without hardcoded details", async () => {

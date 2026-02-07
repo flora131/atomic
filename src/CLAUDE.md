@@ -25,7 +25,7 @@ Default to using Bun instead of Node.js.
 - Use `bun <file>` instead of `node <file>` or `ts-node <file>`
 - Use `bun test` instead of `jest` or `vitest`
 - Use `bun lint` to run the linters
-- Use `bun type-check` to run TypeScript type checks
+- Use `bun typecheck` to run TypeScript type checks
 - Use `bun build <file.html|file.ts|file.css>` instead of `webpack` or `esbuild`
 - Use `bun install` instead of `npm install` or `yarn install` or `pnpm install`
 - Use `bun run <script>` instead of `npm run <script>` or `yarn run <script>` or `pnpm run <script>`
@@ -50,7 +50,7 @@ test("hello world", () => {
 
 ### Code Quality
 
-- Frequently run linters and type checks using `bun lint` and `bun type-check`.
+- Frequently run linters and type checks using `bun lint` and `bun typecheck`.
 - Avoid Any and Unknown types.
 - Modularize code and avoid re-inventing the wheel. Use functionality of libraries and SDKs whenever possible.
 

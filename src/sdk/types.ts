@@ -26,12 +26,16 @@ export type PermissionMode = "auto" | "prompt" | "deny" | "bypass";
 export interface McpServerConfig {
   /** Unique identifier for the MCP server */
   name: string;
-  /** Command to launch the MCP server */
-  command: string;
+  /** Transport type: stdio for local processes, http/sse for remote servers */
+  type?: "stdio" | "http" | "sse";
+  /** Command to launch the MCP server (required for stdio transport) */
+  command?: string;
   /** Arguments to pass to the MCP server command */
   args?: string[];
   /** Environment variables for the MCP server process */
   env?: Record<string, string>;
+  /** URL for HTTP/SSE transport */
+  url?: string;
 }
 
 /**

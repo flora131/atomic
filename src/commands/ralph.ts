@@ -141,13 +141,13 @@ function displayStepProgress(stepResult: StepResult<RalphWorkflowState>): void {
   const nodeName = getNodeDisplayName(nodeId);
   const statusEmoji = getStatusEmoji(status);
 
-  console.log(`${statusEmoji} ${nodeName} (iteration ${state.iteration})`);
+  console.log(` ${statusEmoji} ${nodeName} (iteration ${state.iteration})`);
 
   // Display feature progress if available
   if (state.features.length > 0) {
     const passingCount = state.features.filter((f) => f.status === "passing").length;
     const totalCount = state.features.length;
-    console.log(`   Features: ${passingCount}/${totalCount} passing`);
+    console.log(`  Features: ${passingCount}/${totalCount} passing`);
   }
 }
 
@@ -230,9 +230,10 @@ async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number>
     // Initialize state
     const initialState = createRalphWorkflowState();
 
-    console.log("═══════════════════════════════════════════════════════════");
-    console.log("Workflow Execution Started");
-    console.log("═══════════════════════════════════════════════════════════\n");
+    const divider = "─".repeat(45);
+    console.log(`\n${divider}`);
+    console.log(` Workflow Execution Started`);
+    console.log(`${divider}\n`);
 
     // Stream execution and handle events
     for await (const stepResult of streamGraph(workflow, { initialState })) {
@@ -240,9 +241,9 @@ async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number>
 
       // Handle human_input_required signal (paused status)
       if (stepResult.status === "paused") {
-        console.log("\n═══════════════════════════════════════════════════════════");
-        console.log("Workflow Paused");
-        console.log("═══════════════════════════════════════════════════════════\n");
+        console.log(`\n${divider}`);
+        console.log(` Workflow Paused`);
+        console.log(`${divider}\n`);
 
         // Prompt for continuation
         const response = await promptUserInput(
@@ -259,21 +260,21 @@ async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number>
 
       // Handle completion
       if (stepResult.status === "completed") {
-        console.log("\n═══════════════════════════════════════════════════════════");
-        console.log("Workflow Completed");
-        console.log("═══════════════════════════════════════════════════════════\n");
+        console.log(`\n${divider}`);
+        console.log(` Workflow Completed`);
+        console.log(`${divider}`);
 
         // Display final feature status
         const { features } = stepResult.state;
         if (features.length > 0) {
           const passingCount = features.filter((f) => f.status === "passing").length;
           const totalCount = features.length;
-          console.log(`📊 Final Feature Status: ${passingCount}/${totalCount} passing`);
+          console.log(`\n 📊 Final Feature Status: ${passingCount}/${totalCount} passing\n`);
 
           if (passingCount < totalCount) {
-            console.log("\nPending Features:");
+            console.log(" Pending Features:");
             for (const feature of features.filter((f) => f.status !== "passing")) {
-              console.log(`   - ${feature.description}`);
+              console.log(`  - ${feature.description}`);
             }
           }
         }
@@ -289,8 +290,8 @@ async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number>
             stepResult.error.error instanceof Error
               ? stepResult.error.error.message
               : String(stepResult.error.error);
-          console.error(`   Error: ${errorMessage}`);
-          console.error(`   Node: ${stepResult.error.nodeId}`);
+          console.error(`  Error: ${errorMessage}`);
+          console.error(`  Node: ${stepResult.error.nodeId}`);
         }
         return 1;
       }

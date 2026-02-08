@@ -1043,6 +1043,12 @@ export function implementFeatureNode<TState extends RalphWorkflowState = RalphWo
           );
       }
 
+      // Append auto-start instruction to prevent the agent from asking for confirmation
+      const autoStartInstruction = "\n\nBegin implementation immediately without asking for confirmation.";
+      if (agentPrompt) {
+        agentPrompt += autoStartInstruction;
+      }
+
       // Create updated state
       const updatedState: Partial<RalphWorkflowState> = {
         features: updatedFeatures,
@@ -1087,8 +1093,15 @@ export function implementFeatureNode<TState extends RalphWorkflowState = RalphWo
         };
       }
 
+      // Even without a template, store auto-start instruction in outputs
       return {
-        stateUpdate: updatedState as Partial<TState>,
+        stateUpdate: {
+          ...updatedState,
+          outputs: {
+            ...state.outputs,
+            [`${id}_prompt`]: `Implement feature: ${feature.name}\n${feature.description}${autoStartInstruction}`,
+          },
+        } as Partial<TState>,
       };
     },
   };
@@ -1155,6 +1168,9 @@ export async function processFeatureImplementationResult(
   const maxIterationsReached =
     state.maxIterations > 0 && nextIteration >= state.maxIterations;
 
+  // Check if all features are now passing
+  const allFeaturesPassing = updatedFeatures.every((f) => f.status === "passing");
+
   // Build updated state
   const updatedState: Partial<RalphWorkflowState> = {
     features: updatedFeatures,
@@ -1162,7 +1178,8 @@ export async function processFeatureImplementationResult(
     iteration: nextIteration,
     currentFeature: null,
     maxIterationsReached,
-    shouldContinue: !maxIterationsReached,
+    allFeaturesPassing,
+    shouldContinue: !maxIterationsReached && !allFeaturesPassing,
     lastUpdated: now,
   };
 

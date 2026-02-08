@@ -2010,7 +2010,7 @@ describe("implementFeatureNode", () => {
       const result = await node.execute(ctx);
 
       expect(result.stateUpdate!.outputs).toBeDefined();
-      expect(result.stateUpdate!.outputs!["my-impl-node_prompt"]).toBe("Implement: Desc");
+      expect(result.stateUpdate!.outputs!["my-impl-node_prompt"]).toBe("Implement: Desc\n\nBegin implementation immediately without asking for confirmation.");
     });
   });
 

@@ -147,6 +147,7 @@ Examples:
     )
     .option("-m, --model <name>", "Model to use for the chat session")
     .option("--max-iterations <n>", "Maximum iterations for workflow mode", "100")
+    .argument("[prompt...]", "Initial prompt to send (opens interactive session with prompt)")
     .addHelpText(
       "after",
       `
@@ -156,13 +157,15 @@ Examples:
   $ atomic chat -a copilot --workflow        Start workflow-enabled chat with Copilot
   $ atomic chat --theme light                Start chat with light theme
   $ atomic chat -w --max-iterations 50       Start workflow with iteration limit
+  $ atomic chat "fix the typecheck errors"   Start chat with an initial prompt
+  $ atomic chat -a claude "refactor utils"   Start chat with agent and prompt
 
 Slash Commands (in workflow mode):
   /workflow - Start the Atomic workflow
   /theme    - Switch theme (dark/light)
   /help     - Show available commands`
     )
-    .action(async (localOpts) => {
+    .action(async (promptParts: string[], localOpts) => {
       // Validate agent choice
       const validAgents = Object.keys(AGENT_CONFIG);
       if (!validAgents.includes(localOpts.agent)) {
@@ -178,12 +181,14 @@ Slash Commands (in workflow mode):
         process.exit(1);
       }
 
+      const prompt = promptParts.length > 0 ? promptParts.join(" ") : undefined;
       const exitCode = await chatCommand({
         agentType: localOpts.agent as "claude" | "opencode" | "copilot",
         workflow: localOpts.workflow,
         theme: localOpts.theme as "dark" | "light",
         model: localOpts.model,
         maxIterations: parseInt(localOpts.maxIterations, 10),
+        initialPrompt: prompt,
       });
 
       process.exit(exitCode);

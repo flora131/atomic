@@ -50,6 +50,8 @@ export interface ChatUIConfig {
   suggestion?: string;
   /** Agent type for model operations */
   agentType?: import("../models").AgentType;
+  /** Initial prompt to auto-submit on session start */
+  initialPrompt?: string;
 }
 
 /**
@@ -200,6 +202,7 @@ export async function startChatUI(
     workingDir,
     suggestion,
     agentType,
+    initialPrompt,
   } = config;
 
   // Create model operations for the agent
@@ -324,6 +327,13 @@ export async function startChatUI(
     // Track tool name → stack of tool IDs (for concurrent same-name tools)
     const toolNameToIds = new Map<string, string[]>();
 
+    // Queue of task descriptions from Task tool calls, consumed by subagent.start
+    const pendingTaskPrompts: string[] = [];
+
+    // Tool IDs attributed to running subagents — their tool.complete events
+    // should also be suppressed from the main conversation UI
+    const subagentToolIds = new Set<string>();
+
     // Subscribe to tool.start events
     const unsubStart = client.on("tool.start", (event) => {
       const data = event.data as { toolName?: string; toolInput?: unknown };
@@ -341,6 +351,44 @@ export async function startChatUI(
         ids.push(toolId);
         toolNameToIds.set(data.toolName, ids);
         toolNameToId.set(data.toolName, toolId);
+
+        // Capture Task tool prompts for subagent.start correlation
+        if (data.toolName === "Task" && data.toolInput) {
+          const input = data.toolInput as Record<string, unknown>;
+          const prompt = (input.prompt as string) ?? (input.description as string) ?? "";
+          if (prompt) {
+            pendingTaskPrompts.push(prompt);
+          }
+        }
+
+        // Propagate tool progress to running subagents in the parallel agents tree.
+        // SDK events (subagent.start / subagent.complete) don't carry intermediate
+        // tool-use updates, so we bridge that gap here by attributing each tool.start
+        // to the most recently started running subagent.
+        // When a tool is attributed to a subagent, skip the main tool UI to avoid
+        // showing subagent-internal tools as top-level conversation entries.
+        let attributedToSubagent = false;
+        if (state.isStreaming && state.parallelAgentHandler && state.parallelAgents.length > 0) {
+          const runningAgent = [...state.parallelAgents]
+            .reverse()
+            .find((a) => a.status === "running");
+          if (runningAgent) {
+            const updatedToolUses = (runningAgent.toolUses ?? 0) + 1;
+            state.parallelAgents = state.parallelAgents.map((a) =>
+              a.id === runningAgent.id
+                ? { ...a, currentTool: data.toolName!, toolUses: updatedToolUses }
+                : a
+            );
+            state.parallelAgentHandler(state.parallelAgents);
+            attributedToSubagent = true;
+          }
+        }
+
+        // Only show in main conversation if not attributed to a subagent
+        if (attributedToSubagent) {
+          subagentToolIds.add(toolId);
+          return;
+        }
 
         state.toolStartHandler(
           toolId,
@@ -369,6 +417,13 @@ export async function startChatUI(
           toolId = `tool_${state.toolIdCounter}`;
         }
 
+        // Skip tool.complete for tools already attributed to a subagent
+        if (subagentToolIds.has(toolId)) {
+          subagentToolIds.delete(toolId);
+          state.activeToolIds.delete(toolId);
+          return;
+        }
+
         state.toolCompleteHandler(
           toolId,
           data.toolResult,
@@ -393,12 +448,12 @@ export async function startChatUI(
         respond?: (answer: string | string[]) => void;
       };
 
-      if (state.permissionRequestHandler && data.question && data.options && data.respond) {
+      if (state.permissionRequestHandler && data.question && data.respond) {
         state.permissionRequestHandler(
           data.requestId ?? `perm_${Date.now()}`,
           data.toolName ?? "Unknown Tool",
           data.question,
-          data.options,
+          data.options ?? [],
           data.respond,
           data.header
         );
@@ -435,13 +490,25 @@ export async function startChatUI(
         task?: string;
       };
 
+      // Skip if stream already ended — late events should not revive cleared agents
+      if (!state.isStreaming) return;
+
       if (state.parallelAgentHandler && data.subagentId) {
+        // Use task from event data, or dequeue a pending Task tool prompt
+        const task = data.task
+          || pendingTaskPrompts.shift()
+          || data.subagentType
+          || "Sub-agent";
+        const agentTypeName = data.subagentType ?? "agent";
         const newAgent: ParallelAgent = {
           id: data.subagentId,
-          name: data.subagentType ?? "agent",
-          task: data.task ?? "",
+          name: agentTypeName,
+          task,
           status: "running",
           startedAt: event.timestamp ?? new Date().toISOString(),
+          // Set initial currentTool so the agent shows activity immediately
+          // instead of just "Initializing..." until tool events arrive
+          currentTool: `Running ${agentTypeName}…`,
         };
         state.parallelAgents = [...state.parallelAgents, newAgent];
         state.parallelAgentHandler(state.parallelAgents);
@@ -456,6 +523,9 @@ export async function startChatUI(
         result?: unknown;
       };
 
+      // Skip if stream already ended
+      if (!state.isStreaming) return;
+
       if (state.parallelAgentHandler && data.subagentId) {
         const status = data.success !== false ? "completed" : "error";
         state.parallelAgents = state.parallelAgents.map((a) =>
@@ -463,6 +533,9 @@ export async function startChatUI(
             ? {
                 ...a,
                 status,
+                // Clear currentTool so getSubStatusText falls through to
+                // the status-based default ("Done" / error message)
+                currentTool: undefined,
                 result: data.result ? String(data.result) : undefined,
                 durationMs: Date.now() - new Date(a.startedAt).getTime(),
               }
@@ -554,12 +627,16 @@ export async function startChatUI(
       }
 
       state.messageCount++;
+      // Clear parallel agents before calling onComplete so late SDK events
+      // don't overwrite the finalized state that onComplete will bake
+      state.parallelAgents = [];
       onComplete();
     } catch (error) {
       // Ignore AbortError - this is expected when user interrupts
       if (error instanceof Error && error.name === "AbortError") {
         // Stream was intentionally aborted
       }
+      state.parallelAgents = [];
       onComplete();
     } finally {
       // Clear streaming state
@@ -582,6 +659,10 @@ export async function startChatUI(
   function handleInterrupt(): void {
     // If streaming, abort the current operation
     if (state.isStreaming && state.streamAbortController) {
+      // Clear streaming state immediately so tool events from SDK
+      // don't flow through and overwrite React state after interrupt
+      state.isStreaming = false;
+      state.parallelAgents = [];
       state.streamAbortController.abort();
       // Reset interrupt state
       state.interruptCount = 0;
@@ -766,6 +847,7 @@ export async function startChatUI(
             registerCtrlCWarningHandler,
             getSession,
             createSubagentSession,
+            initialPrompt,
           }),
         }
       )

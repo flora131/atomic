@@ -139,7 +139,7 @@ function StatusItem({
       {separator && (
         <text style={{ fg: separatorColor }}> │ </text>
       )}
-      <text style={{ fg: color, attributes: 1 }}>{text}</text>
+      <text style={{ fg: color, attributes: 1 }}>{` ${text}`}</text>
     </>
   );
 }

@@ -545,6 +545,41 @@ export class CopilotClient implements CodingAgentClient {
   }
 
   /**
+   * Create an onUserInputRequest handler that enables the ask_user tool.
+   * Maps Copilot SDK's UserInputRequest to our unified permission.requested event,
+   * showing the same UserQuestionDialog as Claude and OpenCode.
+   */
+  private createUserInputHandler(sessionId: string): SdkSessionConfig["onUserInputRequest"] {
+    return async (request) => {
+      // Map choices to our unified options format
+      const options = request.choices
+        ? request.choices.map((choice) => ({
+            label: choice,
+            value: choice,
+          }))
+        : [];
+
+      // Create a promise that resolves when the user responds via the UI
+      const response = await new Promise<string | string[]>((resolve) => {
+        this.emitEvent("permission.requested", sessionId, {
+          requestId: `ask_user_${Date.now()}`,
+          toolName: "ask_user",
+          question: request.question,
+          options,
+          allowFreeform: request.allowFreeform !== false,
+          respond: resolve,
+        });
+      });
+
+      const answer = Array.isArray(response) ? response.join(", ") : response;
+      return {
+        answer,
+        wasFreeform: !request.choices?.includes(answer),
+      };
+    };
+  }
+
+  /**
    * Create a new agent session
    */
   async createSession(config: SessionConfig = {}): Promise<Session> {
@@ -581,6 +616,7 @@ export class CopilotClient implements CodingAgentClient {
       streaming: true,
       tools: this.registeredTools.map((t) => this.convertTool(t)),
       onPermissionRequest: permissionHandler,
+      onUserInputRequest: this.createUserInputHandler(tentativeSessionId),
       customAgents: customAgents.length > 0 ? customAgents : undefined,
       mcpServers: config.mcpServers
         ? Object.fromEntries(
@@ -634,6 +670,7 @@ export class CopilotClient implements CodingAgentClient {
         streaming: true,
         tools: this.registeredTools.map((t) => this.convertTool(t)),
         onPermissionRequest: permissionHandler,
+        onUserInputRequest: this.createUserInputHandler(sessionId),
       };
       const sdkSession = await this.sdkClient.resumeSession(sessionId, resumeConfig);
       return this.wrapSession(sdkSession, {});

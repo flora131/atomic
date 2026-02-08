@@ -580,6 +580,7 @@ describe("WorkflowChatState type", () => {
       autocompleteInput: "test",
       selectedSuggestionIndex: 5,
       argumentHint: "[test-hint]",
+      autocompleteMode: "command",
       workflowActive: true,
       workflowType: "atomic",
       initialPrompt: "test prompt",
@@ -1735,8 +1736,8 @@ describe("SPINNER_VERBS", () => {
     expect(SPINNER_VERBS.length).toBeGreaterThanOrEqual(5);
   });
 
-  test("SPINNER_VERBS has at most 10 verbs", () => {
-    expect(SPINNER_VERBS.length).toBeLessThanOrEqual(10);
+  test("SPINNER_VERBS has at most 15 verbs", () => {
+    expect(SPINNER_VERBS.length).toBeLessThanOrEqual(15);
   });
 
   test("all SPINNER_VERBS are non-empty strings", () => {

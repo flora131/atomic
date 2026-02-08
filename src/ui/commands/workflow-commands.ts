@@ -861,12 +861,21 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
         };
       }
 
-      // Non-yolo mode with no prompt requires the user to provide a prompt
+      // Non-yolo mode with no prompt: auto-default to implement-feature if feature list exists
       if (!parsed.yolo && !parsed.prompt) {
-        return {
-          success: false,
-          message: `Please provide a prompt for the ralph workflow.\nUsage: /ralph <your task description>\n       /ralph --yolo <prompt>\n       /ralph --resume <uuid>`,
-        };
+        if (existsSync(parsed.featureListPath)) {
+          const implSkill = getBuiltinSkill("implement-feature");
+          if (implSkill) {
+            parsed.prompt = implSkill.prompt.replace(/\$ARGUMENTS/g, "");
+          } else {
+            parsed.prompt = "Implement the next feature from the feature list.";
+          }
+        } else {
+          return {
+            success: false,
+            message: `Please provide a prompt for the ralph workflow.\nUsage: /ralph <your task description>\n       /ralph --yolo <prompt>\n       /ralph --resume <uuid>`,
+          };
+        }
       }
 
       // In non-yolo mode, validate feature list file exists

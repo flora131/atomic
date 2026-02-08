@@ -16,6 +16,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentType } from "../utils/telemetry/types.ts";
 import type { CodingAgentClient, McpServerConfig } from "../sdk/types.ts";
+import { getModelPreference } from "../utils/preferences.ts";
 
 // SDK client imports
 import { createClaudeAgentClient } from "../sdk/claude-client.ts";
@@ -49,6 +50,8 @@ export interface ChatCommandOptions {
   workflow?: boolean;
   /** Maximum iterations for workflow */
   maxIterations?: number;
+  /** Initial prompt to send on session start */
+  initialPrompt?: string;
 }
 
 // ============================================================================
@@ -150,7 +153,11 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     agentType = "claude",
     theme = "dark",
     model,
+    initialPrompt,
   } = options;
+
+  // CLI flag takes precedence, then persisted preference
+  const effectiveModel = model ?? getModelPreference(agentType);
 
   const agentName = getAgentDisplayName(agentType);
 
@@ -165,7 +172,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
     // Get model info from the client (after start to ensure connection)
     // Pass the model from CLI options if provided for accurate display
-    const modelDisplayInfo = await client.getModelDisplayInfo(model);
+    const modelDisplayInfo = await client.getModelDisplayInfo(effectiveModel);
 
     // Read MCP server config from .mcp.json
     let mcpServers: McpServerConfig[] | undefined;
@@ -189,18 +196,19 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     // Build chat UI configuration
     const chatConfig: ChatUIConfig = {
       sessionConfig: {
-        model,
+        model: effectiveModel,
         mcpServers,
       },
       theme: getTheme(theme),
       title: `Chat - ${agentName}`,
       placeholder: "Type a message...",
       version: "0.4.4",
-      model: model ?? modelDisplayInfo.model,
+      model: effectiveModel ?? modelDisplayInfo.model,
       tier: modelDisplayInfo.tier,
       workingDir: process.cwd(),
       suggestion: 'Try "fix typecheck errors"',
       agentType,
+      initialPrompt,
     };
 
     // Start standard chat

@@ -15,6 +15,7 @@ import type {
   CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
+import { saveModelPreference } from "../../utils/preferences.ts";
 
 // ============================================================================
 // COMMAND IMPLEMENTATIONS
@@ -363,6 +364,9 @@ export const modelCommand: CommandDefinition = {
     try {
       const resolvedModel = modelOps?.resolveAlias(trimmed) ?? trimmed;
       const result = await modelOps?.setModel(resolvedModel);
+      if (agentType) {
+        saveModelPreference(agentType, resolvedModel);
+      }
       if (result?.requiresNewSession) {
         return {
           success: true,

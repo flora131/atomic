@@ -74,7 +74,7 @@ export const STATUS_ICONS: Record<AgentStatus, string> = {
   pending: "○",
   running: "●",
   completed: "●",
-  error: "✕",
+  error: "●",
   background: "◌",
   interrupted: "●",
 };
@@ -105,6 +105,20 @@ const TREE_CHARS = {
   vertical: "│ ",
   space: "  ",
 };
+
+/**
+ * Indentation for sub-status lines beneath a tree row.
+ * Aligns the ⎿ connector directly under the start of the task text.
+ *
+ * Tree row layout:  `├─ ● task text`
+ *                    ^^^ ^
+ *   treeChar+space=3  icon=1  space+text starts at col 5
+ *
+ * Sub-status line:  `│    ⎿  sub-status text`
+ *                    ^^ ^^^
+ *   continuation=2  pad=3  => ⎿ at col 5
+ */
+const SUB_STATUS_PAD = "   ";
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -260,16 +274,11 @@ function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps):
       {/* Header: ● AgentType(task) */}
       <box flexDirection="row">
         {isRunning ? (
-          <text>
-            <AnimatedHeaderIcon color={indicatorColor} />
-            <span style={{ fg: themeColors.foreground }}> {headerText}</span>
-          </text>
+          <AnimatedHeaderIcon color={indicatorColor} />
         ) : (
-          <text>
-            <span style={{ fg: indicatorColor }}>● </span>
-            <span style={{ fg: themeColors.foreground }}>{headerText}</span>
-          </text>
+          <text style={{ fg: indicatorColor }}>●</text>
         )}
+        <text style={{ fg: themeColors.foreground }}> {headerText}</text>
       </box>
 
       {/* Sub-status line when running: current tool or "Initializing…" */}
@@ -286,16 +295,7 @@ function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps):
         <box flexDirection="row">
           <text style={{ fg: MUTED_GRAY }}>
             {"     +"}
-            {agent.toolUses} more tool use{agent.toolUses !== 1 ? "s" : ""} (ctrl+o to expand)
-          </text>
-        </box>
-      )}
-
-      {/* Background hint when running */}
-      {isRunning && (
-        <box flexDirection="row">
-          <text style={{ fg: MUTED_GRAY }}>
-            {"     "}ctrl+b ctrl+b (twice) to run in background
+            {agent.toolUses} more tool use{agent.toolUses !== 1 ? "s" : ""}
           </text>
         </box>
       )}
@@ -374,24 +374,80 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
   if (compact) {
     // Compact mode: Claude Code style - task · metrics
     const isRunning = agent.status === "running" || agent.status === "pending";
+    const hasTask = agent.task.trim().length > 0;
+    // For running agents, append elapsed time to sub-status
+    const elapsedSuffix = isRunning ? ` (${getElapsedTime(agent.startedAt)})` : "";
+    const displaySubStatus = subStatus ? `${subStatus}${elapsedSuffix}` : null;
+
+    // Status indicator for the tree row
+    const isCompleted = agent.status === "completed";
+    const isError = agent.status === "error";
+    const isInterrupted = agent.status === "interrupted";
+    const rowIndicatorColor = isRunning
+      ? themeColors.accent
+      : isCompleted
+        ? COMPLETED_GREEN
+        : isInterrupted
+          ? INTERRUPTED_PINK
+          : isError
+            ? themeColors.error
+            : MUTED_GRAY;
+
+    // Continuation line prefix for sub-status and hints
+    const continuationPrefix = isLast ? TREE_CHARS.space : TREE_CHARS.vertical;
+
+    if (!hasTask && displaySubStatus) {
+      // Empty task: show agent name + sub-status inline on the tree line
+      return (
+        <box flexDirection="column">
+          <box flexDirection="row">
+            <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
+            <box flexShrink={0}>
+              {isRunning ? (
+                <AnimatedHeaderIcon color={rowIndicatorColor} />
+              ) : (
+                <text style={{ fg: rowIndicatorColor }}>●</text>
+              )}
+            </box>
+            <text style={{ fg: themeColors.foreground }}> {agent.name} </text>
+            <text style={{ fg: themeColors.muted }}>
+              {truncateText(displaySubStatus, 50)}
+            </text>
+          </box>
+          {isRunning && agent.toolUses !== undefined && agent.toolUses > 0 && (
+            <box flexDirection="row">
+              <text style={{ fg: themeColors.muted }}>
+                {continuationPrefix}{SUB_STATUS_PAD}+{agent.toolUses} more tool use{agent.toolUses !== 1 ? "s" : ""}
+              </text>
+            </box>
+          )}
+        </box>
+      );
+    }
+
     return (
       <box flexDirection="column">
         <box flexDirection="row">
-          <text style={{ fg: themeColors.muted }}>{treeChar} </text>
+          <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
+          <box flexShrink={0}>
+            {isRunning ? (
+              <AnimatedHeaderIcon color={rowIndicatorColor} />
+            ) : (
+              <text style={{ fg: rowIndicatorColor }}>●</text>
+            )}
+          </box>
           <text style={{ fg: themeColors.foreground }}>
-            {truncateText(agent.task, 40)}
+            {" "}{truncateText(agent.task, 40)}
           </text>
           {metricsText && (
             <text style={{ fg: themeColors.muted }}> · {metricsText}</text>
           )}
         </box>
         {/* Sub-status: current tool or default status text */}
-        {subStatus && (
+        {displaySubStatus && (
           <box flexDirection="row">
             <text style={{ fg: themeColors.muted }}>
-              {isLast ? TREE_CHARS.space : TREE_CHARS.vertical}  ⎿  </text>
-            <text style={{ fg: themeColors.muted }}>
-              {truncateText(subStatus, 50)}
+              {continuationPrefix}{SUB_STATUS_PAD}⎿  {truncateText(displaySubStatus, 50)}
             </text>
           </box>
         )}
@@ -399,7 +455,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
         {isRunning && agent.toolUses !== undefined && agent.toolUses > 0 && (
           <box flexDirection="row">
             <text style={{ fg: themeColors.muted }}>
-              {isLast ? TREE_CHARS.space : TREE_CHARS.vertical}  +{agent.toolUses} more tool use{agent.toolUses !== 1 ? "s" : ""} (ctrl+o to expand)
+              {continuationPrefix}{SUB_STATUS_PAD}+{agent.toolUses} more tool use{agent.toolUses !== 1 ? "s" : ""}
             </text>
           </box>
         )}
@@ -408,52 +464,101 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
   }
 
   // Full mode: includes more details
+  const isRunningFull = agent.status === "running" || agent.status === "pending";
+  const isCompletedFull = agent.status === "completed";
+  const isErrorFull = agent.status === "error";
+  const isInterruptedFull = agent.status === "interrupted";
+  const hasTaskFull = agent.task.trim().length > 0;
+  const elapsedSuffixFull = isRunningFull ? ` (${getElapsedTime(agent.startedAt)})` : "";
+  const displaySubStatusFull = subStatus ? `${subStatus}${elapsedSuffixFull}` : null;
+
+  // Status indicator color for the tree row
+  const fullRowIndicatorColor = isRunningFull
+    ? themeColors.accent
+    : isCompletedFull
+      ? COMPLETED_GREEN
+      : isInterruptedFull
+        ? INTERRUPTED_PINK
+        : isErrorFull
+          ? themeColors.error
+          : MUTED_GRAY;
+
+  // Continuation line prefix for sub-status lines
+  const fullContinuationPrefix = isLast ? TREE_CHARS.space : TREE_CHARS.vertical;
+
+  // If task is empty, show agent name + sub-status inline on the tree line
+  if (!hasTaskFull && displaySubStatusFull) {
+    return (
+      <box flexDirection="column">
+        <box flexDirection="row">
+          <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
+          <box flexShrink={0}>
+            {isRunningFull ? (
+              <AnimatedHeaderIcon color={fullRowIndicatorColor} />
+            ) : (
+              <text style={{ fg: fullRowIndicatorColor }}>●</text>
+            )}
+          </box>
+          <text style={{ fg: themeColors.foreground }}> {agent.name} </text>
+          <text style={{ fg: themeColors.muted }}>
+            {displaySubStatusFull}
+          </text>
+        </box>
+      </box>
+    );
+  }
+
   return (
     <box flexDirection="column">
       <box flexDirection="row">
-        <text style={{ fg: themeColors.muted }}>{treeChar} </text>
+        <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
+        <box flexShrink={0}>
+          {isRunningFull ? (
+            <AnimatedHeaderIcon color={fullRowIndicatorColor} />
+          ) : (
+            <text style={{ fg: fullRowIndicatorColor }}>●</text>
+          )}
+        </box>
         <text style={{ fg: themeColors.foreground, attributes: 1 }}>
-          {agent.task}
+          {" "}{agent.task}
         </text>
         {metricsText && (
           <text style={{ fg: themeColors.muted }}> · {metricsText}</text>
         )}
       </box>
       {/* Sub-status: current tool or default status text */}
-      {subStatus && (
+      {displaySubStatusFull && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {isLast ? TREE_CHARS.space : TREE_CHARS.vertical}  ⎿  </text>
-          <text style={{ fg: themeColors.muted }}>
-            {subStatus}
+            {fullContinuationPrefix}{SUB_STATUS_PAD}⎿  {displaySubStatusFull}
           </text>
         </box>
       )}
       {/* Result summary for completed agents */}
-      {agent.status === "completed" && agent.result && (
+      {isCompletedFull && agent.result && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {isLast ? TREE_CHARS.space : TREE_CHARS.vertical}  </text>
+            {fullContinuationPrefix}{SUB_STATUS_PAD}</text>
           <text style={{ fg: themeColors.success }}>
             ⎿  {truncateText(agent.result, 60)}
           </text>
         </box>
       )}
       {/* Error message for failed agents */}
-      {agent.status === "error" && agent.error && (
+      {isErrorFull && agent.error && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {isLast ? TREE_CHARS.space : TREE_CHARS.vertical}  </text>
+            {fullContinuationPrefix}{SUB_STATUS_PAD}</text>
           <text style={{ fg: themeColors.error }}>
             ⎿  {truncateText(agent.error, 60)}
           </text>
         </box>
       )}
       {/* Interrupted message for cancelled agents */}
-      {agent.status === "interrupted" && (
+      {isInterruptedFull && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {isLast ? TREE_CHARS.space : TREE_CHARS.vertical}  </text>
+            {fullContinuationPrefix}{SUB_STATUS_PAD}</text>
           <text style={{ fg: themeColors.warning }}>
             ⎿  Interrupted
           </text>
@@ -481,7 +586,7 @@ function AnimatedHeaderIcon({ color, speed = 500 }: { color: string; speed?: num
     return () => clearInterval(interval);
   }, [speed]);
 
-  return <span style={{ fg: color }}>{visible ? "●" : "·"}</span>;
+  return <text style={{ fg: color }}>{visible ? "●" : "·"}</text>;
 }
 
 // ============================================================================
@@ -552,16 +657,8 @@ export function ParallelAgentsTree({
     warning: INTERRUPTED_PINK,
   };
 
-  // Single agent: render inline view without tree layout
-  if (agents.length === 1) {
-    return (
-      <SingleAgentView
-        agent={agents[0]!}
-        compact={compact}
-        themeColors={themeColors}
-      />
-    );
-  }
+  // Single agent: use tree layout with header for consistency
+  // (SingleAgentView is only used for non-tree contexts)
 
   // Count interrupted agents
   const interruptedCount = agents.filter(a => a.status === "interrupted").length;
@@ -575,11 +672,18 @@ export function ParallelAgentsTree({
       : completedCount > 0
         ? COMPLETED_GREEN
         : MUTED_GRAY;
+  // Build header label: "Explore agent(s)" for single type, "agent(s)" for mixed types
+  const buildLabel = (count: number): string => {
+    if (dominantType === "agents") {
+      return `${count} agent${count !== 1 ? "s" : ""}`;
+    }
+    return `${count} ${dominantType} agent${count !== 1 ? "s" : ""}`;
+  };
   const headerText = runningCount > 0
-    ? `Running ${runningCount} ${dominantType} agent${runningCount !== 1 ? "s" : ""}…`
+    ? `Running ${buildLabel(runningCount)}…`
     : completedCount > 0
-      ? `${completedCount} ${dominantType} agent${completedCount !== 1 ? "s" : ""} finished`
-      : `${pendingCount} ${dominantType} agent${pendingCount !== 1 ? "s" : ""} pending`;
+      ? `${buildLabel(completedCount)} finished`
+      : `${buildLabel(pendingCount)} pending`;
 
   return (
     <box
@@ -590,16 +694,11 @@ export function ParallelAgentsTree({
       {/* Header - Claude Code style with animated ● when running */}
       <box flexDirection="row">
         {runningCount > 0 ? (
-          <text>
-            <AnimatedHeaderIcon color={headerColor} />
-            <span style={{ fg: headerColor }}> {headerText}</span>
-          </text>
+          <AnimatedHeaderIcon color={headerColor} />
         ) : (
-          <text style={{ fg: headerColor }}>
-            {headerIcon} {headerText}
-          </text>
+          <text style={{ fg: headerColor }}>{headerIcon}</text>
         )}
-        <text style={{ fg: themeColors.muted }}> (ctrl+o to {compact ? "expand" : "collapse"})</text>
+        <text style={{ fg: headerColor }}> {headerText}</text>
       </box>
 
       {/* Agent tree */}
@@ -622,14 +721,6 @@ export function ParallelAgentsTree({
         </box>
       )}
 
-      {/* Background hint - Claude Code style */}
-      {runningCount > 0 && (
-        <box flexDirection="row" marginTop={0}>
-          <text style={{ fg: themeColors.muted }}>
-            {"   "}ctrl+b ctrl+b (twice) to run in background
-          </text>
-        </box>
-      )}
     </box>
   );
 }

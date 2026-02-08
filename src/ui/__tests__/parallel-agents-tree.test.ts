@@ -101,9 +101,9 @@ describe("getAgentColor", () => {
 describe("getStatusIcon", () => {
   test("returns correct icons for each status", () => {
     expect(getStatusIcon("pending")).toBe("○");
-    expect(getStatusIcon("running")).toBe("◐");
+    expect(getStatusIcon("running")).toBe("●");
     expect(getStatusIcon("completed")).toBe("●");
-    expect(getStatusIcon("error")).toBe("✕");
+    expect(getStatusIcon("error")).toBe("●");
     expect(getStatusIcon("background")).toBe("◌");
   });
 });

@@ -21,7 +21,7 @@ import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
  * Props for the Autocomplete component.
  */
 export interface AutocompleteProps {
-  /** The current input text (without the leading "/") */
+  /** The current input text (without the leading "/" or "@") */
   input: string;
   /** Whether the autocomplete dropdown is visible */
   visible: boolean;
@@ -33,6 +33,10 @@ export interface AutocompleteProps {
   onIndexChange: (index: number) => void;
   /** Maximum number of suggestions to display (default: 8) */
   maxSuggestions?: number;
+  /** Prefix character for display (default: "/") */
+  namePrefix?: string;
+  /** External suggestions to use instead of searching globalRegistry */
+  externalSuggestions?: CommandDefinition[];
 }
 
 /**
@@ -51,6 +55,8 @@ interface SuggestionRowProps {
   mutedColor: string;
   /** Terminal width for dynamic truncation */
   terminalWidth: number;
+  /** Prefix character for display ("/" or "@") */
+  namePrefix: string;
 }
 
 // ============================================================================
@@ -69,13 +75,14 @@ function SuggestionRow({
   foregroundColor,
   mutedColor,
   terminalWidth,
+  namePrefix,
 }: SuggestionRowProps): React.ReactNode {
   // Selection uses accent color for text, not background
   const fgColor = isSelected ? accentColor : foregroundColor;
   const descColor = isSelected ? accentColor : mutedColor;
 
-  // Format command name with leading slash
-  const fullName = `/${command.name}`;
+  // Format command name with leading prefix
+  const fullName = `${namePrefix}${command.name}`;
 
   // Calculate column widths based on terminal width
   // Layout: 2 (padding) + cmdCol + 2 (gap) + descCol + 2 (padding)
@@ -150,22 +157,26 @@ export function Autocomplete({
   onSelect: _onSelect,
   onIndexChange,
   maxSuggestions = 8,
+  namePrefix = "/",
+  externalSuggestions,
 }: AutocompleteProps): React.ReactNode {
   const { theme } = useTheme();
   const { width: terminalWidth } = useTerminalDimensions();
   const scrollRef = useRef<ScrollBoxRenderable>(null);
   const itemHeight = 1; // Each suggestion row is 1 line tall
 
-  // Get matching commands from the registry
+  // Get matching commands from the registry or use external suggestions
   const suggestions = useMemo(() => {
     if (!visible) return [];
+
+    if (externalSuggestions) return externalSuggestions;
 
     // Search for commands matching the input prefix
     const matches = globalRegistry.search(input);
 
     // Return all matches - scrollbox handles overflow display
     return matches;
-  }, [input, visible]);
+  }, [input, visible, externalSuggestions]);
 
   // Ensure selectedIndex is within bounds
   const validIndex = Math.min(
@@ -227,6 +238,7 @@ export function Autocomplete({
             foregroundColor={theme.colors.foreground}
             mutedColor={theme.colors.muted}
             terminalWidth={terminalWidth}
+            namePrefix={namePrefix}
           />
         ))}
       </scrollbox>

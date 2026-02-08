@@ -1,11 +1,23 @@
 /**
  * Cross-platform clipboard utilities for terminal applications
  *
- * Provides copy and paste functionality using native system commands.
+ * Provides copy and paste functionality using native system commands
+ * with OSC 52 terminal escape sequence fallback for SSH/headless sessions.
  * Supports macOS (pbcopy/pbpaste), Linux (xclip/xsel), and Windows (powershell).
  */
 
 import { spawn } from "child_process";
+
+/**
+ * Copy text to clipboard using OSC 52 terminal escape sequence.
+ * Works over SSH and in headless environments because the user's
+ * local terminal emulator handles the clipboard operation.
+ */
+function copyViaOSC52(text: string): void {
+  const encoded = Buffer.from(text).toString("base64");
+  // OSC 52 ; c ; <base64> ST — sets the clipboard selection
+  process.stdout.write(`\x1b]52;c;${encoded}\x07`);
+}
 
 /**
  * Detect the current platform and return clipboard commands
@@ -66,42 +78,49 @@ export async function copyToClipboard(text: string): Promise<void> {
   const commands = getClipboardCommands();
 
   if (!commands.copy) {
-    throw new Error("Clipboard not supported on this platform");
+    // No system clipboard command available — use OSC 52 fallback
+    copyViaOSC52(text);
+    return;
   }
 
   const { cmd, args } = commands.copy;
 
-  return new Promise((resolve, reject) => {
-    const proc = spawn(cmd, args, {
-      stdio: ["pipe", "ignore", "pipe"],
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const proc = spawn(cmd, args, {
+        stdio: ["pipe", "ignore", "pipe"],
+      });
+
+      let stderr = "";
+
+      proc.stderr?.on("data", (data: Buffer) => {
+        stderr += data.toString();
+      });
+
+      proc.on("close", (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(
+            new Error(
+              `Failed to copy to clipboard: ${stderr || `exit code ${code}`}`
+            )
+          );
+        }
+      });
+
+      proc.on("error", (err) => {
+        reject(new Error(`Failed to copy to clipboard: ${err.message}`));
+      });
+
+      // Write text to stdin and close
+      proc.stdin?.write(text);
+      proc.stdin?.end();
     });
-
-    let stderr = "";
-
-    proc.stderr?.on("data", (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    proc.on("close", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(
-          new Error(
-            `Failed to copy to clipboard: ${stderr || `exit code ${code}`}`
-          )
-        );
-      }
-    });
-
-    proc.on("error", (err) => {
-      reject(new Error(`Failed to copy to clipboard: ${err.message}`));
-    });
-
-    // Write text to stdin and close
-    proc.stdin?.write(text);
-    proc.stdin?.end();
-  });
+  } catch {
+    // System clipboard failed (e.g., no display, SSH session) — use OSC 52 fallback
+    copyViaOSC52(text);
+  }
 }
 
 /**

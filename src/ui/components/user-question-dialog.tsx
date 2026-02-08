@@ -66,7 +66,7 @@ export function toggleSelection(selected: string[], value: string): string[] {
 
 // Special option values
 const CUSTOM_INPUT_VALUE = "__custom_input__";
-const CHAT_ABOUT_THIS_VALUE = "__chat_about_this__";
+export const CHAT_ABOUT_THIS_VALUE = "__chat_about_this__";
 
 // ============================================================================
 // USER QUESTION DIALOG COMPONENT
@@ -83,6 +83,7 @@ export function UserQuestionDialog({
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [selectedValues, setSelectedValues] = useState<string[]>([]);
   const [isEditingCustom, setIsEditingCustom] = useState(false);
+  const [isChatAboutThis, setIsChatAboutThis] = useState(false);
 
   const textareaRef = useRef<TextareaRenderable>(null);
 
@@ -130,6 +131,7 @@ export function UserQuestionDialog({
       submitAnswer([text.trim()]);
     }
     setIsEditingCustom(false);
+    setIsChatAboutThis(false);
   }, [submitAnswer]);
 
   useKeyboard(
@@ -137,25 +139,28 @@ export function UserQuestionDialog({
       (event: KeyEvent) => {
         if (!visible) return;
 
-        // Stop propagation to prevent other handlers from running
-        // This ensures the dialog captures keyboard events exclusively
-        event.stopPropagation();
-
         const key = event.name ?? "";
 
-        // If editing custom input, handle differently
-        if (isEditingCustom) {
+        // If editing custom input or chatting about question, only handle escape and return
+        if (isEditingCustom || isChatAboutThis) {
           if (key === "escape") {
+            event.stopPropagation();
             setIsEditingCustom(false);
+            setIsChatAboutThis(false);
             return;
           }
           if (key === "return") {
+            event.stopPropagation();
             submitCustomText();
             return;
           }
-          // Let textarea handle other keys
+          // Don't stop propagation - let textarea handle other keys
           return;
         }
+
+        // Stop propagation to prevent other handlers from running
+        // This ensures the dialog captures keyboard events exclusively
+        event.stopPropagation();
 
         // Number keys 1-9 for direct selection
         if (key >= "1" && key <= "9") {
@@ -215,9 +220,9 @@ export function UserQuestionDialog({
             return;
           }
 
-          // Handle "Chat about this" - treat as a special selection
+          // Handle "Chat about this" - enter chat input mode
           if (option.value === CHAT_ABOUT_THIS_VALUE) {
-            submitAnswer([CHAT_ABOUT_THIS_VALUE]);
+            setIsChatAboutThis(true);
             return;
           }
 
@@ -237,7 +242,7 @@ export function UserQuestionDialog({
           return;
         }
       },
-      [visible, isEditingCustom, optionsCount, regularOptionsCount, highlightedIndex, selectedValues, question, allOptions, submitAnswer, cancelDialog, submitCustomText]
+      [visible, isEditingCustom, isChatAboutThis, optionsCount, regularOptionsCount, highlightedIndex, selectedValues, question, allOptions, submitAnswer, cancelDialog, submitCustomText]
     )
   );
 
@@ -268,8 +273,8 @@ export function UserQuestionDialog({
         {question.question}
       </text>
 
-      {/* Custom input mode */}
-      {isEditingCustom ? (
+      {/* Custom input / Chat about this mode */}
+      {(isEditingCustom || isChatAboutThis) ? (
         <box flexDirection="column" marginTop={1}>
           <box
             border
@@ -283,14 +288,14 @@ export function UserQuestionDialog({
             <text style={{ fg: colors.accent }}>❯ </text>
             <textarea
               ref={textareaRef}
-              placeholder="Type your answer..."
+              placeholder={isChatAboutThis ? "Type your thoughts..." : "Type your answer..."}
               focused={true}
               height={1}
               flexGrow={1}
             />
           </box>
           <text style={{ fg: colors.muted }}>
-            Enter to submit · Esc to cancel
+            Enter to submit · Esc to go back
           </text>
         </box>
       ) : (

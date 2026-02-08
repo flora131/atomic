@@ -205,7 +205,7 @@ export class SubagentSessionManager {
         // Session may already be destroyed
       }
       this.sessions.delete(agentId);
-      this.onStatusUpdate(agentId, { status: "error", error: "Cancelled" });
+      this.onStatusUpdate(agentId, { status: "interrupted", error: "Cancelled" });
     }
 
     // Also remove from pending queue if queued
@@ -250,7 +250,7 @@ export class SubagentSessionManager {
         } catch {
           // Session may already be destroyed
         }
-        this.onStatusUpdate(agentId, { status: "error", error: "Cancelled" });
+        this.onStatusUpdate(agentId, { status: "interrupted", error: "Cancelled" });
       }
     );
     await Promise.allSettled(destroyPromises);
@@ -286,6 +286,7 @@ export class SubagentSessionManager {
     let toolUses = 0;
     let summaryParts: string[] = [];
     let session: Session | null = null;
+    let firstTextSeen = false;
 
     try {
       // 1. Create independent session
@@ -299,10 +300,11 @@ export class SubagentSessionManager {
       // 2. Store session for tracking
       this.sessions.set(options.agentId, session);
 
-      // 3. Emit running status
+      // 3. Emit running status with initial progress indicator
       this.onStatusUpdate(options.agentId, {
         status: "running",
         startedAt: new Date().toISOString(),
+        currentTool: "Starting session...",
       });
 
       // 4. Stream response
@@ -318,6 +320,12 @@ export class SubagentSessionManager {
             currentTool: toolName,
           });
         } else if (msg.type === "text" && typeof msg.content === "string") {
+          if (!firstTextSeen) {
+            firstTextSeen = true;
+            this.onStatusUpdate(options.agentId, {
+              currentTool: "Generating...",
+            });
+          }
           summaryParts.push(msg.content);
         }
       }

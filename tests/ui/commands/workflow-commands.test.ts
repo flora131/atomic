@@ -532,15 +532,20 @@ describe("ralph command --yolo flag", () => {
     expect(result.message).toContain("--yolo flag requires a prompt");
   });
 
-  test("ralph command without flags requires prompt", () => {
+  test("ralph command without flags auto-defaults to implement-feature when feature list exists", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
     const context = createMockContext();
     const result = ralphCmd!.execute("", context) as CommandResult;
 
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("provide a prompt");
+    // When research/feature-list.json exists, should succeed with implement-feature default
+    if (existsSync("research/feature-list.json")) {
+      expect(result.success).toBe(true);
+    } else {
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("provide a prompt");
+    }
   });
 
   test("ralph command without flags uses normal mode", () => {

@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { useKeyboard } from "@opentui/react";
+import { useKeyboard, useRenderer } from "@opentui/react";
 import type {
   KeyEvent,
   SyntaxStyle,
@@ -54,9 +54,109 @@ import {
   type CommandDefinition,
   type CommandContext,
   type CommandContextState,
+  type CommandCategory,
 } from "./commands/index.ts";
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, dirname, basename } from "node:path";
 import type { AskUserQuestionEventData } from "../graph/index.ts";
 import type { AgentType, ModelOperations } from "../models";
+import { saveModelPreference } from "../utils/preferences.ts";
+
+// ============================================================================
+// @ MENTION HELPERS
+// ============================================================================
+
+/**
+ * Get autocomplete suggestions for @ mentions (agents and files).
+ * Agent names are searched from the command registry (category "agent").
+ * File paths are searched when input contains path characters (/ or .).
+ */
+function getMentionSuggestions(input: string): CommandDefinition[] {
+  const suggestions: CommandDefinition[] = [];
+
+  // Agent suggestions - filter registry by "agent" category
+  const agentMatches = globalRegistry.search(input).filter(cmd => cmd.category === "agent");
+  suggestions.push(...agentMatches);
+
+  // File suggestions - when input contains path characters
+  if (input.includes("/") || input.includes(".")) {
+    try {
+      const cwd = process.cwd();
+      const inputDir = input.includes("/") ? dirname(input) : "";
+      const inputBase = input.includes("/") ? basename(input) : input;
+      const searchDir = inputDir ? join(cwd, inputDir) : cwd;
+
+      const entries = readdirSync(searchDir, { withFileTypes: true });
+      const fileMatches = entries
+        .filter(e => e.name.toLowerCase().startsWith(inputBase.toLowerCase()) && !e.name.startsWith("."))
+        .slice(0, 10)
+        .map(e => ({
+          name: inputDir ? `${inputDir}/${e.name}` : e.name,
+          description: e.isDirectory() ? "📁 Directory" : "📄 File",
+          category: "custom" as CommandCategory,
+          execute: () => ({ success: true as const }),
+        }));
+
+      suggestions.push(...fileMatches);
+    } catch {
+      // Silently fail for invalid paths
+    }
+  }
+
+  return suggestions;
+}
+
+interface FileReadInfo {
+  path: string;
+  sizeBytes: number;
+  lineCount: number;
+  isImage: boolean;
+}
+
+interface ProcessedMention {
+  message: string;
+  filesRead: FileReadInfo[];
+}
+
+/**
+ * Process file @mentions in a message. Replaces @filepath with file content context.
+ * Returns the message with file content prepended and metadata about files read.
+ */
+function processFileMentions(message: string): ProcessedMention {
+  const mentionRegex = /@([\w./_-]+)/g;
+  const fileContents: string[] = [];
+  const filesRead: FileReadInfo[] = [];
+  const cleanedMessage = message.replace(mentionRegex, (match, filePath: string) => {
+    const cmd = globalRegistry.get(filePath);
+    if (cmd && cmd.category === "agent") return match;
+
+    try {
+      const fullPath = join(process.cwd(), filePath);
+      const content = readFileSync(fullPath, "utf-8");
+      const stats = statSync(fullPath);
+      const lineCount = content.split("\n").length;
+      const isImage = /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(filePath);
+
+      filesRead.push({
+        path: filePath,
+        sizeBytes: stats.size,
+        lineCount,
+        isImage,
+      });
+
+      fileContents.push(`<file path="${filePath}">\n${content}\n</file>`);
+      return filePath;
+    } catch {
+      return match;
+    }
+  });
+
+  const processed = fileContents.length > 0
+    ? `${fileContents.join("\n\n")}\n\n${cleanedMessage}`
+    : cleanedMessage;
+
+  return { message: processed, filesRead };
+}
 
 // ============================================================================
 // BLOCK LETTER LOGO WITH GRADIENT
@@ -186,6 +286,8 @@ export interface ChatMessage {
   modelId?: string;
   /** Whether the message was interrupted (esc/ctrl+c) before completion */
   wasInterrupted?: boolean;
+  /** Snapshot of parallel agents that were active during this message (baked on completion) */
+  parallelAgents?: ParallelAgent[];
 }
 
 /**
@@ -324,6 +426,8 @@ export interface ChatAppProps {
    * Delegates to client.createSession() for context isolation.
    */
   createSubagentSession?: CreateSessionFn;
+  /** Initial prompt to auto-submit on session start */
+  initialPrompt?: string;
 }
 
 /**
@@ -340,6 +444,8 @@ export interface WorkflowChatState {
   selectedSuggestionIndex: number;
   /** Hint text showing expected arguments for the current command */
   argumentHint: string;
+  /** Whether autocomplete is for "/" commands or "@" mentions */
+  autocompleteMode: "command" | "mention";
 
   // Workflow execution state
   /** Whether a workflow is currently active */
@@ -375,6 +481,7 @@ export const defaultWorkflowChatState: WorkflowChatState = {
   autocompleteInput: "",
   selectedSuggestionIndex: 0,
   argumentHint: "",
+  autocompleteMode: "command",
 
   // Workflow defaults
   workflowActive: false,
@@ -486,6 +593,10 @@ export const SPINNER_VERBS = [
   "Evaluating",
   "Formulating",
   "Generating",
+  "Orchestrating",
+  "Iterating",
+  "Synthesizing",
+  "Resolving",
 ];
 
 /**
@@ -624,6 +735,7 @@ export function CompletionSummary({ durationMs }: CompletionSummaryProps): React
  * Animated blinking ● prefix for text that is currently streaming.
  * Alternates between ● and · to simulate a blink (like tool-result's AnimatedStatusIndicator).
  * Once streaming is done, the parent renders a static colored ● instead.
+ * Returns a <span> so it can be embedded inline within a <text> element.
  */
 export function StreamingBullet({ speed = 500 }: { speed?: number }): React.ReactNode {
   const [visible, setVisible] = useState(true);
@@ -635,7 +747,7 @@ export function StreamingBullet({ speed = 500 }: { speed?: number }): React.Reac
     return () => clearInterval(interval);
   }, [speed]);
 
-  return <text style={{ fg: "#D4A5A5" }}>{visible ? "●" : "·"} </text>;
+  return <span style={{ fg: "#D4A5A5" }}>{visible ? "●" : "·"} </span>;
 }
 
 // ============================================================================
@@ -731,7 +843,7 @@ interface ContentSegment {
 function buildContentSegments(content: string, toolCalls: MessageToolCall[]): ContentSegment[] {
   // Filter out HITL tools
   const visibleToolCalls = toolCalls.filter(tc =>
-    tc.toolName !== "AskUserQuestion" && tc.toolName !== "question"
+    tc.toolName !== "AskUserQuestion" && tc.toolName !== "question" && tc.toolName !== "ask_user"
   );
 
   if (visibleToolCalls.length === 0) {
@@ -827,7 +939,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
     const _hasContent = segments.length > 0;
 
     // Check if first segment is text (for bullet point prefix)
-    const firstTextSegment = segments.find(s => s.type === "text");
+    const firstTextSegment = segments.find(s => s.type === "text" && s.content?.trim());
     const firstSegment = segments[0];
     const _hasLeadingText = segments.length > 0 && firstSegment?.type === "text";
 
@@ -840,39 +952,40 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
         paddingRight={1}
       >
         {!hideEntireMessage && segments.map((segment, index) => {
-          if (segment.type === "text" && segment.content) {
+          if (segment.type === "text" && segment.content?.trim()) {
             // Text segment - add bullet prefix to first text segment
             const isFirst = segment === firstTextSegment;
             // Show animated blinking ● while streaming, static colored ● when done
             const isActivelyStreaming = message.streaming && index === segments.length - 1;
             // ● color: always foreground (white) for regular text — only sub-agents/tools change color
             const bulletColor = themeColors.foreground;
-            const bulletPrefix = isFirst
-              ? (isActivelyStreaming ? <StreamingBullet speed={500} /> : <text style={{ fg: bulletColor }}>● </text>)
-              : <text>  </text>;
+            // Inline bullet prefix as <span> to avoid flex layout issues
+            const bulletSpan = isFirst
+              ? (isActivelyStreaming ? <StreamingBullet speed={500} /> : <span style={{ fg: bulletColor }}>● </span>)
+              : "  ";
+            const trimmedContent = segment.content.trimStart();
             return syntaxStyle ? (
               <box key={segment.key} flexDirection="row" alignItems="flex-start" marginBottom={index < segments.length - 1 ? 1 : 0}>
-                {bulletPrefix}
+                <box flexShrink={0}>{isFirst
+                  ? (isActivelyStreaming ? <StreamingBullet speed={500} /> : <text style={{ fg: bulletColor }}>● </text>)
+                  : <text>  </text>}</box>
                 <box flexGrow={1} flexShrink={1} minWidth={0}>
                   <markdown
-                    content={segment.content}
+                    content={trimmedContent}
                     syntaxStyle={syntaxStyle}
                     streaming={isActivelyStreaming}
                   />
                 </box>
               </box>
             ) : (
-              <box key={segment.key} flexDirection="row" alignItems="flex-start" marginBottom={index < segments.length - 1 ? 1 : 0}>
-                {bulletPrefix}
-                <box flexGrow={1} flexShrink={1} minWidth={0}>
-                  <text wrapMode="char">{segment.content}</text>
-                </box>
+              <box key={segment.key} marginBottom={index < segments.length - 1 ? 1 : 0}>
+                <text wrapMode="char">{bulletSpan}{trimmedContent}</text>
               </box>
             );
           } else if (segment.type === "tool" && segment.toolCall) {
             // Tool call segment
             return (
-              <box key={segment.key} marginTop={index > 0 ? 1 : 0} marginBottom={index < segments.length - 1 ? 1 : 0}>
+              <box key={segment.key} marginBottom={index < segments.length - 1 ? 1 : 0}>
                 <ToolResult
                   toolName={segment.toolCall.toolName}
                   input={segment.toolCall.input}
@@ -887,13 +1000,21 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
         })}
 
         {/* Inline parallel agents tree — between tool/text content and loading spinner */}
-        {parallelAgents && parallelAgents.length > 0 && (
-          <ParallelAgentsTree
-            agents={parallelAgents}
-            compact={!agentTreeExpanded}
-            maxVisible={agentTreeExpanded ? 20 : 5}
-          />
-        )}
+        {/* Live agents (from prop) for the currently streaming message, or baked agents for completed messages */}
+        {(() => {
+          const agentsToShow = parallelAgents && parallelAgents.length > 0
+            ? parallelAgents
+            : message.parallelAgents && message.parallelAgents.length > 0
+              ? message.parallelAgents
+              : null;
+          return agentsToShow ? (
+            <ParallelAgentsTree
+              agents={agentsToShow}
+              compact={!agentTreeExpanded}
+              maxVisible={agentTreeExpanded ? 20 : 5}
+            />
+          ) : null;
+        })()}
 
         {/* Loading spinner — always at bottom of streamed content */}
         {message.streaming && !hideLoading && (
@@ -905,7 +1026,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
         )}
 
         {/* Completion summary: "✻ Worked for 1m 6s" after response finishes */}
-        {!message.streaming && message.durationMs != null && message.durationMs >= 60000 && (
+        {!message.streaming && message.durationMs != null && message.durationMs >= 3000 && (
           <CompletionSummary durationMs={message.durationMs} />
         )}
 
@@ -982,6 +1103,7 @@ export function ChatApp({
   parallelAgents: initialParallelAgents = [],
   registerParallelAgentHandler,
   createSubagentSession,
+  initialPrompt,
 }: ChatAppProps): React.ReactNode {
   // title and suggestion are deprecated, kept for backwards compatibility
   void _title;
@@ -1004,6 +1126,21 @@ export function ChatApp({
   const [ctrlCPressed, setCtrlCPressed] = useState(false);
   const ctrlCTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Renderer ref for copy-on-selection (OpenTUI Selection API)
+  const renderer = useRenderer();
+
+  // Copy-on-selection: auto-copy selected text to clipboard on mouse release
+  const handleMouseUp = useCallback(() => {
+    const selection = renderer.getSelection();
+    if (selection) {
+      const selectedText = selection.getSelectedText();
+      if (selectedText) {
+        void copyToClipboard(selectedText);
+        renderer.clearSelection();
+      }
+    }
+  }, [renderer]);
+
   // Streaming state hook for tool executions and pending questions
   const streamingState = useStreamingState();
 
@@ -1011,7 +1148,7 @@ export function ChatApp({
   const messageQueue = useMessageQueue();
 
   // Verbose mode state for expanded tool outputs and timestamps
-  const [verboseMode, _setVerboseMode] = useState(false);
+  const [verboseMode, setVerboseMode] = useState(false);
 
   // State for showing user question dialog
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
@@ -1053,6 +1190,12 @@ export function ChatApp({
     thumbSize: 1,
   });
 
+  // Prompt history for up/down arrow navigation
+  const [promptHistory, setPromptHistory] = useState<string[]>([]);
+  const [historyIndex, setHistoryIndex] = useState(-1);
+  // Store current input when entering history mode
+  const savedInputRef = useRef<string>("");
+
   // SubagentSessionManager ref for delegating sub-agent spawning
   const subagentManagerRef = useRef<SubagentSessionManager | null>(null);
 
@@ -1063,6 +1206,11 @@ export function ChatApp({
   // Ref to track streaming state synchronously (for immediate check in handleSubmit)
   // This avoids race conditions where React state hasn't updated yet
   const isStreamingRef = useRef(false);
+  // Ref to track whether an interrupt (ESC/Ctrl+C) already finalized agents.
+  // Prevents handleComplete from overwriting interrupted agents with "completed".
+  const wasInterruptedRef = useRef(false);
+  // Ref to keep a synchronous copy of parallel agents (avoids nested dispatch issues)
+  const parallelAgentsRef = useRef<ParallelAgent[]>([]);
   // Ref for scrollbox to enable programmatic scrolling
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
 
@@ -1102,11 +1250,16 @@ export function ChatApp({
     streamingState.handleToolStart(toolId, toolName, input);
 
     // Add tool call to current streaming message, capturing content offset
+    // Deduplicate: if a tool call with the same ID already exists, skip adding
     const messageId = streamingMessageIdRef.current;
     if (messageId) {
       setMessages((prev) =>
         prev.map((msg) => {
           if (msg.id === messageId) {
+            // Check if tool call with this ID already exists (prevents duplicates)
+            const existing = msg.toolCalls?.find(tc => tc.id === toolId);
+            if (existing) return msg;
+
             // Capture current content length as offset for inline rendering
             const contentOffsetAtStart = msg.content.length;
             const newToolCall: MessageToolCall = {
@@ -1252,21 +1405,42 @@ export function ChatApp({
               return [...prev, newMessage];
             });
           },
-          // onComplete: mark message as complete
+          // onComplete: mark message as complete, finalize parallel agents
           () => {
-            setMessages((prev) => {
-              const lastMsg = prev[prev.length - 1];
-              if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
-                return [
-                  ...prev.slice(0, -1),
-                  {
-                    ...lastMsg,
-                    streaming: false,
-                    completedAt: new Date(),
-                  },
-                ];
+            // Finalize any still-running parallel agents and bake into message
+            setParallelAgents((currentAgents) => {
+              if (currentAgents.length > 0) {
+                const finalizedAgents = currentAgents.map((a) =>
+                  a.status === "running" || a.status === "pending"
+                    ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+                    : a
+                );
+                // Bake finalized agents into the message
+                setMessages((prev) => {
+                  const lastMsg = prev[prev.length - 1];
+                  if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
+                    return [
+                      ...prev.slice(0, -1),
+                      { ...lastMsg, streaming: false, completedAt: new Date(), parallelAgents: finalizedAgents },
+                    ];
+                  }
+                  return prev;
+                });
+                // Clear live agents since they're now baked into the message
+                return [];
               }
-              return prev;
+              // No agents — just finalize the message normally
+              setMessages((prev) => {
+                const lastMsg = prev[prev.length - 1];
+                if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
+                  return [
+                    ...prev.slice(0, -1),
+                    { ...lastMsg, streaming: false, completedAt: new Date() },
+                  ];
+                }
+                return prev;
+              });
+              return currentAgents;
             });
             streamingMessageIdRef.current = null;
             setIsStreaming(false);
@@ -1406,10 +1580,14 @@ export function ChatApp({
     }
   }, [registerCtrlCWarningHandler]);
 
-  // Register parallel agent handler with parent component
+  // Register parallel agent handler with parent component.
+  // Wraps setParallelAgents to also keep the synchronous ref in sync.
   useEffect(() => {
     if (registerParallelAgentHandler) {
-      registerParallelAgentHandler(setParallelAgents);
+      registerParallelAgentHandler((agents: ParallelAgent[]) => {
+        parallelAgentsRef.current = agents;
+        setParallelAgents(agents);
+      });
     }
   }, [registerParallelAgentHandler]);
 
@@ -1518,8 +1696,15 @@ export function ChatApp({
     const textarea = textareaRef.current;
     if (!textarea) return;
 
-    const viewportHeight = Math.max(1, Math.floor(textarea.editorView.getViewport().height));
-    const totalLines = Math.max(1, textarea.editorView.getTotalVirtualLineCount());
+    // Guard against destroyed EditorView (can happen during app exit while interval is still firing)
+    let viewportHeight: number;
+    let totalLines: number;
+    try {
+      viewportHeight = Math.max(1, Math.floor(textarea.editorView.getViewport().height));
+      totalLines = Math.max(1, textarea.editorView.getTotalVirtualLineCount());
+    } catch {
+      return;
+    }
     const maxScrollTop = Math.max(0, totalLines - viewportHeight);
     const scrollTop = Math.max(0, Math.floor(textarea.scrollY));
     const visible = maxScrollTop > 0;
@@ -1580,6 +1765,27 @@ export function ChatApp({
           argumentHint: afterCommandSpace.length === 0 ? (command?.argumentHint || "") : "",
         });
       }
+    } else if (value.startsWith("@")) {
+      // @ mention: show autocomplete with agents and file paths
+      const afterAt = value.slice(1);
+      const spaceIndex = afterAt.indexOf(" ");
+
+      if (spaceIndex === -1) {
+        updateWorkflowState({
+          showAutocomplete: true,
+          autocompleteInput: afterAt,
+          selectedSuggestionIndex: 0,
+          autocompleteMode: "mention",
+          argumentHint: "",
+        });
+      } else {
+        updateWorkflowState({
+          showAutocomplete: false,
+          autocompleteInput: "",
+          autocompleteMode: "command",
+          argumentHint: "",
+        });
+      }
     } else {
       // Hide autocomplete and hints for non-slash commands
       if (workflowState.showAutocomplete || workflowState.argumentHint) {
@@ -1588,6 +1794,7 @@ export function ChatApp({
           autocompleteInput: "",
           selectedSuggestionIndex: 0,
           argumentHint: "",
+          autocompleteMode: "command",
         });
       }
     }
@@ -1628,6 +1835,9 @@ export function ChatApp({
       setCurrentModelId(selectedModel.id);
       // Store the display name to match what's shown in the selector dropdown
       setCurrentModelDisplayName(selectedModel.name);
+      if (agentType) {
+        saveModelPreference(agentType, selectedModel.id);
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       addMessage("assistant", `Failed to switch model: ${errorMessage}`);
@@ -1725,24 +1935,68 @@ export function ChatApp({
               ? Date.now() - streamingStartRef.current
               : undefined;
 
-            if (messageId) {
-              setMessages((prev: ChatMessage[]) =>
-                prev.map((msg: ChatMessage) =>
-                  msg.id === messageId
-                    ? {
-                        ...msg,
-                        streaming: false,
-                        durationMs,
-                        modelId: model,
-                        // Mark any still-running tools as interrupted
-                        toolCalls: msg.toolCalls?.map((tc) =>
-                          tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                        ),
-                      }
-                    : msg
-                )
-              );
+            // If the interrupt handler already finalized agents, skip overwriting
+            if (wasInterruptedRef.current) {
+              wasInterruptedRef.current = false;
+              // Just ensure streaming flags are cleared and message is finalized
+              if (messageId) {
+                setMessages((prev: ChatMessage[]) =>
+                  prev.map((msg: ChatMessage) =>
+                    msg.id === messageId
+                      ? { ...msg, streaming: false, durationMs, modelId: model }
+                      : msg
+                  )
+                );
+              }
+              setParallelAgents([]);
+              streamingMessageIdRef.current = null;
+              streamingStartRef.current = null;
+              isStreamingRef.current = false;
+              setIsStreaming(false);
+
+              const nextMessage = messageQueue.dequeue();
+              if (nextMessage) {
+                setTimeout(() => {
+                  if (sendMessageRef.current) {
+                    sendMessageRef.current(nextMessage.content);
+                  }
+                }, 50);
+              }
+              return;
             }
+
+            // Finalize running parallel agents and bake into message
+            setParallelAgents((currentAgents) => {
+              const finalizedAgents = currentAgents.length > 0
+                ? currentAgents.map((a) =>
+                    a.status === "running" || a.status === "pending"
+                      ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+                      : a
+                  )
+                : undefined;
+
+              if (messageId) {
+                setMessages((prev: ChatMessage[]) =>
+                  prev.map((msg: ChatMessage) =>
+                    msg.id === messageId
+                      ? {
+                          ...msg,
+                          streaming: false,
+                          durationMs,
+                          modelId: model,
+                          toolCalls: msg.toolCalls?.map((tc) =>
+                            tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
+                          ),
+                          parallelAgents: finalizedAgents,
+                        }
+                      : msg
+                  )
+                );
+              }
+              // Clear live agents
+              return [];
+            });
+
             streamingMessageIdRef.current = null;
             streamingStartRef.current = null;
             isStreamingRef.current = false;
@@ -1823,6 +2077,7 @@ export function ChatApp({
         setShowCompactionHistory(false);
         setParallelAgents([]);
         setAgentTreeExpanded(false);
+        setVerboseMode(false);
       }
 
       // Handle clearMessages flag
@@ -1896,7 +2151,7 @@ export function ChatApp({
       addMessage("assistant", `Error executing /${commandName}: ${errorMessage}`);
       return false;
     }
-  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme]);
+  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model]);
 
   /**
    * Handle autocomplete selection (Tab for complete, Enter for execute).
@@ -1906,6 +2161,9 @@ export function ChatApp({
     action: "complete" | "execute"
   ) => {
     if (!textareaRef.current) return;
+
+    const isMention = workflowState.autocompleteMode === "mention";
+    const prefix = isMention ? "@" : "/";
 
     // Clear the textarea first
     textareaRef.current.gotoBufferHome();
@@ -1917,17 +2175,24 @@ export function ChatApp({
       showAutocomplete: false,
       autocompleteInput: "",
       selectedSuggestionIndex: 0,
-      argumentHint: action === "complete" ? (command.argumentHint || "") : "",
+      autocompleteMode: "command",
+      argumentHint: action === "complete" && !isMention ? (command.argumentHint || "") : "",
     });
 
     if (action === "complete") {
-      // Replace input with completed command + space for arguments
-      textareaRef.current.insertText(`/${command.name} `);
+      // Replace input with completed command/mention + space for arguments
+      textareaRef.current.insertText(`${prefix}${command.name} `);
     } else if (action === "execute") {
-      // Execute the command immediately with no arguments
-      void executeCommand(command.name, "");
+      if (isMention && command.category !== "agent") {
+        // File @ mention: insert into text for processing on submit
+        textareaRef.current.insertText(`@${command.name} `);
+      } else {
+        // Slash command or agent @ mention: execute immediately
+        addMessage("user", `${prefix}${command.name}`);
+        void executeCommand(command.name, "");
+      }
     }
-  }, [updateWorkflowState, executeCommand]);
+  }, [updateWorkflowState, executeCommand, addMessage, workflowState.autocompleteMode]);
 
   /**
    * Handle autocomplete index changes (up/down navigation).
@@ -1936,12 +2201,14 @@ export function ChatApp({
     updateWorkflowState({ selectedSuggestionIndex: index });
   }, [updateWorkflowState]);
 
-  // Key bindings for textarea: Enter submits, Shift+Enter adds newline
+  // Key bindings for textarea: Enter submits, Shift+Enter/Alt+Enter/Ctrl+J adds newline
   const textareaKeyBindings: KeyBinding[] = [
     { name: "return", action: "submit" },
-    { name: "linefeed", action: "submit" },
+    { name: "linefeed", action: "newline" },
     { name: "return", shift: true, action: "newline" },
     { name: "linefeed", shift: true, action: "newline" },
+    { name: "return", meta: true, action: "newline" },
+    { name: "linefeed", meta: true, action: "newline" },
   ];
 
   const normalizePastedText = useCallback((text: string) => {
@@ -1996,7 +2263,9 @@ export function ChatApp({
 
   // Get current autocomplete suggestions count for navigation
   const autocompleteSuggestions = workflowState.showAutocomplete
-    ? globalRegistry.search(workflowState.autocompleteInput)
+    ? workflowState.autocompleteMode === "mention"
+      ? getMentionSuggestions(workflowState.autocompleteInput)
+      : globalRegistry.search(workflowState.autocompleteInput)
     : [];
 
   // Handle keyboard events for exit, clipboard, and autocomplete navigation
@@ -2014,30 +2283,76 @@ export function ChatApp({
 
           // If streaming, interrupt (abort) the current operation
           if (isStreaming) {
-            // Mark the streaming message as interrupted before aborting
             const interruptedId = streamingMessageIdRef.current;
+            // Signal that interrupt already finalized agents — prevents
+            // handleComplete from overwriting with "completed" status
+            wasInterruptedRef.current = true;
+
+            // Read agents synchronously from ref (avoids nested dispatch issues)
+            const currentAgents = parallelAgentsRef.current;
+            const interruptedAgents = currentAgents.length > 0
+              ? currentAgents.map((a) =>
+                  a.status === "running" || a.status === "pending"
+                    ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+                    : a
+                )
+              : undefined;
+
+            // Clear live agents and update ref immediately
+            parallelAgentsRef.current = [];
+            setParallelAgents([]);
+
+            // Bake interrupted agents into message and stop streaming
             if (interruptedId) {
               setMessages((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
-                  msg.id === interruptedId ? { ...msg, wasInterrupted: true } : msg
+                  msg.id === interruptedId
+                    ? { ...msg, wasInterrupted: true, streaming: false, parallelAgents: interruptedAgents }
+                    : msg
                 )
               );
             }
+
+            // Stop streaming state immediately so UI reflects interrupted state
+            isStreamingRef.current = false;
+            setIsStreaming(false);
             onInterrupt?.();
 
-            // Cancel running sub-agents
+            // Cancel running sub-agents (from SubagentSessionManager)
             if (subagentManagerRef.current) {
-              void subagentManagerRef.current.cancelAll().then(() => {
-                setParallelAgents((prev) =>
-                  prev.map((a) =>
-                    a.status === "error" && a.error === "Cancelled"
-                      ? { ...a, status: "interrupted" as const, error: undefined }
-                      : a
-                  )
-                );
-              });
+              void subagentManagerRef.current.cancelAll();
             }
           }
+
+          // If not streaming but subagents are still running, cancel them
+          if (!isStreaming && subagentManagerRef.current) {
+            const currentAgents = parallelAgentsRef.current;
+            const hasRunningAgents = currentAgents.some(
+              (a) => a.status === "running" || a.status === "pending"
+            );
+            if (hasRunningAgents) {
+              wasInterruptedRef.current = true;
+              const interruptedAgents = currentAgents.map((a) =>
+                a.status === "running" || a.status === "pending"
+                  ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+                  : a
+              );
+              const interruptedId = streamingMessageIdRef.current;
+              if (interruptedId) {
+                setMessages((prev: ChatMessage[]) =>
+                  prev.map((msg: ChatMessage) =>
+                    msg.id === interruptedId
+                      ? { ...msg, parallelAgents: interruptedAgents }
+                      : msg
+                  )
+                );
+              }
+              parallelAgentsRef.current = [];
+              setParallelAgents([]);
+              void subagentManagerRef.current.cancelAll();
+            }
+          }
+
           // Cancel active workflow regardless of streaming state
           // (workflow may be active but between API calls, e.g. after error)
           if (workflowState.workflowActive) {
@@ -2093,14 +2408,15 @@ export function ChatApp({
           return;
         }
 
-        // Ctrl+O - dual purpose: toggle agent tree expand/collapse, or compaction history
+        // Ctrl+O - unified verbose toggle: expand/collapse tool outputs and agent tree
         if (event.ctrl && event.name === "o") {
-          if (parallelAgents.length > 0) {
-            // Agents visible: toggle tree expand/collapse
-            setAgentTreeExpanded(prev => !prev);
-          } else if (compactionSummary) {
+          if (compactionSummary && parallelAgents.length === 0) {
             // No agents but compaction summary exists: toggle compaction history
             setShowCompactionHistory(prev => !prev);
+          } else {
+            // Toggle verbose mode (expands tool outputs) and agent tree together
+            setVerboseMode(prev => !prev);
+            setAgentTreeExpanded(prev => !prev);
           }
           return;
         }
@@ -2134,30 +2450,77 @@ export function ChatApp({
 
           // If streaming, interrupt (abort) the current operation
           if (isStreaming) {
-            // Mark the streaming message as interrupted before aborting
             const interruptedId = streamingMessageIdRef.current;
+            // Signal that interrupt already finalized agents — prevents
+            // handleComplete from overwriting with "completed" status
+            wasInterruptedRef.current = true;
+
+            // Read agents synchronously from ref (avoids nested dispatch issues)
+            const currentAgents = parallelAgentsRef.current;
+            const interruptedAgents = currentAgents.length > 0
+              ? currentAgents.map((a) =>
+                  a.status === "running" || a.status === "pending"
+                    ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+                    : a
+                )
+              : undefined;
+
+            // Clear live agents and update ref immediately
+            parallelAgentsRef.current = [];
+            setParallelAgents([]);
+
+            // Bake interrupted agents into message and stop streaming
             if (interruptedId) {
               setMessages((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
-                  msg.id === interruptedId ? { ...msg, wasInterrupted: true } : msg
+                  msg.id === interruptedId
+                    ? { ...msg, wasInterrupted: true, streaming: false, parallelAgents: interruptedAgents }
+                    : msg
                 )
               );
             }
+
+            // Stop streaming state immediately so UI reflects interrupted state
+            isStreamingRef.current = false;
+            setIsStreaming(false);
             onInterrupt?.();
 
-            // Cancel running sub-agents
+            // Cancel running sub-agents (from SubagentSessionManager)
             if (subagentManagerRef.current) {
-              void subagentManagerRef.current.cancelAll().then(() => {
-                setParallelAgents((prev) =>
-                  prev.map((a) =>
-                    a.status === "error" && a.error === "Cancelled"
-                      ? { ...a, status: "interrupted" as const, error: undefined }
-                      : a
-                  )
-                );
-              });
+              void subagentManagerRef.current.cancelAll();
             }
           }
+
+          // If not streaming but subagents are still running, cancel them
+          if (!isStreaming && subagentManagerRef.current) {
+            const currentAgents = parallelAgentsRef.current;
+            const hasRunningAgents = currentAgents.some(
+              (a) => a.status === "running" || a.status === "pending"
+            );
+            if (hasRunningAgents) {
+              wasInterruptedRef.current = true;
+              const interruptedAgents = currentAgents.map((a) =>
+                a.status === "running" || a.status === "pending"
+                  ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+                  : a
+              );
+              const interruptedId = streamingMessageIdRef.current;
+              if (interruptedId) {
+                setMessages((prev: ChatMessage[]) =>
+                  prev.map((msg: ChatMessage) =>
+                    msg.id === interruptedId
+                      ? { ...msg, parallelAgents: interruptedAgents }
+                      : msg
+                  )
+                );
+              }
+              parallelAgentsRef.current = [];
+              setParallelAgents([]);
+              void subagentManagerRef.current.cancelAll();
+              return;
+            }
+          }
+
           // Cancel active workflow regardless of streaming state
           if (workflowState.workflowActive) {
             updateWorkflowState({
@@ -2278,6 +2641,59 @@ export function ChatApp({
           return;
         }
 
+        // Prompt history navigation: Up arrow cycles through previous prompts
+        if (event.name === "up" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0 && promptHistory.length > 0) {
+          const textarea = textareaRef.current;
+          if (textarea) {
+            const currentInput = textarea.plainText ?? "";
+            if (historyIndex === -1) {
+              // Entering history mode - save current input
+              savedInputRef.current = currentInput;
+              const newIndex = promptHistory.length - 1;
+              setHistoryIndex(newIndex);
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+              textarea.insertText(promptHistory[newIndex]!);
+            } else if (historyIndex > 0) {
+              // Navigate to earlier prompt
+              const newIndex = historyIndex - 1;
+              setHistoryIndex(newIndex);
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+              textarea.insertText(promptHistory[newIndex]!);
+            }
+            return;
+          }
+        }
+
+        // Prompt history navigation: Down arrow cycles forward through history
+        if (event.name === "down" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0 && historyIndex >= 0) {
+          const textarea = textareaRef.current;
+          if (textarea) {
+            if (historyIndex < promptHistory.length - 1) {
+              // Navigate to more recent prompt
+              const newIndex = historyIndex + 1;
+              setHistoryIndex(newIndex);
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+              textarea.insertText(promptHistory[newIndex]!);
+            } else {
+              // Exiting history mode - restore saved input
+              setHistoryIndex(-1);
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+              if (savedInputRef.current) {
+                textarea.insertText(savedInputRef.current);
+              }
+            }
+            return;
+          }
+        }
+
         // Arrow key scrolling: when idle and input is empty, up/down scroll the scrollbox
         if (
           (event.name === "up" || event.name === "down") &&
@@ -2294,6 +2710,23 @@ export function ChatApp({
           }
         }
 
+        // Shift+Enter or Alt+Enter - insert newline
+        // Must be handled here (before autocomplete Enter handler) with stopPropagation
+        // to prevent the textarea's built-in "return → submit" key binding from firing.
+        // Ctrl+J (linefeed without shift) also inserts newline as a universal fallback
+        // for terminals that don't support the Kitty keyboard protocol.
+        if (
+          ((event.name === "return" || event.name === "linefeed") && (event.shift || event.meta)) ||
+          (event.name === "linefeed" && !event.ctrl && !event.shift && !event.meta)
+        ) {
+          const textarea = textareaRef.current;
+          if (textarea) {
+            textarea.insertText("\n");
+          }
+          event.stopPropagation();
+          return;
+        }
+
         // Autocomplete: Tab - complete the selected command
         if (event.name === "tab" && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
           const selectedCommand = autocompleteSuggestions[workflowState.selectedSuggestionIndex];
@@ -2302,19 +2735,21 @@ export function ChatApp({
             textareaRef.current.gotoBufferHome();
             textareaRef.current.gotoBufferEnd({ select: true });
             textareaRef.current.deleteChar();
-            textareaRef.current.insertText(`/${selectedCommand.name} `);
+            const prefix = workflowState.autocompleteMode === "mention" ? "@" : "/";
+            textareaRef.current.insertText(`${prefix}${selectedCommand.name} `);
             updateWorkflowState({
               showAutocomplete: false,
               autocompleteInput: "",
               selectedSuggestionIndex: 0,
-              argumentHint: selectedCommand.argumentHint || "",
+              autocompleteMode: "command",
+              argumentHint: workflowState.autocompleteMode === "command" ? (selectedCommand.argumentHint || "") : "",
             });
           }
           return;
         }
 
-        // Autocomplete: Enter - execute the selected command immediately
-        if (event.name === "return" && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
+        // Autocomplete: Enter - execute the selected command immediately (skip if shift/meta held for newline)
+        if (event.name === "return" && !event.shift && !event.meta && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
           const selectedCommand = autocompleteSuggestions[workflowState.selectedSuggestionIndex];
           if (selectedCommand && textareaRef.current) {
             // Clear textarea
@@ -2326,15 +2761,26 @@ export function ChatApp({
               showAutocomplete: false,
               autocompleteInput: "",
               selectedSuggestionIndex: 0,
+              autocompleteMode: "command",
             });
-            // Execute the command
-            void executeCommand(selectedCommand.name, "");
+            if (workflowState.autocompleteMode === "mention" && selectedCommand.category === "agent") {
+              // Agent @ mention: execute the agent command
+              addMessage("user", `@${selectedCommand.name}`);
+              void executeCommand(selectedCommand.name, "");
+            } else if (workflowState.autocompleteMode === "mention") {
+              // File @ mention: insert @filepath into text for later processing
+              textareaRef.current.insertText(`@${selectedCommand.name} `);
+            } else {
+              // Slash command: execute immediately
+              addMessage("user", `/${selectedCommand.name}`);
+              void executeCommand(selectedCommand.name, "");
+            }
           }
           return;
         }
 
-        // Queue editing: Enter - exit edit mode and allow submission
-        if (event.name === "return" && isEditingQueue) {
+        // Queue editing: Enter - exit edit mode and allow submission (skip if shift/meta held for newline)
+        if (event.name === "return" && !event.shift && !event.meta && isEditingQueue) {
           setIsEditingQueue(false);
           // Keep edit index for potential message update
           // Allow default input submission behavior to proceed
@@ -2366,7 +2812,7 @@ export function ChatApp({
           syncInputScrollbar();
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage]
     )
   );
 
@@ -2439,24 +2885,65 @@ export function ChatApp({
             ? Date.now() - streamingStartRef.current
             : undefined;
 
-          if (messageId) {
-            setMessages((prev: ChatMessage[]) =>
-              prev.map((msg: ChatMessage) =>
-                msg.id === messageId
-                  ? {
-                      ...msg,
-                      streaming: false,
-                      durationMs,
-                      modelId: model,
-                      // Mark any still-running tools as interrupted
-                      toolCalls: msg.toolCalls?.map((tc) =>
-                        tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                      ),
-                    }
-                  : msg
-              )
-            );
+          // If the interrupt handler already finalized agents, skip overwriting
+          if (wasInterruptedRef.current) {
+            wasInterruptedRef.current = false;
+            if (messageId) {
+              setMessages((prev: ChatMessage[]) =>
+                prev.map((msg: ChatMessage) =>
+                  msg.id === messageId
+                    ? { ...msg, streaming: false, durationMs, modelId: model }
+                    : msg
+                )
+              );
+            }
+            setParallelAgents([]);
+            streamingMessageIdRef.current = null;
+            streamingStartRef.current = null;
+            isStreamingRef.current = false;
+            setIsStreaming(false);
+
+            const nextMessage = messageQueue.dequeue();
+            if (nextMessage) {
+              setTimeout(() => {
+                sendMessage(nextMessage.content);
+              }, 50);
+            }
+            return;
           }
+
+          // Finalize running parallel agents and bake into message
+          setParallelAgents((currentAgents) => {
+            const finalizedAgents = currentAgents.length > 0
+              ? currentAgents.map((a) =>
+                  a.status === "running" || a.status === "pending"
+                    ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+                    : a
+                )
+              : undefined;
+
+            if (messageId) {
+              setMessages((prev: ChatMessage[]) =>
+                prev.map((msg: ChatMessage) =>
+                  msg.id === messageId
+                    ? {
+                        ...msg,
+                        streaming: false,
+                        durationMs,
+                        modelId: model,
+                        toolCalls: msg.toolCalls?.map((tc) =>
+                          tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
+                        ),
+                        parallelAgents: finalizedAgents,
+                      }
+                    : msg
+                )
+              );
+            }
+            // Clear live agents
+            return [];
+          });
+
           streamingMessageIdRef.current = null;
           streamingStartRef.current = null;
           // Clear ref immediately (synchronous) before state update
@@ -2483,6 +2970,16 @@ export function ChatApp({
     sendMessageRef.current = sendMessage;
   }, [sendMessage]);
 
+  // Auto-submit initial prompt from CLI argument
+  const initialPromptSentRef = useRef(false);
+  useEffect(() => {
+    if (initialPrompt && !initialPromptSentRef.current) {
+      initialPromptSentRef.current = true;
+      const { message: processed } = processFileMentions(initialPrompt);
+      sendMessage(processed);
+    }
+  }, [initialPrompt, sendMessage]);
+
   /**
    * Handle message submission from textarea.
    * Gets value from textarea ref since onSubmit receives SubmitEvent, not value.
@@ -2497,6 +2994,13 @@ export function ChatApp({
       if (!trimmedValue) {
         return;
       }
+
+      // Add to prompt history (avoid duplicates of last entry)
+      setPromptHistory(prev => {
+        if (prev[prev.length - 1] === trimmedValue) return prev;
+        return [...prev, trimmedValue];
+      });
+      setHistoryIndex(-1);
 
       // Clear textarea by selecting all and deleting
       if (textareaRef.current) {
@@ -2525,15 +3029,45 @@ export function ChatApp({
         return;
       }
 
+      // Check if this is an @agent mention
+      if (trimmedValue.startsWith("@")) {
+        const afterAt = trimmedValue.slice(1);
+        const spaceIndex = afterAt.indexOf(" ");
+        const agentName = spaceIndex === -1 ? afterAt : afterAt.slice(0, spaceIndex);
+        const agentArgs = spaceIndex === -1 ? "" : afterAt.slice(spaceIndex + 1).trim();
+
+        const agentCommand = globalRegistry.get(agentName);
+        if (agentCommand && agentCommand.category === "agent") {
+          addMessage("user", trimmedValue);
+          void executeCommand(agentName, agentArgs);
+          return;
+        }
+      }
+
+      // Process file @mentions (e.g., @src/file.ts) - prepend file content as context
+      const { message: processedValue, filesRead } = processFileMentions(trimmedValue);
+
+      // Display file read confirmations if files were referenced
+      if (filesRead.length > 0) {
+        const fileReadLines = filesRead.map(f => {
+          if (f.isImage) {
+            const sizeStr = f.sizeBytes >= 1024 ? `${(f.sizeBytes / 1024).toFixed(1)}KB` : `${f.sizeBytes}B`;
+            return `  ⎿  Read ${f.path} (${sizeStr})`;
+          }
+          return `  ⎿  Read ${f.path} (${f.lineCount} lines)`;
+        }).join("\n");
+        addMessage("assistant", fileReadLines);
+      }
+
       // If streaming, queue the message instead of sending immediately
       // Use ref for immediate check (state update is async and may not reflect yet)
       if (isStreamingRef.current) {
-        messageQueue.enqueue(trimmedValue);
+        messageQueue.enqueue(processedValue);
         return;
       }
 
       // Send the message
-      sendMessage(trimmedValue);
+      sendMessage(processedValue);
     },
     [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage]
   );
@@ -2579,6 +3113,7 @@ export function ChatApp({
       flexDirection="column"
       height="100%"
       width="100%"
+      onMouseUp={handleMouseUp}
     >
       {/* Header */}
       <AtomicHeader
@@ -2721,17 +3256,17 @@ export function ChatApp({
               )}
             </box>
             {/* Streaming hint - shows "esc to interrupt" during streaming */}
-            {isStreaming && (
+            {isStreaming ? (
               <box paddingLeft={2}>
                 <text style={{ fg: MUTED_LAVENDER }}>
                   esc to interrupt
                 </text>
               </box>
-            )}
+            ) : null}
           </>
         )}
 
-        {/* Autocomplete dropdown for slash commands - inside scrollbox */}
+        {/* Autocomplete dropdown for slash commands and @ mentions - inside scrollbox */}
         {workflowState.showAutocomplete && (
           <box>
             <Autocomplete
@@ -2740,13 +3275,15 @@ export function ChatApp({
               selectedIndex={workflowState.selectedSuggestionIndex}
               onSelect={handleAutocompleteSelect}
               onIndexChange={handleAutocompleteIndexChange}
+              namePrefix={workflowState.autocompleteMode === "mention" ? "@" : "/"}
+              externalSuggestions={workflowState.autocompleteMode === "mention" ? autocompleteSuggestions : undefined}
             />
           </box>
         )}
 
         {/* Ctrl+C warning message */}
         {ctrlCPressed && (
-          <box marginTop={1} paddingLeft={2}>
+          <box paddingLeft={2}>
             <text style={{ fg: MUTED_LAVENDER }}>
               Press Ctrl-C again to exit
             </text>

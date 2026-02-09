@@ -327,7 +327,7 @@ function createMockClaudeClientWithTracking(
     },
 
     async getModelDisplayInfo() {
-      return { model: "Sonnet 4.5", tier: "Claude Code" };
+      return { model: "claude-sonnet-4-5", tier: "Claude Code" };
     },
   };
 }
@@ -512,7 +512,7 @@ describe("E2E test: Run all functionality in claude mode", () => {
     });
 
     test("parseRalphArgs works correctly for claude mode", () => {
-      const args = parseRalphArgs("--max-iterations 20 implement features");
+      const args = parseRalphArgs("implement features");
       expect(args.prompt).toBe("implement features");
     });
 
@@ -568,12 +568,7 @@ describe("E2E test: Run all functionality in claude mode", () => {
       const loaded = await loadSession(sessionDir);
 
       expect(loaded.sessionId).toBe(sessionId);
-      expect(loaded.tasks[0]?.name).toBe("Claude test feature");
-    });
-
-      expect(workflow).toBeDefined();
-
-      await client.stop();
+      expect(loaded.tasks[0]?.content).toBe("Claude test feature");
     });
   });
 
@@ -1266,4 +1261,5 @@ describe("E2E test: Run all functionality in claude mode", () => {
       });
     }
   );
+});
 

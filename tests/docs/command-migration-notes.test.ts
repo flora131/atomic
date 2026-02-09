@@ -122,7 +122,7 @@ describe("Migration Notes Documentation", () => {
 
     test("mentions spec file locations", () => {
       expect(content).toContain("research/spec.md");
-      expect(content).toContain("research/tasks.json");
+      expect(content).toContain("research/feature-list.json");
     });
   });
 

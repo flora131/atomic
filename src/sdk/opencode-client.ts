@@ -1291,20 +1291,20 @@ export class OpenCodeClient implements CodingAgentClient {
   async getModelDisplayInfo(
     modelHint?: string
   ): Promise<{ model: string; tier: string }> {
-    // Query SDK for model metadata - this is the authoritative source
-    if (this.isRunning && this.sdkClient) {
-      const metadataName = await this.lookupModelNameFromProviders(modelHint);
-      if (metadataName) {
-        return { model: metadataName, tier: "OpenCode" };
-      }
-    }
-
-    // SDK not available - use raw model ID without lossy formatting
+    // Use raw model ID (strip provider prefix) for display
     if (modelHint) {
       return {
         model: stripProviderPrefix(modelHint),
         tier: "OpenCode",
       };
+    }
+
+    // No hint - try to get the default model ID from SDK providers
+    if (this.isRunning && this.sdkClient) {
+      const rawId = await this.lookupRawModelIdFromProviders();
+      if (rawId) {
+        return { model: rawId, tier: "OpenCode" };
+      }
     }
 
     return {
@@ -1375,7 +1375,7 @@ export class OpenCodeClient implements CodingAgentClient {
    * @param modelHint - Optional model ID to look up (e.g., "anthropic/claude-sonnet-4")
    * @returns The model's name from SDK metadata, or undefined if not found
    */
-  private async lookupModelNameFromProviders(modelHint?: string): Promise<string | undefined> {
+  private async lookupRawModelIdFromProviders(): Promise<string | undefined> {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const configClient = this.sdkClient as any;
@@ -1385,39 +1385,17 @@ export class OpenCodeClient implements CodingAgentClient {
 
       const result = await configClient.config.providers();
       const data = result.data as {
-        all?: Array<{ id: string; name: string; models?: Record<string, { name?: string }> }>;
         default?: Record<string, string>;
       } | undefined;
       if (!data) return undefined;
 
-      // If we have a model hint, try to find it in provider models
-      if (modelHint) {
-        const parsed = this.parseModelForPrompt(modelHint);
-        if (parsed) {
-          const provider = data.all?.find(p => p.id === parsed.providerID);
-          if (provider?.models) {
-            const model = provider.models[parsed.modelID];
-            if (model?.name) return model.name;
-          }
-        }
-      }
-
-      // No hint or hint not found - use the first default model
+      // Return the first default model's raw ID
       const defaults = data.default;
       if (defaults) {
         const firstProvider = Object.keys(defaults)[0];
         if (firstProvider) {
           const modelId = defaults[firstProvider];
-          if (modelId) {
-            // Try to find the name from the provider's model list
-            const provider = data.all?.find(p => p.id === firstProvider);
-            if (provider?.models) {
-              const model = provider.models[modelId];
-              if (model?.name) return model.name;
-            }
-            // No metadata name found - return the raw model ID
-            return modelId;
-          }
+          if (modelId) return modelId;
         }
       }
     } catch {

@@ -5,21 +5,21 @@
  * It exports session management, workflow definition, and execution utilities.
  */
 
+// Re-export TodoItem for use in tests and other modules
+export { type TodoItem } from "../../sdk/tools/todo-write.ts";
+
 // Session types and utilities
 export {
   // Interfaces
   type RalphSession,
-  type RalphFeature,
 
   // Factory functions
   generateSessionId,
   getSessionDir,
   createRalphSession,
-  createRalphFeature,
 
   // Type guards
   isRalphSession,
-  isRalphFeature,
 
   // File system operations
   SESSION_SUBDIRECTORIES,

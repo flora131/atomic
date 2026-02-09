@@ -32,9 +32,9 @@ import {
   appendProgress,
   SESSION_SUBDIRECTORIES,
   type RalphSession,
-  type TodoItem,
   isRalphSession,
 } from "../../src/workflows/index.ts";
+import type { TodoItem } from "../../src/sdk/tools/todo-write.ts";
 import { createRalphWorkflow } from "../../src/workflows/index.ts";
 
 // ============================================================================
@@ -107,8 +107,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
     test("parseRalphArgs parses standard /ralph invocation", () => {
       const args = parseRalphArgs("implement features");
             expect(args.prompt).toBe("implement features");
-      expect(args.resumeSessionId).toBeNull();
-      expect(args.tasksPath).toBe("research/tasks.json");
+      expect(args.kind).toBe("run");
     });
 
     test("generateSessionId creates a valid UUID for session", () => {
@@ -136,7 +135,6 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
 
     test("workflow can be created for /ralph session", () => {
       const workflow = createRalphWorkflow({
-        tasksPath: "research/tasks.json",
         checkpointing: false,
       });
 
@@ -375,16 +373,8 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const loaded = await loadSession(sessionDir);
       expect(loaded.status).toBe("running");
     });
-
-      await saveSession(sessionDir, session);
-
-      const loaded = await loadSession(sessionDir);
-    });
-
-      await saveSession(sessionDir, session);
-
-      const loaded = await loadSession(sessionDir);
-    });
+  });
+});
 
     test("session.json contains iteration field", async () => {
       const sessionId = generateSessionId();
@@ -412,11 +402,12 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
         sessionDir,
         status: "running",
         tasks: [
-          createTodoItem({
+          {
             id: "feat-1",
-            name: "Test feature",
-            description: "Test description",
-          }),
+            content: "Test feature",
+            status: "pending" as const,
+            activeForm: "Test feature",
+          },
         ],
       });
 
@@ -425,7 +416,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const loaded = await loadSession(sessionDir);
       expect(Array.isArray(loaded.tasks)).toBe(true);
       expect(loaded.tasks.length).toBe(1);
-      expect(loaded.tasks[0]?.name).toBe("Test feature");
+      expect(loaded.tasks[0]?.content).toBe("Test feature");
     });
 
     test("session.json can be loaded with loadSession()", async () => {
@@ -475,13 +466,14 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature = createTodoItem({
+      const feature = {
         id: "feat-1",
-        name: "Test feature",
-        description: "Test description",
-      });
+        content: "Test feature",
+        status: "pending" as const,
+        activeForm: "Test feature",
+      };
 
-      await appendProgress(sessionDir, feature, true);
+      await appendProgress(sessionDir, `[${new Date().toISOString()}] ✓ ${feature.content}`);
 
       const progressPath = path.join(sessionDir, "progress.txt");
       expect(existsSync(progressPath)).toBe(true);
@@ -491,13 +483,14 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature = createTodoItem({
+      const feature = {
         id: "feat-1",
-        name: "Add user authentication",
-        description: "Implement auth",
-      });
+        content: "Add user authentication",
+        status: "pending" as const,
+        activeForm: "Add user authentication",
+      };
 
-      await appendProgress(sessionDir, feature, true);
+      await appendProgress(sessionDir, `[${new Date().toISOString()}] ✓ ${feature.content}`);
 
       const progressPath = path.join(sessionDir, "progress.txt");
       const content = await fs.readFile(progressPath, "utf-8");
@@ -508,13 +501,14 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature = createTodoItem({
+      const feature = {
         id: "feat-1",
-        name: "Test feature",
-        description: "Test",
-      });
+        content: "Test feature",
+        status: "pending" as const,
+        activeForm: "Test feature",
+      };
 
-      await appendProgress(sessionDir, feature, true);
+      await appendProgress(sessionDir, `[${new Date().toISOString()}] ✓ ${feature.content}`);
 
       const progressPath = path.join(sessionDir, "progress.txt");
       const content = await fs.readFile(progressPath, "utf-8");
@@ -525,13 +519,14 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature = createTodoItem({
+      const feature = {
         id: "feat-1",
-        name: "Test feature",
-        description: "Test",
-      });
+        content: "Test feature",
+        status: "pending" as const,
+        activeForm: "Test feature",
+      };
 
-      await appendProgress(sessionDir, feature, false);
+      await appendProgress(sessionDir, `[${new Date().toISOString()}] ✗ ${feature.content}`);
 
       const progressPath = path.join(sessionDir, "progress.txt");
       const content = await fs.readFile(progressPath, "utf-8");
@@ -542,13 +537,14 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature = createTodoItem({
+      const feature = {
         id: "feat-1",
-        name: "Test feature",
-        description: "Test",
-      });
+        content: "Test feature",
+        status: "pending" as const,
+        activeForm: "Test feature",
+      };
 
-      await appendProgress(sessionDir, feature, true);
+      await appendProgress(sessionDir, `[${new Date().toISOString()}] ✓ ${feature.content}`);
 
       const progressPath = path.join(sessionDir, "progress.txt");
       const content = await fs.readFile(progressPath, "utf-8");
@@ -561,20 +557,22 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature1 = createTodoItem({
+      const feature1 = {
         id: "feat-1",
-        name: "Feature 1",
-        description: "Test",
-      });
+        content: "Feature 1",
+        status: "pending" as const,
+        activeForm: "Feature 1",
+      };
 
-      const feature2 = createTodoItem({
+      const feature2 = {
         id: "feat-2",
-        name: "Feature 2",
-        description: "Test",
-      });
+        content: "Feature 2",
+        status: "pending" as const,
+        activeForm: "Feature 2",
+      };
 
-      await appendProgress(sessionDir, feature1, true);
-      await appendProgress(sessionDir, feature2, false);
+      await appendProgress(sessionDir, `[${new Date().toISOString()}] ✓ ${feature1.content}`);
+      await appendProgress(sessionDir, `[${new Date().toISOString()}] ✗ ${feature2.content}`);
 
       const progressPath = path.join(sessionDir, "progress.txt");
       const content = await fs.readFile(progressPath, "utf-8");
@@ -591,24 +589,26 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature1 = createTodoItem({
+      const feature1 = {
         id: "feat-1",
-        name: "First feature",
-        description: "Test",
-      });
+        content: "First feature",
+        status: "pending" as const,
+        activeForm: "First feature",
+      };
 
-      const feature2 = createTodoItem({
+      const feature2 = {
         id: "feat-2",
-        name: "Second feature",
-        description: "Test",
-      });
+        content: "Second feature",
+        status: "pending" as const,
+        activeForm: "Second feature",
+      };
 
-      await appendProgress(sessionDir, feature1, true);
+      await appendProgress(sessionDir, `[${new Date().toISOString()}] ✓ ${feature1.content}`);
 
       // Wait a bit to ensure different timestamps
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      await appendProgress(sessionDir, feature2, true);
+      await appendProgress(sessionDir, `[${new Date().toISOString()}] ✓ ${feature2.content}`);
 
       const progressPath = path.join(sessionDir, "progress.txt");
       const content = await fs.readFile(progressPath, "utf-8");
@@ -621,13 +621,14 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature = createTodoItem({
+      const feature = {
         id: "feat-1",
-        name: "Test feature",
-        description: "Test",
-      });
+        content: "Test feature",
+        status: "pending" as const,
+        activeForm: "Test feature",
+      };
 
-      await appendProgress(sessionDir, feature, true);
+      await appendProgress(sessionDir, `[${new Date().toISOString()}] ✓ ${feature.content}`);
 
       const progressPath = path.join(sessionDir, "progress.txt");
       const content = await fs.readFile(progressPath, "utf-8");
@@ -875,7 +876,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
 
       // Simulate copying feature list to session research directory
       const researchDir = path.join(sessionDir, "research");
-      const tasksPath = path.join(researchDir, "tasks.json");
+      const tasksPath = path.join(researchDir, "feature-list.json");
 
       await fs.writeFile(tasksPath, createTestFeatureListContent());
 
@@ -907,16 +908,18 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
         sessionDir,
         status: "running",
         tasks: [
-          createTodoItem({
+          {
             id: "feat-1",
-            name: "Test feature 1",
-            description: "First test feature",
-          }),
-          createTodoItem({
+            content: "Test feature 1",
+            status: "pending" as const,
+            activeForm: "Test feature 1",
+          },
+          {
             id: "feat-2",
-            name: "Test feature 2",
-            description: "Second test feature",
-          }),
+            content: "Test feature 2",
+            status: "pending" as const,
+            activeForm: "Test feature 2",
+          },
         ],
       });
 
@@ -925,7 +928,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
 
       // Step 5: Add progress entries
       for (const feature of session.tasks) {
-        await appendProgress(sessionDir, feature, true);
+        await appendProgress(sessionDir, `[${new Date().toISOString()}] ✓ ${feature.content}`);
       }
 
       // Step 6: Add log entries
@@ -954,22 +957,23 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
         sessionDir,
         status: "running",
         tasks: [
-          createTodoItem({
+          {
             id: "feat-1",
-            name: "Persistent feature",
-            description: "Test persistence",
-          }),
+            content: "Persistent feature",
+            status: "pending" as const,
+            activeForm: "Persistent feature",
+          },
         ],
       });
 
       await saveSession(sessionDir, session);
-      await appendProgress(sessionDir, session.tasks[0]!, true);
+      await appendProgress(sessionDir, `[${new Date().toISOString()}] ✓ ${session.tasks[0]!.content}`);
       await appendLog(sessionDir, "test-log", { persisted: true });
 
       // Read and verify all artifacts
       const loadedSession = await loadSession(sessionDir);
       expect(loadedSession.sessionId).toBe(sessionId);
-      expect(loadedSession.tasks[0]?.name).toBe("Persistent feature");
+      expect(loadedSession.tasks[0]?.content).toBe("Persistent feature");
 
       const progressContent = await fs.readFile(
         path.join(sessionDir, "progress.txt"),

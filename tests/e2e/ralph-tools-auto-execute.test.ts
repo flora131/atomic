@@ -40,7 +40,6 @@ import {
   loadSession,
   createRalphSession,
     type RalphSession,
-  type TodoItem,
 } from "../../src/workflows/index.ts";
 import { createRalphWorkflow } from "../../src/workflows/index.ts";
 import {
@@ -349,14 +348,13 @@ describe("E2E test: All tools auto-execute without prompts", () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
       await fs.writeFile(
-        path.join(researchDir, "tasks.json"),
+        path.join(researchDir, "feature-list.json"),
         createTestFeatureListContent()
       );
     });
 
     test("workflow can be created for tool execution testing", () => {
       const workflow = createRalphWorkflow({
-        tasksPath: "research/tasks.json",
         checkpointing: false,
       });
 
@@ -847,7 +845,7 @@ describe("E2E test: All tools auto-execute without prompts", () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
       await fs.writeFile(
-        path.join(researchDir, "tasks.json"),
+        path.join(researchDir, "feature-list.json"),
         createTestFeatureListContent()
       );
     });

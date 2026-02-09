@@ -1392,7 +1392,6 @@ describe("Edge Cases", () => {
 
 import {
   contextMonitorNode,
-  DEFAULT_CONTEXT_THRESHOLD,
   getDefaultCompactionAction,
   toContextWindowUsage,
   isContextThresholdExceeded,
@@ -1401,6 +1400,7 @@ import {
   type ContextMonitoringState,
   type ContextCompactionAction,
 } from "../../src/graph/nodes.ts";
+import { BACKGROUND_COMPACTION_THRESHOLD } from "../../src/graph/types.ts";
 import type { ContextWindowUsage } from "../../src/graph/types.ts";
 import type { ContextUsage } from "../../src/sdk/types.ts";
 
@@ -1438,7 +1438,7 @@ function createContextTestContext(
 
 describe("Context Monitoring Helpers", () => {
   test("DEFAULT_CONTEXT_THRESHOLD is 45", () => {
-    expect(DEFAULT_CONTEXT_THRESHOLD).toBe(45);
+    expect(BACKGROUND_COMPACTION_THRESHOLD * 100).toBe(45);
   });
 
   test("getDefaultCompactionAction returns correct action for each agent type", () => {

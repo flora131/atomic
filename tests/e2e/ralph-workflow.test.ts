@@ -3,7 +3,7 @@
  *
  * These tests verify the /ralph command correctly:
  * 1. Creates a temp folder for testing
- * 2. Reads and processes research/tasks.json
+ * 2. Reads and processes research/feature-list.json
  * 3. Starts the workflow successfully
  * 4. Displays session UUID when starting
  * 5. Creates the session directory structure
@@ -29,10 +29,10 @@ import {
   loadSession,
   loadSessionIfExists,
   createRalphSession,
-    type RalphSession,
-  type TodoItem,
-} from "../../src/workflows/index.ts";
-import { createRalphWorkflow } from "../../src/workflows/index.ts";
+  type RalphSession,
+} from "../../src/workflows/ralph/session.ts";
+import { createRalphWorkflow } from "../../src/workflows/ralph/workflow.ts";
+import type { TodoItem } from "../../src/sdk/tools/todo-write.ts";
 import {
   globalRegistry,
   type CommandContext,
@@ -42,6 +42,18 @@ import {
 // ============================================================================
 // TEST HELPERS
 // ============================================================================
+
+/**
+ * Create a TodoItem for testing.
+ */
+function createTodoItem(opts: { id: string; name: string; description: string }): TodoItem {
+  return {
+    id: opts.id,
+    content: `${opts.name}: ${opts.description}`,
+    status: "pending",
+    activeForm: "default",
+  };
+}
 
 /**
  * Create a mock CommandContext for testing.
@@ -175,60 +187,60 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
   // 2. Create research/tasks.json with test features
   // ============================================================================
 
-  describe("2. Create research/tasks.json with test features", () => {
+  describe("2. Create research/feature-list.json with test features", () => {
     test("can create research directory", async () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
       expect(existsSync(researchDir)).toBe(true);
     });
 
-    test("can create tasks.json with test content", async () => {
+    test("can create feature-list.json with test content", async () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
 
-      const tasksPath = path.join(researchDir, "tasks.json");
+      const featureListPath = path.join(researchDir, "feature-list.json");
       const content = createTestFeatureListContent();
-      await fs.writeFile(tasksPath, content);
+      await fs.writeFile(featureListPath, content);
 
-      expect(existsSync(tasksPath)).toBe(true);
+      expect(existsSync(featureListPath)).toBe(true);
     });
 
-    test("tasks.json contains valid JSON", async () => {
+    test("feature-list.json contains valid JSON", async () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
 
-      const tasksPath = path.join(researchDir, "tasks.json");
+      const featureListPath = path.join(researchDir, "feature-list.json");
       const content = createTestFeatureListContent();
-      await fs.writeFile(tasksPath, content);
+      await fs.writeFile(featureListPath, content);
 
-      const parsed = JSON.parse(await fs.readFile(tasksPath, "utf-8"));
+      const parsed = JSON.parse(await fs.readFile(featureListPath, "utf-8"));
       expect(parsed.tasks).toBeDefined();
       expect(Array.isArray(parsed.tasks)).toBe(true);
     });
 
-    test("tasks.json has expected structure", async () => {
+    test("feature-list.json has expected structure", async () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
 
-      const tasksPath = path.join(researchDir, "tasks.json");
+      const featureListPath = path.join(researchDir, "feature-list.json");
       const content = createTestFeatureListContent();
-      await fs.writeFile(tasksPath, content);
+      await fs.writeFile(featureListPath, content);
 
-      const parsed = JSON.parse(await fs.readFile(tasksPath, "utf-8"));
+      const parsed = JSON.parse(await fs.readFile(featureListPath, "utf-8"));
       expect(parsed.tasks.length).toBe(3);
       expect(parsed.tasks[0].category).toBe("functional");
       expect(parsed.tasks[0].description).toContain("user authentication");
     });
 
-    test("tasks.json features have required fields", async () => {
+    test("feature-list.json features have required fields", async () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
 
-      const tasksPath = path.join(researchDir, "tasks.json");
+      const featureListPath = path.join(researchDir, "feature-list.json");
       const content = createTestFeatureListContent();
-      await fs.writeFile(tasksPath, content);
+      await fs.writeFile(featureListPath, content);
 
-      const parsed = JSON.parse(await fs.readFile(tasksPath, "utf-8"));
+      const parsed = JSON.parse(await fs.readFile(featureListPath, "utf-8"));
       for (const feature of parsed.tasks) {
         expect(feature.category).toBeDefined();
         expect(feature.description).toBeDefined();
@@ -245,35 +257,50 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
   describe("3. Run /ralph command", () => {
     test("parseRalphArgs parses standard prompt", () => {
       const args = parseRalphArgs("implement the feature list");
-      expect(args.prompt).toBe("implement the feature list");
-      expect(args.resumeSessionId).toBeNull();
+      expect(args.kind).toBe("run");
+      if (args.kind === "run") {
+        expect(args.prompt).toBe("implement the feature list");
+      }
     });
 
     test("parseRalphArgs parses  flag", () => {
       const args = parseRalphArgs(" build a snake game");
-      expect(args.prompt).toBe("build a snake game");
+      if (args.kind === "run") {
+        expect(args.prompt).toBe("build a snake game");
+      }
     });
 
     test("parseRalphArgs parses --task-list flag", () => {
       const args = parseRalphArgs("--task-list custom/features.json implement");
-      expect(args.tasksPath).toBe("custom/features.json");
-      expect(args.prompt).toBe("implement");
+      expect(args.kind).toBe("run");
+      if (args.kind === "run") {
+        expect(args.prompt).toBe("--task-list custom/features.json implement");
+      }
     });
 
-    test("parseRalphArgs uses default task-list path", () => {
+    test("parseRalphArgs returns run kind for standard prompt", () => {
       const args = parseRalphArgs("implement features");
-      expect(args.tasksPath).toBe("research/tasks.json");
+      expect(args.kind).toBe("run");
+      if (args.kind === "run") {
+        expect(args.prompt).toBe("implement features");
+      }
     });
 
     test("parseRalphArgs parses --max-iterations flag", () => {
       const args = parseRalphArgs("--max-iterations 50 implement");
-      expect(args.prompt).toBe("implement");
+      expect(args.kind).toBe("run");
+      if (args.kind === "run") {
+        expect(args.prompt).toBe("--max-iterations 50 implement");
+      }
     });
 
     test("parseRalphArgs parses --resume flag", () => {
       const uuid = "550e8400-e29b-41d4-a716-446655440000";
       const args = parseRalphArgs(`--resume ${uuid}`);
-      expect(args.resumeSessionId).toBe(uuid);
+      expect(args.kind).toBe("resume");
+      if (args.kind === "resume") {
+        expect(args.sessionId).toBe(uuid);
+      }
     });
 
     test("ralph command can be retrieved from registry after registration", async () => {
@@ -296,13 +323,12 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
       // Create research directory and feature list for all tests in this block
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
-      const tasksPath = path.join(researchDir, "tasks.json");
-      await fs.writeFile(tasksPath, createTestFeatureListContent());
+      const featureListPath = path.join(researchDir, "feature-list.json");
+      await fs.writeFile(featureListPath, createTestFeatureListContent());
     });
 
     test("createRalphWorkflow creates a valid workflow", () => {
       const workflow = createRalphWorkflow({
-        tasksPath: "research/tasks.json",
         checkpointing: false,
       });
 
@@ -313,7 +339,6 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
 
     test("workflow has required nodes", () => {
       const workflow = createRalphWorkflow({
-        tasksPath: "research/tasks.json",
         checkpointing: false,
       });
 
@@ -326,14 +351,10 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
 
     test("workflow starts with init-session node", () => {
       const workflow = createRalphWorkflow({
-        tasksPath: "research/tasks.json",
         checkpointing: false,
       });
 
       expect(workflow.startNode).toBe("init-session");
-    });
-
-      expect(workflow).toBeDefined();
     });
 
     test("workflow can be created in prompt mode", () => {
@@ -385,7 +406,7 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
         ralphConfig: {
           sessionId,
           userPrompt: "implement features",
-          tasksPath: "research/tasks.json",
+          featureListPath: "research/feature-list.json",
         },
       };
 
@@ -504,13 +525,13 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
       // Create research directory and feature list
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
-      const tasksPath = path.join(researchDir, "tasks.json");
-      await fs.writeFile(tasksPath, createTestFeatureListContent());
+      const featureListPath = path.join(researchDir, "feature-list.json");
+      await fs.writeFile(featureListPath, createTestFeatureListContent());
     });
 
-    test("tasks.json can be read from expected path", async () => {
-      const tasksPath = "research/tasks.json";
-      const content = await fs.readFile(tasksPath, "utf-8");
+    test("feature-list.json can be read from expected path", async () => {
+      const featureListPath = "research/feature-list.json";
+      const content = await fs.readFile(featureListPath, "utf-8");
       const parsed = JSON.parse(content);
 
       expect(parsed.tasks).toBeDefined();
@@ -518,8 +539,8 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
     });
 
     test("features can be converted to TodoItem format", async () => {
-      const tasksPath = "research/tasks.json";
-      const content = await fs.readFile(tasksPath, "utf-8");
+      const featureListPath = "research/feature-list.json";
+      const content = await fs.readFile(featureListPath, "utf-8");
       const parsed = JSON.parse(content);
 
       const ralphFeatures: TodoItem[] = parsed.tasks.map(
@@ -533,12 +554,12 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
 
       expect(ralphFeatures.length).toBe(3);
       expect(ralphFeatures[0]?.status).toBe("pending");
-      expect(ralphFeatures[0]?.name).toContain("user authentication");
+      expect(ralphFeatures[0]?.content).toContain("user authentication");
     });
 
     test("features are loaded with pending status by default", async () => {
-      const tasksPath = "research/tasks.json";
-      const content = await fs.readFile(tasksPath, "utf-8");
+      const featureListPath = "research/feature-list.json";
+      const content = await fs.readFile(featureListPath, "utf-8");
       const parsed = JSON.parse(content);
 
       const ralphFeatures: TodoItem[] = parsed.tasks.map(
@@ -556,8 +577,8 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
     });
 
     test("session can be created with loaded features", async () => {
-      const tasksPath = "research/tasks.json";
-      const content = await fs.readFile(tasksPath, "utf-8");
+      const featureListPath = "research/feature-list.json";
+      const content = await fs.readFile(featureListPath, "utf-8");
       const parsed = JSON.parse(content);
 
       const ralphFeatures: TodoItem[] = parsed.tasks.map(
@@ -576,17 +597,15 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
         sessionId,
         sessionDir,
         status: "running",
-        features: ralphFeatures,
-        sourceFeatureListPath: tasksPath,
+        tasks: ralphFeatures,
       });
 
       expect(session.tasks.length).toBe(3);
-      expect(session.sourceFeatureListPath).toBe(tasksPath);
     });
 
     test("session with features can be saved and loaded", async () => {
-      const tasksPath = "research/tasks.json";
-      const content = await fs.readFile(tasksPath, "utf-8");
+      const featureListPath = "research/feature-list.json";
+      const content = await fs.readFile(featureListPath, "utf-8");
       const parsed = JSON.parse(content);
 
       const ralphFeatures: TodoItem[] = parsed.tasks.map(
@@ -605,16 +624,14 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
         sessionId,
         sessionDir,
         status: "running",
-        features: ralphFeatures,
-        sourceFeatureListPath: tasksPath,
+        tasks: ralphFeatures,
       });
 
       await saveSession(sessionDir, session);
       const loaded = await loadSession(sessionDir);
 
       expect(loaded.tasks.length).toBe(3);
-      expect(loaded.tasks[0]?.name).toContain("user authentication");
-      expect(loaded.sourceFeatureListPath).toBe(tasksPath);
+      expect(loaded.tasks[0]?.content).toContain("user authentication");
     });
 
     test("loadSessionIfExists returns null for non-existent session", async () => {
@@ -639,7 +656,7 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
       expect(loaded?.sessionId).toBe(sessionId);
     });
 
-    test("custom task-list path is respected", async () => {
+    test("custom feature list path can be read", async () => {
       // Create custom feature list in different location
       const customDir = path.join(tmpDir, "custom");
       await fs.mkdir(customDir, { recursive: true });
@@ -658,10 +675,7 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
 
       await fs.writeFile(customPath, JSON.stringify(customFeatures, null, 2));
 
-      const args = parseRalphArgs("--task-list custom/my-features.json implement");
-      expect(args.tasksPath).toBe("custom/my-features.json");
-
-      const content = await fs.readFile(args.tasksPath, "utf-8");
+      const content = await fs.readFile(customPath, "utf-8");
       const parsed = JSON.parse(content);
       expect(parsed.tasks.length).toBe(1);
       expect(parsed.tasks[0].description).toBe("Custom feature");
@@ -677,18 +691,21 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
       // Create research directory and feature list
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
-      const tasksPath = path.join(researchDir, "tasks.json");
-      await fs.writeFile(tasksPath, createTestFeatureListContent());
+      const featureListPath = path.join(researchDir, "feature-list.json");
+      await fs.writeFile(featureListPath, createTestFeatureListContent());
     });
 
     test("complete flow: parse args -> create session -> load features -> save session", async () => {
       // Step 1: Parse command arguments
       const args = parseRalphArgs("implement all features");
-      expect(args.prompt).toBe("implement all features");
-      expect(args.tasksPath).toBe("research/tasks.json");
+      expect(args.kind).toBe("run");
+      if (args.kind === "run") {
+        expect(args.prompt).toBe("implement all features");
+      }
 
       // Step 2: Read feature list
-      const content = await fs.readFile(args.tasksPath, "utf-8");
+      const featureListPath = "research/feature-list.json";
+      const content = await fs.readFile(featureListPath, "utf-8");
       const parsed = JSON.parse(content);
       expect(parsed.tasks.length).toBe(3);
 
@@ -714,8 +731,7 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
         sessionId,
         sessionDir,
         status: "running",
-        features: ralphFeatures,
-        sourceFeatureListPath: args.tasksPath,
+        tasks: ralphFeatures,
       });
 
       // Step 6: Save session
@@ -734,8 +750,7 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
 
       // Create workflow with parsed config
       const workflow = createRalphWorkflow({
-        tasksPath: args.tasksPath,
-        userPrompt: args.prompt ?? undefined,
+        userPrompt: args.kind === "run" ? args.prompt : undefined,
         checkpointing: true,
       });
 
@@ -796,4 +811,5 @@ describe("E2E test: /ralph command starts workflow with task-list", () => {
       expect(final.tasks[0]?.status).toBe("in_progress");
     });
   });
+});
 

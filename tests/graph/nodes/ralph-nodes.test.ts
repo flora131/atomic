@@ -98,8 +98,8 @@ function createTestState(): RalphWorkflowState {
         activeForm: "Implementing Add logout",
       },
     ],
-    currentTaskIndex: 1,
-    completedTaskIds: ["feat-001"],
+    currentFeatureIndex: 1,
+    completedFeatures: ["feat-001"],
     currentTask: null,
 
     // Execution tracking
@@ -193,8 +193,8 @@ describe("RalphWorkflowState", () => {
 
       // Check task tracking
       expect(state.tasks).toEqual([]);
-      expect(state.currentTaskIndex).toBe(0);
-      expect(state.completedTaskIds).toEqual([]);
+      expect(state.currentFeatureIndex).toBe(0);
+      expect(state.completedFeatures).toEqual([]);
       expect(state.currentTask).toBeNull();
 
       // Check execution tracking
@@ -346,8 +346,8 @@ describe("State Conversion", () => {
       expect(state.ralphSessionId).toBe(session.sessionId);
       expect(state.ralphSessionDir).toBe(session.sessionDir);
       expect(state.tasks).toEqual(session.tasks);
-      expect(state.currentTaskIndex).toBe(session.currentFeatureIndex);
-      expect(state.completedTaskIds).toEqual(session.completedFeatures);
+      expect(state.currentFeatureIndex).toBe(session.currentFeatureIndex);
+      expect(state.completedFeatures).toEqual(session.completedFeatures);
       expect(state.iteration).toBe(session.iteration);
       expect(state.sessionStatus).toBe(session.status);
       expect(state.prUrl).toBe(session.prUrl);
@@ -414,8 +414,8 @@ describe("State Conversion", () => {
       expect(session.sessionId).toBe(state.ralphSessionId);
       expect(session.sessionDir).toBe(state.ralphSessionDir);
       expect(session.tasks).toEqual(state.tasks);
-      expect(session.currentFeatureIndex).toBe(state.currentTaskIndex);
-      expect(session.completedFeatures).toEqual(state.completedTaskIds);
+      expect(session.currentFeatureIndex).toBe(state.currentFeatureIndex);
+      expect(session.completedFeatures).toEqual(state.completedFeatures);
       expect(session.iteration).toBe(state.iteration);
       expect(session.status).toBe(state.sessionStatus);
       expect(session.prUrl).toBe(state.prUrl);
@@ -635,10 +635,10 @@ describe("Integration", () => {
     await createSessionDirectory(testSessionId);
 
     // 3. Simulate some work
-    initialState.currentTaskIndex = 1;
+    initialState.currentFeatureIndex = 1;
     initialState.iteration = 5;
     initialState.tasks[0]!.status = "completed";
-    initialState.completedTaskIds = ["f1"];
+    initialState.completedFeatures = ["f1"];
 
     // 4. Save session
     const session = workflowStateToSession(initialState);
@@ -659,9 +659,9 @@ describe("Integration", () => {
 
     // Verify state was preserved
     expect(resumedState.ralphSessionId).toBe(testSessionId);
-    expect(resumedState.currentTaskIndex).toBe(1);
+    expect(resumedState.currentFeatureIndex).toBe(1);
     expect(resumedState.iteration).toBe(5);
-    expect(resumedState.completedTaskIds).toEqual(["f1"]);
+    expect(resumedState.completedFeatures).toEqual(["f1"]);
     expect(resumedState.tasks[0]!.status).toBe("completed");
     expect(resumedState.tasks[1]!.status).toBe("pending");
 
@@ -868,7 +868,7 @@ describe("initRalphSessionNode", () => {
 
       expect(result.stateUpdate!.ralphSessionId).toBe(testSessionId);
       expect(result.stateUpdate!.iteration).toBe(10);
-      expect(result.stateUpdate!.completedTaskIds).toEqual(["f1"]);
+      expect(result.stateUpdate!.completedFeatures).toEqual(["f1"]);
       expect(result.stateUpdate!.tasks![0]!.content).toBe("Existing Task");
     });
 
@@ -1000,7 +1000,7 @@ describe("implementFeatureNode", () => {
       const result = await node.execute(ctx);
 
       expect(result.stateUpdate).toBeDefined();
-      expect(result.stateUpdate!.currentTaskIndex).toBe(1);
+      expect(result.stateUpdate!.currentFeatureIndex).toBe(1);
       expect(result.stateUpdate!.currentTask).toBeDefined();
       expect(result.stateUpdate!.currentTask!.id).toBe("f2");
       expect(result.stateUpdate!.currentTask!.status).toBe("in_progress");
@@ -1150,7 +1150,7 @@ describe("implementFeatureNode", () => {
       const result = await node.execute(ctx);
 
       expect(result.stateUpdate!.currentTask!.id).toBe("f2");
-      expect(result.stateUpdate!.currentTaskIndex).toBe(1);
+      expect(result.stateUpdate!.currentFeatureIndex).toBe(1);
     });
   });
 
@@ -1313,7 +1313,7 @@ describe("processFeatureImplementationResult", () => {
       tasks: [task],
     });
     state.currentTask = task;
-    state.currentTaskIndex = 0;
+    state.currentFeatureIndex = 0;
 
     const result = await processFeatureImplementationResult(state, true);
 
@@ -1335,7 +1335,7 @@ describe("processFeatureImplementationResult", () => {
       tasks: [task],
     });
     state.currentTask = task;
-    state.currentTaskIndex = 0;
+    state.currentFeatureIndex = 0;
 
     const result = await processFeatureImplementationResult(state, false, "tests failing");
 
@@ -1351,7 +1351,7 @@ describe("processFeatureImplementationResult", () => {
     expect(result.tasks![1]!.status).toBe("pending");
   });
 
-  test("adds task to completedTaskIds when passing", async () => {
+  test("adds task to completedFeatures when passing", async () => {
     await createSessionDirectory(testSessionId);
 
     const task: TodoItem = {
@@ -1366,14 +1366,14 @@ describe("processFeatureImplementationResult", () => {
       tasks: [task],
     });
     state.currentTask = task;
-    state.currentTaskIndex = 0;
+    state.currentFeatureIndex = 0;
 
     const result = await processFeatureImplementationResult(state, true);
 
-    expect(result.completedTaskIds).toContain("f1");
+    expect(result.completedFeatures).toContain("f1");
   });
 
-  test("does not add task to completedTaskIds when failing", async () => {
+  test("does not add task to completedFeatures when failing", async () => {
     await createSessionDirectory(testSessionId);
 
     const task: TodoItem = {
@@ -1388,11 +1388,11 @@ describe("processFeatureImplementationResult", () => {
       tasks: [task],
     });
     state.currentTask = task;
-    state.currentTaskIndex = 0;
+    state.currentFeatureIndex = 0;
 
     const result = await processFeatureImplementationResult(state, false);
 
-    expect(result.completedTaskIds).not.toContain("f1");
+    expect(result.completedFeatures).not.toContain("f1");
   });
 
   test("increments iteration", async () => {
@@ -1410,7 +1410,7 @@ describe("processFeatureImplementationResult", () => {
       tasks: [task],
     });
     state.currentTask = task;
-    state.currentTaskIndex = 0;
+    state.currentFeatureIndex = 0;
     state.iteration = 5;
 
     const result = await processFeatureImplementationResult(state, true);
@@ -1431,7 +1431,7 @@ describe("processFeatureImplementationResult", () => {
       tasks,
     });
     state.currentTask = tasks[0]!;
-    state.currentTaskIndex = 0;
+    state.currentFeatureIndex = 0;
 
     const result = await processFeatureImplementationResult(state, true);
 
@@ -1454,7 +1454,7 @@ describe("processFeatureImplementationResult", () => {
       tasks: [task],
     });
     state.currentTask = task;
-    state.currentTaskIndex = 0;
+    state.currentFeatureIndex = 0;
 
     const result = await processFeatureImplementationResult(state, true);
 
@@ -1487,7 +1487,7 @@ describe("processFeatureImplementationResult", () => {
       tasks: [task],
     });
     state.currentTask = task;
-    state.currentTaskIndex = 0;
+    state.currentFeatureIndex = 0;
 
     await processFeatureImplementationResult(state, true);
 
@@ -1512,7 +1512,7 @@ describe("processFeatureImplementationResult", () => {
       tasks: [task],
     });
     state.currentTask = task;
-    state.currentTaskIndex = 0;
+    state.currentFeatureIndex = 0;
 
     await processFeatureImplementationResult(state, true);
 
@@ -1537,7 +1537,7 @@ describe("processFeatureImplementationResult", () => {
       tasks: [task],
     });
     state.currentTask = task;
-    state.currentTaskIndex = 0;
+    state.currentFeatureIndex = 0;
 
     await processFeatureImplementationResult(state, true);
 
@@ -1564,7 +1564,7 @@ describe("processFeatureImplementationResult", () => {
       tasks: [task],
     });
     state.currentTask = task;
-    state.currentTaskIndex = 0;
+    state.currentFeatureIndex = 0;
 
     const result = await processFeatureImplementationResult(state, true);
 

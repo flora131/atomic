@@ -70,8 +70,8 @@ describe("RALPH_ENV_VARS", () => {
 
 describe("RALPH_DEFAULTS", () => {
 
-  test("featureListPath defaults to research/tasks.json", () => {
-    expect(RALPH_DEFAULTS.featureListPath).toBe("research/tasks.json");
+  test("featureListPath defaults to research/feature-list.json", () => {
+    expect(RALPH_DEFAULTS.featureListPath).toBe("research/feature-list.json");
   });
 
   test("progressFilePath defaults to research/progress.txt", () => {
@@ -126,7 +126,7 @@ describe("RalphWorkflowConfig type", () => {
 describe("loadRalphConfig", () => {
   test("returns default config when no options provided", () => {
     const config = loadRalphConfig();
-    expect(config.featureListPath).toBe("research/tasks.json");
+    expect(config.featureListPath).toBe("research/feature-list.json");
   });
 
   test("can override featureListPath", () => {
@@ -142,10 +142,10 @@ describe("loadRalphConfig", () => {
 describe("describeRalphConfig", () => {
   test("describes unlimited iterations", () => {
     const config: RalphConfig = {
-      featureListPath: "research/tasks.json",
+      featureListPath: "research/feature-list.json",
     };
     const description = describeRalphConfig(config);
-    expect(description).toContain("Feature list: research/tasks.json");
+    expect(description).toContain("Feature list: research/feature-list.json");
   });
 
   test("describes limited iterations", () => {
@@ -222,7 +222,7 @@ describe("generateRalphSessionId", () => {
 describe("getRalphSessionPaths", () => {
   test("returns default paths when no sessionId provided", () => {
     const paths = getRalphSessionPaths("claude");
-    expect(paths.featureListPath).toBe("research/tasks.json");
+    expect(paths.featureListPath).toBe("research/feature-list.json");
     expect(paths.progressFilePath).toBe("research/progress.txt");
     expect(paths.stateFilePath).toBe(".claude/ralph-loop.local.md");
   });
@@ -230,7 +230,7 @@ describe("getRalphSessionPaths", () => {
   test("returns session-specific paths when sessionId provided", () => {
     const sessionId = "sess_123_abc";
     const paths = getRalphSessionPaths("claude", sessionId);
-    expect(paths.featureListPath).toBe("research/tasks-sess_123_abc.json");
+    expect(paths.featureListPath).toBe("research/feature-list-sess_123_abc.json");
     expect(paths.progressFilePath).toBe("research/progress-sess_123_abc.txt");
     expect(paths.stateFilePath).toBe(".claude/ralph-loop-sess_123_abc.local.md");
   });
@@ -266,7 +266,7 @@ describe("getRalphSessionPaths", () => {
 
 describe("extractSessionId", () => {
   test("extracts session ID from feature list path", () => {
-    const id = extractSessionId("research/tasks-sess_123_abc.json");
+    const id = extractSessionId("research/feature-list-sess_123_abc.json");
     expect(id).toBe("sess_123_abc");
   });
 
@@ -281,7 +281,7 @@ describe("extractSessionId", () => {
   });
 
   test("returns undefined for default paths without session ID", () => {
-    expect(extractSessionId("research/tasks.json")).toBeUndefined();
+    expect(extractSessionId("research/feature-list.json")).toBeUndefined();
     expect(extractSessionId("research/progress.txt")).toBeUndefined();
     expect(extractSessionId(".claude/ralph-loop.local.md")).toBeUndefined();
   });

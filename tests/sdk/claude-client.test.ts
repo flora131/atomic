@@ -104,10 +104,10 @@ describe("ClaudeAgentClient", () => {
   });
 
   describe("Model Display", () => {
-    test("getModelDisplayInfo returns formatted model name from hint", async () => {
+    test("getModelDisplayInfo returns raw model name from hint", async () => {
       await client.start();
       const info = await client.getModelDisplayInfo("claude-opus-4-5-20251101");
-      expect(info.model).toBe("opus");
+      expect(info.model).toBe("claude-opus-4-5-20251101");
       expect(info.tier).toBe("Claude Code");
     });
 
@@ -119,11 +119,10 @@ describe("ClaudeAgentClient", () => {
       expect(info.tier).toBe("Claude Code");
     });
 
-    test("getModelDisplayInfo uses hint over detected model", async () => {
+    test("getModelDisplayInfo returns raw hint without formatting", async () => {
       await client.start();
-      // Even if the SDK returns a different model, the hint should be used
       const info = await client.getModelDisplayInfo("claude-sonnet-4-5");
-      expect(info.model).toBe("sonnet");
+      expect(info.model).toBe("claude-sonnet-4-5");
     });
   });
 
@@ -173,15 +172,9 @@ describe("ClaudeAgentClient", () => {
       await client.start();
     });
 
-    test("session.getContextUsage returns usage stats", async () => {
+    test("session.getContextUsage throws before any query completes", async () => {
       const session = await client.createSession();
-      const usage = await session.getContextUsage();
-      expect(usage).toEqual({
-        inputTokens: 0,
-        outputTokens: 0,
-        maxTokens: 200000,
-        usagePercentage: 0,
-      });
+      await expect(session.getContextUsage()).rejects.toThrow("Context window size unavailable");
     });
 
     test("session.destroy closes the session", async () => {

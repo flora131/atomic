@@ -1004,10 +1004,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
     modelHint?: string
   ): Promise<{ model: string; tier: string }> {
     // Use detected model from SDK probe (authoritative), then hint, then raw fallback
-    const model = this.detectedModel
-      ?? (modelHint ? stripProviderPrefix(modelHint) : "Claude");
+    const raw = this.detectedModel
+      ?? (modelHint ? stripProviderPrefix(modelHint) : null);
     return {
-      model,
+      model: raw ?? "Claude",
       tier: "Claude Code",
     };
   }

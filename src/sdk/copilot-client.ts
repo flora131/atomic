@@ -935,16 +935,16 @@ export class CopilotClient implements CodingAgentClient {
             const matched = models.find((m: { id?: string }) => m.id === hintModelId || m.id === modelHint);
             if (matched) {
               return {
-                model: matched.name ?? matched.id,
+                model: matched.id ?? "Copilot",
                 tier: "GitHub Copilot",
               };
             }
           }
-          // No hint or hint not found - use the first model's metadata name
+          // No hint or hint not found - use the first model's raw ID
           const firstModel = models[0] as { name?: string; id?: string } | undefined;
           if (firstModel) {
             return {
-              model: firstModel.name ?? firstModel.id ?? "Copilot",
+              model: firstModel.id ?? "Copilot",
               tier: "GitHub Copilot",
             };
           }

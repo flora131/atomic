@@ -44,12 +44,6 @@ import type { AgentType } from "../utils/telemetry/types.ts";
  */
 export interface RalphSetupOptions {
   /**
-   * Maximum iterations before auto-stop.
-   * Default: 0 (unlimited iterations)
-   */
-  maxIterations?: number;
-
-  /**
    * Agent type for execution.
    * Default: 'claude'
    */
@@ -62,30 +56,9 @@ export interface RalphSetupOptions {
   checkpointing?: boolean;
 
   /**
-   * Run in yolo mode (no feature list, freestyle).
-   * Default: false
-   */
-  yolo?: boolean;
-
-  /**
-   * User prompt for yolo mode.
-   */
-  userPrompt?: string;
-
-  /**
    * Initial prompt parts for the Ralph loop.
    */
   prompt?: string[];
-
-  /**
-   * Promise phrase to signal completion.
-   */
-  completionPromise?: string;
-
-  /**
-   * Path to feature list JSON file.
-   */
-  featureList?: string;
 }
 
 // ============================================================================
@@ -192,18 +165,13 @@ function getStatusEmoji(status: string): string {
  */
 async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number> {
   const {
-    maxIterations = 0,
     agentType = "claude",
     checkpointing = true,
-    yolo = false,
-    userPrompt,
   } = options;
 
   console.log("🚀 Starting Ralph workflow...\n");
   console.log(`Agent type: ${agentType}`);
-  console.log(`Max iterations: ${maxIterations === 0 ? "unlimited" : maxIterations}`);
   console.log(`Checkpointing: ${checkpointing ? "enabled" : "disabled"}`);
-  console.log(`Mode: ${yolo ? "yolo (freestyle)" : "feature-list"}`);
   console.log("");
 
   // Create the SDK client
@@ -213,10 +181,7 @@ async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number>
   try {
     // Configure the workflow
     const workflowConfig: CreateRalphWorkflowConfig = {
-      maxIterations,
       checkpointing,
-      yolo,
-      userPrompt,
       graphConfig: withGraphTelemetry({
         metadata: {
           agentType,
@@ -320,14 +285,5 @@ async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number>
  * @param options - Configuration options for the Ralph workflow
  */
 export async function ralphSetup(options: RalphSetupOptions): Promise<number> {
-  // Validate feature list path exists before entering interactive workflow
-  if (options.featureList) {
-    const { existsSync } = await import("fs");
-    if (!existsSync(options.featureList)) {
-      console.error(`Feature list not found: ${options.featureList}`);
-      return 1;
-    }
-  }
-
   return executeGraphWorkflow(options);
 }

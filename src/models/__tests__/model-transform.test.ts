@@ -17,7 +17,7 @@ describe("model-transform", () => {
         description: "Fast and efficient Claude model",
       };
 
-      const result = fromClaudeModelInfo(modelInfo);
+      const result = fromClaudeModelInfo(modelInfo, 200000);
 
       expect(result.id).toBe("anthropic/claude-sonnet-4-5-20250514");
       expect(result.providerID).toBe("anthropic");
@@ -46,8 +46,10 @@ describe("model-transform", () => {
         name: "Claude Sonnet 4.5",
         capabilities: {
           supports: ["reasoning", "tools"],
-          limits: { context: 200000, output: 8192 },
+          limits: { maxContextWindowTokens: 200000, output: 8192 },
         },
+        supportedReasoningEfforts: ["low", "medium", "high"],
+        defaultReasoningEffort: "medium",
       };
 
       const result = fromCopilotModelInfo(modelInfo);
@@ -67,12 +69,17 @@ describe("model-transform", () => {
         context: 200000,
         output: 8192,
       });
+      expect(result.supportedReasoningEfforts).toEqual(["low", "medium", "high"]);
+      expect(result.defaultReasoningEffort).toBe("medium");
     });
 
     test("handles missing capabilities", () => {
       const modelInfo = {
         id: "gpt-4o",
         name: "GPT-4o",
+        capabilities: {
+          limits: { maxContextWindowTokens: 128000 },
+        },
       };
 
       const result = fromCopilotModelInfo(modelInfo);
@@ -84,9 +91,28 @@ describe("model-transform", () => {
         toolCall: true,
       });
       expect(result.limits).toEqual({
-        context: 200000,
+        context: 128000,
         output: 16384,
       });
+      expect(result.supportedReasoningEfforts).toBeUndefined();
+      expect(result.defaultReasoningEffort).toBeUndefined();
+    });
+
+    test("omits reasoning effort fields when model does not support reasoning", () => {
+      const modelInfo = {
+        id: "gpt-4o",
+        name: "GPT-4o",
+        capabilities: {
+          supports: ["tools"],
+          limits: { maxContextWindowTokens: 128000 },
+        },
+      };
+
+      const result = fromCopilotModelInfo(modelInfo);
+
+      expect(result.capabilities.reasoning).toBe(false);
+      expect(result.supportedReasoningEfforts).toBeUndefined();
+      expect(result.defaultReasoningEffort).toBeUndefined();
     });
   });
 
@@ -115,6 +141,7 @@ describe("model-transform", () => {
     // Minimal mock model with only required fields
     const minimalMockModel: OpenCodeModel = {
       name: "GPT-4o",
+      limit: { context: 128000 },
     };
 
     test("creates correct Model object with all fields", () => {
@@ -175,6 +202,7 @@ describe("model-transform", () => {
     test("cost field handles missing cache costs", () => {
       const modelWithPartialCost: OpenCodeModel = {
         name: "Test Model",
+        limit: { context: 100000 },
         cost: { input: 0.005, output: 0.015 },
       };
       const result = fromOpenCodeModel("openai", "test", modelWithPartialCost);
@@ -187,7 +215,9 @@ describe("model-transform", () => {
     });
 
     test("uses modelID as name when name not provided", () => {
-      const modelWithoutName: OpenCodeModel = {};
+      const modelWithoutName: OpenCodeModel = {
+        limit: { context: 100000 },
+      };
       const result = fromOpenCodeModel("test", "my-model-id", modelWithoutName);
 
       expect(result.name).toBe("my-model-id");
@@ -203,10 +233,12 @@ describe("model-transform", () => {
         models: {
           "claude-sonnet-4": {
             name: "Claude Sonnet 4",
+            limit: { context: 200000 },
             // status defaults to 'active' when not provided
           },
           "claude-opus-4": {
             name: "Claude Opus 4",
+            limit: { context: 200000 },
           },
         },
       };
@@ -248,6 +280,7 @@ describe("model-transform", () => {
         models: {
           "gpt-4o": {
             name: "GPT-4o",
+            limit: { context: 128000 },
           },
         },
       };

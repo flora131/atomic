@@ -1,5 +1,6 @@
 import {
   type Model,
+  fromClaudeModelInfo,
   fromCopilotModelInfo,
   fromOpenCodeModel,
   type OpenCodeModel,
@@ -66,112 +67,6 @@ export interface ModelOperations {
 }
 
 /**
- * Supported models for each agent type
- * For Claude, we use short aliases (sonnet, opus, haiku) as that's what the SDK expects
- */
-const SUPPORTED_MODELS: Record<AgentType, Model[]> = {
-  claude: [
-    {
-      id: 'anthropic/opus',
-      providerID: 'anthropic',
-      modelID: 'opus',
-      name: 'opus',
-      description: 'Most capable model for complex tasks',
-      status: 'active',
-      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
-      limits: { context: 200000, output: 16384 },
-      options: {},
-    },
-    {
-      id: 'anthropic/sonnet',
-      providerID: 'anthropic',
-      modelID: 'sonnet',
-      name: 'sonnet',
-      description: 'Fast and intelligent model, best for most tasks',
-      status: 'active',
-      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
-      limits: { context: 200000, output: 16384 },
-      options: {},
-    },
-    {
-      id: 'anthropic/haiku',
-      providerID: 'anthropic',
-      modelID: 'haiku',
-      name: 'haiku',
-      description: 'Fastest model for simple tasks',
-      status: 'active',
-      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
-      limits: { context: 200000, output: 16384 },
-      options: {},
-    },
-  ],
-  copilot: [
-    {
-      id: 'github-copilot/gpt-5.2',
-      providerID: 'github-copilot',
-      modelID: 'gpt-5.2',
-      name: 'GPT-5.2',
-      status: 'active',
-      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
-      limits: { context: 128000, output: 16384 },
-      options: {},
-    },
-    {
-      id: 'github-copilot/claude-sonnet-4.5',
-      providerID: 'github-copilot',
-      modelID: 'claude-sonnet-4.5',
-      name: 'Claude Sonnet 4.5',
-      status: 'active',
-      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
-      limits: { context: 200000, output: 16384 },
-      options: {},
-    },
-    {
-      id: 'github-copilot/gemini-3-pro',
-      providerID: 'github-copilot',
-      modelID: 'gemini-3-pro',
-      name: 'Gemini 3 Pro',
-      status: 'active',
-      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
-      limits: { context: 128000, output: 8192 },
-      options: {},
-    },
-  ],
-  opencode: [
-    {
-      id: 'anthropic/claude-sonnet-4',
-      providerID: 'anthropic',
-      modelID: 'claude-sonnet-4',
-      name: 'Claude Sonnet 4',
-      status: 'active',
-      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
-      limits: { context: 200000, output: 16384 },
-      options: {},
-    },
-    {
-      id: 'openai/gpt-4.1',
-      providerID: 'openai',
-      modelID: 'gpt-4.1',
-      name: 'GPT-4.1',
-      status: 'active',
-      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
-      limits: { context: 128000, output: 16384 },
-      options: {},
-    },
-    {
-      id: 'google/gemini-2.5-flash',
-      providerID: 'google',
-      modelID: 'gemini-2.5-flash',
-      name: 'Gemini 2.5 Flash',
-      status: 'active',
-      capabilities: { reasoning: true, attachment: true, temperature: true, toolCall: true },
-      limits: { context: 1000000, output: 8192 },
-      options: {},
-    },
-  ],
-};
-
-/**
  * Unified implementation of model operations using SDKs as the source of truth
  *
  * This class provides a consistent interface for model operations across all agent types:
@@ -186,47 +81,52 @@ export class UnifiedModelOperations implements ModelOperations {
   /** Pending model for agents that require new sessions (e.g., Copilot) */
   private pendingModel?: string;
 
+  /** Pending reasoning effort for agents that require new sessions (e.g., Copilot) */
+  private pendingReasoningEffort?: string;
+
   /**
    * Create a new UnifiedModelOperations instance
    * @param agentType - The type of agent (claude, opencode, copilot)
    * @param sdkSetModel - Optional SDK-specific function to set the model
+   * @param sdkListModels - Optional SDK-specific function to list models (used for Claude supportedModels())
    */
   constructor(
     private agentType: AgentType,
-    private sdkSetModel?: (model: string) => Promise<void>
+    private sdkSetModel?: (model: string) => Promise<void>,
+    private sdkListModels?: () => Promise<Array<{ value: string; displayName: string; description: string }>>
   ) {}
 
   /**
    * List available models for this agent type using the appropriate SDK.
-   * Falls back to hardcoded models if SDK listing fails.
+   * Errors propagate to the caller.
    */
   async listAvailableModels(): Promise<Model[]> {
-    try {
-      switch (this.agentType) {
-        case 'claude':
-          return await this.listModelsForClaude();
-        case 'copilot':
-          return await this.listModelsForCopilot();
-        case 'opencode':
-          return await this.listModelsForOpenCode();
-        default:
-          return SUPPORTED_MODELS[this.agentType] ?? [];
-      }
-    } catch {
-      // Return fallback models on error
-      return SUPPORTED_MODELS[this.agentType] ?? [];
+    switch (this.agentType) {
+      case 'claude':
+        return await this.listModelsForClaude();
+      case 'copilot':
+        return await this.listModelsForCopilot();
+      case 'opencode':
+        return await this.listModelsForOpenCode();
+      default:
+        throw new Error(`Unsupported agent type: ${this.agentType}`);
     }
   }
 
   /**
-   * List supported models for Claude
-   * Uses the known model aliases that the Claude SDK accepts
+   * List supported models for Claude using the SDK's supportedModels() API.
+   * Requires sdkListModels callback (from Query.supportedModels()) to be provided.
+   * Uses a default context window of 200000 since the SDK's ModelInfo doesn't
+   * include context window data — this is a known limitation.
    * @private
    */
   private async listModelsForClaude(): Promise<Model[]> {
-    // Claude SDK accepts short aliases: opus, sonnet, haiku
-    // These are the officially supported models
-    return SUPPORTED_MODELS.claude;
+    if (!this.sdkListModels) {
+      throw new Error('Claude model listing requires an active session (sdkListModels callback not provided)');
+    }
+    const modelInfos = await this.sdkListModels();
+    // Default context window: SDK ModelInfo lacks this field pre-query
+    return modelInfos.map(info => fromClaudeModelInfo(info, 200000));
   }
 
   /**
@@ -234,30 +134,25 @@ export class UnifiedModelOperations implements ModelOperations {
    * @private
    */
   private async listModelsForCopilot(): Promise<Model[]> {
+    // Dynamic import to avoid loading SDK when not needed
+    const { CopilotClient } = await import('@github/copilot-sdk');
+    const client = new CopilotClient();
+
     try {
-      // Dynamic import to avoid loading SDK when not needed
-      const { CopilotClient } = await import('@github/copilot-sdk');
-      const client = new CopilotClient();
+      await client.start();
+      const modelInfos = await client.listModels();
+      await client.stop();
 
+      // Map SDK ModelInfo directly - SDK returns correct model names
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return modelInfos.map((m: any) => fromCopilotModelInfo(m));
+    } catch (error) {
       try {
-        await client.start();
-        const modelInfos = await client.listModels();
         await client.stop();
-
-        // Map SDK ModelInfo directly - SDK returns correct model names
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return modelInfos.map((m: any) => fromCopilotModelInfo(m));
       } catch {
-        try {
-          await client.stop();
-        } catch {
-          // Ignore stop errors
-        }
-        return SUPPORTED_MODELS.copilot;
+        // Ignore stop errors
       }
-    } catch {
-      // Return fallback if SDK fails
-      return SUPPORTED_MODELS.copilot;
+      throw error;
     }
   }
 
@@ -267,46 +162,45 @@ export class UnifiedModelOperations implements ModelOperations {
    * @private
    */
   private async listModelsForOpenCode(): Promise<Model[]> {
-    try {
-      // Dynamic import to avoid loading SDK when not needed
-      const { createOpencodeClient } = await import('@opencode-ai/sdk');
-      // Must specify baseUrl for the SDK to work properly
-      const client = createOpencodeClient({ baseUrl: 'http://localhost:4096' });
+    // Dynamic import to avoid loading SDK when not needed
+    const { createOpencodeClient } = await import('@opencode-ai/sdk');
+    // Must specify baseUrl for the SDK to work properly
+    const client = createOpencodeClient({ baseUrl: 'http://localhost:4096' });
 
-      const result = await client.provider.list();
-      if (!result.data) {
-        return SUPPORTED_MODELS.opencode;
-      }
-
-      const models: Model[] = [];
-
-      // The response has 'all' array of providers and 'connected' array of provider IDs
-      const data = result.data as {
-        all?: Array<{ id: string; name: string; api?: string; models?: Record<string, OpenCodeModel> }>;
-        connected?: string[];
-      };
-      const allProviders = data.all ?? [];
-      const connectedIds = new Set(data.connected ?? []);
-
-      // Only include models from connected providers
-      const providers = allProviders.filter(p => connectedIds.has(p.id));
-
-      for (const provider of providers) {
-        if (!provider.models) continue;
-
-        for (const [modelID, model] of Object.entries(provider.models)) {
-          // Skip deprecated models
-          if (model.status === 'deprecated') continue;
-
-          models.push(fromOpenCodeModel(provider.id, modelID, model as OpenCodeModel, provider.api));
-        }
-      }
-
-      return models.length > 0 ? models : SUPPORTED_MODELS.opencode;
-    } catch {
-      // Return fallback if SDK fails
-      return SUPPORTED_MODELS.opencode;
+    const result = await client.provider.list();
+    if (!result.data) {
+      throw new Error('OpenCode SDK returned no provider data');
     }
+
+    const models: Model[] = [];
+
+    // The response has 'all' array of providers and 'connected' array of provider IDs
+    const data = result.data as {
+      all?: Array<{ id: string; name: string; api?: string; models?: Record<string, OpenCodeModel> }>;
+      connected?: string[];
+    };
+    const allProviders = data.all ?? [];
+    const connectedIds = new Set(data.connected ?? []);
+
+    // Only include models from connected providers
+    const providers = allProviders.filter(p => connectedIds.has(p.id));
+
+    for (const provider of providers) {
+      if (!provider.models) continue;
+
+      for (const [modelID, model] of Object.entries(provider.models)) {
+        // Skip deprecated models
+        if (model.status === 'deprecated') continue;
+
+        models.push(fromOpenCodeModel(provider.id, modelID, model as OpenCodeModel, provider.api));
+      }
+    }
+
+    if (models.length === 0) {
+      throw new Error('No models available from connected OpenCode providers');
+    }
+
+    return models;
   }
 
   async setModel(model: string): Promise<SetModelResult> {
@@ -366,5 +260,19 @@ export class UnifiedModelOperations implements ModelOperations {
    */
   getPendingModel(): string | undefined {
     return this.pendingModel;
+  }
+
+  /**
+   * Set the pending reasoning effort for agents that require new sessions (e.g., Copilot)
+   */
+  setPendingReasoningEffort(effort: string | undefined): void {
+    this.pendingReasoningEffort = effort;
+  }
+
+  /**
+   * Get the pending reasoning effort for agents that require new sessions (e.g., Copilot)
+   */
+  getPendingReasoningEffort(): string | undefined {
+    return this.pendingReasoningEffort;
   }
 }

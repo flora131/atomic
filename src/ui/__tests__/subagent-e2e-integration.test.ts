@@ -443,10 +443,10 @@ describe("End-to-End Sub-Agent Integration", () => {
       // Verify sub-status text transitions
       expect(agentStates.length).toBeGreaterThanOrEqual(3); // running, tool, completed
 
-      // First update: running status → "Initializing..."
-      const runningState = agentStates.find((s) => s.status === "running" && !s.currentTool);
+      // First update: running status with "Starting session..." currentTool
+      const runningState = agentStates.find((s) => s.status === "running" && s.currentTool === "Starting session...");
       expect(runningState).toBeDefined();
-      expect(getSubStatusText(runningState!)).toBe("Initializing...");
+      expect(getSubStatusText(runningState!)).toBe("Starting session...");
 
       // Tool update: currentTool set → shows tool name
       const toolState = agentStates.find((s) => s.currentTool === "Bash");

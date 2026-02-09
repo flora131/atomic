@@ -6,18 +6,11 @@ import {
 
 describe("UnifiedModelOperations", () => {
   describe("listAvailableModels", () => {
-    test("for Claude returns fallback models when SDK fails", async () => {
+    test("for Claude throws when no sdkListModels callback provided", async () => {
       const ops = new UnifiedModelOperations("claude");
-      const models = await ops.listAvailableModels();
-
-      // Should return fallback models
-      expect(Array.isArray(models)).toBe(true);
-      expect(models.length).toBeGreaterThan(0);
-
-      // All should be anthropic provider
-      for (const model of models) {
-        expect(model.providerID).toBe("anthropic");
-      }
+      expect(ops.listAvailableModels()).rejects.toThrow(
+        "Claude model listing requires an active session"
+      );
     });
 
     test("for Copilot returns fallback models when SDK fails", async () => {
@@ -34,13 +27,9 @@ describe("UnifiedModelOperations", () => {
       }
     });
 
-    test("for OpenCode returns fallback models when SDK fails", async () => {
+    test("for OpenCode throws when SDK server is unavailable", async () => {
       const ops = new UnifiedModelOperations("opencode");
-      const models = await ops.listAvailableModels();
-
-      // Should return fallback models
-      expect(Array.isArray(models)).toBe(true);
-      expect(models.length).toBeGreaterThan(0);
+      await expect(ops.listAvailableModels()).rejects.toThrow();
     });
   });
 

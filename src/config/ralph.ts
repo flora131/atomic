@@ -16,22 +16,10 @@
  */
 export interface RalphConfig {
   /**
-   * Maximum number of iterations for the loop.
-   * 0 means unlimited (loop until completion or manual stop).
-   */
-  maxIterations: number;
-
-  /**
    * Path to the feature list JSON file.
    * Default: "research/feature-list.json"
    */
   featureListPath: string;
-
-  /**
-   * Completion promise text that signals task completion.
-   * When detected in output, the loop will exit.
-   */
-  completionPromise?: string;
 }
 
 /**
@@ -39,19 +27,9 @@ export interface RalphConfig {
  */
 export interface LoadRalphConfigOptions {
   /**
-   * Override max iterations.
-   */
-  maxIterations?: number;
-
-  /**
    * Override feature list path.
    */
   featureListPath?: string;
-
-  /**
-   * Override completion promise.
-   */
-  completionPromise?: string;
 }
 
 // ============================================================================
@@ -68,8 +46,6 @@ export const RALPH_ENV_VARS = {} as const;
  * Default configuration values for Ralph.
  */
 export const RALPH_DEFAULTS = {
-  /** Unlimited iterations by default */
-  maxIterations: 0,
   /** Default feature list path */
   featureListPath: "research/feature-list.json",
   /** Default progress file path */
@@ -83,12 +59,6 @@ export const RALPH_DEFAULTS = {
  */
 export interface RalphWorkflowConfig {
   /**
-   * Maximum number of iterations for the workflow loop.
-   * Default: 0 (unlimited)
-   */
-  maxIterations: number;
-
-  /**
    * Whether to enable checkpointing for workflow resumption.
    * Default: true
    */
@@ -98,11 +68,9 @@ export interface RalphWorkflowConfig {
 /**
  * Default Ralph workflow configuration.
  *
- * - maxIterations: 0 - Unlimited iterations (run until completion)
  * - checkpointing: true - Enables workflow resumption after interruption
  */
 export const RALPH_CONFIG: RalphWorkflowConfig = {
-  maxIterations: 0,
   checkpointing: true,
 } as const;
 
@@ -234,7 +202,7 @@ export function extractSessionId(filePath: string): string | undefined {
  *
  * // Load with overrides
  * const customConfig = loadRalphConfig({
- *   maxIterations: 50,
+ *   featureListPath: "custom/features.json",
  * });
  * ```
  */
@@ -242,14 +210,10 @@ export function loadRalphConfig(
   options: LoadRalphConfigOptions = {}
 ): RalphConfig {
   // Determine settings (options override defaults)
-  const maxIterations = options.maxIterations ?? RALPH_DEFAULTS.maxIterations;
   const featureListPath = options.featureListPath ?? RALPH_DEFAULTS.featureListPath;
-  const completionPromise = options.completionPromise;
 
   return {
-    maxIterations,
     featureListPath,
-    completionPromise,
   };
 }
 
@@ -263,13 +227,8 @@ export function loadRalphConfig(
  */
 export function describeRalphConfig(config: RalphConfig): string {
   const lines: string[] = [
-    `Max iterations: ${config.maxIterations === 0 ? "unlimited" : config.maxIterations}`,
     `Feature list: ${config.featureListPath}`,
   ];
-
-  if (config.completionPromise) {
-    lines.push(`Completion promise: "${config.completionPromise}"`);
-  }
 
   return lines.join("\n");
 }

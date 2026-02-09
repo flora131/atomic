@@ -25,7 +25,7 @@ export type {
 } from "./types.ts";
 
 // Utility function exports
-export { formatModelDisplayName } from "./types.ts";
+export { stripProviderPrefix, formatModelDisplayName } from "./types.ts";
 
 // Base client utilities for shared patterns
 export {

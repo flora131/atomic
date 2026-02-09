@@ -15,19 +15,20 @@ import type { Options as ClaudeOptions } from "@anthropic-ai/claude-agent-sdk";
 /**
  * Returns default Claude SDK options for initialization.
  *
- * The SDK handles local vs global settings priority automatically:
- * - Project settings (.claude/settings.json) take precedence over
- * - User settings (~/.claude/settings.json)
+ * The SDK handles settings priority automatically via SettingSource:
+ * - Local settings (.claude/settings.local.json) take highest precedence
+ * - Project settings (.claude/settings.json)
+ * - User settings (~/.claude/settings.json) as fallback
+ *
+ * Permission mode is always bypassPermissions since Atomic handles
+ * its own permission flow via canUseTool/HITL callbacks.
  *
  * @returns Partial Claude SDK options with recommended defaults
  */
 export function initClaudeOptions(): Partial<ClaudeOptions> {
   return {
-    // Auto-loads .claude/ with ~/.claude/ fallback
-    settingSources: ["project", "user"],
-    // Bypass permission prompts for automated workflows
+    settingSources: ["local", "project", "user"],
     permissionMode: "bypassPermissions",
-    // Required safety flag when using bypassPermissions
     allowDangerouslySkipPermissions: true,
   };
 }

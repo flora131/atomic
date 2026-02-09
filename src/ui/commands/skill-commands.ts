@@ -55,6 +55,8 @@ export interface BuiltinSkill {
   prompt: string;
   /** Hint text showing expected arguments (e.g., "[message] [--amend]") */
   argumentHint?: string;
+  /** List of required argument names. Command returns an error when any are missing. */
+  requiredArguments?: string[];
 }
 
 // ============================================================================
@@ -316,7 +318,8 @@ dde0159 Claude Code [] Test work item (#7) (origin/main, origin/HEAD)
     name: "research-codebase",
     description: "Document codebase as-is with research directory for historical context",
     aliases: ["research"],
-    argumentHint: "[research-question]",
+    argumentHint: "<research-question>",
+    requiredArguments: ["research-question"],
     prompt: `# Research Codebase
 
 You are tasked with conducting comprehensive research across the codebase to answer user questions by spawning parallel sub-agents and synthesizing their findings.
@@ -522,7 +525,8 @@ research/
     name: "create-spec",
     description: "Create a detailed execution plan for implementing features or refactors in a codebase by leveraging existing research in the specified `research` directory.",
     aliases: ["spec"],
-    argumentHint: "[research-path]",
+    argumentHint: "<research-path>",
+    requiredArguments: ["research-path"],
     prompt: `You are tasked with creating a spec for implementing a new feature or system change in the codebase by leveraging existing research in the **$ARGUMENTS** path. If no research path is specified, use the entire \`research/\` directory. Follow the template below to produce a comprehensive specification in the \`specs\` folder using the findings from RELEVANT research documents. Tip: It's good practice to use the \`codebase-research-locator\` and \`codebase-research-analyzer\` agents to help you find and analyze the research documents. It is also HIGHLY recommended to cite relevant research throughout the spec for additional context.
 
 <EXTREMELY_IMPORTANT>
@@ -864,7 +868,8 @@ Commit changes using the \`/commit\` command, push all changes, and submit a pul
     name: "explain-code",
     description: "Explain code functionality in detail.",
     aliases: ["explain"],
-    argumentHint: "[code-path]",
+    argumentHint: "<code-path>",
+    requiredArguments: ["code-path"],
     prompt: `# Analyze and Explain Code Functionality
 
 ## Available Tools
@@ -1071,7 +1076,8 @@ Remember to:
     name: "prompt-engineer",
     description: "Create, improve, or optimize prompts for Claude using best practices",
     aliases: ["prompt"],
-    argumentHint: "[prompt-description]",
+    argumentHint: "<prompt-description>",
+    requiredArguments: ["prompt-description"],
     prompt: `# Prompt Engineering Skill
 
 This skill provides comprehensive guidance for creating effective prompts for Claude based on Anthropic's official best practices. Use this skill whenever working on prompt design, optimization, or troubleshooting.
@@ -1539,6 +1545,15 @@ function createSkillCommand(metadata: SkillMetadata): CommandDefinition {
       // Check for builtin skill with embedded prompt
       const builtinSkill = getBuiltinSkill(metadata.name);
       if (builtinSkill) {
+        // Validate required arguments for builtin skills
+        if (builtinSkill.requiredArguments?.length && !skillArgs) {
+          const argList = builtinSkill.requiredArguments.map((a) => `<${a}>`).join(" ");
+          return {
+            success: false,
+            message: `Missing required argument.\nUsage: /${builtinSkill.name} ${argList}`,
+          };
+        }
+
         // Use the embedded prompt directly
         const expandedPrompt = expandArguments(builtinSkill.prompt, skillArgs);
         context.sendSilentMessage(expandedPrompt);
@@ -1582,6 +1597,16 @@ function createBuiltinSkillCommand(skill: BuiltinSkill): CommandDefinition {
     argumentHint: skill.argumentHint,
     execute: (args: string, context: CommandContext): CommandResult => {
       const skillArgs = args.trim();
+
+      // Validate required arguments
+      if (skill.requiredArguments?.length && !skillArgs) {
+        const argList = skill.requiredArguments.map((a) => `<${a}>`).join(" ");
+        return {
+          success: false,
+          message: `Missing required argument.\nUsage: /${skill.name} ${argList}`,
+        };
+      }
+
       // Use the embedded prompt directly and expand $ARGUMENTS
       const expandedPrompt = expandArguments(skill.prompt, skillArgs);
       context.sendSilentMessage(expandedPrompt);
@@ -1820,8 +1845,26 @@ function createDiskSkillCommand(skill: DiskSkillDefinition): CommandDefinition {
     aliases: skill.aliases,
     argumentHint: skill.argumentHint,
     execute: (args: string, context: CommandContext): CommandResult => {
+      const skillArgs = args.trim();
+
+      // Inherit requiredArguments validation from matching builtin skill
+      const builtinSkill = getBuiltinSkill(skill.name);
+      if (builtinSkill?.requiredArguments?.length && !skillArgs) {
+        const argList = builtinSkill.requiredArguments.map((a) => `<${a}>`).join(" ");
+        return {
+          success: false,
+          message: `Missing required argument.\nUsage: /${skill.name} ${argList}`,
+        };
+      }
+
       const body = loadSkillContent(skill.skillFilePath);
       if (!body) {
+        // Fallback to builtin prompt if disk file is empty/unreadable
+        if (builtinSkill) {
+          const expandedPrompt = expandArguments(builtinSkill.prompt, skillArgs);
+          context.sendSilentMessage(expandedPrompt);
+          return { success: true, skillLoaded: skill.name };
+        }
         return {
           success: false,
           message: `Failed to load skill content from ${skill.skillFilePath}`,
@@ -1829,7 +1872,7 @@ function createDiskSkillCommand(skill: DiskSkillDefinition): CommandDefinition {
           skillLoadError: `Could not read ${skill.skillFilePath}`,
         };
       }
-      const expandedPrompt = expandArguments(body, args.trim());
+      const expandedPrompt = expandArguments(body, skillArgs);
       context.sendSilentMessage(expandedPrompt);
       return { success: true, skillLoaded: skill.name };
     },

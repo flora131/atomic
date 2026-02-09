@@ -678,7 +678,7 @@ describe("BUILTIN_SKILLS", () => {
   test("contains implement-feature skill", () => {
     const implFeature = BUILTIN_SKILLS.find((s) => s.name === "implement-feature");
     expect(implFeature).toBeDefined();
-    expect(implFeature?.description).toBe("Implement a SINGLE feature from \`research/tasks.json\` based on the provided execution plan.");
+    expect(implFeature?.description).toBe("Implement a SINGLE feature from \`research/feature-list.json\` based on the provided execution plan.");
     expect(implFeature?.aliases).toContain("impl");
     expect(implFeature?.prompt).toBeDefined();
     expect(implFeature?.prompt.length).toBeGreaterThan(100);
@@ -691,7 +691,7 @@ describe("BUILTIN_SKILLS", () => {
 
   test("implement-feature skill includes implementation process", () => {
     const implFeature = BUILTIN_SKILLS.find((s) => s.name === "implement-feature");
-    expect(implFeature?.prompt).toContain("research/tasks.json");
+    expect(implFeature?.prompt).toContain("research/feature-list.json");
     expect(implFeature?.prompt).toContain("research/progress.txt");
     expect(implFeature?.prompt).toContain("passes");
     expect(implFeature?.prompt).toContain("Test-Driven Development");
@@ -917,7 +917,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });
 
-  test("research-codebase command uses embedded prompt", async () => {
+  test("research-codebase command rejects empty args (requires arguments)", async () => {
     const researchCmd = skillCommands.find((c) => c.name === "research-codebase");
     expect(researchCmd).toBeDefined();
 
@@ -940,11 +940,10 @@ describe("builtin skill execution", () => {
 
     const result = await researchCmd!.execute("", context);
 
-    expect(result.success).toBe(true);
-    expect(sentMessages).toHaveLength(1);
-    // Should use embedded prompt with research workflow
-    expect(sentMessages[0]).toContain("codebase-locator");
-    expect(sentMessages[0]).toContain("[no arguments provided]");
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Missing required argument");
+    expect(result.message).toContain("/research-codebase");
+    expect(sentMessages).toHaveLength(0);
   });
 
   test("research-codebase command expands $ARGUMENTS with provided args", async () => {
@@ -978,7 +977,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });
 
-  test("create-spec command uses embedded prompt", async () => {
+  test("create-spec command rejects empty args (requires arguments)", async () => {
     const specCmd = skillCommands.find((c) => c.name === "create-spec");
     expect(specCmd).toBeDefined();
 
@@ -1001,11 +1000,10 @@ describe("builtin skill execution", () => {
 
     const result = await specCmd!.execute("", context);
 
-    expect(result.success).toBe(true);
-    expect(sentMessages).toHaveLength(1);
-    // Should use embedded prompt with spec structure
-    expect(sentMessages[0]).toContain("Executive Summary");
-    expect(sentMessages[0]).toContain("[no arguments provided]");
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Missing required argument");
+    expect(result.message).toContain("/create-spec");
+    expect(sentMessages).toHaveLength(0);
   });
 
   test("create-spec command expands $ARGUMENTS with provided args", async () => {
@@ -1065,8 +1063,7 @@ describe("builtin skill execution", () => {
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
     // Should use embedded prompt with implementation process
-    expect(sentMessages[0]).toContain("research/tasks.json");
-    // No $ARGUMENTS in this prompt, so no placeholder substitution
+    expect(sentMessages[0]).toContain("research/feature-list.json");
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
   });
 
@@ -1096,7 +1093,7 @@ describe("builtin skill execution", () => {
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
     // implement-feature does not use $ARGUMENTS, so args are not injected into prompt
-    expect(sentMessages[0]).toContain("research/tasks.json");
+    expect(sentMessages[0]).toContain("research/feature-list.json");
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
   });
 
@@ -1161,7 +1158,7 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
   });
 
-  test("explain-code command uses embedded prompt", async () => {
+  test("explain-code command rejects empty args (requires arguments)", async () => {
     const explainCodeCmd = skillCommands.find((c) => c.name === "explain-code");
     expect(explainCodeCmd).toBeDefined();
 
@@ -1184,11 +1181,10 @@ describe("builtin skill execution", () => {
 
     const result = await explainCodeCmd!.execute("", context);
 
-    expect(result.success).toBe(true);
-    expect(sentMessages).toHaveLength(1);
-    // Should use embedded prompt with explanation structure
-    expect(sentMessages[0]).toContain("Analyze and Explain Code Functionality");
-    expect(sentMessages[0]).toContain("[no arguments provided]");
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Missing required argument");
+    expect(result.message).toContain("/explain-code");
+    expect(sentMessages).toHaveLength(0);
   });
 
   test("explain-code command expands $ARGUMENTS with provided args", async () => {
@@ -1220,6 +1216,108 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).toContain("src/utils/parser.ts:10-50");
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
+  });
+});
+
+// ============================================================================
+// UNIT TESTS: requiredArguments validation
+// ============================================================================
+
+describe("requiredArguments validation", () => {
+  beforeEach(() => {
+    globalRegistry.clear();
+  });
+
+  afterEach(() => {
+    globalRegistry.clear();
+  });
+
+  test("skills with requiredArguments reject empty args via builtinSkillCommands", async () => {
+    const skillsWithRequired = BUILTIN_SKILLS.filter((s) => s.requiredArguments?.length);
+    expect(skillsWithRequired.length).toBeGreaterThan(0);
+
+    for (const skill of skillsWithRequired) {
+      const cmd = builtinSkillCommands.find((c) => c.name === skill.name);
+      expect(cmd).toBeDefined();
+
+      const context = createMockContext({ session: null });
+      const result = await cmd!.execute("", context);
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("Missing required argument");
+      expect(result.message).toContain(`/${skill.name}`);
+      expect(context.sentMessages).toHaveLength(0);
+    }
+  });
+
+  test("skills with requiredArguments accept non-empty args", async () => {
+    const skillsWithRequired = BUILTIN_SKILLS.filter((s) => s.requiredArguments?.length);
+
+    for (const skill of skillsWithRequired) {
+      const cmd = builtinSkillCommands.find((c) => c.name === skill.name);
+      expect(cmd).toBeDefined();
+
+      const context = createMockContext({ session: null });
+      const result = await cmd!.execute("some argument", context);
+
+      expect(result.success).toBe(true);
+      expect(context.sentMessages).toHaveLength(1);
+    }
+  });
+
+  test("skills without requiredArguments still accept empty args", async () => {
+    const skillsWithoutRequired = BUILTIN_SKILLS.filter((s) => !s.requiredArguments?.length);
+    expect(skillsWithoutRequired.length).toBeGreaterThan(0);
+
+    for (const skill of skillsWithoutRequired) {
+      const cmd = builtinSkillCommands.find((c) => c.name === skill.name);
+      expect(cmd).toBeDefined();
+
+      const context = createMockContext({ session: null });
+      const result = await cmd!.execute("", context);
+
+      expect(result.success).toBe(true);
+      expect(context.sentMessages).toHaveLength(1);
+    }
+  });
+
+  test("createSkillCommand validates requiredArguments for builtin skills", async () => {
+    registerSkillCommands();
+
+    const researchCmd = globalRegistry.get("research-codebase");
+    expect(researchCmd).toBeDefined();
+
+    const context = createMockContext({ session: null });
+    const result = await researchCmd!.execute("", context);
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Missing required argument");
+    expect(context.sentMessages).toHaveLength(0);
+  });
+
+  test("createSkillCommand allows non-empty args for required-arg skills", async () => {
+    registerSkillCommands();
+
+    const researchCmd = globalRegistry.get("research-codebase");
+    expect(researchCmd).toBeDefined();
+
+    const context = createMockContext({ session: null });
+    const result = await researchCmd!.execute("how does auth work", context);
+
+    expect(result.success).toBe(true);
+    expect(context.sentMessages).toHaveLength(1);
+    expect(context.sentMessages[0]).toContain("how does auth work");
+  });
+
+  test("error message includes required argument names", async () => {
+    const research = BUILTIN_SKILLS.find((s) => s.name === "research-codebase");
+    expect(research?.requiredArguments).toEqual(["research-question"]);
+
+    const cmd = builtinSkillCommands.find((c) => c.name === "research-codebase");
+    const context = createMockContext({ session: null });
+    const result = await cmd!.execute("", context);
+
+    expect(result.message).toContain("<research-question>");
   });
 });
 

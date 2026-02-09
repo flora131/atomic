@@ -1933,7 +1933,7 @@ describe("contextMonitorNode", () => {
 // ============================================================================
 // Unit test: Subgraph Node Execution
 // ============================================================================
-// Reference: feature-list.json - "Unit test: Subgraph node execution"
+// Reference: "Unit test: Subgraph node execution"
 // Tests cover:
 // - Create parent workflow with subgraph node
 // - Create child workflow

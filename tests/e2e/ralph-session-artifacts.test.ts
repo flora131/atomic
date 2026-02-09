@@ -28,12 +28,11 @@ import {
   loadSession,
   loadSessionIfExists,
   createRalphSession,
-  createRalphFeature,
-  appendLog,
+    appendLog,
   appendProgress,
   SESSION_SUBDIRECTORIES,
   type RalphSession,
-  type RalphFeature,
+  type TodoItem,
   isRalphSession,
 } from "../../src/workflows/index.ts";
 import { createRalphWorkflow } from "../../src/workflows/index.ts";
@@ -47,7 +46,7 @@ import { createRalphWorkflow } from "../../src/workflows/index.ts";
  */
 function createTestFeatureListContent(): string {
   const features = {
-    features: [
+    tasks: [
       {
         category: "functional",
         description: "Test feature 1: Add user authentication",
@@ -107,10 +106,9 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
   describe("1. Run /ralph session", () => {
     test("parseRalphArgs parses standard /ralph invocation", () => {
       const args = parseRalphArgs("implement features");
-      expect(args.yolo).toBe(false);
-      expect(args.prompt).toBe("implement features");
+            expect(args.prompt).toBe("implement features");
       expect(args.resumeSessionId).toBeNull();
-      expect(args.featureListPath).toBe("research/feature-list.json");
+      expect(args.tasksPath).toBe("research/tasks.json");
     });
 
     test("generateSessionId creates a valid UUID for session", () => {
@@ -138,7 +136,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
 
     test("workflow can be created for /ralph session", () => {
       const workflow = createRalphWorkflow({
-        featureListPath: "research/feature-list.json",
+        tasksPath: "research/tasks.json",
         checkpointing: false,
       });
 
@@ -147,19 +145,17 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       expect(workflow.startNode).toBe("init-session");
     });
 
-    test("yolo mode session can be created", () => {
+    test("prompt mode session can be created", () => {
       const sessionId = generateSessionId();
       const sessionDir = getSessionDir(sessionId);
 
       const session = createRalphSession({
         sessionId,
         sessionDir,
-        yolo: true,
         status: "running",
       });
 
-      expect(session.yolo).toBe(true);
-      expect(session.features).toEqual([]);
+            expect(session.tasks).toEqual([]);
     });
   });
 
@@ -380,38 +376,14 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       expect(loaded.status).toBe("running");
     });
 
-    test("session.json contains yolo field", async () => {
-      const sessionId = generateSessionId();
-      const sessionDir = await createSessionDirectory(sessionId);
-
-      const session = createRalphSession({
-        sessionId,
-        sessionDir,
-        yolo: true,
-        status: "running",
-      });
-
       await saveSession(sessionDir, session);
 
       const loaded = await loadSession(sessionDir);
-      expect(loaded.yolo).toBe(true);
     });
 
-    test("session.json contains maxIterations field", async () => {
-      const sessionId = generateSessionId();
-      const sessionDir = await createSessionDirectory(sessionId);
-
-      const session = createRalphSession({
-        sessionId,
-        sessionDir,
-        maxIterations: 75,
-        status: "running",
-      });
-
       await saveSession(sessionDir, session);
 
       const loaded = await loadSession(sessionDir);
-      expect(loaded.maxIterations).toBe(75);
     });
 
     test("session.json contains iteration field", async () => {
@@ -439,8 +411,8 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
         sessionId,
         sessionDir,
         status: "running",
-        features: [
-          createRalphFeature({
+        tasks: [
+          createTodoItem({
             id: "feat-1",
             name: "Test feature",
             description: "Test description",
@@ -451,9 +423,9 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       await saveSession(sessionDir, session);
 
       const loaded = await loadSession(sessionDir);
-      expect(Array.isArray(loaded.features)).toBe(true);
-      expect(loaded.features.length).toBe(1);
-      expect(loaded.features[0]?.name).toBe("Test feature");
+      expect(Array.isArray(loaded.tasks)).toBe(true);
+      expect(loaded.tasks.length).toBe(1);
+      expect(loaded.tasks[0]?.name).toBe("Test feature");
     });
 
     test("session.json can be loaded with loadSession()", async () => {
@@ -493,7 +465,6 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const result = await loadSessionIfExists(".ralph/sessions/non-existent/");
       expect(result).toBeNull();
     });
-  });
 
   // ============================================================================
   // 4. Verify progress.txt exists
@@ -504,7 +475,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature = createRalphFeature({
+      const feature = createTodoItem({
         id: "feat-1",
         name: "Test feature",
         description: "Test description",
@@ -520,7 +491,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature = createRalphFeature({
+      const feature = createTodoItem({
         id: "feat-1",
         name: "Add user authentication",
         description: "Implement auth",
@@ -537,7 +508,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature = createRalphFeature({
+      const feature = createTodoItem({
         id: "feat-1",
         name: "Test feature",
         description: "Test",
@@ -554,7 +525,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature = createRalphFeature({
+      const feature = createTodoItem({
         id: "feat-1",
         name: "Test feature",
         description: "Test",
@@ -571,7 +542,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature = createRalphFeature({
+      const feature = createTodoItem({
         id: "feat-1",
         name: "Test feature",
         description: "Test",
@@ -590,13 +561,13 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature1 = createRalphFeature({
+      const feature1 = createTodoItem({
         id: "feat-1",
         name: "Feature 1",
         description: "Test",
       });
 
-      const feature2 = createRalphFeature({
+      const feature2 = createTodoItem({
         id: "feat-2",
         name: "Feature 2",
         description: "Test",
@@ -620,13 +591,13 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature1 = createRalphFeature({
+      const feature1 = createTodoItem({
         id: "feat-1",
         name: "First feature",
         description: "Test",
       });
 
-      const feature2 = createRalphFeature({
+      const feature2 = createTodoItem({
         id: "feat-2",
         name: "Second feature",
         description: "Test",
@@ -650,7 +621,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
-      const feature = createRalphFeature({
+      const feature = createTodoItem({
         id: "feat-1",
         name: "Test feature",
         description: "Test",
@@ -898,21 +869,21 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       expect(files.length).toBe(0);
     });
 
-    test("research/ can contain copied feature-list.json", async () => {
+    test("research/ can contain copied tasks.json", async () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
       // Simulate copying feature list to session research directory
       const researchDir = path.join(sessionDir, "research");
-      const featureListPath = path.join(researchDir, "feature-list.json");
+      const tasksPath = path.join(researchDir, "tasks.json");
 
-      await fs.writeFile(featureListPath, createTestFeatureListContent());
+      await fs.writeFile(tasksPath, createTestFeatureListContent());
 
-      expect(existsSync(featureListPath)).toBe(true);
+      expect(existsSync(tasksPath)).toBe(true);
 
-      const content = await fs.readFile(featureListPath, "utf-8");
+      const content = await fs.readFile(tasksPath, "utf-8");
       const parsed = JSON.parse(content);
-      expect(parsed.features).toBeDefined();
+      expect(parsed.tasks).toBeDefined();
     });
   });
 
@@ -935,14 +906,13 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
         sessionId,
         sessionDir,
         status: "running",
-        maxIterations: 100,
-        features: [
-          createRalphFeature({
+        tasks: [
+          createTodoItem({
             id: "feat-1",
             name: "Test feature 1",
             description: "First test feature",
           }),
-          createRalphFeature({
+          createTodoItem({
             id: "feat-2",
             name: "Test feature 2",
             description: "Second test feature",
@@ -954,7 +924,7 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       await saveSession(sessionDir, session);
 
       // Step 5: Add progress entries
-      for (const feature of session.features) {
+      for (const feature of session.tasks) {
         await appendProgress(sessionDir, feature, true);
       }
 
@@ -983,8 +953,8 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
         sessionId,
         sessionDir,
         status: "running",
-        features: [
-          createRalphFeature({
+        tasks: [
+          createTodoItem({
             id: "feat-1",
             name: "Persistent feature",
             description: "Test persistence",
@@ -993,13 +963,13 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       });
 
       await saveSession(sessionDir, session);
-      await appendProgress(sessionDir, session.features[0]!, true);
+      await appendProgress(sessionDir, session.tasks[0]!, true);
       await appendLog(sessionDir, "test-log", { persisted: true });
 
       // Read and verify all artifacts
       const loadedSession = await loadSession(sessionDir);
       expect(loadedSession.sessionId).toBe(sessionId);
-      expect(loadedSession.features[0]?.name).toBe("Persistent feature");
+      expect(loadedSession.tasks[0]?.name).toBe("Persistent feature");
 
       const progressContent = await fs.readFile(
         path.join(sessionDir, "progress.txt"),
@@ -1102,23 +1072,22 @@ describe("E2E test: Session artifacts saved to .ralph/sessions/{uuid}/", () => {
       }
     });
 
-    test("yolo mode session still creates all artifact directories", async () => {
+    test("prompt mode session still creates all artifact directories", async () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
 
       const session = createRalphSession({
         sessionId,
         sessionDir,
-        yolo: true,
         status: "running",
       });
 
       await saveSession(sessionDir, session);
 
-      // Verify all directories exist even in yolo mode
+      // Verify all directories exist even in prompt mode
       expect(existsSync(path.join(sessionDir, "checkpoints"))).toBe(true);
       expect(existsSync(path.join(sessionDir, "research"))).toBe(true);
       expect(existsSync(path.join(sessionDir, "logs"))).toBe(true);
     });
   });
-});
+

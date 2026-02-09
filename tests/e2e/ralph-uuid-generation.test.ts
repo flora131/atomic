@@ -95,11 +95,11 @@ describe("E2E test: /ralph generates random UUID for session ID", () => {
     // Change to temp directory for testing
     process.chdir(tmpDir);
 
-    // Create research directory with feature-list.json for non-yolo mode tests
+    // Create research directory with tasks.json for standard mode tests
     const researchDir = path.join(tmpDir, "research");
     await fs.mkdir(researchDir, { recursive: true });
     const featureListContent = {
-      features: [
+      tasks: [
         {
           category: "functional",
           description: "Test feature",
@@ -109,7 +109,7 @@ describe("E2E test: /ralph generates random UUID for session ID", () => {
       ],
     };
     await fs.writeFile(
-      path.join(researchDir, "feature-list.json"),
+      path.join(researchDir, "tasks.json"),
       JSON.stringify(featureListContent, null, 2)
     );
   });
@@ -476,7 +476,6 @@ describe("E2E test: /ralph generates random UUID for session ID", () => {
         // Create workflow with session config
         const workflow = createRalphWorkflow({
           checkpointing: false,
-          yolo: true,
           userPrompt: `Task ${i + 1}`,
         });
 

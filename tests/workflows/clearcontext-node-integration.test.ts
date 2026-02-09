@@ -8,7 +8,7 @@
  * - Verify state preserved across context clears
  * - Verify workflow completes successfully
  *
- * Reference: feature-list.json - "Integration test: Context window management with clearContextNode"
+ * Reference: "Integration test: Context window management with clearContextNode"
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";

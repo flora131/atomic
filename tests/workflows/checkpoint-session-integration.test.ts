@@ -41,8 +41,8 @@ import type {
 import {
   createRalphWorkflowState,
   type RalphWorkflowState,
-  createRalphFeature,
 } from "../../src/graph/nodes/ralph-nodes.ts";
+import type { TodoItem } from "../../src/sdk/tools/todo-write.ts";
 import {
   createSessionDirectory,
   generateSessionId,
@@ -1080,14 +1080,13 @@ describe("Integration with RalphWorkflowState", () => {
     // Create a RalphWorkflowState
     const ralphState = createRalphWorkflowState({
       sessionId,
-      yolo: false,
-      maxIterations: 100,
-      features: [
-        createRalphFeature({
-          id: "feat-001",
-          name: "Test Feature",
-          description: "A test feature",
-        }),
+      tasks: [
+        {
+          id: "task-001",
+          content: "Test Task",
+          status: "pending",
+          activeForm: "Testing task",
+        } satisfies TodoItem,
       ],
     });
 
@@ -1102,53 +1101,49 @@ describe("Integration with RalphWorkflowState", () => {
 
     expect(restored).not.toBeNull();
     expect(restored!.ralphSessionId).toBe(sessionId);
-    expect(restored!.yolo).toBe(false);
-    expect(restored!.maxIterations).toBe(100);
-    expect(restored!.features.length).toBe(1);
-    expect(restored!.features[0]!.name).toBe("Test Feature");
+    expect(restored!.tasks.length).toBe(1);
+    expect(restored!.tasks[0]!.content).toBe("Test Task");
   });
 
-  test("RalphWorkflowState features are preserved across checkpoint", async () => {
+  test("RalphWorkflowState tasks are preserved across checkpoint", async () => {
     const saver = new SessionDirSaver<RalphWorkflowState>(sessionDir);
 
-    // Create state with features at different statuses
+    // Create state with tasks at different statuses
     const ralphState = createRalphWorkflowState({
       sessionId,
-      yolo: false,
-      features: [
-        createRalphFeature({
-          id: "feat-001",
-          name: "Feature 1",
-          description: "First feature",
-          status: "passing",
-          implementedAt: "2026-02-03T10:00:00.000Z",
-        }),
-        createRalphFeature({
-          id: "feat-002",
-          name: "Feature 2",
-          description: "Second feature",
+      tasks: [
+        {
+          id: "task-001",
+          content: "Task 1",
+          status: "completed",
+          activeForm: "Completing task 1",
+        } satisfies TodoItem,
+        {
+          id: "task-002",
+          content: "Task 2",
           status: "pending",
-        }),
-        createRalphFeature({
-          id: "feat-003",
-          name: "Feature 3",
-          description: "Third feature",
+          activeForm: "Working on task 2",
+        } satisfies TodoItem,
+        {
+          id: "task-003",
+          content: "Task 3",
           status: "in_progress",
-        }),
+          activeForm: "Working on task 3",
+        } satisfies TodoItem,
       ],
     });
     ralphState.ralphSessionDir = sessionDir;
-    ralphState.currentFeatureIndex = 2;
-    ralphState.completedFeatures = ["feat-001"];
+    ralphState.currentTaskIndex = 2;
+    ralphState.completedTaskIds = ["task-001"];
 
     await saver.save("exec-1", ralphState);
     const restored = await saver.load("exec-1");
 
-    expect(restored!.features.length).toBe(3);
-    expect(restored!.features[0]!.status).toBe("passing");
-    expect(restored!.features[1]!.status).toBe("pending");
-    expect(restored!.features[2]!.status).toBe("in_progress");
-    expect(restored!.currentFeatureIndex).toBe(2);
-    expect(restored!.completedFeatures).toEqual(["feat-001"]);
+    expect(restored!.tasks.length).toBe(3);
+    expect(restored!.tasks[0]!.status).toBe("completed");
+    expect(restored!.tasks[1]!.status).toBe("pending");
+    expect(restored!.tasks[2]!.status).toBe("in_progress");
+    expect(restored!.currentTaskIndex).toBe(2);
+    expect(restored!.completedTaskIds).toEqual(["task-001"]);
   });
 });

@@ -44,7 +44,6 @@ import {
   sessionToWorkflowState,
   workflowStateToSession,
   type RalphWorkflowState,
-  createRalphFeature,
   loadSession,
   saveSession,
   loadSessionIfExists,
@@ -197,14 +196,14 @@ async function createTestSessionJson(
   overrides: Partial<{
     status: "running" | "paused" | "completed" | "failed";
     iteration: number;
-    features: Array<{
+    tasks: Array<{
       id: string;
-      name: string;
-      description: string;
-      status: "pending" | "in_progress" | "passing" | "failing";
+      content: string;
+      status: "pending" | "in_progress" | "completed";
+      activeForm: string;
     }>;
-    currentFeatureIndex: number;
-    completedFeatures: string[];
+    currentTaskIndex: number;
+    completedTaskIds: string[];
   }> = {}
 ): Promise<void> {
   const session = {
@@ -212,15 +211,13 @@ async function createTestSessionJson(
     sessionDir,
     createdAt: new Date().toISOString(),
     lastUpdated: new Date().toISOString(),
-    yolo: false,
-    maxIterations: 50,
-    features: overrides.features ?? [
-      { id: "feat-001", name: "Feature 1", description: "Test feature 1", status: "passing" },
-      { id: "feat-002", name: "Feature 2", description: "Test feature 2", status: "pending" },
-      { id: "feat-003", name: "Feature 3", description: "Test feature 3", status: "pending" },
+    tasks: overrides.tasks ?? [
+      { id: "task-001", content: "Task 1", status: "completed", activeForm: "Completing task 1" },
+      { id: "task-002", content: "Task 2", status: "pending", activeForm: "Working on task 2" },
+      { id: "task-003", content: "Task 3", status: "pending", activeForm: "Working on task 3" },
     ],
-    currentFeatureIndex: overrides.currentFeatureIndex ?? 1,
-    completedFeatures: overrides.completedFeatures ?? ["feat-001"],
+    currentTaskIndex: overrides.currentTaskIndex ?? 1,
+    completedTaskIds: overrides.completedTaskIds ?? ["task-001"],
     iteration: overrides.iteration ?? 2,
     status: overrides.status ?? "running",
     debugReports: [],
@@ -234,28 +231,28 @@ async function createTestSessionJson(
 }
 
 /**
- * Create a feature-list.json for testing.
+ * Create a tasks.json for testing.
  */
-async function createTestFeatureList(
+async function createTestTaskList(
   sessionDir: string,
-  features?: Array<{
-    category: string;
-    description: string;
-    steps: string[];
-    passes: boolean;
+  tasks?: Array<{
+    id: string;
+    content: string;
+    status: "pending" | "in_progress" | "completed";
+    activeForm: string;
   }>
 ): Promise<void> {
-  const featureList = {
-    features: features ?? [
-      { category: "functional", description: "Feature 1", steps: ["Step 1"], passes: true },
-      { category: "functional", description: "Feature 2", steps: ["Step 2"], passes: false },
-      { category: "functional", description: "Feature 3", steps: ["Step 3"], passes: false },
+  const taskList = {
+    tasks: tasks ?? [
+      { id: "task-1", content: "Task 1", status: "completed", activeForm: "Completing task 1" },
+      { id: "task-2", content: "Task 2", status: "pending", activeForm: "Working on task 2" },
+      { id: "task-3", content: "Task 3", status: "pending", activeForm: "Working on task 3" },
     ],
   };
 
   await writeFile(
-    join(sessionDir, "research", "feature-list.json"),
-    JSON.stringify(featureList, null, 2),
+    join(sessionDir, "research", "tasks.json"),
+    JSON.stringify(taskList, null, 2),
     "utf-8"
   );
 }
@@ -314,8 +311,8 @@ describe("Start Ralph session", () => {
 
     const session = await loadSession(sessionDir);
 
-    expect(session.features).toBeArray();
-    expect(session.features.length).toBeGreaterThan(0);
+    expect(session.tasks).toBeArray();
+    expect(session.tasks.length).toBeGreaterThan(0);
   });
 
   test("generateSessionId produces valid UUID format", () => {
@@ -496,14 +493,14 @@ describe("Interrupt with Ctrl+C", () => {
     await createTestSessionJson(sessionDir, sessionId, {
       status: "running",
       iteration: 3,
-      completedFeatures: ["feat-001", "feat-002"],
+      completedTaskIds: ["task-001", "task-002"],
     });
 
     const session = await loadSession(sessionDir);
     expect(session.status).toBe("running");
     expect(session.iteration).toBe(3);
-    expect(session.completedFeatures).toContain("feat-001");
-    expect(session.completedFeatures).toContain("feat-002");
+    expect(session.completedTaskIds).toContain("task-001");
+    expect(session.completedTaskIds).toContain("task-002");
   });
 
   test("RalphExecutor handles interrupt gracefully", () => {
@@ -552,7 +549,7 @@ describe("Verify session marked as 'paused'", () => {
     await createTestSessionJson(sessionDir, sessionId, {
       status: "running",
       iteration: 5,
-      completedFeatures: ["feat-001", "feat-002"],
+      completedTaskIds: ["task-001", "task-002"],
     });
 
     let session = await loadSession(sessionDir);
@@ -562,19 +559,19 @@ describe("Verify session marked as 'paused'", () => {
     session = await loadSession(sessionDir);
     expect(session.status).toBe("paused");
     expect(session.iteration).toBe(5);
-    expect(session.completedFeatures).toEqual(["feat-001", "feat-002"]);
+    expect(session.completedTaskIds).toEqual(["task-001", "task-002"]);
   });
 
-  test("paused session retains feature progress", async () => {
-    const features = [
-      { id: "feat-001", name: "Feature 1", description: "Desc 1", status: "passing" as const },
-      { id: "feat-002", name: "Feature 2", description: "Desc 2", status: "in_progress" as const },
-      { id: "feat-003", name: "Feature 3", description: "Desc 3", status: "pending" as const },
+  test("paused session retains task progress", async () => {
+    const tasks = [
+      { id: "task-001", content: "Task 1", status: "completed", activeForm: "Working on task" as const },
+      { id: "task-002", content: "Task 2", status: "in_progress", activeForm: "Working on task" as const },
+      { id: "task-003", content: "Task 3", status: "pending", activeForm: "Working on task" as const },
     ];
 
     await createTestSessionJson(sessionDir, sessionId, {
       status: "running",
-      features,
+      tasks,
     });
 
     let session = await loadSession(sessionDir);
@@ -583,9 +580,9 @@ describe("Verify session marked as 'paused'", () => {
 
     session = await loadSession(sessionDir);
     expect(session.status).toBe("paused");
-    expect(session.features[0]!.status).toBe("passing");
-    expect(session.features[1]!.status).toBe("in_progress");
-    expect(session.features[2]!.status).toBe("pending");
+    expect(session.tasks[0]!.status).toBe("completed");
+    expect(session.tasks[1]!.status).toBe("in_progress");
+    expect(session.tasks[2]!.status).toBe("pending");
   });
 
   test("lastUpdated timestamp is updated when paused", async () => {
@@ -630,15 +627,20 @@ describe("Resume with /ralph --resume {uuid}", () => {
   test("parseRalphArgs correctly parses --resume flag", () => {
     const result = parseRalphArgs(`--resume ${sessionId}`);
 
-    expect(result.resumeSessionId).toBe(sessionId);
-    expect(result.yolo).toBe(false);
+    expect(result.kind).toBe("resume");
+    if (result.kind === "resume") {
+      expect(result.sessionId).toBe(sessionId);
+    }
   });
 
   test("parseRalphArgs extracts correct UUID from --resume", () => {
     const testId = "550e8400-e29b-41d4-a716-446655440000";
     const result = parseRalphArgs(`--resume ${testId}`);
 
-    expect(result.resumeSessionId).toBe(testId);
+    expect(result.kind).toBe("resume");
+    if (result.kind === "resume") {
+      expect(result.sessionId).toBe(testId);
+    }
   });
 
   test("paused session can be loaded for resumption", async () => {
@@ -658,7 +660,7 @@ describe("Resume with /ralph --resume {uuid}", () => {
     await createTestSessionJson(sessionDir, sessionId, {
       status: "paused",
       iteration: 5,
-      completedFeatures: ["feat-001"],
+      completedTaskIds: ["task-001"],
     });
 
     const session = await loadSession(sessionDir);
@@ -666,7 +668,7 @@ describe("Resume with /ralph --resume {uuid}", () => {
 
     expect(workflowState.ralphSessionId).toBe(sessionId);
     expect(workflowState.iteration).toBe(5);
-    expect(workflowState.completedFeatures).toContain("feat-001");
+    expect(workflowState.completedTaskIds).toContain("task-001");
     expect(workflowState.sessionStatus).toBe("paused");
   });
 
@@ -795,25 +797,25 @@ describe("Verify execution continues from checkpoint", () => {
   });
 
   test("feature list state is preserved through resume", async () => {
-    const features = [
-      { id: "feat-001", name: "Feature 1", description: "Desc 1", status: "passing" as const },
-      { id: "feat-002", name: "Feature 2", description: "Desc 2", status: "in_progress" as const },
-      { id: "feat-003", name: "Feature 3", description: "Desc 3", status: "pending" as const },
+    const tasks = [
+      { id: "task-001", content: "Task 1", status: "completed", activeForm: "Working on task" as const },
+      { id: "task-002", content: "Task 2", status: "in_progress", activeForm: "Working on task" as const },
+      { id: "task-003", content: "Task 3", status: "pending", activeForm: "Working on task" as const },
     ];
 
     await createTestSessionJson(sessionDir, sessionId, {
       status: "paused",
-      features,
-      currentFeatureIndex: 1,
+      tasks,
+      currentTaskIndex: 1,
     });
 
     const session = await loadSession(sessionDir);
     const workflowState = sessionToWorkflowState(session);
 
-    expect(workflowState.features.length).toBe(3);
-    expect(workflowState.features[0]!.status).toBe("passing");
-    expect(workflowState.features[1]!.status).toBe("in_progress");
-    expect(workflowState.currentFeatureIndex).toBe(1);
+    expect(workflowState.tasks.length).toBe(3);
+    expect(workflowState.tasks[0]!.status).toBe("completed");
+    expect(workflowState.tasks[1]!.status).toBe("in_progress");
+    expect(workflowState.currentTaskIndex).toBe(1);
   });
 });
 
@@ -837,27 +839,27 @@ describe("Verify no duplicate work done", () => {
     await cleanup();
   });
 
-  test("completed features are not re-executed", async () => {
+  test("completed tasks are not re-executed", async () => {
     await createTestSessionJson(sessionDir, sessionId, {
       status: "paused",
-      features: [
-        { id: "feat-001", name: "Feature 1", description: "Desc 1", status: "passing" },
-        { id: "feat-002", name: "Feature 2", description: "Desc 2", status: "pending" },
+      tasks: [
+        { id: "task-001", content: "Task 1", status: "completed", activeForm: "Working on task" },
+        { id: "task-002", content: "Task 2", status: "pending", activeForm: "Working on task" },
       ],
-      completedFeatures: ["feat-001"],
+      completedTaskIds: ["task-001"],
     });
 
     const session = await loadSession(sessionDir);
     const workflowState = sessionToWorkflowState(session);
 
-    // The next feature to be worked on should be feat-002, not feat-001
-    const nextPendingFeature = workflowState.features.find(
+    // The next feature to be worked on should be task-002, not task-001
+    const nextPendingTask = workflowState.tasks.find(
       (f) => f.status === "pending"
     );
 
-    expect(nextPendingFeature).not.toBeUndefined();
-    expect(nextPendingFeature!.id).toBe("feat-002");
-    expect(workflowState.completedFeatures).toContain("feat-001");
+    expect(nextPendingTask).not.toBeUndefined();
+    expect(nextPendingTask!.id).toBe("task-002");
+    expect(workflowState.completedTaskIds).toContain("task-001");
   });
 
   test("executed nodes array reflects actual execution history", async () => {
@@ -927,13 +929,13 @@ describe("Verify no duplicate work done", () => {
     expect(resumedState!.data.accumulated_count).toBe(42);
   });
 
-  test("passing features remain passing after resume", async () => {
+  test("completed tasks remain completed after resume", async () => {
     await createTestSessionJson(sessionDir, sessionId, {
       status: "paused",
-      features: [
-        { id: "feat-001", name: "Feature 1", description: "Desc 1", status: "passing" },
-        { id: "feat-002", name: "Feature 2", description: "Desc 2", status: "passing" },
-        { id: "feat-003", name: "Feature 3", description: "Desc 3", status: "pending" },
+      tasks: [
+        { id: "task-001", content: "Task 1", status: "completed", activeForm: "Completing task 1" },
+        { id: "task-002", content: "Task 2", status: "completed", activeForm: "Completing task 2" },
+        { id: "task-003", content: "Task 3", status: "pending", activeForm: "Working on task 3" },
       ],
     });
 
@@ -943,10 +945,10 @@ describe("Verify no duplicate work done", () => {
 
     session = await loadSession(sessionDir);
 
-    // Passing features should still be passing
-    expect(session.features[0]!.status).toBe("passing");
-    expect(session.features[1]!.status).toBe("passing");
-    expect(session.features[2]!.status).toBe("pending");
+    // Completed tasks should still be completed
+    expect(session.tasks[0]!.status).toBe("completed");
+    expect(session.tasks[1]!.status).toBe("completed");
+    expect(session.tasks[2]!.status).toBe("pending");
   });
 });
 
@@ -975,13 +977,13 @@ describe("End-to-end resume flow", () => {
     await createTestSessionJson(sessionDir, sessionId, {
       status: "running",
       iteration: 3,
-      features: [
-        { id: "feat-001", name: "Feature 1", description: "Desc 1", status: "passing" },
-        { id: "feat-002", name: "Feature 2", description: "Desc 2", status: "in_progress" },
-        { id: "feat-003", name: "Feature 3", description: "Desc 3", status: "pending" },
+      tasks: [
+        { id: "task-001", content: "Task 1", status: "completed", activeForm: "Working on task" },
+        { id: "task-002", content: "Task 2", status: "in_progress", activeForm: "Working on task" },
+        { id: "task-003", content: "Task 3", status: "pending", activeForm: "Working on task" },
       ],
-      currentFeatureIndex: 1,
-      completedFeatures: ["feat-001"],
+      currentTaskIndex: 1,
+      completedTaskIds: ["task-001"],
     });
 
     // 2. Verify initial state
@@ -1011,11 +1013,11 @@ describe("End-to-end resume flow", () => {
     // 8. Verify all state is preserved
     expect(workflowState.ralphSessionId).toBe(sessionId);
     expect(workflowState.iteration).toBe(3);
-    expect(workflowState.features[0]!.status).toBe("passing");
-    expect(workflowState.features[1]!.status).toBe("in_progress");
-    expect(workflowState.features[2]!.status).toBe("pending");
-    expect(workflowState.currentFeatureIndex).toBe(1);
-    expect(workflowState.completedFeatures).toContain("feat-001");
+    expect(workflowState.tasks[0]!.status).toBe("completed");
+    expect(workflowState.tasks[1]!.status).toBe("in_progress");
+    expect(workflowState.tasks[2]!.status).toBe("pending");
+    expect(workflowState.currentTaskIndex).toBe(1);
+    expect(workflowState.completedTaskIds).toContain("task-001");
 
     // 9. Simulate resume
     workflowState.sessionStatus = "running";
@@ -1111,30 +1113,30 @@ describe("Edge cases and error handling", () => {
     await cleanup();
   });
 
-  test("handles session with empty features array", async () => {
+  test("handles session with empty tasks array", async () => {
     await createTestSessionJson(sessionDir, sessionId, {
-      features: [],
+      tasks: [],
     });
 
     const session = await loadSession(sessionDir);
-    expect(session.features).toEqual([]);
+    expect(session.tasks).toEqual([]);
 
     const workflowState = sessionToWorkflowState(session);
-    expect(workflowState.features).toEqual([]);
+    expect(workflowState.tasks).toEqual([]);
   });
 
-  test("handles session with all features already passing", async () => {
+  test("handles session with all tasks already completed", async () => {
     await createTestSessionJson(sessionDir, sessionId, {
-      features: [
-        { id: "feat-001", name: "Feature 1", description: "Desc 1", status: "passing" },
-        { id: "feat-002", name: "Feature 2", description: "Desc 2", status: "passing" },
+      tasks: [
+        { id: "task-001", content: "Task 1", status: "completed", activeForm: "Working on task" },
+        { id: "task-002", content: "Task 2", status: "completed", activeForm: "Working on task" },
       ],
     });
 
     const session = await loadSession(sessionDir);
     const workflowState = sessionToWorkflowState(session);
 
-    const allPassing = workflowState.features.every((f) => f.status === "passing");
+    const allPassing = workflowState.tasks.every((f) => f.status === "completed");
     expect(allPassing).toBe(true);
   });
 
@@ -1163,37 +1165,5 @@ describe("Edge cases and error handling", () => {
 
     expect(session1.sessionId).toBe(session2.sessionId);
     expect(session1.iteration).toBe(session2.iteration);
-  });
-
-  test("handles yolo mode session resume", async () => {
-    // Create yolo mode session
-    const yoloSession = {
-      sessionId,
-      sessionDir,
-      createdAt: new Date().toISOString(),
-      lastUpdated: new Date().toISOString(),
-      yolo: true,
-      maxIterations: 0,
-      features: [],
-      currentFeatureIndex: 0,
-      completedFeatures: [],
-      iteration: 5,
-      status: "paused",
-      debugReports: [],
-    };
-
-    await writeFile(
-      join(sessionDir, "session.json"),
-      JSON.stringify(yoloSession, null, 2),
-      "utf-8"
-    );
-
-    const session = await loadSession(sessionDir);
-    expect(session.yolo).toBe(true);
-    expect(session.status).toBe("paused");
-
-    const workflowState = sessionToWorkflowState(session);
-    expect(workflowState.yolo).toBe(true);
-    expect(workflowState.iteration).toBe(5);
   });
 });

@@ -237,9 +237,7 @@ describe("WORKFLOW_DEFINITIONS", () => {
     expect(ralph).toBeDefined();
 
     const graph = ralph!.createWorkflow({
-      maxIterations: 50,
       checkpointing: true,
-      yolo: true,
       userPrompt: "Test prompt",
     });
     expect(graph).toBeDefined();
@@ -297,7 +295,7 @@ describe("registerWorkflowCommands", () => {
     expect(ralphCmd).toBeDefined();
 
     const context = createMockContext();
-    const result = ralphCmd!.execute("--yolo Test prompt", context) as CommandResult;
+    const result = ralphCmd!.execute("Test prompt", context) as CommandResult;
 
     expect(result.success).toBe(true);
   });
@@ -359,13 +357,13 @@ describe("createWorkflowByName", () => {
   });
 
   test("accepts configuration override", () => {
-    const graph = createWorkflowByName("ralph", { maxIterations: 5 });
+    const graph = createWorkflowByName("ralph", { checkpointing: false });
     expect(graph).toBeDefined();
   });
 
   test("merges default config with provided config", () => {
     // This tests that defaultConfig is applied
-    const graph = createWorkflowByName("ralph", { maxIterations: 10 });
+    const graph = createWorkflowByName("ralph", { userPrompt: "test" });
     expect(graph).toBeDefined();
   });
 
@@ -453,115 +451,70 @@ describe("WorkflowMetadata interface", () => {
 // ============================================================================
 
 describe("parseRalphArgs", () => {
-  test("parses --yolo flag with prompt", () => {
-    const result = parseRalphArgs("--yolo implement auth");
-    expect(result.yolo).toBe(true);
-    expect(result.prompt).toBe("implement auth");
+  test("parses prompt as run kind", () => {
+    const result = parseRalphArgs("build a snake game");
+    expect(result).toEqual({ kind: "run", prompt: "build a snake game" });
   });
 
-  test("parses --yolo flag without prompt", () => {
-    const result = parseRalphArgs("--yolo");
-    expect(result.yolo).toBe(true);
-    expect(result.prompt).toBeNull();
+  test("parses prompt with leading/trailing whitespace", () => {
+    const result = parseRalphArgs("  implement auth  ");
+    expect(result).toEqual({ kind: "run", prompt: "implement auth" });
   });
 
-  test("parses --yolo with leading/trailing whitespace", () => {
-    const result = parseRalphArgs("  --yolo  implement auth  ");
-    expect(result.yolo).toBe(true);
-    expect(result.prompt).toBe("implement auth");
+  test("throws on empty input", () => {
+    expect(() => parseRalphArgs("")).toThrow("Usage:");
   });
 
-  test("parses normal mode with prompt", () => {
-    const result = parseRalphArgs("my feature");
-    expect(result.yolo).toBe(false);
-    expect(result.prompt).toBe("my feature");
+  test("throws on whitespace-only input", () => {
+    expect(() => parseRalphArgs("   ")).toThrow("Usage:");
   });
 
-  test("parses empty args as normal mode with null prompt", () => {
-    const result = parseRalphArgs("");
-    expect(result.yolo).toBe(false);
-    expect(result.prompt).toBeNull();
+  test("parses --resume with UUID", () => {
+    const result = parseRalphArgs("--resume abc123");
+    expect(result).toEqual({ kind: "resume", sessionId: "abc123", prompt: null });
   });
 
-  test("parses whitespace-only args as null prompt", () => {
-    const result = parseRalphArgs("   ");
-    expect(result.yolo).toBe(false);
-    expect(result.prompt).toBeNull();
+  test("parses --resume with UUID and prompt", () => {
+    const result = parseRalphArgs("--resume abc123 fix the bug");
+    expect(result).toEqual({ kind: "resume", sessionId: "abc123", prompt: "fix the bug" });
   });
 
-  test("does not treat --yolo in the middle as a flag", () => {
-    const result = parseRalphArgs("implement --yolo auth");
-    expect(result.yolo).toBe(false);
-    expect(result.prompt).toBe("implement --yolo auth");
-  });
-
-  test("handles multiline prompts after --yolo", () => {
-    const result = parseRalphArgs("--yolo implement\nauthentication");
-    expect(result.yolo).toBe(true);
-    expect(result.prompt).toBe("implement\nauthentication");
+  test("handles multiline prompts", () => {
+    const result = parseRalphArgs("implement\nauthentication");
+    expect(result).toEqual({ kind: "run", prompt: "implement\nauthentication" });
   });
 });
 
 // ============================================================================
-// RALPH COMMAND --yolo INTEGRATION TESTS
+// RALPH COMMAND BASIC EXECUTION TESTS
 // ============================================================================
 
-describe("ralph command --yolo flag", () => {
-  test("ralph command with --yolo flag and prompt succeeds", () => {
+describe("ralph command basic execution", () => {
+  test("ralph command with prompt succeeds", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
     const context = createMockContext();
-    const result = ralphCmd!.execute("--yolo implement auth", context) as CommandResult;
+    const result = ralphCmd!.execute("implement auth", context) as CommandResult;
 
     expect(result.success).toBe(true);
     expect(result.stateUpdate?.initialPrompt).toBe("implement auth");
-    expect(result.stateUpdate?.ralphConfig?.yolo).toBe(true);
     expect(result.stateUpdate?.ralphConfig?.userPrompt).toBe("implement auth");
-    expect(result.message).toContain("yolo mode");
+    expect(result.stateUpdate?.ralphConfig?.sessionId).toBeDefined();
   });
 
-  test("ralph command with --yolo flag without prompt fails", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = ralphCmd!.execute("--yolo", context) as CommandResult;
-
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("--yolo flag requires a prompt");
-  });
-
-  test("ralph command without flags auto-defaults to implement-feature when feature list exists", () => {
+  test("ralph command without prompt fails", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
     const context = createMockContext();
     const result = ralphCmd!.execute("", context) as CommandResult;
 
-    // When research/feature-list.json exists, should succeed with implement-feature default
-    if (existsSync("research/feature-list.json")) {
-      expect(result.success).toBe(true);
-    } else {
-      expect(result.success).toBe(false);
-      expect(result.message).toContain("provide a prompt");
-    }
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Usage:");
   });
 
-  test("ralph command without flags uses normal mode", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = ralphCmd!.execute("my feature prompt", context) as CommandResult;
-
-    expect(result.success).toBe(true);
-    expect(result.stateUpdate?.initialPrompt).toBe("my feature prompt");
-    expect(result.stateUpdate?.ralphConfig?.yolo).toBe(false);
-    expect(result.message).not.toContain("yolo mode");
-  });
-
-  test("ralph command adds system message with yolo indicator", () => {
+  test("ralph command adds system message", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
@@ -584,11 +537,10 @@ describe("ralph command --yolo flag", () => {
       modelOps: undefined,
     };
 
-    ralphCmd!.execute("--yolo implement auth", context);
+    ralphCmd!.execute("implement auth", context);
 
     expect(messages.length).toBe(1);
     expect(messages[0]?.role).toBe("system");
-    expect(messages[0]?.content).toContain("yolo mode");
     expect(messages[0]?.content).toContain("implement auth");
   });
 });
@@ -624,41 +576,24 @@ describe("isValidUUID", () => {
 describe("parseRalphArgs --resume flag", () => {
   test("parses --resume flag with UUID", () => {
     const result = parseRalphArgs("--resume 550e8400-e29b-41d4-a716-446655440000");
-    expect(result.yolo).toBe(false);
-    expect(result.prompt).toBeNull();
-    expect(result.resumeSessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
-  });
-
-  test("parses --resume flag without UUID", () => {
-    const result = parseRalphArgs("--resume");
-    expect(result.yolo).toBe(false);
-    expect(result.prompt).toBeNull();
-    // Empty string indicates --resume was used but no UUID provided
-    // (null means --resume flag was not used at all)
-    expect(result.resumeSessionId).toBe("");
+    expect(result).toEqual({ kind: "resume", sessionId: "550e8400-e29b-41d4-a716-446655440000", prompt: null });
   });
 
   test("parses --resume with leading/trailing whitespace", () => {
     const result = parseRalphArgs("  --resume  550e8400-e29b-41d4-a716-446655440000  ");
-    expect(result.resumeSessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
+    expect(result.kind).toBe("resume");
+    if (result.kind === "resume") {
+      expect(result.sessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
+    }
   });
 
-  test("extracts only first token after --resume", () => {
+  test("extracts prompt after --resume UUID", () => {
     const result = parseRalphArgs("--resume 550e8400-e29b-41d4-a716-446655440000 extra args");
-    expect(result.resumeSessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
-  });
-
-  test("does not treat --resume in the middle as a flag", () => {
-    const result = parseRalphArgs("some prompt --resume abc123");
-    expect(result.yolo).toBe(false);
-    expect(result.prompt).toBe("some prompt --resume abc123");
-    expect(result.resumeSessionId).toBeNull();
-  });
-
-  test("--resume takes precedence over --yolo when first", () => {
-    const result = parseRalphArgs("--resume 550e8400-e29b-41d4-a716-446655440000");
-    expect(result.resumeSessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
-    expect(result.yolo).toBe(false);
+    expect(result.kind).toBe("resume");
+    if (result.kind === "resume") {
+      expect(result.sessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
+      expect(result.prompt).toBe("extra args");
+    }
   });
 });
 
@@ -691,7 +626,6 @@ describe("ralph command --resume flag", () => {
 
     expect(result.success).toBe(true);
     expect(result.stateUpdate?.ralphConfig?.resumeSessionId).toBe(testSessionId);
-    expect(result.stateUpdate?.ralphConfig?.yolo).toBe(false);
     expect(result.message).toContain("Resuming");
     expect(result.message).toContain(testSessionId);
   });
@@ -720,16 +654,16 @@ describe("ralph command --resume flag", () => {
     expect(result.message).toContain(nonExistentId);
   });
 
-  test("ralph command with --resume flag without UUID fails", () => {
+  test("ralph command with --resume flag without UUID treats it as prompt", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
     const context = createMockContext();
     const result = ralphCmd!.execute("--resume", context) as CommandResult;
 
-    expect(result.success).toBe(false);
-    // Either fails on missing UUID or on validation
-    expect(result.success).toBe(false);
+    // Without a following token, --resume is treated as a run prompt
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.initialPrompt).toBe("--resume");
   });
 
   test("ralph command adds system message when resuming", () => {
@@ -779,353 +713,20 @@ describe("ralph command --resume flag", () => {
 });
 
 // ============================================================================
-// PARSE RALPH ARGS --max-iterations TESTS
+// (Removed: parseRalphArgs --max-iterations tests — flag no longer exists)
 // ============================================================================
 
-describe("parseRalphArgs --max-iterations flag", () => {
-  test("parses --max-iterations flag with number", () => {
-    const result = parseRalphArgs("--max-iterations 50 implement auth");
-    expect(result.maxIterations).toBe(50);
-    expect(result.prompt).toBe("implement auth");
-    expect(result.yolo).toBe(false);
-  });
-
-  test("defaults to 100 if --max-iterations not specified", () => {
-    const result = parseRalphArgs("implement auth");
-    expect(result.maxIterations).toBe(100);
-  });
-
-  test("parses --max-iterations 0 for infinite iterations", () => {
-    const result = parseRalphArgs("--max-iterations 0 implement auth");
-    expect(result.maxIterations).toBe(0);
-    expect(result.prompt).toBe("implement auth");
-  });
-
-  test("parses --max-iterations with --yolo flag (--max-iterations first)", () => {
-    const result = parseRalphArgs("--max-iterations 50 --yolo implement auth");
-    expect(result.maxIterations).toBe(50);
-    expect(result.yolo).toBe(true);
-    expect(result.prompt).toBe("implement auth");
-  });
-
-  test("parses --max-iterations with --yolo flag (--yolo first)", () => {
-    const result = parseRalphArgs("--yolo --max-iterations 50 implement auth");
-    expect(result.maxIterations).toBe(50);
-    expect(result.yolo).toBe(true);
-    expect(result.prompt).toBe("implement auth");
-  });
-
-  test("parses --max-iterations with leading/trailing whitespace", () => {
-    const result = parseRalphArgs("  --max-iterations  25  implement auth  ");
-    expect(result.maxIterations).toBe(25);
-    expect(result.prompt).toBe("implement auth");
-  });
-
-  test("--max-iterations with --resume flag", () => {
-    const result = parseRalphArgs("--max-iterations 75 --resume 550e8400-e29b-41d4-a716-446655440000");
-    expect(result.maxIterations).toBe(75);
-    expect(result.resumeSessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
-  });
-
-  test("does not treat --max-iterations in the middle of prompt as a flag", () => {
-    const result = parseRalphArgs("implement --max-iterations auth");
-    expect(result.maxIterations).toBe(100);
-    expect(result.prompt).toBe("implement --max-iterations auth");
-  });
-
-  test("handles large iteration numbers", () => {
-    const result = parseRalphArgs("--max-iterations 1000000 implement auth");
-    expect(result.maxIterations).toBe(1000000);
-    expect(result.prompt).toBe("implement auth");
-  });
-});
-
 // ============================================================================
-// RALPH COMMAND --max-iterations INTEGRATION TESTS
+// (Removed: ralph command --max-iterations tests — flag no longer exists)
 // ============================================================================
 
-describe("ralph command --max-iterations flag", () => {
-  test("ralph command with --max-iterations sets correct state", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = ralphCmd!.execute("--max-iterations 50 implement auth", context) as CommandResult;
-
-    expect(result.success).toBe(true);
-    expect(result.stateUpdate?.maxIterations).toBe(50);
-    expect(result.stateUpdate?.ralphConfig?.maxIterations).toBe(50);
-  });
-
-  test("ralph command with --max-iterations 0 sets infinite iterations", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = ralphCmd!.execute("--max-iterations 0 implement auth", context) as CommandResult;
-
-    expect(result.success).toBe(true);
-    expect(result.stateUpdate?.maxIterations).toBe(0);
-    expect(result.stateUpdate?.ralphConfig?.maxIterations).toBe(0);
-  });
-
-  test("ralph command defaults maxIterations to 100", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = ralphCmd!.execute("implement auth", context) as CommandResult;
-
-    expect(result.success).toBe(true);
-    expect(result.stateUpdate?.maxIterations).toBe(100);
-    expect(result.stateUpdate?.ralphConfig?.maxIterations).toBe(100);
-  });
-
-  test("ralph command with --max-iterations and --yolo shows both in message", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = ralphCmd!.execute("--max-iterations 50 --yolo implement auth", context) as CommandResult;
-
-    expect(result.success).toBe(true);
-    expect(result.message).toContain("yolo mode");
-    expect(result.message).toContain("max: 50");
-    expect(result.stateUpdate?.ralphConfig?.yolo).toBe(true);
-    expect(result.stateUpdate?.ralphConfig?.maxIterations).toBe(50);
-  });
-
-  test("ralph command system message includes max-iterations when non-default", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const messages: Array<{ role: string; content: string }> = [];
-    const context = createMockContext();
-    context.addMessage = (role: string, content: string) => {
-      messages.push({ role, content });
-    };
-
-    ralphCmd!.execute("--max-iterations 25 implement auth", context);
-
-    expect(messages.length).toBe(1);
-    expect(messages[0]?.content).toContain("max: 25");
-  });
-
-  test("ralph command system message does not include max-iterations when default", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const messages: Array<{ role: string; content: string }> = [];
-    const context = createMockContext();
-    context.addMessage = (role: string, content: string) => {
-      messages.push({ role, content });
-    };
-
-    ralphCmd!.execute("implement auth", context);
-
-    expect(messages.length).toBe(1);
-    expect(messages[0]?.content).not.toContain("max:");
-  });
-});
-
 // ============================================================================
-// PARSE RALPH ARGS --feature-list TESTS
+// (Removed: parseRalphArgs --feature-list tests — flag no longer exists)
 // ============================================================================
 
-describe("parseRalphArgs --feature-list flag", () => {
-  test("parses --feature-list flag with path", () => {
-    const result = parseRalphArgs("--feature-list custom.json implement auth");
-    expect(result.featureListPath).toBe("custom.json");
-    expect(result.prompt).toBe("implement auth");
-    expect(result.yolo).toBe(false);
-  });
-
-  test("defaults to research/feature-list.json if --feature-list not specified", () => {
-    const result = parseRalphArgs("implement auth");
-    expect(result.featureListPath).toBe("research/feature-list.json");
-  });
-
-  test("parses --feature-list with full path", () => {
-    const result = parseRalphArgs("--feature-list /path/to/features.json implement auth");
-    expect(result.featureListPath).toBe("/path/to/features.json");
-    expect(result.prompt).toBe("implement auth");
-  });
-
-  test("parses --feature-list with --yolo flag (--feature-list first)", () => {
-    const result = parseRalphArgs("--feature-list custom.json --yolo implement auth");
-    expect(result.featureListPath).toBe("custom.json");
-    expect(result.yolo).toBe(true);
-    expect(result.prompt).toBe("implement auth");
-  });
-
-  test("parses --feature-list with --yolo flag (--yolo first)", () => {
-    const result = parseRalphArgs("--yolo --feature-list custom.json implement auth");
-    expect(result.featureListPath).toBe("custom.json");
-    expect(result.yolo).toBe(true);
-    expect(result.prompt).toBe("implement auth");
-  });
-
-  test("parses --feature-list with leading/trailing whitespace", () => {
-    const result = parseRalphArgs("  --feature-list  custom.json  implement auth  ");
-    expect(result.featureListPath).toBe("custom.json");
-    expect(result.prompt).toBe("implement auth");
-  });
-
-  test("--feature-list with --resume flag", () => {
-    const result = parseRalphArgs("--feature-list custom.json --resume 550e8400-e29b-41d4-a716-446655440000");
-    expect(result.featureListPath).toBe("custom.json");
-    expect(result.resumeSessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
-  });
-
-  test("--feature-list with --max-iterations flag", () => {
-    const result = parseRalphArgs("--feature-list custom.json --max-iterations 50 implement auth");
-    expect(result.featureListPath).toBe("custom.json");
-    expect(result.maxIterations).toBe(50);
-    expect(result.prompt).toBe("implement auth");
-  });
-
-  test("does not treat --feature-list in the middle of prompt as a flag", () => {
-    const result = parseRalphArgs("implement --feature-list auth");
-    expect(result.featureListPath).toBe("research/feature-list.json");
-    expect(result.prompt).toBe("implement --feature-list auth");
-  });
-
-  test("parses relative path with directory", () => {
-    const result = parseRalphArgs("--feature-list specs/features.json implement auth");
-    expect(result.featureListPath).toBe("specs/features.json");
-    expect(result.prompt).toBe("implement auth");
-  });
-});
-
 // ============================================================================
-// RALPH COMMAND --feature-list INTEGRATION TESTS
+// (Removed: ralph command --feature-list tests — flag no longer exists)
 // ============================================================================
-
-describe("ralph command --feature-list flag", () => {
-  const testFeatureListPath = "research/feature-list.json";
-
-  test("ralph command with --feature-list and existing file succeeds", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    // Uses existing research/feature-list.json
-    const context = createMockContext();
-    const result = ralphCmd!.execute(`--feature-list ${testFeatureListPath} implement auth`, context) as CommandResult;
-
-    expect(result.success).toBe(true);
-    expect(result.stateUpdate?.ralphConfig?.featureListPath).toBe(testFeatureListPath);
-  });
-
-  test("ralph command with --feature-list and non-existent file fails", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = ralphCmd!.execute("--feature-list nonexistent/file.json implement auth", context) as CommandResult;
-
-    expect(result.success).toBe(false);
-    expect(result.message).toContain("Feature list file not found");
-    expect(result.message).toContain("nonexistent/file.json");
-  });
-
-  test("ralph command with --yolo skips feature list validation", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const context = createMockContext();
-    // Even with non-existent file, --yolo mode should succeed
-    const result = ralphCmd!.execute("--feature-list nonexistent.json --yolo implement auth", context) as CommandResult;
-
-    expect(result.success).toBe(true);
-    expect(result.stateUpdate?.ralphConfig?.yolo).toBe(true);
-    expect(result.stateUpdate?.ralphConfig?.featureListPath).toBe("nonexistent.json");
-  });
-
-  test("ralph command defaults featureListPath to research/feature-list.json", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = ralphCmd!.execute("implement auth", context) as CommandResult;
-
-    expect(result.success).toBe(true);
-    expect(result.stateUpdate?.ralphConfig?.featureListPath).toBe("research/feature-list.json");
-  });
-
-  test("ralph command with custom --feature-list shows in message", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = ralphCmd!.execute(`--feature-list ${testFeatureListPath} implement auth`, context) as CommandResult;
-
-    // Default path should not show in message
-    expect(result.message).not.toContain("features:");
-  });
-
-  test("ralph command with non-default --feature-list shows in message", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    // Create a temp file for this test
-    const customPath = "research/custom-features.json";
-    const { writeFileSync, unlinkSync } = require("fs");
-    writeFileSync(customPath, "[]");
-
-    try {
-      const context = createMockContext();
-      const result = ralphCmd!.execute(`--feature-list ${customPath} implement auth`, context) as CommandResult;
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain("features:");
-      expect(result.message).toContain(customPath);
-    } finally {
-      unlinkSync(customPath);
-    }
-  });
-
-  test("ralph command system message includes feature-list when non-default", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    // Create a temp file for this test
-    const customPath = "research/custom-features.json";
-    const { writeFileSync, unlinkSync } = require("fs");
-    writeFileSync(customPath, "[]");
-
-    try {
-      const messages: Array<{ role: string; content: string }> = [];
-      const context = createMockContext();
-      context.addMessage = (role: string, content: string) => {
-        messages.push({ role, content });
-      };
-
-      ralphCmd!.execute(`--feature-list ${customPath} implement auth`, context);
-
-      expect(messages.length).toBe(1);
-      expect(messages[0]?.content).toContain("features:");
-      expect(messages[0]?.content).toContain(customPath);
-    } finally {
-      unlinkSync(customPath);
-    }
-  });
-
-  test("ralph command system message does not include feature-list when default", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const messages: Array<{ role: string; content: string }> = [];
-    const context = createMockContext();
-    context.addMessage = (role: string, content: string) => {
-      messages.push({ role, content });
-    };
-
-    ralphCmd!.execute("implement auth", context);
-
-    expect(messages.length).toBe(1);
-    expect(messages[0]?.content).not.toContain("features:");
-  });
-});
 
 // ============================================================================
 // RALPH COMMAND SESSION UUID DISPLAY TESTS
@@ -1203,32 +804,6 @@ describe("ralph command session UUID display", () => {
     expect(uuid1).not.toBe(uuid2);
   });
 
-  test("ralph command with --yolo flag also includes session UUID", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = ralphCmd!.execute("--yolo implement auth", context) as CommandResult;
-
-    expect(result.success).toBe(true);
-    expect(result.message).toContain("Started Ralph session:");
-    expect(result.stateUpdate?.ralphConfig?.sessionId).toBeDefined();
-    expect(isValidUUID(result.stateUpdate?.ralphConfig?.sessionId as string)).toBe(true);
-  });
-
-  test("ralph command with --max-iterations flag also includes session UUID", () => {
-    const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-    expect(ralphCmd).toBeDefined();
-
-    const context = createMockContext();
-    const result = ralphCmd!.execute("--max-iterations 50 implement auth", context) as CommandResult;
-
-    expect(result.success).toBe(true);
-    expect(result.message).toContain("Started Ralph session:");
-    expect(result.stateUpdate?.ralphConfig?.sessionId).toBeDefined();
-    expect(isValidUUID(result.stateUpdate?.ralphConfig?.sessionId as string)).toBe(true);
-  });
-
   test("ralph command session UUID can be used for resumption", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
@@ -1243,7 +818,10 @@ describe("ralph command session UUID display", () => {
     // The UUID format is valid for use with --resume flag
     const resumeArgs = `--resume ${sessionId!}`;
     const parsed = parseRalphArgs(resumeArgs);
-    expect(parsed.resumeSessionId).toBe(sessionId!);
+    expect(parsed.kind).toBe("resume");
+    if (parsed.kind === "resume") {
+      expect(parsed.sessionId).toBe(sessionId!);
+    }
   });
 
   test("ralph command --resume flag does not generate new session UUID", () => {

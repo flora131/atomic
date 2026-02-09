@@ -54,13 +54,6 @@ describe("createRalphWorkflow", () => {
     expect(workflow.startNode).toBeDefined();
   });
 
-  test("creates a compiled graph with custom maxIterations", () => {
-    const workflow = createRalphWorkflow({ maxIterations: 50 });
-
-    expect(workflow).toBeDefined();
-    expect(workflow.nodes).toBeInstanceOf(Map);
-  });
-
   test("creates a compiled graph with checkpointing disabled", () => {
     const workflow = createRalphWorkflow({ checkpointing: false });
 
@@ -68,30 +61,10 @@ describe("createRalphWorkflow", () => {
     expect(workflow.config.checkpointer).toBeUndefined();
   });
 
-  test("creates a compiled graph with custom featureListPath", () => {
-    const workflow = createRalphWorkflow({
-      featureListPath: "custom/features.json",
-    });
-
-    expect(workflow).toBeDefined();
-  });
-
-  test("creates a compiled graph in yolo mode", () => {
-    const workflow = createRalphWorkflow({
-      yolo: true,
-      userPrompt: "Implement the authentication system",
-    });
-
-    expect(workflow).toBeDefined();
-  });
-
   test("creates a compiled graph with all options", () => {
     const config: CreateRalphWorkflowConfig = {
-      maxIterations: 25,
       checkpointing: true,
-      featureListPath: "specs/features.json",
-      yolo: false,
-      userPrompt: undefined,
+      userPrompt: "Build an app",
     };
 
     const workflow = createRalphWorkflow(config);
@@ -109,7 +82,6 @@ describe("createRalphWorkflow", () => {
 
     expect(workflow).toBeDefined();
     // RALPH_CONFIG defaults are used internally
-    expect(RALPH_CONFIG.maxIterations).toBe(0);  // 0 = unlimited
     expect(RALPH_CONFIG.checkpointing).toBe(true);
   });
 
@@ -149,31 +121,21 @@ describe("createTestRalphWorkflow", () => {
     expect(workflow.nodes).toBeInstanceOf(Map);
     expect(workflow.startNode).toBeDefined();
   });
-
   test("accepts optional config overrides", () => {
     const workflow = createTestRalphWorkflow({
-      featureListPath: "test/features.json",
+      userPrompt: "test prompt",
     });
 
     expect(workflow).toBeDefined();
   });
 
   test("creates workflow with minimal iterations for testing", () => {
-    // Test workflow uses maxIterations: 5 and checkpointing: false
+    // Test workflow uses checkpointing: false
     const workflow = createTestRalphWorkflow();
 
     expect(workflow).toBeDefined();
     // Test workflow disables checkpointing
     expect(workflow.config.checkpointer).toBeUndefined();
-  });
-
-  test("can be created in yolo mode", () => {
-    const workflow = createTestRalphWorkflow({
-      yolo: true,
-      userPrompt: "Test task",
-    });
-
-    expect(workflow).toBeDefined();
   });
 });
 
@@ -188,14 +150,6 @@ describe("CreateRalphWorkflowConfig", () => {
     const workflow = createRalphWorkflow(config);
 
     expect(workflow).toBeDefined();
-  });
-
-  test("maxIterations accepts number", () => {
-    const config: CreateRalphWorkflowConfig = {
-      maxIterations: 200,
-    };
-
-    expect(typeof config.maxIterations).toBe("number");
   });
 
   test("checkpointing accepts boolean", () => {
@@ -214,22 +168,6 @@ describe("CreateRalphWorkflowConfig", () => {
     };
 
     expect(config.checkpointing).toBe(true);
-  });
-
-  test("featureListPath accepts string", () => {
-    const config: CreateRalphWorkflowConfig = {
-      featureListPath: "features.json",
-    };
-
-    expect(typeof config.featureListPath).toBe("string");
-  });
-
-  test("yolo accepts boolean", () => {
-    const config: CreateRalphWorkflowConfig = {
-      yolo: true,
-    };
-
-    expect(typeof config.yolo).toBe("boolean");
   });
 
   test("userPrompt accepts string", () => {
@@ -266,8 +204,8 @@ describe("Ralph workflow integration", () => {
   });
 
   test("workflows with different configs are independent", () => {
-    const workflow1 = createRalphWorkflow({ maxIterations: 10 });
-    const workflow2 = createRalphWorkflow({ maxIterations: 20 });
+    const workflow1 = createRalphWorkflow({ checkpointing: true });
+    const workflow2 = createRalphWorkflow({ checkpointing: false });
 
     // Both should be defined and independent
     expect(workflow1).toBeDefined();

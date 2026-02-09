@@ -387,7 +387,7 @@ export interface GraphConfig<TState extends BaseState = BaseState> {
 
   /**
    * Context window usage threshold (0-100) that triggers a warning signal.
-   * Default: 60 (60%)
+   * Default: 45 (45%)
    */
   contextWindowThreshold?: number;
 
@@ -625,6 +625,11 @@ export type StateUpdate<TState extends BaseState> = Partial<Omit<TState, keyof B
   outputs?: Record<NodeId, unknown>;
 };
 
+/** Compaction triggers at 45% context usage. */
+export const BACKGROUND_COMPACTION_THRESHOLD = 0.45;
+/** Buffer exhaustion at 60% context usage. */
+export const BUFFER_EXHAUSTION_THRESHOLD = 0.6;
+
 /**
  * Default retry configuration.
  */
@@ -639,6 +644,6 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
  */
 export const DEFAULT_GRAPH_CONFIG: Partial<GraphConfig> = {
   maxConcurrency: 1,
-  contextWindowThreshold: 60,
+  contextWindowThreshold: BACKGROUND_COMPACTION_THRESHOLD * 100,
   autoCheckpoint: true,
 };

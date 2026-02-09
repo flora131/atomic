@@ -14,7 +14,7 @@
 
 import type { AgentType } from "../utils/telemetry/types.ts";
 import type { CodingAgentClient } from "../sdk/types.ts";
-import { getModelPreference } from "../utils/settings.ts";
+import { getModelPreference, getReasoningEffortPreference } from "../utils/settings.ts";
 import { discoverMcpConfigs } from "../utils/mcp-config.ts";
 
 // SDK client imports
@@ -158,6 +158,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
   // CLI flag takes precedence, then persisted preference
   const effectiveModel = model ?? getModelPreference(agentType);
+  const effectiveReasoningEffort = getReasoningEffortPreference(agentType);
 
   const agentName = getAgentDisplayName(agentType);
 
@@ -186,6 +187,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     const chatConfig: ChatUIConfig = {
       sessionConfig: {
         model: effectiveModel,
+        reasoningEffort: effectiveReasoningEffort,
         mcpServers,
       },
       theme: getTheme(theme),

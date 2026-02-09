@@ -13,10 +13,12 @@ import type {
   CommandDefinition,
   CommandContext,
   CommandResult,
+  ContextDisplayInfo,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
 import { saveModelPreference } from "../../utils/settings.ts";
 import { discoverMcpConfigs } from "../../utils/mcp-config.ts";
+import { BACKGROUND_COMPACTION_THRESHOLD } from "../../graph/types.ts";
 
 // ============================================================================
 // COMMAND IMPLEMENTATIONS
@@ -484,6 +486,70 @@ export const mcpCommand: CommandDefinition = {
 };
 
 // ============================================================================
+// CONTEXT COMMAND
+// ============================================================================
+
+
+/**
+ * /context - Display context window usage.
+ *
+ * Shows model info, a visual usage bar, and a four-category token breakdown:
+ * System/Tools, Messages, Free Space, and Buffer.
+ */
+export const contextCommand: CommandDefinition = {
+  name: "context",
+  description: "View context window usage",
+  category: "builtin",
+  execute: async (_args: string, context: CommandContext): Promise<CommandResult> => {
+    if (!context.session) {
+      return { success: false, message: "No active session. Send a message first." };
+    }
+
+    let usage;
+    let systemTools: number;
+    try {
+      usage = await context.session.getContextUsage();
+    } catch {
+      return { success: false, message: "Send a message first so token usage can be measured." };
+    }
+    try {
+      systemTools = context.session.getSystemToolsTokens();
+    } catch {
+      systemTools = 0;
+    }
+
+    let model = "Unknown";
+    let tier = "Unknown";
+    if (context.getModelDisplayInfo) {
+      try {
+        const info = await context.getModelDisplayInfo();
+        model = info.model;
+        tier = info.tier;
+      } catch {
+        // Use defaults
+      }
+    }
+
+    const { maxTokens, inputTokens, outputTokens } = usage;
+    const buffer = Math.floor(maxTokens * (1 - BACKGROUND_COMPACTION_THRESHOLD));
+    const messages = Math.max(0, (inputTokens - systemTools) + outputTokens);
+    const freeSpace = Math.max(0, maxTokens - systemTools - messages - buffer);
+
+    const contextInfo: ContextDisplayInfo = {
+      model,
+      tier,
+      maxTokens,
+      systemTools,
+      messages,
+      freeSpace,
+      buffer,
+    };
+
+    return { success: true, contextInfo };
+  },
+};
+
+// ============================================================================
 // REGISTRATION
 // ============================================================================
 
@@ -498,6 +564,7 @@ export const builtinCommands: CommandDefinition[] = [
   exitCommand,
   modelCommand,
   mcpCommand,
+  contextCommand,
 ];
 
 /**

@@ -13,7 +13,7 @@ import { createRoot, type Root } from "@opentui/react";
 import { ChatApp, type OnToolStart, type OnToolComplete, type OnSkillInvoked, type OnPermissionRequest as ChatOnPermissionRequest, type OnInterrupt, type OnAskUserQuestion } from "./chat.tsx";
 import type { ParallelAgent } from "./components/parallel-agents-tree.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
-import { initializeCommandsAsync } from "./commands/index.ts";
+import { initializeCommandsAsync, globalRegistry } from "./commands/index.ts";
 import type {
   CodingAgentClient,
   SessionConfig,
@@ -21,6 +21,53 @@ import type {
   AgentMessage,
 } from "../sdk/types.ts";
 import { UnifiedModelOperations } from "../models/model-operations.ts";
+
+/**
+ * Build a system prompt section describing all registered capabilities.
+ * Includes slash commands, skills, and sub-agents so the model is aware
+ * of them and they count toward the system/tools token baseline.
+ */
+function buildCapabilitiesSystemPrompt(): string {
+  const allCommands = globalRegistry.all();
+  if (allCommands.length === 0) return "";
+
+  const sections: string[] = [];
+
+  const builtins = allCommands.filter((c) => c.category === "builtin");
+  if (builtins.length > 0) {
+    const lines = builtins.map((c) => {
+      const hint = c.argumentHint ? ` ${c.argumentHint}` : "";
+      return `  /${c.name}${hint} - ${c.description}`;
+    });
+    sections.push(`Slash Commands:\n${lines.join("\n")}`);
+  }
+
+  const skills = allCommands.filter((c) => c.category === "skill");
+  if (skills.length > 0) {
+    const lines = skills.map((c) => {
+      const hint = c.argumentHint ? ` ${c.argumentHint}` : "";
+      return `  /${c.name}${hint} - ${c.description}`;
+    });
+    sections.push(`Skills (invoke with /skill-name):\n${lines.join("\n")}`);
+  }
+
+  const agents = allCommands.filter((c) => c.category === "agent");
+  if (agents.length > 0) {
+    const lines = agents.map((c) => {
+      const hint = c.argumentHint ? ` ${c.argumentHint}` : "";
+      return `  /${c.name}${hint} - ${c.description}`;
+    });
+    sections.push(`Sub-Agents (invoke with /agent-name):\n${lines.join("\n")}`);
+  }
+
+  const workflows = allCommands.filter((c) => c.category === "workflow");
+  if (workflows.length > 0) {
+    const lines = workflows.map((c) => `  /${c.name} - ${c.description}`);
+    sections.push(`Workflows:\n${lines.join("\n")}`);
+  }
+
+  return sections.join("\n\n");
+}
 
 // ============================================================================
 // TYPES
@@ -210,7 +257,10 @@ export async function startChatUI(
   } = config;
 
   // Create model operations for the agent
-  const modelOps = agentType ? new UnifiedModelOperations(agentType) : undefined;
+  const sdkListModels = agentType === 'claude' && 'listSupportedModels' in client
+    ? () => (client as import('../sdk/claude-client.ts').ClaudeAgentClient).listSupportedModels()
+    : undefined;
+  const modelOps = agentType ? new UnifiedModelOperations(agentType, undefined, sdkListModels) : undefined;
 
   // Initialize state
   const state: ChatUIState = {
@@ -577,7 +627,8 @@ export async function startChatUI(
   async function handleStreamMessage(
     content: string,
     onChunk: (chunk: string) => void,
-    onComplete: () => void
+    onComplete: () => void,
+    onMeta?: (meta: { outputTokens: number; thinkingMs: number }) => void
   ): Promise<void> {
     // Create session if needed and subscribe to tool events
     if (!state.session) {
@@ -608,10 +659,26 @@ export async function startChatUI(
         state.streamAbortController.signal
       );
 
+      // Track character count for real-time token estimation
+      let charCount = 0;
+      let thinkingMs = 0;
+
       for await (const message of abortableStream) {
         // Handle text content
         if (message.type === "text" && typeof message.content === "string") {
           onChunk(message.content);
+          charCount += message.content.length;
+          onMeta?.({ outputTokens: Math.round(charCount / 4), thinkingMs });
+        }
+        // Handle thinking metadata from SDK (thinking block end)
+        else if (message.type === "thinking" && message.metadata) {
+          const stats = message.metadata.streamingStats as
+            | { thinkingMs: number; outputTokens: number }
+            | undefined;
+          if (stats) {
+            thinkingMs = stats.thinkingMs;
+            onMeta?.({ outputTokens: Math.round(charCount / 4), thinkingMs });
+          }
         }
         // Handle tool_use content - notify UI of tool invocation
         // Skip if we're getting tool events from hooks to avoid duplicates
@@ -760,6 +827,19 @@ export async function startChatUI(
     // Uses async version to support loading workflows from disk
     await initializeCommandsAsync();
 
+    // Enhance session config with capabilities system prompt so the model
+    // knows about all available slash commands, skills, and sub-agents.
+    // This also ensures they count toward the system/tools token baseline.
+    const capabilitiesPrompt = buildCapabilitiesSystemPrompt();
+    if (capabilitiesPrompt) {
+      const existing = sessionConfig?.systemPrompt ?? "";
+      if (sessionConfig) {
+        sessionConfig.systemPrompt = existing
+          ? `${existing}\n\n${capabilitiesPrompt}`
+          : capabilitiesPrompt;
+      }
+    }
+
     // Create the CLI renderer with:
     // - mouse mode disabled to allow native terminal text selection and copy (Cmd+C / Ctrl+Shift+C)
     // - useAlternateScreen: true to prevent scrollbox from corrupting terminal output
@@ -855,6 +935,7 @@ export async function startChatUI(
             suggestion,
             agentType,
             modelOps,
+            getModelDisplayInfo: () => client.getModelDisplayInfo(),
             onSendMessage: handleSendMessage,
             onStreamMessage: handleStreamMessage,
             onExit: handleExit,
@@ -944,6 +1025,10 @@ export async function startMockChatUI(
             maxTokens: 100000,
             usagePercentage: 0,
           };
+        },
+
+        getSystemToolsTokens(): number {
+          return 0;
         },
 
         async destroy(): Promise<void> {

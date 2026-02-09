@@ -6,9 +6,9 @@
  * Styled to match the autocomplete dropdown with text-color-based highlighting.
  */
 
-import React, { useState, useCallback, useMemo, useRef } from "react";
-import { useKeyboard } from "@opentui/react";
-import type { KeyEvent, TextareaRenderable } from "@opentui/core";
+import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
+import type { KeyEvent, TextareaRenderable, ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../theme.tsx";
 
 // ============================================================================
@@ -79,6 +79,8 @@ export function UserQuestionDialog({
 }: UserQuestionDialogProps): React.ReactNode {
   const { theme } = useTheme();
   const colors = theme.colors;
+  const { height: terminalHeight } = useTerminalDimensions();
+  const scrollRef = useRef<ScrollBoxRenderable>(null);
 
   const [highlightedIndex, setHighlightedIndex] = useState(0);
   const [selectedValues, setSelectedValues] = useState<string[]>([]);
@@ -107,6 +109,45 @@ export function UserQuestionDialog({
 
   const optionsCount = allOptions.length;
   const regularOptionsCount = question.options.length;
+
+  // Calculate the row offset of each option within the list content
+  const optionRowOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let row = 0;
+    const chatIdx = allOptions.length - 1;
+    for (let i = 0; i < allOptions.length; i++) {
+      const option = allOptions[i]!;
+      const prevOption = i > 0 ? allOptions[i - 1] : null;
+      const showSeparator = i === chatIdx;
+      const needsSpacingAfterDescription = prevOption?.description && !showSeparator;
+
+      if (showSeparator) row += 2; // marginTop + separator row
+      if (needsSpacingAfterDescription) row += 1;
+
+      offsets.push(row);
+      row += 1; // label row
+      if (option.description) row += 1; // description row
+    }
+    return { offsets, totalRows: row };
+  }, [allOptions]);
+
+  // Reserve space for header (~4 rows) and footer (2 rows)
+  const maxListHeight = Math.max(5, terminalHeight - 6);
+  const listHeight = Math.min(optionRowOffsets.totalRows, maxListHeight);
+
+  // Scroll to keep highlighted item visible
+  useEffect(() => {
+    if (!scrollRef.current || allOptions.length === 0 || isEditingCustom || isChatAboutThis) return;
+    const scrollBox = scrollRef.current;
+    const selectedRow = optionRowOffsets.offsets[highlightedIndex] ?? 0;
+    const itemHeight = allOptions[highlightedIndex]?.description ? 2 : 1;
+
+    if (selectedRow < scrollBox.scrollTop) {
+      scrollBox.scrollTo(selectedRow);
+    } else if (selectedRow + itemHeight > scrollBox.scrollTop + listHeight) {
+      scrollBox.scrollTo(selectedRow + itemHeight - listHeight);
+    }
+  }, [highlightedIndex, optionRowOffsets, listHeight, isEditingCustom, isChatAboutThis, allOptions]);
 
   // Submit the answer
   const submitAnswer = useCallback((values: string[]) => {
@@ -301,7 +342,13 @@ export function UserQuestionDialog({
       ) : (
         <>
           {/* Options list - Claude Code style: clean, minimal */}
-          <box flexDirection="column" marginTop={1}>
+          <scrollbox
+            ref={scrollRef}
+            height={listHeight}
+            scrollY={true}
+            scrollX={false}
+            marginTop={1}
+          >
             {allOptions.map((option, index) => {
               const isHighlighted = index === highlightedIndex;
               const isSelected = selectedValues.includes(option.value);
@@ -356,9 +403,7 @@ export function UserQuestionDialog({
                 </React.Fragment>
               );
             })}
-          </box>
-
-          {/* Keyboard hints */}
+          </scrollbox>
           <box marginTop={1}>
             <text style={{ fg: colors.muted }}>
               Enter to select · ↑/↓ to navigate · Esc to cancel

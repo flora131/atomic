@@ -9,7 +9,7 @@
  * - Builtins: Embedded in the codebase (e.g., codebase-analyzer, debugger)
  * - Project: Defined in .claude/agents, .opencode/agents, etc.
  * - User: Defined in ~/.claude/agents, ~/.opencode/agents, etc.
- * - Atomic: Defined in .atomic/agents or ~/.atomic/agents
+ * - Project: Defined in .github/agents, .claude/agents, .opencode/agents
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -35,7 +35,6 @@ export const AGENT_DISCOVERY_PATHS = [
   ".claude/agents",
   ".opencode/agents",
   ".github/agents",
-  ".atomic/agents",
 ] as const;
 
 /**
@@ -47,7 +46,6 @@ export const GLOBAL_AGENT_PATHS = [
   "~/.claude/agents",
   "~/.opencode/agents",
   "~/.copilot/agents",
-  "~/.atomic/agents",
 ] as const;
 
 // ============================================================================
@@ -59,9 +57,8 @@ export const GLOBAL_AGENT_PATHS = [
  * - builtin: Embedded in the codebase
  * - project: Defined in project-local agent directories
  * - user: Defined in user-global agent directories
- * - atomic: Defined in .atomic/agents directories
  */
-export type AgentSource = "builtin" | "project" | "user" | "atomic";
+export type AgentSource = "builtin" | "project" | "user";
 
 /**
  * Model options for agent execution.
@@ -1324,17 +1321,10 @@ export function expandTildePath(path: string): string {
 export function determineAgentSource(discoveryPath: string): AgentSource {
   // Check if path is in global (user) location
   if (discoveryPath.startsWith("~") || discoveryPath.includes(homedir())) {
-    // Global user paths
-    if (discoveryPath.includes(".atomic")) {
-      return "atomic";
-    }
     return "user";
   }
 
   // Project-local paths
-  if (discoveryPath.includes(".atomic")) {
-    return "atomic";
-  }
   return "project";
 }
 
@@ -1458,7 +1448,6 @@ export async function discoverAgents(): Promise<AgentDefinition[]> {
       const existing = agentMap.get(agent.name);
       if (existing) {
         // Project-local agents override user-global agents
-        // Priority: project > atomic > user
         const shouldOverride = shouldAgentOverride(agent.source, existing.source);
         if (shouldOverride) {
           agentMap.set(agent.name, agent);
@@ -1477,9 +1466,8 @@ export async function discoverAgents(): Promise<AgentDefinition[]> {
  *
  * Priority order (highest to lowest):
  * 1. project - Project-local agents (.claude/agents, .opencode/agents, .github/agents)
- * 2. atomic - Atomic-specific agents (.atomic/agents)
- * 3. user - User-global agents (~/.claude/agents, ~/.opencode/agents, etc.)
- * 4. builtin - Built-in agents (always lowest priority for discovery)
+ * 2. user - User-global agents (~/.claude/agents, ~/.opencode/agents, etc.)
+ * 3. builtin - Built-in agents (always lowest priority for discovery)
  *
  * @param newSource - Source of the new agent
  * @param existingSource - Source of the existing agent
@@ -1490,8 +1478,7 @@ export function shouldAgentOverride(
   existingSource: AgentSource
 ): boolean {
   const priority: Record<AgentSource, number> = {
-    project: 4,
-    atomic: 3,
+    project: 3,
     user: 2,
     builtin: 1,
   };
@@ -1531,7 +1518,7 @@ export function createAgentCommand(agent: AgentDefinition): CommandDefinition {
 
       // Send the prompt to the session
       // The session will use the agent's tools and model settings
-      context.sendMessage(prompt);
+      context.sendSilentMessage(prompt);
 
       return {
         success: true,

@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useCallback, useRef, useEffect, useMemo } from "react";
-import { useKeyboard, useRenderer } from "@opentui/react";
+import { useKeyboard, useRenderer, flushSync } from "@opentui/react";
 import type {
   KeyEvent,
   TextareaRenderable,
@@ -24,6 +24,7 @@ import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-s
 import { ToolResult } from "./components/tool-result.tsx";
 import { SkillLoadIndicator } from "./components/skill-load-indicator.tsx";
 import { McpServerListIndicator } from "./components/mcp-server-list.tsx";
+import { ContextInfoDisplay } from "./components/context-info-display.tsx";
 import { TimestampDisplay } from "./components/timestamp-display.tsx";
 import { QueueIndicator } from "./components/queue-indicator.tsx";
 import {
@@ -62,7 +63,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import type { AskUserQuestionEventData } from "../graph/index.ts";
 import type { AgentType, ModelOperations } from "../models";
-import { saveModelPreference } from "../utils/settings.ts";
+import { saveModelPreference, saveReasoningEffortPreference } from "../utils/settings.ts";
 import { formatDuration } from "./utils/format.ts";
 
 // ============================================================================
@@ -317,6 +318,14 @@ export interface MessageSkillLoad {
 }
 
 /**
+ * Streaming metadata for live token count and thinking duration.
+ */
+export interface StreamingMeta {
+  outputTokens: number;
+  thinkingMs: number;
+}
+
+/**
  * A single chat message.
  */
 export interface ChatMessage {
@@ -348,6 +357,11 @@ export interface ChatMessage {
   taskItems?: Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed"; blockedBy?: string[]}>;
   /** MCP server list for rendering via McpServerListIndicator */
   mcpServers?: import("../sdk/types.ts").McpServerConfig[];
+  contextInfo?: import("./commands/registry.ts").ContextDisplayInfo;
+  /** Output tokens used in this message (baked on completion) */
+  outputTokens?: number;
+  /** Thinking/reasoning duration in milliseconds (baked on completion) */
+  thinkingMs?: number;
 }
 
 /**
@@ -419,7 +433,8 @@ export interface ChatAppProps {
   onStreamMessage?: (
     content: string,
     onChunk: (chunk: string) => void,
-    onComplete: () => void
+    onComplete: () => void,
+    onMeta?: (meta: StreamingMeta) => void
   ) => void | Promise<void>;
   /** Callback when user exits the chat */
   onExit?: () => void | Promise<void>;
@@ -490,6 +505,8 @@ export interface ChatAppProps {
   agentType?: AgentType;
   /** Model operations interface for listing, setting, and resolving models */
   modelOps?: ModelOperations;
+  /** Callback to get model display info from the SDK client */
+  getModelDisplayInfo?: () => Promise<import("../sdk/types.ts").ModelDisplayInfo>;
   /** Parallel agents currently running (for tree view display) */
   parallelAgents?: ParallelAgent[];
   /** Register callback to receive parallel agent updates */
@@ -600,6 +617,8 @@ export interface MessageBubbleProps {
   elapsedMs?: number;
   /** Whether the conversation is collapsed (shows compact single-line summaries) */
   collapsed?: boolean;
+  /** Live streaming metadata (tokens, thinking duration) */
+  streamingMeta?: StreamingMeta | null;
 }
 
 // ============================================================================
@@ -679,6 +698,7 @@ export const SPINNER_VERBS = [
   "Iterating",
   "Synthesizing",
   "Resolving",
+  "Fermenting",
 ];
 
 /**
@@ -704,6 +724,23 @@ interface LoadingIndicatorProps {
   speed?: number;
   /** Elapsed time in milliseconds (displays formatted duration after verb) */
   elapsedMs?: number;
+  /** Estimated output tokens generated so far */
+  outputTokens?: number;
+  /** Thinking/reasoning duration in milliseconds */
+  thinkingMs?: number;
+}
+
+/**
+ * Format token count with k/M suffix (e.g., 16700 → "16.7k").
+ */
+function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    return `${(tokens / 1_000_000).toFixed(1)}M`;
+  }
+  if (tokens >= 1000) {
+    return `${(tokens / 1000).toFixed(1)}k`;
+  }
+  return `${tokens}`;
 }
 
 /**
@@ -711,10 +748,12 @@ interface LoadingIndicatorProps {
  * Single spinning character with a random verb and Unicode ellipsis.
  * Muted rose color for the spinner, gray for the verb text.
  *
+ * Enhanced format: ⣾ Verb… (6m 22s · ↓ 16.7k tokens · thought for 54s)
+ *
  * Returns span elements (not wrapped in text) so it can be composed
  * inside other text elements. Wrap in <text> when using standalone.
  */
-export function LoadingIndicator({ speed = 100, elapsedMs }: LoadingIndicatorProps): React.ReactNode {
+export function LoadingIndicator({ speed = 100, elapsedMs, outputTokens, thinkingMs }: LoadingIndicatorProps): React.ReactNode {
   const [frameIndex, setFrameIndex] = useState(0);
   // Select random verb only on mount (empty dependency array)
   const [verb] = useState(() => getRandomSpinnerVerb());
@@ -729,12 +768,25 @@ export function LoadingIndicator({ speed = 100, elapsedMs }: LoadingIndicatorPro
 
   const spinChar = SPINNER_FRAMES[frameIndex] as string;
 
+  // Build info parts separated by " · "
+  const parts: string[] = [];
+  if (elapsedMs != null && elapsedMs > 0) {
+    parts.push(formatDuration(elapsedMs).text);
+  }
+  if (outputTokens != null && outputTokens > 0) {
+    parts.push(`↓ ${formatTokenCount(outputTokens)} tokens`);
+  }
+  if (thinkingMs != null && thinkingMs > 0) {
+    parts.push(`thought for ${formatCompletionDuration(thinkingMs)}`);
+  }
+  const infoText = parts.length > 0 ? ` (${parts.join(" · ")})` : "";
+
   return (
     <>
       <span style={{ fg: "#D4A5A5" }}>{spinChar} </span>
       <span style={{ fg: "#D4A5A5" }}>{verb}…</span>
-      {elapsedMs != null && elapsedMs > 0 && (
-        <span style={{ fg: "#9A9AAC" }}>{` (${formatDuration(elapsedMs).text})`}</span>
+      {infoText && (
+        <span style={{ fg: "#9A9AAC" }}>{infoText}</span>
       )}
     </>
   );
@@ -793,21 +845,33 @@ function formatCompletionDuration(ms: number): string {
 interface CompletionSummaryProps {
   /** Duration in milliseconds */
   durationMs: number;
+  /** Output tokens used */
+  outputTokens?: number;
+  /** Thinking/reasoning duration in milliseconds */
+  thinkingMs?: number;
 }
 
 /**
  * Completion summary line shown after an assistant response finishes.
- * Matches Claude Code style: "✻ Worked for 1m 6s"
+ * Enhanced format: "✻ Worked for 1m 6s · ↓ 16.7k tokens · thought for 54s"
  */
-export function CompletionSummary({ durationMs }: CompletionSummaryProps): React.ReactNode {
+export function CompletionSummary({ durationMs, outputTokens, thinkingMs }: CompletionSummaryProps): React.ReactNode {
   const [verb] = useState(() => getRandomCompletionVerb());
   const [spinChar] = useState(() => getRandomSpinnerChar());
+
+  const parts: string[] = [`${verb} for ${formatCompletionDuration(durationMs)}`];
+  if (outputTokens != null && outputTokens > 0) {
+    parts.push(`↓ ${formatTokenCount(outputTokens)} tokens`);
+  }
+  if (thinkingMs != null && thinkingMs > 0) {
+    parts.push(`thought for ${formatCompletionDuration(thinkingMs)}`);
+  }
 
   return (
     <box flexDirection="row">
       <text style={{ fg: "#9A9AAC" }}>
         <span style={{ fg: "#D4A5A5" }}>{spinChar} </span>
-        <span>{verb} for {formatCompletionDuration(durationMs)}</span>
+        <span>{parts.join(" · ")}</span>
       </text>
     </box>
   );
@@ -1039,7 +1103,7 @@ function buildContentSegments(content: string, toolCalls: MessageToolCall[]): Co
  * - Assistant messages: bullet point (●) prefix, no header
  * Tool calls are rendered inline at their correct chronological positions.
  */
-export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, parallelAgents, agentTreeExpanded, todoItems, elapsedMs, collapsed = false }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, parallelAgents, agentTreeExpanded, todoItems, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
   // Hide the entire message when question dialog is active and there's no content yet
@@ -1167,6 +1231,11 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
             <McpServerListIndicator servers={message.mcpServers} />
           </box>
         )}
+        {message.contextInfo && (
+          <box key="context-info" marginBottom={1}>
+            <ContextInfoDisplay contextInfo={message.contextInfo} />
+          </box>
+        )}
         {!hideEntireMessage && segments.map((segment, index) => {
           if (segment.type === "text" && segment.content?.trim()) {
             // Text segment - add bullet prefix to first text segment
@@ -1236,7 +1305,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
         {message.streaming && !hideLoading && (
           <box flexDirection="row" alignItems="flex-start" marginTop={1}>
             <text>
-              <LoadingIndicator speed={120} elapsedMs={elapsedMs} />
+              <LoadingIndicator speed={120} elapsedMs={elapsedMs} outputTokens={streamingMeta?.outputTokens} thinkingMs={streamingMeta?.thinkingMs} />
             </text>
           </box>
         )}
@@ -1252,7 +1321,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
         {/* Completion summary: "✻ Worked for 1m 6s" after response finishes (only for ≥1 minute) */}
         {!message.streaming && message.durationMs != null && message.durationMs >= 60000 && (
           <box marginTop={1}>
-            <CompletionSummary durationMs={message.durationMs} />
+            <CompletionSummary durationMs={message.durationMs} outputTokens={message.outputTokens} thinkingMs={message.thinkingMs} />
           </box>
         )}
 
@@ -1327,6 +1396,7 @@ export function ChatApp({
   onWorkflowResumeWithAnswer,
   agentType,
   modelOps,
+  getModelDisplayInfo,
   parallelAgents: initialParallelAgents = [],
   registerParallelAgentHandler,
   createSubagentSession,
@@ -1340,6 +1410,7 @@ export function ChatApp({
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingElapsedMs, setStreamingElapsedMs] = useState(0);
+  const [streamingMeta, setStreamingMeta] = useState<StreamingMeta | null>(null);
   const [inputFocused] = useState(true);
 
   // Workflow chat state (autocomplete, workflow execution, approval)
@@ -1441,6 +1512,8 @@ export function ChatApp({
   // Ref to track streaming state synchronously (for immediate check in handleSubmit)
   // This avoids race conditions where React state hasn't updated yet
   const isStreamingRef = useRef(false);
+  // Ref to keep a synchronous copy of streaming meta for baking into message on completion
+  const streamingMetaRef = useRef<StreamingMeta | null>(null);
   // Ref to track whether an interrupt (ESC/Ctrl+C) already finalized agents.
   // Prevents handleComplete from overwriting interrupted agents with "completed".
   const wasInterruptedRef = useRef(false);
@@ -1683,6 +1756,8 @@ export function ChatApp({
       const timeoutId = setTimeout(() => {
         // Set streaming BEFORE calling onStreamMessage to prevent race conditions
         setIsStreaming(true);
+        streamingMetaRef.current = null;
+        setStreamingMeta(null);
 
         // Call the stream handler - this is async but we don't await it
         // The callbacks will handle state updates
@@ -1750,6 +1825,11 @@ export function ChatApp({
             });
             streamingMessageIdRef.current = null;
             setIsStreaming(false);
+          },
+          // onMeta: update streaming metadata
+          (meta: StreamingMeta) => {
+            streamingMetaRef.current = meta;
+            setStreamingMeta(meta);
           }
         );
       }, 100);
@@ -2152,21 +2232,27 @@ export function ChatApp({
   /**
    * Handle model selection from the ModelSelectorDialog.
    */
-  const handleModelSelect = useCallback(async (selectedModel: Model) => {
+  const handleModelSelect = useCallback(async (selectedModel: Model, reasoningEffort?: string) => {
     setShowModelSelector(false);
 
     try {
       const result = await modelOps?.setModel(selectedModel.id);
+      if (reasoningEffort && modelOps && 'setPendingReasoningEffort' in modelOps) {
+        (modelOps as { setPendingReasoningEffort: (e: string | undefined) => void }).setPendingReasoningEffort(reasoningEffort);
+      }
+      const effortSuffix = reasoningEffort ? ` (${reasoningEffort})` : "";
       if (result?.requiresNewSession) {
-        addMessage("assistant", `Model **${selectedModel.name}** will be used for the next session.`);
+        addMessage("assistant", `Model **${selectedModel.modelID}**${effortSuffix} will be used for the next session.`);
       } else {
-        addMessage("assistant", `Switched to model **${selectedModel.name}**`);
+        addMessage("assistant", `Switched to model **${selectedModel.modelID}**${effortSuffix}`);
       }
       setCurrentModelId(selectedModel.id);
-      // Store the display name to match what's shown in the selector dropdown
-      setCurrentModelDisplayName(selectedModel.name);
+      setCurrentModelDisplayName(selectedModel.modelID);
       if (agentType) {
         saveModelPreference(agentType, selectedModel.id);
+        if (reasoningEffort) {
+          saveReasoningEffortPreference(agentType, reasoningEffort);
+        }
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -2240,6 +2326,8 @@ export function ChatApp({
           isStreamingRef.current = true;
           setIsStreaming(true);
           streamingStartRef.current = Date.now();
+          streamingMetaRef.current = null;
+          setStreamingMeta(null);
 
           // Create placeholder assistant message for the response
           const assistantMessage = createMessage("assistant", "", true);
@@ -2265,6 +2353,7 @@ export function ChatApp({
             const durationMs = streamingStartRef.current
               ? Date.now() - streamingStartRef.current
               : undefined;
+            const finalMeta = streamingMetaRef.current;
 
             // If the interrupt handler already finalized agents, skip overwriting
             if (wasInterruptedRef.current) {
@@ -2274,7 +2363,7 @@ export function ChatApp({
                 setMessages((prev: ChatMessage[]) =>
                   prev.map((msg: ChatMessage) =>
                     msg.id === messageId
-                      ? { ...msg, streaming: false, durationMs, modelId: model }
+                      ? { ...msg, streaming: false, durationMs, modelId: model, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs }
                       : msg
                   )
                 );
@@ -2282,8 +2371,10 @@ export function ChatApp({
               setParallelAgents([]);
               streamingMessageIdRef.current = null;
               streamingStartRef.current = null;
+              streamingMetaRef.current = null;
               isStreamingRef.current = false;
               setIsStreaming(false);
+              setStreamingMeta(null);
 
               const nextMessage = messageQueue.dequeue();
               if (nextMessage) {
@@ -2315,6 +2406,8 @@ export function ChatApp({
                         streaming: false,
                         durationMs,
                         modelId: model,
+                        outputTokens: finalMeta?.outputTokens,
+                        thinkingMs: finalMeta?.thinkingMs,
                         toolCalls: msg.toolCalls?.map((tc) =>
                           tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                         ),
@@ -2331,8 +2424,10 @@ export function ChatApp({
 
             streamingMessageIdRef.current = null;
             streamingStartRef.current = null;
+            streamingMetaRef.current = null;
             isStreamingRef.current = false;
             setIsStreaming(false);
+            setStreamingMeta(null);
 
             const nextMessage = messageQueue.dequeue();
             if (nextMessage) {
@@ -2344,7 +2439,12 @@ export function ChatApp({
             }
           };
 
-          void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete));
+          const handleMeta = (meta: StreamingMeta) => {
+            streamingMetaRef.current = meta;
+            setStreamingMeta(meta);
+          };
+
+          void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete, handleMeta));
         }
       },
       spawnSubagent: async (options) => {
@@ -2391,11 +2491,55 @@ export function ChatApp({
       },
       agentType,
       modelOps,
+      getModelDisplayInfo,
     };
+
+    // Delayed spinner: show loading indicator if command takes >500ms
+    // Uses flushSync to force an immediate render so the spinner is visible
+    // before the command completes (OpenTUI defers renders via setTimeout,
+    // so without flushSync both state updates could batch into one render).
+    let commandSpinnerShown = false;
+    let commandSpinnerMsgId: string | null = null;
+    const commandSpinnerTimer = setTimeout(() => {
+      // Don't show spinner if command already set streaming (e.g., /compact)
+      if (!isStreamingRef.current) {
+        commandSpinnerShown = true;
+        streamingStartRef.current = Date.now();
+        isStreamingRef.current = true;
+        const msg = createMessage("assistant", "", true);
+        commandSpinnerMsgId = msg.id;
+        flushSync(() => {
+          setIsStreaming(true);
+          setMessages((prev) => [...prev, msg]);
+        });
+      }
+    }, 500);
 
     try {
       // Execute the command (may be sync or async)
       const result = await Promise.resolve(command.execute(args, context));
+
+      // Clean up delayed spinner
+      clearTimeout(commandSpinnerTimer);
+      if (commandSpinnerShown && commandSpinnerMsgId) {
+        const msgId = commandSpinnerMsgId;
+        if (result.message) {
+          // Replace spinner message with result content
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === msgId
+                ? { ...msg, content: result.message!, streaming: false }
+                : msg
+            )
+          );
+        } else {
+          // Remove spinner message when there's no result to show
+          setMessages((prev) => prev.filter((msg) => msg.id !== msgId));
+        }
+        isStreamingRef.current = false;
+        setIsStreaming(false);
+        streamingStartRef.current = null;
+      }
 
       // Handle destroySession flag (e.g., /clear)
       if (result.destroySession && onResetSession) {
@@ -2445,7 +2589,8 @@ export function ChatApp({
       }
 
       // Display message if present (as assistant message, not system)
-      if (result.message) {
+      // Skip if the delayed spinner already placed the message
+      if (result.message && !commandSpinnerShown) {
         addMessage("assistant", result.message);
       }
 
@@ -2489,6 +2634,23 @@ export function ChatApp({
         });
       }
 
+      // Track context info in message for UI display
+      if (result.contextInfo) {
+        const contextInfo = result.contextInfo;
+        setMessages((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg && lastMsg.role === "assistant") {
+            return [
+              ...prev.slice(0, -1),
+              { ...lastMsg, contextInfo },
+            ];
+          }
+          const msg = createMessage("assistant", "");
+          msg.contextInfo = contextInfo;
+          return [...prev, msg];
+        });
+      }
+
       // Handle exit command
       if (result.shouldExit) {
         // Small delay to show the message before exiting
@@ -2518,6 +2680,15 @@ export function ChatApp({
 
       return result.success;
     } catch (error) {
+      // Clean up delayed spinner on error
+      clearTimeout(commandSpinnerTimer);
+      if (commandSpinnerShown && commandSpinnerMsgId) {
+        const msgId = commandSpinnerMsgId;
+        setMessages((prev) => prev.filter((msg) => msg.id !== msgId));
+        isStreamingRef.current = false;
+        setIsStreaming(false);
+        streamingStartRef.current = null;
+      }
       // Handle execution error (as assistant message, not system)
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       addMessage("assistant", `Error executing /${commandName}: ${errorMessage}`);
@@ -3418,6 +3589,9 @@ export function ChatApp({
         setIsStreaming(true);
         // Track when streaming started for duration calculation
         streamingStartRef.current = Date.now();
+        // Reset streaming metadata
+        streamingMetaRef.current = null;
+        setStreamingMeta(null);
 
         // Create placeholder assistant message
         const assistantMessage = createMessage("assistant", "", true);
@@ -3446,6 +3620,8 @@ export function ChatApp({
           const durationMs = streamingStartRef.current
             ? Date.now() - streamingStartRef.current
             : undefined;
+          // Capture streaming meta before clearing
+          const finalMeta = streamingMetaRef.current;
 
           // If the interrupt handler already finalized agents, skip overwriting
           if (wasInterruptedRef.current) {
@@ -3454,7 +3630,7 @@ export function ChatApp({
               setMessages((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
                   msg.id === messageId
-                    ? { ...msg, streaming: false, durationMs, modelId: model }
+                    ? { ...msg, streaming: false, durationMs, modelId: model, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs }
                     : msg
                 )
               );
@@ -3462,8 +3638,10 @@ export function ChatApp({
             setParallelAgents([]);
             streamingMessageIdRef.current = null;
             streamingStartRef.current = null;
+            streamingMetaRef.current = null;
             isStreamingRef.current = false;
             setIsStreaming(false);
+            setStreamingMeta(null);
 
             const nextMessage = messageQueue.dequeue();
             if (nextMessage) {
@@ -3493,6 +3671,8 @@ export function ChatApp({
                       streaming: false,
                       durationMs,
                       modelId: model,
+                      outputTokens: finalMeta?.outputTokens,
+                      thinkingMs: finalMeta?.thinkingMs,
                       toolCalls: msg.toolCalls?.map((tc) =>
                         tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                       ),
@@ -3509,11 +3689,11 @@ export function ChatApp({
 
           streamingMessageIdRef.current = null;
           streamingStartRef.current = null;
+          streamingMetaRef.current = null;
           // Clear ref immediately (synchronous) before state update
           isStreamingRef.current = false;
           setIsStreaming(false);
-
-          // Process next queued message after 50ms delay
+          setStreamingMeta(null);
           const nextMessage = messageQueue.dequeue();
           if (nextMessage) {
             setTimeout(() => {
@@ -3522,7 +3702,13 @@ export function ChatApp({
           }
         };
 
-        void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete));
+        // Handle streaming metadata updates (tokens, thinking duration)
+        const handleMeta = (meta: StreamingMeta) => {
+          streamingMetaRef.current = meta;
+          setStreamingMeta(meta);
+        };
+
+        void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete, handleMeta));
       }
     },
     [onSendMessage, onStreamMessage, messageQueue, model]
@@ -3679,6 +3865,7 @@ export function ChatApp({
           agentTreeExpanded={agentTreeExpanded}
           todoItems={msg.streaming ? todoItems : undefined}
           elapsedMs={msg.streaming ? streamingElapsedMs : undefined}
+          streamingMeta={msg.streaming ? streamingMeta : null}
           collapsed={conversationCollapsed}
         />
       ))}

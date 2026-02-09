@@ -11,18 +11,19 @@ import React, { useState, useCallback, useRef, useEffect, useMemo } from "react"
 import { useKeyboard, useRenderer } from "@opentui/react";
 import type {
   KeyEvent,
-  SyntaxStyle,
   TextareaRenderable,
   ScrollBoxRenderable,
   KeyBinding,
   PasteEvent,
 } from "@opentui/core";
-import { MacOSScrollAccel } from "@opentui/core";
+import { MacOSScrollAccel, SyntaxStyle, RGBA } from "@opentui/core";
 import { useTheme, useThemeColors, darkTheme, lightTheme } from "./theme.tsx";
 import { copyToClipboard, pasteFromClipboard } from "../utils/clipboard.ts";
 import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplete.tsx";
 import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
 import { ToolResult } from "./components/tool-result.tsx";
+import { SkillLoadIndicator } from "./components/skill-load-indicator.tsx";
+import { McpServerListIndicator } from "./components/mcp-server-list.tsx";
 import { TimestampDisplay } from "./components/timestamp-display.tsx";
 import { QueueIndicator } from "./components/queue-indicator.tsx";
 import {
@@ -43,6 +44,7 @@ import {
   ModelSelectorDialog,
 } from "./components/model-selector-dialog.tsx";
 import type { Model } from "../models/model-transform.ts";
+import { TaskListIndicator, type TaskItem } from "./components/task-list-indicator.tsx";
 import {
   useStreamingState,
   type ToolExecutionStatus,
@@ -60,7 +62,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import type { AskUserQuestionEventData } from "../graph/index.ts";
 import type { AgentType, ModelOperations } from "../models";
-import { saveModelPreference } from "../utils/preferences.ts";
+import { saveModelPreference } from "../utils/settings.ts";
+import { formatDuration } from "./utils/format.ts";
 
 // ============================================================================
 // @ MENTION HELPERS
@@ -74,34 +77,56 @@ import { saveModelPreference } from "../utils/preferences.ts";
 function getMentionSuggestions(input: string): CommandDefinition[] {
   const suggestions: CommandDefinition[] = [];
 
+  // File/directory suggestions - always search
+  try {
+    const cwd = process.cwd();
+    let searchDir: string;
+    let filterPrefix: string;
+    let pathPrefix: string;
+
+    if (input.endsWith("/")) {
+      // Browsing a directory - show its contents
+      searchDir = join(cwd, input);
+      filterPrefix = "";
+      pathPrefix = input;
+    } else if (input.includes("/")) {
+      // Typing a name within a directory
+      searchDir = join(cwd, dirname(input));
+      filterPrefix = basename(input);
+      pathPrefix = dirname(input) + "/";
+    } else {
+      // Top-level - search cwd
+      searchDir = cwd;
+      filterPrefix = input;
+      pathPrefix = "";
+    }
+
+    const entries = readdirSync(searchDir, { withFileTypes: true });
+    const filtered = entries
+      .filter(e => e.name.toLowerCase().startsWith(filterPrefix.toLowerCase()) && !e.name.startsWith("."))
+      .sort((a, b) => {
+        // Directories first, then alphabetical
+        if (a.isDirectory() && !b.isDirectory()) return -1;
+        if (!a.isDirectory() && b.isDirectory()) return 1;
+        return a.name.localeCompare(b.name);
+      });
+    const fileMatches = filtered
+      .slice(0, 10)
+      .map(e => ({
+        name: `${pathPrefix}${e.name}${e.isDirectory() ? "/" : ""}`,
+        description: "",
+        category: "custom" as CommandCategory,
+        execute: () => ({ success: true as const }),
+      }));
+
+    suggestions.push(...fileMatches);
+  } catch {
+    // Silently fail for invalid paths
+  }
+
   // Agent suggestions - filter registry by "agent" category
   const agentMatches = globalRegistry.search(input).filter(cmd => cmd.category === "agent");
   suggestions.push(...agentMatches);
-
-  // File suggestions - when input contains path characters
-  if (input.includes("/") || input.includes(".")) {
-    try {
-      const cwd = process.cwd();
-      const inputDir = input.includes("/") ? dirname(input) : "";
-      const inputBase = input.includes("/") ? basename(input) : input;
-      const searchDir = inputDir ? join(cwd, inputDir) : cwd;
-
-      const entries = readdirSync(searchDir, { withFileTypes: true });
-      const fileMatches = entries
-        .filter(e => e.name.toLowerCase().startsWith(inputBase.toLowerCase()) && !e.name.startsWith("."))
-        .slice(0, 10)
-        .map(e => ({
-          name: inputDir ? `${inputDir}/${e.name}` : e.name,
-          description: e.isDirectory() ? "📁 Directory" : "📄 File",
-          category: "custom" as CommandCategory,
-          execute: () => ({ success: true as const }),
-        }));
-
-      suggestions.push(...fileMatches);
-    } catch {
-      // Silently fail for invalid paths
-    }
-  }
 
   return suggestions;
 }
@@ -111,6 +136,7 @@ interface FileReadInfo {
   sizeBytes: number;
   lineCount: number;
   isImage: boolean;
+  isDirectory: boolean;
 }
 
 interface ProcessedMention {
@@ -132,8 +158,27 @@ function processFileMentions(message: string): ProcessedMention {
 
     try {
       const fullPath = join(process.cwd(), filePath);
-      const content = readFileSync(fullPath, "utf-8");
       const stats = statSync(fullPath);
+
+      if (stats.isDirectory()) {
+        const entries = readdirSync(fullPath, { withFileTypes: true });
+        const listing = entries
+          .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
+          .join("\n");
+
+        filesRead.push({
+          path: filePath.endsWith("/") ? filePath : `${filePath}/`,
+          sizeBytes: stats.size,
+          lineCount: entries.length,
+          isImage: false,
+          isDirectory: true,
+        });
+
+        fileContents.push(`<directory path="${filePath}">\n${listing}\n</directory>`);
+        return filePath;
+      }
+
+      const content = readFileSync(fullPath, "utf-8");
       const lineCount = content.split("\n").length;
       const isImage = /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(filePath);
 
@@ -142,6 +187,7 @@ function processFileMentions(message: string): ProcessedMention {
         sizeBytes: stats.size,
         lineCount,
         isImage,
+        isDirectory: false,
       });
 
       fileContents.push(`<file path="${filePath}">\n${content}\n</file>`);
@@ -264,6 +310,12 @@ export interface MessageToolCall {
   contentOffsetAtStart?: number;
 }
 
+export interface MessageSkillLoad {
+  skillName: string;
+  status: "loading" | "loaded" | "error";
+  errorMessage?: string;
+}
+
 /**
  * A single chat message.
  */
@@ -288,6 +340,14 @@ export interface ChatMessage {
   wasInterrupted?: boolean;
   /** Snapshot of parallel agents that were active during this message (baked on completion) */
   parallelAgents?: ParallelAgent[];
+  /** Files read via @mention in this user message */
+  filesRead?: FileReadInfo[];
+  /** Skill loads triggered during this message */
+  skillLoads?: MessageSkillLoad[];
+  /** Snapshot of task items active during this message (baked on completion) */
+  taskItems?: Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed"; blockedBy?: string[]}>;
+  /** MCP server list for rendering via McpServerListIndicator */
+  mcpServers?: import("../sdk/types.ts").McpServerConfig[];
 }
 
 /**
@@ -313,6 +373,14 @@ export type OnToolComplete = (
   success: boolean,
   error?: string,
   input?: Record<string, unknown>
+) => void;
+
+/**
+ * Skill invoked event callback signature.
+ */
+export type OnSkillInvoked = (
+  skillName: string,
+  skillPath?: string
 ) => void;
 
 /**
@@ -389,6 +457,11 @@ export interface ChatAppProps {
    */
   registerToolCompleteHandler?: (handler: OnToolComplete) => void;
   /**
+   * Register callback to receive skill invoked notifications.
+   * Called with a function that should be invoked when the SDK loads a skill.
+   */
+  registerSkillInvokedHandler?: (handler: OnSkillInvoked) => void;
+  /**
    * Register callback to receive permission/HITL requests.
    * Called with a function that should be invoked when permission is needed.
    */
@@ -446,6 +519,8 @@ export interface WorkflowChatState {
   argumentHint: string;
   /** Whether autocomplete is for "/" commands or "@" mentions */
   autocompleteMode: "command" | "mention";
+  /** Character offset where the current @ mention starts (for mid-text mentions) */
+  mentionStartOffset: number;
 
   // Workflow execution state
   /** Whether a workflow is currently active */
@@ -482,6 +557,7 @@ export const defaultWorkflowChatState: WorkflowChatState = {
   selectedSuggestionIndex: 0,
   argumentHint: "",
   autocompleteMode: "command",
+  mentionStartOffset: 0,
 
   // Workflow defaults
   workflowActive: false,
@@ -518,6 +594,12 @@ export interface MessageBubbleProps {
   parallelAgents?: ParallelAgent[];
   /** Whether the agent tree is expanded */
   agentTreeExpanded?: boolean;
+  /** Todo items to show inline during streaming */
+  todoItems?: Array<{content: string; status: "pending" | "in_progress" | "completed"}>;
+  /** Elapsed streaming time in milliseconds */
+  elapsedMs?: number;
+  /** Whether the conversation is collapsed (shows compact single-line summaries) */
+  collapsed?: boolean;
 }
 
 // ============================================================================
@@ -600,10 +682,9 @@ export const SPINNER_VERBS = [
 ];
 
 /**
- * Spinner frames matching Claude Code TUI style.
- * Single character cycles through shapes for a clean, minimal animation.
+ * Spinner frames using braille characters for a smooth rotating dot effect.
  */
-const SPINNER_FRAMES = ["✻", "✶", "✢", "·", "✢", "✶", "✻", "✽"];
+const SPINNER_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
 
 /**
  * Select a random verb from the SPINNER_VERBS array.
@@ -621,6 +702,8 @@ export function getRandomSpinnerVerb(): string {
 interface LoadingIndicatorProps {
   /** Speed of animation in milliseconds per frame */
   speed?: number;
+  /** Elapsed time in milliseconds (displays formatted duration after verb) */
+  elapsedMs?: number;
 }
 
 /**
@@ -631,7 +714,7 @@ interface LoadingIndicatorProps {
  * Returns span elements (not wrapped in text) so it can be composed
  * inside other text elements. Wrap in <text> when using standalone.
  */
-export function LoadingIndicator({ speed = 120 }: LoadingIndicatorProps): React.ReactNode {
+export function LoadingIndicator({ speed = 100, elapsedMs }: LoadingIndicatorProps): React.ReactNode {
   const [frameIndex, setFrameIndex] = useState(0);
   // Select random verb only on mount (empty dependency array)
   const [verb] = useState(() => getRandomSpinnerVerb());
@@ -650,6 +733,9 @@ export function LoadingIndicator({ speed = 120 }: LoadingIndicatorProps): React.
     <>
       <span style={{ fg: "#D4A5A5" }}>{spinChar} </span>
       <span style={{ fg: "#D4A5A5" }}>{verb}…</span>
+      {elapsedMs != null && elapsedMs > 0 && (
+        <span style={{ fg: "#9A9AAC" }}>{` (${formatDuration(elapsedMs).text})`}</span>
+      )}
     </>
   );
 }
@@ -768,6 +854,52 @@ const _DIM_BLUE = "#8899AA";
 const INPUT_SCROLLBAR_FG = "#BFA6AC";
 /** Input scrollbar track color when textarea content overflows */
 const INPUT_SCROLLBAR_BG = "#5A4C50";
+
+/** SyntaxStyle for textarea slash command highlighting */
+const inputSyntaxStyle = SyntaxStyle.create();
+const COMMAND_STYLE_ID = inputSyntaxStyle.registerStyle("command", {
+  fg: RGBA.fromHex(ATOMIC_PINK),
+  bold: true,
+});
+
+const HLREF_COMMAND = 1;
+
+/**
+ * Check if the text starts with a registered slash command (not inside quotes/backticks).
+ * Returns [start, end] character offset pair if found, or null.
+ */
+function findSlashCommandRange(text: string): [number, number] | null {
+  const trimmed = text.trimStart();
+  if (!trimmed.startsWith("/")) return null;
+
+  const leadingWhitespace = text.length - trimmed.length;
+
+  // Not a command if wrapped in quotes or backticks
+  if (leadingWhitespace > 0) {
+    const charBefore = text[leadingWhitespace - 1];
+    if (charBefore === '"' || charBefore === "'" || charBefore === '`') return null;
+  }
+
+  // Extract the command name (word chars and hyphens after "/")
+  let i = 1;
+  while (i < trimmed.length && /[\w-]/.test(trimmed[i]!)) i++;
+  if (i <= 1) return null;
+
+  const name = trimmed.slice(1, i);
+
+  // Must be followed by whitespace or end of string (isolated token)
+  if (i < trimmed.length && !/\s/.test(trimmed[i]!)) return null;
+
+  // Check the character after the command token isn't a closing quote/backtick
+  if (i < trimmed.length) {
+    const charAfter = trimmed[i];
+    if (charAfter === '"' || charAfter === "'" || charAfter === '`') return null;
+  }
+
+  if (!globalRegistry.has(name)) return null;
+
+  return [leadingWhitespace, leadingWhitespace + i];
+}
 
 interface InputScrollbarState {
   visible: boolean;
@@ -907,12 +1039,56 @@ function buildContentSegments(content: string, toolCalls: MessageToolCall[]): Co
  * - Assistant messages: bullet point (●) prefix, no header
  * Tool calls are rendered inline at their correct chronological positions.
  */
-export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, parallelAgents, agentTreeExpanded }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, parallelAgents, agentTreeExpanded, todoItems, elapsedMs, collapsed = false }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
   // Hide the entire message when question dialog is active and there's no content yet
   // This prevents showing a stray "●" bullet before the dialog
   const hideEntireMessage = hideLoading && message.streaming && !message.content.trim();
+
+  // Collapsed mode: show compact single-line summary for each message
+  // Spacing: user messages sit tight above their reply; assistant messages
+  // get a bottom margin to visually separate conversation pairs.
+  if (collapsed && !message.streaming) {
+    const truncate = (text: string, maxLen: number) => {
+      const firstLine = text.split("\n").find(l => l.trim())?.trim() ?? "";
+      return firstLine.length > maxLen ? firstLine.slice(0, maxLen) + "…" : firstLine;
+    };
+
+    if (message.role === "user") {
+      return (
+        <box paddingLeft={1} paddingRight={1} marginBottom={0}>
+          <text wrapMode="char">
+            <span style={{ fg: "#6E6E80" }}>❯ </span>
+            <span style={{ fg: "#C8C8D0" }}>{truncate(message.content, 78)}</span>
+          </text>
+        </box>
+      );
+    }
+
+    if (message.role === "assistant") {
+      const toolCount = message.toolCalls?.length ?? 0;
+      const toolLabel = toolCount > 0
+        ? ` · ${toolCount} tool${toolCount !== 1 ? "s" : ""}`
+        : "";
+      return (
+        <box paddingLeft={1} paddingRight={1} marginBottom={isLast ? 0 : 1}>
+          <text wrapMode="char">
+            <span style={{ fg: "#6E6E80" }}>  ⎿ </span>
+            <span style={{ fg: "#9A9AAC" }}>{truncate(message.content, 74)}</span>
+            <span style={{ fg: "#555566" }}>{toolLabel}</span>
+          </text>
+        </box>
+      );
+    }
+
+    // System message collapsed
+    return (
+      <box paddingLeft={1} paddingRight={1} marginBottom={isLast ? 0 : 1}>
+        <text wrapMode="char" style={{ fg: themeColors.error }}>{truncate(message.content, 80)}</text>
+      </box>
+    );
+  }
 
   // User message: highlighted inline box with just the text (no header/timestamp)
   if (message.role === "user") {
@@ -928,6 +1104,30 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
             <span style={{ bg: "#3A3A4A", fg: "#E0E0E0" }}> {message.content} </span>
           </text>
         </box>
+        {message.filesRead && message.filesRead.length > 0 && (
+          <box flexDirection="column">
+            {message.filesRead.map((f, i) => {
+              const basename = f.path.split("/").pop() ?? "";
+              const isConfigFile = /^(CLAUDE|AGENTS)\.md$/i.test(basename);
+              const verb = f.isDirectory
+                ? "Listed directory"
+                : isConfigFile
+                  ? "Loaded"
+                  : "Read";
+              return (
+                <text key={i} wrapMode="char" style={{ fg: MUTED_LAVENDER }}>
+                  {` ⎿  ${verb} `}
+                  {f.path}
+                  {f.isDirectory
+                    ? ""
+                    : f.isImage
+                      ? ` (${f.sizeBytes >= 1024 ? `${(f.sizeBytes / 1024).toFixed(1)}KB` : `${f.sizeBytes}B`})`
+                      : ` (${f.lineCount} lines)`}
+                </text>
+              );
+            })}
+          </box>
+        )}
       </box>
     );
   }
@@ -951,6 +1151,22 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
         paddingLeft={1}
         paddingRight={1}
       >
+        {/* Skill load indicators */}
+        {message.skillLoads?.map((sl, i) => (
+          <box key={`skill-${i}`} marginBottom={1}>
+            <SkillLoadIndicator
+              skillName={sl.skillName}
+              status={sl.status}
+              errorMessage={sl.errorMessage}
+            />
+          </box>
+        ))}
+        {/* MCP server list indicator */}
+        {message.mcpServers && (
+          <box key="mcp-servers" marginBottom={1}>
+            <McpServerListIndicator servers={message.mcpServers} />
+          </box>
+        )}
         {!hideEntireMessage && segments.map((segment, index) => {
           if (segment.type === "text" && segment.content?.trim()) {
             // Text segment - add bullet prefix to first text segment
@@ -1018,16 +1234,26 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
 
         {/* Loading spinner — always at bottom of streamed content */}
         {message.streaming && !hideLoading && (
-          <box flexDirection="row" alignItems="flex-start" paddingLeft={1}>
+          <box flexDirection="row" alignItems="flex-start" marginTop={1}>
             <text>
-              <LoadingIndicator speed={120} />
+              <LoadingIndicator speed={120} elapsedMs={elapsedMs} />
             </text>
           </box>
         )}
 
-        {/* Completion summary: "✻ Worked for 1m 6s" after response finishes */}
-        {!message.streaming && message.durationMs != null && message.durationMs >= 3000 && (
-          <CompletionSummary durationMs={message.durationMs} />
+        {/* Inline task list — shown under spinner during streaming, or from baked data in completed messages */}
+        {message.streaming && !hideLoading && todoItems && todoItems.length > 0 && (
+          <TaskListIndicator items={todoItems} />
+        )}
+        {!message.streaming && message.taskItems && message.taskItems.length > 0 && (
+          <TaskListIndicator items={message.taskItems} />
+        )}
+
+        {/* Completion summary: "✻ Worked for 1m 6s" after response finishes (only for ≥1 minute) */}
+        {!message.streaming && message.durationMs != null && message.durationMs >= 60000 && (
+          <box marginTop={1}>
+            <CompletionSummary durationMs={message.durationMs} />
+          </box>
         )}
 
         {/* Timestamp display in verbose mode (only for completed assistant messages) */}
@@ -1093,6 +1319,7 @@ export function ChatApp({
   suggestion: _suggestion,
   registerToolStartHandler,
   registerToolCompleteHandler,
+  registerSkillInvokedHandler,
   registerPermissionRequestHandler,
   registerCtrlCWarningHandler,
   getSession,
@@ -1112,6 +1339,7 @@ export function ChatApp({
   // Core message state
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [streamingElapsedMs, setStreamingElapsedMs] = useState(0);
   const [inputFocused] = useState(true);
 
   // Workflow chat state (autocomplete, workflow execution, approval)
@@ -1130,13 +1358,13 @@ export function ChatApp({
   const renderer = useRenderer();
 
   // Copy-on-selection: auto-copy selected text to clipboard on mouse release
+  // Keep selection visible so user can also use Ctrl+C / Ctrl+Shift+C to copy
   const handleMouseUp = useCallback(() => {
     const selection = renderer.getSelection();
     if (selection) {
       const selectedText = selection.getSelectedText();
       if (selectedText) {
         void copyToClipboard(selectedText);
-        renderer.clearSelection();
       }
     }
   }, [renderer]);
@@ -1149,6 +1377,9 @@ export function ChatApp({
 
   // Verbose mode state for expanded tool outputs and timestamps
   const [verboseMode, setVerboseMode] = useState(false);
+
+  // Conversation collapsed state for collapsing/expanding entire conversation
+  const [conversationCollapsed, setConversationCollapsed] = useState(false);
 
   // State for showing user question dialog
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
@@ -1182,6 +1413,10 @@ export function ChatApp({
   // Compaction state: stores summary text after /compact for Ctrl+O history
   const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
   const [showCompactionHistory, setShowCompactionHistory] = useState(false);
+  // TodoWrite persistent state
+  const [todoItems, setTodoItems] = useState<Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed"; activeForm: string; blockedBy?: string[]}>>([]);
+  const todoItemsRef = useRef<Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed"; blockedBy?: string[]}>>([]);
+  const [showTodoPanel, setShowTodoPanel] = useState(true);
   // State for input textarea scrollbar (shown only when input overflows)
   const [inputScrollbar, setInputScrollbar] = useState<InputScrollbarState>({
     visible: false,
@@ -1216,6 +1451,26 @@ export function ChatApp({
 
   // Create macOS-style scroll acceleration for smooth mouse wheel scrolling
   const scrollAcceleration = useMemo(() => new MacOSScrollAccel(), []);
+
+  // Live elapsed time counter for streaming indicator
+  useEffect(() => {
+    if (!isStreaming || !streamingStartRef.current) {
+      setStreamingElapsedMs(0);
+      return;
+    }
+    setStreamingElapsedMs(Math.floor((Date.now() - streamingStartRef.current) / 1000) * 1000);
+    const interval = setInterval(() => {
+      if (streamingStartRef.current) {
+        setStreamingElapsedMs(Math.floor((Date.now() - streamingStartRef.current) / 1000) * 1000);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isStreaming]);
+
+  // Keep todoItemsRef in sync with state for use in completion callbacks
+  useEffect(() => {
+    todoItemsRef.current = todoItems;
+  }, [todoItems]);
 
   // Dynamic placeholder based on queue state
   const dynamicPlaceholder = useMemo(() => {
@@ -1278,6 +1533,11 @@ export function ChatApp({
         })
       );
     }
+
+    // Update persistent todo panel when TodoWrite is called
+    if (toolName === "TodoWrite" && input.todos && Array.isArray(input.todos)) {
+      setTodoItems(input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed"; activeForm: string; blockedBy?: string[]}>);
+    }
   }, [streamingState]);
 
   /**
@@ -1328,7 +1588,47 @@ export function ChatApp({
         })
       );
     }
+
+    // Update persistent todo panel when TodoWrite completes (handles late input)
+    if (input && input.todos && Array.isArray(input.todos)) {
+      setTodoItems(input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed"; activeForm: string; blockedBy?: string[]}>);
+    }
   }, [streamingState]);
+
+  /**
+   * Handle skill invoked event from SDK.
+   * Adds a SkillLoadIndicator entry to the current streaming message.
+   */
+  const handleSkillInvoked = useCallback((
+    skillName: string,
+    _skillPath?: string
+  ) => {
+    const skillLoad: MessageSkillLoad = {
+      skillName,
+      status: "loaded",
+    };
+    const messageId = streamingMessageIdRef.current;
+    setMessages((prev) => {
+      if (messageId) {
+        return prev.map((msg) =>
+          msg.id === messageId
+            ? { ...msg, skillLoads: [...(msg.skillLoads || []), skillLoad] }
+            : msg
+        );
+      }
+      // No streaming message — attach to last assistant message or create one
+      const lastMsg = prev[prev.length - 1];
+      if (lastMsg && lastMsg.role === "assistant") {
+        return [
+          ...prev.slice(0, -1),
+          { ...lastMsg, skillLoads: [...(lastMsg.skillLoads || []), skillLoad] },
+        ];
+      }
+      const msg = createMessage("assistant", "");
+      msg.skillLoads = [skillLoad];
+      return [...prev, msg];
+    });
+  }, []);
 
   // Register tool event handlers with parent component
   useEffect(() => {
@@ -1342,6 +1642,12 @@ export function ChatApp({
       registerToolCompleteHandler(handleToolComplete);
     }
   }, [registerToolCompleteHandler, handleToolComplete]);
+
+  useEffect(() => {
+    if (registerSkillInvokedHandler) {
+      registerSkillInvokedHandler(handleSkillInvoked);
+    }
+  }, [registerSkillInvokedHandler, handleSkillInvoked]);
 
   // Cleanup timeouts on unmount
   useEffect(() => {
@@ -1421,7 +1727,7 @@ export function ChatApp({
                   if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
                     return [
                       ...prev.slice(0, -1),
-                      { ...lastMsg, streaming: false, completedAt: new Date(), parallelAgents: finalizedAgents },
+                      { ...lastMsg, streaming: false, completedAt: new Date(), parallelAgents: finalizedAgents, taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status, blockedBy: t.blockedBy })) : undefined },
                     ];
                   }
                   return prev;
@@ -1435,7 +1741,7 @@ export function ChatApp({
                 if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
                   return [
                     ...prev.slice(0, -1),
-                    { ...lastMsg, streaming: false, completedAt: new Date() },
+                    { ...lastMsg, streaming: false, completedAt: new Date(), taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status, blockedBy: t.blockedBy })) : undefined },
                   ];
                 }
                 return prev;
@@ -1733,11 +2039,11 @@ export function ChatApp({
   const sendMessageRef = useRef<((content: string) => void) | null>(null);
 
   /**
-   * Handle input changes to detect slash command prefix.
-   * Shows autocomplete when input starts with "/" and has no space.
-   * Shows argument hints when a space follows a valid command name.
+   * Handle input changes to detect slash command prefix or @ mentions.
+   * Shows autocomplete when input starts with "/" and has no space,
+   * or when "@" appears at any position near the cursor.
    */
-  const handleInputChange = useCallback((rawValue: string) => {
+  const handleInputChange = useCallback((rawValue: string, cursorOffset: number) => {
     // Trim leading whitespace to prevent leading space from breaking slash command detection
     const value = rawValue.trimStart();
     // Check if input starts with "/" (slash command)
@@ -1765,29 +2071,37 @@ export function ChatApp({
           argumentHint: afterCommandSpace.length === 0 ? (command?.argumentHint || "") : "",
         });
       }
-    } else if (value.startsWith("@")) {
-      // @ mention: show autocomplete with agents and file paths
-      const afterAt = value.slice(1);
-      const spaceIndex = afterAt.indexOf(" ");
-
-      if (spaceIndex === -1) {
-        updateWorkflowState({
-          showAutocomplete: true,
-          autocompleteInput: afterAt,
-          selectedSuggestionIndex: 0,
-          autocompleteMode: "mention",
-          argumentHint: "",
-        });
-      } else {
-        updateWorkflowState({
-          showAutocomplete: false,
-          autocompleteInput: "",
-          autocompleteMode: "command",
-          argumentHint: "",
-        });
-      }
     } else {
-      // Hide autocomplete and hints for non-slash commands
+      // Check for @ mention at any cursor position
+      // Walk backwards from cursor to find the nearest @ that starts a mention token
+      const textBeforeCursor = rawValue.slice(0, cursorOffset);
+      const atIndex = textBeforeCursor.lastIndexOf("@");
+
+      if (atIndex !== -1) {
+        // Check that the @ is either at position 0 or preceded by a space/newline
+        const charBefore = atIndex > 0 ? rawValue[atIndex - 1] : " ";
+        const isWordBoundary = charBefore === " " || charBefore === "\n" || charBefore === "\t";
+
+        if (isWordBoundary || atIndex === 0) {
+          // Extract the mention token between @ and cursor (no spaces allowed in mention)
+          const mentionToken = rawValue.slice(atIndex + 1, cursorOffset);
+          const hasSpace = mentionToken.includes(" ");
+
+          if (!hasSpace) {
+            updateWorkflowState({
+              showAutocomplete: true,
+              autocompleteInput: mentionToken,
+              selectedSuggestionIndex: 0,
+              autocompleteMode: "mention",
+              mentionStartOffset: atIndex,
+              argumentHint: "",
+            });
+            return;
+          }
+        }
+      }
+
+      // No active mention or slash command - hide autocomplete
       if (workflowState.showAutocomplete || workflowState.argumentHint) {
         updateWorkflowState({
           showAutocomplete: false,
@@ -1801,9 +2115,25 @@ export function ChatApp({
   }, [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState]);
 
   const handleTextareaContentChange = useCallback(() => {
-    const value = textareaRef.current?.plainText ?? "";
-    handleInputChange(value);
+    const textarea = textareaRef.current;
+    const value = textarea?.plainText ?? "";
+    const cursorOffset = textarea?.cursorOffset ?? value.length;
+    handleInputChange(value, cursorOffset);
     syncInputScrollbar();
+
+    // Apply slash command highlighting
+    if (textarea) {
+      textarea.removeHighlightsByRef(HLREF_COMMAND);
+      const range = findSlashCommandRange(value);
+      if (range) {
+        textarea.addHighlightByCharRange({
+          start: range[0],
+          end: range[1],
+          styleId: COMMAND_STYLE_ID,
+          hlRef: HLREF_COMMAND,
+        });
+      }
+    }
   }, [handleInputChange, syncInputScrollbar]);
 
   const handleTextareaCursorChange = useCallback(() => {
@@ -1917,6 +2247,7 @@ export function ChatApp({
           setMessages((prev: ChatMessage[]) => [...prev, assistantMessage]);
 
           const handleChunk = (chunk: string) => {
+            if (!isStreamingRef.current) return;
             const messageId = streamingMessageIdRef.current;
             if (messageId) {
               setMessages((prev: ChatMessage[]) =>
@@ -1969,10 +2300,10 @@ export function ChatApp({
             setParallelAgents((currentAgents) => {
               const finalizedAgents = currentAgents.length > 0
                 ? currentAgents.map((a) =>
-                    a.status === "running" || a.status === "pending"
-                      ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                      : a
-                  )
+                  a.status === "running" || a.status === "pending"
+                    ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+                    : a
+                )
                 : undefined;
 
               if (messageId) {
@@ -1980,15 +2311,16 @@ export function ChatApp({
                   prev.map((msg: ChatMessage) =>
                     msg.id === messageId
                       ? {
-                          ...msg,
-                          streaming: false,
-                          durationMs,
-                          modelId: model,
-                          toolCalls: msg.toolCalls?.map((tc) =>
-                            tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                          ),
-                          parallelAgents: finalizedAgents,
-                        }
+                        ...msg,
+                        streaming: false,
+                        durationMs,
+                        modelId: model,
+                        toolCalls: msg.toolCalls?.map((tc) =>
+                          tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
+                        ),
+                        parallelAgents: finalizedAgents,
+                        taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status, blockedBy: t.blockedBy })) : undefined,
+                      }
                       : msg
                   )
                 );
@@ -2117,6 +2449,46 @@ export function ChatApp({
         addMessage("assistant", result.message);
       }
 
+      // Track skill load in message for UI indicator
+      if (result.skillLoaded) {
+        const skillLoad: MessageSkillLoad = {
+          skillName: result.skillLoaded,
+          status: result.skillLoadError ? "error" : "loaded",
+          errorMessage: result.skillLoadError,
+        };
+        setMessages((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg && lastMsg.role === "assistant") {
+            return [
+              ...prev.slice(0, -1),
+              { ...lastMsg, skillLoads: [...(lastMsg.skillLoads || []), skillLoad] },
+            ];
+          }
+          // No assistant message yet — create one with skill load
+          const msg = createMessage("assistant", "");
+          msg.skillLoads = [skillLoad];
+          return [...prev, msg];
+        });
+      }
+
+      // Track MCP server list in message for UI indicator
+      if (result.mcpServers) {
+        const mcpServers = result.mcpServers;
+        setMessages((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg && lastMsg.role === "assistant") {
+            return [
+              ...prev.slice(0, -1),
+              { ...lastMsg, mcpServers },
+            ];
+          }
+          // No assistant message yet — create one with MCP servers
+          const msg = createMessage("assistant", "");
+          msg.mcpServers = mcpServers;
+          return [...prev, msg];
+        });
+      }
+
       // Handle exit command
       if (result.shouldExit) {
         // Small delay to show the message before exiting
@@ -2160,39 +2532,100 @@ export function ChatApp({
     command: CommandDefinition,
     action: "complete" | "execute"
   ) => {
-    if (!textareaRef.current) return;
+    const textarea = textareaRef.current;
+    if (!textarea) return;
 
     const isMention = workflowState.autocompleteMode === "mention";
-    const prefix = isMention ? "@" : "/";
 
-    // Clear the textarea first
-    textareaRef.current.gotoBufferHome();
-    textareaRef.current.gotoBufferEnd({ select: true });
-    textareaRef.current.deleteChar();
+    if (isMention) {
+      // Replace only the @mention token (supports mid-text mentions)
+      const fullText = textarea.plainText ?? "";
+      const mentionStart = workflowState.mentionStartOffset;
+      const mentionEnd = mentionStart + 1 + workflowState.autocompleteInput.length;
+      const before = fullText.slice(0, mentionStart);
+      const after = fullText.slice(mentionEnd);
 
-    // Hide autocomplete and set argument hint for complete action
-    updateWorkflowState({
-      showAutocomplete: false,
-      autocompleteInput: "",
-      selectedSuggestionIndex: 0,
-      autocompleteMode: "command",
-      argumentHint: action === "complete" && !isMention ? (command.argumentHint || "") : "",
-    });
+      textarea.gotoBufferHome();
+      textarea.gotoBufferEnd({ select: true });
+      textarea.deleteChar();
 
-    if (action === "complete") {
-      // Replace input with completed command/mention + space for arguments
-      textareaRef.current.insertText(`${prefix}${command.name} `);
-    } else if (action === "execute") {
-      if (isMention && command.category !== "agent") {
-        // File @ mention: insert into text for processing on submit
-        textareaRef.current.insertText(`@${command.name} `);
+      if (action === "complete") {
+        const isDirectoryMention = command.name.endsWith("/");
+        const suffix = isDirectoryMention ? "" : " ";
+        const replacement = `@${command.name}${suffix}`;
+        textarea.insertText(before + replacement + after);
+        textarea.cursorOffset = mentionStart + replacement.length;
+
+        if (isDirectoryMention) {
+          updateWorkflowState({
+            showAutocomplete: true,
+            autocompleteInput: command.name,
+            selectedSuggestionIndex: 0,
+            autocompleteMode: "mention",
+            mentionStartOffset: mentionStart,
+            argumentHint: "",
+          });
+        } else {
+          updateWorkflowState({
+            showAutocomplete: false,
+            autocompleteInput: "",
+            selectedSuggestionIndex: 0,
+            autocompleteMode: "command",
+            argumentHint: "",
+          });
+        }
+      } else if (action === "execute") {
+        if (command.category !== "agent") {
+          // File/directory @ mention: insert into text
+          const isDirectory = command.name.endsWith("/");
+          const suffix = isDirectory ? "" : " ";
+          const replacement = `@${command.name}${suffix}`;
+          textarea.insertText(before + replacement + after);
+          textarea.cursorOffset = mentionStart + replacement.length;
+          updateWorkflowState({
+            showAutocomplete: false,
+            autocompleteInput: "",
+            selectedSuggestionIndex: 0,
+            autocompleteMode: "command",
+            argumentHint: "",
+          });
+        } else {
+          // Agent @ mention: execute immediately, restore remaining text
+          const remaining = (before + after).trim();
+          if (remaining) textarea.insertText(remaining);
+          updateWorkflowState({
+            showAutocomplete: false,
+            autocompleteInput: "",
+            selectedSuggestionIndex: 0,
+            autocompleteMode: "command",
+            argumentHint: "",
+          });
+          addMessage("user", `@${command.name}`);
+          void executeCommand(command.name, "");
+        }
+      }
+    } else {
+      // Slash command: clear entire input
+      textarea.gotoBufferHome();
+      textarea.gotoBufferEnd({ select: true });
+      textarea.deleteChar();
+
+      updateWorkflowState({
+        showAutocomplete: false,
+        autocompleteInput: "",
+        selectedSuggestionIndex: 0,
+        autocompleteMode: "command",
+        argumentHint: action === "complete" ? (command.argumentHint || "") : "",
+      });
+
+      if (action === "complete") {
+        textarea.insertText(`/${command.name} `);
       } else {
-        // Slash command or agent @ mention: execute immediately
-        addMessage("user", `${prefix}${command.name}`);
+        addMessage("user", `/${command.name}`);
         void executeCommand(command.name, "");
       }
     }
-  }, [updateWorkflowState, executeCommand, addMessage, workflowState.autocompleteMode]);
+  }, [updateWorkflowState, executeCommand, addMessage, workflowState.autocompleteMode, workflowState.mentionStartOffset, workflowState.autocompleteInput]);
 
   /**
    * Handle autocomplete index changes (up/down navigation).
@@ -2216,12 +2649,12 @@ export function ChatApp({
   }, []);
 
   // Handle clipboard copy - copies selected text to system clipboard
+  // Checks both textarea selection and renderer (mouse-drag) selection
   const handleCopy = useCallback(async () => {
     const textarea = textareaRef.current;
-    if (!textarea) return;
 
-    // Check if there's a selection in the textarea
-    if (textarea.hasSelection()) {
+    // First, check textarea selection (input area)
+    if (textarea?.hasSelection()) {
       const selectedText = textarea.getSelectedText();
       if (selectedText) {
         try {
@@ -2229,9 +2662,24 @@ export function ChatApp({
         } catch {
           // Silently fail - clipboard may not be available
         }
+        return;
       }
     }
-  }, []);
+
+    // Then, check renderer selection (mouse-drag on chat content)
+    const selection = renderer.getSelection();
+    if (selection) {
+      const selectedText = selection.getSelectedText();
+      if (selectedText) {
+        try {
+          await copyToClipboard(selectedText);
+        } catch {
+          // Silently fail - clipboard may not be available
+        }
+        renderer.clearSelection();
+      }
+    }
+  }, [renderer]);
 
   // Handle clipboard paste via Ctrl+V - inserts text from system clipboard
   // This is a fallback for terminals that don't use bracketed paste mode
@@ -2243,7 +2691,7 @@ export function ChatApp({
       const text = await pasteFromClipboard();
       if (text) {
         textarea.insertText(normalizePastedText(text));
-        handleInputChange(textarea.plainText ?? "");
+        handleInputChange(textarea.plainText ?? "", textarea.cursorOffset);
       }
     } catch {
       // Silently fail - clipboard may not be available
@@ -2258,7 +2706,7 @@ export function ChatApp({
 
     event.preventDefault();
     textarea.insertText(normalizePastedText(event.text));
-    handleInputChange(textarea.plainText ?? "");
+    handleInputChange(textarea.plainText ?? "", textarea.cursorOffset);
   }, [handleInputChange, normalizePastedText]);
 
   // Get current autocomplete suggestions count for navigation
@@ -2275,15 +2723,20 @@ export function ChatApp({
         // Ctrl+C handling must work everywhere (even in dialogs) for double-press exit
         if (event.ctrl && event.name === "c") {
           const textarea = textareaRef.current;
-          // If textarea has selection and no dialog is active, copy instead of interrupt/exit
-          if (!activeQuestion && !showModelSelector && textarea?.hasSelection()) {
+          // If textarea or renderer has selection and no dialog is active, copy instead of interrupt/exit
+          const hasRendererSelection = !!renderer.getSelection()?.getSelectedText();
+          if (!activeQuestion && !showModelSelector && (textarea?.hasSelection() || hasRendererSelection)) {
             void handleCopy();
             return;
           }
 
           // If streaming, interrupt (abort) the current operation
-          if (isStreaming) {
-            const interruptedId = streamingMessageIdRef.current;
+          // Use ref for immediate check — avoids stale closure when React
+          // hasn't re-rendered after setIsStreaming(true)
+          if (isStreamingRef.current) {
+            // Abort the stream FIRST so chunks stop arriving immediately
+            onInterrupt?.();
+
             // Signal that interrupt already finalized agents — prevents
             // handleComplete from overwriting with "completed" status
             wasInterruptedRef.current = true;
@@ -2292,10 +2745,10 @@ export function ChatApp({
             const currentAgents = parallelAgentsRef.current;
             const interruptedAgents = currentAgents.length > 0
               ? currentAgents.map((a) =>
-                  a.status === "running" || a.status === "pending"
-                    ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                    : a
-                )
+                a.status === "running" || a.status === "pending"
+                  ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+                  : a
+              )
               : undefined;
 
             // Clear live agents and update ref immediately
@@ -2303,6 +2756,7 @@ export function ChatApp({
             setParallelAgents([]);
 
             // Bake interrupted agents into message and stop streaming
+            const interruptedId = streamingMessageIdRef.current;
             if (interruptedId) {
               setMessages((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
@@ -2316,16 +2770,32 @@ export function ChatApp({
             // Stop streaming state immediately so UI reflects interrupted state
             isStreamingRef.current = false;
             setIsStreaming(false);
-            onInterrupt?.();
 
             // Cancel running sub-agents (from SubagentSessionManager)
             if (subagentManagerRef.current) {
               void subagentManagerRef.current.cancelAll();
             }
+
+            // Cancel active workflow too (if running)
+            if (workflowState.workflowActive) {
+              updateWorkflowState({
+                workflowActive: false,
+                workflowType: null,
+                initialPrompt: null,
+              });
+            }
+
+            setInterruptCount(0);
+            if (interruptTimeoutRef.current) {
+              clearTimeout(interruptTimeoutRef.current);
+              interruptTimeoutRef.current = null;
+            }
+            setCtrlCPressed(false);
+            return;
           }
 
           // If not streaming but subagents are still running, cancel them
-          if (!isStreaming && subagentManagerRef.current) {
+          if (subagentManagerRef.current) {
             const currentAgents = parallelAgentsRef.current;
             const hasRunningAgents = currentAgents.some(
               (a) => a.status === "running" || a.status === "pending"
@@ -2350,6 +2820,7 @@ export function ChatApp({
               parallelAgentsRef.current = [];
               setParallelAgents([]);
               void subagentManagerRef.current.cancelAll();
+              return;
             }
           }
 
@@ -2369,18 +2840,16 @@ export function ChatApp({
             setCtrlCPressed(false);
             return;
           }
-          // If streaming but no workflow, just interrupt
-          if (isStreaming) {
-            setInterruptCount(0);
-            if (interruptTimeoutRef.current) {
-              clearTimeout(interruptTimeoutRef.current);
-              interruptTimeoutRef.current = null;
-            }
-            setCtrlCPressed(false);
+
+          // Not streaming: if textarea has content, clear it first
+          if (textarea?.plainText) {
+            textarea.gotoBufferHome();
+            textarea.gotoBufferEnd({ select: true });
+            textarea.deleteChar();
             return;
           }
 
-          // Not streaming: use double-press to exit
+          // Textarea empty: use double-press to exit
           const newCount = interruptCount + 1;
           if (newCount >= 2) {
             // Double press - exit
@@ -2408,16 +2877,15 @@ export function ChatApp({
           return;
         }
 
-        // Ctrl+O - unified verbose toggle: expand/collapse tool outputs and agent tree
+        // Ctrl+O - toggle collapse/expand entire conversation
         if (event.ctrl && event.name === "o") {
-          if (compactionSummary && parallelAgents.length === 0) {
-            // No agents but compaction summary exists: toggle compaction history
-            setShowCompactionHistory(prev => !prev);
-          } else {
-            // Toggle verbose mode (expands tool outputs) and agent tree together
-            setVerboseMode(prev => !prev);
-            setAgentTreeExpanded(prev => !prev);
-          }
+          setConversationCollapsed(prev => !prev);
+          return;
+        }
+
+        // Ctrl+T - toggle todo list panel visibility
+        if (event.ctrl && event.name === "t") {
+          setShowTodoPanel(prev => !prev);
           return;
         }
 
@@ -2449,8 +2917,12 @@ export function ChatApp({
           }
 
           // If streaming, interrupt (abort) the current operation
-          if (isStreaming) {
-            const interruptedId = streamingMessageIdRef.current;
+          // Use ref for immediate check — avoids stale closure when React
+          // hasn't re-rendered after setIsStreaming(true)
+          if (isStreamingRef.current) {
+            // Abort the stream FIRST so chunks stop arriving immediately
+            onInterrupt?.();
+
             // Signal that interrupt already finalized agents — prevents
             // handleComplete from overwriting with "completed" status
             wasInterruptedRef.current = true;
@@ -2459,10 +2931,10 @@ export function ChatApp({
             const currentAgents = parallelAgentsRef.current;
             const interruptedAgents = currentAgents.length > 0
               ? currentAgents.map((a) =>
-                  a.status === "running" || a.status === "pending"
-                    ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                    : a
-                )
+                a.status === "running" || a.status === "pending"
+                  ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+                  : a
+              )
               : undefined;
 
             // Clear live agents and update ref immediately
@@ -2470,6 +2942,7 @@ export function ChatApp({
             setParallelAgents([]);
 
             // Bake interrupted agents into message and stop streaming
+            const interruptedId = streamingMessageIdRef.current;
             if (interruptedId) {
               setMessages((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
@@ -2483,16 +2956,25 @@ export function ChatApp({
             // Stop streaming state immediately so UI reflects interrupted state
             isStreamingRef.current = false;
             setIsStreaming(false);
-            onInterrupt?.();
 
             // Cancel running sub-agents (from SubagentSessionManager)
             if (subagentManagerRef.current) {
               void subagentManagerRef.current.cancelAll();
             }
+
+            // Cancel active workflow too (if running)
+            if (workflowState.workflowActive) {
+              updateWorkflowState({
+                workflowActive: false,
+                workflowType: null,
+                initialPrompt: null,
+              });
+            }
+            return;
           }
 
           // If not streaming but subagents are still running, cancel them
-          if (!isStreaming && subagentManagerRef.current) {
+          if (subagentManagerRef.current) {
             const currentAgents = parallelAgentsRef.current;
             const hasRunningAgents = currentAgents.some(
               (a) => a.status === "running" || a.status === "pending"
@@ -2528,10 +3010,6 @@ export function ChatApp({
               workflowType: null,
               initialPrompt: null,
             });
-            return;
-          }
-          // If streaming but no workflow, just interrupt and return
-          if (isStreaming) {
             return;
           }
 
@@ -2730,20 +3208,55 @@ export function ChatApp({
         // Autocomplete: Tab - complete the selected command
         if (event.name === "tab" && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
           const selectedCommand = autocompleteSuggestions[workflowState.selectedSuggestionIndex];
-          if (selectedCommand && textareaRef.current) {
-            // Clear textarea and insert completed command
-            textareaRef.current.gotoBufferHome();
-            textareaRef.current.gotoBufferEnd({ select: true });
-            textareaRef.current.deleteChar();
-            const prefix = workflowState.autocompleteMode === "mention" ? "@" : "/";
-            textareaRef.current.insertText(`${prefix}${selectedCommand.name} `);
-            updateWorkflowState({
-              showAutocomplete: false,
-              autocompleteInput: "",
-              selectedSuggestionIndex: 0,
-              autocompleteMode: "command",
-              argumentHint: workflowState.autocompleteMode === "command" ? (selectedCommand.argumentHint || "") : "",
-            });
+          const textarea = textareaRef.current;
+          if (selectedCommand && textarea) {
+            const isMentionMode = workflowState.autocompleteMode === "mention";
+            const isDirectoryMention = isMentionMode && selectedCommand.name.endsWith("/");
+            const suffix = isDirectoryMention ? "" : " ";
+
+            if (isMentionMode) {
+              // Replace only the @mention token (supports mid-text mentions)
+              const fullText = textarea.plainText ?? "";
+              const mentionStart = workflowState.mentionStartOffset;
+              const mentionEnd = mentionStart + 1 + workflowState.autocompleteInput.length; // @ + typed text
+              const before = fullText.slice(0, mentionStart);
+              const after = fullText.slice(mentionEnd);
+              const replacement = `@${selectedCommand.name}${suffix}`;
+              const newText = before + replacement + after;
+              const newCursorPos = mentionStart + replacement.length;
+
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+              textarea.insertText(newText);
+              textarea.cursorOffset = newCursorPos;
+            } else {
+              // Slash command: replace entire input
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+              textarea.insertText(`/${selectedCommand.name}${suffix}`);
+            }
+
+            if (isDirectoryMention) {
+              // Keep autocomplete open to browse directory contents
+              updateWorkflowState({
+                showAutocomplete: true,
+                autocompleteInput: selectedCommand.name,
+                selectedSuggestionIndex: 0,
+                autocompleteMode: "mention",
+                mentionStartOffset: workflowState.mentionStartOffset,
+                argumentHint: "",
+              });
+            } else {
+              updateWorkflowState({
+                showAutocomplete: false,
+                autocompleteInput: "",
+                selectedSuggestionIndex: 0,
+                autocompleteMode: "command",
+                argumentHint: workflowState.autocompleteMode === "command" ? (selectedCommand.argumentHint || "") : "",
+              });
+            }
           }
           return;
         }
@@ -2751,27 +3264,72 @@ export function ChatApp({
         // Autocomplete: Enter - execute the selected command immediately (skip if shift/meta held for newline)
         if (event.name === "return" && !event.shift && !event.meta && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
           const selectedCommand = autocompleteSuggestions[workflowState.selectedSuggestionIndex];
-          if (selectedCommand && textareaRef.current) {
-            // Clear textarea
-            textareaRef.current.gotoBufferHome();
-            textareaRef.current.gotoBufferEnd({ select: true });
-            textareaRef.current.deleteChar();
-            // Hide autocomplete
-            updateWorkflowState({
-              showAutocomplete: false,
-              autocompleteInput: "",
-              selectedSuggestionIndex: 0,
-              autocompleteMode: "command",
-            });
-            if (workflowState.autocompleteMode === "mention" && selectedCommand.category === "agent") {
-              // Agent @ mention: execute the agent command
-              addMessage("user", `@${selectedCommand.name}`);
-              void executeCommand(selectedCommand.name, "");
-            } else if (workflowState.autocompleteMode === "mention") {
-              // File @ mention: insert @filepath into text for later processing
-              textareaRef.current.insertText(`@${selectedCommand.name} `);
+          const textarea = textareaRef.current;
+          if (selectedCommand && textarea) {
+            const isMentionMode = workflowState.autocompleteMode === "mention";
+            const isDirectoryMention = isMentionMode && selectedCommand.name.endsWith("/");
+
+            if (isMentionMode) {
+              // Replace only the @mention token (supports mid-text mentions)
+              const fullText = textarea.plainText ?? "";
+              const mentionStart = workflowState.mentionStartOffset;
+              const mentionEnd = mentionStart + 1 + workflowState.autocompleteInput.length;
+              const before = fullText.slice(0, mentionStart);
+              const after = fullText.slice(mentionEnd);
+
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+
+              if (isDirectoryMention) {
+                const newText = `${before}@${selectedCommand.name}${after}`;
+                textarea.insertText(newText);
+                textarea.cursorOffset = mentionStart + 1 + selectedCommand.name.length;
+                updateWorkflowState({
+                  showAutocomplete: true,
+                  autocompleteInput: selectedCommand.name,
+                  selectedSuggestionIndex: 0,
+                  autocompleteMode: "mention",
+                  mentionStartOffset: mentionStart,
+                  argumentHint: "",
+                });
+              } else if (selectedCommand.category === "agent") {
+                // Agent @ mention: execute the agent command
+                // Restore text without the mention, or just clear if mention was the whole input
+                const remaining = (before + after).trim();
+                if (remaining) textarea.insertText(remaining);
+                updateWorkflowState({
+                  showAutocomplete: false,
+                  autocompleteInput: "",
+                  selectedSuggestionIndex: 0,
+                  autocompleteMode: "command",
+                });
+                addMessage("user", `@${selectedCommand.name}`);
+                void executeCommand(selectedCommand.name, "");
+              } else {
+                // File @ mention: insert completed mention into text
+                const replacement = `@${selectedCommand.name} `;
+                const newText = before + replacement + after;
+                textarea.insertText(newText);
+                textarea.cursorOffset = mentionStart + replacement.length;
+                updateWorkflowState({
+                  showAutocomplete: false,
+                  autocompleteInput: "",
+                  selectedSuggestionIndex: 0,
+                  autocompleteMode: "command",
+                });
+              }
             } else {
-              // Slash command: execute immediately
+              // Slash command: clear and execute
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+              updateWorkflowState({
+                showAutocomplete: false,
+                autocompleteInput: "",
+                selectedSuggestionIndex: 0,
+                autocompleteMode: "command",
+              });
               addMessage("user", `/${selectedCommand.name}`);
               void executeCommand(selectedCommand.name, "");
             }
@@ -2807,12 +3365,13 @@ export function ChatApp({
         // After processing key, check input for slash command detection
         // Use setTimeout to let the textarea update first
         setTimeout(() => {
-          const value = textareaRef.current?.plainText ?? "";
-          handleInputChange(value);
+          const textarea = textareaRef.current;
+          const value = textarea?.plainText ?? "";
+          handleInputChange(value, textarea?.cursorOffset ?? value.length);
           syncInputScrollbar();
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer]
     )
   );
 
@@ -2840,10 +3399,12 @@ export function ChatApp({
    * Extracted to allow reuse for queued message processing.
    */
   const sendMessage = useCallback(
-    (content: string) => {
-      // Add user message
-      const userMessage = createMessage("user", content);
-      setMessages((prev: ChatMessage[]) => [...prev, userMessage]);
+    (content: string, options?: { skipUserMessage?: boolean }) => {
+      // Add user message (unless caller already added it)
+      if (!options?.skipUserMessage) {
+        const userMessage = createMessage("user", content);
+        setMessages((prev: ChatMessage[]) => [...prev, userMessage]);
+      }
 
       // Call send handler (fire and forget for sync callback signature)
       if (onSendMessage) {
@@ -2863,8 +3424,9 @@ export function ChatApp({
         streamingMessageIdRef.current = assistantMessage.id;
         setMessages((prev: ChatMessage[]) => [...prev, assistantMessage]);
 
-        // Handle stream chunks
+        // Handle stream chunks — guarded by ref to drop post-interrupt chunks
         const handleChunk = (chunk: string) => {
+          if (!isStreamingRef.current) return;
           const messageId = streamingMessageIdRef.current;
           if (messageId) {
             setMessages((prev: ChatMessage[]) =>
@@ -2916,10 +3478,10 @@ export function ChatApp({
           setParallelAgents((currentAgents) => {
             const finalizedAgents = currentAgents.length > 0
               ? currentAgents.map((a) =>
-                  a.status === "running" || a.status === "pending"
-                    ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                    : a
-                )
+                a.status === "running" || a.status === "pending"
+                  ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+                  : a
+              )
               : undefined;
 
             if (messageId) {
@@ -2927,15 +3489,16 @@ export function ChatApp({
                 prev.map((msg: ChatMessage) =>
                   msg.id === messageId
                     ? {
-                        ...msg,
-                        streaming: false,
-                        durationMs,
-                        modelId: model,
-                        toolCalls: msg.toolCalls?.map((tc) =>
-                          tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                        ),
-                        parallelAgents: finalizedAgents,
-                      }
+                      ...msg,
+                      streaming: false,
+                      durationMs,
+                      modelId: model,
+                      toolCalls: msg.toolCalls?.map((tc) =>
+                        tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
+                      ),
+                      parallelAgents: finalizedAgents,
+                      taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status, blockedBy: t.blockedBy })) : undefined,
+                    }
                     : msg
                 )
               );
@@ -3047,16 +3610,20 @@ export function ChatApp({
       // Process file @mentions (e.g., @src/file.ts) - prepend file content as context
       const { message: processedValue, filesRead } = processFileMentions(trimmedValue);
 
-      // Display file read confirmations if files were referenced
+      // Display file read confirmations attached to user message (GH issue #162)
       if (filesRead.length > 0) {
-        const fileReadLines = filesRead.map(f => {
-          if (f.isImage) {
-            const sizeStr = f.sizeBytes >= 1024 ? `${(f.sizeBytes / 1024).toFixed(1)}KB` : `${f.sizeBytes}B`;
-            return `  ⎿  Read ${f.path} (${sizeStr})`;
-          }
-          return `  ⎿  Read ${f.path} (${f.lineCount} lines)`;
-        }).join("\n");
-        addMessage("assistant", fileReadLines);
+        // Add user message with filesRead metadata so the UI renders it inline
+        const msg = createMessage("user", trimmedValue);
+        msg.filesRead = filesRead;
+        setMessages((prev) => [...prev, msg]);
+
+        // Send processed message without re-adding the user message
+        if (isStreamingRef.current) {
+          messageQueue.enqueue(processedValue);
+          return;
+        }
+        sendMessage(processedValue, { skipUserMessage: true });
+        return;
       }
 
       // If streaming, queue the message instead of sending immediately
@@ -3066,7 +3633,7 @@ export function ChatApp({
         return;
       }
 
-      // Send the message
+      // Send the message (no file mentions - normal flow)
       sendMessage(processedValue);
     },
     [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage]
@@ -3092,6 +3659,13 @@ export function ChatApp({
           </text>
         </box>
       )}
+      {conversationCollapsed && messages.length > 0 && (
+        <box paddingLeft={1} marginBottom={1}>
+          <text style={{ fg: "#555566" }}>
+            {"─".repeat(3)} {messages.length} message{messages.length !== 1 ? "s" : ""} · ctrl+o to expand {"─".repeat(3)}
+          </text>
+        </box>
+      )}
       {visibleMessages.map((msg, index) => (
         <MessageBubble
           key={msg.id}
@@ -3103,6 +3677,9 @@ export function ChatApp({
           hideLoading={activeQuestion !== null}
           parallelAgents={index === visibleMessages.length - 1 ? parallelAgents : undefined}
           agentTreeExpanded={agentTreeExpanded}
+          todoItems={msg.streaming ? todoItems : undefined}
+          elapsedMs={msg.streaming ? streamingElapsedMs : undefined}
+          collapsed={conversationCollapsed}
         />
       ))}
     </>
@@ -3143,6 +3720,17 @@ export function ChatApp({
           </box>
           <text style={{ fg: MUTED_LAVENDER }}>
             Showing detailed transcript · ctrl+o to toggle
+          </text>
+        </box>
+      )}
+
+      {/* Todo Panel - shows persistent summary from TodoWrite (Ctrl+T to toggle) */}
+      {/* Hidden during streaming — the inline TaskListIndicator under the spinner handles it */}
+      {/* Shows only summary line after streaming to avoid render artifacts with bordered boxes */}
+      {showTodoPanel && !isStreaming && todoItems.length > 0 && (
+        <box flexDirection="column" paddingLeft={2} paddingRight={2} marginBottom={1}>
+          <text style={{ fg: MUTED_LAVENDER }}>
+            {`☑ ${todoItems.length} tasks (${todoItems.filter(t => t.status === "completed").length} done, ${todoItems.filter(t => t.status !== "completed").length} open) · ctrl+t to hide`}
           </text>
         </box>
       )}
@@ -3222,6 +3810,7 @@ export function ChatApp({
                 placeholder={messages.length === 0 ? dynamicPlaceholder : ""}
                 focused={inputFocused}
                 keyBindings={textareaKeyBindings}
+                syntaxStyle={inputSyntaxStyle}
                 onSubmit={handleSubmit}
                 onPaste={handleBracketedPaste}
                 onContentChange={handleTextareaContentChange}
@@ -3268,7 +3857,7 @@ export function ChatApp({
 
         {/* Autocomplete dropdown for slash commands and @ mentions - inside scrollbox */}
         {workflowState.showAutocomplete && (
-          <box>
+          <box marginTop={0} marginBottom={0}>
             <Autocomplete
               input={workflowState.autocompleteInput}
               visible={workflowState.showAutocomplete}

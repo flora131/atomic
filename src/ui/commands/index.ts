@@ -32,7 +32,7 @@ export {
 import { globalRegistry } from "./registry.ts";
 import { registerBuiltinCommands } from "./builtin-commands.ts";
 import { registerWorkflowCommands, loadWorkflowsFromDisk } from "./workflow-commands.ts";
-import { registerSkillCommands } from "./skill-commands.ts";
+import { registerSkillCommands, discoverAndRegisterDiskSkills } from "./skill-commands.ts";
 import { registerAgentCommands } from "./agent-commands.ts";
 
 // ============================================================================
@@ -74,7 +74,20 @@ export {
   isRalphSkill,
   getRalphSkills,
   getCoreSkills,
+  // Disk skill discovery
+  discoverAndRegisterDiskSkills,
+  getDiscoveredSkillDirectories,
+  discoverSkillFiles,
+  parseSkillFile,
+  shouldSkillOverride,
+  loadSkillContent,
+  SKILL_DISCOVERY_PATHS,
+  GLOBAL_SKILL_PATHS,
+  PINNED_BUILTIN_SKILLS,
   type SkillMetadata,
+  type SkillSource,
+  type DiscoveredSkillFile,
+  type DiskSkillDefinition,
 } from "./skill-commands.ts";
 
 // ============================================================================
@@ -141,6 +154,10 @@ export async function initializeCommandsAsync(): Promise<number> {
 
   // Register skill commands
   registerSkillCommands();
+
+  // Discover and register disk-based skills from .claude/skills/, .github/skills/, etc.
+  // Disk skills override non-pinned builtins (project > global > builtin priority)
+  await discoverAndRegisterDiskSkills();
 
   // Discover and register agent commands from .claude/agents/*.md etc.
   // Disk agents override builtins with the same name (project > builtin priority)

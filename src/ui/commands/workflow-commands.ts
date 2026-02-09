@@ -10,7 +10,8 @@
  * Reference: Feature 3 - Implement workflow command registration
  */
 
-import { existsSync } from "fs";
+import { existsSync, watch } from "fs";
+import { readFile } from "fs/promises";
 import { join } from "path";
 import type {
   CommandDefinition,
@@ -18,7 +19,6 @@ import type {
   CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
-import { getBuiltinSkill } from "./skill-commands.ts";
 
 import {
   createRalphWorkflow,
@@ -30,8 +30,8 @@ import { setWorkflowResolver, type CompiledSubgraph } from "../../graph/nodes.ts
 import {
   generateRalphSessionId,
   getRalphSessionPaths,
-  RALPH_DEFAULTS,
 } from "../../config/ralph.ts";
+import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 import {
   generateSessionId,
   getSessionDir,
@@ -44,148 +44,29 @@ import {
 /**
  * Parsed arguments for the /ralph command.
  */
-export interface RalphCommandArgs {
-  /** Whether --yolo flag is present */
-  yolo: boolean;
-  /** User prompt (required for --yolo mode) */
-  prompt: string | null;
-  /** Session ID to resume (from --resume flag) */
-  resumeSessionId: string | null;
-  /** Maximum number of iterations (from --max-iterations flag) */
-  maxIterations: number;
-  /** Path to feature list JSON file (from --feature-list flag) */
-  featureListPath: string;
-}
+export type RalphCommandArgs =
+  | { kind: "run"; prompt: string }
+  | { kind: "resume"; sessionId: string; prompt: string | null };
 
-/** Default max iterations if not specified */
-const DEFAULT_MAX_ITERATIONS = 100;
-
-/**
- * Parse /ralph command arguments for --yolo, --resume, --max-iterations, and --feature-list flags.
- *
- * Supported formats:
- *   /ralph --yolo <prompt>                    - Run in yolo mode with the given prompt
- *   /ralph --resume <uuid>                    - Resume a previous session
- *   /ralph --max-iterations <n> <prompt>      - Set max iterations
- *   /ralph --feature-list <path> <prompt>     - Use custom feature list path
- *   /ralph <prompt>                           - Normal mode with feature list
- *
- * The --max-iterations and --feature-list flags can be combined with --yolo:
- *   /ralph --max-iterations 50 --yolo <prompt>
- *   /ralph --feature-list custom.json --yolo <prompt>
- *   /ralph --yolo --max-iterations 50 <prompt>
- *
- * @param args - Raw argument string from the command
- * @returns Parsed RalphCommandArgs
- *
- * @example
- * parseRalphArgs("--yolo implement auth")
- * // => { yolo: true, prompt: "implement auth", resumeSessionId: null, maxIterations: 100, featureListPath: "research/feature-list.json" }
- *
- * parseRalphArgs("--max-iterations 50 --yolo implement auth")
- * // => { yolo: true, prompt: "implement auth", resumeSessionId: null, maxIterations: 50, featureListPath: "research/feature-list.json" }
- *
- * parseRalphArgs("--feature-list custom.json implement auth")
- * // => { yolo: false, prompt: "implement auth", resumeSessionId: null, maxIterations: 100, featureListPath: "custom.json" }
- *
- * parseRalphArgs("--resume abc123-def456")
- * // => { yolo: false, prompt: null, resumeSessionId: "abc123-def456", maxIterations: 100, featureListPath: "research/feature-list.json" }
- *
- * parseRalphArgs("my feature")
- * // => { yolo: false, prompt: "my feature", resumeSessionId: null, maxIterations: 100, featureListPath: "research/feature-list.json" }
- */
 export function parseRalphArgs(args: string): RalphCommandArgs {
-  let trimmed = args.trim();
-  let maxIterations = DEFAULT_MAX_ITERATIONS;
-  let featureListPath: string = RALPH_DEFAULTS.featureListPath;
-
-  // First, check for and extract --max-iterations flag anywhere in the string
-  const maxIterMatch = trimmed.match(/^(.*?)--max-iterations\s+(\d+)\s*(.*?)$/s);
-  if (maxIterMatch) {
-    const beforeFlag = maxIterMatch[1]?.trim() ?? "";
-    const iterValue = maxIterMatch[2] ?? "";
-    const afterFlag = maxIterMatch[3]?.trim() ?? "";
-    
-    // Parse the number (already validated as digits by regex)
-    const parsed = parseInt(iterValue, 10);
-    if (!isNaN(parsed) && parsed >= 0) {
-      maxIterations = parsed;
-    }
-    
-    // Reconstruct trimmed without the --max-iterations flag
-    trimmed = (beforeFlag + " " + afterFlag).trim();
-  }
-
-  // Check for and extract --feature-list flag at a valid position
-  // The flag is valid if there's no non-flag content before it
-  // We check if --feature-list is present and NOT preceded by non-flag words
-  if (trimmed.includes("--feature-list")) {
-    // Check if it's at the start or only preceded by other flags/values
-    const beforeFeatureList = trimmed.split("--feature-list")[0] ?? "";
-    const tokens = beforeFeatureList.trim().split(/\s+/).filter(t => t.length > 0);
-    
-    // Valid if: empty before, or all tokens before are flags (start with --) or immediately follow a flag
-    let isValidPosition = true;
-    for (let i = 0; i < tokens.length; i++) {
-      const token = tokens[i]!;
-      const prevToken = i > 0 ? tokens[i - 1] : undefined;
-      // Token is valid if it starts with -- OR if the previous token starts with --
-      if (!token.startsWith("--") && !(prevToken && prevToken.startsWith("--"))) {
-        isValidPosition = false;
-        break;
-      }
-    }
-    
-    if (isValidPosition) {
-      // Extract the path after --feature-list
-      const afterFeatureList = trimmed.split("--feature-list")[1]?.trim() ?? "";
-      const pathMatch = afterFeatureList.match(/^(\S+)/);
-      if (pathMatch) {
-        featureListPath = pathMatch[1]!;
-        // Reconstruct trimmed without --feature-list and its value
-        const afterPath = afterFeatureList.slice(featureListPath.length).trim();
-        trimmed = (beforeFeatureList.trim() + " " + afterPath).trim();
-      }
-    }
-  }
+  const trimmed = args.trim();
 
   // Check for --resume flag
-  if (trimmed.startsWith("--resume")) {
-    // Extract everything after --resume as the session ID
-    const afterFlag = trimmed.slice("--resume".length).trim();
-    // Return empty string when --resume is used without a UUID so the caller
-    // can distinguish "no --resume flag" (null) from "flag present, no value" ("")
-    const sessionId = afterFlag.length > 0 ? (afterFlag.split(/\s+/)[0] ?? "") : "";
-    return {
-      yolo: false,
-      prompt: null,
-      resumeSessionId: sessionId,
-      maxIterations,
-      featureListPath,
-    };
+  const resumeMatch = trimmed.match(/--resume\s+(\S+)/);
+  if (resumeMatch) {
+    const rest = trimmed.replace(resumeMatch[0], "").trim();
+    return { kind: "resume", sessionId: resumeMatch[1]!, prompt: rest || null };
   }
 
-  // Check for --yolo flag
-  if (trimmed.startsWith("--yolo")) {
-    // Extract everything after --yolo as the prompt
-    const afterFlag = trimmed.slice("--yolo".length).trim();
-    return {
-      yolo: true,
-      prompt: afterFlag.length > 0 ? afterFlag : null,
-      resumeSessionId: null,
-      maxIterations,
-      featureListPath,
-    };
+  // Prompt is required for new sessions
+  if (!trimmed) {
+    throw new Error(
+      'Usage: /ralph "<prompt-or-spec-path>" or /ralph --resume <uuid> ["<prompt>"]\n' +
+      "A prompt argument is required."
+    );
   }
 
-  // Normal mode - entire args string is the prompt
-  return {
-    yolo: false,
-    prompt: trimmed.length > 0 ? trimmed : null,
-    resumeSessionId: null,
-    maxIterations,
-    featureListPath,
-  };
+  return { kind: "run", prompt: trimmed };
 }
 
 /**
@@ -677,20 +558,17 @@ const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata<BaseState>[] = [
     name: "ralph",
     description: "Start the Ralph autonomous implementation workflow",
     aliases: ["loop"],
-    argumentHint: "[PROMPT] [--yolo] [--resume UUID] [--max-iterations N (100)] [--feature-list PATH (research/feature-list.json)]",
+    argumentHint: '"<prompt-or-spec-path>" [--resume UUID ["<prompt>"]]',
     createWorkflow: (config?: Record<string, unknown>) => {
       const ralphConfig: CreateRalphWorkflowConfig = {
-        maxIterations: typeof config?.maxIterations === "number" ? config.maxIterations : undefined,
         checkpointing: typeof config?.checkpointing === "boolean" ? config.checkpointing : true,
-        featureListPath: typeof config?.featureListPath === "string" ? config.featureListPath : undefined,
-        yolo: typeof config?.yolo === "boolean" ? config.yolo : false,
         userPrompt: typeof config?.userPrompt === "string" ? config.userPrompt : undefined,
+        resumeSessionId: typeof config?.resumeSessionId === "string" ? config.resumeSessionId : undefined,
       };
       return createRalphWorkflow(ralphConfig) as unknown as CompiledGraph<BaseState>;
     },
     defaultConfig: {
       checkpointing: true,
-      yolo: false,
     },
     source: "builtin",
   },
@@ -766,17 +644,6 @@ function createWorkflowCommand(metadata: WorkflowMetadata<BaseState>): CommandDe
   };
 }
 
-/**
- * Create a specialized command definition for the ralph workflow.
- *
- * Handles --yolo and --resume flag parsing:
- *   /ralph --yolo <prompt>     - Run in yolo mode with the given prompt
- *   /ralph --resume <uuid>     - Resume a previous session
- *   /ralph <prompt>            - Normal mode with feature list
- *
- * @param metadata - Ralph workflow metadata
- * @returns Command definition with flag parsing
- */
 function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefinition {
   return {
     name: metadata.name,
@@ -785,137 +652,78 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
     aliases: metadata.aliases,
     argumentHint: metadata.argumentHint,
     execute: (args: string, context: CommandContext): CommandResult => {
-      // Check if already in a workflow
       if (context.state.workflowActive) {
         return {
           success: false,
-          message: `A workflow is already active (${context.state.workflowType}). Check research/progress.txt for progress.`,
+          message: `A workflow is already active (${context.state.workflowType}).`,
         };
       }
 
-      // Parse ralph-specific flags
-      const parsed = parseRalphArgs(args);
+      let parsed: RalphCommandArgs;
+      try {
+        parsed = parseRalphArgs(args);
+      } catch (e) {
+        return {
+          success: false,
+          message: e instanceof Error ? e.message : String(e),
+        };
+      }
 
-      // Handle --resume flag (non-null means --resume was used)
-      if (parsed.resumeSessionId !== null) {
-        // Check if UUID was actually provided
-        if (parsed.resumeSessionId === "") {
+      // Handle resume
+      if (parsed.kind === "resume") {
+        if (!parsed.sessionId) {
           return {
             success: false,
-            message: `Missing session ID. Please provide a UUID to resume.\nUsage: /ralph --resume <uuid>`,
+            message: `Missing session ID.\nUsage: /ralph --resume <uuid>`,
           };
         }
 
-        // Validate UUID format
-        if (!isValidUUID(parsed.resumeSessionId)) {
+        if (!isValidUUID(parsed.sessionId)) {
           return {
             success: false,
-            message: `Invalid session ID format. Expected a UUID (e.g., 550e8400-e29b-41d4-a716-446655440000).\nUsage: /ralph --resume <uuid>`,
+            message: `Invalid session ID format. Expected a UUID.\nUsage: /ralph --resume <uuid>`,
           };
         }
 
-        // Check if session exists
-        const sessionDir = getSessionDir(parsed.resumeSessionId);
+        const sessionDir = getSessionDir(parsed.sessionId);
         if (!existsSync(sessionDir)) {
           return {
             success: false,
-            message: `Session not found: ${parsed.resumeSessionId}\nDirectory does not exist: ${sessionDir}`,
+            message: `Session not found: ${parsed.sessionId}\nDirectory does not exist: ${sessionDir}`,
           };
         }
 
-        // Log resuming session
-        context.addMessage(
-          "system",
-          `Resuming session: ${parsed.resumeSessionId}`
-        );
+        context.addMessage("system", `Resuming session: ${parsed.sessionId}`);
 
-        // Return success with state updates and resume config
         return {
           success: true,
-          message: `Resuming Ralph session ${parsed.resumeSessionId}...`,
+          message: `Resuming Ralph session ${parsed.sessionId}...`,
           stateUpdate: {
             workflowActive: true,
             workflowType: metadata.name,
-            initialPrompt: null,
+            initialPrompt: parsed.prompt,
             pendingApproval: false,
             specApproved: undefined,
             feedback: null,
-            maxIterations: parsed.maxIterations,
-            // Ralph-specific config with resumeSessionId
             ralphConfig: {
-              yolo: false,
-              userPrompt: null,
-              resumeSessionId: parsed.resumeSessionId,
-              maxIterations: parsed.maxIterations,
-              featureListPath: parsed.featureListPath,
+              resumeSessionId: parsed.sessionId,
+              userPrompt: parsed.prompt,
             },
           },
         };
       }
 
-      // Yolo mode requires a prompt
-      if (parsed.yolo && !parsed.prompt) {
-        return {
-          success: false,
-          message: `--yolo flag requires a prompt.\nUsage: /ralph --yolo <your task description>`,
-        };
-      }
-
-      // Non-yolo mode with no prompt: auto-default to implement-feature if feature list exists
-      if (!parsed.yolo && !parsed.prompt) {
-        if (existsSync(parsed.featureListPath)) {
-          const implSkill = getBuiltinSkill("implement-feature");
-          if (implSkill) {
-            parsed.prompt = implSkill.prompt.replace(/\$ARGUMENTS/g, "");
-          } else {
-            parsed.prompt = "Implement the next feature from the feature list.";
-          }
-        } else {
-          return {
-            success: false,
-            message: `Please provide a prompt for the ralph workflow.\nUsage: /ralph <your task description>\n       /ralph --yolo <prompt>\n       /ralph --resume <uuid>`,
-          };
-        }
-      }
-
-      // In non-yolo mode, validate feature list file exists
-      if (!parsed.yolo && !existsSync(parsed.featureListPath)) {
-        return {
-          success: false,
-          message: `Feature list file not found: ${parsed.featureListPath}\nCreate the file or use --yolo mode for prompt-only execution.`,
-        };
-      }
-
-      // Use implement-feature default prompt when prompt is minimal
-      if (!parsed.prompt) {
-        const implSkill = getBuiltinSkill("implement-feature");
-        if (implSkill) {
-          parsed.prompt = implSkill.prompt.replace(/\$ARGUMENTS/g, "");
-        } else {
-          parsed.prompt = "Implement the next feature from the feature list.";
-        }
-      }
-
-      // Generate a new session ID for this Ralph session
+      // Handle new run
       const sessionId = generateSessionId();
-
-      // Build the mode indicator for the message
-      const modeStr = parsed.yolo ? " (yolo mode)" : "";
-      const iterStr = parsed.maxIterations !== 100 ? ` (max: ${parsed.maxIterations})` : "";
-      const featureListStr = parsed.featureListPath !== RALPH_DEFAULTS.featureListPath
-        ? ` (features: ${parsed.featureListPath})`
-        : "";
-
-      // Add a system message indicating workflow start with session UUID
+      
       context.addMessage(
         "system",
-        `Started Ralph session: ${sessionId}\n\nStarting **ralph** workflow${modeStr}${iterStr}${featureListStr}...\n\nPrompt: "${parsed.prompt}"`
+        `Started Ralph session: ${sessionId}\n\nStarting **ralph** workflow...\n\nPrompt: "${parsed.prompt}"`
       );
 
-      // Return success with state updates and workflow config including sessionId
       return {
         success: true,
-        message: `Started Ralph session: ${sessionId}\n\nWorkflow **ralph** initialized${modeStr}${iterStr}${featureListStr}. Starting implementation...`,
+        message: `Started Ralph session: ${sessionId}\n\nWorkflow **ralph** initialized. Starting implementation...`,
         stateUpdate: {
           workflowActive: true,
           workflowType: metadata.name,
@@ -923,19 +731,35 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
           pendingApproval: false,
           specApproved: undefined,
           feedback: null,
-          maxIterations: parsed.maxIterations,
-          // Ralph-specific config with sessionId
           ralphConfig: {
             sessionId,
-            yolo: parsed.yolo,
             userPrompt: parsed.prompt,
-            maxIterations: parsed.maxIterations,
-            featureListPath: parsed.featureListPath,
           },
         },
       };
     },
   };
+}
+
+// ============================================================================
+// FILE WATCHER
+// ============================================================================
+
+export function watchTasksJson(
+  sessionDir: string,
+  onUpdate: (items: TodoItem[]) => void
+): () => void {
+  const tasksPath = join(sessionDir, "tasks.json");
+  const watcher = watch(tasksPath, async () => {
+    try {
+      const content = await readFile(tasksPath, "utf-8");
+      const tasks = JSON.parse(content) as TodoItem[];
+      onUpdate(tasks);
+    } catch {
+      // File may not exist yet or be mid-write; ignore
+    }
+  });
+  return () => watcher.close();
 }
 
 // ============================================================================

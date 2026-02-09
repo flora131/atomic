@@ -16,6 +16,10 @@ import type {
   CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+import { parseMarkdownFrontmatter } from "../../utils/markdown.ts";
 
 // ============================================================================
 // TYPES
@@ -31,8 +35,6 @@ export interface SkillMetadata {
   description: string;
   /** Alternative names for the skill */
   aliases?: string[];
-  /** Whether this skill is hidden from autocomplete */
-  hidden?: boolean;
 }
 
 /**
@@ -51,8 +53,6 @@ export interface BuiltinSkill {
   aliases?: string[];
   /** Full prompt content (supports $ARGUMENTS placeholder) */
   prompt: string;
-  /** Whether this skill is hidden from autocomplete */
-  hidden?: boolean;
   /** Hint text showing expected arguments (e.g., "[message] [--amend]") */
   argumentHint?: string;
 }
@@ -757,47 +757,6 @@ flowchart TB
 - [ ] Does the current VPC peering allow connection to the legacy mainframe?`,
   },
   {
-    name: "create-feature-list",
-    description: "Create a detailed `research/feature-list.json` and `research/progress.txt` for implementing features or refactors in a codebase from a spec.",
-    aliases: ["features"],
-    argumentHint: "[spec-path]",
-    prompt: `You are tasked with creating a detailed \`research/feature-list.json\` file and \`research/progress.txt\` for implementing features or refactors in a codebase based on a provided specification located at **$ARGUMENTS**.
-
-# Tasks
-
-1. If a \`progress.txt\` file already exists in the \`research\` directory, remove it.
-2. If a \`feature-list.json\` file already exists in the \`research\` directory, remove it.
-3. Create an empty \`progress.txt\` file in the \`research\` directory to log your development progress.
-4. Create a \`feature-list.json\` file in the \`research\` directory by reading the feature specification document located at **$ARGUMENTS** and following the guidelines below:
-
-## Create a \`feature-list.json\`
-
-- If the file already exists, read its contents first to avoid duplications, and append new features as needed.
-- Parse the feature specification document and create a structured JSON list of features to be implemented in order of highest to lowest priority.
-- Use the following JSON structure for each feature in the list:
-
-\`\`\`json
-{
-    "category": "functional",
-    "description": "New chat button creates a fresh conversation",
-    "steps": [
-      "Navigate to main interface",
-      "Click the 'New Chat' button",
-      "Verify a new conversation is created",
-      "Check that chat area shows welcome state",
-      "Verify conversation appears in sidebar"
-    ],
-    "passes": false
-}
-\`\`\`
-
-Where:
-- \`category\`: Type of feature (e.g., "functional", "performance", "ui", "refactor").
-- \`description\`: A concise description of the feature.
-- \`steps\`: A list of step-by-step instructions to implement or test the feature.
-- \`passes\`: A boolean indicating if the feature is currently passing tests (default to \`false\` for new features).`,
-  },
-  {
     name: "implement-feature",
     description: "Implement a SINGLE feature from `research/feature-list.json` based on the provided execution plan.",
     aliases: ["impl"],
@@ -1288,7 +1247,6 @@ Prompt engineering is iterative. Small changes can have significant impacts. Tes
     name: "testing-anti-patterns",
     description: "Identify and prevent testing anti-patterns when writing tests",
     aliases: ["test-patterns"],
-    hidden: true,
     prompt: `# Testing Anti-Patterns
 
 ## Overview
@@ -1512,11 +1470,6 @@ export const SKILL_DEFINITIONS: SkillMetadata[] = [
     aliases: ["spec"],
   },
   {
-    name: "create-feature-list",
-    description: "Create a detailed `research/feature-list.json` and `research/progress.txt` for implementing features or refactors in a codebase from a spec.",
-    aliases: ["features"],
-  },
-  {
     name: "implement-feature",
     description: "Implement a SINGLE feature from `research/feature-list.json` based on the provided execution plan.",
     aliases: ["impl"],
@@ -1580,7 +1533,6 @@ function createSkillCommand(metadata: SkillMetadata): CommandDefinition {
     description: metadata.description,
     category: "skill",
     aliases: metadata.aliases,
-    hidden: metadata.hidden,
     execute: (args: string, context: CommandContext): CommandResult => {
       const skillArgs = args.trim();
 
@@ -1627,7 +1579,6 @@ function createBuiltinSkillCommand(skill: BuiltinSkill): CommandDefinition {
     description: skill.description,
     category: "skill",
     aliases: skill.aliases,
-    hidden: skill.hidden,
     argumentHint: skill.argumentHint,
     execute: (args: string, context: CommandContext): CommandResult => {
       const skillArgs = args.trim();
@@ -1704,6 +1655,251 @@ export function registerSkillCommands(): void {
   for (const command of skillCommands) {
     // Skip if already registered (builtin skills take priority)
     if (!globalRegistry.has(command.name)) {
+      globalRegistry.register(command);
+    }
+  }
+}
+
+// ============================================================================
+// DISK-BASED SKILL DISCOVERY
+// ============================================================================
+
+const HOME = homedir();
+
+export const SKILL_DISCOVERY_PATHS = [
+  join(".claude", "skills"),
+  join(".opencode", "skills"),
+  join(".github", "skills"),
+  join(".atomic", "skills"),
+] as const;
+
+export const GLOBAL_SKILL_PATHS = [
+  join(HOME, ".claude", "skills"),
+  join(HOME, ".opencode", "skills"),
+  join(HOME, ".copilot", "skills"),
+  join(HOME, ".atomic", "skills"),
+] as const;
+
+export type SkillSource = "project" | "atomic" | "user" | "builtin";
+
+export const PINNED_BUILTIN_SKILLS = new Set([
+  "prompt-engineer",
+  "testing-anti-patterns",
+]);
+
+export interface DiscoveredSkillFile {
+  path: string;
+  dirName: string;
+  source: SkillSource;
+}
+
+export interface DiskSkillDefinition {
+  name: string;
+  description: string;
+  skillFilePath: string;
+  source: SkillSource;
+  aliases?: string[];
+  argumentHint?: string;
+}
+
+export function shouldSkillOverride(
+  newSource: SkillSource,
+  existingSource: SkillSource,
+  existingName: string
+): boolean {
+  if (existingSource === "builtin" && PINNED_BUILTIN_SKILLS.has(existingName)) {
+    return false;
+  }
+  const priority: Record<SkillSource, number> = {
+    project: 4,
+    atomic: 3,
+    user: 2,
+    builtin: 1,
+  };
+  return priority[newSource] > priority[existingSource];
+}
+
+export function discoverSkillFiles(): DiscoveredSkillFile[] {
+  const files: DiscoveredSkillFile[] = [];
+  const cwd = process.cwd();
+
+  for (const discoveryPath of SKILL_DISCOVERY_PATHS) {
+    const fullPath = join(cwd, discoveryPath);
+    if (!existsSync(fullPath)) continue;
+
+    try {
+      const entries = readdirSync(fullPath, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const skillFile = join(fullPath, entry.name, "SKILL.md");
+        if (existsSync(skillFile)) {
+          const source: SkillSource = discoveryPath.startsWith(join(".atomic"))
+            ? "atomic"
+            : "project";
+          files.push({ path: skillFile, dirName: entry.name, source });
+        }
+      }
+    } catch {
+      // Skip inaccessible directories
+    }
+  }
+
+  for (const globalPath of GLOBAL_SKILL_PATHS) {
+    if (!existsSync(globalPath)) continue;
+
+    try {
+      const entries = readdirSync(globalPath, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const skillFile = join(globalPath, entry.name, "SKILL.md");
+        if (existsSync(skillFile)) {
+          files.push({ path: skillFile, dirName: entry.name, source: "user" });
+        }
+      }
+    } catch {
+      // Skip inaccessible directories
+    }
+  }
+
+  return files;
+}
+
+export function parseSkillFile(file: DiscoveredSkillFile): DiskSkillDefinition | null {
+  try {
+    const content = readFileSync(file.path, "utf-8");
+    const parsed = parseMarkdownFrontmatter(content);
+
+    if (!parsed) {
+      return {
+        name: file.dirName,
+        description: `Skill: ${file.dirName}`,
+        skillFilePath: file.path,
+        source: file.source,
+      };
+    }
+
+    const fm = parsed.frontmatter;
+    const name = typeof fm.name === "string" ? fm.name : file.dirName;
+    const description =
+      typeof fm.description === "string" ? fm.description : `Skill: ${name}`;
+
+    let aliases: string[] | undefined;
+    if (Array.isArray(fm.aliases)) {
+      aliases = fm.aliases.filter((a): a is string => typeof a === "string");
+    }
+
+    const argumentHint =
+      typeof fm["argument-hint"] === "string" ? fm["argument-hint"] : undefined;
+
+    return {
+      name,
+      description,
+      skillFilePath: file.path,
+      source: file.source,
+      aliases,
+      argumentHint,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function loadSkillContent(skillFilePath: string): string | null {
+  try {
+    const content = readFileSync(skillFilePath, "utf-8");
+    const parsed = parseMarkdownFrontmatter(content);
+    if (parsed) {
+      return parsed.body;
+    }
+    // No frontmatter — return entire content as body
+    return content;
+  } catch {
+    return null;
+  }
+}
+
+function createDiskSkillCommand(skill: DiskSkillDefinition): CommandDefinition {
+  return {
+    name: skill.name,
+    description: skill.description,
+    category: "skill",
+    aliases: skill.aliases,
+    argumentHint: skill.argumentHint,
+    execute: (args: string, context: CommandContext): CommandResult => {
+      const body = loadSkillContent(skill.skillFilePath);
+      if (!body) {
+        return {
+          success: false,
+          message: `Failed to load skill content from ${skill.skillFilePath}`,
+          skillLoaded: skill.name,
+          skillLoadError: `Could not read ${skill.skillFilePath}`,
+        };
+      }
+      const expandedPrompt = expandArguments(body, args.trim());
+      context.sendSilentMessage(expandedPrompt);
+      return { success: true, skillLoaded: skill.name };
+    },
+  };
+}
+
+let discoveredSkillDirectories: string[] = [];
+
+export function getDiscoveredSkillDirectories(): string[] {
+  return discoveredSkillDirectories;
+}
+
+export async function discoverAndRegisterDiskSkills(): Promise<void> {
+  const files = discoverSkillFiles();
+
+  // Collect unique parent directories for SDK passthrough
+  const dirSet = new Set<string>();
+  for (const file of files) {
+    const parentDir = join(file.path, "..", "..");
+    dirSet.add(parentDir);
+  }
+  discoveredSkillDirectories = [...dirSet];
+
+  // Build map with priority resolution
+  const resolved = new Map<string, DiskSkillDefinition>();
+  for (const file of files) {
+    const skill = parseSkillFile(file);
+    if (!skill) continue;
+
+    const existing = resolved.get(skill.name);
+    if (!existing || shouldSkillOverride(skill.source, existing.source, existing.name)) {
+      resolved.set(skill.name, skill);
+    }
+  }
+
+  // Register resolved skills
+  for (const skill of resolved.values()) {
+    if (PINNED_BUILTIN_SKILLS.has(skill.name) && globalRegistry.has(skill.name)) {
+      continue;
+    }
+
+    // Inherit aliases from existing builtin if disk skill doesn't define its own
+    if (!skill.aliases && globalRegistry.has(skill.name)) {
+      const existing = globalRegistry.get(skill.name);
+      if (existing?.aliases) {
+        skill.aliases = existing.aliases;
+      }
+    }
+
+    // Inherit argumentHint from existing builtin if disk skill doesn't define its own
+    if (!skill.argumentHint && globalRegistry.has(skill.name)) {
+      const existing = globalRegistry.get(skill.name);
+      if (existing?.argumentHint) {
+        skill.argumentHint = existing.argumentHint;
+      }
+    }
+
+    const command = createDiskSkillCommand(skill);
+    if (globalRegistry.has(skill.name)) {
+      if (shouldSkillOverride(skill.source, "builtin", skill.name)) {
+        globalRegistry.unregister(skill.name);
+        globalRegistry.register(command);
+      }
+    } else {
       globalRegistry.register(command);
     }
   }

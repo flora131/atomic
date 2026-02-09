@@ -551,6 +551,27 @@ export const mcpToolRenderer: ToolRenderer = {
   },
 };
 
+export const todoWriteToolRenderer: ToolRenderer = {
+  icon: "☑",
+  getTitle(props: ToolRenderProps): string {
+    const todos = (props.input?.todos as Array<{ content: string; status: string }>) ?? [];
+    const done = todos.filter((t) => t.status === "completed").length;
+    const open = todos.length - done;
+    return `${todos.length} tasks (${done} done, ${open} open)`;
+  },
+  render(props: ToolRenderProps): ToolRenderResult {
+    const todos = (props.input?.todos as Array<{ content: string; status: string }>) ?? [];
+    const done = todos.filter((t) => t.status === "completed").length;
+    const open = todos.length - done;
+    const title = `${todos.length} tasks (${done} done, ${open} open)`;
+    const content: string[] = todos.map((t) => {
+      const prefix = t.status === "completed" ? "✓ " : t.status === "in_progress" ? "◉ " : "□ ";
+      return prefix + t.content;
+    });
+    return { title, content, expandable: false };
+  },
+};
+
 // ============================================================================
 // TOOL RENDERERS REGISTRY
 // ============================================================================
@@ -571,6 +592,8 @@ export const TOOL_RENDERERS: Record<string, ToolRenderer> = {
   glob: globToolRenderer,
   Grep: grepToolRenderer,
   grep: grepToolRenderer,
+  TodoWrite: todoWriteToolRenderer,
+  todowrite: todoWriteToolRenderer,
 };
 
 // ============================================================================

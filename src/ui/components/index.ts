@@ -61,6 +61,16 @@ export {
 } from "./tool-result.tsx";
 
 // ============================================================================
+// SKILL LOAD INDICATOR COMPONENT
+// ============================================================================
+
+export {
+  SkillLoadIndicator,
+  type SkillLoadIndicatorProps,
+  type SkillLoadStatus,
+} from "./skill-load-indicator.tsx";
+
+// ============================================================================
 // QUEUE INDICATOR COMPONENT
 // ============================================================================
 

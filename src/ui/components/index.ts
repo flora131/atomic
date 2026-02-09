@@ -54,7 +54,6 @@ export {
 export {
   ToolResult,
   shouldCollapse,
-  getErrorColor,
   getToolSummary,
   type ToolResultProps,
   type ToolSummary,

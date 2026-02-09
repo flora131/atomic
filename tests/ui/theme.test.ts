@@ -47,17 +47,34 @@ describe("darkTheme", () => {
     expect(darkTheme.colors.muted).toBeDefined();
     expect(darkTheme.colors.inputFocus).toBeDefined();
     expect(darkTheme.colors.inputStreaming).toBeDefined();
+    expect(darkTheme.colors.userBubbleBg).toBeDefined();
+    expect(darkTheme.colors.userBubbleFg).toBeDefined();
+    expect(darkTheme.colors.dim).toBeDefined();
+    expect(darkTheme.colors.scrollbarFg).toBeDefined();
+    expect(darkTheme.colors.scrollbarBg).toBeDefined();
+    expect(darkTheme.colors.codeBorder).toBeDefined();
+    expect(darkTheme.colors.codeTitle).toBeDefined();
   });
 
   test("has appropriate dark theme colors", () => {
     expect(darkTheme.colors.background).toBe("black");
-    expect(darkTheme.colors.foreground).toBe("white");
+    expect(darkTheme.colors.foreground).toBe("#ecf2f8");
   });
 
   test("has distinct message colors", () => {
-    expect(darkTheme.colors.userMessage).toBe("#A8C5D8");      // Pale sky blue
-    expect(darkTheme.colors.assistantMessage).toBe("#D4A5A5"); // Dusty rose
-    expect(darkTheme.colors.systemMessage).toBe("#C9B896");    // Muted gold
+    expect(darkTheme.colors.userMessage).toBe("#60a5fa");      // Electric Blue (Blue 400)
+    expect(darkTheme.colors.assistantMessage).toBe("#2dd4bf"); // Atomic Teal
+    expect(darkTheme.colors.systemMessage).toBe("#a78bfa");    // Electric Purple (Violet 400)
+  });
+
+  test("has new theme fields", () => {
+    expect(darkTheme.colors.userBubbleBg).toBe("#3f3f46");
+    expect(darkTheme.colors.userBubbleFg).toBe("#ecf2f8");
+    expect(darkTheme.colors.dim).toBe("#555566");
+    expect(darkTheme.colors.scrollbarFg).toBe("#6b7280");
+    expect(darkTheme.colors.scrollbarBg).toBe("#3f3f46");
+    expect(darkTheme.colors.codeBorder).toBe("#3f3f46");
+    expect(darkTheme.colors.codeTitle).toBe("#2dd4bf");
   });
 });
 
@@ -84,17 +101,34 @@ describe("lightTheme", () => {
     expect(lightTheme.colors.muted).toBeDefined();
     expect(lightTheme.colors.inputFocus).toBeDefined();
     expect(lightTheme.colors.inputStreaming).toBeDefined();
+    expect(lightTheme.colors.userBubbleBg).toBeDefined();
+    expect(lightTheme.colors.userBubbleFg).toBeDefined();
+    expect(lightTheme.colors.dim).toBeDefined();
+    expect(lightTheme.colors.scrollbarFg).toBeDefined();
+    expect(lightTheme.colors.scrollbarBg).toBeDefined();
+    expect(lightTheme.colors.codeBorder).toBeDefined();
+    expect(lightTheme.colors.codeTitle).toBeDefined();
   });
 
   test("has appropriate light theme colors", () => {
     expect(lightTheme.colors.background).toBe("white");
-    expect(lightTheme.colors.foreground).toBe("black");
+    expect(lightTheme.colors.foreground).toBe("#0f172a");
   });
 
   test("has distinct message colors", () => {
-    expect(lightTheme.colors.userMessage).toBe("#5A8AA8");      // Muted steel blue
-    expect(lightTheme.colors.assistantMessage).toBe("#B8878A"); // Muted rose
-    expect(lightTheme.colors.systemMessage).toBe("#A89060");    // Dusty gold
+    expect(lightTheme.colors.userMessage).toBe("#2563eb");      // Royal Blue (Blue 600)
+    expect(lightTheme.colors.assistantMessage).toBe("#0d9488"); // Deep Teal
+    expect(lightTheme.colors.systemMessage).toBe("#7c3aed");    // Deep Violet (Violet 600)
+  });
+
+  test("has new theme fields", () => {
+    expect(lightTheme.colors.userBubbleBg).toBe("#e2e8f0");
+    expect(lightTheme.colors.userBubbleFg).toBe("#0f172a");
+    expect(lightTheme.colors.dim).toBe("#94a3b8");
+    expect(lightTheme.colors.scrollbarFg).toBe("#94a3b8");
+    expect(lightTheme.colors.scrollbarBg).toBe("#e2e8f0");
+    expect(lightTheme.colors.codeBorder).toBe("#cbd5e1");
+    expect(lightTheme.colors.codeTitle).toBe("#0d9488");
   });
 });
 
@@ -106,18 +140,18 @@ describe("theme color consistency", () => {
   });
 
   test("error color is consistent", () => {
-    expect(darkTheme.colors.error).toBe("#C98A8A");  // Dusty red
-    expect(lightTheme.colors.error).toBe("#A86868"); // Muted red
+    expect(darkTheme.colors.error).toBe("#fb7185");  // Rose 400
+    expect(lightTheme.colors.error).toBe("#e11d48"); // Rose 600
   });
 
   test("success color is consistent", () => {
-    expect(darkTheme.colors.success).toBe("#8AB89A");  // Muted sage
-    expect(lightTheme.colors.success).toBe("#5A886A"); // Muted sage
+    expect(darkTheme.colors.success).toBe("#4ade80");  // Green 400
+    expect(lightTheme.colors.success).toBe("#16a34a"); // Green 600
   });
 
   test("warning color is consistent", () => {
-    expect(darkTheme.colors.warning).toBe("#C9B896");  // Muted gold
-    expect(lightTheme.colors.warning).toBe("#A89060"); // Dusty gold
+    expect(darkTheme.colors.warning).toBe("#fbbf24");  // Amber 400
+    expect(lightTheme.colors.warning).toBe("#d97706"); // Amber 600
   });
 });
 
@@ -153,18 +187,18 @@ describe("getThemeByName", () => {
 
 describe("getMessageColor", () => {
   test("returns user color for user role", () => {
-    expect(getMessageColor("user", darkTheme.colors)).toBe("#A8C5D8");  // Pale sky blue
-    expect(getMessageColor("user", lightTheme.colors)).toBe("#5A8AA8"); // Muted steel blue
+    expect(getMessageColor("user", darkTheme.colors)).toBe("#60a5fa");  // Electric Blue
+    expect(getMessageColor("user", lightTheme.colors)).toBe("#2563eb"); // Royal Blue
   });
 
   test("returns assistant color for assistant role", () => {
-    expect(getMessageColor("assistant", darkTheme.colors)).toBe("#D4A5A5"); // Dusty rose
-    expect(getMessageColor("assistant", lightTheme.colors)).toBe("#B8878A"); // Muted rose
+    expect(getMessageColor("assistant", darkTheme.colors)).toBe("#2dd4bf"); // Atomic Teal
+    expect(getMessageColor("assistant", lightTheme.colors)).toBe("#0d9488"); // Deep Teal
   });
 
   test("returns system color for system role", () => {
-    expect(getMessageColor("system", darkTheme.colors)).toBe("#C9B896"); // Muted gold
-    expect(getMessageColor("system", lightTheme.colors)).toBe("#A89060"); // Dusty gold
+    expect(getMessageColor("system", darkTheme.colors)).toBe("#a78bfa"); // Electric Purple
+    expect(getMessageColor("system", lightTheme.colors)).toBe("#7c3aed"); // Deep Violet
   });
 });
 
@@ -241,12 +275,19 @@ describe("Theme interface", () => {
         muted: "gray",
         inputFocus: "green",
         inputStreaming: "yellow",
+        userBubbleBg: "darkgray",
+        userBubbleFg: "white",
+        dim: "gray",
+        scrollbarFg: "gray",
+        scrollbarBg: "darkgray",
+        codeBorder: "gray",
+        codeTitle: "cyan",
       },
     };
 
     expect(theme.name).toBe("test");
     expect(theme.isDark).toBe(true);
-    expect(Object.keys(theme.colors).length).toBe(13);
+    expect(Object.keys(theme.colors).length).toBe(20);
   });
 });
 
@@ -266,6 +307,13 @@ describe("ThemeColors interface", () => {
       muted: "gray",
       inputFocus: "green",
       inputStreaming: "yellow",
+      userBubbleBg: "darkgray",
+      userBubbleFg: "white",
+      dim: "gray",
+      scrollbarFg: "gray",
+      scrollbarBg: "darkgray",
+      codeBorder: "gray",
+      codeTitle: "cyan",
     };
 
     expect(colors.background).toBe("black");

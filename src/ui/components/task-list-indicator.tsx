@@ -4,10 +4,18 @@
  * Renders a task/todo list with status indicators and tree-style connectors,
  * displayed inline under the LoadingIndicator during agent streaming.
  *
+ * Uses circle-based status icons consistent with ToolResult and ParallelAgentsTree:
+ * - pending:     ○  muted
+ * - in_progress: ●  accent (blinking)
+ * - completed:   ●  green
+ * - error:       ✕  red
+ *
  * Reference: Issue #168
  */
 
-import React from "react";
+import React, { useState, useEffect } from "react";
+
+import { useThemeColors } from "../theme.tsx";
 
 // ============================================================================
 // TYPES
@@ -16,7 +24,7 @@ import React from "react";
 export interface TaskItem {
   id?: string;
   content: string;
-  status: "pending" | "in_progress" | "completed";
+  status: "pending" | "in_progress" | "completed" | "error";
   blockedBy?: string[];
 }
 
@@ -31,24 +39,59 @@ export interface TaskListIndicatorProps {
 // CONSTANTS
 // ============================================================================
 
-const STATUS_ICONS: Record<TaskItem["status"], string> = {
-  pending: "◻",
-  in_progress: "◉",
-  completed: "◼",
+export const TASK_STATUS_ICONS: Record<TaskItem["status"], string> = {
+  pending: "○",
+  in_progress: "●",
+  completed: "●",
+  error: "✕",
 };
 
-const STATUS_COLORS: Record<TaskItem["status"], string> = {
-  pending: "#E0E0E0",
-  in_progress: "#D4A5A5",
-  completed: "#8AB89A",
-};
+/** Max content chars before truncation (prefix takes ~5 chars: "⎿  ● ") */
+export const MAX_CONTENT_LENGTH = 60;
 
-const OVERFLOW_COLOR = "#9A9AAC";
-/** Max content chars before truncation (prefix takes ~5 chars: "└  □ ") */
-const MAX_CONTENT_LENGTH = 60;
-
-function truncate(text: string, max: number): string {
+export function truncate(text: string, max: number): string {
   return text.length > max ? text.slice(0, max - 1) + "…" : text;
+}
+
+/** Map task status to semantic color key */
+export function getStatusColorKey(status: TaskItem["status"]): "muted" | "accent" | "success" | "error" {
+  switch (status) {
+    case "pending": return "muted";
+    case "in_progress": return "accent";
+    case "completed": return "success";
+    case "error": return "error";
+  }
+}
+
+// ============================================================================
+// ANIMATED STATUS INDICATOR
+// ============================================================================
+
+/**
+ * Animated blinking indicator for in-progress task state.
+ * Alternates between ● and · to simulate a blink, matching ToolResult behavior.
+ */
+function AnimatedStatusIndicator({
+  color,
+  speed = 500,
+}: {
+  color: string;
+  speed?: number;
+}): React.ReactNode {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setVisible((prev) => !prev);
+    }, speed);
+    return () => clearInterval(interval);
+  }, [speed]);
+
+  return (
+    <span style={{ fg: color }}>
+      {visible ? "●" : "·"}
+    </span>
+  );
 }
 
 // ============================================================================
@@ -59,6 +102,8 @@ export function TaskListIndicator({
   items,
   maxVisible = 10,
 }: TaskListIndicatorProps): React.ReactNode {
+  const themeColors = useThemeColors();
+
   if (items.length === 0) {
     return null;
   }
@@ -69,22 +114,27 @@ export function TaskListIndicator({
   return (
     <box flexDirection="column">
       {visibleItems.map((item, i) => {
-        const color = STATUS_COLORS[item.status];
-        const icon = STATUS_ICONS[item.status];
+        const color = themeColors[getStatusColorKey(item.status)];
+        const icon = TASK_STATUS_ICONS[item.status];
+        const isActive = item.status === "in_progress";
         return (
           <text key={i}>
-            <span style={{ fg: "#949494" }}>{i === 0 ? "⎿  " : "   "}</span>
-            <span style={{ fg: color }}>{icon} </span>
-            <span style={{ fg: color }}>{truncate(item.content, MAX_CONTENT_LENGTH)}</span>
+            <span style={{ fg: themeColors.muted }}>{i === 0 ? "⎿  " : "   "}</span>
+            {isActive ? (
+              <AnimatedStatusIndicator color={color} speed={500} />
+            ) : (
+              <span style={{ fg: color }}>{icon}</span>
+            )}
+            <span style={{ fg: color }}>{" "}{truncate(item.content, MAX_CONTENT_LENGTH)}</span>
             {item.blockedBy && item.blockedBy.length > 0 && (
-              <span style={{ fg: OVERFLOW_COLOR }}>{` › blocked by ${item.blockedBy.map(id => id.startsWith("#") ? id : `#${id}`).join(", ")}`}</span>
+              <span style={{ fg: themeColors.muted }}>{` › blocked by ${item.blockedBy.map(id => id.startsWith("#") ? id : `#${id}`).join(", ")}`}</span>
             )}
           </text>
         );
       })}
       {overflowCount > 0 && (
         <text>
-          <span style={{ fg: OVERFLOW_COLOR }}>
+          <span style={{ fg: themeColors.muted }}>
             {"   ... +"}
             {overflowCount}
             {" more tasks"}

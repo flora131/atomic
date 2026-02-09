@@ -841,12 +841,12 @@ export async function startChatUI(
     }
 
     // Create the CLI renderer with:
-    // - mouse mode disabled to allow native terminal text selection and copy (Cmd+C / Ctrl+Shift+C)
+    // - mouse mode enabled for scroll wheel support (text selection via OpenTUI Selection API + Ctrl+Shift+C)
     // - useAlternateScreen: true to prevent scrollbox from corrupting terminal output
     // - exitOnCtrlC: false to allow double-press Ctrl+C behavior
     // - useKittyKeyboard: with disambiguate so Ctrl+C is received as keyboard event
     state.renderer = await createCliRenderer({
-      useMouse: false,
+      useMouse: true,
       useAlternateScreen: true,
       exitOnCtrlC: false,
       useKittyKeyboard: { disambiguate: true },
@@ -1211,6 +1211,5 @@ export {
 export {
   ToolResult,
   shouldCollapse,
-  getErrorColor,
   type ToolResultProps,
 } from "./components/tool-result.tsx";

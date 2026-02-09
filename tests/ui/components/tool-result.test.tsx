@@ -12,11 +12,11 @@
 import { describe, test, expect } from "bun:test";
 import {
   shouldCollapse,
-  getErrorColor,
   getToolSummary,
   type ToolResultProps,
   type ToolSummary,
 } from "../../../src/ui/components/tool-result.tsx";
+import { darkTheme, lightTheme } from "../../../src/ui/theme.tsx";
 import { getToolRenderer } from "../../../src/ui/tools/registry.ts";
 
 // ============================================================================
@@ -57,15 +57,13 @@ describe("shouldCollapse", () => {
 // GET ERROR COLOR TESTS
 // ============================================================================
 
-describe("getErrorColor", () => {
-  test("returns dark theme error color", () => {
-    const color = getErrorColor(true);
-    expect(color).toBe("#C98A8A");
+describe("theme error colors", () => {
+  test("dark theme has error color", () => {
+    expect(darkTheme.colors.error).toBe("#fb7185");
   });
 
-  test("returns light theme error color", () => {
-    const color = getErrorColor(false);
-    expect(color).toBe("#A86868");
+  test("light theme has error color", () => {
+    expect(lightTheme.colors.error).toBe("#e11d48");
   });
 });
 
@@ -236,10 +234,7 @@ describe("Collapsible behavior", () => {
 
 describe("Error handling", () => {
   test("error status uses error color", () => {
-    const errorColorDark = getErrorColor(true);
-    const errorColorLight = getErrorColor(false);
-
-    expect(errorColorDark).not.toBe(errorColorLight);
+    expect(darkTheme.colors.error).not.toBe(lightTheme.colors.error);
   });
 
   test("error output is displayed", () => {

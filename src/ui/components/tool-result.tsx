@@ -197,10 +197,6 @@ export function shouldCollapse(
   return contentLength > maxLines;
 }
 
-export function getErrorColor(isDark: boolean): string {
-  return isDark ? "#C98A8A" : "#A86868";
-}
-
 export function getToolSummary(
   toolName: string,
   input: Record<string, unknown>,

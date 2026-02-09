@@ -387,7 +387,7 @@ function createTestTaskListContent(): string {
       },
     ],
   };
-  return JSON.stringify(taskList, null, 2);
+  return JSON.stringify(features, null, 2);
 }
 
 // ============================================================================
@@ -567,12 +567,7 @@ describe("E2E test: Run all functionality in copilot mode", () => {
       const loaded = await loadSession(sessionDir);
 
       expect(loaded.sessionId).toBe(sessionId);
-      expect(loaded.tasks[0]?.name).toBe("Copilot test feature");
-    });
-
-      expect(workflow).toBeDefined();
-
-      await client.stop();
+      expect(loaded.tasks[0]?.content).toBe("Copilot test feature");
     });
   });
 
@@ -1214,4 +1209,5 @@ describe("E2E test: Run all functionality in copilot mode", () => {
       });
     }
   );
+});
 

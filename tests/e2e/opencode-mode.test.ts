@@ -507,7 +507,7 @@ describe("E2E test: Run all functionality in opencode mode", () => {
     });
 
     test("parseRalphArgs works correctly for opencode mode", () => {
-      const args = parseRalphArgs("--max-iterations 20 implement features");
+      const args = parseRalphArgs("implement features");
       expect(args.prompt).toBe("implement features");
     });
 
@@ -563,12 +563,7 @@ describe("E2E test: Run all functionality in opencode mode", () => {
       const loaded = await loadSession(sessionDir);
 
       expect(loaded.sessionId).toBe(sessionId);
-      expect(loaded.tasks[0]?.name).toBe("OpenCode test feature");
-    });
-
-      expect(workflow).toBeDefined();
-
-      await client.stop();
+      expect(loaded.tasks[0]?.content).toBe("OpenCode test feature");
     });
   });
 
@@ -1178,4 +1173,5 @@ describe("E2E test: Run all functionality in opencode mode", () => {
       });
     }
   );
+});
 

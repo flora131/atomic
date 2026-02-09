@@ -180,6 +180,12 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     // Pass the model from CLI options if provided for accurate display
     const modelDisplayInfo = await client.getModelDisplayInfo(effectiveModel);
 
+    // For copilot, append reasoning effort to model display if persisted
+    let displayModelName = modelDisplayInfo.model;
+    if (agentType === "copilot" && effectiveReasoningEffort) {
+      displayModelName += ` (${effectiveReasoningEffort})`;
+    }
+
     // Discover MCP server configs from all known config formats
     const mcpServers = discoverMcpConfigs();
 
@@ -194,7 +200,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
       title: `Chat - ${agentName}`,
       placeholder: "Type a message...",
       version: "0.4.4",
-      model: modelDisplayInfo.model,
+      model: displayModelName,
       tier: modelDisplayInfo.tier,
       workingDir: process.cwd(),
       suggestion: 'Try "fix typecheck errors"',

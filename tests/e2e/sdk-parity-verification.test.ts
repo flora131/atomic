@@ -34,7 +34,7 @@ import type {
   PermissionMode,
   ModelDisplayInfo,
 } from "../../src/sdk/types.ts";
-import { formatModelDisplayName } from "../../src/sdk/types.ts";
+import { stripProviderPrefix } from "../../src/sdk/types.ts";
 import {
   globalRegistry,
   type CommandContext,
@@ -213,7 +213,7 @@ function createMockAgentClient(agentType: "claude" | "opencode" | "copilot"): Co
     async getModelDisplayInfo(modelHint?: string): Promise<ModelDisplayInfo> {
       const modelId = modelHint ?? currentModel;
       return {
-        model: formatModelDisplayName(modelId),
+        model: stripProviderPrefix(modelId),
         tier: agentType === "claude" ? "Claude Code" : agentType === "copilot" ? "GitHub Copilot" : "OpenCode",
       };
     },
@@ -332,14 +332,13 @@ describe("SDK Parity Verification", () => {
       expect(copilotInfo.tier).toBe("GitHub Copilot");
     });
 
-    test("getModelDisplayInfo formats model names consistently", async () => {
-      // Test with explicit model hints
-      // Model name formatting returns lowercase family name for consistency
+    test("getModelDisplayInfo returns raw model names", async () => {
+      // Test with explicit model hints - should return raw IDs
       const claudeInfo = await claudeClient.getModelDisplayInfo("claude-sonnet-4-5");
-      expect(claudeInfo.model).toBe("sonnet");
+      expect(claudeInfo.model).toBe("claude-sonnet-4-5");
 
       const copilotInfo = await copilotClient.getModelDisplayInfo("gpt-4.1");
-      expect(copilotInfo.model.toLowerCase()).toContain("gpt");
+      expect(copilotInfo.model).toBe("gpt-4.1");
     });
 
     test("/model command exists in registry", () => {

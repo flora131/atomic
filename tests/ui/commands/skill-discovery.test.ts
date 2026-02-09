@@ -55,39 +55,22 @@ describe("shouldSkillOverride", () => {
     expect(shouldSkillOverride("project", "builtin", "prompt-engineer")).toBe(false);
     expect(shouldSkillOverride("project", "builtin", "testing-anti-patterns")).toBe(false);
     expect(shouldSkillOverride("user", "builtin", "prompt-engineer")).toBe(false);
-    expect(shouldSkillOverride("atomic", "builtin", "testing-anti-patterns")).toBe(false);
   });
 
   test("non-pinned builtins can be overridden by project", () => {
     expect(shouldSkillOverride("project", "builtin", "commit")).toBe(true);
   });
 
-  test("non-pinned builtins can be overridden by atomic", () => {
-    expect(shouldSkillOverride("atomic", "builtin", "commit")).toBe(true);
-  });
-
   test("non-pinned builtins can be overridden by user/global", () => {
     expect(shouldSkillOverride("user", "builtin", "commit")).toBe(true);
-  });
-
-  test("project overrides atomic", () => {
-    expect(shouldSkillOverride("project", "atomic", "my-skill")).toBe(true);
   });
 
   test("project overrides user", () => {
     expect(shouldSkillOverride("project", "user", "my-skill")).toBe(true);
   });
 
-  test("atomic overrides user", () => {
-    expect(shouldSkillOverride("atomic", "user", "my-skill")).toBe(true);
-  });
-
   test("user does not override project", () => {
     expect(shouldSkillOverride("user", "project", "my-skill")).toBe(false);
-  });
-
-  test("user does not override atomic", () => {
-    expect(shouldSkillOverride("user", "atomic", "my-skill")).toBe(false);
   });
 
   test("same priority does not override", () => {
@@ -372,12 +355,12 @@ describe("Discovery path constants", () => {
   test("SKILL_DISCOVERY_PATHS includes all expected project-local paths", () => {
     const paths = [...SKILL_DISCOVERY_PATHS];
     expect(paths).toContainEqual(expect.stringContaining("skills"));
-    expect(paths.length).toBe(4);
+    expect(paths.length).toBe(3);
   });
 
   test("GLOBAL_SKILL_PATHS includes all expected global paths", () => {
     const paths = [...GLOBAL_SKILL_PATHS];
     expect(paths).toContainEqual(expect.stringContaining("skills"));
-    expect(paths.length).toBe(4);
+    expect(paths.length).toBe(3);
   });
 });

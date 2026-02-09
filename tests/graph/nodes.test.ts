@@ -92,6 +92,7 @@ function createMockSession(messages: AgentMessage[] = []): Session {
       maxTokens: 100000,
       usagePercentage: 0.15,
     })),
+    getSystemToolsTokens: mock(() => 0),
     destroy: mock(async () => {}),
   };
 }
@@ -1436,8 +1437,8 @@ function createContextTestContext(
 }
 
 describe("Context Monitoring Helpers", () => {
-  test("DEFAULT_CONTEXT_THRESHOLD is 60", () => {
-    expect(DEFAULT_CONTEXT_THRESHOLD).toBe(60);
+  test("DEFAULT_CONTEXT_THRESHOLD is 45", () => {
+    expect(DEFAULT_CONTEXT_THRESHOLD).toBe(45);
   });
 
   test("getDefaultCompactionAction returns correct action for each agent type", () => {
@@ -1718,24 +1719,24 @@ describe("contextMonitorNode", () => {
   test("uses custom threshold", async () => {
     const mockSession = createMockSession();
     (mockSession.getContextUsage as ReturnType<typeof mock>).mockImplementation(async () => ({
-      inputTokens: 30000,
-      outputTokens: 15000,
+      inputTokens: 25000,
+      outputTokens: 10000,
       maxTokens: 100000,
-      usagePercentage: 45.0,
+      usagePercentage: 35.0,
     }));
 
-    // Default threshold (60) would not trigger
+    // Default threshold (45) would not trigger
     const nodeDefault = contextMonitorNode<ContextTestState>({
       id: "context-check-default",
       agentType: "copilot",
       getSession: () => mockSession,
     });
 
-    // Custom threshold (40) should trigger
+    // Custom threshold (30) should trigger
     const nodeCustom = contextMonitorNode<ContextTestState>({
       id: "context-check-custom",
       agentType: "copilot",
-      threshold: 40,
+      threshold: 30,
       getSession: () => mockSession,
     });
 

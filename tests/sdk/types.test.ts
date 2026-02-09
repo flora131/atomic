@@ -415,6 +415,7 @@ describe("SDK Types Module", () => {
           maxTokens: 200000,
           usagePercentage: 0.75,
         }),
+        getSystemToolsTokens: () => 0,
         destroy: async () => {
           // Cleanup for mock
         },
@@ -463,6 +464,7 @@ describe("SDK Types Module", () => {
               maxTokens: 200000,
               usagePercentage: 0,
             }),
+            getSystemToolsTokens: () => 0,
             destroy: async () => {
               mockSessions.delete(session.id);
             },
@@ -590,6 +592,7 @@ describe("SDK Types Module", () => {
               maxTokens: 200000,
               usagePercentage: 0,
             }),
+            getSystemToolsTokens: () => 0,
             destroy: async () => {},
           }),
           resumeSession: async () => null,

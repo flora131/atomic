@@ -263,7 +263,7 @@ describe("DEFAULT_RETRY_CONFIG", () => {
 describe("DEFAULT_GRAPH_CONFIG", () => {
   test("has expected default values", () => {
     expect(DEFAULT_GRAPH_CONFIG.maxConcurrency).toBe(1);
-    expect(DEFAULT_GRAPH_CONFIG.contextWindowThreshold).toBe(60);
+    expect(DEFAULT_GRAPH_CONFIG.contextWindowThreshold).toBe(45);
     expect(DEFAULT_GRAPH_CONFIG.autoCheckpoint).toBe(true);
   });
 

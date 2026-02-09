@@ -603,11 +603,62 @@ export class OpenCodeClient implements CodingAgentClient {
   }
 
   /**
+   * Register MCP servers with the OpenCode server via client.mcp.add().
+   * Converts unified McpServerConfig[] to OpenCode's McpLocalConfig | McpRemoteConfig format.
+   */
+  private async registerMcpServers(servers: NonNullable<SessionConfig["mcpServers"]>): Promise<void> {
+    if (!this.sdkClient) return;
+
+    for (const server of servers) {
+      try {
+        if (server.url) {
+          // Remote MCP server (http/sse)
+          await this.sdkClient.mcp.add({
+            directory: this.clientOptions.directory,
+            name: server.name,
+            config: {
+              type: "remote" as const,
+              url: server.url,
+              headers: server.headers,
+              enabled: server.enabled !== false,
+              timeout: server.timeout,
+            },
+          });
+        } else if (server.command) {
+          // Local MCP server (stdio)
+          const command = [server.command, ...(server.args ?? [])];
+          await this.sdkClient.mcp.add({
+            directory: this.clientOptions.directory,
+            name: server.name,
+            config: {
+              type: "local" as const,
+              command,
+              environment: server.env,
+              enabled: server.enabled !== false,
+              timeout: server.timeout,
+            },
+          });
+        }
+      } catch (error) {
+        // Log but don't fail session creation if an MCP server fails to register
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`Failed to register MCP server '${server.name}': ${errorMsg}`);
+      }
+    }
+  }
+
+  /**
    * Create a new agent session
    */
   async createSession(config: SessionConfig = {}): Promise<Session> {
     if (!this.isRunning || !this.sdkClient) {
       throw new Error("Client not started. Call start() first.");
+    }
+
+    // Register MCP servers via client.mcp.add() before creating the session
+    // OpenCode SDK uses server-level MCP (not per-session), so we add them here
+    if (config.mcpServers && config.mcpServers.length > 0) {
+      await this.registerMcpServers(config.mcpServers);
     }
 
     const result = await this.sdkClient.session.create({
@@ -1134,8 +1185,23 @@ export class OpenCodeClient implements CodingAgentClient {
    * @param _modelHint - Optional model hint (unused, queries SDK config instead)
    */
   async getModelDisplayInfo(
-    _modelHint?: string
+    modelHint?: string
   ): Promise<{ model: string; tier: string }> {
+    // If a model hint is provided, format it for display
+    if (modelHint) {
+      // Strip provider prefix if present (e.g., "anthropic/claude-sonnet-4" -> "claude-sonnet-4")
+      const modelId = modelHint.includes("/") ? modelHint.split("/").slice(1).join("/") : modelHint;
+      const displayModel = modelId
+        .replace(/-\d{8,}$/, "") // Remove trailing date
+        .split("-")
+        .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
+      return {
+        model: displayModel,
+        tier: "OpenCode",
+      };
+    }
+
     if (!this.isRunning || !this.sdkClient) {
       return {
         model: "Claude",
@@ -1159,7 +1225,7 @@ export class OpenCodeClient implements CodingAgentClient {
             if (modelId) {
               // Format model ID for display (e.g., "claude-sonnet-4-20250514" -> "Claude Sonnet 4")
               const displayModel = modelId
-                .replace(/-\d+$/, "") // Remove trailing date
+                .replace(/-\d{8,}$/, "") // Remove trailing date
                 .split("-")
                 .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
                 .join(" ");

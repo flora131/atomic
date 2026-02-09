@@ -17,7 +17,7 @@ import type {
   PasteEvent,
 } from "@opentui/core";
 import { MacOSScrollAccel, SyntaxStyle, RGBA } from "@opentui/core";
-import { useTheme, useThemeColors, darkTheme, lightTheme } from "./theme.tsx";
+import { useTheme, useThemeColors, darkTheme, lightTheme, createMarkdownSyntaxStyle } from "./theme.tsx";
 import { copyToClipboard, pasteFromClipboard } from "../utils/clipboard.ts";
 import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplete.tsx";
 import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
@@ -220,19 +220,14 @@ const ATOMIC_BLOCK_LOGO = [
 ];
 
 /**
- * Gradient color palette for Atomic branding
- * Muted dusty pink → soft rose → pale blue transition
+ * Build the Atomic branding gradient based on theme mode.
+ * Dark: warm amber → teal. Light: amber-700 → teal-700.
  */
-const ATOMIC_GRADIENT = [
-  "#E8B4B8", // Dusty pink (start)
-  "#DDA8AC", // Muted rose
-  "#D49CA0", // Soft rose
-  "#C99094", // Dusty rose
-  "#B8949C", // Mauve
-  "#A898A4", // Dusty lavender
-  "#989CAC", // Muted periwinkle
-  "#8AA0B4", // Pale steel blue (end)
-];
+function buildAtomicGradient(isDark: boolean): string[] {
+  return isDark
+    ? ["#f0b866", "#c8b87a", "#8dc5a0", "#5ec4ae", "#3abfb5", "#2dd4bf", "#26bfad", "#20a89a"]
+    : ["#b45309", "#947040", "#5f9878", "#2d8d80", "#189585", "#0d9488", "#0b857a", "#0a7a6e"];
+}
 
 /**
  * Props for GradientText component
@@ -354,7 +349,7 @@ export interface ChatMessage {
   /** Skill loads triggered during this message */
   skillLoads?: MessageSkillLoad[];
   /** Snapshot of task items active during this message (baked on completion) */
-  taskItems?: Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed"; blockedBy?: string[]}>;
+  taskItems?: Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; blockedBy?: string[]}>;
   /** MCP server list for rendering via McpServerListIndicator */
   mcpServers?: import("../sdk/types.ts").McpServerConfig[];
   contextInfo?: import("./commands/registry.ts").ContextDisplayInfo;
@@ -612,7 +607,7 @@ export interface MessageBubbleProps {
   /** Whether the agent tree is expanded */
   agentTreeExpanded?: boolean;
   /** Todo items to show inline during streaming */
-  todoItems?: Array<{content: string; status: "pending" | "in_progress" | "completed"}>;
+  todoItems?: Array<{content: string; status: "pending" | "in_progress" | "completed" | "error"}>;
   /** Elapsed streaming time in milliseconds */
   elapsedMs?: number;
   /** Whether the conversation is collapsed (shows compact single-line summaries) */
@@ -754,6 +749,7 @@ function formatTokenCount(tokens: number): string {
  * inside other text elements. Wrap in <text> when using standalone.
  */
 export function LoadingIndicator({ speed = 100, elapsedMs, outputTokens, thinkingMs }: LoadingIndicatorProps): React.ReactNode {
+  const themeColors = useThemeColors();
   const [frameIndex, setFrameIndex] = useState(0);
   // Select random verb only on mount (empty dependency array)
   const [verb] = useState(() => getRandomSpinnerVerb());
@@ -783,10 +779,10 @@ export function LoadingIndicator({ speed = 100, elapsedMs, outputTokens, thinkin
 
   return (
     <>
-      <span style={{ fg: "#D4A5A5" }}>{spinChar} </span>
-      <span style={{ fg: "#D4A5A5" }}>{verb}…</span>
+      <span style={{ fg: themeColors.accent }}>{spinChar} </span>
+      <span style={{ fg: themeColors.accent }}>{verb}…</span>
       {infoText && (
-        <span style={{ fg: "#9A9AAC" }}>{infoText}</span>
+        <span style={{ fg: themeColors.muted }}>{infoText}</span>
       )}
     </>
   );
@@ -856,6 +852,7 @@ interface CompletionSummaryProps {
  * Enhanced format: "✻ Worked for 1m 6s · ↓ 16.7k tokens · thought for 54s"
  */
 export function CompletionSummary({ durationMs, outputTokens, thinkingMs }: CompletionSummaryProps): React.ReactNode {
+  const themeColors = useThemeColors();
   const [verb] = useState(() => getRandomCompletionVerb());
   const [spinChar] = useState(() => getRandomSpinnerChar());
 
@@ -869,8 +866,8 @@ export function CompletionSummary({ durationMs, outputTokens, thinkingMs }: Comp
 
   return (
     <box flexDirection="row">
-      <text style={{ fg: "#9A9AAC" }}>
-        <span style={{ fg: "#D4A5A5" }}>{spinChar} </span>
+      <text style={{ fg: themeColors.muted }}>
+        <span style={{ fg: themeColors.accent }}>{spinChar} </span>
         <span>{parts.join(" · ")}</span>
       </text>
     </box>
@@ -888,6 +885,7 @@ export function CompletionSummary({ durationMs, outputTokens, thinkingMs }: Comp
  * Returns a <span> so it can be embedded inline within a <text> element.
  */
 export function StreamingBullet({ speed = 500 }: { speed?: number }): React.ReactNode {
+  const themeColors = useThemeColors();
   const [visible, setVisible] = useState(true);
 
   useEffect(() => {
@@ -897,34 +895,8 @@ export function StreamingBullet({ speed = 500 }: { speed?: number }): React.Reac
     return () => clearInterval(interval);
   }, [speed]);
 
-  return <span style={{ fg: "#D4A5A5" }}>{visible ? "●" : "·"} </span>;
+  return <span style={{ fg: themeColors.accent }}>{visible ? "●" : "·"} </span>;
 }
-
-// ============================================================================
-// DESIGN TOKENS - ATOMIC BRANDING (Muted Pink & Pale Blue Theme)
-// ============================================================================
-
-/** Primary pink - soft dusty rose brand color */
-const ATOMIC_PINK = "#D4A5A5";
-/** Secondary pink - muted rose for borders */
-const ATOMIC_PINK_DIM = "#B8878A";
-/** User message color - pale sky blue for contrast */
-const _USER_SKY = "#A8C5D8";
-/** Muted color for timestamps and secondary text */
-const MUTED_LAVENDER = "#9A9AAC";
-/** Dim text for subtle elements */
-const _DIM_BLUE = "#8899AA";
-/** Input scrollbar thumb color when textarea content overflows */
-const INPUT_SCROLLBAR_FG = "#BFA6AC";
-/** Input scrollbar track color when textarea content overflows */
-const INPUT_SCROLLBAR_BG = "#5A4C50";
-
-/** SyntaxStyle for textarea slash command highlighting */
-const inputSyntaxStyle = SyntaxStyle.create();
-const COMMAND_STYLE_ID = inputSyntaxStyle.registerStyle("command", {
-  fg: RGBA.fromHex(ATOMIC_PINK),
-  bold: true,
-});
 
 const HLREF_COMMAND = 1;
 
@@ -989,12 +961,15 @@ export function AtomicHeader({
   tier = "Claude Max",
   workingDir = "~/",
 }: AtomicHeaderProps): React.ReactNode {
+  const { theme } = useTheme();
+  const gradient = useMemo(() => buildAtomicGradient(theme.isDark), [theme.isDark]);
+
   return (
     <box flexDirection="row" alignItems="flex-start" marginBottom={1} marginLeft={1} flexShrink={0}>
       {/* Block letter logo with gradient */}
       <box flexDirection="column" marginRight={3}>
         {ATOMIC_BLOCK_LOGO.map((line, i) => (
-          <GradientText key={i} text={line} gradient={ATOMIC_GRADIENT} />
+          <GradientText key={i} text={line} gradient={gradient} />
         ))}
       </box>
 
@@ -1002,16 +977,16 @@ export function AtomicHeader({
       <box flexDirection="column" paddingTop={0}>
         {/* Version line */}
         <text>
-          <span style={{ fg: "white" }}>v{version}</span>
+          <span style={{ fg: theme.colors.foreground }}>v{version}</span>
         </text>
 
         {/* Model info line */}
-        <text style={{ fg: MUTED_LAVENDER }}>
+        <text style={{ fg: theme.colors.muted }}>
           {model} · {tier}
         </text>
 
         {/* Working directory line */}
-        <text style={{ fg: MUTED_LAVENDER }}>{workingDir}</text>
+        <text style={{ fg: theme.colors.muted }}>{workingDir}</text>
       </box>
     </box>
   );
@@ -1103,6 +1078,16 @@ function buildContentSegments(content: string, toolCalls: MessageToolCall[]): Co
  * - Assistant messages: bullet point (●) prefix, no header
  * Tool calls are rendered inline at their correct chronological positions.
  */
+
+/**
+ * Convert GFM task list checkboxes to unicode characters.
+ * OpenTUI's MarkdownRenderable doesn't handle checkbox syntax natively.
+ */
+function preprocessTaskListCheckboxes(content: string): string {
+  return content
+    .replace(/^(\s*[-*+]\s+)\[ \]/gm, "$1☐")
+    .replace(/^(\s*[-*+]\s+)\[[xX]\]/gm, "$1☑");
+}
 export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, parallelAgents, agentTreeExpanded, todoItems, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
@@ -1123,8 +1108,8 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
       return (
         <box paddingLeft={1} paddingRight={1} marginBottom={0}>
           <text wrapMode="char">
-            <span style={{ fg: "#6E6E80" }}>❯ </span>
-            <span style={{ fg: "#C8C8D0" }}>{truncate(message.content, 78)}</span>
+            <span style={{ fg: themeColors.dim }}>❯ </span>
+            <span style={{ fg: themeColors.muted }}>{truncate(message.content, 78)}</span>
           </text>
         </box>
       );
@@ -1138,9 +1123,9 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
       return (
         <box paddingLeft={1} paddingRight={1} marginBottom={isLast ? 0 : 1}>
           <text wrapMode="char">
-            <span style={{ fg: "#6E6E80" }}>  ⎿ </span>
-            <span style={{ fg: "#9A9AAC" }}>{truncate(message.content, 74)}</span>
-            <span style={{ fg: "#555566" }}>{toolLabel}</span>
+            <span style={{ fg: themeColors.dim }}>  ⎿ </span>
+            <span style={{ fg: themeColors.muted }}>{truncate(message.content, 74)}</span>
+            <span style={{ fg: themeColors.dim }}>{toolLabel}</span>
           </text>
         </box>
       );
@@ -1165,7 +1150,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
       >
         <box flexGrow={1} flexShrink={1} minWidth={0}>
           <text wrapMode="char">
-            <span style={{ bg: "#3A3A4A", fg: "#E0E0E0" }}> {message.content} </span>
+            <span style={{ bg: themeColors.userBubbleBg, fg: themeColors.userBubbleFg }}> {message.content} </span>
           </text>
         </box>
         {message.filesRead && message.filesRead.length > 0 && (
@@ -1179,7 +1164,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
                   ? "Loaded"
                   : "Read";
               return (
-                <text key={i} wrapMode="char" style={{ fg: MUTED_LAVENDER }}>
+                <text key={i} wrapMode="char" style={{ fg: themeColors.muted }}>
                   {` ⎿  ${verb} `}
                   {f.path}
                   {f.isDirectory
@@ -1248,15 +1233,17 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
             const bulletSpan = isFirst
               ? (isActivelyStreaming ? <StreamingBullet speed={500} /> : <span style={{ fg: bulletColor }}>● </span>)
               : "  ";
-            const trimmedContent = segment.content.trimStart();
+            const trimmedContent = syntaxStyle 
+              ? segment.content.replace(/^\n+/, "")
+              : segment.content.trimStart();
             return syntaxStyle ? (
               <box key={segment.key} flexDirection="row" alignItems="flex-start" marginBottom={index < segments.length - 1 ? 1 : 0}>
                 <box flexShrink={0}>{isFirst
-                  ? (isActivelyStreaming ? <StreamingBullet speed={500} /> : <text style={{ fg: bulletColor }}>● </text>)
+                  ? (isActivelyStreaming ? <text><StreamingBullet speed={500} /></text> : <text style={{ fg: bulletColor }}>● </text>)
                   : <text>  </text>}</box>
                 <box flexGrow={1} flexShrink={1} minWidth={0}>
                   <markdown
-                    content={trimmedContent}
+                    content={preprocessTaskListCheckboxes(trimmedContent)}
                     syntaxStyle={syntaxStyle}
                     streaming={isActivelyStreaming}
                   />
@@ -1452,6 +1439,9 @@ export function ChatApp({
   // Conversation collapsed state for collapsing/expanding entire conversation
   const [conversationCollapsed, setConversationCollapsed] = useState(false);
 
+  // Thinking block visibility toggle (Ctrl+Shift+T)
+  const [showThinking, setShowThinking] = useState(false);
+
   // State for showing user question dialog
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
 
@@ -1475,7 +1465,31 @@ export function ChatApp({
   const [isEditingQueue, setIsEditingQueue] = useState(false);
 
   // Theme context for /theme command
-  const { toggleTheme, setTheme } = useTheme();
+  const { theme, toggleTheme, setTheme } = useTheme();
+  const themeColors = theme.colors;
+
+  // Component-scoped SyntaxStyle for textarea slash command highlighting
+  const inputSyntaxStyleRef = useRef<SyntaxStyle | null>(null);
+  const commandStyleIdRef = useRef<number>(0);
+  const inputSyntaxStyle = useMemo(() => {
+    if (inputSyntaxStyleRef.current) {
+      inputSyntaxStyleRef.current.destroy();
+    }
+    const style = SyntaxStyle.create();
+    const id = style.registerStyle("command", {
+      fg: RGBA.fromHex(themeColors.accent),
+      bold: true,
+    });
+    inputSyntaxStyleRef.current = style;
+    commandStyleIdRef.current = id;
+    return style;
+  }, [themeColors.accent]);
+
+  // Create theme-aware markdown syntax style - activates <markdown> rendering for assistant messages
+  const markdownSyntaxStyle = useMemo(
+    () => createMarkdownSyntaxStyle(theme.colors, theme.isDark),
+    [theme]
+  );
 
   // State for parallel agents display
   const [parallelAgents, setParallelAgents] = useState<ParallelAgent[]>(initialParallelAgents);
@@ -1485,8 +1499,8 @@ export function ChatApp({
   const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
   const [showCompactionHistory, setShowCompactionHistory] = useState(false);
   // TodoWrite persistent state
-  const [todoItems, setTodoItems] = useState<Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed"; activeForm: string; blockedBy?: string[]}>>([]);
-  const todoItemsRef = useRef<Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed"; blockedBy?: string[]}>>([]);
+  const [todoItems, setTodoItems] = useState<Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>>([]);
+  const todoItemsRef = useRef<Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; blockedBy?: string[]}>>([]);
   const [showTodoPanel, setShowTodoPanel] = useState(true);
   // State for input textarea scrollbar (shown only when input overflows)
   const [inputScrollbar, setInputScrollbar] = useState<InputScrollbarState>({
@@ -1609,7 +1623,7 @@ export function ChatApp({
 
     // Update persistent todo panel when TodoWrite is called
     if (toolName === "TodoWrite" && input.todos && Array.isArray(input.todos)) {
-      setTodoItems(input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed"; activeForm: string; blockedBy?: string[]}>);
+      setTodoItems(input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>);
     }
   }, [streamingState]);
 
@@ -1664,7 +1678,7 @@ export function ChatApp({
 
     // Update persistent todo panel when TodoWrite completes (handles late input)
     if (input && input.todos && Array.isArray(input.todos)) {
-      setTodoItems(input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed"; activeForm: string; blockedBy?: string[]}>);
+      setTodoItems(input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>);
     }
   }, [streamingState]);
 
@@ -2209,7 +2223,7 @@ export function ChatApp({
         textarea.addHighlightByCharRange({
           start: range[0],
           end: range[1],
-          styleId: COMMAND_STYLE_ID,
+          styleId: commandStyleIdRef.current,
           hlRef: HLREF_COMMAND,
         });
       }
@@ -2247,7 +2261,8 @@ export function ChatApp({
         addMessage("assistant", `Switched to model **${selectedModel.modelID}**${effortSuffix}`);
       }
       setCurrentModelId(selectedModel.id);
-      setCurrentModelDisplayName(selectedModel.modelID);
+      const displaySuffix = (agentType === "copilot" && reasoningEffort) ? ` (${reasoningEffort})` : "";
+      setCurrentModelDisplayName(`${selectedModel.modelID}${displaySuffix}`);
       if (agentType) {
         saveModelPreference(agentType, selectedModel.id);
         if (reasoningEffort) {
@@ -3048,14 +3063,20 @@ export function ChatApp({
           return;
         }
 
-        // Ctrl+O - toggle collapse/expand entire conversation
+        // Ctrl+O - toggle verbose mode (expand/collapse all tool outputs)
         if (event.ctrl && event.name === "o") {
-          setConversationCollapsed(prev => !prev);
+          setVerboseMode(prev => !prev);
+          return;
+        }
+
+        // Ctrl+Shift+T - toggle thinking/reasoning block visibility
+        if (event.ctrl && event.shift && event.name === "t") {
+          setShowThinking(prev => !prev);
           return;
         }
 
         // Ctrl+T - toggle todo list panel visibility
-        if (event.ctrl && event.name === "t") {
+        if (event.ctrl && !event.shift && event.name === "t") {
           setShowTodoPanel(prev => !prev);
           return;
         }
@@ -3724,10 +3745,19 @@ export function ChatApp({
   useEffect(() => {
     if (initialPrompt && !initialPromptSentRef.current) {
       initialPromptSentRef.current = true;
+
+      // Route slash commands through the command system for proper validation
+      const parsed = parseSlashCommand(initialPrompt);
+      if (parsed.isCommand) {
+        addMessage("user", initialPrompt);
+        void executeCommand(parsed.name, parsed.args);
+        return;
+      }
+
       const { message: processed } = processFileMentions(initialPrompt);
       sendMessage(processed);
     }
-  }, [initialPrompt, sendMessage]);
+  }, [initialPrompt, sendMessage, addMessage, executeCommand]);
 
   /**
    * Handle message submission from textarea.
@@ -3840,15 +3870,15 @@ export function ChatApp({
       {/* Truncation indicator - shows how many messages are hidden */}
       {hiddenMessageCount > 0 && (
         <box marginBottom={1} paddingLeft={1}>
-          <text style={{ fg: MUTED_LAVENDER }}>
+          <text style={{ fg: themeColors.muted }}>
             ↑ {hiddenMessageCount} earlier message{hiddenMessageCount !== 1 ? "s" : ""} hidden
           </text>
         </box>
       )}
       {conversationCollapsed && messages.length > 0 && (
         <box paddingLeft={1} marginBottom={1}>
-          <text style={{ fg: "#555566" }}>
-            {"─".repeat(3)} {messages.length} message{messages.length !== 1 ? "s" : ""} · ctrl+o to expand {"─".repeat(3)}
+          <text style={{ fg: themeColors.dim }}>
+            {"─".repeat(3)} {messages.length} message{messages.length !== 1 ? "s" : ""} collapsed {"─".repeat(3)}
           </text>
         </box>
       )}
@@ -3857,7 +3887,7 @@ export function ChatApp({
           key={msg.id}
           message={msg}
           isLast={index === visibleMessages.length - 1}
-          syntaxStyle={syntaxStyle}
+          syntaxStyle={markdownSyntaxStyle}
           verboseMode={verboseMode}
           hideAskUserQuestion={activeQuestion !== null}
           hideLoading={activeQuestion !== null}
@@ -3901,11 +3931,11 @@ export function ChatApp({
       {/* Compaction History - shows expanded compaction summary (Ctrl+O) */}
       {showCompactionHistory && compactionSummary && parallelAgents.length === 0 && (
         <box flexDirection="column" paddingLeft={2} paddingRight={2} marginTop={1} marginBottom={1}>
-          <box flexDirection="column" border borderStyle="rounded" borderColor={MUTED_LAVENDER} paddingLeft={1} paddingRight={1}>
-            <text style={{ fg: MUTED_LAVENDER }} attributes={1}>Compaction Summary</text>
-            <text style={{ fg: "#E0E0E0" }} wrapMode="char">{compactionSummary}</text>
+          <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.muted} paddingLeft={1} paddingRight={1}>
+            <text style={{ fg: themeColors.muted }} attributes={1}>Compaction Summary</text>
+            <text style={{ fg: themeColors.foreground }} wrapMode="char">{compactionSummary}</text>
           </box>
-          <text style={{ fg: MUTED_LAVENDER }}>
+          <text style={{ fg: themeColors.muted }}>
             Showing detailed transcript · ctrl+o to toggle
           </text>
         </box>
@@ -3916,7 +3946,7 @@ export function ChatApp({
       {/* Shows only summary line after streaming to avoid render artifacts with bordered boxes */}
       {showTodoPanel && !isStreaming && todoItems.length > 0 && (
         <box flexDirection="column" paddingLeft={2} paddingRight={2} marginBottom={1}>
-          <text style={{ fg: MUTED_LAVENDER }}>
+          <text style={{ fg: themeColors.muted }}>
             {`☑ ${todoItems.length} tasks (${todoItems.filter(t => t.status === "completed").length} done, ${todoItems.filter(t => t.status !== "completed").length} open) · ctrl+t to hide`}
           </text>
         </box>
@@ -3984,14 +4014,14 @@ export function ChatApp({
             <box
               border
               borderStyle="rounded"
-              borderColor={ATOMIC_PINK_DIM}
+              borderColor={themeColors.inputFocus}
               paddingLeft={1}
               paddingRight={1}
               marginTop={messages.length > 0 ? 1 : 0}
               flexDirection="row"
               alignItems="flex-start"
             >
-              <text style={{ fg: ATOMIC_PINK }}>❯{" "}</text>
+              <text style={{ fg: themeColors.accent }}>❯{" "}</text>
               <textarea
                 ref={textareaRef}
                 placeholder={messages.length === 0 ? dynamicPlaceholder : ""}
@@ -4011,7 +4041,7 @@ export function ChatApp({
                 maxHeight={8}
               />
               {workflowState.argumentHint && (
-                <text style={{ fg: "#6A6A7C" }}>{workflowState.argumentHint}</text>
+                <text style={{ fg: themeColors.dim }}>{workflowState.argumentHint}</text>
               )}
               {workflowState.argumentHint && <box flexGrow={1} />}
               {inputScrollbar.visible && (
@@ -4022,7 +4052,7 @@ export function ChatApp({
                     return (
                       <text
                         key={`input-scroll-${i}`}
-                        style={{ fg: inThumb ? INPUT_SCROLLBAR_FG : INPUT_SCROLLBAR_BG }}
+                        style={{ fg: inThumb ? themeColors.scrollbarFg : themeColors.scrollbarBg }}
                       >
                         {inThumb ? "█" : "│"}
                       </text>
@@ -4034,7 +4064,7 @@ export function ChatApp({
             {/* Streaming hint - shows "esc to interrupt" during streaming */}
             {isStreaming ? (
               <box paddingLeft={2}>
-                <text style={{ fg: MUTED_LAVENDER }}>
+                <text style={{ fg: themeColors.muted }}>
                   esc to interrupt
                 </text>
               </box>
@@ -4060,7 +4090,7 @@ export function ChatApp({
         {/* Ctrl+C warning message */}
         {ctrlCPressed && (
           <box paddingLeft={2}>
-            <text style={{ fg: MUTED_LAVENDER }}>
+            <text style={{ fg: themeColors.muted }}>
               Press Ctrl-C again to exit
             </text>
           </box>

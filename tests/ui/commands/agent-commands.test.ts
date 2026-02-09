@@ -1504,7 +1504,7 @@ describe("createAgentCommand", () => {
     expect(command.category).toBe("agent");
   });
 
-  test("execute handler calls sendMessage with agent prompt", async () => {
+  test("execute handler calls sendSilentMessage with agent prompt", async () => {
     const agent: AgentDefinition = {
       name: "message-agent",
       description: "Agent that sends message",
@@ -1520,10 +1520,10 @@ describe("createAgentCommand", () => {
       state: { isStreaming: false, messageCount: 0 },
       addMessage: () => {},
       setStreaming: () => {},
-      sendMessage: (content: string) => {
+      sendMessage: () => {},
+      sendSilentMessage: (content: string) => {
         sentMessage = content;
       },
-      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -1551,10 +1551,10 @@ describe("createAgentCommand", () => {
       state: { isStreaming: false, messageCount: 0 },
       addMessage: () => {},
       setStreaming: () => {},
-      sendMessage: (content: string) => {
+      sendMessage: () => {},
+      sendSilentMessage: (content: string) => {
         sentMessage = content;
       },
-      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -1584,10 +1584,10 @@ describe("createAgentCommand", () => {
       state: { isStreaming: false, messageCount: 0 },
       addMessage: () => {},
       setStreaming: () => {},
-      sendMessage: (content: string) => {
+      sendMessage: () => {},
+      sendSilentMessage: (content: string) => {
         sentMessage = content;
       },
-      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,
@@ -1699,10 +1699,10 @@ describe("registerBuiltinAgents", () => {
       state: { isStreaming: false, messageCount: 0 },
       addMessage: () => {},
       setStreaming: () => {},
-      sendMessage: (content: string) => {
+      sendMessage: () => {},
+      sendSilentMessage: (content: string) => {
         sentMessage = content;
       },
-      sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
       agentType: undefined,
       modelOps: undefined,

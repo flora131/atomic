@@ -351,9 +351,9 @@ describe("builtinCommands array", () => {
     expect(builtinCommands).toContain(mcpCommand);
   });
 
-  test("has 7 commands", () => {
-    // Commands: help, theme, clear, compact, exit, model, mcp
-    expect(builtinCommands.length).toBe(7);
+  test("has 8 commands", () => {
+    // Commands: help, theme, clear, compact, exit, model, mcp, context
+    expect(builtinCommands.length).toBe(8);
   });
 });
 
@@ -405,8 +405,8 @@ describe("registerBuiltinCommands", () => {
     registerBuiltinCommands();
 
     // Should not throw and should still have correct count
-    // Commands: help, theme, clear, compact, exit, model, mcp
-    expect(globalRegistry.size()).toBe(7);
+    // Commands: help, theme, clear, compact, exit, model, mcp, context
+    expect(globalRegistry.size()).toBe(8);
   });
 
   test("commands are executable after registration", async () => {

@@ -240,12 +240,17 @@ describe("SubagentSessionManager", () => {
       const toolUpdates = statusUpdates.filter(
         (u) => u.agentId === "agent-tools" && u.update.currentTool !== undefined
       );
-      expect(toolUpdates.length).toBeGreaterThanOrEqual(2);
+      expect(toolUpdates.length).toBeGreaterThanOrEqual(3); // "Starting session...", "Bash", "Read"
 
-      const firstToolUpdate = toolUpdates[0];
-      const secondToolUpdate = toolUpdates[1];
-      expect(firstToolUpdate?.update.currentTool).toBe("Bash");
-      expect(secondToolUpdate?.update.currentTool).toBe("Read");
+      // First update is "Starting session..." (initial status)
+      const startingUpdate = toolUpdates[0];
+      expect(startingUpdate?.update.currentTool).toBe("Starting session...");
+      
+      // Then actual tool updates
+      const bashUpdate = toolUpdates.find(u => u.update.currentTool === "Bash");
+      const readUpdate = toolUpdates.find(u => u.update.currentTool === "Read");
+      expect(bashUpdate).toBeDefined();
+      expect(readUpdate).toBeDefined();
 
       // Final completed update should clear currentTool
       const completedUpdate = findUpdate(statusUpdates, "agent-tools", "completed");
@@ -506,10 +511,10 @@ describe("SubagentSessionManager", () => {
       // Cancel the agent
       await manager.cancel("cancellable");
 
-      // Should emit error status
-      const errorUpdate = findUpdate(statusUpdates, "cancellable", "error");
-      expect(errorUpdate).toBeDefined();
-      expect(errorUpdate?.update.error).toBe("Cancelled");
+      // Should emit interrupted status with error message
+      const interruptedUpdate = findUpdate(statusUpdates, "cancellable", "interrupted");
+      expect(interruptedUpdate).toBeDefined();
+      expect(interruptedUpdate?.update.error).toBe("Cancelled");
 
       // Session should be destroyed
       expect(blockingSession.destroy).toHaveBeenCalled();

@@ -24,6 +24,7 @@ import {
   appendProgress,
   getSessionDir,
   type RalphSession,
+  type TodoItem,
 } from "../../src/workflows/index.ts";
 
 // Node fs/path imports
@@ -50,19 +51,18 @@ async function cleanupDir(dir: string): Promise<void> {
  */
 function createTestTasks(prefix: string): TodoItem[] {
   return [
-    createTodoItem({
+    {
       id: `${prefix}-feat-001`,
-      name: `${prefix} Feature 1`,
-      description: `First feature for ${prefix} session`,
-      acceptanceCriteria: ["Criterion 1", "Criterion 2"],
-      status: "pending",
-    }),
-    createTodoItem({
+      content: `${prefix} Feature 1`,
+      status: "pending" as const,
+      activeForm: `${prefix} Feature 1`,
+    },
+    {
       id: `${prefix}-feat-002`,
-      name: `${prefix} Feature 2`,
-      description: `Second feature for ${prefix} session`,
-      status: "pending",
-    }),
+      content: `${prefix} Feature 2`,
+      status: "pending" as const,
+      activeForm: `${prefix} Feature 2`,
+    },
   ];
 }
 
@@ -85,9 +85,9 @@ async function initializeTestSession(
 
   await saveSession(sessionDir, session);
 
-  // Create tasks.json in research directory
+  // Create feature-list.json in research directory
   if (options.tasks) {
-    const tasksPath = join(sessionDir, "research", "tasks.json");
+    const tasksPath = join(sessionDir, "research", "feature-list.json");
     const taskList = {
       tasks: options.tasks.map((t) => ({
         id: t.id,
@@ -408,9 +408,9 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
         iteration: 10,
         status: "paused",
         tasks: session1.tasks.map((f, i) =>
-          i === 0 ? { ...f, status: "passing", implementedAt: new Date().toISOString() } : f
+          i === 0 ? { ...f, status: "completed" as const } : f
         ),
-        completedTaskIds: [features1[0]!.id],
+        completedFeatures: [tasks1[0]!.id!],
       };
       await saveSession(session1.sessionDir, updatedSession1);
 
@@ -418,7 +418,7 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
       const loaded2 = await loadSession(session2.sessionDir);
       expect(loaded2.iteration).toBe(1);
       expect(loaded2.status).toBe("running");
-      expect(loaded2.completedTaskIds).toEqual([]);
+      expect(loaded2.completedFeatures).toEqual([]);
       expect(loaded2.tasks[0]!.status).toBe("pending");
     });
 
@@ -473,8 +473,8 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
       ]);
 
       // Append progress to session 1
-      await appendProgress(session1.sessionDir, features1[0]!, true);
-      await appendProgress(session1.sessionDir, features1[1]!, false);
+      await appendProgress(session1.sessionDir, `✓ ${tasks1[0]!.content}`);
+      await appendProgress(session1.sessionDir, `✗ ${tasks1[1]!.content}`);
 
       // Verify session 1 has progress
       const progressPath1 = join(session1.sessionDir, "progress.txt");
@@ -591,7 +591,7 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
   // ============================================================================
 
   describe("Verify each session has independent feature list copy", () => {
-    test("each session has its own tasks.json in research directory", async () => {
+    test("each session has its own feature-list.json in research directory", async () => {
       const sessionId1 = generateSessionId();
       const sessionId2 = generateSessionId();
       sessionsToCleanup.push(sessionId1, sessionId2);
@@ -604,9 +604,9 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
         initializeTestSession(sessionId2, { tasks: tasks2 }),
       ]);
 
-      // Verify each has its own tasks.json
-      const tasksPath1 = join(session1.sessionDir, "research", "tasks.json");
-      const tasksPath2 = join(session2.sessionDir, "research", "tasks.json");
+      // Verify each has its own feature-list.json
+      const tasksPath1 = join(session1.sessionDir, "research", "feature-list.json");
+      const tasksPath2 = join(session2.sessionDir, "research", "feature-list.json");
 
       const stat1 = await stat(tasksPath1);
       const stat2 = await stat(tasksPath2);
@@ -629,8 +629,8 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
       ]);
 
       // Read both feature lists
-      const tasksPath1 = join(session1.sessionDir, "research", "tasks.json");
-      const tasksPath2 = join(session2.sessionDir, "research", "tasks.json");
+      const tasksPath1 = join(session1.sessionDir, "research", "feature-list.json");
+      const tasksPath2 = join(session2.sessionDir, "research", "feature-list.json");
 
       const content1 = await readFile(tasksPath1, "utf-8");
       const content2 = await readFile(tasksPath2, "utf-8");
@@ -639,8 +639,8 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
       const taskList2 = JSON.parse(content2);
 
       // Verify they have different descriptions
-      expect(taskList1.tasks[0].description).toContain("session1");
-      expect(taskList2.tasks[0].description).toContain("session2");
+      expect(taskList1.tasks[0].content).toContain("session1");
+      expect(taskList2.tasks[0].content).toContain("session2");
     });
 
     test("modifying session 1 feature list does not affect session 2", async () => {
@@ -657,19 +657,19 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
       ]);
 
       // Read session 2 feature list before modification
-      const tasksPath2 = join(session2.sessionDir, "research", "tasks.json");
+      const tasksPath2 = join(session2.sessionDir, "research", "feature-list.json");
       const contentBefore = await readFile(tasksPath2, "utf-8");
       const taskListBefore = JSON.parse(contentBefore);
 
       // Modify session 1 feature list
-      const tasksPath1 = join(session1.sessionDir, "research", "tasks.json");
+      const tasksPath1 = join(session1.sessionDir, "research", "feature-list.json");
       const modifiedFeatureList = {
         tasks: [
           {
-            category: "functional",
-            description: "MODIFIED - This was changed",
-            steps: [],
-            passes: true,
+            id: "modified-001",
+            content: "MODIFIED - This was changed",
+            status: "completed",
+            activeForm: "MODIFIED - This was changed",
           },
         ],
       };
@@ -678,13 +678,13 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
       // Verify session 1 was modified
       const content1Modified = await readFile(tasksPath1, "utf-8");
       const taskList1Modified = JSON.parse(content1Modified);
-      expect(taskList1Modified.tasks[0].description).toBe("MODIFIED - This was changed");
+      expect(taskList1Modified.tasks[0].content).toBe("MODIFIED - This was changed");
 
       // Verify session 2 is unchanged
       const contentAfter = await readFile(tasksPath2, "utf-8");
       const taskListAfter = JSON.parse(contentAfter);
       expect(taskListAfter).toEqual(taskListBefore);
-      expect(taskListAfter.tasks[0].description).toContain("session2");
+      expect(taskListAfter.tasks[0].content).toContain("session2");
     });
 
     test("session feature lists can have different numbers of features", async () => {
@@ -706,8 +706,8 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
       const session2 = await initializeTestSession(sessionId2, { tasks: tasks2 });
 
       // Verify different feature counts
-      const tasksPath1 = join(session1.sessionDir, "research", "tasks.json");
-      const tasksPath2 = join(session2.sessionDir, "research", "tasks.json");
+      const tasksPath1 = join(session1.sessionDir, "research", "feature-list.json");
+      const tasksPath2 = join(session2.sessionDir, "research", "feature-list.json");
 
       const content1 = await readFile(tasksPath1, "utf-8");
       const content2 = await readFile(tasksPath2, "utf-8");
@@ -734,24 +734,24 @@ describe("Integration test: Concurrent Ralph sessions with independent artifacts
       const features = createTestTasks("shared");
 
       const [session1, session2] = await Promise.all([
-        initializeTestSession(sessionId1, { tasks: [...tasks] }),
-        initializeTestSession(sessionId2, { tasks: [...tasks] }),
+        initializeTestSession(sessionId1, { tasks: [...features] }),
+        initializeTestSession(sessionId2, { tasks: [...features] }),
       ]);
 
       // Update session 1's first feature to passing
       const updatedSession1: RalphSession = {
         ...session1,
         tasks: session1.tasks.map((f, i) =>
-          i === 0 ? { ...f, status: "passing", implementedAt: new Date().toISOString() } : f
+          i === 0 ? { ...f, status: "completed" as const } : f
         ),
-        completedTaskIds: [session1.tasks[0]!.id],
+        completedFeatures: [session1.tasks[0]!.id!],
       };
       await saveSession(session1.sessionDir, updatedSession1);
 
       // Session 2's features should still be pending
       const loaded2 = await loadSession(session2.sessionDir);
       expect(loaded2.tasks[0]!.status).toBe("pending");
-      expect(loaded2.completedTaskIds).toEqual([]);
+      expect(loaded2.completedFeatures).toEqual([]);
     });
 
     test("sessions can have different statuses simultaneously", async () => {

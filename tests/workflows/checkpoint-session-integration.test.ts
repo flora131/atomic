@@ -1133,8 +1133,8 @@ describe("Integration with RalphWorkflowState", () => {
       ],
     });
     ralphState.ralphSessionDir = sessionDir;
-    ralphState.currentTaskIndex = 2;
-    ralphState.completedTaskIds = ["task-001"];
+    ralphState.currentFeatureIndex = 2;
+    ralphState.completedFeatures = ["task-001"];
 
     await saver.save("exec-1", ralphState);
     const restored = await saver.load("exec-1");
@@ -1143,7 +1143,7 @@ describe("Integration with RalphWorkflowState", () => {
     expect(restored!.tasks[0]!.status).toBe("completed");
     expect(restored!.tasks[1]!.status).toBe("pending");
     expect(restored!.tasks[2]!.status).toBe("in_progress");
-    expect(restored!.currentTaskIndex).toBe(2);
-    expect(restored!.completedTaskIds).toEqual(["task-001"]);
+    expect(restored!.currentFeatureIndex).toBe(2);
+    expect(restored!.completedFeatures).toEqual(["task-001"]);
   });
 });

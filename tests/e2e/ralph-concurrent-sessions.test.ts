@@ -81,8 +81,7 @@ function terminalLog(terminal: TerminalSimulator, message: string): void {
 async function startRalphSession(
   terminal: TerminalSimulator,
   options: {
-    features?: TodoItem[];
-    tasksPath?: string;
+    tasks?: TodoItem[];
   } = {}
 ): Promise<void> {
   try {
@@ -103,8 +102,7 @@ async function startRalphSession(
     const session = createRalphSession({
       sessionId,
       sessionDir,
-      features: options.tasks ?? [],
-      sourceFeatureListPath: options.tasksPath,
+      tasks: options.tasks ?? [],
     });
 
     terminal.session = session;
@@ -113,15 +111,15 @@ async function startRalphSession(
     await saveSession(sessionDir, session);
     terminalLog(terminal, "Session saved to disk");
 
-    // Create tasks.json in research directory if not prompt mode
+    // Create feature-list.json in research directory if not prompt mode
     if (options.tasks && options.tasks.length > 0) {
-      const tasksPath = path.join(sessionDir, "research", "tasks.json");
+      const tasksPath = path.join(sessionDir, "research", "feature-list.json");
       const featureList = {
-        features: options.tasks.map((f) => ({
-          category: "functional",
-          description: f.description,
-          steps: f.acceptanceCriteria ?? [],
-          passes: f.status === "passing",
+        tasks: options.tasks.map((f) => ({
+          id: f.id,
+          content: f.content,
+          status: f.status,
+          activeForm: f.activeForm,
         })),
       };
       await fs.writeFile(tasksPath, JSON.stringify(featureList, null, 2), "utf-8");
@@ -164,7 +162,7 @@ async function workOnFeature(
     throw new Error(`Feature at index ${featureIndex} not found`);
   }
 
-  terminalLog(terminal, `Working on feature: ${feature.name}`);
+  terminalLog(terminal, `Working on feature: ${feature.content}`);
 
   // Update feature status to in_progress
   feature.status = "in_progress";
@@ -181,14 +179,12 @@ async function workOnFeature(
     throw new Error(`Feature at index ${featureIndex} not found`);
   }
 
-  // Mark as passing or failing
-  updatedFeature.status = passed ? "passing" : "failing";
-  updatedFeature.implementedAt = passed ? new Date().toISOString() : undefined;
-  updatedFeature.error = passed ? undefined : "Test failure";
+  // Mark as completed or pending
+  updatedFeature.status = passed ? "completed" : "pending";
 
   // Update completed features (only if not already present)
-  if (passed && !session.completedTaskIds.includes(updatedFeature.id)) {
-    session.completedTaskIds.push(updatedFeature.id);
+  if (passed && updatedFeature.id && !session.completedFeatures.includes(updatedFeature.id)) {
+    session.completedFeatures.push(updatedFeature.id);
   }
 
   // Increment iteration
@@ -201,17 +197,17 @@ async function workOnFeature(
   terminal.session = session;
 
   // Append progress
-  await appendProgress(sessionDir, updatedFeature, passed);
+  await appendProgress(sessionDir, `${passed ? "✓" : "✗"} ${updatedFeature.content}`);
 
   // Append log
   await appendLog(sessionDir, "agent-calls", {
     action: passed ? "implement" : "fail",
     featureId: updatedFeature.id,
-    featureName: updatedFeature.name,
+    featureName: updatedFeature.content,
     terminalId: terminal.id,
   });
 
-  terminalLog(terminal, `Feature ${updatedFeature.name} ${passed ? "passed" : "failed"}`);
+  terminalLog(terminal, `Feature ${updatedFeature.content} ${passed ? "passed" : "failed"}`);
 }
 
 /**
@@ -237,25 +233,24 @@ async function completeRalphSession(terminal: TerminalSimulator): Promise<void> 
  */
 function createTerminalFeatures(terminalId: string): TodoItem[] {
   return [
-    createTodoItem({
+    {
       id: `${terminalId}-feat-001`,
-      name: `${terminalId} Feature 1`,
-      description: `First feature for ${terminalId}`,
-      acceptanceCriteria: ["Criterion 1", "Criterion 2"],
-      status: "pending",
-    }),
-    createTodoItem({
+      content: `${terminalId} Feature 1`,
+      status: "pending" as const,
+      activeForm: `${terminalId} Feature 1`,
+    },
+    {
       id: `${terminalId}-feat-002`,
-      name: `${terminalId} Feature 2`,
-      description: `Second feature for ${terminalId}`,
-      status: "pending",
-    }),
-    createTodoItem({
+      content: `${terminalId} Feature 2`,
+      status: "pending" as const,
+      activeForm: `${terminalId} Feature 2`,
+    },
+    {
       id: `${terminalId}-feat-003`,
-      name: `${terminalId} Feature 3`,
-      description: `Third feature for ${terminalId}`,
-      status: "pending",
-    }),
+      content: `${terminalId} Feature 3`,
+      status: "pending" as const,
+      activeForm: `${terminalId} Feature 3`,
+    },
   ];
 }
 
@@ -299,7 +294,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const terminal1 = createTerminalSimulator("terminal-1");
       const features1 = createTerminalFeatures("terminal-1");
 
-      await startRalphSession(terminal1, { features: features1 });
+      await startRalphSession(terminal1, { tasks: features1 });
 
       expect(terminal1.sessionId).not.toBeNull();
       expect(terminal1.session).not.toBeNull();
@@ -310,7 +305,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const terminal1 = createTerminalSimulator("terminal-1");
       const features1 = createTerminalFeatures("terminal-1");
 
-      await startRalphSession(terminal1, { features: features1 });
+      await startRalphSession(terminal1, { tasks: features1 });
 
       expect(isValidUUID(terminal1.sessionId!)).toBe(true);
     });
@@ -319,7 +314,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const terminal1 = createTerminalSimulator("terminal-1");
       const features1 = createTerminalFeatures("terminal-1");
 
-      await startRalphSession(terminal1, { features: features1 });
+      await startRalphSession(terminal1, { tasks: features1 });
 
       expect(existsSync(terminal1.session!.sessionDir)).toBe(true);
     });
@@ -328,7 +323,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const terminal1 = createTerminalSimulator("terminal-1");
       const features1 = createTerminalFeatures("terminal-1");
 
-      await startRalphSession(terminal1, { features: features1 });
+      await startRalphSession(terminal1, { tasks: features1 });
 
       expect(terminal1.logs.some((log) => log.includes("Starting Ralph session"))).toBe(true);
       expect(terminal1.logs.some((log) => log.includes("session started successfully"))).toBe(true);
@@ -349,8 +344,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
 
       // Start both sessions concurrently
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       expect(terminal1.sessionId).not.toBeNull();
@@ -367,8 +362,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       expect(terminal1.sessionId).not.toBe(terminal2.sessionId);
@@ -382,8 +377,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       expect(terminal1.session!.sessionDir).not.toBe(terminal2.session!.sessionDir);
@@ -397,8 +392,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Verify session 1 data
@@ -427,8 +422,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
 
       // Start both sessions
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Work on first feature in both terminals concurrently
@@ -441,8 +436,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const loaded1 = await loadSession(terminal1.session!.sessionDir);
       const loaded2 = await loadSession(terminal2.session!.sessionDir);
 
-      expect(loaded1.tasks[0]?.status).toBe("passing");
-      expect(loaded2.tasks[0]?.status).toBe("passing");
+      expect(loaded1.tasks[0]?.status).toBe("completed");
+      expect(loaded2.tasks[0]?.status).toBe("completed");
     });
 
     test("terminals work on different feature sets", async () => {
@@ -453,13 +448,13 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Verify feature names are different
-      expect(terminal1.session!.tasks[0]?.name).toContain("terminal-1");
-      expect(terminal2.session!.tasks[0]?.name).toContain("terminal-2");
+      expect(terminal1.session!.tasks[0]?.content).toContain("terminal-1");
+      expect(terminal2.session!.tasks[0]?.content).toContain("terminal-2");
     });
 
     test("concurrent feature work across different sessions does not corrupt data", async () => {
@@ -470,8 +465,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Work on features in each terminal sequentially (as in real workflow),
@@ -496,14 +491,14 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const loaded2 = await loadSession(terminal2.session!.sessionDir);
 
       // Terminal 1: features 0, 2 passed
-      expect(loaded1.tasks[0]?.status).toBe("passing");
-      expect(loaded1.tasks[1]?.status).toBe("failing");
-      expect(loaded1.tasks[2]?.status).toBe("passing");
+      expect(loaded1.tasks[0]?.status).toBe("completed");
+      expect(loaded1.tasks[1]?.status).toBe("pending");
+      expect(loaded1.tasks[2]?.status).toBe("completed");
 
       // Terminal 2: feature 1 passed
-      expect(loaded2.tasks[0]?.status).toBe("failing");
-      expect(loaded2.tasks[1]?.status).toBe("passing");
-      expect(loaded2.tasks[2]?.status).toBe("failing");
+      expect(loaded2.tasks[0]?.status).toBe("pending");
+      expect(loaded2.tasks[1]?.status).toBe("completed");
+      expect(loaded2.tasks[2]?.status).toBe("pending");
     });
 
     test("iteration counts are independent", async () => {
@@ -514,8 +509,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Terminal 1 works on 3 features, terminal 2 works on 1
@@ -545,8 +540,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Modify terminal 1's session
@@ -566,8 +561,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Work on features
@@ -599,8 +594,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Work on features (this creates log entries)
@@ -624,7 +619,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       expect(log2Entry.terminalId).toBe("terminal-2");
     });
 
-    test("tasks.json files are independent", async () => {
+    test("feature-list.json files are independent", async () => {
       const terminal1 = createTerminalSimulator("terminal-1");
       const terminal2 = createTerminalSimulator("terminal-2");
 
@@ -632,25 +627,25 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Read feature list files
       const featureList1Content = await fs.readFile(
-        path.join(terminal1.session!.sessionDir, "research", "tasks.json"),
+        path.join(terminal1.session!.sessionDir, "research", "feature-list.json"),
         "utf-8"
       );
       const featureList2Content = await fs.readFile(
-        path.join(terminal2.session!.sessionDir, "research", "tasks.json"),
+        path.join(terminal2.session!.sessionDir, "research", "feature-list.json"),
         "utf-8"
       );
 
       const featureList1 = JSON.parse(featureList1Content);
       const featureList2 = JSON.parse(featureList2Content);
 
-      expect(featureList1.tasks[0].description).toContain("terminal-1");
-      expect(featureList2.tasks[0].description).toContain("terminal-2");
+      expect(featureList1.tasks[0].content).toContain("terminal-1");
+      expect(featureList2.tasks[0].content).toContain("terminal-2");
     });
 
     test("concurrent file writes don't cause conflicts", async () => {
@@ -661,8 +656,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Perform many concurrent writes to both sessions
@@ -726,8 +721,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Work on features in each terminal sequentially (as in real workflow),
@@ -755,17 +750,17 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       expect(loaded1.sessionId).toBe(terminal1.sessionId!);
       expect(loaded1.status).toBe("running");
       expect(loaded1.tasks).toHaveLength(3);
-      expect(loaded1.completedTaskIds).toHaveLength(2);
-      expect(loaded1.completedTaskIds).toContain("terminal-1-feat-001");
-      expect(loaded1.completedTaskIds).toContain("terminal-1-feat-002");
+      expect(loaded1.completedFeatures).toHaveLength(2);
+      expect(loaded1.completedFeatures).toContain("terminal-1-feat-001");
+      expect(loaded1.completedFeatures).toContain("terminal-1-feat-002");
 
       // Session 2 validation
       expect(loaded2.sessionId).toBe(terminal2.sessionId!);
       expect(loaded2.status).toBe("running");
       expect(loaded2.tasks).toHaveLength(3);
-      expect(loaded2.completedTaskIds).toHaveLength(2);
-      expect(loaded2.completedTaskIds).toContain("terminal-2-feat-002");
-      expect(loaded2.completedTaskIds).toContain("terminal-2-feat-003");
+      expect(loaded2.completedFeatures).toHaveLength(2);
+      expect(loaded2.completedFeatures).toContain("terminal-2-feat-002");
+      expect(loaded2.completedFeatures).toContain("terminal-2-feat-003");
     });
 
     test("feature status is correctly tracked per session", async () => {
@@ -776,8 +771,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Work on features in each terminal sequentially (as in real workflow),
@@ -803,16 +798,12 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
 
       // All terminal 1 features should be passing
       for (const feature of loaded1.tasks) {
-        expect(feature.status).toBe("passing");
-        expect(feature.implementedAt).toBeDefined();
-        expect(feature.error).toBeUndefined();
+        expect(feature.status).toBe("completed");
       }
 
       // All terminal 2 features should be failing
       for (const feature of loaded2.tasks) {
-        expect(feature.status).toBe("failing");
-        expect(feature.implementedAt).toBeUndefined();
-        expect(feature.error).toBe("Test failure");
+        expect(feature.status).toBe("pending");
       }
     });
 
@@ -824,14 +815,14 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       // Start terminal 1 first
-      await startRalphSession(terminal1, { features: features1 });
+      await startRalphSession(terminal1, { tasks: features1 });
       const session1CreatedAt = terminal1.session!.createdAt;
 
       // Wait a bit
       await new Promise((resolve) => setTimeout(resolve, 50));
 
       // Start terminal 2
-      await startRalphSession(terminal2, { features: features2 });
+      await startRalphSession(terminal2, { tasks: features2 });
       const session2CreatedAt = terminal2.session!.createdAt;
 
       // Session 2 should have a later createdAt
@@ -848,8 +839,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Update session 1 multiple times
@@ -877,8 +868,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Complete terminal 1
@@ -906,8 +897,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Work on and complete all features for both terminals
@@ -943,8 +934,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Complete terminal 1 first
@@ -969,8 +960,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Terminal 1: complete with 3 passing features
@@ -987,14 +978,14 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
 
       // Verify session 1 preserved data
       const loaded1 = await loadSession(terminal1.session!.sessionDir);
-      expect(loaded1.completedTaskIds).toHaveLength(3);
-      expect(loaded1.tasks.filter((f) => f.status === "passing")).toHaveLength(3);
+      expect(loaded1.completedFeatures).toHaveLength(3);
+      expect(loaded1.tasks.filter((f) => f.status === "completed")).toHaveLength(3);
 
       // Verify session 2 preserved data
       const loaded2 = await loadSession(terminal2.session!.sessionDir);
-      expect(loaded2.completedTaskIds).toHaveLength(1);
-      expect(loaded2.tasks.filter((f) => f.status === "passing")).toHaveLength(1);
-      expect(loaded2.tasks.filter((f) => f.status === "failing")).toHaveLength(2);
+      expect(loaded2.completedFeatures).toHaveLength(1);
+      expect(loaded2.tasks.filter((f) => f.status === "completed")).toHaveLength(1);
+      expect(loaded2.tasks.filter((f) => f.status === "pending")).toHaveLength(2);
     });
   });
 
@@ -1012,8 +1003,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
 
       // Step 1: Start both sessions concurrently
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Step 2: Both work on features concurrently
@@ -1047,8 +1038,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       expect(loaded2.status).toBe("completed");
 
       // Both have all features passing
-      expect(loaded1.completedTaskIds).toHaveLength(3);
-      expect(loaded2.completedTaskIds).toHaveLength(3);
+      expect(loaded1.completedFeatures).toHaveLength(3);
+      expect(loaded2.completedFeatures).toHaveLength(3);
 
       // No data leakage
       expect(loaded1.sessionId).toBe(terminal1.sessionId!);
@@ -1069,7 +1060,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       await Promise.all(
         terminals.map((terminal) =>
           startRalphSession(terminal, {
-            features: createTerminalFeatures(terminal.id),
+            tasks: createTerminalFeatures(terminal.id),
           })
         )
       );
@@ -1090,7 +1081,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       for (const terminal of terminals) {
         const loaded = await loadSession(terminal.session!.sessionDir);
         expect(loaded.status).toBe("completed");
-        expect(loaded.completedTaskIds).toHaveLength(3);
+        expect(loaded.completedFeatures).toHaveLength(3);
         expect(loaded.sessionId).toBe(terminal.sessionId!);
       }
 
@@ -1114,8 +1105,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const features2 = createTerminalFeatures("terminal-2");
 
       await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { features: features2 }),
+        startRalphSession(terminal1, { tasks: features1 }),
+        startRalphSession(terminal2, { tasks: features2 }),
       ]);
 
       // Delete terminal 1's session directory
@@ -1134,7 +1125,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       for (let i = 0; i < 10; i++) {
         const terminal = createTerminalSimulator(`terminal-${i}`);
         await startRalphSession(terminal, {
-          features: createTerminalFeatures(`terminal-${i}`),
+          tasks: createTerminalFeatures(`terminal-${i}`),
         });
         sessionIds.push(terminal.sessionId!);
 

@@ -33,6 +33,10 @@
  * - Event subscription tied to SDK session lifecycle
  */
 
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
 import {
   CopilotClient as SdkCopilotClient,
   CopilotSession as SdkCopilotSession,
@@ -127,6 +131,7 @@ function mapSdkEventToEventType(sdkEventType: SdkSessionEventType): EventType | 
     "assistant.message": "message.complete",
     "tool.execution_start": "tool.start",
     "tool.execution_complete": "tool.complete",
+    "skill.invoked": "skill.invoked",
     "subagent.started": "subagent.start",
     "subagent.completed": "subagent.complete",
     "subagent.failed": "session.error",
@@ -466,6 +471,12 @@ export class CopilotClient implements CodingAgentClient {
             subagentType: event.data.agentName,
           };
           break;
+        case "skill.invoked":
+          eventData = {
+            skillName: event.data.name,
+            skillPath: event.data.path,
+          };
+          break;
         case "subagent.completed":
           eventData = {
             subagentId: event.data.toolCallId,
@@ -606,6 +617,14 @@ export class CopilotClient implements CodingAgentClient {
       prompt: agent.systemPrompt,
     }));
 
+    const HOME = homedir();
+    const skillDirs = [
+      join(projectRoot, ".github", "skills"),
+      join(projectRoot, ".claude", "skills"),
+      join(HOME, ".copilot", "skills"),
+      join(HOME, ".claude", "skills"),
+    ].filter((dir) => existsSync(dir));
+
     const sdkConfig: SdkSessionConfig = {
       sessionId: config.sessionId,
       model: config.model,
@@ -617,6 +636,7 @@ export class CopilotClient implements CodingAgentClient {
       tools: this.registeredTools.map((t) => this.convertTool(t)),
       onPermissionRequest: permissionHandler,
       onUserInputRequest: this.createUserInputHandler(tentativeSessionId),
+      skillDirectories: skillDirs.length > 0 ? skillDirs : undefined,
       customAgents: customAgents.length > 0 ? customAgents : undefined,
       mcpServers: config.mcpServers
         ? Object.fromEntries(
@@ -625,7 +645,9 @@ export class CopilotClient implements CodingAgentClient {
                 return [s.name, {
                   type: (s.type === "sse" ? "sse" : "http") as "http" | "sse",
                   url: s.url,
+                  headers: s.headers,
                   tools: ["*"],
+                  timeout: s.timeout,
                 }];
               }
               return [s.name, {
@@ -633,7 +655,9 @@ export class CopilotClient implements CodingAgentClient {
                 command: s.command ?? "",
                 args: s.args ?? [],
                 env: s.env,
+                cwd: s.cwd,
                 tools: ["*"],
+                timeout: s.timeout,
               }];
             })
           )
@@ -813,6 +837,7 @@ export class CopilotClient implements CodingAgentClient {
 
     try {
       const models = await this.sdkClient.listModels();
+
       const firstModel = models?.[0];
       if (firstModel) {
         // Return the first available model's display name or ID

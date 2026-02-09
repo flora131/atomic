@@ -275,11 +275,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
           options.mcpServers[server.name] = {
             type: "sse" as const,
             url: server.url,
+            headers: server.headers,
           };
         } else if (server.url) {
           options.mcpServers[server.name] = {
             type: "http" as const,
             url: server.url,
+            headers: server.headers,
           };
         } else if (server.command) {
           options.mcpServers[server.name] = {

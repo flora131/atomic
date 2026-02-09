@@ -36,6 +36,14 @@ export interface McpServerConfig {
   env?: Record<string, string>;
   /** URL for HTTP/SSE transport */
   url?: string;
+  /** HTTP headers for authenticated remote servers (SSE/HTTP only) */
+  headers?: Record<string, string>;
+  /** Working directory for stdio server process */
+  cwd?: string;
+  /** Connection timeout in milliseconds */
+  timeout?: number;
+  /** Whether the server is enabled (default: true) */
+  enabled?: boolean;
 }
 
 /**
@@ -238,6 +246,7 @@ export type EventType =
   | "message.complete"
   | "tool.start"
   | "tool.complete"
+  | "skill.invoked"
   | "subagent.start"
   | "subagent.complete"
   | "permission.requested"
@@ -317,6 +326,16 @@ export interface ToolCompleteEventData extends BaseEventData {
   success: boolean;
   /** Error message if tool failed */
   error?: string;
+}
+
+/**
+ * Event data for skill.invoked events
+ */
+export interface SkillInvokedEventData extends BaseEventData {
+  /** Name of the skill that was invoked */
+  skillName: string;
+  /** File path of the skill */
+  skillPath?: string;
 }
 
 /**
@@ -417,6 +436,7 @@ export interface EventDataMap {
   "message.complete": MessageCompleteEventData;
   "tool.start": ToolStartEventData;
   "tool.complete": ToolCompleteEventData;
+  "skill.invoked": SkillInvokedEventData;
   "subagent.start": SubagentStartEventData;
   "subagent.complete": SubagentCompleteEventData;
   "permission.requested": PermissionRequestedEventData;

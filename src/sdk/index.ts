@@ -60,6 +60,7 @@ export type {
   MessageCompleteEventData,
   ToolStartEventData,
   ToolCompleteEventData,
+  SkillInvokedEventData,
   SubagentStartEventData,
   SubagentCompleteEventData,
   PermissionOption,

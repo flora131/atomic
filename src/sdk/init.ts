@@ -24,7 +24,7 @@ import type { Options as ClaudeOptions } from "@anthropic-ai/claude-agent-sdk";
 export function initClaudeOptions(): Partial<ClaudeOptions> {
   return {
     // Auto-loads .claude/ with ~/.claude/ fallback
-    settingSources: ["project"],
+    settingSources: ["project", "user"],
     // Bypass permission prompts for automated workflows
     permissionMode: "bypassPermissions",
     // Required safety flag when using bypassPermissions

@@ -67,27 +67,29 @@ export interface ModelDisplayInfo {
 }
 
 /**
- * Formats a model ID into a human-readable display name.
+ * Strips provider prefix from a model ID.
  * Examples:
- *   - "claude-opus-4-5-20251101" → "Opus 4.5"
- *   - "claude-sonnet-4-5-20250929" → "Sonnet 4.5"
- *   - "claude-3-opus" → "Opus"
- *   - "gpt-4" → "GPT-4"
+ *   - "anthropic/claude-sonnet-4" → "claude-sonnet-4"
+ *   - "github-copilot/gpt-5.2" → "gpt-5.2"
+ *   - "opus" → "opus"
+ */
+export function stripProviderPrefix(modelId: string): string {
+  return modelId.includes("/") ? modelId.split("/").slice(1).join("/") : modelId;
+}
+
+/**
+ * Formats a model ID into a human-readable display name.
  */
 export function formatModelDisplayName(modelId: string): string {
   if (!modelId) return "Claude";
 
   const lower = modelId.toLowerCase();
 
-  // Handle short aliases (sonnet, opus, haiku) directly
-  // These are the aliases used by Claude SDK - lowercase for consistency
   if (lower === "sonnet" || lower === "anthropic/sonnet") return "sonnet";
   if (lower === "opus" || lower === "anthropic/opus") return "opus";
   if (lower === "haiku" || lower === "anthropic/haiku") return "haiku";
   if (lower === "default") return "default";
 
-  // Handle Claude model formats with full IDs (e.g., "claude-opus-4-5-20251101")
-  // Return lowercase family name for consistency
   if (lower.includes("claude") || lower.includes("opus") || lower.includes("sonnet") || lower.includes("haiku")) {
     if (lower.includes("opus")) return "opus";
     if (lower.includes("sonnet")) return "sonnet";
@@ -95,12 +97,10 @@ export function formatModelDisplayName(modelId: string): string {
     return "claude";
   }
 
-  // Handle GPT models
   if (lower.includes("gpt")) {
     return modelId.toUpperCase().replace(/-/g, "-");
   }
 
-  // For other models, return capitalized
   return modelId
     .split("-")
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
@@ -130,6 +130,8 @@ export interface SessionConfig {
   maxTurns?: number;
   /** OpenCode agent mode (only for OpenCode client) */
   agentMode?: OpenCodeAgentMode;
+  /** Reasoning effort level for models that support it (Copilot SDK) */
+  reasoningEffort?: string;
 }
 
 /**
@@ -228,6 +230,12 @@ export interface Session {
   getContextUsage(): Promise<ContextUsage>;
 
   /**
+   * Returns the token count for system prompt + tools (pre-message baseline).
+   * Throws if called before the baseline has been captured (before first query completes).
+   */
+  getSystemToolsTokens(): number;
+
+  /**
    * Destroy the session and release resources.
    * Should be called when the session is no longer needed.
    */
@@ -250,7 +258,8 @@ export type EventType =
   | "subagent.start"
   | "subagent.complete"
   | "permission.requested"
-  | "human_input_required";
+  | "human_input_required"
+  | "usage";
 
 /**
  * Base event data shared by all events
@@ -466,6 +475,26 @@ export type EventHandler<T extends EventType = EventType> = (
 ) => void | Promise<void>;
 
 /**
+ * Context passed to tool execute functions.
+ * Modeled after OpenCode's ToolContext (packages/plugin/src/tool.ts).
+ */
+export interface ToolContext {
+  /** Active session ID */
+  sessionID: string;
+  /** Current message ID within the session */
+  messageID: string;
+  /** Agent type executing the tool (e.g., "claude", "copilot", "opencode") */
+  agent: string;
+  /** Current working directory — prefer over process.cwd() for resolving relative paths */
+  directory: string;
+  /** Abort signal for cancellation — tools should check this for long-running operations */
+  abort: AbortSignal;
+}
+
+/** Serializable result returned by a tool handler */
+export type ToolHandlerResult = string | Record<string, unknown>;
+
+/**
  * Tool definition for registering custom tools
  */
 export interface ToolDefinition {
@@ -480,7 +509,10 @@ export interface ToolDefinition {
    * @param input - Validated input matching the input schema
    * @returns Tool execution result
    */
-  handler: (input: unknown) => unknown | Promise<unknown>;
+  handler: (
+    input: Record<string, unknown>,
+    context: ToolContext
+  ) => ToolHandlerResult | Promise<ToolHandlerResult>;
 }
 
 /**

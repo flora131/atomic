@@ -46,20 +46,23 @@
  * - Session wrapping involves complex async iteration for streaming
  */
 
-import type {
-  CodingAgentClient,
-  Session,
-  SessionConfig,
-  AgentMessage,
-  ContextUsage,
-  EventType,
-  EventHandler,
-  AgentEvent,
-  ToolDefinition,
-  OpenCodeAgentMode,
+import {
+  stripProviderPrefix,
+  type CodingAgentClient,
+  type Session,
+  type SessionConfig,
+  type AgentMessage,
+  type ContextUsage,
+  type EventType,
+  type EventHandler,
+  type AgentEvent,
+  type ToolDefinition,
+  type ToolContext,
+  type OpenCodeAgentMode,
 } from "./types.ts";
 
 import { initOpenCodeConfigOverrides } from "./init.ts";
+import { createToolMcpServerScript, cleanupMcpBridgeScripts } from "./tools/opencode-mcp-bridge.ts";
 
 // Import the real SDK
 import {
@@ -648,6 +651,32 @@ export class OpenCodeClient implements CodingAgentClient {
   }
 
   /**
+   * Register custom tools as a single MCP stdio server.
+   * Bundles all registered tools into a temporary script and registers it via mcp.add().
+   */
+  private async registerToolsMcpServer(): Promise<void> {
+    if (!this.sdkClient) return;
+
+    const tools = Array.from(this.registeredTools.values());
+    const scriptPath = await createToolMcpServerScript(tools);
+
+    try {
+      await this.sdkClient.mcp.add({
+        directory: this.clientOptions.directory,
+        name: "atomic-custom-tools",
+        config: {
+          type: "local" as const,
+          command: ["bun", "run", scriptPath],
+          enabled: true,
+        },
+      });
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error(`Failed to register custom tools MCP server: ${errorMsg}`);
+    }
+  }
+
+  /**
    * Create a new agent session
    */
   async createSession(config: SessionConfig = {}): Promise<Session> {
@@ -659,6 +688,11 @@ export class OpenCodeClient implements CodingAgentClient {
     // OpenCode SDK uses server-level MCP (not per-session), so we add them here
     if (config.mcpServers && config.mcpServers.length > 0) {
       await this.registerMcpServers(config.mcpServers);
+    }
+
+    // Register custom tools as an MCP server if any are registered
+    if (this.registeredTools.size > 0) {
+      await this.registerToolsMcpServer();
     }
 
     const result = await this.sdkClient.session.create({
@@ -691,6 +725,11 @@ export class OpenCodeClient implements CodingAgentClient {
       throw new Error("Client not started. Call start() first.");
     }
 
+    // Re-register custom tools on resume (tools may have changed on disk)
+    if (this.registeredTools.size > 0) {
+      await this.registerToolsMcpServer();
+    }
+
     const result = await this.sdkClient.session.get({
       sessionID: sessionId,
       directory: this.clientOptions.directory,
@@ -708,7 +747,22 @@ export class OpenCodeClient implements CodingAgentClient {
   /**
    * Wrap a session ID into a unified Session interface
    */
-  private wrapSession(sessionId: string, config: SessionConfig): Session {
+  /**
+   * Parse a model string into OpenCode SDK's { providerID, modelID } format.
+   * Handles "providerID/modelID" (e.g., "anthropic/claude-sonnet-4") and
+   * short aliases (e.g., "opus" → { providerID: "anthropic", modelID: "opus" }).
+   */
+  private parseModelForPrompt(model?: string): { providerID: string; modelID: string } | undefined {
+    if (!model) return undefined;
+    if (model.includes("/")) {
+      const [providerID, ...rest] = model.split("/");
+      return { providerID: providerID!, modelID: rest.join("/") };
+    }
+    // Short alias without provider — default to anthropic
+    return { providerID: "anthropic", modelID: model };
+  }
+
+  private async wrapSession(sessionId: string, config: SessionConfig): Promise<Session> {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const client = this;
     // Use agent mode from session config, falling back to client default, then "build"
@@ -716,13 +770,21 @@ export class OpenCodeClient implements CodingAgentClient {
       config.agentMode ??
       client.clientOptions.defaultAgentMode ??
       "build";
+    // Parse model preference for per-prompt model selection
+    const promptModel = client.parseModelForPrompt(config.model);
 
     // Track session state for token usage and lifecycle
     const sessionState = {
       inputTokens: 0,
       outputTokens: 0,
       isClosed: false,
+      contextWindow: null as number | null,
+      systemToolsBaseline: null as number | null,
     };
+
+    // Eagerly resolve contextWindow from provider metadata
+    const modelId = config.model;
+    sessionState.contextWindow = await client.resolveModelContextWindow(modelId);
 
     const session: Session = {
       id: sessionId,
@@ -742,6 +804,7 @@ export class OpenCodeClient implements CodingAgentClient {
           sessionID: sessionId,
           directory: client.clientOptions.directory,
           agent: agentMode,
+          model: promptModel,
           parts: [{ type: "text", text: message }],
         });
 
@@ -858,6 +921,7 @@ export class OpenCodeClient implements CodingAgentClient {
                 sessionID: sessionId,
                 directory: client.clientOptions.directory,
                 agent: agentMode,
+                model: promptModel,
                 parts: [{ type: "text", text: message }],
               });
 
@@ -940,6 +1004,13 @@ export class OpenCodeClient implements CodingAgentClient {
                 if (tokens) {
                   sessionState.inputTokens = tokens.input ?? sessionState.inputTokens;
                   sessionState.outputTokens = tokens.output ?? 0;
+
+                  // Capture system/tools baseline from cache tokens
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  const cacheTokens = (((tokens as any).cache?.write ?? 0) + ((tokens as any).cache?.read ?? 0));
+                  if (cacheTokens > 0) {
+                    sessionState.systemToolsBaseline = cacheTokens;
+                  }
                 }
               }
 
@@ -1000,23 +1071,55 @@ export class OpenCodeClient implements CodingAgentClient {
           directory: client.clientOptions.directory,
         });
 
+        // Query actual post-compaction token counts from the SDK.
+        // session.messages() returns each message with its token snapshot,
+        // so the last assistant message reflects the post-compaction state.
+        try {
+          const messagesResult = await client.sdkClient.session.messages({
+            sessionID: sessionId,
+          });
+          const messages = messagesResult.data ?? [];
+          for (let i = messages.length - 1; i >= 0; i--) {
+            const msg = messages[i]!.info;
+            if (msg.role === "assistant" && "tokens" in msg) {
+              sessionState.inputTokens = msg.tokens.input ?? sessionState.inputTokens;
+              sessionState.outputTokens = msg.tokens.output ?? 0;
+              const cacheTokens = (msg.tokens.cache?.write ?? 0) + (msg.tokens.cache?.read ?? 0);
+              if (cacheTokens > 0) {
+                sessionState.systemToolsBaseline = cacheTokens;
+              }
+              break;
+            }
+          }
+        } catch {
+          // If messages() fails, token counts remain at pre-compaction values.
+          // They will self-correct on the next message (snapshot tracking).
+        }
+
         client.emitEvent("session.idle", sessionId, {
           reason: "context_compacted",
         });
       },
 
       getContextUsage: async (): Promise<ContextUsage> => {
-        // Return tracked token usage from session state
-        // Note: OpenCode SDK doesn't expose direct token usage API,
-        // so values may be estimated based on message lengths
+        if (sessionState.contextWindow === null) {
+          throw new Error("Context window size unavailable: provider.list() did not return model limits.");
+        }
+        const maxTokens = sessionState.contextWindow;
         const totalTokens = sessionState.inputTokens + sessionState.outputTokens;
-        const maxTokens = 200000; // Default context window
         return {
           inputTokens: sessionState.inputTokens,
           outputTokens: sessionState.outputTokens,
           maxTokens,
           usagePercentage: (totalTokens / maxTokens) * 100,
         };
+      },
+
+      getSystemToolsTokens: (): number => {
+        if (sessionState.systemToolsBaseline === null) {
+          throw new Error("System tools baseline unavailable: no query has completed. Send a message first.");
+        }
+        return sessionState.systemToolsBaseline;
       },
 
       destroy: async (): Promise<void> => {
@@ -1181,70 +1284,146 @@ export class OpenCodeClient implements CodingAgentClient {
 
   /**
    * Get model display information for UI rendering.
-   * Queries config.providers() from the OpenCode SDK to get the default model.
-   * @param _modelHint - Optional model hint (unused, queries SDK config instead)
+   * Queries SDK provider metadata for authoritative model names.
+   * Falls back to the raw model ID (not formatted) if metadata is unavailable.
+   * @param modelHint - Optional model hint from saved preferences
    */
   async getModelDisplayInfo(
     modelHint?: string
   ): Promise<{ model: string; tier: string }> {
-    // If a model hint is provided, format it for display
+    // Query SDK for model metadata - this is the authoritative source
+    if (this.isRunning && this.sdkClient) {
+      const metadataName = await this.lookupModelNameFromProviders(modelHint);
+      if (metadataName) {
+        return { model: metadataName, tier: "OpenCode" };
+      }
+    }
+
+    // SDK not available - use raw model ID without lossy formatting
     if (modelHint) {
-      // Strip provider prefix if present (e.g., "anthropic/claude-sonnet-4" -> "claude-sonnet-4")
-      const modelId = modelHint.includes("/") ? modelHint.split("/").slice(1).join("/") : modelHint;
-      const displayModel = modelId
-        .replace(/-\d{8,}$/, "") // Remove trailing date
-        .split("-")
-        .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(" ");
       return {
-        model: displayModel,
+        model: stripProviderPrefix(modelHint),
         tier: "OpenCode",
       };
     }
 
-    if (!this.isRunning || !this.sdkClient) {
-      return {
-        model: "Claude",
-        tier: "OpenCode",
-      };
+    return {
+      model: "OpenCode",
+      tier: "OpenCode",
+    };
+  }
+
+  /**
+   * Resolve a model's context window size from SDK provider metadata.
+   * @param modelHint - Optional model ID (e.g., "anthropic/claude-sonnet-4")
+   * @returns The model's context window size in tokens
+   * @throws If provider metadata cannot be fetched or model is not found
+   */
+  private async resolveModelContextWindow(modelHint?: string): Promise<number> {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const configClient = this.sdkClient as any;
+    if (!configClient.config || typeof configClient.config.providers !== "function") {
+      throw new Error(
+        `Failed to resolve context window size from OpenCode provider.list() for model '${modelHint ?? "unknown"}'`
+      );
     }
 
+    const result = await configClient.config.providers();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data = result.data as any;
+    if (!data) {
+      throw new Error(
+        `Failed to resolve context window size from OpenCode provider.list() for model '${modelHint ?? "unknown"}'`
+      );
+    }
+
+    const providerList: Array<{ id: string; models?: Record<string, { limit?: { context: number } }> }> =
+      data.providers ?? data.all ?? [];
+
+    // If we have a model hint, try to find it in provider models
+    if (modelHint) {
+      const parsed = this.parseModelForPrompt(modelHint);
+      if (parsed) {
+        const provider = providerList.find(p => p.id === parsed.providerID);
+        const model = provider?.models?.[parsed.modelID];
+        if (model?.limit?.context) return model.limit.context;
+      }
+    }
+
+    // Fall back to the first default model
+    const defaults: Record<string, string> | undefined = data.default;
+    if (defaults) {
+      const firstProvider = Object.keys(defaults)[0];
+      if (firstProvider) {
+        const defaultModelId = defaults[firstProvider];
+        if (defaultModelId) {
+          const provider = providerList.find(p => p.id === firstProvider);
+          const model = provider?.models?.[defaultModelId];
+          if (model?.limit?.context) return model.limit.context;
+        }
+      }
+    }
+
+    throw new Error(
+      `Failed to resolve context window size from OpenCode provider.list() for model '${modelHint ?? "unknown"}'`
+    );
+  }
+
+  /**
+   * Look up a model's display name from SDK provider metadata.
+   * Queries config.providers() and matches by provider/model ID.
+   * @param modelHint - Optional model ID to look up (e.g., "anthropic/claude-sonnet-4")
+   * @returns The model's name from SDK metadata, or undefined if not found
+   */
+  private async lookupModelNameFromProviders(modelHint?: string): Promise<string | undefined> {
     try {
-      // Try to get providers config which includes default model info
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const configClient = this.sdkClient as any;
-      if (configClient.config && typeof configClient.config.providers === "function") {
-        const result = await configClient.config.providers();
-        const defaults = result.data?.default as Record<string, string> | undefined;
-        if (defaults) {
-          // Get the first default model (format: providerID -> modelID)
-          const providerKeys = Object.keys(defaults);
-          const firstProvider = providerKeys[0];
-          if (firstProvider) {
-            const modelId = defaults[firstProvider];
-            if (modelId) {
-              // Format model ID for display (e.g., "claude-sonnet-4-20250514" -> "Claude Sonnet 4")
-              const displayModel = modelId
-                .replace(/-\d{8,}$/, "") // Remove trailing date
-                .split("-")
-                .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
-                .join(" ");
-              return {
-                model: displayModel,
-                tier: "OpenCode",
-              };
+      if (!configClient.config || typeof configClient.config.providers !== "function") {
+        return undefined;
+      }
+
+      const result = await configClient.config.providers();
+      const data = result.data as {
+        all?: Array<{ id: string; name: string; models?: Record<string, { name?: string }> }>;
+        default?: Record<string, string>;
+      } | undefined;
+      if (!data) return undefined;
+
+      // If we have a model hint, try to find it in provider models
+      if (modelHint) {
+        const parsed = this.parseModelForPrompt(modelHint);
+        if (parsed) {
+          const provider = data.all?.find(p => p.id === parsed.providerID);
+          if (provider?.models) {
+            const model = provider.models[parsed.modelID];
+            if (model?.name) return model.name;
+          }
+        }
+      }
+
+      // No hint or hint not found - use the first default model
+      const defaults = data.default;
+      if (defaults) {
+        const firstProvider = Object.keys(defaults)[0];
+        if (firstProvider) {
+          const modelId = defaults[firstProvider];
+          if (modelId) {
+            // Try to find the name from the provider's model list
+            const provider = data.all?.find(p => p.id === firstProvider);
+            if (provider?.models) {
+              const model = provider.models[modelId];
+              if (model?.name) return model.name;
             }
+            // No metadata name found - return the raw model ID
+            return modelId;
           }
         }
       }
     } catch {
-      // Fall back to default if config.providers fails
+      // Silently fail - caller handles fallback
     }
-
-    return {
-      model: "Claude",
-      tier: "OpenCode",
-    };
+    return undefined;
   }
 }
 

@@ -47,9 +47,10 @@ import type {
   EventHandler,
   AgentEvent,
   ToolDefinition,
+  ToolContext,
   MessageContentType,
 } from "./types.ts";
-import { formatModelDisplayName } from "./types.ts";
+import { stripProviderPrefix } from "./types.ts";
 import { initClaudeOptions } from "./init.ts";
 
 /**
@@ -83,6 +84,10 @@ interface ClaudeSessionState {
   inputTokens: number;
   outputTokens: number;
   isClosed: boolean;
+  /** Context window size captured from SDKResultMessage.modelUsage */
+  contextWindow: number | null;
+  /** System tools baseline tokens captured from cache tokens */
+  systemToolsBaseline: number | null;
 }
 
 /**
@@ -168,6 +173,12 @@ export class ClaudeAgentClient implements CodingAgentClient {
   private isRunning = false;
   /** Model detected from the SDK system init message */
   private detectedModel: string | null = null;
+  /** Captured context window sizes per model from SDKResultMessage.modelUsage */
+  public capturedModelContextWindows: Map<string, number> = new Map();
+  /** Context window captured from the start() probe query */
+  private probeContextWindow: number | null = null;
+  /** System tools baseline captured from the start() probe query */
+  private probeSystemToolsBaseline: number | null = null;
 
   /**
    * Register native SDK hooks for event handling.
@@ -302,23 +313,11 @@ export class ClaudeAgentClient implements CodingAgentClient {
       options.mcpServers[name] = server;
     }
 
-    // Map permission mode
-    // Note: When using "bypass" mode, all tools auto-execute without prompts
-    // EXCEPT for AskUserQuestion which is handled by canUseTool callback above.
-    if (config.permissionMode) {
-      const permissionMap: Record<string, Options["permissionMode"]> = {
-        auto: "acceptEdits",
-        prompt: "default",
-        deny: "dontAsk",
-        bypass: "bypassPermissions",
-      };
-      options.permissionMode = permissionMap[config.permissionMode];
-
-      // When bypassing permissions, we need to set the safety flag
-      if (config.permissionMode === "bypass") {
-        options.allowDangerouslySkipPermissions = true;
-      }
-    }
+    // Always bypass permissions - Atomic handles its own permission flow
+    // via canUseTool/HITL callbacks above. The initClaudeOptions() defaults
+    // already set bypassPermissions, so no mapping from config is needed.
+    options.permissionMode = "bypassPermissions";
+    options.allowDangerouslySkipPermissions = true;
 
     // Resume session if sessionId provided
     if (config.sessionId) {
@@ -344,6 +343,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
       inputTokens: 0,
       outputTokens: 0,
       isClosed: false,
+      contextWindow: this.probeContextWindow,
+      systemToolsBaseline: this.probeSystemToolsBaseline,
     };
 
     this.sessions.set(sessionId, state);
@@ -433,11 +434,53 @@ export class ClaudeAgentClient implements CodingAgentClient {
             // Track if we've yielded streaming deltas to avoid duplicating content
             let hasYieldedDeltas = false;
 
+            // Thinking block duration tracking
+            let thinkingStartMs: number | null = null;
+            let thinkingDurationMs = 0;
+            let currentBlockIsThinking = false;
+            // Output token tracking from message_delta events
+            let outputTokens = 0;
+
             for await (const sdkMessage of newQuery) {
               processMsg(sdkMessage);
 
               if (sdkMessage.type === "stream_event") {
                 const event = sdkMessage.event;
+
+                // Track thinking block boundaries
+                if (event.type === "content_block_start") {
+                  const blockType = (event as Record<string, unknown>).content_block
+                    ? ((event as Record<string, unknown>).content_block as Record<string, unknown>).type
+                    : undefined;
+                  currentBlockIsThinking = blockType === "thinking";
+                  if (currentBlockIsThinking) {
+                    thinkingStartMs = Date.now();
+                  }
+                }
+                if (event.type === "content_block_stop" && currentBlockIsThinking) {
+                  if (thinkingStartMs !== null) {
+                    thinkingDurationMs += Date.now() - thinkingStartMs;
+                    thinkingStartMs = null;
+                  }
+                  currentBlockIsThinking = false;
+                  yield {
+                    type: "thinking" as MessageContentType,
+                    content: "",
+                    role: "assistant",
+                    metadata: { streamingStats: { thinkingMs: thinkingDurationMs, outputTokens } },
+                  };
+                }
+
+                // Track output tokens from message_delta usage
+                if (event.type === "message_delta") {
+                  const usage = (event as Record<string, unknown>).usage as
+                    | { output_tokens?: number }
+                    | undefined;
+                  if (usage?.output_tokens) {
+                    outputTokens += usage.output_tokens;
+                  }
+                }
+
                 if (
                   event.type === "content_block_delta" &&
                   event.delta.type === "text_delta"
@@ -475,24 +518,46 @@ export class ClaudeAgentClient implements CodingAgentClient {
       },
 
       summarize: async (): Promise<void> => {
-        // Claude SDK doesn't have a direct summarize method
-        // Context compaction happens automatically or via hooks
-        // We emit a PreCompact hook trigger if registered
-        console.warn(
-          "ClaudeAgentClient.summarize(): Context compaction is handled automatically by the SDK"
-        );
+        if (state.isClosed) {
+          throw new Error("Session is closed");
+        }
+
+        // Send /compact as a prompt to the Claude Agents SDK
+        const options = this.buildSdkOptions(config, sessionId);
+        if (state.sdkSessionId) {
+          options.resume = state.sdkSessionId;
+        }
+
+        const newQuery = query({
+          prompt: "/compact",
+          options,
+        });
+
+        // Consume all messages to complete the compaction
+        for await (const sdkMessage of newQuery) {
+          this.processMessage(sdkMessage, sessionId, state);
+        }
       },
 
       getContextUsage: async (): Promise<ContextUsage> => {
-        // Calculate from tracked usage
+        if (state.contextWindow === null) {
+          throw new Error("Context window size unavailable: no query has completed. Send a message before calling getContextUsage().");
+        }
+        const maxTokens = state.contextWindow;
         const totalTokens = state.inputTokens + state.outputTokens;
-        const maxTokens = 200000; // Default context window
         return {
           inputTokens: state.inputTokens,
           outputTokens: state.outputTokens,
           maxTokens,
           usagePercentage: (totalTokens / maxTokens) * 100,
         };
+      },
+
+      getSystemToolsTokens: (): number => {
+        if (state.systemToolsBaseline === null) {
+          throw new Error("System tools baseline unavailable: no query has completed. Send a message first.");
+        }
+        return state.systemToolsBaseline;
       },
 
       destroy: async (): Promise<void> => {
@@ -561,6 +626,27 @@ export class ClaudeAgentClient implements CodingAgentClient {
           error: "Budget exceeded",
           code: "MAX_BUDGET",
         });
+      }
+
+      // Extract contextWindow and systemToolsBaseline from modelUsage
+      if (result.modelUsage) {
+        const modelKey = this.detectedModel ?? Object.keys(result.modelUsage)[0];
+        if (modelKey && result.modelUsage[modelKey]) {
+          const mu = result.modelUsage[modelKey];
+          if (mu.contextWindow != null) {
+            state.contextWindow = mu.contextWindow;
+            this.capturedModelContextWindows.set(modelKey, mu.contextWindow);
+          }
+          state.systemToolsBaseline = mu.cacheCreationInputTokens > 0
+            ? mu.cacheCreationInputTokens
+            : mu.cacheReadInputTokens;
+        }
+        // Populate capturedModelContextWindows for all models in usage
+        for (const [key, mu] of Object.entries(result.modelUsage)) {
+          if (mu.contextWindow != null) {
+            this.capturedModelContextWindows.set(key, mu.contextWindow);
+          }
+        }
       }
     }
   }
@@ -763,7 +849,14 @@ export class ClaudeAgentClient implements CodingAgentClient {
       inputSchema: {},
       handler: async (args: unknown, _extra: unknown) => {
         try {
-          const result = await tool.handler(args);
+          const context: ToolContext = {
+            sessionID: this.sessions.keys().next().value ?? "",
+            messageID: "",
+            agent: "claude",
+            directory: process.cwd(),
+            abort: new AbortController().signal,
+          };
+          const result = await tool.handler(args as Record<string, unknown>, context);
           return {
             content: [
               {
@@ -798,6 +891,31 @@ export class ClaudeAgentClient implements CodingAgentClient {
   }
 
   /**
+   * List supported models via the Claude SDK's supportedModels() API.
+   * Uses an existing active session's query if available, otherwise creates a temporary one.
+   */
+  async listSupportedModels(): Promise<Array<{ value: string; displayName: string; description: string }>> {
+    if (!this.isRunning) {
+      throw new Error("Client not started. Call start() first.");
+    }
+
+    // Reuse an existing active session's query if available
+    for (const state of this.sessions.values()) {
+      if (!state.isClosed) {
+        return await state.query.supportedModels();
+      }
+    }
+
+    // No active session — create a temporary query for model listing
+    const tempQuery = query({ prompt: '', options: { maxTurns: 0 } });
+    try {
+      return await tempQuery.supportedModels();
+    } finally {
+      tempQuery.close();
+    }
+  }
+
+  /**
    * Start the client
    */
   async start(): Promise<void> {
@@ -823,7 +941,29 @@ export class ClaudeAgentClient implements CodingAgentClient {
           if (systemMsg.model) {
             this.detectedModel = systemMsg.model;
           }
-          // Got what we need, stop reading
+        }
+
+        // Capture contextWindow and systemToolsBaseline from result
+        if (msg.type === "result") {
+          const result = msg as SDKResultMessage;
+          if (result.modelUsage) {
+            const modelKey = this.detectedModel ?? Object.keys(result.modelUsage)[0];
+            if (modelKey && result.modelUsage[modelKey]) {
+              const mu = result.modelUsage[modelKey];
+              if (mu.contextWindow != null) {
+                this.probeContextWindow = mu.contextWindow;
+                this.capturedModelContextWindows.set(modelKey, mu.contextWindow);
+              }
+              this.probeSystemToolsBaseline = mu.cacheCreationInputTokens > 0
+                ? mu.cacheCreationInputTokens
+                : mu.cacheReadInputTokens;
+            }
+            for (const [key, mu] of Object.entries(result.modelUsage)) {
+              if (mu.contextWindow != null) {
+                this.capturedModelContextWindows.set(key, mu.contextWindow);
+              }
+            }
+          }
           break;
         }
       }
@@ -856,16 +996,16 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
   /**
    * Get model display information for UI rendering.
-   * Uses the model hint if provided, otherwise uses the model detected from
-   * the SDK system init message, or falls back to "Claude".
-   * @param modelHint - Optional model ID to format for display
+   * Uses the model detected from the SDK system init message as the
+   * authoritative source. Falls back to modelHint (raw, unformatted).
+   * @param modelHint - Optional model ID from saved preferences
    */
   async getModelDisplayInfo(
     modelHint?: string
   ): Promise<{ model: string; tier: string }> {
-    // Priority: modelHint > detectedModel > default "Claude"
-    const modelId = modelHint || this.detectedModel;
-    const model = modelId ? formatModelDisplayName(modelId) : "Claude";
+    // Use detected model from SDK probe (authoritative), then hint, then raw fallback
+    const model = this.detectedModel
+      ?? (modelHint ? stripProviderPrefix(modelHint) : "Claude");
     return {
       model,
       tier: "Claude Code",

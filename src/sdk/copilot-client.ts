@@ -53,17 +53,20 @@ import {
 
 import { initCopilotSessionOptions } from "./init.ts";
 import { loadCopilotAgents } from "../config/copilot-manual.ts";
+import { BACKGROUND_COMPACTION_THRESHOLD, BUFFER_EXHAUSTION_THRESHOLD } from "../graph/types.ts";
 
-import type {
-  CodingAgentClient,
-  Session,
-  SessionConfig,
-  AgentMessage,
-  ContextUsage,
-  EventType,
-  EventHandler,
-  AgentEvent,
-  ToolDefinition,
+import {
+  stripProviderPrefix,
+  type CodingAgentClient,
+  type Session,
+  type SessionConfig,
+  type AgentMessage,
+  type ContextUsage,
+  type EventType,
+  type EventHandler,
+  type AgentEvent,
+  type ToolDefinition,
+  type ToolContext,
 } from "./types.ts";
 
 /**
@@ -116,6 +119,10 @@ interface CopilotSessionState {
   unsubscribe: () => void;
   /** Maps toolCallId to toolName for tool.execution_complete events */
   toolCallIdToName: Map<string, string>;
+  /** Context window size resolved from listModels() */
+  contextWindow: number | null;
+  /** Token count for system prompt + tools baseline */
+  systemToolsBaseline: number | null;
 }
 
 /**
@@ -135,6 +142,7 @@ function mapSdkEventToEventType(sdkEventType: SdkSessionEventType): EventType | 
     "subagent.started": "subagent.start",
     "subagent.completed": "subagent.complete",
     "subagent.failed": "session.error",
+    "session.usage_info": "usage",
   };
   return mapping[sdkEventType] ?? null;
 }
@@ -227,6 +235,8 @@ export class CopilotClient implements CodingAgentClient {
       isClosed: false,
       unsubscribe,
       toolCallIdToName: new Map(),
+      contextWindow: null,
+      systemToolsBaseline: null,
     };
 
     this.sessions.set(sessionId, state);
@@ -371,21 +381,25 @@ export class CopilotClient implements CodingAgentClient {
       },
 
       summarize: async (): Promise<void> => {
-        // Copilot SDK handles context compaction automatically
-        // via infinite sessions configuration
-        console.warn(
-          "CopilotClient.summarize(): Context compaction is handled automatically by the SDK"
-        );
+        if (state.isClosed) {
+          throw new Error("Session is closed");
+        }
+
+        // Send /compact as a prompt to the Copilot SDK
+        await state.sdkSession.sendAndWait({ prompt: "/compact" });
       },
 
       getContextUsage: async (): Promise<ContextUsage> => {
         // Token usage is tracked via session.usage_info events
-        // Return cached values
+        if (state.contextWindow === null) {
+          throw new Error("Context window size unavailable: listModels() did not return model limits.");
+        }
+        const maxTokens = state.contextWindow;
         return {
           inputTokens: state.inputTokens,
           outputTokens: state.outputTokens,
-          maxTokens: 200000, // Default context window
-          usagePercentage: ((state.inputTokens + state.outputTokens) / 200000) * 100,
+          maxTokens,
+          usagePercentage: ((state.inputTokens + state.outputTokens) / maxTokens) * 100,
         };
       },
 
@@ -397,6 +411,13 @@ export class CopilotClient implements CodingAgentClient {
           this.sessions.delete(sessionId);
           this.emitEvent("session.idle", sessionId, { reason: "destroyed" });
         }
+      },
+
+      getSystemToolsTokens: (): number => {
+        if (state.systemToolsBaseline === null) {
+          throw new Error("System tools baseline unavailable: no session.usage_info received yet.");
+        }
+        return state.systemToolsBaseline;
       },
     };
 
@@ -413,6 +434,21 @@ export class CopilotClient implements CodingAgentClient {
     if (event.type === "assistant.usage" && state) {
       state.inputTokens += event.data.inputTokens ?? 0;
       state.outputTokens += event.data.outputTokens ?? 0;
+      const cache = (event.data as Record<string, unknown>).cacheWriteTokens as number | undefined
+        ?? (event.data as Record<string, unknown>).cacheReadTokens as number | undefined
+        ?? 0;
+      if (cache > 0) {
+        state.systemToolsBaseline = cache;
+      }
+    }
+
+    // Track context window and system tools baseline from usage_info events
+    if (event.type === "session.usage_info" && state) {
+      const data = event.data as Record<string, unknown>;
+      if (state.systemToolsBaseline === null) {
+        state.systemToolsBaseline = data.currentTokens as number;
+      }
+      state.contextWindow = data.tokenLimit as number;
     }
 
     // Map to unified event type
@@ -488,6 +524,14 @@ export class CopilotClient implements CodingAgentClient {
             error: event.data.error,
           };
           break;
+        case "session.usage_info": {
+          const usageData = event.data as Record<string, unknown>;
+          eventData = {
+            currentTokens: usageData.currentTokens,
+            tokenLimit: usageData.tokenLimit,
+          };
+          break;
+        }
       }
 
       this.emitEvent(eventType, sessionId, eventData);
@@ -529,7 +573,17 @@ export class CopilotClient implements CodingAgentClient {
       name: tool.name,
       description: tool.description,
       parameters: tool.inputSchema,
-      handler: async (args) => tool.handler(args),
+      handler: async (args) => {
+        const activeSessionId = this.sessions.keys().next().value ?? "";
+        const context: ToolContext = {
+          sessionID: activeSessionId,
+          messageID: "",
+          agent: "copilot",
+          directory: this.clientOptions.cwd ?? process.cwd(),
+          abort: new AbortController().signal,
+        };
+        return tool.handler(args as Record<string, unknown>, context);
+      },
     };
   }
 
@@ -621,13 +675,16 @@ export class CopilotClient implements CodingAgentClient {
     const skillDirs = [
       join(projectRoot, ".github", "skills"),
       join(projectRoot, ".claude", "skills"),
+      join(projectRoot, ".opencode", "skills"),
       join(HOME, ".copilot", "skills"),
       join(HOME, ".claude", "skills"),
+      join(HOME, ".opencode", "skills"),
     ].filter((dir) => existsSync(dir));
 
     const sdkConfig: SdkSessionConfig = {
       sessionId: config.sessionId,
       model: config.model,
+      reasoningEffort: config.reasoningEffort as SdkSessionConfig["reasoningEffort"],
       systemMessage: config.systemPrompt
         ? { mode: "append", content: config.systemPrompt }
         : undefined,
@@ -638,6 +695,11 @@ export class CopilotClient implements CodingAgentClient {
       onUserInputRequest: this.createUserInputHandler(tentativeSessionId),
       skillDirectories: skillDirs.length > 0 ? skillDirs : undefined,
       customAgents: customAgents.length > 0 ? customAgents : undefined,
+      infiniteSessions: {
+        enabled: true,
+        backgroundCompactionThreshold: BACKGROUND_COMPACTION_THRESHOLD,
+        bufferExhaustionThreshold: BUFFER_EXHAUSTION_THRESHOLD,
+      },
       mcpServers: config.mcpServers
         ? Object.fromEntries(
             config.mcpServers.map((s) => {
@@ -665,7 +727,40 @@ export class CopilotClient implements CodingAgentClient {
     };
 
     const sdkSession = await this.sdkClient.createSession(sdkConfig);
-    return this.wrapSession(sdkSession, config);
+
+    // Eagerly resolve context window size from listModels()
+    let contextWindow: number | null = null;
+    try {
+      const models = await this.sdkClient.listModels();
+      if (models?.length) {
+        const activeModelId = config.model ? stripProviderPrefix(config.model) : null;
+        const matched = activeModelId
+          ? models.find((m: { id?: string }) => m.id === activeModelId || m.id === config.model)
+          : null;
+        const targetModel = matched ?? models[0];
+        const caps = (targetModel as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
+        const limits = caps?.limits as Record<string, unknown> | undefined;
+        const maxCtx = limits?.max_context_window_tokens as number | undefined;
+        if (maxCtx) {
+          contextWindow = maxCtx;
+        }
+      }
+    } catch {
+      // Fall through - contextWindow stays null
+    }
+    if (contextWindow === null) {
+      throw new Error("Failed to resolve context window size from Copilot SDK listModels()");
+    }
+
+    const session = this.wrapSession(sdkSession, config);
+
+    // Set the resolved context window on the session state
+    const sessionState = this.sessions.get(sdkSession.sessionId);
+    if (sessionState) {
+      sessionState.contextWindow = contextWindow;
+    }
+
+    return session;
   }
 
   /**
@@ -822,32 +917,49 @@ export class CopilotClient implements CodingAgentClient {
 
   /**
    * Get model display information for UI rendering.
-   * Queries available models from the Copilot SDK and returns the first one.
-   * @param _modelHint - Optional model hint (unused, queries SDK instead)
+   * Queries the SDK's listModels() for authoritative model names.
+   * Falls back to the raw model ID (not formatted) if metadata is unavailable.
+   * @param modelHint - Optional model hint from saved preferences
    */
   async getModelDisplayInfo(
-    _modelHint?: string
+    modelHint?: string
   ): Promise<{ model: string; tier: string }> {
-    if (!this.isRunning || !this.sdkClient) {
-      return {
-        model: "Copilot",
-        tier: "GitHub Copilot",
-      };
+    // Query SDK for model metadata - this is the authoritative source
+    if (this.isRunning && this.sdkClient) {
+      try {
+        const models = await this.sdkClient.listModels();
+        if (models?.length) {
+          // If we have a hint, find the matching model by ID
+          if (modelHint) {
+            const hintModelId = stripProviderPrefix(modelHint);
+            const matched = models.find((m: { id?: string }) => m.id === hintModelId || m.id === modelHint);
+            if (matched) {
+              return {
+                model: matched.name ?? matched.id,
+                tier: "GitHub Copilot",
+              };
+            }
+          }
+          // No hint or hint not found - use the first model's metadata name
+          const firstModel = models[0] as { name?: string; id?: string } | undefined;
+          if (firstModel) {
+            return {
+              model: firstModel.name ?? firstModel.id ?? "Copilot",
+              tier: "GitHub Copilot",
+            };
+          }
+        }
+      } catch {
+        // SDK listModels() failed - fall through to raw ID below
+      }
     }
 
-    try {
-      const models = await this.sdkClient.listModels();
-
-      const firstModel = models?.[0];
-      if (firstModel) {
-        // Return the first available model's display name or ID
-        return {
-          model: firstModel.name ?? firstModel.id ?? "Copilot",
-          tier: "GitHub Copilot",
-        };
-      }
-    } catch {
-      // Fall back to default if listModels fails
+    // SDK not available - use raw model ID without lossy formatting
+    if (modelHint) {
+      return {
+        model: stripProviderPrefix(modelHint),
+        tier: "GitHub Copilot",
+      };
     }
 
     return {

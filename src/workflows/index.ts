@@ -9,24 +9,21 @@
  *
  * Session Management:
  * - RalphSession: Session state for Ralph loop execution
- * - RalphFeature: Feature definition for implementation tracking
  */
 
 // Ralph module (session, workflow, executor)
 export {
   // Session types
   type RalphSession,
-  type RalphFeature,
+  type TodoItem,
 
   // Session factory functions
   generateSessionId,
   getSessionDir,
   createRalphSession,
-  createRalphFeature,
 
   // Session type guards
   isRalphSession,
-  isRalphFeature,
 
   // Session file system operations
   SESSION_SUBDIRECTORIES,

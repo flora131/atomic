@@ -30,8 +30,8 @@ import {
   loadSessionIfExists,
   createRalphSession,
     type RalphSession,
-  type TodoItem,
 } from "../../src/workflows/index.ts";
+import type { TodoItem } from "../../src/sdk/tools/todo-write.ts";
 import { createRalphWorkflow } from "../../src/workflows/index.ts";
 import {
   globalRegistry,
@@ -117,25 +117,24 @@ async function createPausedSession(
   overrides: Partial<RalphSession> = {}
 ): Promise<RalphSession> {
   const tasks: TodoItem[] = [
-    createTodoItem({
+    {
       id: "feat-001",
-      name: "Test feature 1",
-      description: "First test feature",
-      status: "passing",
-      implementedAt: new Date().toISOString(),
-    }),
-    createTodoItem({
+      content: "Test feature 1",
+      status: "completed",
+      activeForm: "Test feature 1",
+    },
+    {
       id: "feat-002",
-      name: "Test feature 2",
-      description: "Second test feature",
+      content: "Test feature 2",
       status: "pending",
-    }),
-    createTodoItem({
+      activeForm: "Test feature 2",
+    },
+    {
       id: "feat-003",
-      name: "Test feature 3",
-      description: "Third test feature",
+      content: "Test feature 3",
       status: "pending",
-    }),
+      activeForm: "Test feature 3",
+    },
   ];
 
   const session = createRalphSession({
@@ -143,10 +142,9 @@ async function createPausedSession(
     sessionDir,
     status: "paused",
     tasks,
-    completedTaskIds: ["feat-001"],
-    currentTaskIndex: 1,
+    completedFeatures: ["feat-001"],
+    currentFeatureIndex: 1,
     iteration: 5,
-    sourceFeatureListPath: "research/tasks.json",
     ...overrides,
   });
 
@@ -195,7 +193,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       // Create research directory and feature list
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
-      const tasksPath = path.join(researchDir, "tasks.json");
+      const tasksPath = path.join(researchDir, "feature-list.json");
       await fs.writeFile(tasksPath, createTestFeatureListContent());
     });
 
@@ -246,11 +244,12 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
         sessionDir,
         status: "running",
         tasks: [
-          createTodoItem({
+          {
             id: "feat-1",
-            name: "Test feature",
-            description: "Test description",
-          }),
+            content: "Test feature",
+            status: "pending",
+            activeForm: "Test feature",
+          },
         ],
       });
 
@@ -274,11 +273,12 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
         status: "running",
         iteration: 3,
         tasks: [
-          createTodoItem({
+          {
             id: "feat-1",
-            name: "Test feature",
-            description: "Test description",
-          }),
+            content: "Test feature",
+            status: "pending",
+            activeForm: "Test feature",
+          },
         ],
       });
 
@@ -298,18 +298,18 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const sessionDir = await createSessionDirectory(sessionId);
 
       const tasks: TodoItem[] = [
-        createTodoItem({
+        {
           id: "feat-001",
-          name: "Feature 1",
-          description: "First feature",
-          status: "passing",
-        }),
-        createTodoItem({
+          content: "Feature 1",
+          status: "completed",
+          activeForm: "Feature 1",
+        },
+        {
           id: "feat-002",
-          name: "Feature 2",
-          description: "Second feature",
+          content: "Feature 2",
           status: "in_progress",
-        }),
+          activeForm: "Feature 2",
+        },
       ];
 
       const session = createRalphSession({
@@ -318,8 +318,8 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
         status: "running",
         iteration: 5,
         tasks,
-        completedTaskIds: ["feat-001"],
-        currentTaskIndex: 1,
+        completedFeatures: ["feat-001"],
+        currentFeatureIndex: 1,
       });
 
       await saveSession(sessionDir, session);
@@ -334,9 +334,9 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       expect(paused.status).toBe("paused");
       expect(paused.iteration).toBe(5);
       expect(paused.tasks.length).toBe(2);
-      expect(paused.tasks[0]!.status).toBe("passing");
+      expect(paused.tasks[0]!.status).toBe("completed");
       expect(paused.tasks[1]!.status).toBe("in_progress");
-      expect(paused.completedTaskIds).toContain("feat-001");
+      expect(paused.completedFeatures).toContain("feat-001");
     });
 
     test("session lastUpdated timestamp updates on pause", async () => {
@@ -427,7 +427,10 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const uuid = "550e8400-e29b-41d4-a716-446655440000";
       const args = parseRalphArgs(`--resume ${uuid}`);
 
-      expect(args.resumeSessionId).toBe(uuid);
+      expect(args.kind).toBe("resume");
+      if (args.kind === "resume") {
+        expect(args.sessionId).toBe(uuid);
+      }
       expect(args.prompt).toBeNull();
     });
 
@@ -436,7 +439,10 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const args = parseRalphArgs(`--resume ${invalidId}`);
 
       // Parser accepts any string, validation happens in command handler
-      expect(args.resumeSessionId).toBe(invalidId);
+      expect(args.kind).toBe("resume");
+      if (args.kind === "resume") {
+        expect(args.sessionId).toBe(invalidId);
+      }
     });
 
     test("/ralph --resume with valid UUID succeeds", async () => {
@@ -539,7 +545,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
       await fs.writeFile(
-        path.join(researchDir, "tasks.json"),
+        path.join(researchDir, "feature-list.json"),
         createTestFeatureListContent()
       );
 
@@ -571,7 +577,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const sessionDir = await createSessionDirectory(sessionId);
       const original = await createPausedSession(sessionDir, sessionId, {
         iteration: 10,
-        completedTaskIds: ["feat-001", "feat-002"],
+        completedFeatures: ["feat-001", "feat-002"],
       });
 
       // Load session as would happen during resume
@@ -579,7 +585,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
 
       expect(loaded.sessionId).toBe(original.sessionId);
       expect(loaded.iteration).toBe(10);
-      expect(loaded.completedTaskIds).toEqual(["feat-001", "feat-002"]);
+      expect(loaded.completedFeatures).toEqual(["feat-001", "feat-002"]);
       expect(loaded.status).toBe("paused");
     });
 
@@ -633,11 +639,11 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const sessionId = generateSessionId();
       const sessionDir = await createSessionDirectory(sessionId);
       await createPausedSession(sessionDir, sessionId, {
-        currentTaskIndex: 2,
+        currentFeatureIndex: 2,
       });
 
       const session = await loadSession(sessionDir);
-      expect(session.currentTaskIndex).toBe(2);
+      expect(session.currentFeatureIndex).toBe(2);
     });
 
     test("workflow configuration includes resumeSessionId", async () => {
@@ -667,25 +673,24 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const sessionDir = await createSessionDirectory(sessionId);
 
       const tasks: TodoItem[] = [
-        createTodoItem({
+        {
           id: "feat-001",
-          name: "Feature 1",
-          description: "First feature",
-          status: "passing",
-          implementedAt: new Date().toISOString(),
-        }),
-        createTodoItem({
+          content: "Feature 1",
+          status: "completed",
+          activeForm: "Feature 1",
+        },
+        {
           id: "feat-002",
-          name: "Feature 2",
-          description: "Second feature",
+          content: "Feature 2",
           status: "in_progress",
-        }),
-        createTodoItem({
+          activeForm: "Feature 2",
+        },
+        {
           id: "feat-003",
-          name: "Feature 3",
-          description: "Third feature",
+          content: "Feature 3",
           status: "pending",
-        }),
+          activeForm: "Feature 3",
+        },
       ];
 
       const session = createRalphSession({
@@ -693,10 +698,9 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
         sessionDir,
         status: "running",
         tasks,
-        completedTaskIds: ["feat-001"],
-        currentTaskIndex: 1,
+        completedFeatures: ["feat-001"],
+        currentFeatureIndex: 1,
         iteration: 7,
-        sourceFeatureListPath: "research/tasks.json",
       });
 
       await saveSession(sessionDir, session);
@@ -708,7 +712,10 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
 
       // Step 3: Use parseRalphArgs to parse --resume command
       const args = parseRalphArgs(`--resume ${sessionId}`);
-      expect(args.resumeSessionId).toBe(sessionId);
+      expect(args.kind).toBe("resume");
+      if (args.kind === "resume") {
+        expect(args.sessionId).toBe(sessionId);
+      }
 
       // Step 4: Load session for resumption
       const resumedSession = await loadSessionIfExists(sessionDir);
@@ -719,11 +726,11 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       expect(resumedSession!.status).toBe("paused");
       expect(resumedSession!.iteration).toBe(7);
       expect(resumedSession!.tasks.length).toBe(3);
-      expect(resumedSession!.tasks[0]!.status).toBe("passing");
+      expect(resumedSession!.tasks[0]!.status).toBe("completed");
       expect(resumedSession!.tasks[1]!.status).toBe("in_progress");
       expect(resumedSession!.tasks[2]!.status).toBe("pending");
-      expect(resumedSession!.completedTaskIds).toEqual(["feat-001"]);
-      expect(resumedSession!.currentTaskIndex).toBe(1);
+      expect(resumedSession!.completedFeatures).toEqual(["feat-001"]);
+      expect(resumedSession!.currentFeatureIndex).toBe(1);
 
       // Step 6: Execute /ralph --resume command
       const context = createMockContext();
@@ -747,11 +754,12 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
         status: "running",
         iteration: 1,
         tasks: [
-          createTodoItem({
+          {
             id: "feat-001",
-            name: "Feature 1",
-            description: "First feature",
-          }),
+            content: "Feature 1",
+            status: "pending",
+            activeForm: "Feature 1",
+          },
         ],
       });
 
@@ -786,24 +794,6 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const result = await command!.execute(`--resume ${sessionId}`, context);
 
       expect(result.success).toBe(true);
-    });
-
-    test("resume command respects feature list path from session", async () => {
-      const sessionId = generateSessionId();
-      const sessionDir = await createSessionDirectory(sessionId);
-
-      const session = createRalphSession({
-        sessionId,
-        sessionDir,
-        status: "paused",
-        sourceFeatureListPath: "custom/tasks.json",
-      });
-
-      await saveSession(sessionDir, session);
-
-      // Load and verify custom path is preserved
-      const loaded = await loadSession(sessionDir);
-      expect(loaded.sourceFeatureListPath).toBe("custom/tasks.json");
     });
 
     test("resume command works for prompt mode sessions", async () => {
@@ -860,18 +850,18 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
       const sessionDir = await createSessionDirectory(sessionId);
 
       const allCompleteTasks: TodoItem[] = [
-        createTodoItem({
+        {
           id: "feat-001",
-          name: "Feature 1",
-          description: "First feature",
-          status: "passing",
-        }),
-        createTodoItem({
+          content: "Feature 1",
+          status: "completed",
+          activeForm: "Feature 1",
+        },
+        {
           id: "feat-002",
-          name: "Feature 2",
-          description: "Second feature",
-          status: "passing",
-        }),
+          content: "Feature 2",
+          status: "completed",
+          activeForm: "Feature 2",
+        },
       ];
 
       const session = createRalphSession({
@@ -879,7 +869,7 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
         sessionDir,
         status: "paused",
         tasks: allCompleteTasks,
-        completedTaskIds: ["feat-001", "feat-002"],
+        completedFeatures: ["feat-001", "feat-002"],
       });
 
       await saveSession(sessionDir, session);
@@ -943,14 +933,14 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
         sessionDir,
         status: "completed",
         tasks: [
-          createTodoItem({
+          {
             id: "feat-001",
-            name: "Feature 1",
-            description: "First feature",
-            status: "passing",
-          }),
+            content: "Feature 1",
+            status: "completed",
+            activeForm: "Feature 1",
+          },
         ],
-        completedTaskIds: ["feat-001"],
+        completedFeatures: ["feat-001"],
         prUrl: "https://github.com/test/repo/pull/1",
       });
 
@@ -973,13 +963,12 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
         sessionDir,
         status: "failed",
         tasks: [
-          createTodoItem({
+          {
             id: "feat-001",
-            name: "Feature 1",
-            description: "First feature",
-            status: "failing",
-            error: "Test error message",
-          }),
+            content: "Feature 1",
+            status: "pending",
+            activeForm: "Feature 1",
+          },
         ],
       });
 
@@ -996,16 +985,19 @@ describe("E2E test: /ralph --resume resumes paused session", () => {
     test("parseRalphArgs handles --resume without UUID", () => {
       const args = parseRalphArgs("--resume");
 
-      // Empty string indicates --resume was used but no UUID provided
-      // (null means --resume flag was not used at all)
-      expect(args.resumeSessionId).toBe("");
+      // Without a UUID after --resume, it's not matched as a resume command
+      expect(args.kind).toBe("run");
+      expect(args.prompt).toBe("--resume");
     });
 
     test("parseRalphArgs handles --resume with extra whitespace", () => {
       const uuid = "550e8400-e29b-41d4-a716-446655440000";
       const args = parseRalphArgs(`--resume    ${uuid}   `);
 
-      expect(args.resumeSessionId).toBe(uuid);
+      expect(args.kind).toBe("resume");
+      if (args.kind === "resume") {
+        expect(args.sessionId).toBe(uuid);
+      }
     });
 
     test("isValidUUID rejects various invalid formats", () => {

@@ -202,8 +202,8 @@ async function createTestSessionJson(
       status: "pending" | "in_progress" | "completed";
       activeForm: string;
     }>;
-    currentTaskIndex: number;
-    completedTaskIds: string[];
+    currentFeatureIndex: number;
+    completedFeatures: string[];
   }> = {}
 ): Promise<void> {
   const session = {
@@ -216,8 +216,8 @@ async function createTestSessionJson(
       { id: "task-002", content: "Task 2", status: "pending", activeForm: "Working on task 2" },
       { id: "task-003", content: "Task 3", status: "pending", activeForm: "Working on task 3" },
     ],
-    currentTaskIndex: overrides.currentTaskIndex ?? 1,
-    completedTaskIds: overrides.completedTaskIds ?? ["task-001"],
+    currentFeatureIndex: overrides.currentFeatureIndex ?? 1,
+    completedFeatures: overrides.completedFeatures ?? ["task-001"],
     iteration: overrides.iteration ?? 2,
     status: overrides.status ?? "running",
     debugReports: [],
@@ -493,14 +493,14 @@ describe("Interrupt with Ctrl+C", () => {
     await createTestSessionJson(sessionDir, sessionId, {
       status: "running",
       iteration: 3,
-      completedTaskIds: ["task-001", "task-002"],
+      completedFeatures: ["task-001", "task-002"],
     });
 
     const session = await loadSession(sessionDir);
     expect(session.status).toBe("running");
     expect(session.iteration).toBe(3);
-    expect(session.completedTaskIds).toContain("task-001");
-    expect(session.completedTaskIds).toContain("task-002");
+    expect(session.completedFeatures).toContain("task-001");
+    expect(session.completedFeatures).toContain("task-002");
   });
 
   test("RalphExecutor handles interrupt gracefully", () => {
@@ -549,7 +549,7 @@ describe("Verify session marked as 'paused'", () => {
     await createTestSessionJson(sessionDir, sessionId, {
       status: "running",
       iteration: 5,
-      completedTaskIds: ["task-001", "task-002"],
+      completedFeatures: ["task-001", "task-002"],
     });
 
     let session = await loadSession(sessionDir);
@@ -559,14 +559,14 @@ describe("Verify session marked as 'paused'", () => {
     session = await loadSession(sessionDir);
     expect(session.status).toBe("paused");
     expect(session.iteration).toBe(5);
-    expect(session.completedTaskIds).toEqual(["task-001", "task-002"]);
+    expect(session.completedFeatures).toEqual(["task-001", "task-002"]);
   });
 
   test("paused session retains task progress", async () => {
     const tasks = [
-      { id: "task-001", content: "Task 1", status: "completed", activeForm: "Working on task" as const },
-      { id: "task-002", content: "Task 2", status: "in_progress", activeForm: "Working on task" as const },
-      { id: "task-003", content: "Task 3", status: "pending", activeForm: "Working on task" as const },
+      { id: "task-001", content: "Task 1", status: "completed" as const, activeForm: "Working on task" },
+      { id: "task-002", content: "Task 2", status: "in_progress" as const, activeForm: "Working on task" },
+      { id: "task-003", content: "Task 3", status: "pending" as const, activeForm: "Working on task" },
     ];
 
     await createTestSessionJson(sessionDir, sessionId, {
@@ -660,7 +660,7 @@ describe("Resume with /ralph --resume {uuid}", () => {
     await createTestSessionJson(sessionDir, sessionId, {
       status: "paused",
       iteration: 5,
-      completedTaskIds: ["task-001"],
+      completedFeatures: ["task-001"],
     });
 
     const session = await loadSession(sessionDir);
@@ -668,7 +668,7 @@ describe("Resume with /ralph --resume {uuid}", () => {
 
     expect(workflowState.ralphSessionId).toBe(sessionId);
     expect(workflowState.iteration).toBe(5);
-    expect(workflowState.completedTaskIds).toContain("task-001");
+    expect(workflowState.completedFeatures).toContain("task-001");
     expect(workflowState.sessionStatus).toBe("paused");
   });
 
@@ -696,11 +696,11 @@ describe("Resume with /ralph --resume {uuid}", () => {
   test("--resume flag is validated as valid UUID", () => {
     // Valid UUID
     const validResult = parseRalphArgs("--resume 550e8400-e29b-41d4-a716-446655440000");
-    expect(validResult.resumeSessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
+    expect((validResult as { kind: "resume"; sessionId: string }).sessionId).toBe("550e8400-e29b-41d4-a716-446655440000");
 
     // Invalid format still gets passed through (validation happens in command handler)
     const invalidResult = parseRalphArgs("--resume invalid-id");
-    expect(invalidResult.resumeSessionId).toBe("invalid-id");
+    expect((invalidResult as { kind: "resume"; sessionId: string }).sessionId).toBe("invalid-id");
   });
 });
 
@@ -798,15 +798,15 @@ describe("Verify execution continues from checkpoint", () => {
 
   test("feature list state is preserved through resume", async () => {
     const tasks = [
-      { id: "task-001", content: "Task 1", status: "completed", activeForm: "Working on task" as const },
-      { id: "task-002", content: "Task 2", status: "in_progress", activeForm: "Working on task" as const },
-      { id: "task-003", content: "Task 3", status: "pending", activeForm: "Working on task" as const },
+      { id: "task-001", content: "Task 1", status: "completed" as const, activeForm: "Working on task" },
+      { id: "task-002", content: "Task 2", status: "in_progress" as const, activeForm: "Working on task" },
+      { id: "task-003", content: "Task 3", status: "pending" as const, activeForm: "Working on task" },
     ];
 
     await createTestSessionJson(sessionDir, sessionId, {
       status: "paused",
       tasks,
-      currentTaskIndex: 1,
+      currentFeatureIndex: 1,
     });
 
     const session = await loadSession(sessionDir);
@@ -815,7 +815,7 @@ describe("Verify execution continues from checkpoint", () => {
     expect(workflowState.tasks.length).toBe(3);
     expect(workflowState.tasks[0]!.status).toBe("completed");
     expect(workflowState.tasks[1]!.status).toBe("in_progress");
-    expect(workflowState.currentTaskIndex).toBe(1);
+    expect(workflowState.currentFeatureIndex).toBe(1);
   });
 });
 
@@ -846,7 +846,7 @@ describe("Verify no duplicate work done", () => {
         { id: "task-001", content: "Task 1", status: "completed", activeForm: "Working on task" },
         { id: "task-002", content: "Task 2", status: "pending", activeForm: "Working on task" },
       ],
-      completedTaskIds: ["task-001"],
+      completedFeatures: ["task-001"],
     });
 
     const session = await loadSession(sessionDir);
@@ -859,7 +859,7 @@ describe("Verify no duplicate work done", () => {
 
     expect(nextPendingTask).not.toBeUndefined();
     expect(nextPendingTask!.id).toBe("task-002");
-    expect(workflowState.completedTaskIds).toContain("task-001");
+    expect(workflowState.completedFeatures).toContain("task-001");
   });
 
   test("executed nodes array reflects actual execution history", async () => {
@@ -982,8 +982,8 @@ describe("End-to-end resume flow", () => {
         { id: "task-002", content: "Task 2", status: "in_progress", activeForm: "Working on task" },
         { id: "task-003", content: "Task 3", status: "pending", activeForm: "Working on task" },
       ],
-      currentTaskIndex: 1,
-      completedTaskIds: ["task-001"],
+      currentFeatureIndex: 1,
+      completedFeatures: ["task-001"],
     });
 
     // 2. Verify initial state
@@ -1001,7 +1001,7 @@ describe("End-to-end resume flow", () => {
 
     // 5. Parse resume command
     const parseResult = parseRalphArgs(`--resume ${sessionId}`);
-    expect(parseResult.resumeSessionId).toBe(sessionId);
+    expect((parseResult as { kind: "resume"; sessionId: string }).sessionId).toBe(sessionId);
 
     // 6. Load session for resumption
     const resumeSession = await loadSessionIfExists(sessionDir);
@@ -1016,8 +1016,8 @@ describe("End-to-end resume flow", () => {
     expect(workflowState.tasks[0]!.status).toBe("completed");
     expect(workflowState.tasks[1]!.status).toBe("in_progress");
     expect(workflowState.tasks[2]!.status).toBe("pending");
-    expect(workflowState.currentTaskIndex).toBe(1);
-    expect(workflowState.completedTaskIds).toContain("task-001");
+    expect(workflowState.currentFeatureIndex).toBe(1);
+    expect(workflowState.completedFeatures).toContain("task-001");
 
     // 9. Simulate resume
     workflowState.sessionStatus = "running";

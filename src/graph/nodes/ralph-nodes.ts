@@ -189,8 +189,8 @@ export function checkCompletionNode<TState extends RalphWorkflowState = RalphWor
  *   ralphSessionId: "abc123-def456",
  *   ralphSessionDir: ".ralph/sessions/abc123-def456/",
  *   tasks: [...],
- *   currentTaskIndex: 2,
- *   completedTaskIds: ["#1", "#2"],
+ *   currentFeatureIndex: 2,
+ *   completedFeatures: ["#1", "#2"],
  *   iteration: 15,
  *   sessionStatus: "running",
  *
@@ -211,10 +211,10 @@ export interface RalphWorkflowState extends BaseState {
   // Task Tracking (uses native TodoItem)
   /** Task list — uses native TodoItem from the Claude Agent SDK */
   tasks: TodoItem[];
-  /** Index of the currently active task */
-  currentTaskIndex: number;
-  /** List of task IDs that have been completed */
-  completedTaskIds: string[];
+  /** Index of the currently active feature */
+  currentFeatureIndex: number;
+  /** List of feature IDs that have been completed */
+  completedFeatures: string[];
   /** The task currently being implemented (null if none) */
   currentTask: TodoItem | null;
 
@@ -268,8 +268,8 @@ export function isRalphWorkflowState(value: unknown): value is RalphWorkflowStat
     typeof obj.ralphSessionId === "string" &&
     typeof obj.ralphSessionDir === "string" &&
     Array.isArray(obj.tasks) &&
-    typeof obj.currentTaskIndex === "number" &&
-    Array.isArray(obj.completedTaskIds) &&
+    typeof obj.currentFeatureIndex === "number" &&
+    Array.isArray(obj.completedFeatures) &&
     typeof obj.iteration === "number" &&
     ["running", "paused", "completed", "failed"].includes(obj.sessionStatus as string) &&
     typeof obj.shouldContinue === "boolean" &&
@@ -342,8 +342,8 @@ export function createRalphWorkflowState(
 
     // Task tracking
     tasks: options.tasks ?? [],
-    currentTaskIndex: 0,
-    completedTaskIds: [],
+    currentFeatureIndex: 0,
+    completedFeatures: [],
     currentTask: null,
 
     // Execution tracking
@@ -395,8 +395,8 @@ export function sessionToWorkflowState(
 
     // Task tracking
     tasks: session.tasks,
-    currentTaskIndex: session.currentFeatureIndex,
-    completedTaskIds: session.completedFeatures,
+    currentFeatureIndex: session.currentFeatureIndex,
+    completedFeatures: session.completedFeatures,
     currentTask: session.tasks[session.currentFeatureIndex] ?? null,
 
     // Execution tracking
@@ -433,8 +433,8 @@ export function workflowStateToSession(state: RalphWorkflowState): RalphSession 
     createdAt: state.lastUpdated, // Will be overwritten on load
     lastUpdated: new Date().toISOString(),
     tasks: state.tasks,
-    currentFeatureIndex: state.currentTaskIndex,
-    completedFeatures: state.completedTaskIds,
+    currentFeatureIndex: state.currentFeatureIndex,
+    completedFeatures: state.completedFeatures,
     iteration: state.iteration,
     status: state.sessionStatus,
     prUrl: state.prUrl,
@@ -817,7 +817,7 @@ export function implementFeatureNode<TState extends RalphWorkflowState = RalphWo
 
       const updatedState: Partial<RalphWorkflowState> = {
         tasks: updatedTasks,
-        currentTaskIndex: nextTaskIndex,
+        currentFeatureIndex: nextTaskIndex,
         currentTask: updatedTasks[nextTaskIndex]!,
         shouldContinue: true,
         lastUpdated: new Date().toISOString(),
@@ -887,7 +887,7 @@ export async function processFeatureImplementationResult(
 
   const now = new Date().toISOString();
   let updatedTasks = [...state.tasks];
-  const taskIndex = state.currentTaskIndex;
+  const taskIndex = state.currentFeatureIndex;
 
   if (passed) {
     // Mark task as completed
@@ -927,16 +927,16 @@ export async function processFeatureImplementationResult(
     updatedTasks.splice(taskIndex + 1, 0, bugTask);
   }
 
-  // Build completed task IDs list
-  const completedTaskIds = passed && currentTask.id
-    ? [...state.completedTaskIds, currentTask.id]
-    : state.completedTaskIds;
+  // Build completed feature IDs list
+  const completedFeatures = passed && currentTask.id
+    ? [...state.completedFeatures, currentTask.id]
+    : state.completedFeatures;
 
   const nextIteration = state.iteration + 1;
 
   const updatedState: Partial<RalphWorkflowState> = {
     tasks: updatedTasks,
-    completedTaskIds,
+    completedFeatures,
     iteration: nextIteration,
     currentTask: null,
     shouldContinue: updatedTasks.some(

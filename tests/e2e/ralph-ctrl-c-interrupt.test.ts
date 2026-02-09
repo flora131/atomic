@@ -112,36 +112,34 @@ async function createRunningSession(
   overrides: Partial<RalphSession> = {}
 ): Promise<RalphSession> {
   const features: TodoItem[] = [
-    createTodoItem({
+    {
       id: "feat-001",
-      name: "Test feature 1",
-      description: "First test feature",
-      status: "passing",
-      implementedAt: new Date().toISOString(),
-    }),
-    createTodoItem({
+      content: "Test feature 1",
+      status: "completed",
+      activeForm: "Test feature 1",
+    },
+    {
       id: "feat-002",
-      name: "Test feature 2",
-      description: "Second test feature",
+      content: "Test feature 2",
       status: "in_progress",
-    }),
-    createTodoItem({
+      activeForm: "Test feature 2",
+    },
+    {
       id: "feat-003",
-      name: "Test feature 3",
-      description: "Third test feature",
+      content: "Test feature 3",
       status: "pending",
-    }),
+      activeForm: "Test feature 3",
+    },
   ];
 
   const session = createRalphSession({
     sessionId,
     sessionDir,
     status: "running",
-    features,
-    completedTaskIds: ["feat-001"],
-    currentTaskIndex: 1,
+    tasks: features,
+    completedFeatures: ["feat-001"],
+    currentFeatureIndex: 1,
     iteration: 5,
-    sourceFeatureListPath: "research/tasks.json",
     ...overrides,
   });
 
@@ -229,7 +227,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
       // Create research directory and feature list
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
-      const tasksPath = path.join(researchDir, "tasks.json");
+      const tasksPath = path.join(researchDir, "feature-list.json");
       await fs.writeFile(tasksPath, createTestFeatureListContent());
     });
 
@@ -603,8 +601,8 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         const sessionDir = await createSessionDirectory(sessionId);
         await createRunningSession(sessionDir, sessionId, {
           iteration: 15,
-          currentTaskIndex: 2,
-          completedTaskIds: ["feat-001", "feat-002"],
+          currentFeatureIndex: 2,
+          completedFeatures: ["feat-001", "feat-002"],
         });
 
         executor.setSession(sessionId, sessionDir);
@@ -619,9 +617,9 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
 
         expect(afterInterrupt.status).toBe("paused");
         expect(afterInterrupt.iteration).toBe(15);
-        expect(afterInterrupt.currentTaskIndex).toBe(2);
-        expect(afterInterrupt.completedTaskIds).toContain("feat-001");
-        expect(afterInterrupt.completedTaskIds).toContain("feat-002");
+        expect(afterInterrupt.currentFeatureIndex).toBe(2);
+        expect(afterInterrupt.completedFeatures).toContain("feat-001");
+        expect(afterInterrupt.completedFeatures).toContain("feat-002");
         expect(afterInterrupt.tasks.length).toBe(3);
 
         executor.cleanup();
@@ -718,18 +716,18 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId, {
           iteration: 10,
           tasks: [
-            createTodoItem({
+            {
               id: "feat-001",
-              name: "Feature 1",
-              description: "First feature",
-              status: "passing",
-            }),
-            createTodoItem({
+              content: "Feature 1",
+              status: "completed",
+              activeForm: "Feature 1",
+            },
+            {
               id: "feat-002",
-              name: "Feature 2",
-              description: "Second feature",
+              content: "Feature 2",
               status: "in_progress",
-            }),
+              activeForm: "Feature 2",
+            },
           ],
         });
 
@@ -794,9 +792,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
 
         const sessionId = generateSessionId();
         const sessionDir = await createSessionDirectory(sessionId);
-        await createRunningSession(sessionDir, sessionId, {
-          sourceFeatureListPath: "research/tasks.json",
-        });
+        await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
         await executor.run(workflow, {});
@@ -814,7 +810,6 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
 
         const resumed = await loadSession(sessionDir);
         expect(resumed.status).toBe("running");
-        expect(resumed.sourceFeatureListPath).toBe("research/tasks.json");
 
         executor.cleanup();
       } finally {
@@ -1045,18 +1040,18 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId, {
           iteration: 7,
           tasks: [
-            createTodoItem({
+            {
               id: "feat-001",
-              name: "Auth feature",
-              description: "Add authentication",
-              status: "passing",
-            }),
-            createTodoItem({
+              content: "Auth feature",
+              status: "completed",
+              activeForm: "Auth feature",
+            },
+            {
               id: "feat-002",
-              name: "Dashboard",
-              description: "Add dashboard",
+              content: "Dashboard",
               status: "in_progress",
-            }),
+              activeForm: "Dashboard",
+            },
           ],
         });
 
@@ -1156,35 +1151,33 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         // Create session with mixed feature states
         await createRunningSession(sessionDir, sessionId, {
           tasks: [
-            createTodoItem({
+            {
               id: "feat-001",
-              name: "Feature 1",
-              description: "First",
-              status: "passing",
-              implementedAt: new Date().toISOString(),
-            }),
-            createTodoItem({
+              content: "Feature 1",
+              status: "completed",
+              activeForm: "Feature 1",
+            },
+            {
               id: "feat-002",
-              name: "Feature 2",
-              description: "Second",
-              status: "passing",
-              implementedAt: new Date().toISOString(),
-            }),
-            createTodoItem({
+              content: "Feature 2",
+              status: "completed",
+              activeForm: "Feature 2",
+            },
+            {
               id: "feat-003",
-              name: "Feature 3",
-              description: "Third",
+              content: "Feature 3",
               status: "in_progress",
-            }),
-            createTodoItem({
+              activeForm: "Feature 3",
+            },
+            {
               id: "feat-004",
-              name: "Feature 4",
-              description: "Fourth",
+              content: "Feature 4",
               status: "pending",
-            }),
+              activeForm: "Feature 4",
+            },
           ],
-          completedTaskIds: ["feat-001", "feat-002"],
-          currentTaskIndex: 2,
+          completedFeatures: ["feat-001", "feat-002"],
+          currentFeatureIndex: 2,
         });
 
         executor.setSession(sessionId, sessionDir);
@@ -1196,11 +1189,11 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
 
         const afterInterrupt = await loadSession(sessionDir);
 
-        expect(afterInterrupt.tasks[0]?.status).toBe("passing");
-        expect(afterInterrupt.tasks[1]?.status).toBe("passing");
+        expect(afterInterrupt.tasks[0]?.status).toBe("completed");
+        expect(afterInterrupt.tasks[1]?.status).toBe("completed");
         expect(afterInterrupt.tasks[2]?.status).toBe("in_progress");
         expect(afterInterrupt.tasks[3]?.status).toBe("pending");
-        expect(afterInterrupt.completedTaskIds).toEqual(["feat-001", "feat-002"]);
+        expect(afterInterrupt.completedFeatures).toEqual(["feat-001", "feat-002"]);
 
         executor.cleanup();
       } finally {

@@ -107,6 +107,8 @@ function createMockSession(sessionId: string): MockSession {
       return { ...contextUsage };
     },
 
+    getSystemToolsTokens() { return 0; },
+
     async destroy(): Promise<void> {
       messageHistory.length = 0;
     },

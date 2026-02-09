@@ -95,6 +95,7 @@ function createMockSession(
     getContextUsage: mock(() =>
       Promise.resolve({ inputTokens: 0, outputTokens: 0, maxTokens: 200000, usagePercentage: 0 })
     ),
+    getSystemToolsTokens: mock(() => 0),
     destroy: options?.destroyError
       ? mock(() => Promise.reject(options.destroyError))
       : mock(() => Promise.resolve()),

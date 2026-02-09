@@ -105,7 +105,7 @@ describe("createRalphWorkflow", () => {
   test("workflow has contextWindowThreshold set", () => {
     const workflow = createRalphWorkflow();
 
-    expect(workflow.config.contextWindowThreshold).toBe(60);
+    expect(workflow.config.contextWindowThreshold).toBe(45);
   });
 });
 

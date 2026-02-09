@@ -111,6 +111,8 @@ describe("Mock Client Implementation", () => {
             };
           },
 
+          getSystemToolsTokens() { return 0; },
+
           async destroy(): Promise<void> {},
         };
       },
@@ -171,6 +173,8 @@ describe("Mock Client Implementation", () => {
         };
       },
 
+      getSystemToolsTokens() { return 0; },
+
       async destroy(): Promise<void> {},
     };
 
@@ -212,6 +216,8 @@ describe("Mock Client Implementation", () => {
         };
       },
 
+      getSystemToolsTokens() { return 0; },
+
       async destroy(): Promise<void> {},
     };
 
@@ -245,6 +251,8 @@ describe("Mock Client Implementation", () => {
           usagePercentage: 0.75,
         };
       },
+
+      getSystemToolsTokens() { return 0; },
 
       async destroy(): Promise<void> {},
     };
@@ -353,6 +361,7 @@ describe("ChatUI State Management", () => {
           usagePercentage: 0,
         };
       },
+      getSystemToolsTokens() { return 0; },
       async destroy() {},
     };
 
@@ -486,6 +495,7 @@ describe("Error Handling", () => {
           usagePercentage: 0,
         };
       },
+      getSystemToolsTokens() { return 0; },
       async destroy() {
         throw new Error("Destroy failed");
       },

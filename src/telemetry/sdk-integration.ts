@@ -207,6 +207,10 @@ export function wrapSession(
       return session.getContextUsage();
     },
 
+    getSystemToolsTokens(): number {
+      return session.getSystemToolsTokens();
+    },
+
     async destroy(): Promise<void> {
       collector.track(
         "sdk.session.destroyed",

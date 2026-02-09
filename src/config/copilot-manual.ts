@@ -118,22 +118,28 @@ export async function loadCopilotAgents(
   projectRoot: string,
   fsOps: FsOps = defaultFsOps
 ): Promise<CopilotAgent[]> {
-  const localDir = path.join(projectRoot, ".github", "agents");
-  const globalDir = path.join(os.homedir(), ".copilot", "agents");
+  const HOME = os.homedir();
+
+  // All agent directories in priority order (later entries override earlier for same name)
+  const agentDirs: Array<{ dir: string; source: "global" | "local" }> = [
+    // Global directories (lowest priority)
+    { dir: path.join(HOME, ".copilot", "agents"), source: "global" },
+    { dir: path.join(HOME, ".claude", "agents"), source: "global" },
+    { dir: path.join(HOME, ".opencode", "agents"), source: "global" },
+    // Project-local directories (highest priority)
+    { dir: path.join(projectRoot, ".github", "agents"), source: "local" },
+    { dir: path.join(projectRoot, ".claude", "agents"), source: "local" },
+    { dir: path.join(projectRoot, ".opencode", "agents"), source: "local" },
+  ];
 
   // Map for deduplication - lowercase name as key for case-insensitive matching
   const agentMap = new Map<string, CopilotAgent>();
 
-  // Load global agents first (lower priority)
-  const globalAgents = await loadAgentsFromDir(globalDir, "global", fsOps);
-  for (const agent of globalAgents) {
-    agentMap.set(agent.name.toLowerCase(), agent);
-  }
-
-  // Load local agents (override global with same name)
-  const localAgents = await loadAgentsFromDir(localDir, "local", fsOps);
-  for (const agent of localAgents) {
-    agentMap.set(agent.name.toLowerCase(), agent);
+  for (const { dir, source } of agentDirs) {
+    const agents = await loadAgentsFromDir(dir, source, fsOps);
+    for (const agent of agents) {
+      agentMap.set(agent.name.toLowerCase(), agent);
+    }
   }
 
   return Array.from(agentMap.values());

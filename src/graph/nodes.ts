@@ -25,7 +25,7 @@ import type {
   ContextWindowUsage,
 } from "./types.ts";
 import type { SessionConfig, AgentMessage, CodingAgentClient, Session, ContextUsage } from "../sdk/types.ts";
-import { DEFAULT_RETRY_CONFIG } from "./types.ts";
+import { DEFAULT_RETRY_CONFIG, BACKGROUND_COMPACTION_THRESHOLD, BUFFER_EXHAUSTION_THRESHOLD } from "./types.ts";
 
 // ============================================================================
 // AGENT NODE
@@ -505,7 +505,7 @@ export function clearContextNode<TState extends BaseState = BaseState>(
             message: resolvedMessage ?? "Clearing context window",
             data: {
               usage: 100, // Force summarization
-              threshold: ctx.contextWindowThreshold ?? 60,
+              threshold: ctx.contextWindowThreshold ?? BUFFER_EXHAUSTION_THRESHOLD * 100,
               nodeId: id,
               action: "summarize",
             },
@@ -1293,11 +1293,6 @@ export interface ContextMonitorNodeConfig<TState extends BaseState = BaseState> 
 }
 
 /**
- * Default context window threshold percentage.
- */
-export const DEFAULT_CONTEXT_THRESHOLD = 60;
-
-/**
  * Get the default compaction action for an agent type.
  *
  * @param agentType - The agent type
@@ -1375,7 +1370,7 @@ export function contextMonitorNode<TState extends ContextMonitoringState = Conte
   const {
     id,
     agentType,
-    threshold = DEFAULT_CONTEXT_THRESHOLD,
+    threshold = BACKGROUND_COMPACTION_THRESHOLD * 100,
     action = getDefaultCompactionAction(agentType),
     getSession,
     getContextUsage: customGetContextUsage,
@@ -1513,7 +1508,7 @@ export function contextMonitorNode<TState extends ContextMonitoringState = Conte
  * Options for creating a simple context check.
  */
 export interface ContextCheckOptions {
-  /** Threshold percentage (default: 60) */
+  /** Threshold percentage (default: 45) */
   threshold?: number;
   /** Whether to emit a signal when threshold is exceeded (default: true) */
   emitSignal?: boolean;
@@ -1531,7 +1526,7 @@ export async function checkContextUsage(
   session: Session,
   options: ContextCheckOptions = {}
 ): Promise<{ exceeded: boolean; usage: ContextUsage }> {
-  const { threshold = DEFAULT_CONTEXT_THRESHOLD } = options;
+  const { threshold = BACKGROUND_COMPACTION_THRESHOLD * 100 } = options;
   const usage = await session.getContextUsage();
   const exceeded = isContextThresholdExceeded(usage, threshold);
   return { exceeded, usage };

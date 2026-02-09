@@ -22,6 +22,7 @@
 
 import type { CompiledGraph, GraphConfig } from "../../graph/types.ts";
 import { graph, clearContextNode } from "../../graph/index.ts";
+import { BACKGROUND_COMPACTION_THRESHOLD } from "../../graph/types.ts";
 import { SessionDirSaver } from "../../graph/checkpointer.ts";
 import {
   initRalphSessionNode,
@@ -199,7 +200,7 @@ export function createRalphWorkflow(
           (state) => state.ralphSessionDir
         )
       : undefined,
-    contextWindowThreshold: 60,
+    contextWindowThreshold: BACKGROUND_COMPACTION_THRESHOLD * 100,
     ...graphConfig,
   };
 

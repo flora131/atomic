@@ -72,6 +72,8 @@ export {
   // Default configurations
   DEFAULT_RETRY_CONFIG,
   DEFAULT_GRAPH_CONFIG,
+  BACKGROUND_COMPACTION_THRESHOLD,
+  BUFFER_EXHAUSTION_THRESHOLD,
 } from "./types.ts";
 
 // Type exports from annotation.ts
@@ -205,7 +207,6 @@ export {
 
   // Default configurations
   AGENT_NODE_RETRY_CONFIG,
-  DEFAULT_CONTEXT_THRESHOLD,
 
   // Node factory functions
   agentNode,

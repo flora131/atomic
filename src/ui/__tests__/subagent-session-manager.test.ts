@@ -100,6 +100,7 @@ function createMockSession(
         usagePercentage: 0,
       })
     ),
+    getSystemToolsTokens: mock(() => 0),
     destroy: options?.destroyError
       ? mock(() => Promise.reject(options.destroyError))
       : mock(() => Promise.resolve()),
@@ -483,6 +484,7 @@ describe("SubagentSessionManager", () => {
             usagePercentage: 0,
           })
         ),
+        getSystemToolsTokens: mock(() => 0),
         destroy: mock(() => Promise.resolve()),
       };
 
@@ -645,6 +647,7 @@ describe("SubagentSessionManager", () => {
               usagePercentage: 0,
             })
           ),
+          getSystemToolsTokens: mock(() => 0),
           destroy: mock(() => Promise.resolve()),
         };
         return session;

@@ -65,6 +65,7 @@ function createMockSession(id: string = "test-session"): Session {
         usagePercentage: 0.15,
       };
     },
+    getSystemToolsTokens() { return 0; },
     async destroy(): Promise<void> {},
   };
 }

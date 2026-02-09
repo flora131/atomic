@@ -151,11 +151,6 @@ describe("AgentSource type", () => {
     const source: AgentSource = "user";
     expect(source).toBe("user");
   });
-
-  test("supports atomic source", () => {
-    const source: AgentSource = "atomic";
-    expect(source).toBe("atomic");
-  });
 });
 
 describe("AgentModel type", () => {
@@ -358,12 +353,8 @@ describe("AGENT_DISCOVERY_PATHS constant", () => {
     expect(AGENT_DISCOVERY_PATHS).toContain(".github/agents");
   });
 
-  test("contains .atomic/agents path", () => {
-    expect(AGENT_DISCOVERY_PATHS).toContain(".atomic/agents");
-  });
-
-  test("has 4 project-local paths", () => {
-    expect(AGENT_DISCOVERY_PATHS).toHaveLength(4);
+  test("has 3 project-local paths", () => {
+    expect(AGENT_DISCOVERY_PATHS).toHaveLength(3);
   });
 
   test("all paths are relative (no leading slash or tilde)", () => {
@@ -387,12 +378,8 @@ describe("GLOBAL_AGENT_PATHS constant", () => {
     expect(GLOBAL_AGENT_PATHS).toContain("~/.copilot/agents");
   });
 
-  test("contains ~/.atomic/agents path", () => {
-    expect(GLOBAL_AGENT_PATHS).toContain("~/.atomic/agents");
-  });
-
-  test("has 4 user-global paths", () => {
-    expect(GLOBAL_AGENT_PATHS).toHaveLength(4);
+  test("has 3 user-global paths", () => {
+    expect(GLOBAL_AGENT_PATHS).toHaveLength(3);
   });
 
   test("all paths start with ~ for home directory expansion", () => {
@@ -678,31 +665,17 @@ describe("determineAgentSource", () => {
     expect(determineAgentSource("~/.copilot/agents")).toBe("user");
   });
 
-  test("returns atomic for global .atomic paths", () => {
-    expect(determineAgentSource("~/.atomic/agents")).toBe("atomic");
-  });
-
-  test("returns project for local non-atomic paths", () => {
+  test("returns project for local paths", () => {
     expect(determineAgentSource(".claude/agents")).toBe("project");
     expect(determineAgentSource(".opencode/agents")).toBe("project");
     expect(determineAgentSource(".github/agents")).toBe("project");
-  });
-
-  test("returns atomic for local .atomic paths", () => {
-    expect(determineAgentSource(".atomic/agents")).toBe("atomic");
   });
 });
 
 describe("shouldAgentOverride", () => {
   test("project overrides all other sources", () => {
-    expect(shouldAgentOverride("project", "atomic")).toBe(true);
     expect(shouldAgentOverride("project", "user")).toBe(true);
     expect(shouldAgentOverride("project", "builtin")).toBe(true);
-  });
-
-  test("atomic overrides user and builtin", () => {
-    expect(shouldAgentOverride("atomic", "user")).toBe(true);
-    expect(shouldAgentOverride("atomic", "builtin")).toBe(true);
   });
 
   test("user overrides only builtin", () => {
@@ -712,13 +685,10 @@ describe("shouldAgentOverride", () => {
   test("lower priority does not override higher", () => {
     expect(shouldAgentOverride("builtin", "project")).toBe(false);
     expect(shouldAgentOverride("user", "project")).toBe(false);
-    expect(shouldAgentOverride("atomic", "project")).toBe(false);
-    expect(shouldAgentOverride("builtin", "atomic")).toBe(false);
   });
 
   test("same priority does not override", () => {
     expect(shouldAgentOverride("project", "project")).toBe(false);
-    expect(shouldAgentOverride("atomic", "atomic")).toBe(false);
     expect(shouldAgentOverride("user", "user")).toBe(false);
     expect(shouldAgentOverride("builtin", "builtin")).toBe(false);
   });
@@ -844,7 +814,7 @@ You are a code analyzer.`
 
 describe("discoverAgents", () => {
   const testLocalDir = "/tmp/test-discover-agents-local-" + Date.now();
-  const testLocalAgentDir = join(testLocalDir, ".atomic", "agents");
+  const testLocalAgentDir = join(testLocalDir, ".claude", "agents");
 
   beforeAll(() => {
     // Create local test directory structure
@@ -873,7 +843,7 @@ Local prompt.`
     const localAgent = agents.find((a) => a.name === "local-agent");
     expect(localAgent).toBeDefined();
     expect(localAgent!.description).toBe("A local agent");
-    expect(localAgent!.source).toBe("atomic");
+    expect(localAgent!.source).toBe("project");
   });
 
   test("returns array of AgentDefinition objects", async () => {
@@ -1747,7 +1717,7 @@ describe("registerBuiltinAgents", () => {
 
 describe("registerAgentCommands", () => {
   const testLocalDir = "/tmp/test-register-agents-" + Date.now();
-  const testLocalAgentDir = join(testLocalDir, ".atomic", "agents");
+  const testLocalAgentDir = join(testLocalDir, ".claude", "agents");
 
   beforeAll(() => {
     // Create local test directory structure
@@ -1815,14 +1785,12 @@ describe("Sub-agent discovery from agent directories", () => {
   const claudeAgentDir = join(testDir, ".claude", "agents");
   const opencodeAgentDir = join(testDir, ".opencode", "agents");
   const githubAgentDir = join(testDir, ".github", "agents");
-  const atomicAgentDir = join(testDir, ".atomic", "agents");
 
   beforeAll(() => {
     // Create all agent directories
     mkdirSync(claudeAgentDir, { recursive: true });
     mkdirSync(opencodeAgentDir, { recursive: true });
     mkdirSync(githubAgentDir, { recursive: true });
-    mkdirSync(atomicAgentDir, { recursive: true });
 
     // Create test agent in .claude/agents/
     writeFileSync(
@@ -1874,21 +1842,6 @@ model: sonnet
 ---
 You are a GitHub-specific code reviewer agent.
 Review pull requests and provide constructive feedback.`
-    );
-
-    // Create test agent in .atomic/agents/
-    writeFileSync(
-      join(atomicAgentDir, "atomic-helper.md"),
-      `---
-name: atomic-helper
-description: An Atomic-specific helper agent
-tools:
-  - Read
-  - Write
-model: haiku
----
-You are an Atomic-specific helper agent.
-Provide quick assistance for common tasks.`
     );
 
     // Change to test directory
@@ -1955,18 +1908,16 @@ Provide quick assistance for common tasks.`
   });
 
   describe("discoverAgents finds all agents from all paths", () => {
-    test("discovers agents from all four directories", async () => {
+    test("discovers agents from all three directories", async () => {
       const agents = await discoverAgents();
 
       const claudeAgent = agents.find((a) => a.name === "claude-analyzer");
       const opencodeAgent = agents.find((a) => a.name === "opencode-writer");
       const githubAgent = agents.find((a) => a.name === "github-reviewer");
-      const atomicAgent = agents.find((a) => a.name === "atomic-helper");
 
       expect(claudeAgent).toBeDefined();
       expect(opencodeAgent).toBeDefined();
       expect(githubAgent).toBeDefined();
-      expect(atomicAgent).toBeDefined();
     });
 
     test("parses Claude format frontmatter correctly", async () => {
@@ -2007,17 +1958,6 @@ Provide quick assistance for common tasks.`
       expect(githubAgent!.model).toBe("sonnet");
       expect(githubAgent!.prompt).toContain("GitHub-specific code reviewer agent");
     });
-
-    test("parses Atomic format frontmatter correctly", async () => {
-      const agents = await discoverAgents();
-      const atomicAgent = agents.find((a) => a.name === "atomic-helper");
-
-      expect(atomicAgent).toBeDefined();
-      expect(atomicAgent!.description).toBe("An Atomic-specific helper agent");
-      expect(atomicAgent!.tools).toEqual(["Read", "Write"]);
-      expect(atomicAgent!.model).toBe("haiku");
-      expect(atomicAgent!.prompt).toContain("Atomic-specific helper agent");
-    });
   });
 
   describe("agents from all paths have correct sources", () => {
@@ -2043,14 +1983,6 @@ Provide quick assistance for common tasks.`
 
       expect(githubAgent).toBeDefined();
       expect(githubAgent!.source).toBe("project");
-    });
-
-    test("agent from .atomic/agents/ has atomic source", async () => {
-      const agents = await discoverAgents();
-      const atomicAgent = agents.find((a) => a.name === "atomic-helper");
-
-      expect(atomicAgent).toBeDefined();
-      expect(atomicAgent!.source).toBe("atomic");
     });
   });
 
@@ -2223,17 +2155,17 @@ describe("Sub-agent discovery handles empty directories", () => {
   const testDir = "/tmp/test-empty-agent-dirs-" + Date.now();
   const emptyClaudeDir = join(testDir, ".claude", "agents");
   const emptyGithubDir = join(testDir, ".github", "agents");
-  const nonEmptyAtomicDir = join(testDir, ".atomic", "agents");
+  const nonEmptyOpencodeDir = join(testDir, ".opencode", "agents");
 
   beforeAll(() => {
     // Create empty directories
     mkdirSync(emptyClaudeDir, { recursive: true });
     mkdirSync(emptyGithubDir, { recursive: true });
-    mkdirSync(nonEmptyAtomicDir, { recursive: true });
+    mkdirSync(nonEmptyOpencodeDir, { recursive: true });
 
-    // Only add agent to atomic dir
+    // Only add agent to opencode dir
     writeFileSync(
-      join(nonEmptyAtomicDir, "only-agent.md"),
+      join(nonEmptyOpencodeDir, "only-agent.md"),
       `---
 name: only-agent
 description: The only agent in this test
@@ -2270,7 +2202,7 @@ Only agent prompt.`
   test("discoverAgents gracefully handles mix of empty and non-empty dirs", async () => {
     const agents = await discoverAgents();
 
-    // Should only find the one agent from atomic dir
+    // Should only find the one agent from opencode dir
     const customAgents = agents.filter((a) => a.name === "only-agent");
     expect(customAgents).toHaveLength(1);
   });
@@ -2278,10 +2210,10 @@ Only agent prompt.`
 
 describe("Sub-agent discovery handles non-existent directories", () => {
   const testDir = "/tmp/test-nonexistent-agent-dirs-" + Date.now();
-  const existingDir = join(testDir, ".atomic", "agents");
+  const existingDir = join(testDir, ".opencode", "agents");
 
   beforeAll(() => {
-    // Only create .atomic/agents, leave others non-existent
+    // Only create .opencode/agents, leave others non-existent
     mkdirSync(existingDir, { recursive: true });
 
     writeFileSync(
@@ -2303,11 +2235,6 @@ Existing agent prompt.`
 
   test("returns empty array for non-existent .claude/agents/", () => {
     const files = discoverAgentFilesInPath(".claude/agents", "project");
-    expect(files).toHaveLength(0);
-  });
-
-  test("returns empty array for non-existent .opencode/agents/", () => {
-    const files = discoverAgentFilesInPath(".opencode/agents", "project");
     expect(files).toHaveLength(0);
   });
 
@@ -2624,7 +2551,7 @@ describe("Agent frontmatter parsing across SDK formats", () => {
         tools: { read: true },
       };
 
-      const result = parseAgentFrontmatter(frontmatter, "prompt", "atomic", "primary-agent");
+      const result = parseAgentFrontmatter(frontmatter, "prompt", "project", "primary-agent");
 
       expect(result.name).toBe("primary-agent");
       expect(result.tools).toEqual(["read"]);
@@ -3122,7 +3049,7 @@ Minimal prompt content.`
     test("parseAgentFile correctly parses OpenCode format file", () => {
       const file: DiscoveredAgentFile = {
         path: join(testDir, "opencode-style.md"),
-        source: "atomic",
+        source: "project",
         filename: "opencode-style",
       };
 
@@ -3141,7 +3068,7 @@ Minimal prompt content.`
       // Model should be normalized
       expect(result!.model).toBe("sonnet");
       expect(result!.prompt).toContain("You are an OpenCode-style agent");
-      expect(result!.source).toBe("atomic");
+      expect(result!.source).toBe("project");
     });
 
     test("parseAgentFile correctly parses minimal format file", () => {

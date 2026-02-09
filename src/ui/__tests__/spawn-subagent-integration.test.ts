@@ -45,6 +45,7 @@ function createMockSession(
     async getContextUsage() {
       return { inputTokens: 0, outputTokens: 0, maxTokens: 100000, usagePercentage: 0 };
     },
+    getSystemToolsTokens() { return 0; },
     async destroy() {},
   };
 }

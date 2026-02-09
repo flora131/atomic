@@ -215,6 +215,8 @@ function createMockOpenCodeSession(
       };
     },
 
+    getSystemToolsTokens() { return 0; },
+
     async destroy(): Promise<void> {},
   };
 

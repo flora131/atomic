@@ -61,27 +61,14 @@ export const RALPH_NODE_IDS = {
  * and include the full workflow state, allowing resumption from any checkpoint.
  */
 export interface CreateRalphWorkflowConfig {
-  /** Maximum iterations for the feature loop (default: 100) */
-  maxIterations?: number;
-
-  /**
-   * Enable checkpointing for workflow resumption (default: true)
-   *
-   * When enabled, checkpoints are saved to:
-   * `.ralph/sessions/{sessionId}/checkpoints/node-NNN.json`
-   *
-   * Each checkpoint includes the full workflow state.
-   */
+  /** Enable checkpointing for workflow resumption (default: true) */
   checkpointing?: boolean;
 
-  /** Feature list path (default: research/feature-list.json) */
-  featureListPath?: string;
-
-  /** Whether to run in yolo mode (no feature list) */
-  yolo?: boolean;
-
-  /** User prompt for yolo mode */
+  /** User prompt */
   userPrompt?: string;
+
+  /** Session ID to resume */
+  resumeSessionId?: string;
 
   /** Additional graph configuration */
   graphConfig?: Partial<GraphConfig<RalphWorkflowState>>;
@@ -99,9 +86,8 @@ function createInitNode(config: CreateRalphWorkflowConfig) {
     id: RALPH_NODE_IDS.INIT_SESSION,
     name: "Initialize Ralph Session",
     description: "Initialize or resume a Ralph session",
-    featureListPath: config.featureListPath,
-    yolo: config.yolo,
     userPrompt: config.userPrompt,
+    resumeSessionId: config.resumeSessionId,
   });
 }
 
@@ -114,19 +100,18 @@ function createClearNode() {
     id: RALPH_NODE_IDS.CLEAR_CONTEXT,
     name: "Clear Context",
     description: "Clear context window at start of loop iteration",
-    message: "Starting new iteration. Clearing context window to prevent overflow.",
+    message: "Starting new iteration. Context cleared; read tasks.json and progress.txt to resume.",
   });
 }
 
 /**
  * Create the implement feature node.
  */
-function createImplementNode(config: CreateRalphWorkflowConfig) {
+function createImplementNode(_config: CreateRalphWorkflowConfig) {
   return implementFeatureNode<RalphWorkflowState>({
     id: RALPH_NODE_IDS.IMPLEMENT_FEATURE,
     name: "Implement Feature",
-    description: "Implement the current feature from the feature list",
-    prompt: config.userPrompt,
+    description: "Implement the next available task from the task list",
   });
 }
 
@@ -168,70 +153,45 @@ function createCheckNode() {
  * const workflow = createRalphWorkflow();
  * const result = await executeGraph(workflow, initialState);
  *
- * // With custom configuration
+ * // With user prompt
  * const workflow = createRalphWorkflow({
- *   maxIterations: 50,
+ *   userPrompt: "Implement the authentication system",
  *   checkpointing: true,
- *   featureListPath: "specs/features.json",
  * });
  *
- * // Yolo mode (no feature list)
- * const yoloWorkflow = createRalphWorkflow({
- *   yolo: true,
- *   userPrompt: "Implement the authentication system",
+ * // Resume a session
+ * const resumed = createRalphWorkflow({
+ *   resumeSessionId: "abc-123",
  * });
  * ```
  */
 export function createRalphWorkflow(
   config: CreateRalphWorkflowConfig = {}
 ): CompiledGraph<RalphWorkflowState> {
-  // Apply defaults from RALPH_CONFIG
   const {
-    maxIterations = RALPH_CONFIG.maxIterations,
     checkpointing = RALPH_CONFIG.checkpointing,
-    featureListPath = "research/feature-list.json",
-    yolo = false,
     userPrompt,
+    resumeSessionId,
     graphConfig = {},
   } = config;
 
-  // Create node instances with configuration
-  const initNode = createInitNode({
-    featureListPath,
-    yolo,
-    userPrompt,
-  });
+  const initNode = createInitNode({ userPrompt, resumeSessionId });
   const clearNode = createClearNode();
-  const implementNode = createImplementNode({ userPrompt });
+  const implementNode = createImplementNode(config);
   const checkNode = createCheckNode();
 
-  // Build the workflow graph
-  // Sequence: init -> loop(clear, implement) -> check
-  // The loop contains clearContextNode FIRST to clear context at the start
-  // of each iteration, followed by implementFeatureNode
   const builder = graph<RalphWorkflowState>()
-    // Phase 1: Initialize session
     .start(initNode)
-    // Phase 2: Feature implementation loop with context clearing
-    // clearContextNode runs at the START of each iteration to:
-    // - Prevent context window overflow
-    // - Start each iteration with fresh context
-    // - Reduce token costs
     .loop(
       [clearNode, implementNode],
       {
         until: (state) => !state.shouldContinue,
-        maxIterations,
+        // No maxIterations — loop until shouldContinue returns false (deterministic termination)
       }
     )
-    // Phase 3: Check completion after loop exits
     .then(checkNode)
     .end();
 
-  // Compile with configuration
-  // Use SessionDirSaver with dynamic checkpointDir based on session state
-  // This saves checkpoints to .ralph/sessions/{sessionId}/checkpoints/
-  // with sequential naming (node-001.json, node-002.json, etc.)
   const compiledConfig: GraphConfig<RalphWorkflowState> = {
     autoCheckpoint: checkpointing,
     checkpointer: checkpointing
@@ -257,7 +217,6 @@ export function createTestRalphWorkflow(
   options: Partial<CreateRalphWorkflowConfig> = {}
 ): CompiledGraph<RalphWorkflowState> {
   return createRalphWorkflow({
-    maxIterations: 5,
     checkpointing: false,
     ...options,
   });

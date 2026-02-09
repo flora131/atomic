@@ -123,11 +123,8 @@ export interface CommandContextState {
   feedback?: string | null;
   /** Ralph-specific workflow configuration */
   ralphConfig?: {
-    yolo: boolean;
     userPrompt: string | null;
     resumeSessionId?: string;
-    maxIterations?: number;
-    featureListPath?: string;
     sessionId?: string;
   };
 }
@@ -154,6 +151,14 @@ export interface CommandResult {
   themeChange?: "dark" | "light" | "toggle";
   /** Compaction summary text (stored for Ctrl+O history display) */
   compactionSummary?: string;
+  /** Skill name if a skill was loaded (triggers SkillLoadIndicator) */
+  skillLoaded?: string;
+  /** Error message if skill content failed to load */
+  skillLoadError?: string;
+  /** If true, show the MCP server overlay/dialog */
+  showMcpOverlay?: boolean;
+  /** MCP server list to display via McpServerListIndicator */
+  mcpServers?: import("../../sdk/types.ts").McpServerConfig[];
 }
 
 /**

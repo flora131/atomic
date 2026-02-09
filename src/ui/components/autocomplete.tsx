@@ -82,7 +82,11 @@ function SuggestionRow({
   const descColor = isSelected ? accentColor : mutedColor;
 
   // Format command name with leading prefix
-  const fullName = `${namePrefix}${command.name}`;
+  // In mention mode (@), use category-specific symbols: * for agents, + for files/folders
+  const effectivePrefix = namePrefix === "@"
+    ? (command.category === "agent" ? "* " : "+ ")
+    : namePrefix;
+  const fullName = `${effectivePrefix}${command.name}`;
 
   // Calculate column widths based on terminal width
   // Layout: 2 (padding) + cmdCol + 2 (gap) + descCol + 2 (padding)
@@ -94,34 +98,35 @@ function SuggestionRow({
   const cmdColWidth = Math.min(28, Math.max(18, Math.floor(availableWidth * 0.3)));
   const descColWidth = availableWidth - cmdColWidth;
 
-  // Truncate command name if needed
+  // Truncate command name if needed — use "..." for clean display
   const displayName = fullName.length > cmdColWidth
-    ? `${fullName.slice(0, cmdColWidth - 1)}…`
+    ? `${fullName.slice(0, cmdColWidth - 3)}...`
     : fullName.padEnd(cmdColWidth);
 
-  // Truncate description based on remaining terminal width
-  const description =
-    command.description.length > descColWidth
-      ? `${command.description.slice(0, descColWidth - 1)}…`
-      : command.description;
+  // Truncate description to single line — use "..." for clean display
+  const rawDesc = command.description.replace(/\n/g, " ").trim();
+  const description = rawDesc.length > descColWidth
+    ? `${rawDesc.slice(0, descColWidth - 3)}...`
+    : rawDesc;
 
   return (
     <box
       flexDirection="row"
       width="100%"
+      height={1}
       paddingLeft={2}
       paddingRight={2}
     >
       {/* Command name column */}
-      <box width={cmdColWidth}>
+      <box width={cmdColWidth} height={1}>
         <text fg={fgColor} attributes={isSelected ? 1 : undefined}>{displayName}</text>
       </box>
       {/* Gap between columns */}
-      <box width={gap}>
+      <box width={gap} height={1}>
         <text>{" "}</text>
       </box>
       {/* Description column */}
-      <box flexGrow={1}>
+      <box flexGrow={1} height={1}>
         <text fg={descColor}>{description}</text>
       </box>
     </box>
@@ -222,10 +227,12 @@ export function Autocomplete({
       flexDirection="column"
       width="100%"
       height={displayHeight}
+      marginTop={0}
+      marginBottom={0}
     >
       <scrollbox
         ref={scrollRef}
-        flexGrow={1}
+        height={displayHeight}
         scrollY={true}
         scrollX={false}
       >

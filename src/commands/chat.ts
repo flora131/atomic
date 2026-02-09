@@ -12,16 +12,16 @@
  * Reference: Feature 30 - Chat interface with SDK clients
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import type { AgentType } from "../utils/telemetry/types.ts";
-import type { CodingAgentClient, McpServerConfig } from "../sdk/types.ts";
-import { getModelPreference } from "../utils/preferences.ts";
+import type { CodingAgentClient } from "../sdk/types.ts";
+import { getModelPreference } from "../utils/settings.ts";
+import { discoverMcpConfigs } from "../utils/mcp-config.ts";
 
 // SDK client imports
 import { createClaudeAgentClient } from "../sdk/claude-client.ts";
 import { createOpenCodeClient } from "../sdk/opencode-client.ts";
 import { createCopilotClient } from "../sdk/copilot-client.ts";
+import { createTodoWriteTool } from "../sdk/tools/todo-write.ts";
 
 // Chat UI imports
 import {
@@ -167,6 +167,11 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   // Create the SDK client
   const client = createClientForAgentType(agentType);
 
+  // Register TodoWrite tool for agents that don't have it built-in
+  if (agentType === "copilot") {
+    client.registerTool(createTodoWriteTool());
+  }
+
   try {
     await client.start();
 
@@ -174,24 +179,8 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     // Pass the model from CLI options if provided for accurate display
     const modelDisplayInfo = await client.getModelDisplayInfo(effectiveModel);
 
-    // Read MCP server config from .mcp.json
-    let mcpServers: McpServerConfig[] | undefined;
-    try {
-      const raw = readFileSync(join(process.cwd(), ".mcp.json"), "utf-8");
-      const parsed = JSON.parse(raw) as { mcpServers?: Record<string, Record<string, unknown>> };
-      if (parsed.mcpServers) {
-        mcpServers = Object.entries(parsed.mcpServers).map(([name, cfg]) => ({
-          name,
-          type: cfg.type as McpServerConfig["type"],
-          command: cfg.command as string | undefined,
-          args: cfg.args as string[] | undefined,
-          env: cfg.env as Record<string, string> | undefined,
-          url: cfg.url as string | undefined,
-        }));
-      }
-    } catch {
-      // No .mcp.json or invalid -- continue without MCP
-    }
+    // Discover MCP server configs from all known config formats
+    const mcpServers = discoverMcpConfigs();
 
     // Build chat UI configuration
     const chatConfig: ChatUIConfig = {
@@ -203,7 +192,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
       title: `Chat - ${agentName}`,
       placeholder: "Type a message...",
       version: "0.4.4",
-      model: effectiveModel ?? modelDisplayInfo.model,
+      model: modelDisplayInfo.model,
       tier: modelDisplayInfo.tier,
       workingDir: process.cwd(),
       suggestion: 'Try "fix typecheck errors"',

@@ -15,7 +15,8 @@ import type {
   CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
-import { saveModelPreference } from "../../utils/preferences.ts";
+import { saveModelPreference } from "../../utils/settings.ts";
+import { discoverMcpConfigs } from "../../utils/mcp-config.ts";
 
 // ============================================================================
 // COMMAND IMPLEMENTATIONS
@@ -428,6 +429,60 @@ export function formatGroupedModels(grouped: Map<string, { providerID: string; m
   return lines;
 }
 
+/**
+ * /mcp - Display and manage MCP servers.
+ *
+ * Subcommands:
+ *   (no args)    - List all discovered MCP servers with status
+ *   enable <n>   - Enable a server by name
+ *   disable <n>  - Disable a server by name
+ */
+export const mcpCommand: CommandDefinition = {
+  name: "mcp",
+  description: "View and toggle MCP servers",
+  category: "builtin",
+  argumentHint: "[enable|disable <server>]",
+  execute: (args: string, _context: CommandContext): CommandResult => {
+    const servers = discoverMcpConfigs();
+    const trimmed = args.trim().toLowerCase();
+
+    // No args: list servers (rendered via McpServerListIndicator component)
+    if (!trimmed) {
+      return {
+        success: true,
+        mcpServers: servers,
+      };
+    }
+
+    // enable/disable subcommands
+    const parts = trimmed.split(/\s+/);
+    const subcommand = parts[0];
+    const serverName = parts.slice(1).join(" ");
+
+    if ((subcommand === "enable" || subcommand === "disable") && serverName) {
+      const found = servers.find(s => s.name.toLowerCase() === serverName.toLowerCase());
+      if (!found) {
+        return {
+          success: false,
+          message: `MCP server '${serverName}' not found. Run /mcp to see available servers.`,
+        };
+      }
+      return {
+        success: true,
+        message: `MCP server '${found.name}' ${subcommand}d for this session.`,
+        stateUpdate: {
+          mcpToggle: { name: found.name, enabled: subcommand === "enable" },
+        } as unknown as CommandResult["stateUpdate"],
+      };
+    }
+
+    return {
+      success: false,
+      message: "Usage: /mcp, /mcp enable <server>, /mcp disable <server>",
+    };
+  },
+};
+
 // ============================================================================
 // REGISTRATION
 // ============================================================================
@@ -442,6 +497,7 @@ export const builtinCommands: CommandDefinition[] = [
   compactCommand,
   exitCommand,
   modelCommand,
+  mcpCommand,
 ];
 
 /**

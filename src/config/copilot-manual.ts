@@ -1,7 +1,7 @@
 import defaultFs from "fs/promises";
 import path from "path";
 import os from "os";
-import { parseMarkdownFrontmatter } from "../ui/commands/agent-commands";
+import { parseMarkdownFrontmatter } from "../utils/markdown.ts";
 
 /**
  * Represents a Copilot agent configuration parsed from manual format.

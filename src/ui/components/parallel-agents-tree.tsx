@@ -197,12 +197,7 @@ export function getSubStatusText(agent: ParallelAgent): string | null {
 // CLAUDE CODE COLOR CONSTANTS (ANSI 256 compatible)
 // ============================================================================
 
-/** Completed agent ● — green matching ANSI 38;5;114 */
-const COMPLETED_GREEN = "#72D58A";
-/** Interrupted agent ● — pink/red matching ANSI 38;5;211 */
-const INTERRUPTED_PINK = "#FF87AF";
-/** Muted text — gray matching ANSI 38;5;246 */
-const MUTED_GRAY = "#949494";
+// Removed hardcoded constants in favor of theme colors
 
 // ============================================================================
 // THEME COLORS TYPE
@@ -259,12 +254,12 @@ function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps):
   const indicatorColor = isRunning
     ? themeColors.accent
     : isCompleted
-      ? COMPLETED_GREEN
+      ? themeColors.success
       : isInterrupted
-        ? INTERRUPTED_PINK
+        ? themeColors.warning
         : isError
           ? themeColors.error
-          : MUTED_GRAY;
+          : themeColors.muted;
 
   // Header line: "● AgentType(task description)"
   const headerText = `${agent.name}(${truncateText(agent.task, 60)})`;
@@ -284,7 +279,7 @@ function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps):
       {/* Sub-status line when running: current tool or "Initializing…" */}
       {isRunning && subStatus && (
         <box flexDirection="row">
-          <text style={{ fg: MUTED_GRAY }}>
+          <text style={{ fg: themeColors.muted }}>
             {"     ⎿  "}{truncateText(subStatus, 50)}
           </text>
         </box>
@@ -293,7 +288,7 @@ function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps):
       {/* Collapsed tool uses hint */}
       {isRunning && compact && agent.toolUses !== undefined && agent.toolUses > 0 && (
         <box flexDirection="row">
-          <text style={{ fg: MUTED_GRAY }}>
+          <text style={{ fg: themeColors.muted }}>
             {"     +"}
             {agent.toolUses} more tool use{agent.toolUses !== 1 ? "s" : ""}
           </text>
@@ -303,7 +298,7 @@ function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps):
       {/* Done summary for completed agents */}
       {isCompleted && doneSummary && (
         <box flexDirection="row">
-          <text style={{ fg: MUTED_GRAY }}>
+          <text style={{ fg: themeColors.muted }}>
             {"  ⎿  "}{doneSummary}
           </text>
         </box>
@@ -321,7 +316,7 @@ function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps):
       {/* Interrupted summary */}
       {isInterrupted && (
         <box flexDirection="row">
-          <text style={{ fg: INTERRUPTED_PINK }}>
+          <text style={{ fg: themeColors.warning }}>
             {"  ⎿  "}Interrupted
           </text>
         </box>
@@ -386,12 +381,12 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
     const rowIndicatorColor = isRunning
       ? themeColors.accent
       : isCompleted
-        ? COMPLETED_GREEN
+        ? themeColors.success
         : isInterrupted
-          ? INTERRUPTED_PINK
+          ? themeColors.warning
           : isError
             ? themeColors.error
-            : MUTED_GRAY;
+            : themeColors.muted;
 
     // Continuation line prefix for sub-status and hints
     const continuationPrefix = isLast ? TREE_CHARS.space : TREE_CHARS.vertical;
@@ -476,12 +471,12 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
   const fullRowIndicatorColor = isRunningFull
     ? themeColors.accent
     : isCompletedFull
-      ? COMPLETED_GREEN
+      ? themeColors.success
       : isInterruptedFull
-        ? INTERRUPTED_PINK
+        ? themeColors.warning
         : isErrorFull
           ? themeColors.error
-          : MUTED_GRAY;
+          : themeColors.muted;
 
   // Continuation line prefix for sub-status lines
   const fullContinuationPrefix = isLast ? TREE_CHARS.space : TREE_CHARS.vertical;
@@ -653,8 +648,8 @@ export function ParallelAgentsTree({
     muted: theme.colors.muted,
     accent: theme.colors.accent,
     error: theme.colors.error,
-    success: COMPLETED_GREEN,
-    warning: INTERRUPTED_PINK,
+    success: theme.colors.success,
+    warning: theme.colors.warning,
   };
 
   // Single agent: use tree layout with header for consistency
@@ -668,10 +663,10 @@ export function ParallelAgentsTree({
   const headerColor = runningCount > 0
     ? themeColors.accent
     : interruptedCount > 0
-      ? INTERRUPTED_PINK
+      ? themeColors.warning
       : completedCount > 0
-        ? COMPLETED_GREEN
-        : MUTED_GRAY;
+        ? themeColors.success
+        : themeColors.muted;
   // Build header label: "Explore agent(s)" for single type, "agent(s)" for mixed types
   const buildLabel = (count: number): string => {
     if (dominantType === "agents") {

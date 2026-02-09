@@ -9,6 +9,7 @@
 
 import React from "react";
 import type { SyntaxStyle } from "@opentui/core";
+import { useThemeColors } from "./theme.tsx";
 
 // ============================================================================
 // TYPES
@@ -191,6 +192,7 @@ export function CodeBlock({
   showLineNumbers = false,
   title,
 }: CodeBlockProps): React.ReactNode {
+  const themeColors = useThemeColors();
   const normalizedLanguage = normalizeLanguage(language);
   const displayTitle = title ?? (normalizedLanguage ? normalizedLanguage : undefined);
 
@@ -200,7 +202,7 @@ export function CodeBlock({
       <box
         flexDirection="column"
         borderStyle="single"
-        borderColor="gray"
+        borderColor={themeColors.codeBorder}
         paddingLeft={1}
         paddingRight={1}
         paddingTop={0}
@@ -209,11 +211,11 @@ export function CodeBlock({
         marginBottom={1}
       >
         {displayTitle && (
-          <text fg="cyan" attributes={2}>
+          <text fg={themeColors.codeTitle} attributes={2}>
             {displayTitle}
           </text>
         )}
-        <text wrapMode="none" fg="white">
+        <text wrapMode="none" fg={themeColors.foreground}>
           {content}
         </text>
       </box>
@@ -225,7 +227,7 @@ export function CodeBlock({
     <box
       flexDirection="column"
       borderStyle="single"
-      borderColor="gray"
+      borderColor={themeColors.codeBorder}
       paddingLeft={1}
       paddingRight={1}
       paddingTop={0}
@@ -234,7 +236,7 @@ export function CodeBlock({
       marginBottom={1}
     >
       {displayTitle && (
-        <text fg="cyan" attributes={2}>
+        <text fg={themeColors.codeTitle} attributes={2}>
           {displayTitle}
         </text>
       )}

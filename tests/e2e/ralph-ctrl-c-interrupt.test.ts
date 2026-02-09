@@ -26,10 +26,9 @@ import {
   loadSession,
   loadSessionIfExists,
   createRalphSession,
-  createRalphFeature,
-  SESSION_SUBDIRECTORIES,
+    SESSION_SUBDIRECTORIES,
   type RalphSession,
-  type RalphFeature,
+  type TodoItem,
 } from "../../src/workflows/index.ts";
 import {
   RalphExecutor,
@@ -86,7 +85,7 @@ function createMockContext(
  */
 function createTestFeatureListContent(): string {
   const features = {
-    features: [
+    tasks: [
       {
         category: "functional",
         description: "Test feature 1: Add user authentication",
@@ -112,21 +111,21 @@ async function createRunningSession(
   sessionId: string,
   overrides: Partial<RalphSession> = {}
 ): Promise<RalphSession> {
-  const features: RalphFeature[] = [
-    createRalphFeature({
+  const features: TodoItem[] = [
+    createTodoItem({
       id: "feat-001",
       name: "Test feature 1",
       description: "First test feature",
       status: "passing",
       implementedAt: new Date().toISOString(),
     }),
-    createRalphFeature({
+    createTodoItem({
       id: "feat-002",
       name: "Test feature 2",
       description: "Second test feature",
       status: "in_progress",
     }),
-    createRalphFeature({
+    createTodoItem({
       id: "feat-003",
       name: "Test feature 3",
       description: "Third test feature",
@@ -139,12 +138,10 @@ async function createRunningSession(
     sessionDir,
     status: "running",
     features,
-    completedFeatures: ["feat-001"],
-    currentFeatureIndex: 1,
+    completedTaskIds: ["feat-001"],
+    currentTaskIndex: 1,
     iteration: 5,
-    maxIterations: 100,
-    yolo: false,
-    sourceFeatureListPath: "research/feature-list.json",
+    sourceFeatureListPath: "research/tasks.json",
     ...overrides,
   });
 
@@ -232,8 +229,8 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
       // Create research directory and feature list
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
-      const featureListPath = path.join(researchDir, "feature-list.json");
-      await fs.writeFile(featureListPath, createTestFeatureListContent());
+      const tasksPath = path.join(researchDir, "tasks.json");
+      await fs.writeFile(tasksPath, createTestFeatureListContent());
     });
 
     test("Ralph session can be started for interrupt testing", async () => {
@@ -267,7 +264,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
 
       expect(session.status).toBe("running");
       expect(session.iteration).toBe(5);
-      expect(session.features.length).toBe(3);
+      expect(session.tasks.length).toBe(3);
     });
 
     test("RalphExecutor can be created with session info", () => {
@@ -299,7 +296,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
       const workflow = createRalphWorkflow();
 
       // Run starts the executor and sets up handlers
-      await executor.run(workflow, { maxIterations: 5 });
+      await executor.run(workflow, {});
 
       // The handlers should be set up (we test this indirectly through SIGINT behavior)
       expect(executor).toBeInstanceOf(RalphExecutor);
@@ -317,7 +314,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
       await createRunningSession(sessionDir, sessionId);
 
       executor.setSession(sessionId, sessionDir);
-      await executor.run(workflow, { maxIterations: 5 });
+      await executor.run(workflow, {});
 
       // Emit SIGINT
       process.emit("SIGINT");
@@ -340,7 +337,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         // Emit SIGINT
         process.emit("SIGINT");
@@ -368,7 +365,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         // Emit SIGINT multiple times
         process.emit("SIGINT");
@@ -404,7 +401,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         // Emit SIGINT
         process.emit("SIGINT");
@@ -437,7 +434,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         // Emit SIGINT
         process.emit("SIGINT");
@@ -471,7 +468,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         const workflow = createRalphWorkflow();
 
         // Don't set session - just run and interrupt
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         // Emit SIGINT
         process.emit("SIGINT");
@@ -502,7 +499,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -538,7 +535,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         // Verify initial status
         const beforeInterrupt = await loadSession(sessionDir);
@@ -571,7 +568,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         const beforeInterrupt = await loadSession(sessionDir);
         const beforeTime = new Date(beforeInterrupt.lastUpdated).getTime();
@@ -606,12 +603,12 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         const sessionDir = await createSessionDirectory(sessionId);
         await createRunningSession(sessionDir, sessionId, {
           iteration: 15,
-          currentFeatureIndex: 2,
-          completedFeatures: ["feat-001", "feat-002"],
+          currentTaskIndex: 2,
+          completedTaskIds: ["feat-001", "feat-002"],
         });
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 100 });
+        await executor.run(workflow, {});
 
         // Emit SIGINT
         process.emit("SIGINT");
@@ -622,10 +619,10 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
 
         expect(afterInterrupt.status).toBe("paused");
         expect(afterInterrupt.iteration).toBe(15);
-        expect(afterInterrupt.currentFeatureIndex).toBe(2);
-        expect(afterInterrupt.completedFeatures).toContain("feat-001");
-        expect(afterInterrupt.completedFeatures).toContain("feat-002");
-        expect(afterInterrupt.features.length).toBe(3);
+        expect(afterInterrupt.currentTaskIndex).toBe(2);
+        expect(afterInterrupt.completedTaskIds).toContain("feat-001");
+        expect(afterInterrupt.completedTaskIds).toContain("feat-002");
+        expect(afterInterrupt.tasks.length).toBe(3);
 
         executor.cleanup();
       } finally {
@@ -645,7 +642,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -677,7 +674,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -720,14 +717,14 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         const sessionDir = await createSessionDirectory(sessionId);
         await createRunningSession(sessionDir, sessionId, {
           iteration: 10,
-          features: [
-            createRalphFeature({
+          tasks: [
+            createTodoItem({
               id: "feat-001",
               name: "Feature 1",
               description: "First feature",
               status: "passing",
             }),
-            createRalphFeature({
+            createTodoItem({
               id: "feat-002",
               name: "Feature 2",
               description: "Second feature",
@@ -737,7 +734,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         });
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 50 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -749,7 +746,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         expect(recovered.sessionId).toBe(sessionId);
         expect(recovered.status).toBe("paused");
         expect(recovered.iteration).toBe(10);
-        expect(recovered.features.length).toBe(2);
+        expect(recovered.tasks.length).toBe(2);
 
         executor.cleanup();
       } finally {
@@ -769,7 +766,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -798,11 +795,11 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         const sessionId = generateSessionId();
         const sessionDir = await createSessionDirectory(sessionId);
         await createRunningSession(sessionDir, sessionId, {
-          sourceFeatureListPath: "research/feature-list.json",
+          sourceFeatureListPath: "research/tasks.json",
         });
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -817,7 +814,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
 
         const resumed = await loadSession(sessionDir);
         expect(resumed.status).toBe("running");
-        expect(resumed.sourceFeatureListPath).toBe("research/feature-list.json");
+        expect(resumed.sourceFeatureListPath).toBe("research/tasks.json");
 
         executor.cleanup();
       } finally {
@@ -843,7 +840,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -873,7 +870,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -903,7 +900,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -927,7 +924,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         const workflow = createRalphWorkflow();
 
         // Don't set session
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -957,7 +954,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -994,7 +991,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         await createRunningSession(sessionDir, sessionId);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -1047,15 +1044,14 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         const sessionDir = await createSessionDirectory(sessionId);
         await createRunningSession(sessionDir, sessionId, {
           iteration: 7,
-          maxIterations: 50,
-          features: [
-            createRalphFeature({
+          tasks: [
+            createTodoItem({
               id: "feat-001",
               name: "Auth feature",
               description: "Add authentication",
               status: "passing",
             }),
-            createRalphFeature({
+            createTodoItem({
               id: "feat-002",
               name: "Dashboard",
               description: "Add dashboard",
@@ -1068,7 +1064,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         executor.setSession(sessionId, sessionDir);
 
         // Step 2: Start workflow
-        await executor.run(workflow, { maxIterations: 50 });
+        await executor.run(workflow, {});
 
         // Step 3: Verify initial state
         const beforeInterrupt = await loadSession(sessionDir);
@@ -1093,7 +1089,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         const afterInterrupt = await loadSession(sessionDir);
         expect(afterInterrupt.status).toBe("paused");
         expect(afterInterrupt.iteration).toBe(7);
-        expect(afterInterrupt.features.length).toBe(2);
+        expect(afterInterrupt.tasks.length).toBe(2);
 
         // Step 7: Verify executor state
         expect(executor.aborted).toBe(true);
@@ -1109,30 +1105,28 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
       }
     });
 
-    test("Interrupt during yolo mode session", async () => {
+    test("Interrupt during prompt mode session", async () => {
       const { logs, restore } = captureConsole();
 
       try {
         const executor = createRalphExecutor();
-        const workflow = createRalphWorkflow({ yolo: true });
+        const workflow = createRalphWorkflow();
 
         const sessionId = generateSessionId();
         const sessionDir = await createSessionDirectory(sessionId);
 
-        // Create yolo mode session
+        // Create prompt mode session
         const session = createRalphSession({
           sessionId,
           sessionDir,
           status: "running",
-          yolo: true,
-          maxIterations: 100,
-          features: [], // No features in yolo mode
+          tasks: [], // No features in prompt mode
           iteration: 3,
         });
         await saveSession(sessionDir, session);
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 100 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -1141,8 +1135,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
         // Verify paused
         const afterInterrupt = await loadSession(sessionDir);
         expect(afterInterrupt.status).toBe("paused");
-        expect(afterInterrupt.yolo).toBe(true);
-        expect(afterInterrupt.features).toEqual([]);
+        expect(afterInterrupt.tasks).toEqual([]);
 
         executor.cleanup();
       } finally {
@@ -1162,40 +1155,40 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
 
         // Create session with mixed feature states
         await createRunningSession(sessionDir, sessionId, {
-          features: [
-            createRalphFeature({
+          tasks: [
+            createTodoItem({
               id: "feat-001",
               name: "Feature 1",
               description: "First",
               status: "passing",
               implementedAt: new Date().toISOString(),
             }),
-            createRalphFeature({
+            createTodoItem({
               id: "feat-002",
               name: "Feature 2",
               description: "Second",
               status: "passing",
               implementedAt: new Date().toISOString(),
             }),
-            createRalphFeature({
+            createTodoItem({
               id: "feat-003",
               name: "Feature 3",
               description: "Third",
               status: "in_progress",
             }),
-            createRalphFeature({
+            createTodoItem({
               id: "feat-004",
               name: "Feature 4",
               description: "Fourth",
               status: "pending",
             }),
           ],
-          completedFeatures: ["feat-001", "feat-002"],
-          currentFeatureIndex: 2,
+          completedTaskIds: ["feat-001", "feat-002"],
+          currentTaskIndex: 2,
         });
 
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 50 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -1203,11 +1196,11 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
 
         const afterInterrupt = await loadSession(sessionDir);
 
-        expect(afterInterrupt.features[0]?.status).toBe("passing");
-        expect(afterInterrupt.features[1]?.status).toBe("passing");
-        expect(afterInterrupt.features[2]?.status).toBe("in_progress");
-        expect(afterInterrupt.features[3]?.status).toBe("pending");
-        expect(afterInterrupt.completedFeatures).toEqual(["feat-001", "feat-002"]);
+        expect(afterInterrupt.tasks[0]?.status).toBe("passing");
+        expect(afterInterrupt.tasks[1]?.status).toBe("passing");
+        expect(afterInterrupt.tasks[2]?.status).toBe("in_progress");
+        expect(afterInterrupt.tasks[3]?.status).toBe("pending");
+        expect(afterInterrupt.completedTaskIds).toEqual(["feat-001", "feat-002"]);
 
         executor.cleanup();
       } finally {
@@ -1254,7 +1247,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
 
         // Don't save session.json - just create directory
         executor.setSession(sessionId, sessionDir);
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 
@@ -1278,7 +1271,7 @@ describe("E2E test: Ctrl+C stops execution and marks session as paused", () => {
 
         // Set session with empty dir
         executor.setSession("test-id", "");
-        await executor.run(workflow, { maxIterations: 5 });
+        await executor.run(workflow, {});
 
         process.emit("SIGINT");
 

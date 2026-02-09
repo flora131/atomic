@@ -92,7 +92,7 @@ describe("RalphExecutor", () => {
   describe("run()", () => {
     test("returns RalphExecutorResult", async () => {
       const workflow = createRalphWorkflow();
-      const config = { maxIterations: 5 };
+      const config = {};
 
       const result = await executor.run(workflow, config);
 
@@ -103,7 +103,7 @@ describe("RalphExecutor", () => {
 
     test("accepts initial state", async () => {
       const workflow = createRalphWorkflow();
-      const config = { maxIterations: 5 };
+      const config = {};
       const initialState: Partial<RalphWorkflowState> = {
         executionId: "test-exec-123",
         iteration: 0,
@@ -116,7 +116,7 @@ describe("RalphExecutor", () => {
 
     test("resets abort controller for new run", async () => {
       const workflow = createRalphWorkflow();
-      const config = { maxIterations: 5 };
+      const config = {};
 
       // First run
       await executor.run(workflow, config);
@@ -208,7 +208,7 @@ describe("RalphExecutorResult", () => {
 
 describe("RalphExecutor integration", () => {
   test("executor and workflow compile together", () => {
-    const workflow = createRalphWorkflow({ maxIterations: 10 });
+    const workflow = createRalphWorkflow();
     const executor = createRalphExecutor();
 
     expect(workflow).toBeDefined();
@@ -217,15 +217,13 @@ describe("RalphExecutor integration", () => {
     executor.cleanup();
   });
 
-  test("executor can be configured for yolo mode", async () => {
+  test("executor can be configured with user prompt", async () => {
     const workflow = createRalphWorkflow({
-      yolo: true,
       userPrompt: "Test task",
     });
     const executor = createRalphExecutor();
 
     const result = await executor.run(workflow, {
-      yolo: true,
       userPrompt: "Test task",
     });
 
@@ -296,11 +294,9 @@ describe("handleInterrupt resume command display", () => {
         sessionDir,
         createdAt: new Date().toISOString(),
         lastUpdated: new Date().toISOString(),
-        yolo: false,
-        maxIterations: 50,
-        features: [],
-        currentFeatureIndex: 0,
-        completedFeatures: [],
+        tasks: [],
+        currentTaskIndex: 0,
+        completedTaskIds: [],
         iteration: 1,
         status: "running",
       })
@@ -313,7 +309,7 @@ describe("handleInterrupt resume command display", () => {
     // We need to access the private handler - let's use a workaround by
     // triggering SIGINT, but we need to ensure handlers are set up first
     const workflow = createRalphWorkflow();
-    await executor.run(workflow, { maxIterations: 5 });
+    await executor.run(workflow, {});
 
     // Now trigger SIGINT
     process.emit("SIGINT");
@@ -348,11 +344,9 @@ describe("handleInterrupt resume command display", () => {
         sessionDir,
         createdAt: new Date().toISOString(),
         lastUpdated: new Date().toISOString(),
-        yolo: false,
-        maxIterations: 50,
-        features: [],
-        currentFeatureIndex: 0,
-        completedFeatures: [],
+        tasks: [],
+        currentTaskIndex: 0,
+        completedTaskIds: [],
         iteration: 1,
         status: "running",
       })
@@ -363,7 +357,7 @@ describe("handleInterrupt resume command display", () => {
 
     // Set up handlers and trigger interrupt
     const workflow = createRalphWorkflow();
-    await executor.run(workflow, { maxIterations: 5 });
+    await executor.run(workflow, {});
 
     // Trigger SIGINT
     process.emit("SIGINT");
@@ -398,11 +392,9 @@ describe("handleInterrupt resume command display", () => {
         sessionDir,
         createdAt: new Date().toISOString(),
         lastUpdated: new Date().toISOString(),
-        yolo: false,
-        maxIterations: 50,
-        features: [],
-        currentFeatureIndex: 0,
-        completedFeatures: [],
+        tasks: [],
+        currentTaskIndex: 0,
+        completedTaskIds: [],
         iteration: 1,
         status: "running",
       })
@@ -411,7 +403,7 @@ describe("handleInterrupt resume command display", () => {
     executor.setSession(sessionId, sessionDir);
 
     const workflow = createRalphWorkflow();
-    await executor.run(workflow, { maxIterations: 5 });
+    await executor.run(workflow, {});
 
     // Trigger SIGINT
     process.emit("SIGINT");
@@ -446,11 +438,9 @@ describe("handleInterrupt resume command display", () => {
         sessionDir,
         createdAt: new Date().toISOString(),
         lastUpdated: new Date().toISOString(),
-        yolo: false,
-        maxIterations: 50,
-        features: [],
-        currentFeatureIndex: 0,
-        completedFeatures: [],
+        tasks: [],
+        currentTaskIndex: 0,
+        completedTaskIds: [],
         iteration: 1,
         status: "running",
       })
@@ -459,7 +449,7 @@ describe("handleInterrupt resume command display", () => {
     executor.setSession(sessionId, sessionDir);
 
     const workflow = createRalphWorkflow();
-    await executor.run(workflow, { maxIterations: 5 });
+    await executor.run(workflow, {});
 
     // Trigger SIGINT
     process.emit("SIGINT");
@@ -478,7 +468,7 @@ describe("handleInterrupt resume command display", () => {
   test("does not display resume command when session is not set", async () => {
     // Don't set session on executor
     const workflow = createRalphWorkflow();
-    await executor.run(workflow, { maxIterations: 5 });
+    await executor.run(workflow, {});
 
     // Trigger SIGINT
     process.emit("SIGINT");
@@ -513,11 +503,9 @@ describe("handleInterrupt resume command display", () => {
         sessionDir,
         createdAt: new Date().toISOString(),
         lastUpdated: new Date().toISOString(),
-        yolo: false,
-        maxIterations: 50,
-        features: [],
-        currentFeatureIndex: 0,
-        completedFeatures: [],
+        tasks: [],
+        currentTaskIndex: 0,
+        completedTaskIds: [],
         iteration: 1,
         status: "running",
       })
@@ -526,7 +514,7 @@ describe("handleInterrupt resume command display", () => {
     executor.setSession(sessionId, sessionDir);
 
     const workflow = createRalphWorkflow();
-    await executor.run(workflow, { maxIterations: 5 });
+    await executor.run(workflow, {});
 
     // Trigger SIGINT
     process.emit("SIGINT");

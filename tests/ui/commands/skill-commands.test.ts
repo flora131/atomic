@@ -78,7 +78,7 @@ function createMockContext(
 
 describe("SKILL_DEFINITIONS", () => {
   test("contains core skills", () => {
-    const coreSkillNames = ["commit", "research-codebase", "create-spec", "create-feature-list", "implement-feature", "create-gh-pr", "explain-code"];
+    const coreSkillNames = ["commit", "research-codebase", "create-spec", "implement-feature", "create-gh-pr", "explain-code"];
 
     for (const name of coreSkillNames) {
       const skill = SKILL_DEFINITIONS.find((s) => s.name === name);
@@ -198,10 +198,10 @@ describe("skillCommands", () => {
     expect(result.stateUpdate?.isStreaming).toBeUndefined();
   });
 
-  test("hidden skill is created with hidden flag", () => {
+  test("skills are never hidden from autocomplete", () => {
     const antiPatterns = builtinSkillCommands.find((c) => c.name === "testing-anti-patterns");
     expect(antiPatterns).toBeDefined();
-    expect(antiPatterns?.hidden).toBe(true);
+    expect(antiPatterns?.hidden).toBeUndefined();
   });
 });
 
@@ -254,7 +254,7 @@ describe("registerBuiltinSkills", () => {
     expect(globalRegistry.has("commit")).toBe(true);
     expect(globalRegistry.has("research-codebase")).toBe(true);
     expect(globalRegistry.has("create-spec")).toBe(true);
-    expect(globalRegistry.has("create-feature-list")).toBe(true);
+
     expect(globalRegistry.has("implement-feature")).toBe(true);
     expect(globalRegistry.has("create-gh-pr")).toBe(true);
     expect(globalRegistry.has("explain-code")).toBe(true);
@@ -266,7 +266,7 @@ describe("registerBuiltinSkills", () => {
     expect(globalRegistry.has("ci")).toBe(true); // commit alias
     expect(globalRegistry.has("research")).toBe(true); // research-codebase alias
     expect(globalRegistry.has("spec")).toBe(true); // create-spec alias
-    expect(globalRegistry.has("features")).toBe(true); // create-feature-list alias
+
     expect(globalRegistry.has("impl")).toBe(true); // implement-feature alias
     expect(globalRegistry.has("pr")).toBe(true); // create-gh-pr alias
     expect(globalRegistry.has("explain")).toBe(true); // explain-code alias
@@ -549,24 +549,14 @@ describe("BuiltinSkill interface", () => {
     expect(skillWithAliases.aliases).toContain("co");
   });
 
-  test("BuiltinSkill supports optional hidden flag", () => {
-    const hiddenSkill: BuiltinSkill = {
+  test("BuiltinSkill does not have hidden property (skills are always visible)", () => {
+    const skill: BuiltinSkill = {
       name: "internal-skill",
       description: "An internal skill",
       prompt: "Do internal things",
-      hidden: true,
     };
 
-    expect(hiddenSkill.hidden).toBe(true);
-
-    const visibleSkill: BuiltinSkill = {
-      name: "visible-skill",
-      description: "A visible skill",
-      prompt: "Do visible things",
-      hidden: false,
-    };
-
-    expect(visibleSkill.hidden).toBe(false);
+    expect((skill as any).hidden).toBeUndefined();
   });
 
   test("BuiltinSkill with all optional fields", () => {
@@ -575,14 +565,12 @@ describe("BuiltinSkill interface", () => {
       description: "A fully-configured skill",
       prompt: "Execute: $ARGUMENTS",
       aliases: ["fs", "full"],
-      hidden: false,
     };
 
     expect(fullSkill.name).toBe("full-skill");
     expect(fullSkill.description).toBe("A fully-configured skill");
     expect(fullSkill.prompt).toBe("Execute: $ARGUMENTS");
     expect(fullSkill.aliases).toEqual(["fs", "full"]);
-    expect(fullSkill.hidden).toBe(false);
   });
 });
 
@@ -687,42 +675,10 @@ describe("BUILTIN_SKILLS", () => {
     expect(spec?.prompt).toContain("specs");
   });
 
-  test("contains create-feature-list skill", () => {
-    const featureList = BUILTIN_SKILLS.find((s) => s.name === "create-feature-list");
-    expect(featureList).toBeDefined();
-    expect(featureList?.description).toBe("Create a detailed \`research/feature-list.json\` and \`research/progress.txt\` for implementing features or refactors in a codebase from a spec.");
-    expect(featureList?.aliases).toContain("features");
-    expect(featureList?.prompt).toBeDefined();
-    expect(featureList?.prompt.length).toBeGreaterThan(100);
-  });
-
-  test("create-feature-list skill has $ARGUMENTS placeholder", () => {
-    const featureList = BUILTIN_SKILLS.find((s) => s.name === "create-feature-list");
-    expect(featureList?.prompt).toContain("$ARGUMENTS");
-  });
-
-  test("create-feature-list skill includes JSON schema", () => {
-    const featureList = BUILTIN_SKILLS.find((s) => s.name === "create-feature-list");
-    expect(featureList?.prompt).toContain("research/feature-list.json");
-    expect(featureList?.prompt).toContain("research/progress.txt");
-    expect(featureList?.prompt).toContain("category");
-    expect(featureList?.prompt).toContain("description");
-    expect(featureList?.prompt).toContain("steps");
-    expect(featureList?.prompt).toContain("passes");
-  });
-
-  test("create-feature-list skill includes feature categories", () => {
-    const featureList = BUILTIN_SKILLS.find((s) => s.name === "create-feature-list");
-    expect(featureList?.prompt).toContain("functional");
-    expect(featureList?.prompt).toContain("refactor");
-    expect(featureList?.prompt).toContain("performance");
-    expect(featureList?.prompt).toContain("ui");
-  });
-
   test("contains implement-feature skill", () => {
     const implFeature = BUILTIN_SKILLS.find((s) => s.name === "implement-feature");
     expect(implFeature).toBeDefined();
-    expect(implFeature?.description).toBe("Implement a SINGLE feature from \`research/feature-list.json\` based on the provided execution plan.");
+    expect(implFeature?.description).toBe("Implement a SINGLE feature from \`research/tasks.json\` based on the provided execution plan.");
     expect(implFeature?.aliases).toContain("impl");
     expect(implFeature?.prompt).toBeDefined();
     expect(implFeature?.prompt.length).toBeGreaterThan(100);
@@ -735,7 +691,7 @@ describe("BUILTIN_SKILLS", () => {
 
   test("implement-feature skill includes implementation process", () => {
     const implFeature = BUILTIN_SKILLS.find((s) => s.name === "implement-feature");
-    expect(implFeature?.prompt).toContain("research/feature-list.json");
+    expect(implFeature?.prompt).toContain("research/tasks.json");
     expect(implFeature?.prompt).toContain("research/progress.txt");
     expect(implFeature?.prompt).toContain("passes");
     expect(implFeature?.prompt).toContain("Test-Driven Development");
@@ -855,18 +811,6 @@ describe("getBuiltinSkill", () => {
     const byAlias = getBuiltinSkill("impl");
     expect(byAlias).toBeDefined();
     expect(byAlias?.name).toBe("implement-feature");
-  });
-
-  test("finds create-feature-list builtin skill by name", () => {
-    const featureList = getBuiltinSkill("create-feature-list");
-    expect(featureList).toBeDefined();
-    expect(featureList?.name).toBe("create-feature-list");
-  });
-
-  test("finds create-feature-list builtin skill by alias", () => {
-    const byAlias = getBuiltinSkill("features");
-    expect(byAlias).toBeDefined();
-    expect(byAlias?.name).toBe("create-feature-list");
   });
 
   test("finds create-spec builtin skill by name", () => {
@@ -1095,67 +1039,6 @@ describe("builtin skill execution", () => {
     expect(sentMessages[0]).not.toContain("[no arguments provided]");
   });
 
-  test("create-feature-list command uses embedded prompt", async () => {
-    const featureListCmd = skillCommands.find((c) => c.name === "create-feature-list");
-    expect(featureListCmd).toBeDefined();
-
-    const sentMessages: string[] = [];
-    const context: CommandContext = {
-      session: null,
-      state: { isStreaming: false, messageCount: 0 },
-      addMessage: () => {},
-      setStreaming: () => {},
-      sendMessage: (content) => {
-        sentMessages.push(content);
-      },
-      sendSilentMessage: (content) => {
-        sentMessages.push(content);
-      },
-      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
-      agentType: undefined,
-      modelOps: undefined,
-    };
-
-    const result = await featureListCmd!.execute("", context);
-
-    expect(result.success).toBe(true);
-    expect(sentMessages).toHaveLength(1);
-    // Should use embedded prompt with feature list structure
-    expect(sentMessages[0]).toContain("research/feature-list.json");
-    expect(sentMessages[0]).toContain("[no arguments provided]");
-  });
-
-  test("create-feature-list command expands $ARGUMENTS with provided args", async () => {
-    const featureListCmd = skillCommands.find((c) => c.name === "create-feature-list");
-    expect(featureListCmd).toBeDefined();
-
-    const sentMessages: string[] = [];
-    const context: CommandContext = {
-      session: null,
-      state: { isStreaming: false, messageCount: 0 },
-      addMessage: () => {},
-      setStreaming: () => {},
-      sendMessage: (content) => {
-        sentMessages.push(content);
-      },
-      sendSilentMessage: (content) => {
-        sentMessages.push(content);
-      },
-      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
-      agentType: undefined,
-      modelOps: undefined,
-    };
-
-    const result = await featureListCmd!.execute("auth-module", context);
-
-    expect(result.success).toBe(true);
-    expect(sentMessages).toHaveLength(1);
-    // Should have expanded $ARGUMENTS with the provided args
-    expect(sentMessages[0]).toContain("auth-module");
-    expect(sentMessages[0]).not.toContain("$ARGUMENTS");
-    expect(sentMessages[0]).not.toContain("[no arguments provided]");
-  });
-
   test("implement-feature command uses embedded prompt", async () => {
     const implFeatureCmd = skillCommands.find((c) => c.name === "implement-feature");
     expect(implFeatureCmd).toBeDefined();
@@ -1182,7 +1065,7 @@ describe("builtin skill execution", () => {
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
     // Should use embedded prompt with implementation process
-    expect(sentMessages[0]).toContain("research/feature-list.json");
+    expect(sentMessages[0]).toContain("research/tasks.json");
     // No $ARGUMENTS in this prompt, so no placeholder substitution
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
   });
@@ -1213,7 +1096,7 @@ describe("builtin skill execution", () => {
     expect(result.success).toBe(true);
     expect(sentMessages).toHaveLength(1);
     // implement-feature does not use $ARGUMENTS, so args are not injected into prompt
-    expect(sentMessages[0]).toContain("research/feature-list.json");
+    expect(sentMessages[0]).toContain("research/tasks.json");
     expect(sentMessages[0]).not.toContain("$ARGUMENTS");
   });
 

@@ -69,12 +69,9 @@ describe("RALPH_ENV_VARS", () => {
 });
 
 describe("RALPH_DEFAULTS", () => {
-  test("maxIterations defaults to 0 (unlimited)", () => {
-    expect(RALPH_DEFAULTS.maxIterations).toBe(0);
-  });
 
-  test("featureListPath defaults to research/feature-list.json", () => {
-    expect(RALPH_DEFAULTS.featureListPath).toBe("research/feature-list.json");
+  test("featureListPath defaults to research/tasks.json", () => {
+    expect(RALPH_DEFAULTS.featureListPath).toBe("research/tasks.json");
   });
 
   test("progressFilePath defaults to research/progress.txt", () => {
@@ -97,9 +94,6 @@ describe("AGENT_STATE_DIRS", () => {
 });
 
 describe("RALPH_CONFIG", () => {
-  test("maxIterations defaults to 0 (unlimited)", () => {
-    expect(RALPH_CONFIG.maxIterations).toBe(0);
-  });
 
   test("checkpointing defaults to true", () => {
     expect(RALPH_CONFIG.checkpointing).toBe(true);
@@ -108,31 +102,22 @@ describe("RALPH_CONFIG", () => {
   test("does not include autoApproveSpec (spec approval is manual)", () => {
     expect("autoApproveSpec" in RALPH_CONFIG).toBe(false);
   });
-
-  test("has only maxIterations and checkpointing properties", () => {
-    const keys = Object.keys(RALPH_CONFIG);
-    expect(keys).toEqual(["maxIterations", "checkpointing"]);
-  });
 });
 
 describe("RalphWorkflowConfig type", () => {
   test("is properly typed", () => {
     const config: RalphWorkflowConfig = {
-      maxIterations: 50,
       checkpointing: false,
     };
 
-    expect(typeof config.maxIterations).toBe("number");
     expect(typeof config.checkpointing).toBe("boolean");
   });
 
   test("RALPH_CONFIG conforms to RalphWorkflowConfig", () => {
     const config: RalphWorkflowConfig = RALPH_CONFIG;
-    expect(config.maxIterations).toBe(0);  // 0 = unlimited
     expect(config.checkpointing).toBe(true);
   });
 });
-
 
 // ============================================================================
 // loadRalphConfig Tests
@@ -141,38 +126,12 @@ describe("RalphWorkflowConfig type", () => {
 describe("loadRalphConfig", () => {
   test("returns default config when no options provided", () => {
     const config = loadRalphConfig();
-    expect(config.maxIterations).toBe(0);
-    expect(config.featureListPath).toBe("research/feature-list.json");
-    expect(config.completionPromise).toBeUndefined();
-  });
-
-  test("can override maxIterations", () => {
-    const config = loadRalphConfig({ maxIterations: 50 });
-    expect(config.maxIterations).toBe(50);
+    expect(config.featureListPath).toBe("research/tasks.json");
   });
 
   test("can override featureListPath", () => {
     const config = loadRalphConfig({ featureListPath: "custom/features.json" });
     expect(config.featureListPath).toBe("custom/features.json");
-  });
-
-  test("can set completionPromise", () => {
-    const config = loadRalphConfig({ completionPromise: "DONE" });
-    expect(config.completionPromise).toBe("DONE");
-  });
-
-  test("returns all options when fully specified", () => {
-    const options: LoadRalphConfigOptions = {
-      maxIterations: 100,
-      featureListPath: "specs/features.json",
-      completionPromise: "ALL_COMPLETE",
-    };
-    const config = loadRalphConfig(options);
-    expect(config).toEqual({
-      maxIterations: 100,
-      featureListPath: "specs/features.json",
-      completionPromise: "ALL_COMPLETE",
-    });
   });
 });
 
@@ -183,41 +142,18 @@ describe("loadRalphConfig", () => {
 describe("describeRalphConfig", () => {
   test("describes unlimited iterations", () => {
     const config: RalphConfig = {
-      maxIterations: 0,
-      featureListPath: "research/feature-list.json",
+      featureListPath: "research/tasks.json",
     };
     const description = describeRalphConfig(config);
-    expect(description).toContain("Max iterations: unlimited");
-    expect(description).toContain("Feature list: research/feature-list.json");
+    expect(description).toContain("Feature list: research/tasks.json");
   });
 
   test("describes limited iterations", () => {
     const config: RalphConfig = {
-      maxIterations: 50,
       featureListPath: "custom/features.json",
     };
     const description = describeRalphConfig(config);
-    expect(description).toContain("Max iterations: 50");
     expect(description).toContain("Feature list: custom/features.json");
-  });
-
-  test("includes completion promise when set", () => {
-    const config: RalphConfig = {
-      maxIterations: 0,
-      featureListPath: "research/feature-list.json",
-      completionPromise: "FINISHED",
-    };
-    const description = describeRalphConfig(config);
-    expect(description).toContain('Completion promise: "FINISHED"');
-  });
-
-  test("does not include completion promise when not set", () => {
-    const config: RalphConfig = {
-      maxIterations: 0,
-      featureListPath: "research/feature-list.json",
-    };
-    const description = describeRalphConfig(config);
-    expect(description).not.toContain("Completion promise");
   });
 });
 
@@ -228,22 +164,9 @@ describe("describeRalphConfig", () => {
 describe("RalphConfig type", () => {
   test("is properly typed", () => {
     const config: RalphConfig = {
-      maxIterations: 10,
       featureListPath: "test.json",
-      completionPromise: "done",
     };
-
-    expect(typeof config.maxIterations).toBe("number");
     expect(typeof config.featureListPath).toBe("string");
-    expect(typeof config.completionPromise).toBe("string");
-  });
-
-  test("completionPromise is optional", () => {
-    const config: RalphConfig = {
-      maxIterations: 0,
-      featureListPath: "test.json",
-    };
-    expect(config.completionPromise).toBeUndefined();
   });
 });
 
@@ -256,7 +179,6 @@ describe("Ralph config integration", () => {
     const config = loadRalphConfig();
 
     // Verify all required fields are present and have correct types
-    expect(typeof config.maxIterations).toBe("number");
     expect(typeof config.featureListPath).toBe("string");
 
     // describeRalphConfig should work on the loaded config
@@ -300,7 +222,7 @@ describe("generateRalphSessionId", () => {
 describe("getRalphSessionPaths", () => {
   test("returns default paths when no sessionId provided", () => {
     const paths = getRalphSessionPaths("claude");
-    expect(paths.featureListPath).toBe("research/feature-list.json");
+    expect(paths.featureListPath).toBe("research/tasks.json");
     expect(paths.progressFilePath).toBe("research/progress.txt");
     expect(paths.stateFilePath).toBe(".claude/ralph-loop.local.md");
   });
@@ -308,7 +230,7 @@ describe("getRalphSessionPaths", () => {
   test("returns session-specific paths when sessionId provided", () => {
     const sessionId = "sess_123_abc";
     const paths = getRalphSessionPaths("claude", sessionId);
-    expect(paths.featureListPath).toBe("research/feature-list-sess_123_abc.json");
+    expect(paths.featureListPath).toBe("research/tasks-sess_123_abc.json");
     expect(paths.progressFilePath).toBe("research/progress-sess_123_abc.txt");
     expect(paths.stateFilePath).toBe(".claude/ralph-loop-sess_123_abc.local.md");
   });
@@ -344,7 +266,7 @@ describe("getRalphSessionPaths", () => {
 
 describe("extractSessionId", () => {
   test("extracts session ID from feature list path", () => {
-    const id = extractSessionId("research/feature-list-sess_123_abc.json");
+    const id = extractSessionId("research/tasks-sess_123_abc.json");
     expect(id).toBe("sess_123_abc");
   });
 
@@ -359,7 +281,7 @@ describe("extractSessionId", () => {
   });
 
   test("returns undefined for default paths without session ID", () => {
-    expect(extractSessionId("research/feature-list.json")).toBeUndefined();
+    expect(extractSessionId("research/tasks.json")).toBeUndefined();
     expect(extractSessionId("research/progress.txt")).toBeUndefined();
     expect(extractSessionId(".claude/ralph-loop.local.md")).toBeUndefined();
   });

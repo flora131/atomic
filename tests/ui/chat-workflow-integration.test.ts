@@ -435,11 +435,11 @@ describe("Workflow progress updates", () => {
     state = { ...state, currentNode: "create_spec" };
     expect(state.currentNode).toBe("create_spec");
 
-    state = { ...state, currentNode: "create_feature_list" };
-    expect(state.currentNode).toBe("create_feature_list");
-
     state = { ...state, currentNode: "implement_feature" };
     expect(state.currentNode).toBe("implement_feature");
+
+    state = { ...state, currentNode: "check_completion" };
+    expect(state.currentNode).toBe("check_completion");
   });
 
   test("updates iteration count", () => {
@@ -514,9 +514,6 @@ describe("Workflow progress updates", () => {
 
     expect(state.workflowActive).toBe(true);
     expect(state.currentNode).toBe("create_spec");
-
-    // Move to feature list
-    state = { ...state, currentNode: "create_feature_list" };
 
     // Start implementing
     state = {

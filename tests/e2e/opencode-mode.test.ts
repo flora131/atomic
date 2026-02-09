@@ -40,10 +40,8 @@ import {
   saveSession,
   loadSession,
   createRalphSession,
-  createRalphFeature,
   createRalphWorkflow,
   type RalphSession,
-  type RalphFeature,
 } from "../../src/workflows/index.ts";
 import {
   createRalphWorkflowState,
@@ -366,7 +364,7 @@ function createMockContextWithOpenCode(
  */
 function createTestFeatureListContent(): string {
   const features = {
-    features: [
+    tasks: [
       {
         category: "functional",
         description: "Test feature 1: OpenCode mode feature implementation",
@@ -483,14 +481,13 @@ describe("E2E test: Run all functionality in opencode mode", () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
       await fs.writeFile(
-        path.join(researchDir, "feature-list.json"),
+        path.join(researchDir, "tasks.json"),
         createTestFeatureListContent()
       );
     });
 
     test("workflow can be created in opencode mode", () => {
       const workflow = createRalphWorkflow({
-        featureListPath: "research/feature-list.json",
         checkpointing: false,
       });
 
@@ -500,9 +497,7 @@ describe("E2E test: Run all functionality in opencode mode", () => {
 
     test("workflow state can be created for opencode client", () => {
       const state = createRalphWorkflowState({
-        yolo: false,
         userPrompt: "Test in OpenCode mode",
-        maxIterations: 10,
       });
 
       expect(state).toBeDefined();
@@ -511,7 +506,6 @@ describe("E2E test: Run all functionality in opencode mode", () => {
 
     test("parseRalphArgs works correctly for opencode mode", () => {
       const args = parseRalphArgs("--max-iterations 20 implement features");
-      expect(args.maxIterations).toBe(20);
       expect(args.prompt).toBe("implement features");
     });
 
@@ -558,12 +552,8 @@ describe("E2E test: Run all functionality in opencode mode", () => {
         sessionId,
         sessionDir,
         status: "running",
-        features: [
-          createRalphFeature({
-            id: "feat-1",
-            name: "OpenCode test feature",
-            description: "Testing in OpenCode mode",
-          }),
+        tasks: [
+          { id: "feat-1", content: "OpenCode test feature", status: "pending" as const, activeForm: "OpenCode test feature" },
         ],
       });
 
@@ -571,18 +561,8 @@ describe("E2E test: Run all functionality in opencode mode", () => {
       const loaded = await loadSession(sessionDir);
 
       expect(loaded.sessionId).toBe(sessionId);
-      expect(loaded.features[0]?.name).toBe("OpenCode test feature");
+      expect(loaded.tasks[0]?.name).toBe("OpenCode test feature");
     });
-
-    test("yolo mode works in opencode configuration", async () => {
-      const client = createMockOpenCodeClientWithTracking("allow");
-      await client.start();
-
-      const workflow = createRalphWorkflow({
-        yolo: true,
-        userPrompt: "Build snake game in Rust",
-        checkpointing: false,
-      });
 
       expect(workflow).toBeDefined();
 
@@ -951,7 +931,7 @@ describe("E2E test: Run all functionality in opencode mode", () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
       await fs.writeFile(
-        path.join(researchDir, "feature-list.json"),
+        path.join(researchDir, "tasks.json"),
         createTestFeatureListContent()
       );
     });
@@ -1055,12 +1035,8 @@ describe("E2E test: Run all functionality in opencode mode", () => {
         sessionId,
         sessionDir,
         status: "running",
-        features: [
-          createRalphFeature({
-            id: "feat-opencode",
-            name: "OpenCode integration test",
-            description: "Testing Ralph with OpenCode",
-          }),
+        tasks: [
+          { id: "feat-opencode", content: "OpenCode integration test", status: "pending" as const, activeForm: "OpenCode integration test" },
         ],
       });
 
@@ -1200,4 +1176,4 @@ describe("E2E test: Run all functionality in opencode mode", () => {
       });
     }
   );
-});
+

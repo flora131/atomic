@@ -592,15 +592,9 @@ describe("RalphStateAnnotation", () => {
   test("has all required Ralph-specific fields", () => {
     expect(RalphStateAnnotation.ralphSessionId).toBeDefined();
     expect(RalphStateAnnotation.ralphSessionDir).toBeDefined();
-    expect(RalphStateAnnotation.yolo).toBeDefined();
-    expect(RalphStateAnnotation.yoloPrompt).toBeDefined();
-    expect(RalphStateAnnotation.yoloComplete).toBeDefined();
-    expect(RalphStateAnnotation.maxIterations).toBeDefined();
     expect(RalphStateAnnotation.shouldContinue).toBeDefined();
     expect(RalphStateAnnotation.completedFeatures).toBeDefined();
-    expect(RalphStateAnnotation.sourceFeatureListPath).toBeDefined();
     expect(RalphStateAnnotation.prBranch).toBeDefined();
-    expect(RalphStateAnnotation.maxIterationsReached).toBeDefined();
   });
 });
 
@@ -630,10 +624,6 @@ describe("createRalphState", () => {
     expect(typeof state.ralphSessionId).toBe("string");
     expect(state.ralphSessionId.length).toBeGreaterThan(0);
     expect(state.ralphSessionDir).toContain(".ralph/sessions/");
-    expect(state.yolo).toBe(false);
-    expect(state.yoloPrompt).toBeNull();
-    expect(state.yoloComplete).toBe(false);
-    expect(state.maxIterations).toBe(100);
     expect(state.shouldContinue).toBe(true);
     expect(state.completedFeatures).toEqual([]);
   });
@@ -654,29 +644,12 @@ describe("createRalphState", () => {
     const state2 = createRalphState();
     expect(state1.ralphSessionId).not.toBe(state2.ralphSessionId);
   });
-
-  test("creates state with yolo mode options", () => {
-    const state = createRalphState(undefined, {
-      yolo: true,
-      yoloPrompt: "Build a snake game in Rust",
-      maxIterations: 0,
-    });
-
-    expect(state.yolo).toBe(true);
     expect(state.yoloPrompt).toBe("Build a snake game in Rust");
-    expect(state.maxIterations).toBe(0);
   });
 
   test("creates state with feature-list mode options", () => {
     const state = createRalphState(undefined, {
-      yolo: false,
-      sourceFeatureListPath: "research/feature-list.json",
-      maxIterations: 50,
     });
-
-    expect(state.yolo).toBe(false);
-    expect(state.sourceFeatureListPath).toBe("research/feature-list.json");
-    expect(state.maxIterations).toBe(50);
   });
 
   test("uses provided ralphSessionId and derives sessionDir", () => {
@@ -697,7 +670,6 @@ describe("createRalphState", () => {
     expect(state.ralphSessionId).toBe("test-session-123");
     expect(state.ralphSessionDir).toBe("/custom/path/to/session/");
   });
-});
 
 describe("updateRalphState", () => {
   test("updates specific fields while preserving others", () => {
@@ -716,8 +688,6 @@ describe("updateRalphState", () => {
     expect(updated.iteration).toBe(5);
     expect(updated.yoloComplete).toBe(true);
     // Other fields unchanged
-    expect(updated.yolo).toBe(false);
-    expect(updated.maxIterations).toBe(100);
   });
 
   test("concatenates debug reports", () => {
@@ -823,7 +793,6 @@ describe("isRalphWorkflowState", () => {
     const partial = {
       ralphSessionId: "test",
       ralphSessionDir: ".ralph/sessions/test/",
-      yolo: false,
     };
     expect(isRalphWorkflowState(partial)).toBe(false);
   });
@@ -848,7 +817,7 @@ describe("isRalphWorkflowState", () => {
   test("returns false when required fields have wrong types", () => {
     const invalidState = {
       ...createRalphState(),
-      yolo: "not a boolean", // Wrong type
+      shouldContinue: "not a boolean", // Wrong type
     };
     expect(isRalphWorkflowState(invalidState)).toBe(false);
   });
@@ -884,10 +853,6 @@ describe("RalphWorkflowState Type Inference", () => {
     // Ralph-specific field types
     const ralphSessionId: string = state.ralphSessionId;
     const ralphSessionDir: string = state.ralphSessionDir;
-    const yolo: boolean = state.yolo;
-    const yoloPrompt: string | null = state.yoloPrompt;
-    const yoloComplete: boolean = state.yoloComplete;
-    const maxIterations: number = state.maxIterations;
     const shouldContinue: boolean = state.shouldContinue;
     const completedFeatures: string[] = state.completedFeatures;
 
@@ -904,10 +869,6 @@ describe("RalphWorkflowState Type Inference", () => {
     expect(prUrl === null || typeof prUrl === "string").toBe(true);
     expect(typeof ralphSessionId).toBe("string");
     expect(typeof ralphSessionDir).toBe("string");
-    expect(typeof yolo).toBe("boolean");
-    expect(yoloPrompt === null || typeof yoloPrompt === "string").toBe(true);
-    expect(typeof yoloComplete).toBe("boolean");
-    expect(typeof maxIterations).toBe("number");
     expect(typeof shouldContinue).toBe("boolean");
     expect(Array.isArray(completedFeatures)).toBe(true);
   });

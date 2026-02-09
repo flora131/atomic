@@ -11,7 +11,7 @@
  * - Verify workflow resumes from checkpoint
  * - Verify user answer is available in state
  *
- * Reference: feature-list.json - "Integration test: AskUserQuestion node pauses and resumes"
+ * Reference: "Integration test: AskUserQuestion node pauses and resumes"
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";

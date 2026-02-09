@@ -581,6 +581,7 @@ describe("WorkflowChatState type", () => {
       selectedSuggestionIndex: 5,
       argumentHint: "[test-hint]",
       autocompleteMode: "command",
+      mentionStartOffset: 0,
       workflowActive: true,
       workflowType: "atomic",
       initialPrompt: "test prompt",
@@ -642,8 +643,8 @@ describe("WorkflowChatState type", () => {
     expect(state.iteration).toBe(1);
 
     // Move to next node
-    state = { ...state, currentNode: "create_feature_list" };
-    expect(state.currentNode).toBe("create_feature_list");
+    state = { ...state, currentNode: "implement_feature" };
+    expect(state.currentNode).toBe("implement_feature");
 
     // Start implementing features
     state = {

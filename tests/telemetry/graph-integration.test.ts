@@ -814,7 +814,7 @@ describe("trackWorkflowExecution", () => {
     const { collector, events } = createTrackingCollector();
     const tracker = trackWorkflowExecution("exec-workflow-start", { collector });
 
-    tracker.start("ralph-workflow", { maxIterations: 100 });
+    tracker.start("ralph-workflow", { checkpointing: true });
 
     expect(events.length).toBe(1);
     expect(events[0]!.eventType).toBe("workflow.start");

@@ -14,6 +14,7 @@ import {
   compactCommand,
   exitCommand,
   modelCommand,
+  mcpCommand,
   builtinCommands,
   registerBuiltinCommands,
 } from "../../../src/ui/commands/builtin-commands.ts";
@@ -149,12 +150,7 @@ describe("helpCommand", () => {
 
     // Check usage examples
     expect(result.message).toContain("/ralph");
-    expect(result.message).toContain("--yolo");
     expect(result.message).toContain("--resume");
-
-    // Check options
-    expect(result.message).toContain("--feature-list");
-    expect(result.message).toContain("--max-iterations");
 
     // Check interrupt instructions
     expect(result.message).toContain("Ctrl+C");
@@ -174,7 +170,6 @@ describe("helpCommand", () => {
 
     // Ralph section should not be present
     expect(result.message).not.toContain("**Ralph Workflow**");
-    expect(result.message).not.toContain("--yolo");
   });
 
   test("shows Sub-Agents section when agent commands are registered", async () => {
@@ -353,11 +348,12 @@ describe("builtinCommands array", () => {
     expect(builtinCommands).toContain(compactCommand);
     expect(builtinCommands).toContain(exitCommand);
     expect(builtinCommands).toContain(modelCommand);
+    expect(builtinCommands).toContain(mcpCommand);
   });
 
-  test("has 6 commands", () => {
-    // Commands: help, theme, clear, compact, exit, model
-    expect(builtinCommands.length).toBe(6);
+  test("has 7 commands", () => {
+    // Commands: help, theme, clear, compact, exit, model, mcp
+    expect(builtinCommands.length).toBe(7);
   });
 });
 
@@ -381,6 +377,7 @@ describe("registerBuiltinCommands", () => {
     expect(globalRegistry.has("compact")).toBe(true);
     expect(globalRegistry.has("exit")).toBe(true);
     expect(globalRegistry.has("model")).toBe(true);
+    expect(globalRegistry.has("mcp")).toBe(true);
     // /reject command removed - spec approval is now manual before workflow
     expect(globalRegistry.has("reject")).toBe(false);
   });
@@ -408,8 +405,8 @@ describe("registerBuiltinCommands", () => {
     registerBuiltinCommands();
 
     // Should not throw and should still have correct count
-    // Commands: help, theme, clear, compact, exit, model
-    expect(globalRegistry.size()).toBe(6);
+    // Commands: help, theme, clear, compact, exit, model, mcp
+    expect(globalRegistry.size()).toBe(7);
   });
 
   test("commands are executable after registration", async () => {
@@ -421,5 +418,164 @@ describe("registerBuiltinCommands", () => {
     const result = await helpCmd?.execute("", context);
 
     expect(result?.success).toBe(true);
+  });
+});
+
+// ============================================================================
+// /mcp COMMAND TESTS
+// ============================================================================
+
+describe("mcpCommand", () => {
+  test("has correct metadata", () => {
+    expect(mcpCommand.name).toBe("mcp");
+    expect(mcpCommand.category).toBe("builtin");
+    expect(mcpCommand.argumentHint).toBe("[enable|disable <server>]");
+  });
+
+  test("returns empty mcpServers array when no servers found", async () => {
+    // Use a temp dir with no config files
+    const origCwd = process.cwd();
+    const tmpDir = `/tmp/mcp-test-empty-${Date.now()}`;
+    const { mkdirSync, rmSync } = await import("node:fs");
+    mkdirSync(tmpDir, { recursive: true });
+
+    try {
+      process.chdir(tmpDir);
+      const context = createMockContext();
+      const result = await mcpCommand.execute("", context);
+
+      expect(result.success).toBe(true);
+      expect(result.mcpServers).toBeDefined();
+      expect(Array.isArray(result.mcpServers)).toBe(true);
+    } finally {
+      process.chdir(origCwd);
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("returns mcpServers with discovered servers", async () => {
+    const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const tmpDir = `/tmp/mcp-test-list-${Date.now()}`;
+    mkdirSync(tmpDir, { recursive: true });
+    writeFileSync(
+      join(tmpDir, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          deepwiki: { command: "node", args: ["server.js"] },
+          remote_api: { type: "http", url: "https://api.example.com" },
+        },
+      })
+    );
+
+    const origCwd = process.cwd();
+    try {
+      process.chdir(tmpDir);
+      const context = createMockContext();
+      const result = await mcpCommand.execute("", context);
+
+      expect(result.success).toBe(true);
+      expect(result.mcpServers).toBeDefined();
+      const servers = result.mcpServers!;
+      expect(servers.find(s => s.name === "deepwiki")).toBeDefined();
+      expect(servers.find(s => s.name === "remote_api")).toBeDefined();
+    } finally {
+      process.chdir(origCwd);
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("enable returns success for known server", async () => {
+    const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const tmpDir = `/tmp/mcp-test-enable-${Date.now()}`;
+    mkdirSync(tmpDir, { recursive: true });
+    writeFileSync(
+      join(tmpDir, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          myserver: { command: "node" },
+        },
+      })
+    );
+
+    const origCwd = process.cwd();
+    try {
+      process.chdir(tmpDir);
+      const context = createMockContext();
+      const result = await mcpCommand.execute("enable myserver", context);
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain("enabled");
+      expect(result.message).toContain("myserver");
+    } finally {
+      process.chdir(origCwd);
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("enable returns error for unknown server", async () => {
+    const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const tmpDir = `/tmp/mcp-test-enable-unknown-${Date.now()}`;
+    mkdirSync(tmpDir, { recursive: true });
+    writeFileSync(
+      join(tmpDir, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          myserver: { command: "node" },
+        },
+      })
+    );
+
+    const origCwd = process.cwd();
+    try {
+      process.chdir(tmpDir);
+      const context = createMockContext();
+      const result = await mcpCommand.execute("enable nonexistent", context);
+
+      expect(result.success).toBe(false);
+      expect(result.message).toContain("not found");
+    } finally {
+      process.chdir(origCwd);
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("disable returns success for known server", async () => {
+    const { mkdirSync, writeFileSync, rmSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const tmpDir = `/tmp/mcp-test-disable-${Date.now()}`;
+    mkdirSync(tmpDir, { recursive: true });
+    writeFileSync(
+      join(tmpDir, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          myserver: { command: "node" },
+        },
+      })
+    );
+
+    const origCwd = process.cwd();
+    try {
+      process.chdir(tmpDir);
+      const context = createMockContext();
+      const result = await mcpCommand.execute("disable myserver", context);
+
+      expect(result.success).toBe(true);
+      expect(result.message).toContain("disabled");
+      expect(result.message).toContain("myserver");
+    } finally {
+      process.chdir(origCwd);
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  test("returns usage message for invalid subcommand", async () => {
+    const context = createMockContext();
+    const result = await mcpCommand.execute("invalid", context);
+
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("Usage");
   });
 });

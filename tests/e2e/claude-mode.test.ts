@@ -39,10 +39,8 @@ import {
   saveSession,
   loadSession,
   createRalphSession,
-  createRalphFeature,
   createRalphWorkflow,
   type RalphSession,
-  type RalphFeature,
 } from "../../src/workflows/index.ts";
 import {
   createRalphWorkflowState,
@@ -373,7 +371,7 @@ function createMockContextWithClaude(
  */
 function createTestFeatureListContent(): string {
   const features = {
-    features: [
+    tasks: [
       {
         category: "functional",
         description: "Test feature 1: Claude mode feature implementation",
@@ -488,14 +486,13 @@ describe("E2E test: Run all functionality in claude mode", () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
       await fs.writeFile(
-        path.join(researchDir, "feature-list.json"),
+        path.join(researchDir, "tasks.json"),
         createTestFeatureListContent()
       );
     });
 
     test("workflow can be created in claude mode", () => {
       const workflow = createRalphWorkflow({
-        featureListPath: "research/feature-list.json",
         checkpointing: false,
       });
 
@@ -505,9 +502,7 @@ describe("E2E test: Run all functionality in claude mode", () => {
 
     test("workflow state can be created for claude client", () => {
       const state = createRalphWorkflowState({
-        yolo: false,
         userPrompt: "Test in Claude mode",
-        maxIterations: 10,
       });
 
       expect(state).toBeDefined();
@@ -516,7 +511,6 @@ describe("E2E test: Run all functionality in claude mode", () => {
 
     test("parseRalphArgs works correctly for claude mode", () => {
       const args = parseRalphArgs("--max-iterations 20 implement features");
-      expect(args.maxIterations).toBe(20);
       expect(args.prompt).toBe("implement features");
     });
 
@@ -563,12 +557,8 @@ describe("E2E test: Run all functionality in claude mode", () => {
         sessionId,
         sessionDir,
         status: "running",
-        features: [
-          createRalphFeature({
-            id: "feat-1",
-            name: "Claude test feature",
-            description: "Testing in Claude mode",
-          }),
+        tasks: [
+          { id: "feat-1", content: "Claude test feature", status: "pending" as const, activeForm: "Claude test feature" },
         ],
       });
 
@@ -576,18 +566,8 @@ describe("E2E test: Run all functionality in claude mode", () => {
       const loaded = await loadSession(sessionDir);
 
       expect(loaded.sessionId).toBe(sessionId);
-      expect(loaded.features[0]?.name).toBe("Claude test feature");
+      expect(loaded.tasks[0]?.name).toBe("Claude test feature");
     });
-
-    test("yolo mode works in claude configuration", async () => {
-      const client = createMockClaudeClientWithTracking(true);
-      await client.start();
-
-      const workflow = createRalphWorkflow({
-        yolo: true,
-        userPrompt: "Build snake game in Rust",
-        checkpointing: false,
-      });
 
       expect(workflow).toBeDefined();
 
@@ -956,7 +936,7 @@ describe("E2E test: Run all functionality in claude mode", () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
       await fs.writeFile(
-        path.join(researchDir, "feature-list.json"),
+        path.join(researchDir, "tasks.json"),
         createTestFeatureListContent()
       );
     });
@@ -1047,12 +1027,8 @@ describe("E2E test: Run all functionality in claude mode", () => {
         sessionId,
         sessionDir,
         status: "running",
-        features: [
-          createRalphFeature({
-            id: "feat-claude",
-            name: "Claude integration test",
-            description: "Testing Ralph with Claude",
-          }),
+        tasks: [
+          { id: "feat-claude", content: "Claude integration test", status: "pending" as const, activeForm: "Claude integration test" },
         ],
       });
 
@@ -1288,4 +1264,4 @@ describe("E2E test: Run all functionality in claude mode", () => {
       });
     }
   );
-});
+

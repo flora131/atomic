@@ -4,10 +4,7 @@ import { rmSync, existsSync } from "fs";
 /**
  * Tests for graph-based Ralph workflow execution.
  *
- * Feature 29 from research/feature-list.json:
- * "Update atomic ralph setup command to use graph engine"
- *
- * Tests:
+ * Tests the graph engine for Ralph workflow:
  * - Feature flag ATOMIC_USE_GRAPH_ENGINE enables graph mode
  * - Client factory creates correct client for agent type
  * - Workflow execution streams state updates
@@ -82,7 +79,6 @@ describe("Ralph Graph Engine Execution", () => {
       const { createRalphWorkflow } = await import("../../src/workflows/ralph/workflow.ts");
 
       const workflow = createRalphWorkflow({
-        maxIterations: 50,
         checkpointing: false,
       });
 
@@ -115,16 +111,12 @@ describe("Ralph Graph Engine Execution", () => {
 
       // Create a minimal test workflow
       const workflow = createTestRalphWorkflow({
-        maxIterations: 1,
         checkpointing: false,
-        yolo: true,
         userPrompt: "test prompt",
       });
 
       const initialState = createRalphWorkflowState({
-        yolo: true,
         userPrompt: "test prompt",
-        maxIterations: 1,
       });
       const steps: Array<{ nodeId: string; status: string }> = [];
 

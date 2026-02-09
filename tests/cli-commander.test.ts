@@ -222,17 +222,6 @@ describe("Commander.js CLI", () => {
       expect(promiseOption).toBeDefined();
     });
 
-    test("ralph setup has --feature-list option with default value", () => {
-      const program = createProgram();
-      const ralphCmd = program.commands.find(cmd => cmd.name() === "ralph");
-      const setupCmd = ralphCmd?.commands.find(cmd => cmd.name() === "setup");
-
-      const featureListOption = setupCmd?.options.find(opt => opt.long === "--feature-list");
-      expect(featureListOption).toBeDefined();
-      expect(featureListOption?.defaultValue).toBe("research/feature-list.json");
-    });
-  });
-
   describe("RalphSetupOptions interface", () => {
     test("ralphSetup accepts options object with prompt array", async () => {
       // Type check - this should compile without errors
@@ -242,23 +231,17 @@ describe("Commander.js CLI", () => {
       
       // Verify the interface structure
       expect(options.prompt).toEqual(["test", "prompt"]);
-      expect(options.maxIterations).toBeUndefined();
-      expect(options.completionPromise).toBeUndefined();
-      expect(options.featureList).toBeUndefined();
+      expect(options.checkpointing).toBeUndefined();
     });
 
     test("RalphSetupOptions supports all optional properties", () => {
       const options: RalphSetupOptions = {
         prompt: ["implement", "feature"],
-        maxIterations: 10,
-        completionPromise: "DONE",
-        featureList: "custom/features.json",
+        checkpointing: true,
       };
       
       expect(options.prompt).toEqual(["implement", "feature"]);
-      expect(options.maxIterations).toBe(10);
-      expect(options.completionPromise).toBe("DONE");
-      expect(options.featureList).toBe("custom/features.json");
+      expect(options.checkpointing).toBe(true);
     });
 
     test("RalphSetupOptions allows empty prompt array", () => {
@@ -267,43 +250,6 @@ describe("Commander.js CLI", () => {
       };
       
       expect(options.prompt).toEqual([]);
-    });
-
-    test("completionPromise can be undefined (no promise set)", () => {
-      const options: RalphSetupOptions = {
-        prompt: ["test"],
-        completionPromise: undefined,
-      };
-      
-      expect(options.completionPromise).toBeUndefined();
-    });
-
-    test("completionPromise can be a string value", () => {
-      const options: RalphSetupOptions = {
-        prompt: ["test"],
-        completionPromise: "All tests passing",
-      };
-      
-      expect(options.completionPromise).toBe("All tests passing");
-    });
-
-    test("maxIterations defaults to 0 (unlimited) when not specified", () => {
-      const options: RalphSetupOptions = {
-        prompt: [],
-      };
-      
-      // The default is applied in the function, not the interface
-      // Interface just allows undefined
-      expect(options.maxIterations).toBeUndefined();
-    });
-
-    test("featureList defaults to 'research/feature-list.json' when not specified", () => {
-      const options: RalphSetupOptions = {
-        prompt: [],
-      };
-      
-      // The default is applied in the function, not the interface
-      expect(options.featureList).toBeUndefined();
     });
   });
 
@@ -325,6 +271,7 @@ describe("Commander.js CLI", () => {
       expect(AGENT_CONFIG).toHaveProperty("opencode");
       expect(AGENT_CONFIG).toHaveProperty("copilot");
     });
+  });
   });
 });
 
@@ -382,8 +329,7 @@ describe("New run command syntax", () => {
  *
  * NOTE: These tests spawn actual processes to run the ralph command.
  * The ralph command now uses the graph engine which requires:
- * 1. Feature list file to exist (or yolo mode)
- * 2. SDK client to be available
+ * 1. SDK client to be available
  *
  * Since these are E2E-style tests that require real SDK connections,
  * we skip them in CI and only run unit tests for command structure.

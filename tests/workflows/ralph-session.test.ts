@@ -2,7 +2,6 @@
  * Unit tests for Ralph Session types and helper functions
  *
  * Tests cover:
- * - RalphFeature interface and creation
  * - RalphSession interface and creation
  * - generateSessionId() UUID generation
  * - getSessionDir() path generation
@@ -14,8 +13,6 @@ import {
   generateSessionId,
   getSessionDir,
   createRalphSession,
-  createRalphFeature,
-  isRalphFeature,
   isRalphSession,
   createSessionDirectory,
   saveSession,
@@ -24,128 +21,9 @@ import {
   appendLog,
   appendProgress,
   SESSION_SUBDIRECTORIES,
-  type RalphFeature,
   type RalphSession,
 } from "../../src/workflows/ralph/session.ts";
-
-describe("RalphFeature", () => {
-  describe("createRalphFeature", () => {
-    test("creates feature with required fields", () => {
-      const feature = createRalphFeature({
-        id: "feat-001",
-        name: "Add authentication",
-        description: "Implement JWT-based authentication",
-      });
-
-      expect(feature.id).toBe("feat-001");
-      expect(feature.name).toBe("Add authentication");
-      expect(feature.description).toBe("Implement JWT-based authentication");
-      expect(feature.status).toBe("pending");
-      expect(feature.acceptanceCriteria).toBeUndefined();
-      expect(feature.implementedAt).toBeUndefined();
-      expect(feature.error).toBeUndefined();
-    });
-
-    test("creates feature with all optional fields", () => {
-      const feature = createRalphFeature({
-        id: "feat-002",
-        name: "Add logging",
-        description: "Add structured logging",
-        acceptanceCriteria: ["Logs to stdout", "JSON format"],
-        status: "passing",
-        implementedAt: "2026-02-02T10:00:00.000Z",
-      });
-
-      expect(feature.status).toBe("passing");
-      expect(feature.acceptanceCriteria).toEqual(["Logs to stdout", "JSON format"]);
-      expect(feature.implementedAt).toBe("2026-02-02T10:00:00.000Z");
-    });
-
-    test("creates feature with error for failing status", () => {
-      const feature = createRalphFeature({
-        id: "feat-003",
-        name: "Broken feature",
-        description: "This feature failed",
-        status: "failing",
-        error: "Test suite failed with 3 errors",
-      });
-
-      expect(feature.status).toBe("failing");
-      expect(feature.error).toBe("Test suite failed with 3 errors");
-    });
-  });
-
-  describe("isRalphFeature", () => {
-    test("returns true for valid feature", () => {
-      const feature: RalphFeature = {
-        id: "feat-001",
-        name: "Test",
-        description: "Test description",
-        status: "pending",
-      };
-      expect(isRalphFeature(feature)).toBe(true);
-    });
-
-    test("returns true for feature with all fields", () => {
-      const feature: RalphFeature = {
-        id: "feat-001",
-        name: "Test",
-        description: "Test description",
-        acceptanceCriteria: ["Criterion 1"],
-        status: "passing",
-        implementedAt: "2026-02-02T10:00:00.000Z",
-        error: undefined,
-      };
-      expect(isRalphFeature(feature)).toBe(true);
-    });
-
-    test("returns false for null", () => {
-      expect(isRalphFeature(null)).toBe(false);
-    });
-
-    test("returns false for undefined", () => {
-      expect(isRalphFeature(undefined)).toBe(false);
-    });
-
-    test("returns false for non-object", () => {
-      expect(isRalphFeature("string")).toBe(false);
-      expect(isRalphFeature(123)).toBe(false);
-      expect(isRalphFeature([])).toBe(false);
-    });
-
-    test("returns false for missing required fields", () => {
-      expect(isRalphFeature({ id: "001" })).toBe(false);
-      expect(isRalphFeature({ id: "001", name: "Test" })).toBe(false);
-      expect(
-        isRalphFeature({ id: "001", name: "Test", description: "Desc" })
-      ).toBe(false);
-    });
-
-    test("returns false for invalid status", () => {
-      expect(
-        isRalphFeature({
-          id: "001",
-          name: "Test",
-          description: "Desc",
-          status: "invalid",
-        })
-      ).toBe(false);
-    });
-
-    test("validates all valid status values", () => {
-      const statuses = ["pending", "in_progress", "passing", "failing"] as const;
-      for (const status of statuses) {
-        const feature = {
-          id: "001",
-          name: "Test",
-          description: "Desc",
-          status,
-        };
-        expect(isRalphFeature(feature)).toBe(true);
-      }
-    });
-  });
-});
+import type { TodoItem } from "../../src/sdk/tools/todo-write.ts";
 
 describe("RalphSession", () => {
   describe("generateSessionId", () => {
@@ -188,11 +66,9 @@ describe("RalphSession", () => {
       expect(session.sessionDir).toContain(session.sessionId);
       expect(session.createdAt).toBeDefined();
       expect(session.lastUpdated).toBeDefined();
-      expect(session.yolo).toBe(false);
-      expect(session.maxIterations).toBe(50);
-      expect(session.features).toEqual([]);
-      expect(session.currentFeatureIndex).toBe(0);
-      expect(session.completedFeatures).toEqual([]);
+      expect(session.tasks).toEqual([]);
+      expect(session.currentTaskIndex).toBe(0);
+      expect(session.completedTaskIds).toEqual([]);
       expect(session.iteration).toBe(1);
       expect(session.status).toBe("running");
       expect(session.prUrl).toBeUndefined();
@@ -203,22 +79,18 @@ describe("RalphSession", () => {
     test("creates session with custom values", () => {
       const session = createRalphSession({
         sessionId: "custom-id",
-        yolo: true,
-        maxIterations: 100,
-        sourceFeatureListPath: "research/feature-list.json",
+        sourceFeatureListPath: "research/tasks.json",
         prBranch: "feature/my-feature",
       });
 
       expect(session.sessionId).toBe("custom-id");
       expect(session.sessionDir).toBe(".ralph/sessions/custom-id/");
-      expect(session.yolo).toBe(true);
-      expect(session.maxIterations).toBe(100);
-      expect(session.sourceFeatureListPath).toBe("research/feature-list.json");
+      expect(session.sourceFeatureListPath).toBe("research/tasks.json");
       expect(session.prBranch).toBe("feature/my-feature");
     });
 
     test("creates session with features", () => {
-      const features: RalphFeature[] = [
+      const features: TodoItem[] = [
         {
           id: "feat-001",
           name: "Feature 1",
@@ -235,13 +107,13 @@ describe("RalphSession", () => {
 
       const session = createRalphSession({
         features,
-        currentFeatureIndex: 1,
-        completedFeatures: ["feat-001"],
+        currentTaskIndex: 1,
+        completedTaskIds: ["feat-001"],
       });
 
-      expect(session.features).toEqual(features);
-      expect(session.currentFeatureIndex).toBe(1);
-      expect(session.completedFeatures).toEqual(["feat-001"]);
+      expect(session.tasks).toEqual(features);
+      expect(session.currentTaskIndex).toBe(1);
+      expect(session.completedTaskIds).toEqual(["feat-001"]);
     });
 
     test("creates session with specific timestamps", () => {
@@ -280,12 +152,10 @@ describe("RalphSession", () => {
         sessionDir: ".ralph/sessions/abc123/",
         createdAt: "2026-02-02T10:00:00.000Z",
         lastUpdated: "2026-02-02T10:30:00.000Z",
-        yolo: false,
-        maxIterations: 50,
-        sourceFeatureListPath: "research/feature-list.json",
-        features: [],
-        currentFeatureIndex: 0,
-        completedFeatures: [],
+        sourceFeatureListPath: "research/tasks.json",
+        tasks: [],
+        currentTaskIndex: 0,
+        completedTaskIds: [],
         iteration: 1,
         status: "running",
         prUrl: "https://github.com/user/repo/pull/123",
@@ -335,10 +205,10 @@ describe("RalphSession", () => {
       expect(isRalphSession(session)).toBe(false);
     });
 
-    test("returns false for non-array completedFeatures", () => {
+    test("returns false for non-array completedTaskIds", () => {
       const session = {
         ...createRalphSession(),
-        completedFeatures: "not an array",
+        completedTaskIds: "not an array",
       };
       expect(isRalphSession(session)).toBe(false);
     });
@@ -349,26 +219,16 @@ describe("Integration", () => {
   test("complete workflow simulation", () => {
     // Create a new session
     const session = createRalphSession({
-      sourceFeatureListPath: "research/feature-list.json",
-      maxIterations: 10,
+      sourceFeatureListPath: "research/tasks.json",
     });
 
     expect(session.status).toBe("running");
     expect(session.iteration).toBe(1);
 
     // Add features
-    const features: RalphFeature[] = [
-      createRalphFeature({
-        id: "feat-001",
-        name: "Add login",
-        description: "Implement user login",
-        acceptanceCriteria: ["Users can login", "Invalid credentials show error"],
-      }),
-      createRalphFeature({
-        id: "feat-002",
-        name: "Add logout",
-        description: "Implement user logout",
-      }),
+    const features: TodoItem[] = [
+      { id: "feat-001", content: "Add login", status: "pending" as const, activeForm: "Add login" },
+      { id: "feat-002", content: "Add logout", status: "pending" as const, activeForm: "Add logout" },
     ];
 
     // Update session with features
@@ -378,46 +238,45 @@ describe("Integration", () => {
       lastUpdated: new Date().toISOString(),
     };
 
-    expect(updatedSession.features.length).toBe(2);
-    expect(updatedSession.features[0]!.status).toBe("pending");
+    expect(updatedSession.tasks.length).toBe(2);
+    expect(updatedSession.tasks[0]!.status).toBe("pending");
 
     // Simulate implementing first feature
     const withProgress: RalphSession = {
       ...updatedSession,
-      features: [
-        { ...features[0]!, status: "passing", implementedAt: new Date().toISOString() },
+      tasks: [
+        { ...tasks[0]!, status: "completed", implementedAt: new Date().toISOString() },
         features[1]!,
       ],
-      currentFeatureIndex: 1,
-      completedFeatures: ["feat-001"],
+      currentTaskIndex: 1,
+      completedTaskIds: ["feat-001"],
       iteration: 5,
       lastUpdated: new Date().toISOString(),
     };
 
-    expect(withProgress.features[0]!.status).toBe("passing");
-    expect(withProgress.completedFeatures).toContain("feat-001");
+    expect(withProgress.tasks[0]!.status).toBe("passing");
+    expect(withProgress.completedTaskIds).toContain("feat-001");
 
     // Complete session
     const completedSession: RalphSession = {
       ...withProgress,
-      features: [
-        withProgress.features[0]!,
-        { ...features[1]!, status: "passing", implementedAt: new Date().toISOString() },
+      tasks: [
+        withProgress.tasks[0]!,
+        { ...tasks[1]!, status: "completed", implementedAt: new Date().toISOString() },
       ],
-      completedFeatures: ["feat-001", "feat-002"],
+      completedTaskIds: ["feat-001", "feat-002"],
       status: "completed",
       prUrl: "https://github.com/user/repo/pull/123",
       lastUpdated: new Date().toISOString(),
     };
 
     expect(completedSession.status).toBe("completed");
-    expect(completedSession.completedFeatures.length).toBe(2);
+    expect(completedSession.completedTaskIds.length).toBe(2);
     expect(completedSession.prUrl).toBeDefined();
 
     // Validate final state
     expect(isRalphSession(completedSession)).toBe(true);
-    for (const feature of completedSession.features) {
-      expect(isRalphFeature(feature)).toBe(true);
+    for (const feature of completedSession.tasks) {
     }
   });
 });
@@ -502,14 +361,8 @@ describe("File System Operations", () => {
         const originalSession = createRalphSession({
           sessionId,
           sessionDir,
-          yolo: true,
-          maxIterations: 25,
-          features: [
-            createRalphFeature({
-              id: "feat-001",
-              name: "Test feature",
-              description: "A test feature",
-            }),
+          tasks: [
+            { id: "feat-001", content: "Test feature", status: "pending" as const, activeForm: "Test feature" },
           ],
         });
 
@@ -521,10 +374,8 @@ describe("File System Operations", () => {
 
         // Verify loaded data matches (except lastUpdated which is updated on save)
         expect(loadedSession.sessionId).toBe(originalSession.sessionId);
-        expect(loadedSession.yolo).toBe(originalSession.yolo);
-        expect(loadedSession.maxIterations).toBe(originalSession.maxIterations);
-        expect(loadedSession.features.length).toBe(1);
-        expect(loadedSession.features[0]!.name).toBe("Test feature");
+        expect(loadedSession.tasks.length).toBe(1);
+        expect(loadedSession.tasks[0]!.name).toBe("Test feature");
 
         // lastUpdated should be updated
         expect(loadedSession.lastUpdated).toBeDefined();
@@ -660,12 +511,7 @@ describe("File System Operations", () => {
       const sessionDir = await createSessionDirectory(sessionId);
 
       try {
-        const feature = createRalphFeature({
-          id: "feat-001",
-          name: "Add user authentication",
-          description: "Implement JWT auth",
-          status: "passing",
-        });
+        const feature = { id: "feat-001", content: "Add user authentication", status: "completed" as const, activeForm: "Add user authentication" };
 
         await appendProgress(sessionDir, feature, true);
 
@@ -686,13 +532,7 @@ describe("File System Operations", () => {
       const sessionDir = await createSessionDirectory(sessionId);
 
       try {
-        const feature = createRalphFeature({
-          id: "feat-002",
-          name: "Add payment processing",
-          description: "Implement Stripe integration",
-          status: "failing",
-          error: "Test failed",
-        });
+        const feature = { id: "feat-002", content: "Add payment processing", status: "pending" as const, activeForm: "Add payment processing" };
 
         await appendProgress(sessionDir, feature, false);
 
@@ -713,21 +553,9 @@ describe("File System Operations", () => {
       const sessionDir = await createSessionDirectory(sessionId);
 
       try {
-        const feature1 = createRalphFeature({
-          id: "feat-001",
-          name: "First feature",
-          description: "First",
-        });
-        const feature2 = createRalphFeature({
-          id: "feat-002",
-          name: "Second feature",
-          description: "Second",
-        });
-        const feature3 = createRalphFeature({
-          id: "feat-003",
-          name: "Third feature",
-          description: "Third",
-        });
+        const feature1 = { id: "feat-001", content: "First feature", status: "pending" as const, activeForm: "First feature" };
+        const feature2 = { id: "feat-002", content: "Second feature", status: "pending" as const, activeForm: "Second feature" };
+        const feature3 = { id: "feat-003", content: "Third feature", status: "pending" as const, activeForm: "Third feature" };
 
         await appendProgress(sessionDir, feature1, true);
         await appendProgress(sessionDir, feature2, false);
@@ -754,11 +582,7 @@ describe("File System Operations", () => {
       const sessionDir = await createSessionDirectory(sessionId);
 
       try {
-        const feature = createRalphFeature({
-          id: "feat-001",
-          name: "Test feature",
-          description: "Test",
-        });
+        const feature = { id: "feat-001", content: "Test feature", status: "pending" as const, activeForm: "Test feature" };
 
         const before = new Date().toISOString();
         await appendProgress(sessionDir, feature, true);
@@ -789,11 +613,7 @@ describe("File System Operations", () => {
         // Verify file doesn't exist yet
         await expect(stat(progressPath)).rejects.toThrow();
 
-        const feature = createRalphFeature({
-          id: "feat-001",
-          name: "New feature",
-          description: "Test",
-        });
+        const feature = { id: "feat-001", content: "New feature", status: "pending" as const, activeForm: "New feature" };
 
         await appendProgress(sessionDir, feature, true);
 
@@ -989,8 +809,6 @@ describe("Session Directory Creation - Comprehensive Tests", () => {
         const session = createRalphSession({
           sessionId,
           sessionDir,
-          yolo: false,
-          maxIterations: 50,
         });
 
         await saveSession(sessionDir, session);
@@ -1004,13 +822,11 @@ describe("Session Directory Creation - Comprehensive Tests", () => {
         expect(saved.sessionDir).toBe(sessionDir);
         expect(saved.createdAt).toBeDefined();
         expect(saved.lastUpdated).toBeDefined();
-        expect(saved.yolo).toBe(false);
-        expect(saved.maxIterations).toBe(50);
-        expect(saved.features).toBeDefined();
-        expect(Array.isArray(saved.features)).toBe(true);
-        expect(saved.currentFeatureIndex).toBeDefined();
-        expect(saved.completedFeatures).toBeDefined();
-        expect(Array.isArray(saved.completedFeatures)).toBe(true);
+        expect(saved.tasks).toBeDefined();
+        expect(Array.isArray(saved.tasks)).toBe(true);
+        expect(saved.currentTaskIndex).toBeDefined();
+        expect(saved.completedTaskIds).toBeDefined();
+        expect(Array.isArray(saved.completedTaskIds)).toBe(true);
         expect(saved.iteration).toBeDefined();
         expect(saved.status).toBeDefined();
       } finally {
@@ -1065,14 +881,8 @@ describe("Session Directory Creation - Comprehensive Tests", () => {
         const originalSession = createRalphSession({
           sessionId,
           sessionDir,
-          yolo: true,
-          maxIterations: 100,
-          features: [
-            createRalphFeature({
-              id: "feat-001",
-              name: "Test Feature",
-              description: "A test feature for verification",
-            }),
+          tasks: [
+            { id: "feat-001", content: "Test Feature", status: "pending" as const, activeForm: "Test Feature" },
           ],
         });
 
@@ -1083,10 +893,8 @@ describe("Session Directory Creation - Comprehensive Tests", () => {
 
         expect(isRalphSession(loadedSession)).toBe(true);
         expect(loadedSession.sessionId).toBe(sessionId);
-        expect(loadedSession.yolo).toBe(true);
-        expect(loadedSession.maxIterations).toBe(100);
-        expect(loadedSession.features.length).toBe(1);
-        expect(loadedSession.features[0]!.name).toBe("Test Feature");
+        expect(loadedSession.tasks.length).toBe(1);
+        expect(loadedSession.tasks[0]!.name).toBe("Test Feature");
       } finally {
         await cleanupDir(sessionDir);
       }
@@ -1135,7 +943,7 @@ describe("Session Directory Creation - Comprehensive Tests", () => {
       }
     });
 
-    test("session.json currentFeatureIndex starts at 0", async () => {
+    test("session.json currentTaskIndex starts at 0", async () => {
       const sessionId = `session-json-index-${Date.now()}`;
       const sessionDir = await createSessionDirectory(sessionId);
 
@@ -1147,7 +955,7 @@ describe("Session Directory Creation - Comprehensive Tests", () => {
         const content = await readFile(sessionPath, "utf-8");
         const saved = JSON.parse(content);
 
-        expect(saved.currentFeatureIndex).toBe(0);
+        expect(saved.currentTaskIndex).toBe(0);
       } finally {
         await cleanupDir(sessionDir);
       }
@@ -1163,11 +971,7 @@ describe("Session Directory Creation - Comprehensive Tests", () => {
         const session = createRalphSession({ sessionId, sessionDir });
 
         // Use appendProgress to create a file entry (which creates the file)
-        const feature = createRalphFeature({
-          id: "f1",
-          name: "Test",
-          description: "Test",
-        });
+        const feature = { id: "f1", content: "Test", status: "pending" as const, activeForm: "Test" };
         await appendProgress(sessionDir, feature, true);
 
         const progressPath = join(sessionDir, "progress.txt");
@@ -1188,16 +992,8 @@ describe("Session Directory Creation - Comprehensive Tests", () => {
       const sessionDir = await createSessionDirectory(sessionId);
 
       try {
-        const feature1 = createRalphFeature({
-          id: "f1",
-          name: "First",
-          description: "First feature",
-        });
-        const feature2 = createRalphFeature({
-          id: "f2",
-          name: "Second",
-          description: "Second feature",
-        });
+        const feature1 = { id: "f1", content: "First", status: "pending" as const, activeForm: "First" };
+        const feature2 = { id: "f2", content: "Second", status: "pending" as const, activeForm: "Second" };
 
         await appendProgress(sessionDir, feature1, true);
         await appendProgress(sessionDir, feature2, false);
@@ -1219,16 +1015,8 @@ describe("Session Directory Creation - Comprehensive Tests", () => {
       const sessionDir = await createSessionDirectory(sessionId);
 
       try {
-        const passingFeature = createRalphFeature({
-          id: "fp",
-          name: "Passing",
-          description: "Passed",
-        });
-        const failingFeature = createRalphFeature({
-          id: "ff",
-          name: "Failing",
-          description: "Failed",
-        });
+        const passingFeature = { id: "fp", content: "Passing", status: "pending" as const, activeForm: "Passing" };
+        const failingFeature = { id: "ff", content: "Failing", status: "pending" as const, activeForm: "Failing" };
 
         await appendProgress(sessionDir, passingFeature, true);
         await appendProgress(sessionDir, failingFeature, false);
@@ -1244,148 +1032,6 @@ describe("Session Directory Creation - Comprehensive Tests", () => {
     });
   });
 
-  describe("feature-list.json copied when not yolo mode", () => {
-    test("feature-list.json is created in research/ subdirectory for non-yolo sessions", async () => {
-      const sessionId = `feature-list-copy-${Date.now()}`;
-      const sessionDir = await createSessionDirectory(sessionId);
-
-      try {
-        // Create features and save them
-        const features: RalphFeature[] = [
-          createRalphFeature({
-            id: "feat-001",
-            name: "Feature One",
-            description: "First feature description",
-          }),
-          createRalphFeature({
-            id: "feat-002",
-            name: "Feature Two",
-            description: "Second feature description",
-            status: "passing",
-          }),
-        ];
-
-        // Save feature list to research directory (simulating what initRalphSessionNode does)
-        const featureListPath = join(sessionDir, "research", "feature-list.json");
-        const featureList = {
-          features: features.map((f) => ({
-            category: "functional",
-            description: f.description,
-            steps: f.acceptanceCriteria ?? [],
-            passes: f.status === "passing",
-          })),
-        };
-        await writeFile(featureListPath, JSON.stringify(featureList, null, 2), "utf-8");
-
-        // Verify file exists
-        const fileStat = await stat(featureListPath);
-        expect(fileStat.isFile()).toBe(true);
-
-        // Verify content
-        const content = await readFile(featureListPath, "utf-8");
-        const parsed = JSON.parse(content);
-        expect(parsed.features).toHaveLength(2);
-        expect(parsed.features[0].description).toBe("First feature description");
-        expect(parsed.features[1].description).toBe("Second feature description");
-        expect(parsed.features[1].passes).toBe(true);
-      } finally {
-        await cleanupDir(sessionDir);
-      }
-    });
-
-    test("feature-list.json preserves feature data accurately", async () => {
-      const sessionId = `feature-list-data-${Date.now()}`;
-      const sessionDir = await createSessionDirectory(sessionId);
-
-      try {
-        const features: RalphFeature[] = [
-          createRalphFeature({
-            id: "feat-001",
-            name: "Complex Feature",
-            description: "A feature with acceptance criteria",
-            acceptanceCriteria: ["Step 1: Do this", "Step 2: Do that", "Step 3: Verify"],
-            status: "pending",
-          }),
-        ];
-
-        const featureListPath = join(sessionDir, "research", "feature-list.json");
-        const featureList = {
-          features: features.map((f) => ({
-            category: "functional",
-            description: f.description,
-            steps: f.acceptanceCriteria ?? [],
-            passes: f.status === "passing",
-          })),
-        };
-        await writeFile(featureListPath, JSON.stringify(featureList, null, 2), "utf-8");
-
-        const content = await readFile(featureListPath, "utf-8");
-        const parsed = JSON.parse(content);
-
-        expect(parsed.features[0].steps).toEqual([
-          "Step 1: Do this",
-          "Step 2: Do that",
-          "Step 3: Verify",
-        ]);
-        expect(parsed.features[0].passes).toBe(false);
-      } finally {
-        await cleanupDir(sessionDir);
-      }
-    });
-
-    test("feature-list.json is not created in yolo mode", async () => {
-      const sessionId = `feature-list-yolo-${Date.now()}`;
-      const sessionDir = await createSessionDirectory(sessionId);
-
-      try {
-        // In yolo mode, we don't save feature-list.json
-        const featureListPath = join(sessionDir, "research", "feature-list.json");
-
-        // Verify file does NOT exist (simulating yolo mode behavior)
-        await expect(stat(featureListPath)).rejects.toThrow();
-      } finally {
-        await cleanupDir(sessionDir);
-      }
-    });
-
-    test("feature-list.json is valid JSON format", async () => {
-      const sessionId = `feature-list-format-${Date.now()}`;
-      const sessionDir = await createSessionDirectory(sessionId);
-
-      try {
-        const features: RalphFeature[] = [
-          createRalphFeature({
-            id: "feat-001",
-            name: "Test",
-            description: "Test description",
-          }),
-        ];
-
-        const featureListPath = join(sessionDir, "research", "feature-list.json");
-        const featureList = {
-          features: features.map((f) => ({
-            category: "functional",
-            description: f.description,
-            steps: f.acceptanceCriteria ?? [],
-            passes: f.status === "passing",
-          })),
-        };
-        await writeFile(featureListPath, JSON.stringify(featureList, null, 2), "utf-8");
-
-        const content = await readFile(featureListPath, "utf-8");
-
-        // Should parse without errors
-        expect(() => JSON.parse(content)).not.toThrow();
-
-        // Should have proper structure
-        const parsed = JSON.parse(content);
-        expect(parsed).toHaveProperty("features");
-        expect(Array.isArray(parsed.features)).toBe(true);
-      } finally {
-        await cleanupDir(sessionDir);
-      }
-    });
-  });
 });
 
 // ============================================================================
@@ -1422,20 +1068,12 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
         sessionDir: ".ralph/sessions/test-all-fields/",
         createdAt: "2026-02-03T10:00:00.000Z",
         lastUpdated: "2026-02-03T10:30:00.000Z",
-        yolo: false,
-        maxIterations: 75,
-        sourceFeatureListPath: "research/feature-list.json",
-        features: [
-          createRalphFeature({
-            id: "feat-001",
-            name: "Test Feature",
-            description: "A complete test feature",
-            acceptanceCriteria: ["Step 1", "Step 2"],
-            status: "pending",
-          }),
+        sourceFeatureListPath: "research/tasks.json",
+        tasks: [
+          { id: "feat-001", content: "Test Feature", status: "pending" as const, activeForm: "Test Feature" },
         ],
-        currentFeatureIndex: 0,
-        completedFeatures: [],
+        currentTaskIndex: 0,
+        completedTaskIds: [],
         iteration: 1,
         status: "running",
         prUrl: undefined,
@@ -1446,12 +1084,10 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
       expect(session.sessionDir).toBe(".ralph/sessions/test-all-fields/");
       expect(session.createdAt).toBe("2026-02-03T10:00:00.000Z");
       expect(session.lastUpdated).toBe("2026-02-03T10:30:00.000Z");
-      expect(session.yolo).toBe(false);
-      expect(session.maxIterations).toBe(75);
-      expect(session.sourceFeatureListPath).toBe("research/feature-list.json");
-      expect(session.features.length).toBe(1);
-      expect(session.currentFeatureIndex).toBe(0);
-      expect(session.completedFeatures).toEqual([]);
+      expect(session.sourceFeatureListPath).toBe("research/tasks.json");
+      expect(session.tasks.length).toBe(1);
+      expect(session.currentTaskIndex).toBe(0);
+      expect(session.completedTaskIds).toEqual([]);
       expect(session.iteration).toBe(1);
       expect(session.status).toBe("running");
       expect(session.prUrl).toBeUndefined();
@@ -1461,8 +1097,6 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
     test("creates session with all optional fields populated", () => {
       const session = createRalphSession({
         sessionId: "test-optional-fields",
-        yolo: true,
-        maxIterations: 0,
         prUrl: "https://github.com/user/repo/pull/123",
         prBranch: "feature/optional-test",
         debugReports: [{
@@ -1480,48 +1114,26 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
     });
 
     test("creates session with multiple features at different statuses", () => {
-      const features: RalphFeature[] = [
-        createRalphFeature({
-          id: "feat-001",
-          name: "Completed Feature",
-          description: "Already done",
-          status: "passing",
-          implementedAt: "2026-02-01T10:00:00.000Z",
-        }),
-        createRalphFeature({
-          id: "feat-002",
-          name: "In Progress Feature",
-          description: "Being worked on",
-          status: "in_progress",
-        }),
-        createRalphFeature({
-          id: "feat-003",
-          name: "Pending Feature",
-          description: "Not started",
-          status: "pending",
-        }),
-        createRalphFeature({
-          id: "feat-004",
-          name: "Failed Feature",
-          description: "Has errors",
-          status: "failing",
-          error: "Test suite failed",
-        }),
+      const features: TodoItem[] = [
+        { id: "feat-001", content: "Completed Feature", status: "completed" as const, activeForm: "Completed Feature" },
+        { id: "feat-002", content: "In Progress Feature", status: "in_progress" as const, activeForm: "In Progress Feature" },
+        { id: "feat-003", content: "Pending Feature", status: "pending" as const, activeForm: "Pending Feature" },
+        { id: "feat-004", content: "Failed Feature", status: "pending" as const, activeForm: "Failed Feature" },
       ];
 
       const session = createRalphSession({
         features,
-        currentFeatureIndex: 1,
-        completedFeatures: ["feat-001"],
+        currentTaskIndex: 1,
+        completedTaskIds: ["feat-001"],
         iteration: 10,
       });
 
-      expect(session.features.length).toBe(4);
-      expect(session.features[0]!.status).toBe("passing");
-      expect(session.features[1]!.status).toBe("in_progress");
-      expect(session.features[2]!.status).toBe("pending");
-      expect(session.features[3]!.status).toBe("failing");
-      expect(session.features[3]!.error).toBe("Test suite failed");
+      expect(session.tasks.length).toBe(4);
+      expect(session.tasks[0]!.status).toBe("passing");
+      expect(session.tasks[1]!.status).toBe("in_progress");
+      expect(session.tasks[2]!.status).toBe("pending");
+      expect(session.tasks[3]!.status).toBe("failing");
+      expect(session.tasks[3]!.error).toBe("Test suite failed");
     });
 
     test("creates session in all valid status states", () => {
@@ -1599,21 +1211,12 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
         const originalSession = createRalphSession({
           sessionId,
           sessionDir,
-          yolo: true,
-          maxIterations: 200,
           sourceFeatureListPath: "path/to/features.json",
-          features: [
-            createRalphFeature({
-              id: "f1",
-              name: "Feature 1",
-              description: "Desc 1",
-              acceptanceCriteria: ["Criterion A", "Criterion B"],
-              status: "passing",
-              implementedAt: "2026-02-03T10:00:00.000Z",
-            }),
+          tasks: [
+            { id: "f1", content: "Feature 1", status: "completed" as const, activeForm: "Feature 1" },
           ],
-          currentFeatureIndex: 0,
-          completedFeatures: ["f1"],
+          currentTaskIndex: 0,
+          completedTaskIds: ["f1"],
           iteration: 42,
           status: "completed",
           prUrl: "https://github.com/test/repo/pull/1",
@@ -1635,13 +1238,11 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
         // Verify all fields
         expect(saved.sessionId).toBe(sessionId);
         expect(saved.sessionDir).toBe(sessionDir);
-        expect(saved.yolo).toBe(true);
-        expect(saved.maxIterations).toBe(200);
         expect(saved.sourceFeatureListPath).toBe("path/to/features.json");
-        expect(saved.features.length).toBe(1);
-        expect(saved.features[0].acceptanceCriteria).toEqual(["Criterion A", "Criterion B"]);
-        expect(saved.currentFeatureIndex).toBe(0);
-        expect(saved.completedFeatures).toEqual(["f1"]);
+        expect(saved.tasks.length).toBe(1);
+        expect(saved.tasks[0].acceptanceCriteria).toEqual(["Criterion A", "Criterion B"]);
+        expect(saved.currentTaskIndex).toBe(0);
+        expect(saved.completedTaskIds).toEqual(["f1"]);
         expect(saved.iteration).toBe(42);
         expect(saved.status).toBe("completed");
         expect(saved.prUrl).toBe("https://github.com/test/repo/pull/1");
@@ -1679,13 +1280,8 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
         const session = createRalphSession({
           sessionId,
           sessionDir,
-          features: [
-            createRalphFeature({
-              id: "special-1",
-              name: 'Feature with "quotes" and \\ backslash',
-              description: "Unicode: ✓ ✗ 日本語",
-              status: "pending",
-            }),
+          tasks: [
+            { id: "special-1", content: "Unknown task", status: "pending" as const, activeForm: "Unknown task" },
           ],
         });
 
@@ -1695,8 +1291,8 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
         const content = await readFile(sessionPath, "utf-8");
         const saved = JSON.parse(content);
 
-        expect(saved.features[0].name).toBe('Feature with "quotes" and \\ backslash');
-        expect(saved.features[0].description).toBe("Unicode: ✓ ✗ 日本語");
+        expect(saved.tasks[0].name).toBe('Feature with "quotes" and \\ backslash');
+        expect(saved.tasks[0].description).toBe("Unicode: ✓ ✗ 日本語");
       } finally {
         await cleanupDir(sessionDir);
       }
@@ -1747,16 +1343,12 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
         const originalSession = createRalphSession({
           sessionId,
           sessionDir,
-          yolo: false,
-          maxIterations: 50,
         });
         await saveSession(sessionDir, originalSession);
 
         const loadedSession = await loadSession(sessionDir);
 
         expect(loadedSession.sessionId).toBe(sessionId);
-        expect(loadedSession.yolo).toBe(false);
-        expect(loadedSession.maxIterations).toBe(50);
         expect(isRalphSession(loadedSession)).toBe(true);
       } finally {
         await cleanupDir(sessionDir);
@@ -1776,15 +1368,11 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
         // Verify TypeScript type conformance through actual type-checked operations
         const id: string = loadedSession.sessionId;
         const dir: string = loadedSession.sessionDir;
-        const yolo: boolean = loadedSession.yolo;
-        const max: number = loadedSession.maxIterations;
-        const features: RalphFeature[] = loadedSession.features;
+        const features: TodoItem[] = loadedSession.tasks;
         const status: "running" | "paused" | "completed" | "failed" = loadedSession.status;
 
         expect(id).toBe(sessionId);
         expect(dir).toBe(sessionDir);
-        expect(typeof yolo).toBe("boolean");
-        expect(typeof max).toBe("number");
         expect(Array.isArray(features)).toBe(true);
         expect(["running", "paused", "completed", "failed"]).toContain(status);
       } finally {
@@ -1797,24 +1385,17 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
       const sessionDir = await createSessionDirectory(sessionId);
 
       try {
-        const originalFeature = createRalphFeature({
-          id: "feat-complete",
-          name: "Complete Feature",
-          description: "A fully-defined feature",
-          acceptanceCriteria: ["Criterion 1", "Criterion 2", "Criterion 3"],
-          status: "passing",
-          implementedAt: "2026-02-03T15:30:00.000Z",
-        });
+        const originalFeature = { id: "feat-complete", content: "Complete Feature", status: "completed" as const, activeForm: "Complete Feature" };
 
         const originalSession = createRalphSession({
           sessionId,
           sessionDir,
-          features: [originalFeature],
+          tasks: [originalFeature],
         });
         await saveSession(sessionDir, originalSession);
 
         const loadedSession = await loadSession(sessionDir);
-        const loadedFeature = loadedSession.features[0]!;
+        const loadedFeature = loadedSession.tasks[0]!;
 
         expect(loadedFeature.id).toBe("feat-complete");
         expect(loadedFeature.name).toBe("Complete Feature");
@@ -1875,11 +1456,9 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
           sessionDir,
           createdAt: "2026-02-03T10:00:00.000Z",
           lastUpdated: "2026-02-03T10:00:00.000Z",
-          yolo: false,
-          maxIterations: 50,
-          features: [],
-          currentFeatureIndex: 0,
-          completedFeatures: [],
+          tasks: [],
+          currentTaskIndex: 0,
+          completedTaskIds: [],
           iteration: 1,
           status: "invalid_status", // Invalid status
         };
@@ -1901,15 +1480,13 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
           sessionDir,
           createdAt: "2026-02-01T08:00:00.000Z",
           lastUpdated: "2026-02-03T16:45:00.000Z",
-          yolo: false,
-          maxIterations: 100,
           sourceFeatureListPath: "custom/path/features.json",
-          features: [
+          tasks: [
             {
               id: "f1",
               name: "First",
               description: "First feature",
-              status: "passing",
+              status: "completed",
               implementedAt: "2026-02-02T10:00:00.000Z",
             },
             {
@@ -1920,8 +1497,8 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
               status: "in_progress",
             },
           ],
-          currentFeatureIndex: 1,
-          completedFeatures: ["f1"],
+          currentTaskIndex: 1,
+          completedTaskIds: ["f1"],
           iteration: 25,
           status: "running",
           prBranch: "feature/roundtrip-test",
@@ -1942,12 +1519,10 @@ describe("Session State Serialization/Deserialization - Comprehensive Tests", ()
         expect(loadedSession.sessionId).toBe(originalSession.sessionId);
         expect(loadedSession.sessionDir).toBe(originalSession.sessionDir);
         expect(loadedSession.createdAt).toBe(originalSession.createdAt);
-        expect(loadedSession.yolo).toBe(originalSession.yolo);
-        expect(loadedSession.maxIterations).toBe(originalSession.maxIterations);
         expect(loadedSession.sourceFeatureListPath).toBe(originalSession.sourceFeatureListPath);
-        expect(loadedSession.features.length).toBe(originalSession.features.length);
-        expect(loadedSession.currentFeatureIndex).toBe(originalSession.currentFeatureIndex);
-        expect(loadedSession.completedFeatures).toEqual(originalSession.completedFeatures);
+        expect(loadedSession.tasks.length).toBe(originalSession.tasks.length);
+        expect(loadedSession.currentTaskIndex).toBe(originalSession.currentTaskIndex);
+        expect(loadedSession.completedTaskIds).toEqual(originalSession.completedTaskIds);
         expect(loadedSession.iteration).toBe(originalSession.iteration);
         expect(loadedSession.status).toBe(originalSession.status);
         expect(loadedSession.prBranch).toBe(originalSession.prBranch);

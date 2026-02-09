@@ -56,10 +56,7 @@ describe("Migration Notes Documentation", () => {
     });
 
     test("documents /ralph flags", () => {
-      expect(content).toContain("--yolo");
       expect(content).toContain("--resume");
-      expect(content).toContain("--feature-list");
-      expect(content).toContain("--max-iterations");
     });
   });
 
@@ -121,12 +118,11 @@ describe("Migration Notes Documentation", () => {
     test("lists recommended process steps", () => {
       expect(content).toContain("/research-codebase");
       expect(content).toContain("/create-spec");
-      expect(content).toContain("/create-feature-list");
     });
 
     test("mentions spec file locations", () => {
       expect(content).toContain("research/spec.md");
-      expect(content).toContain("research/feature-list.json");
+      expect(content).toContain("research/tasks.json");
     });
   });
 

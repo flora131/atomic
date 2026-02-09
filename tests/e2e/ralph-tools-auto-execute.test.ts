@@ -39,9 +39,8 @@ import {
   saveSession,
   loadSession,
   createRalphSession,
-  createRalphFeature,
-  type RalphSession,
-  type RalphFeature,
+    type RalphSession,
+  type TodoItem,
 } from "../../src/workflows/index.ts";
 import { createRalphWorkflow } from "../../src/workflows/index.ts";
 import {
@@ -300,7 +299,7 @@ function createMockToolClient(
  */
 function createTestFeatureListContent(): string {
   const features = {
-    features: [
+    tasks: [
       {
         category: "functional",
         description: "Test feature using Bash commands",
@@ -348,14 +347,14 @@ describe("E2E test: All tools auto-execute without prompts", () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
       await fs.writeFile(
-        path.join(researchDir, "feature-list.json"),
+        path.join(researchDir, "tasks.json"),
         createTestFeatureListContent()
       );
     });
 
     test("workflow can be created for tool execution testing", () => {
       const workflow = createRalphWorkflow({
-        featureListPath: "research/feature-list.json",
+        tasksPath: "research/tasks.json",
         checkpointing: false,
       });
 
@@ -365,13 +364,10 @@ describe("E2E test: All tools auto-execute without prompts", () => {
 
     test("workflow state can be created with bypass permission mode", () => {
       const state = createRalphWorkflowState({
-        yolo: true,
         userPrompt: "Test tools execution",
-        maxIterations: 5,
       });
 
       expect(state).toBeDefined();
-      expect(state.yolo).toBe(true);
       expect(state.userPrompt).toBe("Test tools execution");
     });
 
@@ -849,7 +845,7 @@ describe("E2E test: All tools auto-execute without prompts", () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
       await fs.writeFile(
-        path.join(researchDir, "feature-list.json"),
+        path.join(researchDir, "tasks.json"),
         createTestFeatureListContent()
       );
     });

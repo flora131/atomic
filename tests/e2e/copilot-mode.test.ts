@@ -39,10 +39,8 @@ import {
   saveSession,
   loadSession,
   createRalphSession,
-  createRalphFeature,
   createRalphWorkflow,
   type RalphSession,
-  type RalphFeature,
 } from "../../src/workflows/index.ts";
 import {
   createRalphWorkflowState,
@@ -370,9 +368,9 @@ function createMockContextWithCopilot(
 /**
  * Create test feature list content.
  */
-function createTestFeatureListContent(): string {
+function createTestTaskListContent(): string {
   const features = {
-    features: [
+    tasks: [
       {
         category: "functional",
         description: "Test feature 1: Copilot mode feature implementation",
@@ -387,7 +385,7 @@ function createTestFeatureListContent(): string {
       },
     ],
   };
-  return JSON.stringify(features, null, 2);
+  return JSON.stringify(taskList, null, 2);
 }
 
 // ============================================================================
@@ -492,14 +490,13 @@ describe("E2E test: Run all functionality in copilot mode", () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
       await fs.writeFile(
-        path.join(researchDir, "feature-list.json"),
-        createTestFeatureListContent()
+        path.join(researchDir, "tasks.json"),
+        createTestTaskListContent()
       );
     });
 
     test("workflow can be created in copilot mode", () => {
       const workflow = createRalphWorkflow({
-        featureListPath: "research/feature-list.json",
         checkpointing: false,
       });
 
@@ -509,19 +506,11 @@ describe("E2E test: Run all functionality in copilot mode", () => {
 
     test("workflow state can be created for copilot client", () => {
       const state = createRalphWorkflowState({
-        yolo: false,
         userPrompt: "Test in Copilot mode",
-        maxIterations: 10,
       });
 
       expect(state).toBeDefined();
       expect(state.userPrompt).toBe("Test in Copilot mode");
-    });
-
-    test("parseRalphArgs works correctly for copilot mode", () => {
-      const args = parseRalphArgs("--max-iterations 20 implement features");
-      expect(args.maxIterations).toBe(20);
-      expect(args.prompt).toBe("implement features");
     });
 
     test("workflow session can be created with Copilot client", async () => {
@@ -567,12 +556,8 @@ describe("E2E test: Run all functionality in copilot mode", () => {
         sessionId,
         sessionDir,
         status: "running",
-        features: [
-          createRalphFeature({
-            id: "feat-1",
-            name: "Copilot test feature",
-            description: "Testing in Copilot mode",
-          }),
+        tasks: [
+          { id: "feat-1", content: "Copilot test feature", status: "pending" as const, activeForm: "Copilot test feature" },
         ],
       });
 
@@ -580,18 +565,8 @@ describe("E2E test: Run all functionality in copilot mode", () => {
       const loaded = await loadSession(sessionDir);
 
       expect(loaded.sessionId).toBe(sessionId);
-      expect(loaded.features[0]?.name).toBe("Copilot test feature");
+      expect(loaded.tasks[0]?.name).toBe("Copilot test feature");
     });
-
-    test("yolo mode works in copilot configuration", async () => {
-      const client = createMockCopilotClientWithTracking(true);
-      await client.start();
-
-      const workflow = createRalphWorkflow({
-        yolo: true,
-        userPrompt: "Build snake game in Rust",
-        checkpointing: false,
-      });
 
       expect(workflow).toBeDefined();
 
@@ -960,8 +935,8 @@ describe("E2E test: Run all functionality in copilot mode", () => {
       const researchDir = path.join(tmpDir, "research");
       await fs.mkdir(researchDir, { recursive: true });
       await fs.writeFile(
-        path.join(researchDir, "feature-list.json"),
-        createTestFeatureListContent()
+        path.join(researchDir, "tasks.json"),
+        createTestTaskListContent()
       );
     });
 
@@ -1062,12 +1037,8 @@ describe("E2E test: Run all functionality in copilot mode", () => {
         sessionId,
         sessionDir,
         status: "running",
-        features: [
-          createRalphFeature({
-            id: "feat-copilot",
-            name: "Copilot integration test",
-            description: "Testing Ralph with Copilot",
-          }),
+        tasks: [
+          { id: "feat-copilot", content: "Copilot integration test", status: "pending" as const, activeForm: "Copilot integration test" },
         ],
       });
 
@@ -1241,4 +1212,4 @@ describe("E2E test: Run all functionality in copilot mode", () => {
       });
     }
   );
-});
+

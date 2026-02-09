@@ -25,11 +25,10 @@ import {
   loadSession,
   loadSessionIfExists,
   createRalphSession,
-  createRalphFeature,
-  appendLog,
+    appendLog,
   appendProgress,
   type RalphSession,
-  type RalphFeature,
+  type TodoItem,
 } from "../../src/workflows/index.ts";
 import { createRalphWorkflow } from "../../src/workflows/index.ts";
 import { isValidUUID } from "../../src/ui/commands/workflow-commands.ts";
@@ -82,10 +81,8 @@ function terminalLog(terminal: TerminalSimulator, message: string): void {
 async function startRalphSession(
   terminal: TerminalSimulator,
   options: {
-    features?: RalphFeature[];
-    yolo?: boolean;
-    maxIterations?: number;
-    featureListPath?: string;
+    features?: TodoItem[];
+    tasksPath?: string;
   } = {}
 ): Promise<void> {
   try {
@@ -106,10 +103,8 @@ async function startRalphSession(
     const session = createRalphSession({
       sessionId,
       sessionDir,
-      yolo: options.yolo ?? false,
-      maxIterations: options.maxIterations ?? 50,
-      features: options.features ?? [],
-      sourceFeatureListPath: options.featureListPath,
+      features: options.tasks ?? [],
+      sourceFeatureListPath: options.tasksPath,
     });
 
     terminal.session = session;
@@ -118,18 +113,18 @@ async function startRalphSession(
     await saveSession(sessionDir, session);
     terminalLog(terminal, "Session saved to disk");
 
-    // Create feature-list.json in research directory if not yolo mode
-    if (!options.yolo && options.features && options.features.length > 0) {
-      const featureListPath = path.join(sessionDir, "research", "feature-list.json");
+    // Create tasks.json in research directory if not prompt mode
+    if (options.tasks && options.tasks.length > 0) {
+      const tasksPath = path.join(sessionDir, "research", "tasks.json");
       const featureList = {
-        features: options.features.map((f) => ({
+        features: options.tasks.map((f) => ({
           category: "functional",
           description: f.description,
           steps: f.acceptanceCriteria ?? [],
           passes: f.status === "passing",
         })),
       };
-      await fs.writeFile(featureListPath, JSON.stringify(featureList, null, 2), "utf-8");
+      await fs.writeFile(tasksPath, JSON.stringify(featureList, null, 2), "utf-8");
       terminalLog(terminal, "Feature list copied to session directory");
     }
 
@@ -163,7 +158,7 @@ async function workOnFeature(
 
   // Reload session from disk to get latest state (prevents stale data overwrites)
   let session = await loadSession(sessionDir);
-  const feature = session.features[featureIndex];
+  const feature = session.tasks[featureIndex];
 
   if (!feature) {
     throw new Error(`Feature at index ${featureIndex} not found`);
@@ -180,7 +175,7 @@ async function workOnFeature(
 
   // Reload session again to get any changes made during "work" (simulates real behavior)
   session = await loadSession(sessionDir);
-  const updatedFeature = session.features[featureIndex];
+  const updatedFeature = session.tasks[featureIndex];
 
   if (!updatedFeature) {
     throw new Error(`Feature at index ${featureIndex} not found`);
@@ -192,8 +187,8 @@ async function workOnFeature(
   updatedFeature.error = passed ? undefined : "Test failure";
 
   // Update completed features (only if not already present)
-  if (passed && !session.completedFeatures.includes(updatedFeature.id)) {
-    session.completedFeatures.push(updatedFeature.id);
+  if (passed && !session.completedTaskIds.includes(updatedFeature.id)) {
+    session.completedTaskIds.push(updatedFeature.id);
   }
 
   // Increment iteration
@@ -240,22 +235,22 @@ async function completeRalphSession(terminal: TerminalSimulator): Promise<void> 
 /**
  * Create test features for a specific terminal.
  */
-function createTerminalFeatures(terminalId: string): RalphFeature[] {
+function createTerminalFeatures(terminalId: string): TodoItem[] {
   return [
-    createRalphFeature({
+    createTodoItem({
       id: `${terminalId}-feat-001`,
       name: `${terminalId} Feature 1`,
       description: `First feature for ${terminalId}`,
       acceptanceCriteria: ["Criterion 1", "Criterion 2"],
       status: "pending",
     }),
-    createRalphFeature({
+    createTodoItem({
       id: `${terminalId}-feat-002`,
       name: `${terminalId} Feature 2`,
       description: `Second feature for ${terminalId}`,
       status: "pending",
     }),
-    createRalphFeature({
+    createTodoItem({
       id: `${terminalId}-feat-003`,
       name: `${terminalId} Feature 3`,
       description: `Third feature for ${terminalId}`,
@@ -409,12 +404,12 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       // Verify session 1 data
       const loaded1 = await loadSession(terminal1.session!.sessionDir);
       expect(loaded1.sessionId).toBe(terminal1.sessionId!);
-      expect(loaded1.features.length).toBe(3);
+      expect(loaded1.tasks.length).toBe(3);
 
       // Verify session 2 data
       const loaded2 = await loadSession(terminal2.session!.sessionDir);
       expect(loaded2.sessionId).toBe(terminal2.sessionId!);
-      expect(loaded2.features.length).toBe(3);
+      expect(loaded2.tasks.length).toBe(3);
     });
   });
 
@@ -446,8 +441,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const loaded1 = await loadSession(terminal1.session!.sessionDir);
       const loaded2 = await loadSession(terminal2.session!.sessionDir);
 
-      expect(loaded1.features[0]?.status).toBe("passing");
-      expect(loaded2.features[0]?.status).toBe("passing");
+      expect(loaded1.tasks[0]?.status).toBe("passing");
+      expect(loaded2.tasks[0]?.status).toBe("passing");
     });
 
     test("terminals work on different feature sets", async () => {
@@ -463,8 +458,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       ]);
 
       // Verify feature names are different
-      expect(terminal1.session!.features[0]?.name).toContain("terminal-1");
-      expect(terminal2.session!.features[0]?.name).toContain("terminal-2");
+      expect(terminal1.session!.tasks[0]?.name).toContain("terminal-1");
+      expect(terminal2.session!.tasks[0]?.name).toContain("terminal-2");
     });
 
     test("concurrent feature work across different sessions does not corrupt data", async () => {
@@ -501,14 +496,14 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const loaded2 = await loadSession(terminal2.session!.sessionDir);
 
       // Terminal 1: features 0, 2 passed
-      expect(loaded1.features[0]?.status).toBe("passing");
-      expect(loaded1.features[1]?.status).toBe("failing");
-      expect(loaded1.features[2]?.status).toBe("passing");
+      expect(loaded1.tasks[0]?.status).toBe("passing");
+      expect(loaded1.tasks[1]?.status).toBe("failing");
+      expect(loaded1.tasks[2]?.status).toBe("passing");
 
       // Terminal 2: feature 1 passed
-      expect(loaded2.features[0]?.status).toBe("failing");
-      expect(loaded2.features[1]?.status).toBe("passing");
-      expect(loaded2.features[2]?.status).toBe("failing");
+      expect(loaded2.tasks[0]?.status).toBe("failing");
+      expect(loaded2.tasks[1]?.status).toBe("passing");
+      expect(loaded2.tasks[2]?.status).toBe("failing");
     });
 
     test("iteration counts are independent", async () => {
@@ -629,7 +624,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       expect(log2Entry.terminalId).toBe("terminal-2");
     });
 
-    test("feature-list.json files are independent", async () => {
+    test("tasks.json files are independent", async () => {
       const terminal1 = createTerminalSimulator("terminal-1");
       const terminal2 = createTerminalSimulator("terminal-2");
 
@@ -643,19 +638,19 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
 
       // Read feature list files
       const featureList1Content = await fs.readFile(
-        path.join(terminal1.session!.sessionDir, "research", "feature-list.json"),
+        path.join(terminal1.session!.sessionDir, "research", "tasks.json"),
         "utf-8"
       );
       const featureList2Content = await fs.readFile(
-        path.join(terminal2.session!.sessionDir, "research", "feature-list.json"),
+        path.join(terminal2.session!.sessionDir, "research", "tasks.json"),
         "utf-8"
       );
 
       const featureList1 = JSON.parse(featureList1Content);
       const featureList2 = JSON.parse(featureList2Content);
 
-      expect(featureList1.features[0].description).toContain("terminal-1");
-      expect(featureList2.features[0].description).toContain("terminal-2");
+      expect(featureList1.tasks[0].description).toContain("terminal-1");
+      expect(featureList2.tasks[0].description).toContain("terminal-2");
     });
 
     test("concurrent file writes don't cause conflicts", async () => {
@@ -759,18 +754,18 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       // Session 1 validation
       expect(loaded1.sessionId).toBe(terminal1.sessionId!);
       expect(loaded1.status).toBe("running");
-      expect(loaded1.features).toHaveLength(3);
-      expect(loaded1.completedFeatures).toHaveLength(2);
-      expect(loaded1.completedFeatures).toContain("terminal-1-feat-001");
-      expect(loaded1.completedFeatures).toContain("terminal-1-feat-002");
+      expect(loaded1.tasks).toHaveLength(3);
+      expect(loaded1.completedTaskIds).toHaveLength(2);
+      expect(loaded1.completedTaskIds).toContain("terminal-1-feat-001");
+      expect(loaded1.completedTaskIds).toContain("terminal-1-feat-002");
 
       // Session 2 validation
       expect(loaded2.sessionId).toBe(terminal2.sessionId!);
       expect(loaded2.status).toBe("running");
-      expect(loaded2.features).toHaveLength(3);
-      expect(loaded2.completedFeatures).toHaveLength(2);
-      expect(loaded2.completedFeatures).toContain("terminal-2-feat-002");
-      expect(loaded2.completedFeatures).toContain("terminal-2-feat-003");
+      expect(loaded2.tasks).toHaveLength(3);
+      expect(loaded2.completedTaskIds).toHaveLength(2);
+      expect(loaded2.completedTaskIds).toContain("terminal-2-feat-002");
+      expect(loaded2.completedTaskIds).toContain("terminal-2-feat-003");
     });
 
     test("feature status is correctly tracked per session", async () => {
@@ -807,14 +802,14 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const loaded2 = await loadSession(terminal2.session!.sessionDir);
 
       // All terminal 1 features should be passing
-      for (const feature of loaded1.features) {
+      for (const feature of loaded1.tasks) {
         expect(feature.status).toBe("passing");
         expect(feature.implementedAt).toBeDefined();
         expect(feature.error).toBeUndefined();
       }
 
       // All terminal 2 features should be failing
-      for (const feature of loaded2.features) {
+      for (const feature of loaded2.tasks) {
         expect(feature.status).toBe("failing");
         expect(feature.implementedAt).toBeUndefined();
         expect(feature.error).toBe("Test failure");
@@ -992,14 +987,14 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
 
       // Verify session 1 preserved data
       const loaded1 = await loadSession(terminal1.session!.sessionDir);
-      expect(loaded1.completedFeatures).toHaveLength(3);
-      expect(loaded1.features.filter((f) => f.status === "passing")).toHaveLength(3);
+      expect(loaded1.completedTaskIds).toHaveLength(3);
+      expect(loaded1.tasks.filter((f) => f.status === "passing")).toHaveLength(3);
 
       // Verify session 2 preserved data
       const loaded2 = await loadSession(terminal2.session!.sessionDir);
-      expect(loaded2.completedFeatures).toHaveLength(1);
-      expect(loaded2.features.filter((f) => f.status === "passing")).toHaveLength(1);
-      expect(loaded2.features.filter((f) => f.status === "failing")).toHaveLength(2);
+      expect(loaded2.completedTaskIds).toHaveLength(1);
+      expect(loaded2.tasks.filter((f) => f.status === "passing")).toHaveLength(1);
+      expect(loaded2.tasks.filter((f) => f.status === "failing")).toHaveLength(2);
     });
   });
 
@@ -1052,8 +1047,8 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       expect(loaded2.status).toBe("completed");
 
       // Both have all features passing
-      expect(loaded1.completedFeatures).toHaveLength(3);
-      expect(loaded2.completedFeatures).toHaveLength(3);
+      expect(loaded1.completedTaskIds).toHaveLength(3);
+      expect(loaded2.completedTaskIds).toHaveLength(3);
 
       // No data leakage
       expect(loaded1.sessionId).toBe(terminal1.sessionId!);
@@ -1095,7 +1090,7 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       for (const terminal of terminals) {
         const loaded = await loadSession(terminal.session!.sessionDir);
         expect(loaded.status).toBe("completed");
-        expect(loaded.completedFeatures).toHaveLength(3);
+        expect(loaded.completedTaskIds).toHaveLength(3);
         expect(loaded.sessionId).toBe(terminal.sessionId!);
       }
 
@@ -1103,45 +1098,6 @@ describe("E2E test: Concurrent sessions don't interfere", () => {
       const sessionIds = terminals.map((t) => t.sessionId);
       const uniqueIds = new Set(sessionIds);
       expect(uniqueIds.size).toBe(terminalCount);
-    });
-
-    test("mixed yolo and feature-list sessions run concurrently", async () => {
-      const terminal1 = createTerminalSimulator("terminal-1-featurelist");
-      const terminal2 = createTerminalSimulator("terminal-2-yolo");
-
-      const features1 = createTerminalFeatures("terminal-1-featurelist");
-
-      // Start sessions with different modes
-      await Promise.all([
-        startRalphSession(terminal1, { features: features1 }),
-        startRalphSession(terminal2, { yolo: true }),
-      ]);
-
-      // Verify different modes
-      const loaded1 = await loadSession(terminal1.session!.sessionDir);
-      const loaded2 = await loadSession(terminal2.session!.sessionDir);
-
-      expect(loaded1.yolo).toBe(false);
-      expect(loaded1.features).toHaveLength(3);
-
-      expect(loaded2.yolo).toBe(true);
-      expect(loaded2.features).toHaveLength(0);
-
-      // Feature list exists only for terminal 1
-      const featureListPath1 = path.join(
-        terminal1.session!.sessionDir,
-        "research",
-        "feature-list.json"
-      );
-      expect(existsSync(featureListPath1)).toBe(true);
-
-      // Feature list should not exist for yolo session
-      const featureListPath2 = path.join(
-        terminal2.session!.sessionDir,
-        "research",
-        "feature-list.json"
-      );
-      expect(existsSync(featureListPath2)).toBe(false);
     });
   });
 

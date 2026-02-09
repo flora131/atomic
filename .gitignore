@@ -173,4 +173,6 @@ ralph-sessions.jsonl
 
 atomic
 atomic.exe
-.atomic/settings.json
+
+# TUI test screenshots
+tmux-screenshots/

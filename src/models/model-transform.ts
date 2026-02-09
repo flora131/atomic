@@ -48,6 +48,10 @@ export interface Model {
   headers?: Record<string, string>;
   /** Model description (from SDK) */
   description?: string;
+  /** Supported reasoning effort levels (Copilot SDK models only) */
+  supportedReasoningEfforts?: string[];
+  /** Default reasoning effort level (Copilot SDK models only) */
+  defaultReasoningEffort?: string;
 }
 
 /**
@@ -61,23 +65,16 @@ const DEFAULT_CAPABILITIES = {
 };
 
 /**
- * Default model limits for when not provided by SDK
- */
-const DEFAULT_LIMITS = {
-  context: 200000,
-  output: 16384,
-};
-
-/**
  * Create a Model from Claude Agent SDK's ModelInfo
  * @param modelInfo - ModelInfo from Claude Agent SDK (supportedModels())
+ * @param contextWindow - Context window size in tokens (required since SDK doesn't provide it)
  * @returns Internal Model format
  */
 export function fromClaudeModelInfo(modelInfo: {
   value: string;
   displayName: string;
   description: string;
-}): Model {
+}, contextWindow: number): Model {
   return {
     id: `anthropic/${modelInfo.value}`,
     providerID: 'anthropic',
@@ -86,7 +83,10 @@ export function fromClaudeModelInfo(modelInfo: {
     description: modelInfo.description,
     status: 'active',
     capabilities: DEFAULT_CAPABILITIES,
-    limits: DEFAULT_LIMITS,
+    limits: {
+      context: contextWindow,
+      output: 16384,
+    },
     options: {},
   };
 }
@@ -126,11 +126,19 @@ export function fromCopilotModelInfo(modelInfo: any): Model {
       temperature: true,
       toolCall: hasTools,
     },
-    limits: {
-      context: limits.maxContextWindowTokens ?? limits.context ?? DEFAULT_LIMITS.context,
-      output: limits.maxPromptTokens ?? limits.output ?? DEFAULT_LIMITS.output,
-    },
+    limits: (() => {
+      const context = limits.maxContextWindowTokens ?? limits.max_context_window_tokens;
+      if (!context) {
+        throw new Error(`Copilot model '${modelInfo.id}' missing context window in capabilities.limits`);
+      }
+      return {
+        context,
+        output: limits.maxPromptTokens ?? limits.output ?? 16384,
+      };
+    })(),
     options: {},
+    supportedReasoningEfforts: hasReasoning ? (modelInfo.supportedReasoningEfforts ?? undefined) : undefined,
+    defaultReasoningEffort: hasReasoning ? (modelInfo.defaultReasoningEffort ?? undefined) : undefined,
   };
 }
 
@@ -201,11 +209,16 @@ export function fromOpenCodeModel(
       temperature: model.temperature ?? true,
       toolCall: model.tool_call ?? true,
     },
-    limits: {
-      context: model.limit?.context ?? DEFAULT_LIMITS.context,
-      input: model.limit?.input,
-      output: model.limit?.output ?? DEFAULT_LIMITS.output,
-    },
+    limits: (() => {
+      if (!model.limit?.context) {
+        throw new Error(`OpenCode model '${modelID}' from provider '${providerID}' missing context window in limit`);
+      }
+      return {
+        context: model.limit.context,
+        input: model.limit.input,
+        output: model.limit.output ?? 16384,
+      };
+    })(),
     cost: model.cost ? {
       input: model.cost.input,
       output: model.cost.output,

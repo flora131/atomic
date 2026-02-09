@@ -3,7 +3,7 @@
 | Document Metadata      | Details                         |
 | ---------------------- | ------------------------------- |
 | Author(s)              | Developer                       |
-| Status                 | Draft (WIP)                     |
+| Status                 | Implemented                     |
 | Team / Owner           | TUI                             |
 | Created / Last Updated | 2026-02-08                      |
 

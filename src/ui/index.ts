@@ -10,7 +10,7 @@
 import React from "react";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { createRoot, type Root } from "@opentui/react";
-import { ChatApp, type OnToolStart, type OnToolComplete, type OnPermissionRequest as ChatOnPermissionRequest, type OnInterrupt, type OnAskUserQuestion } from "./chat.tsx";
+import { ChatApp, type OnToolStart, type OnToolComplete, type OnSkillInvoked, type OnPermissionRequest as ChatOnPermissionRequest, type OnInterrupt, type OnAskUserQuestion } from "./chat.tsx";
 import type { ParallelAgent } from "./components/parallel-agents-tree.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
 import { initializeCommandsAsync } from "./commands/index.ts";
@@ -92,6 +92,8 @@ interface ChatUIState {
   toolStartHandler: OnToolStart | null;
   /** Registered handler for tool complete events */
   toolCompleteHandler: OnToolComplete | null;
+  /** Registered handler for skill invoked events */
+  skillInvokedHandler: OnSkillInvoked | null;
   /** Registered handler for permission/HITL requests */
   permissionRequestHandler: OnPermissionRequest | null;
   /** Registered handler for askUserQuestion events from workflow graphs */
@@ -153,7 +155,9 @@ async function* abortableAsyncIterable<T>(
       yield result.value;
     }
   } finally {
-    await iterator.return?.();
+    // Fire-and-forget: don't block abort propagation on iterator cleanup
+    // (SDK stream teardown may involve network I/O)
+    void iterator.return?.();
   }
 }
 
@@ -218,6 +222,7 @@ export async function startChatUI(
     cleanupHandlers: [],
     toolStartHandler: null,
     toolCompleteHandler: null,
+    skillInvokedHandler: null,
     permissionRequestHandler: null,
     askUserQuestionHandler: null,
     toolIdCounter: 0,
@@ -437,6 +442,14 @@ export async function startChatUI(
       }
     });
 
+    // Subscribe to skill.invoked events
+    const unsubSkill = client.on("skill.invoked", (event) => {
+      const data = event.data as { skillName?: string; skillPath?: string };
+      if (state.skillInvokedHandler && data.skillName) {
+        state.skillInvokedHandler(data.skillName, data.skillPath);
+      }
+    });
+
     // Subscribe to permission.requested events for HITL
     const unsubPermission = client.on("permission.requested", (event) => {
       const data = event.data as {
@@ -548,6 +561,7 @@ export async function startChatUI(
     return () => {
       unsubStart();
       unsubComplete();
+      unsubSkill();
       unsubPermission();
       unsubHumanInput();
       unsubSubagentStart();
@@ -659,6 +673,9 @@ export async function startChatUI(
   function handleInterrupt(): void {
     // If streaming, abort the current operation
     if (state.isStreaming && state.streamAbortController) {
+      // Skip if already aborted (e.g., keyboard handler already triggered abort
+      // and SIGINT fires as a second signal for the same Ctrl+C press)
+      if (state.streamAbortController.signal.aborted) return;
       // Clear streaming state immediately so tool events from SDK
       // don't flow through and overwrite React state after interrupt
       state.isStreaming = false;
@@ -744,12 +761,12 @@ export async function startChatUI(
     await initializeCommandsAsync();
 
     // Create the CLI renderer with:
-    // - mouse mode enabled for scroll wheel support
+    // - mouse mode disabled to allow native terminal text selection and copy (Cmd+C / Ctrl+Shift+C)
     // - useAlternateScreen: true to prevent scrollbox from corrupting terminal output
     // - exitOnCtrlC: false to allow double-press Ctrl+C behavior
     // - useKittyKeyboard: with disambiguate so Ctrl+C is received as keyboard event
     state.renderer = await createCliRenderer({
-      useMouse: true,
+      useMouse: false,
       useAlternateScreen: true,
       exitOnCtrlC: false,
       useKittyKeyboard: { disambiguate: true },
@@ -766,6 +783,10 @@ export async function startChatUI(
 
     const registerToolCompleteHandler = (handler: OnToolComplete) => {
       state.toolCompleteHandler = handler;
+    };
+
+    const registerSkillInvokedHandler = (handler: OnSkillInvoked) => {
+      state.skillInvokedHandler = handler;
     };
 
     const registerPermissionRequestHandler = (handler: ChatOnPermissionRequest) => {
@@ -841,6 +862,7 @@ export async function startChatUI(
             onInterrupt: handleInterruptFromUI,
             registerToolStartHandler,
             registerToolCompleteHandler,
+            registerSkillInvokedHandler,
             registerPermissionRequestHandler,
             registerAskUserQuestionHandler,
             registerParallelAgentHandler,

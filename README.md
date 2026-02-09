@@ -222,35 +222,7 @@ atomic run copilot -i "/create-spec [research-path]"
 
 **You review (CRITICAL):** This is your main decision point. The spec becomes the contract.
 
-### 3. Break Into Features
-
-```bash
-# for claude-code
-atomic run claude "/create-feature-list [spec-path]"
-
-# for opencode
-atomic run opencode
-# then type:
-/create-feature-list [spec-path]
-
-# for copilot
-atomic run copilot -i "/create-feature-list [spec-path]"
-```
-
-```bash
-# clear context window before next step
-/clear
-```
-
-**What happens:** Creates `feature-list.json` and `progress.txt` with:
-
-- Ordered list of features
-- Dependencies between features
-- Acceptance criteria for each
-
-**You review:** Verify the breakdown makes sense. Reorder if needed.
-
-### 4. Implement Features
+### 3. Implement Features
 
 ```bash
 # for claude-code
@@ -348,7 +320,6 @@ User-invocable slash commands that orchestrate workflows.
 | ---------------------- | ----------------- | -------------------------------------- |
 | `/research-codebase`   | `[question]`      | Analyze codebase and document findings |
 | `/create-spec`         | `[research-path]` | Generate technical specification       |
-| `/create-feature-list` | `[spec-path]`     | Break spec into implementable tasks    |
 | `/implement-feature`   | —                 | Implement next feature from list       |
 | `/commit`              | `[message]`       | Create conventional commit             |
 | `/create-gh-pr`        | —                 | Push and create pull request           |
@@ -403,9 +374,8 @@ The [Ralph Wiggum Method](https://ghuntley.com/ralph/) enables multi-hour autono
 ### How It Works
 
 1. Create and approve your spec (`/create-spec`)
-2. Generate feature list (`/create-feature-list`)
-3. Start autonomous loop (`/ralph:ralph-loop`)
-4. Ralph implements features one-by-one until complete
+2. Start autonomous loop (`/ralph:ralph-loop`)
+3. Ralph decomposes tasks and implements features one-by-one until complete
 
 ### Commands
 

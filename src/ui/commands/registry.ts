@@ -7,7 +7,7 @@
  * Reference: Feature 1 - Create CommandRegistry class and CommandDefinition interface
  */
 
-import type { Session } from "../../sdk/types.ts";
+import type { Session, ModelDisplayInfo } from "../../sdk/types.ts";
 import type { AgentType, ModelOperations } from "../../models";
 
 // ============================================================================
@@ -79,6 +79,8 @@ export interface CommandContext {
   agentType?: AgentType;
   /** Model operations interface for listing, setting, and resolving models */
   modelOps?: ModelOperations;
+  /** Resolve current model display info (name + tier) from the SDK client */
+  getModelDisplayInfo?: () => Promise<ModelDisplayInfo>;
 }
 
 /**
@@ -159,6 +161,25 @@ export interface CommandResult {
   showMcpOverlay?: boolean;
   /** MCP server list to display via McpServerListIndicator */
   mcpServers?: import("../../sdk/types.ts").McpServerConfig[];
+  /** Display name for the model (used to update the header after /model command) */
+  modelDisplayName?: string;
+  /** Context usage info to display via ContextInfoDisplay */
+  contextInfo?: ContextDisplayInfo;
+}
+
+/** Context window usage display data */
+export interface ContextDisplayInfo {
+  model: string;
+  tier: string;
+  maxTokens: number;
+  /** Pre-message context: system prompt + tool defs + agents + skills + MCP + memory */
+  systemTools: number;
+  /** Conversation content (all user + assistant messages) */
+  messages: number;
+  /** Remaining available capacity */
+  freeSpace: number;
+  /** Autocompact buffer reservation */
+  buffer: number;
 }
 
 /**

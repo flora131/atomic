@@ -119,3 +119,12 @@ export {
   ModelSelectorDialog,
   type ModelSelectorDialogProps,
 } from "./model-selector-dialog.tsx";
+
+// ============================================================================
+// CONTEXT INFO DISPLAY COMPONENT
+// ============================================================================
+
+export {
+  ContextInfoDisplay,
+  type ContextInfoDisplayProps,
+} from "./context-info-display.tsx";

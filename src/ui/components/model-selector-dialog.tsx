@@ -9,9 +9,9 @@
  * - Capability badges for model features
  */
 
-import React, { useState, useCallback, useEffect, useMemo } from "react";
-import { useKeyboard } from "@opentui/react";
-import type { KeyEvent } from "@opentui/core";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
+import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../theme.tsx";
 import type { Model } from "../../models/model-transform.ts";
 
@@ -25,7 +25,7 @@ export interface ModelSelectorDialogProps {
   /** Currently selected model ID */
   currentModel?: string;
   /** Callback when a model is selected */
-  onSelect: (model: Model) => void;
+  onSelect: (model: Model, reasoningEffort?: string) => void;
   /** Callback when dialog is cancelled */
   onCancel: () => void;
   /** Whether the dialog is visible */
@@ -122,8 +122,13 @@ export function ModelSelectorDialog({
 }: ModelSelectorDialogProps): React.ReactNode {
   const { theme } = useTheme();
   const colors = theme.colors;
+  const { height: terminalHeight } = useTerminalDimensions();
+  const scrollRef = useRef<ScrollBoxRenderable>(null);
 
   const [selectedIndex, setSelectedIndex] = useState(0);
+  /** When set, shows the reasoning level selector for this model */
+  const [reasoningModel, setReasoningModel] = useState<Model | null>(null);
+  const [reasoningIndex, setReasoningIndex] = useState(0);
 
   // Group models by provider
   const groupedModels = useMemo(() => groupModelsByProvider(models), [models]);
@@ -133,6 +138,40 @@ export function ModelSelectorDialog({
     () => groupedModels.flatMap((g) => g.models),
     [groupedModels]
   );
+
+  // Reasoning effort options for the selected model
+  const reasoningOptions = useMemo(() => {
+    if (!reasoningModel?.supportedReasoningEfforts?.length) return [];
+    const options = [...reasoningModel.supportedReasoningEfforts];
+    const defaultEffort = reasoningModel.defaultReasoningEffort;
+    return options.map((level) => ({
+      level,
+      isDefault: level === defaultEffort,
+    }));
+  }, [reasoningModel]);
+
+  // Calculate the row offset of each model within the list content
+  const modelRowOffsets = useMemo(() => {
+    const offsets: number[] = [];
+    let row = 0;
+    for (let gi = 0; gi < groupedModels.length; gi++) {
+      const group = groupedModels[gi]!;
+      if (gi > 0) row += 1; // paddingTop for non-first groups
+      row += 1; // provider header
+      for (const _model of group.models) {
+        offsets.push(row);
+        row += 1;
+      }
+      if (gi < groupedModels.length - 1) {
+        row += 1; // separator
+      }
+    }
+    return { offsets, totalRows: row };
+  }, [groupedModels]);
+
+  // Reserve space for header (4 rows) and footer (2 rows)
+  const maxListHeight = Math.max(5, terminalHeight - 6);
+  const listHeight = Math.min(modelRowOffsets.totalRows, maxListHeight);
 
   // Find index of current model on mount
   useEffect(() => {
@@ -146,6 +185,33 @@ export function ModelSelectorDialog({
     }
   }, [currentModel, flatModels]);
 
+  // Scroll to keep selected item visible
+  useEffect(() => {
+    if (!scrollRef.current || flatModels.length === 0) return;
+    const scrollBox = scrollRef.current;
+    const selectedRow = modelRowOffsets.offsets[selectedIndex] ?? 0;
+
+    if (selectedRow < scrollBox.scrollTop) {
+      scrollBox.scrollTo(selectedRow);
+    } else if (selectedRow + 1 > scrollBox.scrollTop + listHeight) {
+      scrollBox.scrollTo(selectedRow + 1 - listHeight);
+    }
+  }, [selectedIndex, modelRowOffsets, listHeight]);
+
+  /** Confirm model selection, showing reasoning selector if applicable */
+  const confirmModel = useCallback((model: Model) => {
+    if (model.supportedReasoningEfforts?.length) {
+      setReasoningModel(model);
+      // Pre-select the default reasoning effort
+      const defaultIdx = model.supportedReasoningEfforts.indexOf(
+        model.defaultReasoningEffort ?? ""
+      );
+      setReasoningIndex(defaultIdx >= 0 ? defaultIdx : 0);
+    } else {
+      onSelect(model);
+    }
+  }, [onSelect]);
+
   // Handle keyboard navigation
   useKeyboard(
     useCallback(
@@ -155,6 +221,39 @@ export function ModelSelectorDialog({
         event.stopPropagation();
 
         const key = event.name ?? "";
+
+        // --- Reasoning level selection phase ---
+        if (reasoningModel && reasoningOptions.length > 0) {
+          const total = reasoningOptions.length;
+
+          if (key === "up" || key === "k") {
+            setReasoningIndex((prev) => (prev <= 0 ? total - 1 : prev - 1));
+            return true;
+          }
+          if (key === "down" || key === "j") {
+            setReasoningIndex((prev) => (prev >= total - 1 ? 0 : prev + 1));
+            return true;
+          }
+          if (/^[1-9]$/.test(key)) {
+            const num = parseInt(key, 10) - 1;
+            if (num < total) {
+              setReasoningIndex(num);
+              onSelect(reasoningModel, reasoningOptions[num]!.level);
+            }
+            return true;
+          }
+          if (key === "return" || key === "linefeed") {
+            onSelect(reasoningModel, reasoningOptions[reasoningIndex]!.level);
+            return true;
+          }
+          if (key === "escape") {
+            setReasoningModel(null);
+            return true;
+          }
+          return false;
+        }
+
+        // --- Model selection phase ---
         const totalItems = flatModels.length;
 
         // Navigation
@@ -173,7 +272,7 @@ export function ModelSelectorDialog({
           if (num < totalItems) {
             setSelectedIndex(num);
             if (flatModels[num]) {
-              onSelect(flatModels[num]);
+              confirmModel(flatModels[num]);
             }
           }
           return true;
@@ -182,7 +281,7 @@ export function ModelSelectorDialog({
         // Selection
         if (key === "return" || key === "linefeed") {
           if (flatModels[selectedIndex]) {
-            onSelect(flatModels[selectedIndex]);
+            confirmModel(flatModels[selectedIndex]);
           }
           return true;
         }
@@ -195,11 +294,79 @@ export function ModelSelectorDialog({
 
         return false;
       },
-      [visible, flatModels, selectedIndex, onSelect, onCancel]
+      [visible, flatModels, selectedIndex, onSelect, onCancel, confirmModel, reasoningModel, reasoningOptions, reasoningIndex]
     )
   );
 
   if (!visible) return null;
+
+  // --- Reasoning level selection phase ---
+  if (reasoningModel && reasoningOptions.length > 0) {
+    return (
+      <box
+        style={{
+          flexDirection: "column",
+          width: "100%",
+          paddingTop: 1,
+          paddingBottom: 1,
+        }}
+      >
+        {/* Header */}
+        <box style={{ flexDirection: "column", paddingLeft: 2, paddingBottom: 1 }}>
+          <text style={{ fg: colors.accent }} attributes={1}>
+            Select Effort Level for {reasoningModel.modelID}
+          </text>
+        </box>
+
+        {/* Reasoning options */}
+        <box style={{ flexDirection: "column", paddingLeft: 2 }}>
+          {reasoningOptions.map((option, idx) => {
+            const isSelected = idx === reasoningIndex;
+            const indicator = isSelected ? "❯" : " ";
+            const number = idx + 1;
+
+            return (
+              <box
+                key={option.level}
+                style={{ flexDirection: "row", paddingLeft: 2 }}
+              >
+                <text
+                  style={{ fg: isSelected ? colors.accent : colors.muted }}
+                >
+                  {indicator}
+                </text>
+                <text
+                  style={{ fg: isSelected ? colors.accent : colors.muted }}
+                >
+                  {" "}{number}.{" "}
+                </text>
+                <text
+                  style={{ fg: isSelected ? colors.accent : colors.foreground }}
+                  attributes={isSelected ? 1 : undefined}
+                >
+                  {option.level}
+                </text>
+                {option.isDefault && (
+                  <text style={{ fg: colors.success }}>
+                    {" "}(default)
+                  </text>
+                )}
+              </box>
+            );
+          })}
+        </box>
+
+        {/* Footer */}
+        <box style={{ paddingLeft: 2, paddingTop: 1 }}>
+          <text style={{ fg: colors.muted }}>
+            Confirm with number keys or ↑↓ keys and Enter, Cancel with Esc
+          </text>
+        </box>
+      </box>
+    );
+  }
+
+  // --- Model selection phase ---
 
   // Calculate global index for each model
   let globalIndex = 0;
@@ -224,11 +391,12 @@ export function ModelSelectorDialog({
       </box>
 
       {/* Models List - Grouped by Provider */}
-      <box
-        style={{
-          flexDirection: "column",
-          paddingLeft: 2,
-        }}
+      <scrollbox
+        ref={scrollRef}
+        height={listHeight}
+        scrollY={true}
+        scrollX={false}
+        paddingLeft={2}
       >
         {flatModels.length === 0 ? (
           <box style={{ paddingLeft: 2, paddingTop: 1, paddingBottom: 1 }}>
@@ -299,8 +467,16 @@ export function ModelSelectorDialog({
                         }}
                         attributes={isSelected ? 1 : undefined}
                       >
-                        {model.name}
+                        {model.modelID}
                       </text>
+
+                      {/* Reasoning effort indicator */}
+                      {(model.supportedReasoningEfforts?.length ?? 0) > 0 && model.defaultReasoningEffort && (
+                        <text style={{ fg: colors.muted }}>
+                          {" "}({model.defaultReasoningEffort})
+                        </text>
+                      )}
+
 
                       {/* Current marker */}
                       {isCurrent && (
@@ -331,9 +507,7 @@ export function ModelSelectorDialog({
             );
           })
         )}
-      </box>
-
-      {/* Footer */}
+      </scrollbox>
       <box style={{ paddingLeft: 2, paddingTop: 1 }}>
         <text style={{ fg: colors.muted }}>
           j/k navigate · enter select · esc cancel

@@ -1670,17 +1670,15 @@ export const SKILL_DISCOVERY_PATHS = [
   join(".claude", "skills"),
   join(".opencode", "skills"),
   join(".github", "skills"),
-  join(".atomic", "skills"),
 ] as const;
 
 export const GLOBAL_SKILL_PATHS = [
   join(HOME, ".claude", "skills"),
   join(HOME, ".opencode", "skills"),
   join(HOME, ".copilot", "skills"),
-  join(HOME, ".atomic", "skills"),
 ] as const;
 
-export type SkillSource = "project" | "atomic" | "user" | "builtin";
+export type SkillSource = "project" | "user" | "builtin";
 
 export const PINNED_BUILTIN_SKILLS = new Set([
   "prompt-engineer",
@@ -1711,8 +1709,7 @@ export function shouldSkillOverride(
     return false;
   }
   const priority: Record<SkillSource, number> = {
-    project: 4,
-    atomic: 3,
+    project: 3,
     user: 2,
     builtin: 1,
   };
@@ -1733,10 +1730,7 @@ export function discoverSkillFiles(): DiscoveredSkillFile[] {
         if (!entry.isDirectory()) continue;
         const skillFile = join(fullPath, entry.name, "SKILL.md");
         if (existsSync(skillFile)) {
-          const source: SkillSource = discoveryPath.startsWith(join(".atomic"))
-            ? "atomic"
-            : "project";
-          files.push({ path: skillFile, dirName: entry.name, source });
+          files.push({ path: skillFile, dirName: entry.name, source: "project" });
         }
       }
     } catch {

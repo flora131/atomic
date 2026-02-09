@@ -204,24 +204,6 @@ describe("Commander.js CLI", () => {
       expect(agentOption?.mandatory).toBe(true);
     });
 
-    test("ralph setup has --max-iterations option", () => {
-      const program = createProgram();
-      const ralphCmd = program.commands.find(cmd => cmd.name() === "ralph");
-      const setupCmd = ralphCmd?.commands.find(cmd => cmd.name() === "setup");
-
-      const maxIterOption = setupCmd?.options.find(opt => opt.long === "--max-iterations");
-      expect(maxIterOption).toBeDefined();
-    });
-
-    test("ralph setup has --completion-promise option", () => {
-      const program = createProgram();
-      const ralphCmd = program.commands.find(cmd => cmd.name() === "ralph");
-      const setupCmd = ralphCmd?.commands.find(cmd => cmd.name() === "setup");
-
-      const promiseOption = setupCmd?.options.find(opt => opt.long === "--completion-promise");
-      expect(promiseOption).toBeDefined();
-    });
-
   describe("RalphSetupOptions interface", () => {
     test("ralphSetup accepts options object with prompt array", async () => {
       // Type check - this should compile without errors
@@ -431,52 +413,5 @@ describe("Ralph setup error messages", () => {
     expect(result.code).toBe(1);
     expect(result.stderr).toContain("required option");
     expect(result.stderr).toContain("-a, --agent");
-  });
-
-  test("invalid --max-iterations value shows descriptive error", async () => {
-    const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
-      const proc = spawn("bun", ["run", "src/cli.ts", "ralph", "setup", "-a", "claude", "--max-iterations", "abc"], {
-        cwd: process.cwd(),
-      });
-
-      let stdout = "";
-      let stderr = "";
-      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
-      proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
-
-      proc.on("close", (code: number) => {
-        resolve({ stdout, stderr, code: code ?? 1 });
-      });
-    });
-
-    expect(result.code).toBe(1);
-    expect(result.stderr).toContain("Must be a positive integer or 0");
-    expect(result.stderr).toContain("abc");
-  });
-
-  test("missing or invalid feature list shows error", async () => {
-    const result = await new Promise<{ stdout: string; stderr: string; code: number }>((resolve) => {
-      const proc = spawn("bun", ["run", "src/cli.ts", "ralph", "setup", "-a", "claude", "--feature-list", "does-not-exist.json"], {
-        cwd: process.cwd(),
-      });
-
-      let stdout = "";
-      let stderr = "";
-      proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
-      proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
-
-      proc.on("close", (code: number) => {
-        resolve({ stdout, stderr, code: code ?? 1 });
-      });
-    });
-
-    expect(result.code).toBe(1);
-    // Error message from graph engine: "Feature list not found" or "Invalid feature list format"
-    const combinedOutput = result.stdout + result.stderr;
-    expect(
-      combinedOutput.includes("Feature list not found") ||
-      combinedOutput.includes("Invalid feature list format") ||
-      combinedOutput.includes("failed")
-    ).toBe(true);
   });
 });

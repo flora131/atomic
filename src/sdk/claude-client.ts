@@ -481,16 +481,30 @@ export class ClaudeAgentClient implements CodingAgentClient {
                   }
                 }
 
-                if (
-                  event.type === "content_block_delta" &&
-                  event.delta.type === "text_delta"
-                ) {
-                  hasYieldedDeltas = true;
-                  yield {
-                    type: "text",
-                    content: event.delta.text,
-                    role: "assistant",
-                  };
+                if (event.type === "content_block_delta") {
+                  if (event.delta.type === "text_delta") {
+                    hasYieldedDeltas = true;
+                    yield {
+                      type: "text",
+                      content: event.delta.text,
+                      role: "assistant",
+                    };
+                  } else if (event.delta.type === "thinking_delta") {
+                    hasYieldedDeltas = true;
+                    const currentThinkingMs = thinkingDurationMs +
+                      (thinkingStartMs !== null ? Date.now() - thinkingStartMs : 0);
+                    yield {
+                      type: "thinking" as MessageContentType,
+                      content: (event.delta as Record<string, unknown>).thinking as string,
+                      role: "assistant",
+                      metadata: {
+                        streamingStats: {
+                          thinkingMs: currentThinkingMs,
+                          outputTokens,
+                        },
+                      },
+                    };
+                  }
                 }
               } else if (sdkMessage.type === "assistant") {
                 // Only yield the complete message if we haven't streamed deltas
@@ -512,6 +526,21 @@ export class ClaudeAgentClient implements CodingAgentClient {
                   };
                 }
               }
+            }
+
+            // Yield final metadata with actual token count and thinking duration
+            if (outputTokens > 0 || thinkingDurationMs > 0) {
+              yield {
+                type: "text" as const,
+                content: "",
+                role: "assistant" as const,
+                metadata: {
+                  streamingStats: {
+                    outputTokens,
+                    thinkingMs: thinkingDurationMs,
+                  },
+                },
+              };
             }
           },
         };

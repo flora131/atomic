@@ -63,34 +63,34 @@ describe("formatDuration", () => {
       expect(result.ms).toBe(1000);
     });
 
-    test("formats 1500ms as 1.5s", () => {
+    test("formats 1500ms as 1s (floors to whole seconds)", () => {
       const result = formatDuration(1500);
-      expect(result.text).toBe("1.5s");
+      expect(result.text).toBe("1s");
     });
 
-    test("formats 2500ms as 2.5s", () => {
+    test("formats 2500ms as 2s (floors to whole seconds)", () => {
       const result = formatDuration(2500);
-      expect(result.text).toBe("2.5s");
+      expect(result.text).toBe("2s");
     });
 
-    test("formats 5000ms as 5s (no decimal)", () => {
+    test("formats 5000ms as 5s", () => {
       const result = formatDuration(5000);
       expect(result.text).toBe("5s");
     });
 
-    test("formats 9900ms as 9.9s", () => {
+    test("formats 9900ms as 9s (floors to whole seconds)", () => {
       const result = formatDuration(9900);
-      expect(result.text).toBe("9.9s");
+      expect(result.text).toBe("9s");
     });
 
-    test("formats 10000ms as 10s (integer for >= 10s)", () => {
+    test("formats 10000ms as 10s", () => {
       const result = formatDuration(10000);
       expect(result.text).toBe("10s");
     });
 
-    test("formats 15500ms as 16s (rounded)", () => {
+    test("formats 15500ms as 15s (floors to whole seconds)", () => {
       const result = formatDuration(15500);
-      expect(result.text).toBe("16s");
+      expect(result.text).toBe("15s");
     });
 
     test("formats 30000ms as 30s", () => {
@@ -98,9 +98,9 @@ describe("formatDuration", () => {
       expect(result.text).toBe("30s");
     });
 
-    test("formats 59999ms as 60s (boundary)", () => {
+    test("formats 59999ms as 59s (floors to whole seconds)", () => {
       const result = formatDuration(59999);
-      expect(result.text).toBe("60s");
+      expect(result.text).toBe("59s");
     });
   });
 

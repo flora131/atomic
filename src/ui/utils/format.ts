@@ -63,13 +63,10 @@ export function formatDuration(ms: number): FormattedDuration {
     return { text: `${Math.round(ms)}ms`, ms };
   }
 
-  // Under 1 minute: show seconds with decimal
+  // Under 1 minute: show whole seconds
   if (ms < 60000) {
-    const seconds = ms / 1000;
-    // Show 1 decimal place for values under 10s, integer for larger
-    const formatted =
-      seconds < 10 ? seconds.toFixed(1).replace(/\.0$/, "") : Math.round(seconds).toString();
-    return { text: `${formatted}s`, ms };
+    const seconds = Math.floor(ms / 1000);
+    return { text: `${seconds}s`, ms };
   }
 
   // 1 minute and above: show minutes and seconds

@@ -13,6 +13,7 @@ import { createRoot, type Root } from "@opentui/react";
 import { ChatApp, type OnToolStart, type OnToolComplete, type OnSkillInvoked, type OnPermissionRequest as ChatOnPermissionRequest, type OnInterrupt, type OnAskUserQuestion } from "./chat.tsx";
 import type { ParallelAgent } from "./components/parallel-agents-tree.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
+import { AppErrorBoundary } from "./components/error-exit-screen.tsx";
 import { initializeCommandsAsync, globalRegistry } from "./commands/index.ts";
 import type {
   CodingAgentClient,
@@ -666,7 +667,7 @@ export async function startChatUI(
     content: string,
     onChunk: (chunk: string) => void,
     onComplete: () => void,
-    onMeta?: (meta: { outputTokens: number; thinkingMs: number }) => void
+    onMeta?: (meta: { outputTokens: number; thinkingMs: number; thinkingText: string }) => void
   ): Promise<void> {
     // Create session if needed (uses shared lock to prevent dual creation)
     try {
@@ -693,6 +694,7 @@ export async function startChatUI(
       let sdkOutputTokens = 0;
       let thinkingMs = 0;
       let thinkingStartLocal: number | null = null;
+      let thinkingText = "";
 
       for await (const message of abortableStream) {
         // Handle text content
@@ -718,13 +720,18 @@ export async function startChatUI(
             sdkOutputTokens = stats.outputTokens;
           }
 
-          onMeta?.({ outputTokens: sdkOutputTokens, thinkingMs });
+          onMeta?.({ outputTokens: sdkOutputTokens, thinkingMs, thinkingText });
         }
         // Handle thinking metadata from SDK
         else if (message.type === "thinking") {
           // Start local wall-clock timer on first thinking message
           if (thinkingStartLocal === null) {
             thinkingStartLocal = Date.now();
+          }
+
+          // Capture thinking text content
+          if (typeof message.content === "string") {
+            thinkingText += message.content;
           }
 
           const stats = message.metadata?.streamingStats as
@@ -744,7 +751,7 @@ export async function startChatUI(
           if (stats?.outputTokens && stats.outputTokens > 0) {
             sdkOutputTokens = stats.outputTokens;
           }
-          onMeta?.({ outputTokens: sdkOutputTokens, thinkingMs });
+          onMeta?.({ outputTokens: sdkOutputTokens, thinkingMs, thinkingText });
         }
         // Handle tool_use content - notify UI of tool invocation
         // Skip if we're getting tool events from hooks to avoid duplicates
@@ -991,33 +998,40 @@ export async function startChatUI(
         ThemeProvider,
         {
           initialTheme: theme,
-          children: React.createElement(ChatApp, {
-            title,
-            placeholder,
-            version,
-            model,
-            tier,
-            workingDir,
-            suggestion,
-            agentType,
-            modelOps,
-            getModelDisplayInfo: () => client.getModelDisplayInfo(),
-            onSendMessage: handleSendMessage,
-            onStreamMessage: handleStreamMessage,
-            onExit: handleExit,
-            onResetSession: resetSession,
-            onInterrupt: handleInterruptFromUI,
-            registerToolStartHandler,
-            registerToolCompleteHandler,
-            registerSkillInvokedHandler,
-            registerPermissionRequestHandler,
-            registerAskUserQuestionHandler,
-            registerParallelAgentHandler,
-            registerCtrlCWarningHandler,
-            getSession,
-            createSubagentSession,
-            initialPrompt,
-          }),
+          children: React.createElement(
+            AppErrorBoundary,
+            {
+              onExit: () => { void cleanup(); },
+              isDark: theme.isDark,
+              children: React.createElement(ChatApp, {
+                title,
+                placeholder,
+                version,
+                model,
+                tier,
+                workingDir,
+                suggestion,
+                agentType,
+                modelOps,
+                getModelDisplayInfo: () => client.getModelDisplayInfo(),
+                onSendMessage: handleSendMessage,
+                onStreamMessage: handleStreamMessage,
+                onExit: handleExit,
+                onResetSession: resetSession,
+                onInterrupt: handleInterruptFromUI,
+                registerToolStartHandler,
+                registerToolCompleteHandler,
+                registerSkillInvokedHandler,
+                registerPermissionRequestHandler,
+                registerAskUserQuestionHandler,
+                registerParallelAgentHandler,
+                registerCtrlCWarningHandler,
+                getSession,
+                createSubagentSession,
+                initialPrompt,
+              }),
+            }
+          ),
         }
       )
     );

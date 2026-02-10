@@ -1605,6 +1605,10 @@ export function ChatApp({
   const wasInterruptedRef = useRef(false);
   // Ref to keep a synchronous copy of parallel agents (avoids nested dispatch issues)
   const parallelAgentsRef = useRef<ParallelAgent[]>([]);
+  // Ref to hold a deferred handleComplete when sub-agents are still running.
+  // When the last agent finishes, the stored function is called to finalize
+  // the message and process the next queued message.
+  const pendingCompleteRef = useRef<(() => void) | null>(null);
   // Ref for scrollbox to enable programmatic scrolling
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
 
@@ -2063,6 +2067,20 @@ export function ChatApp({
     }
   }, [registerParallelAgentHandler]);
 
+  // When all sub-agents finish and a dequeue was deferred, trigger it.
+  // This fires whenever parallelAgents changes (from SDK events OR interrupt handler).
+  useEffect(() => {
+    if (!pendingCompleteRef.current) return;
+    const hasActive = parallelAgents.some(
+      (a) => a.status === "running" || a.status === "pending"
+    );
+    if (!hasActive) {
+      const complete = pendingCompleteRef.current;
+      pendingCompleteRef.current = null;
+      complete();
+    }
+  }, [parallelAgents]);
+
   // Initialize SubagentSessionManager when createSubagentSession is available
   useEffect(() => {
     if (!createSubagentSession) {
@@ -2483,6 +2501,16 @@ export function ChatApp({
                   }
                 }, 50);
               }
+              return;
+            }
+
+            // If sub-agents are still running, defer finalization and queue
+            // processing until they complete (preserves correct state).
+            const hasActiveAgents = parallelAgentsRef.current.some(
+              (a) => a.status === "running" || a.status === "pending"
+            );
+            if (hasActiveAgents) {
+              pendingCompleteRef.current = handleComplete;
               return;
             }
 
@@ -3754,6 +3782,16 @@ export function ChatApp({
                 sendMessage(nextMessage.content);
               }, 50);
             }
+            return;
+          }
+
+          // If sub-agents are still running, defer finalization and queue
+          // processing until they complete (preserves correct state).
+          const hasActiveAgents = parallelAgentsRef.current.some(
+            (a) => a.status === "running" || a.status === "pending"
+          );
+          if (hasActiveAgents) {
+            pendingCompleteRef.current = handleComplete;
             return;
           }
 

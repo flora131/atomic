@@ -593,7 +593,7 @@ export async function startChatUI(
         result?: unknown;
       };
 
-      // Skip if stream already ended
+      // Skip if stream already ended and no agents are pending
       if (!state.isStreaming) return;
 
       if (state.parallelAgentHandler && data.subagentId) {
@@ -612,6 +612,19 @@ export async function startChatUI(
             : a
         );
         state.parallelAgentHandler(state.parallelAgents);
+
+        // If the stream text has ended (no abort controller) and all agents
+        // are now done, clean up streaming state so subsequent messages can
+        // start fresh.
+        if (!state.streamAbortController) {
+          const allDone = !state.parallelAgents.some(
+            (a) => a.status === "running" || a.status === "pending"
+          );
+          if (allDone) {
+            state.parallelAgents = [];
+            state.isStreaming = false;
+          }
+        }
       }
     });
 
@@ -781,9 +794,15 @@ export async function startChatUI(
       }
 
       state.messageCount++;
-      // Clear parallel agents before calling onComplete so late SDK events
-      // don't overwrite the finalized state that onComplete will bake
-      state.parallelAgents = [];
+      // Only clear parallel agents if none are still actively running.
+      // When sub-agents outlive the stream, handleComplete in chat.tsx
+      // defers queue processing until they finish.
+      const hasActiveAgents = state.parallelAgents.some(
+        (a) => a.status === "running" || a.status === "pending"
+      );
+      if (!hasActiveAgents) {
+        state.parallelAgents = [];
+      }
       onComplete();
     } catch (error) {
       // Ignore AbortError - this is expected when user interrupts
@@ -795,7 +814,14 @@ export async function startChatUI(
     } finally {
       // Clear streaming state
       state.streamAbortController = null;
-      state.isStreaming = false;
+      // Keep isStreaming true if sub-agents are still running so
+      // subagent.complete events continue to be processed.
+      const hasActiveAgents = state.parallelAgents.some(
+        (a) => a.status === "running" || a.status === "pending"
+      );
+      if (!hasActiveAgents) {
+        state.isStreaming = false;
+      }
     }
   }
 

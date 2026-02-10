@@ -7,7 +7,7 @@
  * Reference: Feature - Create useMessageQueue hook for message queue state management
  */
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useRef } from "react";
 
 // ============================================================================
 // TYPES
@@ -118,10 +118,9 @@ export function useMessageQueue(): UseMessageQueueReturn {
   // Ref to hold the current queue for dequeue to avoid stale closure issues
   const queueRef = useRef<QueuedMessage[]>([]);
 
-  // Keep the ref in sync with the queue state
-  useEffect(() => {
-    queueRef.current = queue;
-  }, [queue]);
+  // Sync ref during render (not in useEffect) so dequeue always sees the
+  // latest queue state, even when called before post-render effects fire.
+  queueRef.current = queue;
 
   /**
    * Add a message to the end of the queue.

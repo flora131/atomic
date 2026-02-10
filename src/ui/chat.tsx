@@ -1227,6 +1227,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
       >
         <box flexGrow={1} flexShrink={1} minWidth={0}>
           <text wrapMode="char">
+            <span style={{ fg: themeColors.accent }}>❯ </span>
             <span style={{ bg: themeColors.userBubbleBg, fg: themeColors.userBubbleFg }}> {message.content} </span>
           </text>
         </box>
@@ -4151,17 +4152,19 @@ export function ChatApp({
 
         {/* Queue Indicator - shows pending queued messages */}
         {messageQueue.count > 0 && (
-          <QueueIndicator
-            count={messageQueue.count}
-            queue={messageQueue.queue}
-            compact={!isEditingQueue}
-            editable={!isStreaming}
-            editIndex={messageQueue.currentEditIndex}
-            onEdit={(index) => {
-              messageQueue.setEditIndex(index);
-              setIsEditingQueue(true);
-            }}
-          />
+          <box marginTop={1}>
+            <QueueIndicator
+              count={messageQueue.count}
+              queue={messageQueue.queue}
+              compact={!isEditingQueue}
+              editable={!isStreaming}
+              editIndex={messageQueue.currentEditIndex}
+              onEdit={(index) => {
+                messageQueue.setEditIndex(index);
+                setIsEditingQueue(true);
+              }}
+            />
+          </box>
         )}
 
         {/* Input Area - inside scrollbox, flows after messages */}
@@ -4178,7 +4181,7 @@ export function ChatApp({
               flexDirection="row"
               alignItems="flex-start"
             >
-              <text style={{ fg: themeColors.accent }}>❯{" "}</text>
+              <text flexShrink={0} style={{ fg: themeColors.accent }}>❯{" "}</text>
               <textarea
                 ref={textareaRef}
                 placeholder={messages.length === 0 ? dynamicPlaceholder : ""}
@@ -4189,7 +4192,7 @@ export function ChatApp({
                 onPaste={handleBracketedPaste}
                 onContentChange={handleTextareaContentChange}
                 onCursorChange={handleTextareaCursorChange}
-                wrapMode="char"
+                wrapMode="word"
                 flexGrow={workflowState.argumentHint ? 0 : 1}
                 flexShrink={1}
                 flexBasis={workflowState.argumentHint ? undefined : 0}

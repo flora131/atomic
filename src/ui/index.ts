@@ -169,6 +169,8 @@ interface ChatUIState {
   parallelAgentHandler: ((agents: ParallelAgent[]) => void) | null;
   /** Current list of parallel agents tracked from SDK events */
   parallelAgents: ParallelAgent[];
+  /** Promise lock to prevent concurrent session creation */
+  sessionCreationPromise: Promise<void> | null;
 }
 
 /**
@@ -292,6 +294,7 @@ export async function startChatUI(
     isStreaming: false,
     parallelAgentHandler: null,
     parallelAgents: [],
+    sessionCreationPromise: null,
   };
 
   // Create a promise that resolves when the UI exits
@@ -358,13 +361,11 @@ export async function startChatUI(
    */
   async function handleSendMessage(_content: string): Promise<void> {
     // Create session if needed (content is used by handleStreamMessage)
-    if (!state.session) {
-      try {
-        state.session = await client.createSession(sessionConfig);
-      } catch (error) {
-        console.error("Failed to create session:", error);
-        return;
-      }
+    try {
+      await ensureSession();
+    } catch (error) {
+      console.error("Failed to create session:", error);
+      return;
     }
 
     state.messageCount++;
@@ -625,6 +626,38 @@ export async function startChatUI(
   }
 
   /**
+   * Ensure a session exists, creating one if needed.
+   * Uses a promise lock to prevent concurrent session creation
+   * when both handleSendMessage and handleStreamMessage fire together.
+   */
+  async function ensureSession(): Promise<void> {
+    if (state.session) return;
+    if (state.sessionCreationPromise) {
+      await state.sessionCreationPromise;
+      return;
+    }
+    state.sessionCreationPromise = (async () => {
+      try {
+        // Subscribe to tool events BEFORE creating the session
+        const unsubscribe = subscribeToToolEvents();
+        state.cleanupHandlers.push(unsubscribe);
+
+        // Apply pending copilot model/reasoning effort to sessionConfig
+        if (agentType === 'copilot' && modelOps && sessionConfig) {
+          const pendingModel = modelOps.getPendingModel();
+          const pendingEffort = modelOps.getPendingReasoningEffort();
+          if (pendingModel) sessionConfig.model = pendingModel;
+          if (pendingEffort !== undefined) sessionConfig.reasoningEffort = pendingEffort;
+        }
+        state.session = await client.createSession(sessionConfig);
+      } finally {
+        state.sessionCreationPromise = null;
+      }
+    })();
+    await state.sessionCreationPromise;
+  }
+
+  /**
    * Handle streaming a message response from the agent.
    * Handles text, tool_use, and tool_result messages from the stream.
    * Supports interruption via AbortController (Escape/Ctrl+C during streaming).
@@ -635,20 +668,13 @@ export async function startChatUI(
     onComplete: () => void,
     onMeta?: (meta: { outputTokens: number; thinkingMs: number }) => void
   ): Promise<void> {
-    // Create session if needed and subscribe to tool events
-    if (!state.session) {
-      try {
-        // IMPORTANT: Subscribe to tool events BEFORE creating the session
-        // This ensures hooks are registered before the SDK options are built
-        const unsubscribe = subscribeToToolEvents();
-        state.cleanupHandlers.push(unsubscribe);
-
-        state.session = await client.createSession(sessionConfig);
-      } catch (error) {
-        console.error("Failed to create session:", error);
-        onComplete();
-        return;
-      }
+    // Create session if needed (uses shared lock to prevent dual creation)
+    try {
+      await ensureSession();
+    } catch (error) {
+      console.error("Failed to create session:", error);
+      onComplete();
+      return;
     }
 
     // Create AbortController for this stream so it can be interrupted
@@ -658,7 +684,7 @@ export async function startChatUI(
     try {
       // Stream the response, wrapped so abort takes effect immediately
       // even while iterator.next() is blocked on the network
-      const stream = state.session.stream(content);
+      const stream = state.session!.stream(content);
       const abortableStream = abortableAsyncIterable(
         stream,
         state.streamAbortController.signal

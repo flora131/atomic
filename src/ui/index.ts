@@ -260,7 +260,12 @@ export async function startChatUI(
   const sdkListModels = agentType === 'claude' && 'listSupportedModels' in client
     ? () => (client as import('../sdk/claude-client.ts').ClaudeAgentClient).listSupportedModels()
     : undefined;
-  const modelOps = agentType ? new UnifiedModelOperations(agentType, undefined, sdkListModels) : undefined;
+  const sdkSetModel = agentType === 'opencode' && 'setActivePromptModel' in client
+    ? async (model: string) => {
+        await (client as import('../sdk/opencode-client.ts').OpenCodeClient).setActivePromptModel(model);
+      }
+    : undefined;
+  const modelOps = agentType ? new UnifiedModelOperations(agentType, sdkSetModel, sdkListModels) : undefined;
 
   // Initialize state
   const state: ChatUIState = {
@@ -659,26 +664,61 @@ export async function startChatUI(
         state.streamAbortController.signal
       );
 
-      // Track character count for real-time token estimation
-      let charCount = 0;
+      let sdkOutputTokens = 0;
       let thinkingMs = 0;
+      let thinkingStartLocal: number | null = null;
 
       for await (const message of abortableStream) {
         // Handle text content
         if (message.type === "text" && typeof message.content === "string") {
-          onChunk(message.content);
-          charCount += message.content.length;
-          onMeta?.({ outputTokens: Math.round(charCount / 4), thinkingMs });
-        }
-        // Handle thinking metadata from SDK (thinking block end)
-        else if (message.type === "thinking" && message.metadata) {
-          const stats = message.metadata.streamingStats as
-            | { thinkingMs: number; outputTokens: number }
-            | undefined;
-          if (stats) {
-            thinkingMs = stats.thinkingMs;
-            onMeta?.({ outputTokens: Math.round(charCount / 4), thinkingMs });
+          // Accumulate thinking duration when transitioning away from thinking
+          if (thinkingStartLocal !== null) {
+            thinkingMs = thinkingMs + (Date.now() - thinkingStartLocal);
+            thinkingStartLocal = null;
           }
+
+          if (message.content.length > 0) {
+            onChunk(message.content);
+          }
+
+          // Use SDK-reported token counts when present
+          const stats = message.metadata?.streamingStats as
+            | { outputTokens?: number; thinkingMs?: number }
+            | undefined;
+          if (stats?.thinkingMs != null) {
+            thinkingMs = stats.thinkingMs;
+          }
+          if (stats?.outputTokens && stats.outputTokens > 0) {
+            sdkOutputTokens = stats.outputTokens;
+          }
+
+          onMeta?.({ outputTokens: sdkOutputTokens, thinkingMs });
+        }
+        // Handle thinking metadata from SDK
+        else if (message.type === "thinking") {
+          // Start local wall-clock timer on first thinking message
+          if (thinkingStartLocal === null) {
+            thinkingStartLocal = Date.now();
+          }
+
+          const stats = message.metadata?.streamingStats as
+            | { thinkingMs?: number; outputTokens?: number }
+            | undefined;
+
+          if (stats?.thinkingMs != null) {
+            // Authoritative value from SDK — use it and reset local timer
+            thinkingMs = stats.thinkingMs;
+            thinkingStartLocal = null;
+          } else {
+            // Live estimation: accumulated + current block duration
+            thinkingMs = thinkingMs + (Date.now() - thinkingStartLocal);
+            // Don't reset thinkingStartLocal — keep accumulating
+          }
+
+          if (stats?.outputTokens && stats.outputTokens > 0) {
+            sdkOutputTokens = stats.outputTokens;
+          }
+          onMeta?.({ outputTokens: sdkOutputTokens, thinkingMs });
         }
         // Handle tool_use content - notify UI of tool invocation
         // Skip if we're getting tool events from hooks to avoid duplicates

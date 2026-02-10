@@ -1,0 +1,283 @@
+/**
+ * Transcript Formatter
+ *
+ * Pure function that converts ChatMessage[] into structured transcript lines
+ * for the full-screen transcript view (ctrl+o toggle).
+ */
+
+import type { ChatMessage, StreamingMeta } from "../chat.tsx";
+import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
+import { formatDuration, truncateText } from "../components/parallel-agents-tree.tsx";
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+export type TranscriptLineType =
+  | "user-prompt"
+  | "file-read"
+  | "thinking-header"
+  | "thinking-content"
+  | "timestamp"
+  | "assistant-bullet"
+  | "assistant-text"
+  | "tool-header"
+  | "tool-content"
+  | "agent-header"
+  | "agent-row"
+  | "agent-substatus"
+  | "separator"
+  | "footer"
+  | "blank";
+
+export interface TranscriptLine {
+  type: TranscriptLineType;
+  content: string;
+  indent: number;
+}
+
+export interface FormatTranscriptOptions {
+  messages: ChatMessage[];
+  liveThinkingText?: string;
+  liveParallelAgents?: ParallelAgent[];
+  streamingMeta?: StreamingMeta | null;
+  isStreaming: boolean;
+  modelId?: string;
+}
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function formatTimestamp(iso: string): string {
+  const d = new Date(iso);
+  const hours = d.getHours();
+  const minutes = d.getMinutes().toString().padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  const h12 = hours % 12 || 12;
+  return `${h12}:${minutes} ${ampm}`;
+}
+
+function line(type: TranscriptLineType, content: string, indent = 0): TranscriptLine {
+  return { type, content, indent };
+}
+
+// ============================================================================
+// MAIN FORMATTER
+// ============================================================================
+
+/**
+ * Format messages into structured transcript lines for the transcript view.
+ *
+ * Format matches the expanded transcript reference:
+ * - User messages: `❯ <content>` with `⎿  Read/Loaded` file lines
+ * - Thinking: `∴ Thinking…` header + indented content
+ * - Timestamps: `HH:MM AM/PM model-id`
+ * - Assistant: `● <content>` bullet prefix
+ * - Tool calls: tool name, args, status, output summary
+ * - Agent trees: `● AgentType(task)` with prompts, sub-tool lists, `⎿  Done (metrics)`
+ * - Footer: `──── Showing detailed transcript · ctrl+o to toggle`
+ */
+export function formatTranscript(options: FormatTranscriptOptions): TranscriptLine[] {
+  const { messages, liveThinkingText, liveParallelAgents, streamingMeta, isStreaming, modelId } = options;
+  const lines: TranscriptLine[] = [];
+
+  for (const msg of messages) {
+    if (msg.role === "user") {
+      // User prompt line
+      lines.push(line("user-prompt", `❯ ${msg.content}`));
+
+      // Files read via @mention
+      if (msg.filesRead && msg.filesRead.length > 0) {
+        for (const file of msg.filesRead) {
+          const sizeKb = file.sizeBytes ? `(${(file.sizeBytes / 1024).toFixed(1)}KB)` : "";
+          lines.push(line("file-read", `⎿  Read ${file.path} ${sizeKb}`, 1));
+        }
+      }
+
+      lines.push(line("blank", ""));
+    } else if (msg.role === "assistant") {
+      // Thinking trace (baked from completed message or live)
+      const thinkingContent = msg.thinkingText || (!msg.streaming ? undefined : liveThinkingText);
+      if (thinkingContent) {
+        lines.push(line("thinking-header", "∴ Thinking…"));
+        // Split thinking text into lines, indent each
+        const thinkingLines = thinkingContent.split("\n");
+        for (const tl of thinkingLines) {
+          if (tl.trim()) {
+            lines.push(line("thinking-content", tl, 1));
+          }
+        }
+        lines.push(line("blank", ""));
+      }
+
+      // Timestamp
+      const ts = formatTimestamp(msg.timestamp);
+      const modelLabel = msg.modelId || modelId || "";
+      if (modelLabel) {
+        lines.push(line("timestamp", `${ts} ${modelLabel}`));
+      }
+
+      // Assistant text content — split into segments around tool calls
+      const content = msg.content;
+      if (content.trim()) {
+        const contentLines = content.split("\n");
+        const firstLine = contentLines[0]?.trim();
+        if (firstLine) {
+          lines.push(line("assistant-bullet", `● ${firstLine}`));
+        }
+        for (let i = 1; i < contentLines.length; i++) {
+          const cl = contentLines[i];
+          if (cl !== undefined) {
+            lines.push(line("assistant-text", `  ${cl}`, 1));
+          }
+        }
+      }
+
+      // Tool calls
+      if (msg.toolCalls && msg.toolCalls.length > 0) {
+        for (const tc of msg.toolCalls) {
+          const statusIcon = tc.status === "completed" ? "●" : tc.status === "running" ? "●" : tc.status === "error" ? "✕" : "○";
+          const toolTitle = formatToolTitle(tc.toolName, tc.input);
+          lines.push(line("tool-header", `${statusIcon} ${tc.toolName} ${toolTitle}`));
+
+          // Tool input details
+          const inputSummary = formatToolInput(tc.toolName, tc.input);
+          if (inputSummary) {
+            lines.push(line("tool-content", `  ${inputSummary}`, 1));
+          }
+
+          // Tool output summary
+          if (tc.output !== undefined) {
+            const outputStr = typeof tc.output === "string" ? tc.output : JSON.stringify(tc.output);
+            const outputLines = outputStr.split("\n").filter((l: string) => l.trim());
+            const previewCount = Math.min(outputLines.length, 8);
+            for (let i = 0; i < previewCount; i++) {
+              lines.push(line("tool-content", `  ${outputLines[i]}`, 1));
+            }
+            if (outputLines.length > previewCount) {
+              lines.push(line("tool-content", `  … ${outputLines.length - previewCount} more lines`, 1));
+            }
+          }
+        }
+      }
+
+      // Parallel agents (baked from completed message or live)
+      const agents = msg.parallelAgents && msg.parallelAgents.length > 0
+        ? msg.parallelAgents
+        : msg.streaming && liveParallelAgents && liveParallelAgents.length > 0
+          ? liveParallelAgents
+          : null;
+
+      if (agents) {
+        lines.push(line("blank", ""));
+        const runningCount = agents.filter(a => a.status === "running" || a.status === "pending").length;
+        const completedCount = agents.filter(a => a.status === "completed").length;
+        const headerText = runningCount > 0
+          ? `● Running ${runningCount} agent${runningCount !== 1 ? "s" : ""}…`
+          : `● ${completedCount} agent${completedCount !== 1 ? "s" : ""} finished`;
+        lines.push(line("agent-header", headerText));
+
+        for (const agent of agents) {
+          const taskText = truncateText(agent.task, 60);
+          const metricsParts: string[] = [];
+          if (agent.toolUses !== undefined) metricsParts.push(`${agent.toolUses} tool uses`);
+          if (agent.durationMs !== undefined) metricsParts.push(formatDuration(agent.durationMs));
+          const metrics = metricsParts.length > 0 ? ` · ${metricsParts.join(" · ")}` : "";
+
+          const agentIcon = agent.status === "completed" ? "●" : agent.status === "running" ? "●" : "○";
+          lines.push(line("agent-row", `├─ ${agentIcon} ${taskText}${metrics}`));
+
+          // Sub-status
+          if (agent.status === "completed") {
+            lines.push(line("agent-substatus", `│  ⎿  Done${metrics ? ` (${metricsParts.join(" · ")})` : ""}`));
+          } else if (agent.status === "running" && agent.currentTool) {
+            lines.push(line("agent-substatus", `│  ⎿  ${truncateText(agent.currentTool, 50)}`));
+          } else if (agent.status === "error" && agent.error) {
+            lines.push(line("agent-substatus", `│  ⎿  ${truncateText(agent.error, 60)}`));
+          }
+        }
+      }
+
+      // Completion summary
+      if (!msg.streaming && msg.durationMs != null && msg.durationMs >= 1000) {
+        lines.push(line("blank", ""));
+        const dur = formatDuration(msg.durationMs);
+        const tokensLabel = msg.outputTokens ? ` · ${msg.outputTokens} tokens` : "";
+        lines.push(line("separator", `⣿ Worked for ${dur}${tokensLabel}`));
+      }
+
+      lines.push(line("blank", ""));
+    } else if (msg.role === "system") {
+      lines.push(line("assistant-text", `⚠ ${msg.content}`));
+      lines.push(line("blank", ""));
+    }
+  }
+
+  // Live streaming indicator
+  if (isStreaming && streamingMeta) {
+    const thinkingLabel = streamingMeta.thinkingMs > 0
+      ? ` · thinking ${formatDuration(streamingMeta.thinkingMs)}`
+      : "";
+    const tokenLabel = streamingMeta.outputTokens > 0
+      ? ` · ${streamingMeta.outputTokens} tokens`
+      : "";
+    lines.push(line("separator", `⣾ Streaming…${thinkingLabel}${tokenLabel}`));
+  }
+
+  // Footer
+  lines.push(line("separator", "────────────────────────────────────────────────────────────────────────────────────────────────────"));
+  lines.push(line("footer", "  Showing detailed transcript · ctrl+o to toggle"));
+
+  return lines;
+}
+
+// ============================================================================
+// TOOL FORMATTING HELPERS
+// ============================================================================
+
+function formatToolTitle(toolName: string, input: Record<string, unknown>): string {
+  switch (toolName) {
+    case "Read":
+      return String(input.file_path || "");
+    case "Edit":
+      return String(input.file_path || "");
+    case "Write":
+      return String(input.file_path || "");
+    case "Bash":
+      return truncateText(String(input.command || ""), 50);
+    case "Glob":
+      return String(input.pattern || "");
+    case "Grep":
+      return truncateText(String(input.pattern || ""), 40);
+    case "Task": {
+      const desc = String(input.description || input.prompt || "");
+      return truncateText(desc, 45);
+    }
+    default:
+      return "";
+  }
+}
+
+function formatToolInput(toolName: string, input: Record<string, unknown>): string {
+  switch (toolName) {
+    case "Read":
+      return input.file_path ? `file: ${input.file_path}` : "";
+    case "Edit":
+      return input.file_path ? `file: ${input.file_path}` : "";
+    case "Write":
+      return input.file_path ? `file: ${input.file_path}` : "";
+    case "Bash":
+      return input.command ? `$ ${truncateText(String(input.command), 70)}` : "";
+    case "Glob":
+      return input.pattern ? `pattern: ${input.pattern}` : "";
+    case "Grep":
+      return input.pattern ? `pattern: ${input.pattern}` : "";
+    case "Task":
+      return input.prompt ? `prompt: ${truncateText(String(input.prompt), 60)}` : "";
+    default: {
+      const keys = Object.keys(input).slice(0, 3);
+      return keys.map(k => `${k}: ${truncateText(String(input[k]), 30)}`).join(", ");
+    }
+  }
+}

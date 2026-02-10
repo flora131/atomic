@@ -87,14 +87,20 @@ describe("getSubStatusText", () => {
 // ============================================================================
 
 describe("getAgentColor", () => {
-  test("returns correct color for known agent types", () => {
-    expect(getAgentColor("Explore")).toBe("#60a5fa");
-    expect(getAgentColor("Plan")).toBe("#a78bfa");
-    expect(getAgentColor("debugger")).toBe("#f87171");
+  test("returns correct Catppuccin Mocha color for known agent types (default)", () => {
+    expect(getAgentColor("Explore")).toBe("#89b4fa");   // Mocha Blue
+    expect(getAgentColor("Plan")).toBe("#cba6f7");      // Mocha Mauve
+    expect(getAgentColor("debugger")).toBe("#f38ba8");   // Mocha Red
+  });
+
+  test("returns Catppuccin Latte colors when isDark=false", () => {
+    expect(getAgentColor("Explore", false)).toBe("#1e66f5");  // Latte Blue
+    expect(getAgentColor("Plan", false)).toBe("#8839ef");     // Latte Mauve
+    expect(getAgentColor("debugger", false)).toBe("#d20f39"); // Latte Red
   });
 
   test("returns default color for unknown agent types", () => {
-    expect(getAgentColor("unknown-agent")).toBe("#9ca3af");
+    expect(getAgentColor("unknown-agent")).toBe("#6c7086"); // Mocha Overlay 0
   });
 });
 
@@ -118,7 +124,7 @@ describe("formatDuration", () => {
   });
 
   test("formats seconds", () => {
-    expect(formatDuration(3500)).toBe("3.5s");
+    expect(formatDuration(3500)).toBe("3s");
   });
 
   test("formats minutes", () => {

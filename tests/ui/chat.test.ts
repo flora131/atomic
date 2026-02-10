@@ -1255,32 +1255,15 @@ describe("VerboseMode State", () => {
   });
 });
 
-describe("MessageBubbleProps with verboseMode", () => {
-  test("MessageBubbleProps interface includes verboseMode", () => {
+describe("MessageBubbleProps without verboseMode (removed)", () => {
+  test("MessageBubbleProps does not include verboseMode", () => {
     const props: MessageBubbleProps = {
       message: createMessage("user", "Hello"),
       isLast: true,
-      verboseMode: true,
     };
 
-    expect(props.verboseMode).toBe(true);
-  });
-
-  test("verboseMode defaults to undefined when not provided", () => {
-    const props: MessageBubbleProps = {
-      message: createMessage("user", "Hello"),
-    };
-
-    expect(props.verboseMode).toBeUndefined();
-  });
-
-  test("verboseMode can be explicitly set to false", () => {
-    const props: MessageBubbleProps = {
-      message: createMessage("user", "Hello"),
-      verboseMode: false,
-    };
-
-    expect(props.verboseMode).toBe(false);
+    expect(props.isLast).toBe(true);
+    expect("verboseMode" in props).toBe(false);
   });
 });
 
@@ -1288,8 +1271,8 @@ describe("MessageBubbleProps with verboseMode", () => {
 // TimestampDisplay Integration Tests
 // ============================================================================
 
-describe("TimestampDisplay in MessageBubble", () => {
-  test("assistant message can include durationMs for timestamp display", () => {
+describe("TimestampDisplay in MessageBubble (transcript mode)", () => {
+  test("assistant message can include durationMs", () => {
     const message: ChatMessage = {
       id: "test-1",
       role: "assistant",
@@ -1301,14 +1284,12 @@ describe("TimestampDisplay in MessageBubble", () => {
 
     const props: MessageBubbleProps = {
       message,
-      verboseMode: true,
     };
 
     expect(props.message.durationMs).toBe(2500);
-    expect(props.verboseMode).toBe(true);
   });
 
-  test("assistant message can include modelId for timestamp display", () => {
+  test("assistant message can include modelId", () => {
     const message: ChatMessage = {
       id: "test-1",
       role: "assistant",
@@ -1320,7 +1301,6 @@ describe("TimestampDisplay in MessageBubble", () => {
 
     const props: MessageBubbleProps = {
       message,
-      verboseMode: true,
     };
 
     expect(props.message.modelId).toBe("claude-3-opus");
@@ -1340,7 +1320,6 @@ describe("TimestampDisplay in MessageBubble", () => {
     const props: MessageBubbleProps = {
       message,
       isLast: true,
-      verboseMode: true,
     };
 
     expect(props.message.timestamp).toBeDefined();
@@ -1349,50 +1328,23 @@ describe("TimestampDisplay in MessageBubble", () => {
     expect(props.message.streaming).toBe(false);
   });
 
-  test("streaming message should not show timestamp (streaming=true)", () => {
+  test("streaming message has streaming=true", () => {
     const message: ChatMessage = {
       id: "test-1",
       role: "assistant",
       content: "Partial...",
       timestamp: "2026-02-01T14:30:00.000Z",
-      streaming: true, // Still streaming
+      streaming: true,
     };
 
     const props: MessageBubbleProps = {
       message,
-      verboseMode: true,
     };
 
-    // Streaming is true, so timestamp display should be hidden
     expect(props.message.streaming).toBe(true);
-    expect(props.verboseMode).toBe(true);
   });
 
-  test("timestamp display only shows when verboseMode is true", () => {
-    const message: ChatMessage = {
-      id: "test-1",
-      role: "assistant",
-      content: "Response",
-      timestamp: "2026-02-01T14:30:00.000Z",
-      streaming: false,
-      durationMs: 500,
-    };
-
-    const propsWithVerbose: MessageBubbleProps = {
-      message,
-      verboseMode: true,
-    };
-
-    const propsWithoutVerbose: MessageBubbleProps = {
-      message,
-      verboseMode: false,
-    };
-
-    expect(propsWithVerbose.verboseMode).toBe(true);
-    expect(propsWithoutVerbose.verboseMode).toBe(false);
-  });
-
-  test("user messages do not need timestamp display props", () => {
+  test("user messages do not have timing info", () => {
     const message: ChatMessage = {
       id: "test-1",
       role: "user",
@@ -1402,10 +1354,8 @@ describe("TimestampDisplay in MessageBubble", () => {
 
     const props: MessageBubbleProps = {
       message,
-      verboseMode: true,
     };
 
-    // User messages don't have durationMs or modelId
     expect(props.message.durationMs).toBeUndefined();
     expect(props.message.modelId).toBeUndefined();
   });

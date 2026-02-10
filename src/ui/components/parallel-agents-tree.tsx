@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { useTheme } from "../theme.tsx";
+import { useTheme, getCatppuccinPalette } from "../theme.tsx";
 
 // ============================================================================
 // TYPES
@@ -80,21 +80,29 @@ export const STATUS_ICONS: Record<AgentStatus, string> = {
 };
 
 /**
- * ANSI color codes for different agent types.
- * Used for visual distinction between concurrent agents.
+ * Get theme-aware agent colors using the Catppuccin palette.
+ * Maps agent types to palette colors that adapt to dark/light mode.
  */
-export const AGENT_COLORS: Record<string, string> = {
-  Explore: "#60a5fa",    // Blue
-  Plan: "#a78bfa",       // Purple
-  Bash: "#4ade80",       // Green
-  debugger: "#f87171",   // Red
-  "codebase-analyzer": "#fb923c",   // Orange
-  "codebase-locator": "#38bdf8",    // Cyan
-  "codebase-pattern-finder": "#fbbf24",  // Yellow
-  "codebase-online-researcher": "#c084fc",  // Violet
-  "general-purpose": "#94a3b8",     // Slate
-  default: "#9ca3af",    // Gray
-};
+export function getAgentColors(isDark: boolean): Record<string, string> {
+  const p = getCatppuccinPalette(isDark);
+  return {
+    Explore: p.blue,
+    Plan: p.mauve,
+    Bash: p.green,
+    debugger: p.red,
+    "codebase-analyzer": p.peach,
+    "codebase-locator": p.sky,
+    "codebase-pattern-finder": p.yellow,
+    "codebase-online-researcher": p.pink,
+    "general-purpose": p.subtext0,
+    default: p.overlay0,
+  };
+}
+
+/**
+ * Static AGENT_COLORS for backward compatibility (Mocha/dark defaults).
+ */
+export const AGENT_COLORS: Record<string, string> = getAgentColors(true);
 
 /**
  * Tree drawing characters.
@@ -125,15 +133,13 @@ const SUB_STATUS_PAD = "   ";
 // ============================================================================
 
 /**
- * Default color for unknown agent types.
+ * Get the color for an agent based on its name/type and theme mode.
+ * Returns Catppuccin Mocha colors for dark mode, Latte for light mode.
  */
-const DEFAULT_AGENT_COLOR = "#9ca3af";
-
-/**
- * Get the color for an agent based on its name/type.
- */
-export function getAgentColor(agentName: string): string {
-  return AGENT_COLORS[agentName] ?? DEFAULT_AGENT_COLOR;
+export function getAgentColor(agentName: string, isDark: boolean = true): string {
+  const colors = getAgentColors(isDark);
+  const fallback = colors["default"] as string;
+  return colors[agentName] ?? fallback;
 }
 
 /**
@@ -149,7 +155,7 @@ export function getStatusIcon(status: AgentStatus): string {
 export function formatDuration(ms: number | undefined): string {
   if (ms === undefined) return "";
   if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  if (ms < 60000) return `${Math.floor(ms / 1000)}s`;
   return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
 }
 
@@ -694,6 +700,9 @@ export function ParallelAgentsTree({
           <text style={{ fg: headerColor }}>{headerIcon}</text>
         )}
         <text style={{ fg: headerColor }}> {headerText}</text>
+        {runningCount === 0 && (
+          <text style={{ fg: themeColors.muted }}> (ctrl+o to expand)</text>
+        )}
       </box>
 
       {/* Agent tree */}

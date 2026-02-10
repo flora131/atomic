@@ -25,12 +25,13 @@ import { ToolResult } from "./components/tool-result.tsx";
 import { SkillLoadIndicator } from "./components/skill-load-indicator.tsx";
 import { McpServerListIndicator } from "./components/mcp-server-list.tsx";
 import { ContextInfoDisplay } from "./components/context-info-display.tsx";
-import { TimestampDisplay } from "./components/timestamp-display.tsx";
+
 import { QueueIndicator } from "./components/queue-indicator.tsx";
 import {
   ParallelAgentsTree,
   type ParallelAgent,
 } from "./components/parallel-agents-tree.tsx";
+import { TranscriptView } from "./components/transcript-view.tsx";
 import {
   SubagentSessionManager,
   type SubagentSpawnOptions as ManagerSpawnOptions,
@@ -225,12 +226,60 @@ const ATOMIC_BLOCK_LOGO = [
 
 /**
  * Build the Atomic branding gradient based on theme mode.
- * Dark: warm amber → teal. Light: amber-700 → teal-700.
+ * Catppuccin-inspired: warm rosewater/flamingo/pink → cool blue/sky/teal.
  */
 function buildAtomicGradient(isDark: boolean): string[] {
   return isDark
-    ? ["#f0b866", "#c8b87a", "#8dc5a0", "#5ec4ae", "#3abfb5", "#2dd4bf", "#26bfad", "#20a89a"]
-    : ["#b45309", "#947040", "#5f9878", "#2d8d80", "#189585", "#0d9488", "#0b857a", "#0a7a6e"];
+    ? ["#f5e0dc", "#f2cdcd", "#f5c2e7", "#cba6f7", "#b4befe", "#89b4fa", "#74c7ec", "#89dceb", "#94e2d5"]
+    : ["#dc8a78", "#dd7878", "#ea76cb", "#8839ef", "#7287fd", "#1e66f5", "#209fb5", "#04a5e5", "#179299"];
+}
+
+// ============================================================================
+// GRADIENT INTERPOLATION
+// ============================================================================
+
+/**
+ * Parse a hex color string (#RRGGBB) to RGB components.
+ */
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "");
+  return [
+    parseInt(h.substring(0, 2), 16),
+    parseInt(h.substring(2, 4), 16),
+    parseInt(h.substring(4, 6), 16),
+  ];
+}
+
+/**
+ * Convert RGB components to a hex color string.
+ */
+function rgbToHex(r: number, g: number, b: number): string {
+  const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));
+  return `#${clamp(r).toString(16).padStart(2, "0")}${clamp(g).toString(16).padStart(2, "0")}${clamp(b).toString(16).padStart(2, "0")}`;
+}
+
+/**
+ * Interpolate a smooth color from a gradient at continuous position t (0..1).
+ * Linearly blends between adjacent color stops for seamless transitions.
+ */
+function interpolateGradient(gradient: string[], t: number): string {
+  if (gradient.length === 0) return "#ffffff";
+  if (gradient.length === 1) return gradient[0] as string;
+
+  const clampedT = Math.max(0, Math.min(1, t));
+  const gradPos = clampedT * (gradient.length - 1);
+  const lower = Math.floor(gradPos);
+  const upper = Math.min(lower + 1, gradient.length - 1);
+  const frac = gradPos - lower;
+
+  const [r1, g1, b1] = hexToRgb(gradient[lower] as string);
+  const [r2, g2, b2] = hexToRgb(gradient[upper] as string);
+
+  return rgbToHex(
+    r1 + (r2 - r1) * frac,
+    g1 + (g2 - g1) * frac,
+    b1 + (b2 - b1) * frac,
+  );
 }
 
 /**
@@ -242,21 +291,21 @@ interface GradientTextProps {
 }
 
 /**
- * Renders text with a horizontal gradient effect.
- * Each character is wrapped in a span with its own color from the gradient.
+ * Renders text with a smooth, continuous horizontal gradient effect.
+ * Each character gets a linearly interpolated color between adjacent stops,
+ * producing seamless color transitions across the full text width.
  *
  * Note: OpenTUI requires explicit style props - raw ANSI codes don't work.
  */
 function GradientText({ text, gradient }: GradientTextProps): React.ReactNode {
   const chars = [...text];
-  const gradientLen = gradient.length;
+  const len = chars.length;
 
   return (
     <text>
       {chars.map((char, i) => {
-        // Map character position to gradient index
-        const gradientIndex = Math.floor((i / chars.length) * gradientLen);
-        const color = gradient[Math.min(gradientIndex, gradientLen - 1)] as string;
+        const t = len > 1 ? i / (len - 1) : 0;
+        const color = interpolateGradient(gradient, t);
         return (
           <span key={i} style={{ fg: color }}>
             {char}
@@ -322,6 +371,7 @@ export interface MessageSkillLoad {
 export interface StreamingMeta {
   outputTokens: number;
   thinkingMs: number;
+  thinkingText: string;
 }
 
 /**
@@ -361,6 +411,8 @@ export interface ChatMessage {
   outputTokens?: number;
   /** Thinking/reasoning duration in milliseconds (baked on completion) */
   thinkingMs?: number;
+  /** Accumulated thinking/reasoning text content (baked on completion) */
+  thinkingText?: string;
 }
 
 /**
@@ -600,16 +652,12 @@ export interface MessageBubbleProps {
   isLast?: boolean;
   /** Optional syntax style for markdown rendering */
   syntaxStyle?: SyntaxStyle;
-  /** Whether verbose mode is enabled (shows timestamps) */
-  verboseMode?: boolean;
   /** Whether to hide AskUserQuestion tool output (when dialog is active) */
   hideAskUserQuestion?: boolean;
   /** Whether to hide loading indicator (when question dialog is active) */
   hideLoading?: boolean;
   /** Parallel agents to display inline (only for streaming assistant message) */
   parallelAgents?: ParallelAgent[];
-  /** Whether the agent tree is expanded */
-  agentTreeExpanded?: boolean;
   /** Todo items to show inline during streaming */
   todoItems?: Array<{content: string; status: "pending" | "in_progress" | "completed" | "error"}>;
   /** Elapsed streaming time in milliseconds */
@@ -901,6 +949,33 @@ export function StreamingBullet({ speed = 500 }: { speed?: number }): React.Reac
 }
 
 const HLREF_COMMAND = 1;
+const HLREF_MENTION = 2;
+
+/**
+ * Find all @mention ranges in the text for highlighting.
+ * Matches @token patterns where token is [\w./_-]+ (same as processFileMentions regex).
+ * Excludes mentions inside backticks or not at a word boundary.
+ * Returns array of [start, end] character offset pairs.
+ */
+function findMentionRanges(text: string): [number, number][] {
+  const ranges: [number, number][] = [];
+  const regex = /@([\w./_-]+)/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    const start = match.index;
+    const end = start + match[0].length;
+    // Check word boundary before @
+    if (start > 0) {
+      const charBefore = text[start - 1];
+      if (charBefore !== " " && charBefore !== "\n" && charBefore !== "\t") continue;
+    }
+    // Check not inside backticks
+    if (start > 0 && text[start - 1] === "`") continue;
+    if (end < text.length && text[end] === "`") continue;
+    ranges.push([start, end]);
+  }
+  return ranges;
+}
 
 /**
  * Check if the text starts with a registered slash command (not inside quotes/backticks).
@@ -1090,7 +1165,7 @@ function preprocessTaskListCheckboxes(content: string): string {
     .replace(/^(\s*[-*+]\s+)\[ \]/gm, "$1☐")
     .replace(/^(\s*[-*+]\s+)\[[xX]\]/gm, "$1☑");
 }
-export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = false, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, parallelAgents, agentTreeExpanded, todoItems, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, parallelAgents, todoItems, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
   // Hide the entire message when question dialog is active and there's no content yet
@@ -1265,7 +1340,6 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
                   input={segment.toolCall.input}
                   output={segment.toolCall.output}
                   status={segment.toolCall.status}
-                  verboseMode={verboseMode}
                 />
               </box>
             );
@@ -1284,8 +1358,8 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
           return agentsToShow ? (
             <ParallelAgentsTree
               agents={agentsToShow}
-              compact={!agentTreeExpanded}
-              maxVisible={agentTreeExpanded ? 20 : 5}
+              compact={true}
+              maxVisible={5}
             />
           ) : null;
         })()}
@@ -1314,14 +1388,6 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
           </box>
         )}
 
-        {/* Timestamp display in verbose mode (only for completed assistant messages) */}
-        {verboseMode && !message.streaming && (
-          <TimestampDisplay
-            timestamp={message.timestamp}
-            durationMs={message.durationMs}
-            modelId={message.modelId}
-          />
-        )}
       </box>
     );
   }
@@ -1435,14 +1501,13 @@ export function ChatApp({
   // Message queue for queuing messages during streaming
   const messageQueue = useMessageQueue();
 
-  // Verbose mode state for expanded tool outputs and timestamps
-  const [verboseMode, setVerboseMode] = useState(false);
+  // Transcript mode: full-screen detailed transcript view (ctrl+o toggle)
+  const [transcriptMode, setTranscriptMode] = useState(false);
 
   // Conversation collapsed state for collapsing/expanding entire conversation
   const [conversationCollapsed, setConversationCollapsed] = useState(false);
 
-  // Thinking block visibility toggle (Ctrl+Shift+T)
-  const [showThinking, setShowThinking] = useState(false);
+
 
   // State for showing user question dialog
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
@@ -1470,20 +1535,27 @@ export function ChatApp({
   const { theme, toggleTheme, setTheme } = useTheme();
   const themeColors = theme.colors;
 
-  // Component-scoped SyntaxStyle for textarea slash command highlighting
+  // Component-scoped SyntaxStyle for textarea slash command and @ mention highlighting
   const inputSyntaxStyleRef = useRef<SyntaxStyle | null>(null);
   const commandStyleIdRef = useRef<number>(0);
+  const mentionStyleIdRef = useRef<number>(0);
   const inputSyntaxStyle = useMemo(() => {
     if (inputSyntaxStyleRef.current) {
       inputSyntaxStyleRef.current.destroy();
     }
     const style = SyntaxStyle.create();
-    const id = style.registerStyle("command", {
+    const cmdId = style.registerStyle("command", {
       fg: RGBA.fromHex(themeColors.accent),
       bold: true,
     });
+    const mentionId = style.registerStyle("mention", {
+      fg: RGBA.fromHex(themeColors.accent),
+      bold: false,
+      underline: true,
+    });
     inputSyntaxStyleRef.current = style;
-    commandStyleIdRef.current = id;
+    commandStyleIdRef.current = cmdId;
+    mentionStyleIdRef.current = mentionId;
     return style;
   }, [themeColors.accent]);
 
@@ -1495,8 +1567,6 @@ export function ChatApp({
 
   // State for parallel agents display
   const [parallelAgents, setParallelAgents] = useState<ParallelAgent[]>(initialParallelAgents);
-  // State for parallel agents tree expand/collapse (ctrl+o)
-  const [agentTreeExpanded, setAgentTreeExpanded] = useState(false);
   // Compaction state: stores summary text after /compact for Ctrl+O history
   const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
   const [showCompactionHistory, setShowCompactionHistory] = useState(false);
@@ -2229,6 +2299,18 @@ export function ChatApp({
           hlRef: HLREF_COMMAND,
         });
       }
+
+      // Apply @ mention highlighting
+      textarea.removeHighlightsByRef(HLREF_MENTION);
+      const mentionRanges = findMentionRanges(value);
+      for (const [start, end] of mentionRanges) {
+        textarea.addHighlightByCharRange({
+          start,
+          end,
+          styleId: mentionStyleIdRef.current,
+          hlRef: HLREF_MENTION,
+        });
+      }
     }
   }, [handleInputChange, syncInputScrollbar]);
 
@@ -2380,7 +2462,7 @@ export function ChatApp({
                 setMessages((prev: ChatMessage[]) =>
                   prev.map((msg: ChatMessage) =>
                     msg.id === messageId
-                      ? { ...msg, streaming: false, durationMs, modelId: model, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs }
+                      ? { ...msg, streaming: false, durationMs, modelId: model, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs, thinkingText: finalMeta?.thinkingText || undefined }
                       : msg
                   )
                 );
@@ -2425,6 +2507,7 @@ export function ChatApp({
                         modelId: model,
                         outputTokens: finalMeta?.outputTokens,
                         thinkingMs: finalMeta?.thinkingMs,
+                        thinkingText: finalMeta?.thinkingText || undefined,
                         toolCalls: msg.toolCalls?.map((tc) =>
                           tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                         ),
@@ -2569,8 +2652,7 @@ export function ChatApp({
         setCompactionSummary(null);
         setShowCompactionHistory(false);
         setParallelAgents([]);
-        setAgentTreeExpanded(false);
-        setVerboseMode(false);
+        setTranscriptMode(false);
       }
 
       // Handle clearMessages flag
@@ -3065,15 +3147,9 @@ export function ChatApp({
           return;
         }
 
-        // Ctrl+O - toggle verbose mode (expand/collapse all tool outputs)
+        // Ctrl+O - toggle transcript mode (full-screen detailed view)
         if (event.ctrl && event.name === "o") {
-          setVerboseMode(prev => !prev);
-          return;
-        }
-
-        // Ctrl+Shift+T - toggle thinking/reasoning block visibility
-        if (event.ctrl && event.shift && event.name === "t") {
-          setShowThinking(prev => !prev);
+          setTranscriptMode(prev => !prev);
           return;
         }
 
@@ -3659,7 +3735,7 @@ export function ChatApp({
               setMessages((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
                   msg.id === messageId
-                    ? { ...msg, streaming: false, durationMs, modelId: model, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs }
+                    ? { ...msg, streaming: false, durationMs, modelId: model, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs, thinkingText: finalMeta?.thinkingText || undefined }
                     : msg
                 )
               );
@@ -3702,6 +3778,7 @@ export function ChatApp({
                       modelId: model,
                       outputTokens: finalMeta?.outputTokens,
                       thinkingMs: finalMeta?.thinkingMs,
+                      thinkingText: finalMeta?.thinkingText || undefined,
                       toolCalls: msg.toolCalls?.map((tc) =>
                         tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                       ),
@@ -3763,6 +3840,20 @@ export function ChatApp({
           addMessage("user", initialPrompt);
           void executeCommand(parsed.name, parsed.args);
           return;
+        }
+
+        // Check for @agent mention in initial prompt (e.g., "@codebase-analyzer analyze this")
+        if (initialPrompt.startsWith("@")) {
+          const afterAt = initialPrompt.slice(1);
+          const spaceIndex = afterAt.indexOf(" ");
+          const agentName = spaceIndex === -1 ? afterAt : afterAt.slice(0, spaceIndex);
+          const agentArgs = spaceIndex === -1 ? "" : afterAt.slice(spaceIndex + 1).trim();
+          const agentCommand = globalRegistry.get(agentName);
+          if (agentCommand && agentCommand.category === "agent") {
+            addMessage("user", initialPrompt);
+            void executeCommand(agentName, agentArgs);
+            return;
+          }
         }
 
         const { message: processed } = processFileMentions(initialPrompt);
@@ -3900,11 +3991,9 @@ export function ChatApp({
           message={msg}
           isLast={index === visibleMessages.length - 1}
           syntaxStyle={markdownSyntaxStyle}
-          verboseMode={verboseMode}
           hideAskUserQuestion={activeQuestion !== null}
           hideLoading={activeQuestion !== null}
           parallelAgents={index === visibleMessages.length - 1 ? parallelAgents : undefined}
-          agentTreeExpanded={agentTreeExpanded}
           todoItems={msg.streaming ? todoItems : undefined}
           elapsedMs={msg.streaming ? streamingElapsedMs : undefined}
           streamingMeta={msg.streaming ? streamingMeta : null}
@@ -3929,6 +4018,18 @@ export function ChatApp({
         workingDir={workingDir}
       />
 
+      {/* Transcript mode: full-screen detailed view of thinking, tools, agents */}
+      {transcriptMode ? (
+        <TranscriptView
+          messages={messages}
+          liveThinkingText={streamingMeta?.thinkingText}
+          liveParallelAgents={parallelAgents}
+          modelId={model}
+          isStreaming={isStreaming}
+          streamingMeta={streamingMeta}
+        />
+      ) : (
+      <>
       {/* Workflow Status Bar - shows workflow progress when active */}
       <WorkflowStatusBar
         workflowActive={workflowState.workflowActive}
@@ -3940,16 +4041,13 @@ export function ChatApp({
         queueCount={messageQueue.count}
       />
 
-      {/* Compaction History - shows expanded compaction summary (Ctrl+O) */}
+      {/* Compaction History - shows expanded compaction summary */}
       {showCompactionHistory && compactionSummary && parallelAgents.length === 0 && (
         <box flexDirection="column" paddingLeft={2} paddingRight={2} marginTop={1} marginBottom={1}>
           <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.muted} paddingLeft={1} paddingRight={1}>
             <text style={{ fg: themeColors.muted }} attributes={1}>Compaction Summary</text>
             <text style={{ fg: themeColors.foreground }} wrapMode="char">{compactionSummary}</text>
           </box>
-          <text style={{ fg: themeColors.muted }}>
-            Showing detailed transcript · ctrl+o to toggle
-          </text>
         </box>
       )}
 
@@ -4108,6 +4206,8 @@ export function ChatApp({
           </box>
         )}
       </scrollbox>
+      </>
+      )}
 
     </box>
   );

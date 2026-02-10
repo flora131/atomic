@@ -99,6 +99,7 @@ export {
 export {
   ParallelAgentsTree,
   getAgentColor,
+  getAgentColors,
   getStatusIcon,
   formatDuration,
   truncateText,
@@ -127,3 +128,11 @@ export {
   ContextInfoDisplay,
   type ContextInfoDisplayProps,
 } from "./context-info-display.tsx";
+
+// ============================================================================
+// ERROR EXIT SCREEN COMPONENT
+// ============================================================================
+
+export {
+  AppErrorBoundary,
+} from "./error-exit-screen.tsx";

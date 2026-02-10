@@ -26,7 +26,6 @@ export interface ToolResultProps {
   status: ToolExecutionStatus;
   initialExpanded?: boolean;
   maxCollapsedLines?: number;
-  verboseMode?: boolean;
 }
 
 export interface ToolSummary {
@@ -256,11 +255,10 @@ export function ToolResult({
   status,
   initialExpanded = false,
   maxCollapsedLines = 5,
-  verboseMode = false,
 }: ToolResultProps): React.ReactNode {
   const { theme } = useTheme();
   const colors = theme.colors;
-  const [expanded, setExpanded] = useState(initialExpanded);
+  const [expanded] = useState(initialExpanded);
 
   const renderer = useMemo(() => getToolRenderer(toolName), [toolName]);
   const mcpParsed = useMemo(() => parseMcpToolName(toolName), [toolName]);
@@ -278,15 +276,7 @@ export function ToolResult({
     [renderResult.content.length, maxCollapsedLines, initialExpanded]
   );
 
-  useEffect(() => {
-    if (verboseMode) {
-      setExpanded(true);
-    } else {
-      setExpanded(initialExpanded);
-    }
-  }, [verboseMode, initialExpanded]);
-
-  const isExpanded = verboseMode || expanded;
+  const isExpanded = expanded;
   const hasError = status === "error";
 
   // Determine icon color based on status
@@ -299,10 +289,12 @@ export function ToolResult({
         {/* Status indicator — first element on the line */}
         <StatusIndicator status={status} theme={theme} />
 
-        {/* Tool icon */}
-        <text style={{ fg: iconColor }}>
-          {renderer.icon}
-        </text>
+        {/* Tool icon — fixed width for consistent alignment across terminals */}
+        <box width={2}>
+          <text style={{ fg: iconColor }}>
+            {renderer.icon}
+          </text>
+        </box>
 
         {/* Tool name (parsed for MCP tools) */}
         <text style={{ fg: colors.accent }}>
@@ -317,7 +309,7 @@ export function ToolResult({
         {/* Summary when collapsed */}
         {status === "completed" && !isExpanded && (
           <text style={{ fg: colors.muted }}>
-            — {summary.text}
+            — {summary.text} (ctrl+o to expand)
           </text>
         )}
       </box>

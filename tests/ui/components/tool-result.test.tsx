@@ -624,37 +624,15 @@ describe("Default collapsed behavior", () => {
 // VERBOSE MODE TESTS
 // ============================================================================
 
-describe("verboseMode support", () => {
-  test("verboseMode prop defaults to false", () => {
+describe("verboseMode removed (transcript mode replaces it)", () => {
+  test("ToolResultProps does not include verboseMode", () => {
     const props: ToolResultProps = {
       toolName: "Read",
       input: { file_path: "/test.ts" },
       status: "completed",
     };
 
-    expect(props.verboseMode).toBeUndefined();
-  });
-
-  test("verboseMode can be set to true", () => {
-    const props: ToolResultProps = {
-      toolName: "Read",
-      input: { file_path: "/test.ts" },
-      status: "completed",
-      verboseMode: true,
-    };
-
-    expect(props.verboseMode).toBe(true);
-  });
-
-  test("verboseMode can be set to false", () => {
-    const props: ToolResultProps = {
-      toolName: "Read",
-      input: { file_path: "/test.ts" },
-      status: "completed",
-      verboseMode: false,
-    };
-
-    expect(props.verboseMode).toBe(false);
+    expect("verboseMode" in props).toBe(false);
   });
 });
 

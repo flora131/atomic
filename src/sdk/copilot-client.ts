@@ -299,8 +299,17 @@ export class CopilotClient implements CodingAgentClient {
               }
             };
 
+            // Wall-clock thinking timing
+            let reasoningStartMs: number | null = null;
+            let reasoningDurationMs = 0;
+
             const eventHandler = (event: SdkSessionEvent) => {
               if (event.type === "assistant.message_delta") {
+                // Accumulate reasoning duration when transitioning away from reasoning
+                if (reasoningStartMs !== null) {
+                  reasoningDurationMs += Date.now() - reasoningStartMs;
+                  reasoningStartMs = null;
+                }
                 hasYieldedDeltas = true;
                 chunks.push({
                   type: "text",
@@ -309,11 +318,39 @@ export class CopilotClient implements CodingAgentClient {
                 });
                 notifyConsumer();
               } else if (event.type === "assistant.reasoning_delta") {
+                if (reasoningStartMs === null) {
+                  reasoningStartMs = Date.now();
+                }
                 hasYieldedDeltas = true;
                 chunks.push({
                   type: "thinking",
                   content: event.data.deltaContent,
                   role: "assistant",
+                  metadata: {
+                    streamingStats: {
+                      thinkingMs: reasoningDurationMs + (Date.now() - reasoningStartMs),
+                      outputTokens: 0,
+                    },
+                  },
+                });
+                notifyConsumer();
+              } else if (event.type === "assistant.usage") {
+                // Accumulate reasoning duration if still in reasoning
+                if (reasoningStartMs !== null) {
+                  reasoningDurationMs += Date.now() - reasoningStartMs;
+                  reasoningStartMs = null;
+                }
+                // Forward actual token counts from SDK (state already updated by handleSdkEvent)
+                chunks.push({
+                  type: "text",
+                  content: "",
+                  role: "assistant",
+                  metadata: {
+                    streamingStats: {
+                      outputTokens: state.outputTokens,
+                      thinkingMs: reasoningDurationMs,
+                    },
+                  },
                 });
                 notifyConsumer();
               } else if (event.type === "assistant.message") {

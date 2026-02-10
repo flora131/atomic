@@ -165,6 +165,12 @@ export class OpenCodeClient implements CodingAgentClient {
   private serverCloseCallback: (() => void) | null = null;
   private isServerSpawned = false;
 
+  /** Mutable model preference updated by /model command at runtime */
+  private activePromptModel: { providerID: string; modelID: string } | undefined;
+
+  /** Mutable context window updated when activePromptModel changes */
+  private activeContextWindow: number | null = null;
+
   /**
    * Create a new OpenCodeClient
    * @param options - Client options
@@ -770,8 +776,11 @@ export class OpenCodeClient implements CodingAgentClient {
       config.agentMode ??
       client.clientOptions.defaultAgentMode ??
       "build";
-    // Parse model preference for per-prompt model selection
-    const promptModel = client.parseModelForPrompt(config.model);
+    // Parse initial model preference as fallback; runtime switches use client.activePromptModel
+    const initialPromptModel = client.parseModelForPrompt(config.model);
+    if (!client.activePromptModel && initialPromptModel) {
+      client.activePromptModel = initialPromptModel;
+    }
 
     // Track session state for token usage and lifecycle
     const sessionState = {
@@ -797,14 +806,11 @@ export class OpenCodeClient implements CodingAgentClient {
           throw new Error("Client not connected");
         }
 
-        // Estimate input tokens (approximately 4 chars per token)
-        sessionState.inputTokens += Math.ceil(message.length / 4);
-
         const result = await client.sdkClient.session.prompt({
           sessionID: sessionId,
           directory: client.clientOptions.directory,
           agent: agentMode,
-          model: promptModel,
+          model: client.activePromptModel ?? initialPromptModel,
           parts: [{ type: "text", text: message }],
         });
 
@@ -812,6 +818,13 @@ export class OpenCodeClient implements CodingAgentClient {
           const err = result.error as Record<string, unknown>;
           const errorDetail = typeof err === "string" ? err : JSON.stringify(err);
           throw new Error(`Failed to send message: ${errorDetail}`);
+        }
+
+        // Update token counts from SDK response
+        const tokens = result.data?.info?.tokens;
+        if (tokens) {
+          sessionState.inputTokens = tokens.input ?? sessionState.inputTokens;
+          sessionState.outputTokens = tokens.output ?? sessionState.outputTokens;
         }
 
         // Extract text content from parts
@@ -822,9 +835,6 @@ export class OpenCodeClient implements CodingAgentClient {
         const content = textParts
           .map((p) => ((p as Record<string, unknown>).text as string) ?? "")
           .join("");
-
-        // Estimate output tokens
-        sessionState.outputTokens += Math.ceil(content.length / 4);
 
         // Check for tool calls
         const toolParts = parts.filter(
@@ -866,8 +876,7 @@ export class OpenCodeClient implements CodingAgentClient {
               throw new Error("Client not connected");
             }
 
-            // Estimate input tokens (approximately 4 chars per token)
-            sessionState.inputTokens += Math.ceil(message.length / 4);
+            // Note: input tokens are updated from result.data.info?.tokens after prompt resolves
 
             // Set up streaming via SSE events
             // OpenCode streams text deltas via message.part.updated events
@@ -875,7 +884,6 @@ export class OpenCodeClient implements CodingAgentClient {
             let resolveNext: (() => void) | null = null;
             let streamDone = false;
             let streamError: Error | null = null;
-            let totalOutputChars = 0;
 
             // Handler for delta events from SSE
             const handleDelta = (event: AgentEvent<"message.delta">) => {
@@ -884,7 +892,6 @@ export class OpenCodeClient implements CodingAgentClient {
 
               const delta = event.data?.delta as string | undefined;
               if (delta) {
-                totalOutputChars += delta.length;
                 deltaQueue.push({
                   type: "text" as const,
                   content: delta,
@@ -921,7 +928,7 @@ export class OpenCodeClient implements CodingAgentClient {
                 sessionID: sessionId,
                 directory: client.clientOptions.directory,
                 agent: agentMode,
-                model: promptModel,
+                model: client.activePromptModel ?? initialPromptModel,
                 parts: [{ type: "text", text: message }],
               });
 
@@ -933,13 +940,16 @@ export class OpenCodeClient implements CodingAgentClient {
               // to avoid duplicating with SSE deltas
               let yieldedTextFromResponse = false;
 
+              // Wall-clock thinking timing
+              let reasoningStartMs: number | null = null;
+              let reasoningDurationMs = 0;
+
               // If we got a direct response (no SSE streaming), yield it
               // This handles cases where the SDK returns immediately
               if (result.data?.parts) {
                 const parts = result.data.parts;
                 for (const part of parts) {
                   if (part.type === "text" && part.text) {
-                    totalOutputChars += part.text.length;
                     yieldedTextFromResponse = true;
                     yield {
                       type: "text" as const,
@@ -947,12 +957,26 @@ export class OpenCodeClient implements CodingAgentClient {
                       role: "assistant" as const,
                     };
                   } else if (part.type === "reasoning" && part.text) {
+                    if (reasoningStartMs === null) {
+                      reasoningStartMs = Date.now();
+                    }
                     yield {
                       type: "thinking" as const,
                       content: part.text,
                       role: "assistant" as const,
+                      metadata: {
+                        streamingStats: {
+                          thinkingMs: reasoningDurationMs + (Date.now() - reasoningStartMs),
+                          outputTokens: 0,
+                        },
+                      },
                     };
                   } else if (part.type === "tool") {
+                    // Accumulate reasoning duration when transitioning away from reasoning
+                    if (reasoningStartMs !== null) {
+                      reasoningDurationMs += Date.now() - reasoningStartMs;
+                      reasoningStartMs = null;
+                    }
                     const toolPart = part as Record<string, unknown>;
                     const toolState = toolPart.state as Record<string, unknown> | undefined;
                     const toolName = toolPart.tool as string;
@@ -1012,6 +1036,21 @@ export class OpenCodeClient implements CodingAgentClient {
                     sessionState.systemToolsBaseline = cacheTokens;
                   }
                 }
+
+                // Yield actual token counts to UI
+                if (sessionState.outputTokens > 0 || reasoningDurationMs > 0) {
+                  yield {
+                    type: "text" as const,
+                    content: "",
+                    role: "assistant" as const,
+                    metadata: {
+                      streamingStats: {
+                        outputTokens: sessionState.outputTokens,
+                        thinkingMs: reasoningDurationMs,
+                      },
+                    },
+                  };
+                }
               }
 
               // Yield any SSE deltas that arrived, but skip if we already yielded text from direct response
@@ -1041,10 +1080,7 @@ export class OpenCodeClient implements CodingAgentClient {
                 throw streamError;
               }
 
-              // Estimate output tokens if not already set
-              if (sessionState.outputTokens === 0) {
-                sessionState.outputTokens = Math.ceil(totalOutputChars / 4);
-              }
+              // Actual token counts come from result.data.info?.tokens (yielded above).
             } catch (error) {
               yield {
                 type: "text" as const,
@@ -1102,10 +1138,11 @@ export class OpenCodeClient implements CodingAgentClient {
       },
 
       getContextUsage: async (): Promise<ContextUsage> => {
-        if (sessionState.contextWindow === null) {
+        // Prefer runtime context window (updated by setActivePromptModel) over initial
+        const maxTokens = client.activeContextWindow ?? sessionState.contextWindow;
+        if (maxTokens === null) {
           throw new Error("Context window size unavailable: provider.list() did not return model limits.");
         }
-        const maxTokens = sessionState.contextWindow;
         const totalTokens = sessionState.inputTokens + sessionState.outputTokens;
         return {
           inputTokens: sessionState.inputTokens,
@@ -1280,6 +1317,29 @@ export class OpenCodeClient implements CodingAgentClient {
    */
   getBaseUrl(): string {
     return this.clientOptions.baseUrl ?? DEFAULT_OPENCODE_BASE_URL;
+  }
+
+  /**
+   * Set the active prompt model at runtime (e.g., after /model switch).
+   * Updates both the model used for send()/stream() and the cached context window.
+   * @param model - Model string in "providerID/modelID" or short alias form
+   */
+  async setActivePromptModel(model?: string): Promise<void> {
+    this.activePromptModel = this.parseModelForPrompt(model);
+    // Update cached context window for getContextUsage()
+    try {
+      this.activeContextWindow = await this.resolveModelContextWindow(model);
+    } catch {
+      // If resolution fails, keep old value — will self-correct on next message
+    }
+  }
+
+  /**
+   * Get the active context window size (updated when model changes at runtime).
+   * Returns null if no runtime model switch has occurred.
+   */
+  getActiveContextWindow(): number | null {
+    return this.activeContextWindow;
   }
 
   /**

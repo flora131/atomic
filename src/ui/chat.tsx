@@ -772,7 +772,7 @@ export function LoadingIndicator({ speed = 100, elapsedMs, outputTokens, thinkin
   if (outputTokens != null && outputTokens > 0) {
     parts.push(`↓ ${formatTokenCount(outputTokens)} tokens`);
   }
-  if (thinkingMs != null && thinkingMs > 0) {
+  if (thinkingMs != null && thinkingMs >= 1000) {
     parts.push(`thought for ${formatCompletionDuration(thinkingMs)}`);
   }
   const infoText = parts.length > 0 ? ` (${parts.join(" · ")})` : "";
@@ -794,7 +794,7 @@ export function LoadingIndicator({ speed = 100, elapsedMs, outputTokens, thinkin
 
 /**
  * Past-tense verbs for the completion summary line.
- * Displayed after a response finishes: "✻ Worked for 1m 6s"
+ * Displayed after a response finishes: "⣿ Worked for 1m 6s"
  */
 const COMPLETION_VERBS = [
   "Worked",
@@ -816,21 +816,19 @@ function getRandomCompletionVerb(): string {
 }
 
 /**
- * Pick a random spinner frame (excluding ● which is reserved for completed content).
+ * Completion character — full braille block, consistent with the streaming spinner frames.
  */
-function getRandomSpinnerChar(): string {
-  const chars = ["✻", "✶", "✢", "✽"];
-  const index = Math.floor(Math.random() * chars.length);
-  return chars[index] as string;
+function getCompletionChar(): string {
+  return "⣿";
 }
 
 /**
- * Format milliseconds into a human-readable duration string.
- * e.g., 66000 → "1m 6s", 3000 → "3s", 125 → "<1s"
+ * Format milliseconds into a human-readable duration string using floor (whole-second increments).
+ * e.g., 66000 → "1m 6s", 3000 → "3s", 1500 → "1s"
  */
 function formatCompletionDuration(ms: number): string {
-  if (ms < 1000) return "<1s";
-  const totalSeconds = Math.round(ms / 1000);
+  const totalSeconds = Math.floor(ms / 1000);
+  if (totalSeconds <= 0) return "1s";
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   if (minutes === 0) return `${seconds}s`;
@@ -849,18 +847,18 @@ interface CompletionSummaryProps {
 
 /**
  * Completion summary line shown after an assistant response finishes.
- * Enhanced format: "✻ Worked for 1m 6s · ↓ 16.7k tokens · thought for 54s"
+ * Enhanced format: "⣿ Worked for 1m 6s · ↓ 16.7k tokens · thought for 54s"
  */
 export function CompletionSummary({ durationMs, outputTokens, thinkingMs }: CompletionSummaryProps): React.ReactNode {
   const themeColors = useThemeColors();
   const [verb] = useState(() => getRandomCompletionVerb());
-  const [spinChar] = useState(() => getRandomSpinnerChar());
+  const [spinChar] = useState(() => getCompletionChar());
 
   const parts: string[] = [`${verb} for ${formatCompletionDuration(durationMs)}`];
   if (outputTokens != null && outputTokens > 0) {
     parts.push(`↓ ${formatTokenCount(outputTokens)} tokens`);
   }
-  if (thinkingMs != null && thinkingMs > 0) {
+  if (thinkingMs != null && thinkingMs >= 1000) {
     parts.push(`thought for ${formatCompletionDuration(thinkingMs)}`);
   }
 
@@ -1305,7 +1303,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, verboseMode = fals
           <TaskListIndicator items={message.taskItems} />
         )}
 
-        {/* Completion summary: "✻ Worked for 1m 6s" after response finishes (only for ≥1 minute) */}
+        {/* Completion summary: "⣿ Worked for 1m 6s" after response finishes (only for ≥1 minute) */}
         {!message.streaming && message.durationMs != null && message.durationMs >= 60000 && (
           <box marginTop={1}>
             <CompletionSummary durationMs={message.durationMs} outputTokens={message.outputTokens} thinkingMs={message.thinkingMs} />

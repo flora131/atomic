@@ -97,70 +97,177 @@ export interface ThemeProviderProps {
 }
 
 // ============================================================================
+// CATPPUCCIN PALETTE
+// ============================================================================
+
+/**
+ * Full Catppuccin Mocha palette.
+ * Reference: docs/style-guide.md
+ */
+export const catppuccinMocha = {
+  rosewater: "#f5e0dc",
+  flamingo: "#f2cdcd",
+  pink: "#f5c2e7",
+  mauve: "#cba6f7",
+  red: "#f38ba8",
+  maroon: "#eba0ac",
+  peach: "#fab387",
+  yellow: "#f9e2af",
+  green: "#a6e3a1",
+  teal: "#94e2d5",
+  sky: "#89dceb",
+  sapphire: "#74c7ec",
+  blue: "#89b4fa",
+  lavender: "#b4befe",
+  text: "#cdd6f4",
+  subtext1: "#bac2de",
+  subtext0: "#a6adc8",
+  overlay2: "#9399b2",
+  overlay1: "#7f849c",
+  overlay0: "#6c7086",
+  surface2: "#585b70",
+  surface1: "#45475a",
+  surface0: "#313244",
+  base: "#1e1e2e",
+  mantle: "#181825",
+  crust: "#11111b",
+} as const;
+
+/**
+ * Full Catppuccin Latte palette.
+ * Reference: docs/style-guide.md
+ */
+export const catppuccinLatte = {
+  rosewater: "#dc8a78",
+  flamingo: "#dd7878",
+  pink: "#ea76cb",
+  mauve: "#8839ef",
+  red: "#d20f39",
+  maroon: "#e64553",
+  peach: "#fe640b",
+  yellow: "#df8e1d",
+  green: "#40a02b",
+  teal: "#179299",
+  sky: "#04a5e5",
+  sapphire: "#209fb5",
+  blue: "#1e66f5",
+  lavender: "#7287fd",
+  text: "#4c4f69",
+  subtext1: "#5c5f77",
+  subtext0: "#6c6f85",
+  overlay2: "#7c7f93",
+  overlay1: "#8c8fa1",
+  overlay0: "#9ca0b0",
+  surface2: "#acb0be",
+  surface1: "#bcc0cc",
+  surface0: "#ccd0da",
+  base: "#eff1f5",
+  mantle: "#e6e9ef",
+  crust: "#dce0e8",
+} as const;
+
+/** Type for a full Catppuccin palette. */
+export interface CatppuccinPalette {
+  readonly rosewater: string;
+  readonly flamingo: string;
+  readonly pink: string;
+  readonly mauve: string;
+  readonly red: string;
+  readonly maroon: string;
+  readonly peach: string;
+  readonly yellow: string;
+  readonly green: string;
+  readonly teal: string;
+  readonly sky: string;
+  readonly sapphire: string;
+  readonly blue: string;
+  readonly lavender: string;
+  readonly text: string;
+  readonly subtext1: string;
+  readonly subtext0: string;
+  readonly overlay2: string;
+  readonly overlay1: string;
+  readonly overlay0: string;
+  readonly surface2: string;
+  readonly surface1: string;
+  readonly surface0: string;
+  readonly base: string;
+  readonly mantle: string;
+  readonly crust: string;
+}
+
+/**
+ * Get the Catppuccin palette for the current theme mode.
+ */
+export function getCatppuccinPalette(isDark: boolean): CatppuccinPalette {
+  return isDark ? catppuccinMocha : catppuccinLatte;
+}
+
+// ============================================================================
 // THEME DEFINITIONS
 // ============================================================================
 
 /**
  * Dark theme configuration.
- * High-contrast "Atomic" aesthetic with neon accents on dark background.
- * Optimized for terminal legibility and modern developer vibes.
+ * Catppuccin Mocha-inspired palette with Atomic identity.
+ * Rich, warm dark theme with pastel accents for terminal legibility.
  */
 export const darkTheme: Theme = {
   name: "dark",
   isDark: true,
   colors: {
-    background: "black",    // Standard terminal black
-    foreground: "#ecf2f8",  // Ice white
-    accent: "#2dd4bf",      // Atomic Teal (Teal 400)
-    border: "#3f3f46",      // Zinc 700
-    userMessage: "#60a5fa", // Electric Blue (Blue 400)
-    assistantMessage: "#2dd4bf", // Atomic Teal
-    systemMessage: "#a78bfa",    // Electric Purple (Violet 400)
-    error: "#fb7185",       // Rose 400
-    success: "#4ade80",     // Neon Green (Green 400)
-    warning: "#fbbf24",     // Amber 400
-    muted: "#9ca3af",       // Gray 400
-    inputFocus: "#2dd4bf",  // Teal focus
-    inputStreaming: "#c084fc", // Purple pulsing
-    userBubbleBg: "#3f3f46",  // Zinc 700
-    userBubbleFg: "#ecf2f8",  // Ice white
-    dim: "#555566",
-    scrollbarFg: "#6b7280",   // Gray 500
-    scrollbarBg: "#3f3f46",
-    codeBorder: "#3f3f46",
-    codeTitle: "#2dd4bf",     // Teal accent
+    background: "#1e1e2e",  // Mocha Base
+    foreground: "#cdd6f4",  // Mocha Text
+    accent: "#94e2d5",      // Mocha Teal
+    border: "#45475a",      // Mocha Surface 1
+    userMessage: "#89b4fa", // Mocha Blue
+    assistantMessage: "#94e2d5", // Mocha Teal
+    systemMessage: "#cba6f7",    // Mocha Mauve
+    error: "#f38ba8",       // Mocha Red
+    success: "#a6e3a1",     // Mocha Green
+    warning: "#f9e2af",     // Mocha Yellow
+    muted: "#6c7086",       // Mocha Overlay 0
+    inputFocus: "#585b70",  // Mocha Surface 2
+    inputStreaming: "#6c7086", // Mocha Overlay 0
+    userBubbleBg: "#313244",  // Mocha Surface 0
+    userBubbleFg: "#cdd6f4",  // Mocha Text
+    dim: "#585b70",           // Mocha Surface 2
+    scrollbarFg: "#6c7086",   // Mocha Overlay 0
+    scrollbarBg: "#313244",   // Mocha Surface 0
+    codeBorder: "#45475a",    // Mocha Surface 1
+    codeTitle: "#94e2d5",     // Mocha Teal
   },
 };
 
 /**
  * Light theme configuration.
- * Clean "Laboratory" aesthetic with crisp contrast.
- * Professional, precise, and highly readable.
+ * Catppuccin Latte-inspired palette with Atomic identity.
+ * Crisp, warm light theme with saturated accents for readability.
  */
 export const lightTheme: Theme = {
   name: "light",
   isDark: false,
   colors: {
-    background: "white",    // Standard terminal white
-    foreground: "#0f172a",  // Slate 900
-    accent: "#0d9488",      // Deep Teal (Teal 600)
-    border: "#cbd5e1",      // Slate 300
-    userMessage: "#2563eb", // Royal Blue (Blue 600)
-    assistantMessage: "#0d9488", // Deep Teal
-    systemMessage: "#7c3aed",    // Deep Violet (Violet 600)
-    error: "#e11d48",       // Rose 600
-    success: "#16a34a",     // Green 600
-    warning: "#d97706",     // Amber 600
-    muted: "#64748b",       // Slate 500
-    inputFocus: "#0d9488",  // Teal focus
-    inputStreaming: "#9333ea", // Purple pulsing
-    userBubbleBg: "#e2e8f0",  // Slate 200
-    userBubbleFg: "#0f172a",  // Slate 900
-    dim: "#94a3b8",           // Slate 400
-    scrollbarFg: "#94a3b8",   // Slate 400
-    scrollbarBg: "#e2e8f0",   // Slate 200
-    codeBorder: "#cbd5e1",    // Slate 300
-    codeTitle: "#0d9488",     // Teal 600
+    background: "#eff1f5",  // Latte Base
+    foreground: "#4c4f69",  // Latte Text
+    accent: "#179299",      // Latte Teal
+    border: "#ccd0da",      // Latte Surface 0
+    userMessage: "#1e66f5", // Latte Blue
+    assistantMessage: "#179299", // Latte Teal
+    systemMessage: "#8839ef",    // Latte Mauve
+    error: "#d20f39",       // Latte Red
+    success: "#40a02b",     // Latte Green
+    warning: "#df8e1d",     // Latte Yellow
+    muted: "#8c8fa1",       // Latte Overlay 1
+    inputFocus: "#acb0be",  // Latte Surface 2
+    inputStreaming: "#9ca0b0", // Latte Overlay 0
+    userBubbleBg: "#e6e9ef",  // Latte Mantle
+    userBubbleFg: "#4c4f69",  // Latte Text
+    dim: "#acb0be",           // Latte Surface 2
+    scrollbarFg: "#9ca0b0",   // Latte Overlay 0
+    scrollbarBg: "#e6e9ef",   // Latte Mantle
+    codeBorder: "#ccd0da",    // Latte Surface 0
+    codeTitle: "#179299",     // Latte Teal
   },
 };
 
@@ -355,68 +462,75 @@ export function createCustomTheme(
 // ============================================================================
 
 /**
- * Light theme overrides for WCAG AA compliance and consistent "Atomic" aesthetic.
- */
-const lightThemeOverrides = {
-  accent:      "#0d9488", // Teal 600
-  muted:       "#64748b", // Slate 500
-  success:     "#16a34a", // Green 600
-  userMessage: "#2563eb", // Blue 600
-  warning:     "#d97706", // Amber 600
-  border:      "#cbd5e1", // Slate 300
-};
-
-/**
  * Create a theme-aware SyntaxStyle for markdown rendering.
- * Maps ThemeColors to markdown syntax scopes for OpenTUI's MarkdownRenderable.
+ * Uses Catppuccin palette colors per the style guide for syntax highlighting.
  */
 export function createMarkdownSyntaxStyle(colors: ThemeColors, isDark: boolean): SyntaxStyle {
-  const c = isDark ? {
-    accent: colors.accent,
-    muted: colors.muted,
-    success: colors.success,
-    userMessage: colors.userMessage,
-    warning: colors.warning,
-    border: colors.border,
-    foreground: colors.foreground,
+  // Catppuccin syntax colors following docs/style-guide.md
+  const s = isDark ? {
+    heading:  "#94e2d5", // Mocha Teal (accent)
+    keyword:  "#cba6f7", // Mocha Mauve
+    string:   "#a6e3a1", // Mocha Green
+    comment:  "#9399b2", // Mocha Overlay 2
+    variable: "#cdd6f4", // Mocha Text
+    func:     "#89b4fa", // Mocha Blue
+    number:   "#fab387", // Mocha Peach
+    type:     "#f9e2af", // Mocha Yellow
+    operator: "#89dceb", // Mocha Sky
+    punct:    "#9399b2", // Mocha Overlay 2
+    property: "#89b4fa", // Mocha Blue
+    link:     "#89b4fa", // Mocha Blue
+    list:     "#45475a", // Mocha Surface 1
+    raw:      "#6c7086", // Mocha Overlay 0
+    bool:     "#fab387", // Mocha Peach
+    constant: "#fab387", // Mocha Peach
   } : {
-    accent: lightThemeOverrides.accent,
-    muted: lightThemeOverrides.muted,
-    success: lightThemeOverrides.success,
-    userMessage: lightThemeOverrides.userMessage,
-    warning: lightThemeOverrides.warning,
-    border: lightThemeOverrides.border,
-    foreground: colors.foreground,
+    heading:  "#179299", // Latte Teal (accent)
+    keyword:  "#8839ef", // Latte Mauve
+    string:   "#40a02b", // Latte Green
+    comment:  "#7c7f93", // Latte Overlay 2
+    variable: "#4c4f69", // Latte Text
+    func:     "#1e66f5", // Latte Blue
+    number:   "#fe640b", // Latte Peach
+    type:     "#df8e1d", // Latte Yellow
+    operator: "#04a5e5", // Latte Sky
+    punct:    "#7c7f93", // Latte Overlay 2
+    property: "#1e66f5", // Latte Blue
+    link:     "#1e66f5", // Latte Blue
+    list:     "#ccd0da", // Latte Surface 0
+    raw:      "#8c8fa1", // Latte Overlay 1
+    bool:     "#fe640b", // Latte Peach
+    constant: "#fe640b", // Latte Peach
   };
 
   return SyntaxStyle.fromStyles({
-    "markup.heading.1": { fg: RGBA.fromHex(c.accent), bold: true },
-    "markup.heading.2": { fg: RGBA.fromHex(c.accent), bold: true },
-    "markup.heading.3": { fg: RGBA.fromHex(c.accent), bold: true },
-    "markup.heading.4": { fg: RGBA.fromHex(c.accent) },
-    "markup.heading.5": { fg: RGBA.fromHex(c.accent) },
-    "markup.heading.6": { fg: RGBA.fromHex(c.accent), dim: true },
-    "markup.raw": { fg: RGBA.fromHex(c.muted) },
-    "markup.list": { fg: RGBA.fromHex(c.border) },
-    "markup.link": { fg: RGBA.fromHex(c.userMessage), underline: true },
+    "markup.heading.1": { fg: RGBA.fromHex(s.heading), bold: true },
+    "markup.heading.2": { fg: RGBA.fromHex(s.heading), bold: true },
+    "markup.heading.3": { fg: RGBA.fromHex(s.heading), bold: true },
+    "markup.heading.4": { fg: RGBA.fromHex(s.heading) },
+    "markup.heading.5": { fg: RGBA.fromHex(s.heading) },
+    "markup.heading.6": { fg: RGBA.fromHex(s.heading), dim: true },
+    "markup.raw": { fg: RGBA.fromHex(s.raw) },
+    "markup.list": { fg: RGBA.fromHex(s.list) },
+    "markup.link": { fg: RGBA.fromHex(s.link), underline: true },
     "markup.strong": { bold: true },
     "markup.italic": { italic: true },
     "markup.strikethrough": {},
-    "punctuation.special": { fg: RGBA.fromHex(c.muted) },
-    "conceal": { fg: RGBA.fromHex(c.muted) },
-    keyword: { fg: RGBA.fromHex(c.accent), bold: true },
-    string: { fg: RGBA.fromHex(c.success) },
-    comment: { fg: RGBA.fromHex(c.muted), italic: true },
-    variable: { fg: RGBA.fromHex(c.foreground) },
-    "function": { fg: RGBA.fromHex(c.userMessage) },
-    number: { fg: RGBA.fromHex(c.warning) },
-    type: { fg: RGBA.fromHex(c.accent) },
-    operator: { fg: RGBA.fromHex(c.foreground) },
-    punctuation: { fg: RGBA.fromHex(c.muted) },
-    constant: { fg: RGBA.fromHex(c.warning) },
-    property: { fg: RGBA.fromHex(c.foreground) },
-    boolean: { fg: RGBA.fromHex(c.warning) },
-    default: { fg: RGBA.fromHex(c.foreground) },
+    "punctuation.special": { fg: RGBA.fromHex(s.punct) },
+    "conceal": { fg: RGBA.fromHex(s.raw) },
+    keyword: { fg: RGBA.fromHex(s.keyword), bold: true },
+    string: { fg: RGBA.fromHex(s.string) },
+    comment: { fg: RGBA.fromHex(s.comment), italic: true },
+    variable: { fg: RGBA.fromHex(s.variable) },
+    "function": { fg: RGBA.fromHex(s.func) },
+    number: { fg: RGBA.fromHex(s.number) },
+    type: { fg: RGBA.fromHex(s.type) },
+    operator: { fg: RGBA.fromHex(s.operator) },
+    punctuation: { fg: RGBA.fromHex(s.punct) },
+    constant: { fg: RGBA.fromHex(s.constant) },
+    property: { fg: RGBA.fromHex(s.property) },
+    boolean: { fg: RGBA.fromHex(s.bool) },
+    default: { fg: RGBA.fromHex(s.variable) },
   });
 }
 
@@ -430,4 +544,7 @@ export default {
   getThemeByName,
   getMessageColor,
   createCustomTheme,
+  catppuccinMocha,
+  catppuccinLatte,
+  getCatppuccinPalette,
 };

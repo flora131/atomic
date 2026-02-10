@@ -77,7 +77,6 @@ import { formatDuration } from "./utils/format.ts";
  */
 function getMentionSuggestions(input: string): CommandDefinition[] {
   const suggestions: CommandDefinition[] = [];
-
   // File/directory suggestions - always search
   try {
     const cwd = process.cwd();
@@ -111,8 +110,13 @@ function getMentionSuggestions(input: string): CommandDefinition[] {
         if (!a.isDirectory() && b.isDirectory()) return 1;
         return a.name.localeCompare(b.name);
       });
-    const fileMatches = filtered
-      .slice(0, 10)
+    // Ensure both directories and files are represented in results
+    const dirs = filtered.filter(e => e.isDirectory());
+    const files = filtered.filter(e => !e.isDirectory());
+    const maxDirs = Math.min(dirs.length, 7);
+    const maxFiles = Math.min(files.length, 15 - maxDirs);
+    const mixed = [...dirs.slice(0, maxDirs), ...files.slice(0, maxFiles)];
+    const fileMatches = mixed
       .map(e => ({
         name: `${pathPrefix}${e.name}${e.isDirectory() ? "/" : ""}`,
         description: "",
@@ -3383,9 +3387,13 @@ export function ChatApp({
         // to prevent the textarea's built-in "return → submit" key binding from firing.
         // Ctrl+J (linefeed without shift) also inserts newline as a universal fallback
         // for terminals that don't support the Kitty keyboard protocol.
+        // Fallback: some terminals send Shift+Enter as a Kitty-protocol escape sequence
+        // that gets misinterpreted (e.g., "/" extracted from the CSI sequence).
+        // Detect by checking event.raw for Enter codepoint (13/10) with a modifier.
         if (
           ((event.name === "return" || event.name === "linefeed") && (event.shift || event.meta)) ||
-          (event.name === "linefeed" && !event.ctrl && !event.shift && !event.meta)
+          (event.name === "linefeed" && !event.ctrl && !event.shift && !event.meta) ||
+          (event.name !== "return" && event.name !== "linefeed" && event.raw?.endsWith("u") && /^\x1b\[(?:13|10)/.test(event.raw) && event.raw.includes(";"))
         ) {
           const textarea = textareaRef.current;
           if (textarea) {
@@ -3524,6 +3532,8 @@ export function ChatApp({
               void executeCommand(selectedCommand.name, "");
             }
           }
+          // Prevent textarea's built-in "return → submit" from firing
+          event.stopPropagation();
           return;
         }
 
@@ -3744,16 +3754,20 @@ export function ChatApp({
     if (initialPrompt && !initialPromptSentRef.current) {
       initialPromptSentRef.current = true;
 
-      // Route slash commands through the command system for proper validation
-      const parsed = parseSlashCommand(initialPrompt);
-      if (parsed.isCommand) {
-        addMessage("user", initialPrompt);
-        void executeCommand(parsed.name, parsed.args);
-        return;
-      }
+      // Defer to next tick to ensure all effects have settled
+      // and the component is fully initialized
+      setTimeout(() => {
+        // Route slash commands through the command system for proper validation
+        const parsed = parseSlashCommand(initialPrompt);
+        if (parsed.isCommand) {
+          addMessage("user", initialPrompt);
+          void executeCommand(parsed.name, parsed.args);
+          return;
+        }
 
-      const { message: processed } = processFileMentions(initialPrompt);
-      sendMessage(processed);
+        const { message: processed } = processFileMentions(initialPrompt);
+        sendMessage(processed);
+      }, 0);
     }
   }, [initialPrompt, sendMessage, addMessage, executeCommand]);
 

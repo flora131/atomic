@@ -1700,7 +1700,9 @@ export function ChatApp({
 
     // Update persistent todo panel when TodoWrite is called
     if (toolName === "TodoWrite" && input.todos && Array.isArray(input.todos)) {
-      setTodoItems(input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>);
+      const todos = input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>;
+      todoItemsRef.current = todos;
+      setTodoItems(todos);
     }
   }, [streamingState]);
 
@@ -1755,7 +1757,9 @@ export function ChatApp({
 
     // Update persistent todo panel when TodoWrite completes (handles late input)
     if (input && input.todos && Array.isArray(input.todos)) {
-      setTodoItems(input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>);
+      const todos = input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>;
+      todoItemsRef.current = todos;
+      setTodoItems(todos);
     }
   }, [streamingState]);
 
@@ -1896,7 +1900,7 @@ export function ChatApp({
                   if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
                     return [
                       ...prev.slice(0, -1),
-                      { ...lastMsg, streaming: false, completedAt: new Date(), parallelAgents: finalizedAgents, taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status, blockedBy: t.blockedBy })) : undefined },
+                      { ...lastMsg, streaming: false, completedAt: new Date(), parallelAgents: finalizedAgents, taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" ? "completed" : t.status, blockedBy: t.blockedBy })) : undefined },
                     ];
                   }
                   return prev;
@@ -1910,7 +1914,7 @@ export function ChatApp({
                 if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
                   return [
                     ...prev.slice(0, -1),
-                    { ...lastMsg, streaming: false, completedAt: new Date(), taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status, blockedBy: t.blockedBy })) : undefined },
+                    { ...lastMsg, streaming: false, completedAt: new Date(), taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" ? "completed" : t.status, blockedBy: t.blockedBy })) : undefined },
                   ];
                 }
                 return prev;
@@ -2547,7 +2551,7 @@ export function ChatApp({
                           tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                         ),
                         parallelAgents: finalizedAgents,
-                        taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status, blockedBy: t.blockedBy })) : undefined,
+                        taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" ? "completed" : t.status, blockedBy: t.blockedBy })) : undefined,
                       }
                       : msg
                   )
@@ -3831,7 +3835,7 @@ export function ChatApp({
                         tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                       ),
                       parallelAgents: finalizedAgents,
-                      taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status, blockedBy: t.blockedBy })) : undefined,
+                      taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" ? "completed" : t.status, blockedBy: t.blockedBy })) : undefined,
                     }
                     : msg
                 )

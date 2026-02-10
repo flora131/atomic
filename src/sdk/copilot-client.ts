@@ -718,10 +718,42 @@ export class CopilotClient implements CodingAgentClient {
       join(HOME, ".opencode", "skills"),
     ].filter((dir) => existsSync(dir));
 
+    // Strip provider prefix from model ID (e.g. "github-copilot/claude-opus-4.6-fast" → "claude-opus-4.6-fast")
+    const resolvedModel = config.model ? stripProviderPrefix(config.model) : undefined;
+
+    // Resolve context window and reasoning effort support from listModels() BEFORE session creation
+    let contextWindow: number | null = null;
+    let modelSupportsReasoning = false;
+    try {
+      const models = await this.sdkClient.listModels();
+      if (models?.length) {
+        const matched = resolvedModel
+          ? models.find((m: { id?: string }) => m.id === resolvedModel)
+          : null;
+        const targetModel = matched ?? models[0];
+        const caps = (targetModel as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
+        const limits = caps?.limits as Record<string, unknown> | undefined;
+        const maxCtx = limits?.max_context_window_tokens as number | undefined;
+        if (maxCtx) {
+          contextWindow = maxCtx;
+        }
+        // Check if model supports reasoning effort
+        const supports = caps?.supports as Record<string, unknown> | undefined;
+        modelSupportsReasoning = supports?.reasoningEffort === true;
+      }
+    } catch {
+      // Fall through - contextWindow stays null
+    }
+    if (contextWindow === null) {
+      throw new Error("Failed to resolve context window size from Copilot SDK listModels()");
+    }
+
     const sdkConfig: SdkSessionConfig = {
       sessionId: config.sessionId,
-      model: config.model,
-      reasoningEffort: config.reasoningEffort as SdkSessionConfig["reasoningEffort"],
+      model: resolvedModel,
+      reasoningEffort: modelSupportsReasoning
+        ? config.reasoningEffort as SdkSessionConfig["reasoningEffort"]
+        : undefined,
       systemMessage: config.systemPrompt
         ? { mode: "append", content: config.systemPrompt }
         : undefined,
@@ -764,30 +796,6 @@ export class CopilotClient implements CodingAgentClient {
     };
 
     const sdkSession = await this.sdkClient.createSession(sdkConfig);
-
-    // Eagerly resolve context window size from listModels()
-    let contextWindow: number | null = null;
-    try {
-      const models = await this.sdkClient.listModels();
-      if (models?.length) {
-        const activeModelId = config.model ? stripProviderPrefix(config.model) : null;
-        const matched = activeModelId
-          ? models.find((m: { id?: string }) => m.id === activeModelId || m.id === config.model)
-          : null;
-        const targetModel = matched ?? models[0];
-        const caps = (targetModel as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
-        const limits = caps?.limits as Record<string, unknown> | undefined;
-        const maxCtx = limits?.max_context_window_tokens as number | undefined;
-        if (maxCtx) {
-          contextWindow = maxCtx;
-        }
-      }
-    } catch {
-      // Fall through - contextWindow stays null
-    }
-    if (contextWindow === null) {
-      throw new Error("Failed to resolve context window size from Copilot SDK listModels()");
-    }
 
     const session = this.wrapSession(sdkSession, config);
 

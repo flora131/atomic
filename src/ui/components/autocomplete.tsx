@@ -177,7 +177,8 @@ export function Autocomplete({
     if (externalSuggestions) return externalSuggestions;
 
     // Search for commands matching the input prefix
-    const matches = globalRegistry.search(input);
+    // Filter out agents - they are only accessible via @ mentions, not slash commands
+    const matches = globalRegistry.search(input).filter(cmd => cmd.category !== "agent");
 
     // Return all matches - scrollbox handles overflow display
     return matches;

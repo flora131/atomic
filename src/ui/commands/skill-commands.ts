@@ -1074,7 +1074,7 @@ Remember to:
   },
   {
     name: "prompt-engineer",
-    description: "Create, improve, or optimize prompts for Claude using best practices",
+    description: "Skill: Create, improve, or optimize prompts for Claude using best practices",
     aliases: ["prompt"],
     argumentHint: "<prompt-description>",
     requiredArguments: ["prompt-description"],
@@ -1251,7 +1251,7 @@ Prompt engineering is iterative. Small changes can have significant impacts. Tes
   },
   {
     name: "testing-anti-patterns",
-    description: "Identify and prevent testing anti-patterns when writing tests",
+    description: "Skill: Identify and prevent testing anti-patterns when writing tests",
     aliases: ["test-patterns"],
     prompt: `# Testing Anti-Patterns
 

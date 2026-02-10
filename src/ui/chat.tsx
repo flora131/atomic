@@ -2622,7 +2622,7 @@ export function ChatApp({
       getModelDisplayInfo,
     };
 
-    // Delayed spinner: show loading indicator if command takes >500ms
+    // Delayed spinner: show loading indicator if command takes >250ms
     // Uses flushSync to force an immediate render so the spinner is visible
     // before the command completes (OpenTUI defers renders via setTimeout,
     // so without flushSync both state updates could batch into one render).
@@ -2641,33 +2641,11 @@ export function ChatApp({
           setMessages((prev) => [...prev, msg]);
         });
       }
-    }, 500);
+    }, 250);
 
     try {
       // Execute the command (may be sync or async)
       const result = await Promise.resolve(command.execute(args, context));
-
-      // Clean up delayed spinner
-      clearTimeout(commandSpinnerTimer);
-      if (commandSpinnerShown && commandSpinnerMsgId) {
-        const msgId = commandSpinnerMsgId;
-        if (result.message) {
-          // Replace spinner message with result content
-          setMessages((prev) =>
-            prev.map((msg) =>
-              msg.id === msgId
-                ? { ...msg, content: result.message!, streaming: false }
-                : msg
-            )
-          );
-        } else {
-          // Remove spinner message when there's no result to show
-          setMessages((prev) => prev.filter((msg) => msg.id !== msgId));
-        }
-        isStreamingRef.current = false;
-        setIsStreaming(false);
-        streamingStartRef.current = null;
-      }
 
       // Handle destroySession flag (e.g., /clear)
       if (result.destroySession && onResetSession) {
@@ -2716,8 +2694,8 @@ export function ChatApp({
       }
 
       // Display message if present (as assistant message, not system)
-      // Skip if the delayed spinner already placed the message
-      if (result.message && !commandSpinnerShown) {
+      // Skip if the delayed spinner already placed the message (and messages weren't cleared)
+      if (result.message && (!commandSpinnerShown || result.clearMessages)) {
         addMessage("assistant", result.message);
       }
 
@@ -2803,6 +2781,28 @@ export function ChatApp({
         } else {
           setTheme(result.themeChange === "light" ? lightTheme : darkTheme);
         }
+      }
+
+      // Clean up delayed spinner after all async result handling
+      clearTimeout(commandSpinnerTimer);
+      if (commandSpinnerShown && commandSpinnerMsgId) {
+        const msgId = commandSpinnerMsgId;
+        if (result.message && !result.clearMessages) {
+          // Replace spinner message with result content
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === msgId
+                ? { ...msg, content: result.message!, streaming: false }
+                : msg
+            )
+          );
+        } else {
+          // Remove spinner message (either no result or messages will be cleared)
+          setMessages((prev) => prev.filter((msg) => msg.id !== msgId));
+        }
+        isStreamingRef.current = false;
+        setIsStreaming(false);
+        streamingStartRef.current = null;
       }
 
       return result.success;

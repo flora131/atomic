@@ -239,14 +239,9 @@ export const compactCommand: CommandDefinition = {
     }
 
     try {
-      // Show loading spinner during compaction
-      context.setStreaming(true);
-      context.addMessage("assistant", "");
-
       // Call the session's summarize method to compact context
+      // Loading spinner is handled automatically by executeCommand's delayed spinner
       await context.session.summarize();
-
-      context.setStreaming(false);
 
       // Clear visible messages after context compaction
       return {
@@ -256,7 +251,6 @@ export const compactCommand: CommandDefinition = {
         compactionSummary: "Conversation context was compacted to reduce token usage. Previous messages are summarized above.",
       };
     } catch (error) {
-      context.setStreaming(false);
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       return {
         success: false,

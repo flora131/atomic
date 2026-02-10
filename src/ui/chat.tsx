@@ -32,6 +32,7 @@ import {
   type ParallelAgent,
 } from "./components/parallel-agents-tree.tsx";
 import { TranscriptView } from "./components/transcript-view.tsx";
+import { appendToHistoryBuffer, readHistoryBuffer, clearHistoryBuffer } from "./utils/conversation-history-buffer.ts";
 import {
   SubagentSessionManager,
   type SubagentSpawnOptions as ManagerSpawnOptions,
@@ -2670,10 +2671,12 @@ export function ChatApp({
         setShowCompactionHistory(false);
         setParallelAgents([]);
         setTranscriptMode(false);
+        clearHistoryBuffer();
       }
 
-      // Handle clearMessages flag
+      // Handle clearMessages flag — persist history before clearing
       if (result.clearMessages) {
+        appendToHistoryBuffer(messages);
         setMessages([]);
       }
 
@@ -4073,7 +4076,7 @@ export function ChatApp({
       {/* Transcript mode: full-screen detailed view of thinking, tools, agents */}
       {transcriptMode ? (
         <TranscriptView
-          messages={messages}
+          messages={[...readHistoryBuffer(), ...messages]}
           liveThinkingText={streamingMeta?.thinkingText}
           liveParallelAgents={parallelAgents}
           modelId={model}

@@ -1848,6 +1848,9 @@ export function ChatApp({
         setIsStreaming(true);
         streamingMetaRef.current = null;
         setStreamingMeta(null);
+        // Clear stale todo items from previous turn
+        todoItemsRef.current = [];
+        setTodoItems([]);
 
         // Call the stream handler - this is async but we don't await it
         // The callbacks will handle state updates
@@ -2445,6 +2448,9 @@ export function ChatApp({
           streamingStartRef.current = Date.now();
           streamingMetaRef.current = null;
           setStreamingMeta(null);
+          // Clear stale todo items from previous turn
+          todoItemsRef.current = [];
+          setTodoItems([]);
 
           // Create placeholder assistant message for the response
           const assistantMessage = createMessage("assistant", "", true);
@@ -3725,6 +3731,9 @@ export function ChatApp({
         // Reset streaming metadata
         streamingMetaRef.current = null;
         setStreamingMeta(null);
+        // Clear stale todo items from previous turn
+        todoItemsRef.current = [];
+        setTodoItems([]);
 
         // Create placeholder assistant message
         const assistantMessage = createMessage("assistant", "", true);

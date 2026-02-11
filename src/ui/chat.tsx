@@ -20,7 +20,6 @@ import { MacOSScrollAccel, SyntaxStyle, RGBA } from "@opentui/core";
 import { useTheme, useThemeColors, darkTheme, lightTheme, createMarkdownSyntaxStyle } from "./theme.tsx";
 
 import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplete.tsx";
-import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
 import { ToolResult } from "./components/tool-result.tsx";
 import { SkillLoadIndicator } from "./components/skill-load-indicator.tsx";
 import { McpServerListIndicator } from "./components/mcp-server-list.tsx";
@@ -56,11 +55,13 @@ import { useMessageQueue } from "./hooks/use-message-queue.ts";
 import {
   globalRegistry,
   parseSlashCommand,
+  saveTasksToActiveSession,
   type CommandDefinition,
   type CommandContext,
   type CommandContextState,
   type CommandCategory,
 } from "./commands/index.ts";
+import { buildTaskListPreamble } from "../graph/nodes/ralph-nodes.ts";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import type { AskUserQuestionEventData } from "../graph/index.ts";
@@ -79,7 +80,26 @@ import { formatDuration } from "./utils/format.ts";
  */
 function getMentionSuggestions(input: string): CommandDefinition[] {
   const suggestions: CommandDefinition[] = [];
-  // File/directory suggestions - always search
+
+  // Agent suggestions first so they're visible at the top of the dropdown.
+  // Use substring matching (not just prefix) so e.g. "@researcher" finds
+  // "codebase-online-researcher" and "codebase-research-analyzer".
+  const searchKey = input.toLowerCase();
+  const allAgents = globalRegistry.all().filter(cmd => cmd.category === "agent");
+  const agentMatches = searchKey
+    ? allAgents.filter(cmd => cmd.name.toLowerCase().includes(searchKey))
+    : allAgents;
+  // Sort: prefix matches first, then substring matches, then alphabetical
+  agentMatches.sort((a, b) => {
+    const aPrefix = a.name.toLowerCase().startsWith(searchKey);
+    const bPrefix = b.name.toLowerCase().startsWith(searchKey);
+    if (aPrefix && !bPrefix) return -1;
+    if (!aPrefix && bPrefix) return 1;
+    return a.name.localeCompare(b.name);
+  });
+  suggestions.push(...agentMatches);
+
+  // File/directory suggestions after agents
   try {
     const cwd = process.cwd();
     let searchDir: string;
@@ -130,10 +150,6 @@ function getMentionSuggestions(input: string): CommandDefinition[] {
   } catch {
     // Silently fail for invalid paths
   }
-
-  // Agent suggestions - filter registry by "agent" category
-  const agentMatches = globalRegistry.search(input).filter(cmd => cmd.category === "agent");
-  suggestions.push(...agentMatches);
 
   return suggestions;
 }
@@ -558,7 +574,7 @@ export interface ChatAppProps {
   /** Model operations interface for listing, setting, and resolving models */
   modelOps?: ModelOperations;
   /** Callback to get model display info from the SDK client */
-  getModelDisplayInfo?: () => Promise<import("../sdk/types.ts").ModelDisplayInfo>;
+  getModelDisplayInfo?: (modelHint?: string) => Promise<import("../sdk/types.ts").ModelDisplayInfo>;
   /** Parallel agents currently running (for tree view display) */
   parallelAgents?: ParallelAgent[];
   /** Register callback to receive parallel agent updates */
@@ -572,6 +588,10 @@ export interface ChatAppProps {
   initialPrompt?: string;
   /** Callback when the active model changes (via /model command or model selector) */
   onModelChange?: (model: string) => void;
+  /** Raw model ID from session config, used to seed currentModelRef for accurate /context display */
+  initialModelId?: string;
+  /** Get system tools tokens from the client (pre-session fallback) */
+  getClientSystemToolsTokens?: () => number | null;
 }
 
 /**
@@ -607,7 +627,7 @@ export interface WorkflowChatState {
   /** Maximum number of iterations */
   maxIterations: number | undefined;
   /** Feature progress information */
-  featureProgress: FeatureProgress | null;
+  featureProgress: { completed: number; total: number; currentFeature?: string } | null;
 
   // Approval state for human-in-the-loop
   /** Whether waiting for user approval (spec approval, etc.) */
@@ -616,6 +636,8 @@ export interface WorkflowChatState {
   specApproved: boolean;
   /** User feedback when rejecting (passed back to workflow) */
   feedback: string | null;
+  /** Whether to clear the context window between workflow steps (e.g., after task decomposition) */
+  pendingContextClear: boolean;
 }
 
 /**
@@ -643,6 +665,7 @@ export const defaultWorkflowChatState: WorkflowChatState = {
   pendingApproval: false,
   specApproved: false,
   feedback: null,
+  pendingContextClear: false,
 };
 
 /**
@@ -726,7 +749,7 @@ export function formatTimestamp(isoString: string): string {
  * The scrollbox handles large message counts efficiently.
  * Messages are only cleared by /clear or /compact commands.
  */
-export const MAX_VISIBLE_MESSAGES = Infinity;
+export const MAX_VISIBLE_MESSAGES = 50;
 
 // ============================================================================
 // LOADING INDICATOR COMPONENT
@@ -969,6 +992,8 @@ function findMentionRanges(text: string): [number, number][] {
   while ((match = regex.exec(text)) !== null) {
     const start = match.index;
     const end = start + match[0].length;
+    const mentionName = match[1];
+    if (!mentionName) continue;
     // Check word boundary before @
     if (start > 0) {
       const charBefore = text[start - 1];
@@ -977,7 +1002,18 @@ function findMentionRanges(text: string): [number, number][] {
     // Check not inside backticks
     if (start > 0 && text[start - 1] === "`") continue;
     if (end < text.length && text[end] === "`") continue;
-    ranges.push([start, end]);
+    // Only highlight if mention resolves to an agent, file, or folder
+    const cmd = globalRegistry.get(mentionName);
+    if (cmd && cmd.category === "agent") {
+      ranges.push([start, end]);
+      continue;
+    }
+    try {
+      statSync(join(process.cwd(), mentionName));
+      ranges.push([start, end]);
+    } catch {
+      // Not a valid agent, file, or folder — skip highlighting
+    }
   }
   return ranges;
 }
@@ -1479,6 +1515,8 @@ export function ChatApp({
   createSubagentSession,
   initialPrompt,
   onModelChange,
+  initialModelId,
+  getClientSystemToolsTokens,
 }: ChatAppProps): React.ReactNode {
   // title and suggestion are deprecated, kept for backwards compatibility
   void _title;
@@ -1551,6 +1589,14 @@ export function ChatApp({
     return model; // Fallback to initial prop
   }, [currentModelDisplayName, model]);
 
+  // Track the effective model ID in a ref so closures always see the latest value.
+  // Prefer initialModelId (raw SDK model ID from session config) over model (display name)
+  // so that getModelDisplayInfo receives an actual model ID, not a display name like "claude-sonnet-4.5 (medium)".
+  const currentModelRef = useRef(initialModelId ?? model);
+  useEffect(() => {
+    currentModelRef.current = currentModelId ?? initialModelId ?? model;
+  }, [currentModelId, initialModelId, model]);
+
   // State for queue editing mode
   const [isEditingQueue, setIsEditingQueue] = useState(false);
 
@@ -1595,7 +1641,7 @@ export function ChatApp({
   const [showCompactionHistory, setShowCompactionHistory] = useState(false);
   // TodoWrite persistent state
   const [todoItems, setTodoItems] = useState<Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>>([]);
-  const todoItemsRef = useRef<Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; blockedBy?: string[]}>>([]);
+  const todoItemsRef = useRef<Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>>([]);
   const [showTodoPanel, setShowTodoPanel] = useState(true);
   // Whether task list items are expanded (full content, no truncation)
   const [tasksExpanded, setTasksExpanded] = useState(false);
@@ -1644,6 +1690,12 @@ export function ChatApp({
   // if it no longer matches, preventing stale callbacks from corrupting a
   // newer stream's state (e.g., after round-robin injection).
   const streamGenerationRef = useRef(0);
+  // Ref to track whether any tool call is currently running (synchronous check
+  // for keyboard handler to avoid stale closure issues with React state).
+  const hasRunningToolRef = useRef(false);
+  // Ref to hold user messages that were dequeued and added to chat context
+  // during tool execution. handleComplete checks this before the regular queue.
+  const toolContextMessagesRef = useRef<string[]>([]);
   // Ref for scrollbox to enable programmatic scrolling
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
 
@@ -1701,6 +1753,8 @@ export function ChatApp({
   ) => {
     // Update streaming state
     streamingState.handleToolStart(toolId, toolName, input);
+    // Track that a tool is running (synchronous ref for keyboard handler)
+    hasRunningToolRef.current = true;
 
     // Add tool call to current streaming message, capturing content offset
     // Deduplicate: if a tool call with the same ID already exists, skip adding
@@ -1762,8 +1816,8 @@ export function ChatApp({
     // Update tool call in current streaming message
     const messageId = streamingMessageIdRef.current;
     if (messageId) {
-      setMessages((prev) =>
-        prev.map((msg) => {
+      setMessages((prev) => {
+        const updated = prev.map((msg) => {
           if (msg.id === messageId && msg.toolCalls) {
             return {
               ...msg,
@@ -1785,8 +1839,16 @@ export function ChatApp({
             };
           }
           return msg;
-        })
-      );
+        });
+
+        // Update hasRunningToolRef: check if any tool calls are still running
+        // in the current streaming message after this completion.
+        const streamMsg = updated.find((msg) => msg.id === messageId);
+        const stillRunning = streamMsg?.toolCalls?.some((tc) => tc.status === "running") ?? false;
+        hasRunningToolRef.current = stillRunning;
+
+        return updated;
+      });
     }
 
     // Update persistent todo panel when TodoWrite completes (handles late input)
@@ -1865,6 +1927,7 @@ export function ChatApp({
 
   // Auto-start workflow when workflowActive becomes true with an initialPrompt
   // This handles the transition from /ralph command to actual workflow execution
+  // When pendingContextClear is true, clears the session between step 1 and step 2
   const workflowStartedRef = useRef<string | null>(null);
   useEffect(() => {
     // Only trigger if:
@@ -1883,98 +1946,149 @@ export function ChatApp({
 
       // Small delay to ensure state is settled before sending
       const timeoutId = setTimeout(() => {
-        // Increment stream generation so stale handleComplete callbacks become no-ops
-        const currentGeneration = ++streamGenerationRef.current;
-        // Set streaming BEFORE calling onStreamMessage to prevent race conditions
-        setIsStreaming(true);
-        streamingMetaRef.current = null;
-        setStreamingMeta(null);
-        // Clear stale todo items from previous turn
-        todoItemsRef.current = [];
-        setTodoItems([]);
+        // Guard: if another stream started during the delay (e.g., dequeued message), bail
+        if (isStreamingRef.current) return;
 
-        // Call the stream handler - this is async but we don't await it
-        // The callbacks will handle state updates
-        onStreamMessage?.(
-          workflowState.initialPrompt!,
-          // onChunk: append to current message
-          (chunk) => {
-            // Drop chunks from stale streams (round-robin replaced this stream)
-            if (streamGenerationRef.current !== currentGeneration) return;
-            setMessages((prev) => {
-              const lastMsg = prev[prev.length - 1];
-              if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...lastMsg, content: lastMsg.content + chunk },
-                ];
+        void (async () => {
+          try {
+            let promptToSend = workflowState.initialPrompt!;
+
+            // Handle context clearing between workflow steps (e.g., /ralph step 1 → step 2)
+            if (workflowState.pendingContextClear) {
+              // Save current todo items before clearing (use ref for up-to-date value)
+              const savedTodos = todoItemsRef.current.map(t => ({ ...t }));
+
+              // Save tasks to session directory for persistence/resume
+              if (savedTodos.length > 0) {
+                void saveTasksToActiveSession(savedTodos);
               }
-              // Create new streaming message
-              const newMessage: ChatMessage = {
-                id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                role: "assistant",
-                content: chunk,
-                timestamp: new Date().toISOString(),
-                streaming: true,
-                toolCalls: [],
-              };
-              streamingMessageIdRef.current = newMessage.id;
-              return [...prev, newMessage];
-            });
-          },
-          // onComplete: mark message as complete, finalize parallel agents
-          () => {
-            // Stale generation guard: if a newer stream started, this callback is a no-op
-            if (streamGenerationRef.current !== currentGeneration) return;
-            // Finalize any still-running parallel agents and bake into message
-            setParallelAgents((currentAgents) => {
-              if (currentAgents.length > 0) {
-                const finalizedAgents = currentAgents.map((a) =>
-                  a.status === "running" || a.status === "pending"
-                    ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                    : a
-                );
-                // Bake finalized agents into the message
-                setMessages((prev) => {
-                  const lastMsg = prev[prev.length - 1];
-                  if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
-                    return [
-                      ...prev.slice(0, -1),
-                      { ...lastMsg, streaming: false, completedAt: new Date(), parallelAgents: finalizedAgents, taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined },
-                    ];
-                  }
-                  return prev;
-                });
-                // Clear live agents since they're now baked into the message
+
+              // Clear the SDK session (destroy context window)
+              if (onResetSession) {
+                await onResetSession();
+              }
+
+              // Clear UI state but preserve todo items
+              setMessages((prev) => {
+                appendToHistoryBuffer(prev);
                 return [];
+              });
+              setCompactionSummary(null);
+              setShowCompactionHistory(false);
+              setParallelAgents([]);
+
+              // Restore todo items so the task list UI remains visible
+              todoItemsRef.current = savedTodos;
+              setTodoItems(savedTodos);
+
+              // Update workflow state: clear the pending flag (use partial update to avoid stale state)
+              updateWorkflowState({ pendingContextClear: false });
+
+              // Prepend task list to the prompt so the agent has context and can reload via TodoWrite
+              if (savedTodos.length > 0) {
+                promptToSend = buildTaskListPreamble(savedTodos) + promptToSend;
               }
-              // No agents — just finalize the message normally
+            } else {
+              // Normal case: clear stale todo items from previous turn
+              todoItemsRef.current = [];
+              setTodoItems([]);
+            }
+
+          // Increment stream generation so stale handleComplete callbacks become no-ops
+          const currentGeneration = ++streamGenerationRef.current;
+          // Set streaming BEFORE calling onStreamMessage to prevent race conditions
+          setIsStreaming(true);
+          streamingMetaRef.current = null;
+          setStreamingMeta(null);
+
+          // Call the stream handler - this is async but we don't await it
+          // The callbacks will handle state updates
+          onStreamMessage?.(
+            promptToSend,
+            // onChunk: append to current message
+            (chunk) => {
+              // Drop chunks from stale streams (round-robin replaced this stream)
+              if (streamGenerationRef.current !== currentGeneration) return;
               setMessages((prev) => {
                 const lastMsg = prev[prev.length - 1];
                 if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
                   return [
                     ...prev.slice(0, -1),
-                    { ...lastMsg, streaming: false, completedAt: new Date(), taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined },
+                    { ...lastMsg, content: lastMsg.content + chunk },
                   ];
                 }
-                return prev;
+                // Create new streaming message
+                const newMessage: ChatMessage = {
+                  id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                  role: "assistant",
+                  content: chunk,
+                  timestamp: new Date().toISOString(),
+                  streaming: true,
+                  toolCalls: [],
+                };
+                streamingMessageIdRef.current = newMessage.id;
+                return [...prev, newMessage];
               });
-              return currentAgents;
-            });
-            streamingMessageIdRef.current = null;
+            },
+            // onComplete: mark message as complete, finalize parallel agents
+            () => {
+              // Stale generation guard: if a newer stream started, this callback is a no-op
+              if (streamGenerationRef.current !== currentGeneration) return;
+              // Finalize any still-running parallel agents and bake into message
+              setParallelAgents((currentAgents) => {
+                if (currentAgents.length > 0) {
+                  const finalizedAgents = currentAgents.map((a) =>
+                    a.status === "running" || a.status === "pending"
+                      ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+                      : a
+                  );
+                  // Bake finalized agents into the message
+                  setMessages((prev) => {
+                    const lastMsg = prev[prev.length - 1];
+                    if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
+                      return [
+                        ...prev.slice(0, -1),
+                        { ...lastMsg, streaming: false, completedAt: new Date(), parallelAgents: finalizedAgents, taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined },
+                      ];
+                    }
+                    return prev;
+                  });
+                  // Clear live agents since they're now baked into the message
+                  return [];
+                }
+                // No agents — just finalize the message normally
+                setMessages((prev) => {
+                  const lastMsg = prev[prev.length - 1];
+                  if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
+                    return [
+                      ...prev.slice(0, -1),
+                      { ...lastMsg, streaming: false, completedAt: new Date(), taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined },
+                    ];
+                  }
+                  return prev;
+                });
+                return currentAgents;
+              });
+              streamingMessageIdRef.current = null;
+              setIsStreaming(false);
+            },
+            // onMeta: update streaming metadata
+            (meta: StreamingMeta) => {
+              streamingMetaRef.current = meta;
+              setStreamingMeta(meta);
+            }
+          );
+          } catch (error) {
+            // Prevent unhandled errors from crashing the TUI
+            console.error("[workflow auto-start] Error during context clear or streaming:", error);
             setIsStreaming(false);
-          },
-          // onMeta: update streaming metadata
-          (meta: StreamingMeta) => {
-            streamingMetaRef.current = meta;
-            setStreamingMeta(meta);
           }
-        );
+        })();
       }, 100);
 
       return () => clearTimeout(timeoutId);
     }
-  }, [workflowState.workflowActive, workflowState.initialPrompt, isStreaming, onStreamMessage]);
+  }, [workflowState.workflowActive, workflowState.initialPrompt, workflowState.pendingContextClear, isStreaming, onStreamMessage]);
 
   // Reset workflow started ref when workflow becomes inactive
   useEffect(() => {
@@ -2145,7 +2259,7 @@ export function ChatApp({
                 ...msg,
                 streaming: false,
                 durationMs,
-                modelId: model,
+                modelId: currentModelRef.current,
                 outputTokens: finalMeta?.outputTokens,
                 thinkingMs: finalMeta?.thinkingMs,
                 thinkingText: finalMeta?.thinkingText || undefined,
@@ -2187,9 +2301,11 @@ export function ChatApp({
     const manager = new SubagentSessionManager({
       createSession: createSubagentSession,
       onStatusUpdate: (agentId, update) => {
-        setParallelAgents((prev) =>
-          prev.map((a) => (a.id === agentId ? { ...a, ...update } : a))
-        );
+        setParallelAgents((prev) => {
+          const next = prev.map((a) => (a.id === agentId ? { ...a, ...update } : a));
+          parallelAgentsRef.current = next;
+          return next;
+        });
       },
     });
 
@@ -2278,7 +2394,7 @@ export function ChatApp({
   const _updateWorkflowProgress = useCallback((updates: {
     currentNode?: string | null;
     iteration?: number;
-    featureProgress?: FeatureProgress | null;
+    featureProgress?: { completed: number; total: number; currentFeature?: string } | null;
   }) => {
     updateWorkflowState(updates);
   }, [updateWorkflowState]);
@@ -2586,6 +2702,8 @@ export function ChatApp({
           // Clear stale todo items from previous turn
           todoItemsRef.current = [];
           setTodoItems([]);
+          // Reset tool tracking for the new stream
+          hasRunningToolRef.current = false;
 
           // Create placeholder assistant message for the response
           const assistantMessage = createMessage("assistant", "", true);
@@ -2626,7 +2744,7 @@ export function ChatApp({
                 setMessages((prev: ChatMessage[]) =>
                   prev.map((msg: ChatMessage) =>
                     msg.id === messageId
-                      ? { ...msg, streaming: false, durationMs, modelId: model, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs, thinkingText: finalMeta?.thinkingText || undefined }
+                      ? { ...msg, streaming: false, durationMs, modelId: currentModelRef.current, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs, thinkingText: finalMeta?.thinkingText || undefined }
                       : msg
                   )
                 );
@@ -2638,14 +2756,25 @@ export function ChatApp({
               isStreamingRef.current = false;
               setIsStreaming(false);
               setStreamingMeta(null);
+              hasRunningToolRef.current = false;
 
-              const nextMessage = messageQueue.dequeue();
-              if (nextMessage) {
+              // Check for messages added to chat context during tool execution first
+              const toolCtxMsg = toolContextMessagesRef.current.shift();
+              if (toolCtxMsg) {
                 setTimeout(() => {
                   if (sendMessageRef.current) {
-                    sendMessageRef.current(nextMessage.content);
+                    sendMessageRef.current(toolCtxMsg, { skipUserMessage: true });
                   }
                 }, 50);
+              } else {
+                const nextMessage = messageQueue.dequeue();
+                if (nextMessage) {
+                  setTimeout(() => {
+                    if (sendMessageRef.current) {
+                      sendMessageRef.current(nextMessage.content);
+                    }
+                  }, 50);
+                }
               }
               return;
             }
@@ -2678,7 +2807,7 @@ export function ChatApp({
                         ...msg,
                         streaming: false,
                         durationMs,
-                        modelId: model,
+                        modelId: currentModelRef.current,
                         outputTokens: finalMeta?.outputTokens,
                         thinkingMs: finalMeta?.thinkingMs,
                         thinkingText: finalMeta?.thinkingText || undefined,
@@ -2702,14 +2831,25 @@ export function ChatApp({
             isStreamingRef.current = false;
             setIsStreaming(false);
             setStreamingMeta(null);
+            hasRunningToolRef.current = false;
 
-            const nextMessage = messageQueue.dequeue();
-            if (nextMessage) {
+            // Check for messages added to chat context during tool execution first
+            const toolCtxMessage = toolContextMessagesRef.current.shift();
+            if (toolCtxMessage) {
               setTimeout(() => {
                 if (sendMessageRef.current) {
-                  sendMessageRef.current(nextMessage.content);
+                  sendMessageRef.current(toolCtxMessage, { skipUserMessage: true });
                 }
               }, 50);
+            } else {
+              const nextMessage = messageQueue.dequeue();
+              if (nextMessage) {
+                setTimeout(() => {
+                  if (sendMessageRef.current) {
+                    sendMessageRef.current(nextMessage.content);
+                  }
+                }, 50);
+              }
             }
           };
 
@@ -2743,7 +2883,11 @@ export function ChatApp({
           startedAt: new Date().toISOString(),
           model: options.model,
         };
-        setParallelAgents((prev) => [...prev, parallelAgent]);
+        setParallelAgents((prev) => {
+          const next = [...prev, parallelAgent];
+          parallelAgentsRef.current = next;
+          return next;
+        });
 
         // Delegate to SubagentSessionManager for independent session execution
         const spawnOptions: ManagerSpawnOptions = {
@@ -2765,7 +2909,13 @@ export function ChatApp({
       },
       agentType,
       modelOps,
-      getModelDisplayInfo,
+      getModelDisplayInfo: getModelDisplayInfo
+        ? async () => {
+          const currentModel = modelOps?.getPendingModel?.() ?? await modelOps?.getCurrentModel() ?? currentModelRef.current;
+          return getModelDisplayInfo(currentModel);
+        }
+        : undefined,
+      getClientSystemToolsTokens,
     };
 
     // Delayed spinner: show loading indicator if command takes >250ms
@@ -2833,6 +2983,7 @@ export function ChatApp({
           pendingApproval: result.stateUpdate.pendingApproval !== undefined ? result.stateUpdate.pendingApproval : workflowState.pendingApproval,
           specApproved: result.stateUpdate.specApproved !== undefined ? result.stateUpdate.specApproved : workflowState.specApproved,
           feedback: result.stateUpdate.feedback !== undefined ? result.stateUpdate.feedback : workflowState.feedback,
+          pendingContextClear: result.stateUpdate.pendingContextClear !== undefined ? result.stateUpdate.pendingContextClear : workflowState.pendingContextClear,
         });
 
         // Also update isStreaming if specified
@@ -2843,6 +2994,8 @@ export function ChatApp({
         // Notify parent when model changes via /model command
         const modelUpdate = (result.stateUpdate as Record<string, unknown>).model;
         if (typeof modelUpdate === "string") {
+          setCurrentModelId(modelUpdate);
+          setCurrentModelDisplayName(modelUpdate);
           onModelChange?.(modelUpdate);
         }
       }
@@ -3341,12 +3494,23 @@ export function ChatApp({
         }
 
         // Ctrl+D - enqueue message (round-robin) during streaming
+        // When a tool call is executing, dequeue immediately and add the
+        // user prompt to the chat context so it's visible while waiting.
         if (event.ctrl && event.name === "d") {
           if (isStreamingRef.current) {
             const textarea = textareaRef.current;
             const value = textarea?.plainText?.trim() ?? "";
             if (value) {
-              messageQueue.enqueue(value);
+              if (hasRunningToolRef.current) {
+                // Tool is running — add user message to chat context immediately
+                // and store for sending when the stream completes.
+                const userMsg = createMessage("user", value);
+                setMessages((prev) => [...prev, userMsg]);
+                toolContextMessagesRef.current.push(value);
+              } else {
+                // No tool running — enqueue for later (existing behavior)
+                messageQueue.enqueue(value);
+              }
               // Clear textarea
               if (textarea) {
                 textarea.gotoBufferHome();
@@ -3433,6 +3597,9 @@ export function ChatApp({
             // Stop streaming state immediately so UI reflects interrupted state
             isStreamingRef.current = false;
             setIsStreaming(false);
+            hasRunningToolRef.current = false;
+            // Discard any tool-context messages on interrupt — they won't be sent
+            toolContextMessagesRef.current = [];
 
             // Cancel running sub-agents (from SubagentSessionManager)
             if (subagentManagerRef.current) {
@@ -3908,6 +4075,8 @@ export function ChatApp({
         // Clear stale todo items from previous turn
         todoItemsRef.current = [];
         setTodoItems([]);
+        // Reset tool tracking for the new stream
+        hasRunningToolRef.current = false;
 
         // Create placeholder assistant message
         const assistantMessage = createMessage("assistant", "", true);
@@ -3951,7 +4120,7 @@ export function ChatApp({
               setMessages((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
                   msg.id === messageId
-                    ? { ...msg, streaming: false, durationMs, modelId: model, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs, thinkingText: finalMeta?.thinkingText || undefined }
+                    ? { ...msg, streaming: false, durationMs, modelId: currentModelRef.current, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs, thinkingText: finalMeta?.thinkingText || undefined }
                     : msg
                 )
               );
@@ -3963,12 +4132,21 @@ export function ChatApp({
             isStreamingRef.current = false;
             setIsStreaming(false);
             setStreamingMeta(null);
+            hasRunningToolRef.current = false;
 
-            const nextMessage = messageQueue.dequeue();
-            if (nextMessage) {
+            // Check for messages added to chat context during tool execution first
+            const toolCtxMsg = toolContextMessagesRef.current.shift();
+            if (toolCtxMsg) {
               setTimeout(() => {
-                sendMessage(nextMessage.content);
+                sendMessage(toolCtxMsg, { skipUserMessage: true });
               }, 50);
+            } else {
+              const nextMessage = messageQueue.dequeue();
+              if (nextMessage) {
+                setTimeout(() => {
+                  sendMessage(nextMessage.content);
+                }, 50);
+              }
             }
             return;
           }
@@ -4001,7 +4179,7 @@ export function ChatApp({
                       ...msg,
                       streaming: false,
                       durationMs,
-                      modelId: model,
+                      modelId: currentModelRef.current,
                       outputTokens: finalMeta?.outputTokens,
                       thinkingMs: finalMeta?.thinkingMs,
                       thinkingText: finalMeta?.thinkingText || undefined,
@@ -4026,11 +4204,20 @@ export function ChatApp({
           isStreamingRef.current = false;
           setIsStreaming(false);
           setStreamingMeta(null);
-          const nextMessage = messageQueue.dequeue();
-          if (nextMessage) {
+          hasRunningToolRef.current = false;
+          // Check for messages added to chat context during tool execution first
+          const toolCtxMessage = toolContextMessagesRef.current.shift();
+          if (toolCtxMessage) {
             setTimeout(() => {
-              sendMessage(nextMessage.content);
+              sendMessage(toolCtxMessage, { skipUserMessage: true });
             }, 50);
+          } else {
+            const nextMessage = messageQueue.dequeue();
+            if (nextMessage) {
+              setTimeout(() => {
+                sendMessage(nextMessage.content);
+              }, 50);
+            }
           }
         };
 
@@ -4043,7 +4230,7 @@ export function ChatApp({
         void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete, handleMeta));
       }
     },
-    [onSendMessage, onStreamMessage, messageQueue, model]
+    [onSendMessage, onStreamMessage, messageQueue]
   );
 
   // Keep the sendMessageRef in sync with sendMessage callback
@@ -4201,7 +4388,7 @@ export function ChatApp({
                     ...msg2,
                     streaming: false,
                     durationMs,
-                    modelId: model,
+                    modelId: currentModelRef.current,
                     outputTokens: finalMeta?.outputTokens,
                     thinkingMs: finalMeta?.thinkingMs,
                     thinkingText: finalMeta?.thinkingText || undefined,
@@ -4251,7 +4438,7 @@ export function ChatApp({
                   ...msg,
                   streaming: false,
                   durationMs,
-                  modelId: model,
+                  modelId: currentModelRef.current,
                   outputTokens: finalMeta?.outputTokens,
                   thinkingMs: finalMeta?.thinkingMs,
                   thinkingText: finalMeta?.thinkingText || undefined,
@@ -4356,17 +4543,6 @@ export function ChatApp({
         />
       ) : (
       <>
-      {/* Workflow Status Bar - shows workflow progress when active */}
-      <WorkflowStatusBar
-        workflowActive={workflowState.workflowActive}
-        workflowType={workflowState.workflowType}
-        currentNode={workflowState.currentNode}
-        iteration={workflowState.iteration}
-        maxIterations={workflowState.maxIterations}
-        featureProgress={workflowState.featureProgress}
-        queueCount={messageQueue.count}
-      />
-
       {/* Compaction History - shows expanded compaction summary */}
       {showCompactionHistory && compactionSummary && parallelAgents.length === 0 && (
         <box flexDirection="column" paddingLeft={2} paddingRight={2} marginTop={1} marginBottom={1}>

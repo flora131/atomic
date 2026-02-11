@@ -1507,7 +1507,11 @@ export function createAgentCommand(agent: AgentDefinition): CommandDefinition {
       // user's request so the model follows the system prompt (which instructs
       // it to use tools like Read, Grep, etc.) instead of treating the entire
       // prompt as text to echo back.
-      const message = agentArgs || agent.prompt;
+      //
+      // When no args are provided, send a short generic message rather than
+      // duplicating the system prompt as the user message (which confuses the
+      // model into echoing back the prompt instead of following it).
+      const message = agentArgs || "Please proceed according to your instructions.";
 
       console.error(`[createAgentCommand] Spawning sub-agent: name=${agent.name}, argsLen=${agentArgs.length}`);
       // Spawn as independent sub-agent with tree view

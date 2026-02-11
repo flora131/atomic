@@ -18,7 +18,7 @@ import type {
 } from "@opentui/core";
 import { MacOSScrollAccel, SyntaxStyle, RGBA } from "@opentui/core";
 import { useTheme, useThemeColors, darkTheme, lightTheme, createMarkdownSyntaxStyle } from "./theme.tsx";
-import { pasteFromClipboard } from "../utils/clipboard.ts";
+
 import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplete.tsx";
 import { WorkflowStatusBar, type FeatureProgress } from "./components/workflow-status-bar.tsx";
 import { ToolResult } from "./components/tool-result.tsx";
@@ -3125,23 +3125,6 @@ export function ChatApp({
     }
   }, [renderer]);
 
-  // Handle clipboard paste via Ctrl+V - inserts text from system clipboard
-  // This is a fallback for terminals that don't use bracketed paste mode
-  const handlePaste = useCallback(async () => {
-    const textarea = textareaRef.current;
-    if (!textarea) return;
-
-    try {
-      const text = await pasteFromClipboard();
-      if (text) {
-        textarea.insertText(normalizePastedText(text));
-        handleInputChange(textarea.plainText ?? "", textarea.cursorOffset);
-      }
-    } catch {
-      // Silently fail - clipboard may not be available
-    }
-  }, [handleInputChange, normalizePastedText]);
-
   // Handle bracketed paste events from OpenTUI
   // This is the primary paste handler for modern terminals that support bracketed paste mode
   const handleBracketedPaste = useCallback((event: PasteEvent) => {
@@ -3861,18 +3844,6 @@ export function ChatApp({
           return;
         }
 
-        // Ctrl+Shift+V - paste from clipboard (backup for bracketed paste)
-        if (event.ctrl && event.shift && event.name === "v") {
-          void handlePaste();
-          return;
-        }
-
-        // Ctrl+V - paste from clipboard (backup for bracketed paste)
-        if (event.ctrl && event.name === "v") {
-          void handlePaste();
-          return;
-        }
-
         // After processing key, check input for slash command detection
         // Use setTimeout to let the textarea update first
         setTimeout(() => {
@@ -3882,7 +3853,7 @@ export function ChatApp({
           syncInputScrollbar();
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, handlePaste, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer]
     )
   );
 

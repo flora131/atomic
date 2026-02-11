@@ -163,6 +163,7 @@ export class CopilotClient implements CodingAgentClient {
   private registeredTools: ToolDefinition[] = [];
   private permissionHandler: CopilotPermissionHandler | null = null;
   private isRunning = false;
+  private probeSystemToolsBaseline: number | null = null;
 
   /**
    * Create a new CopilotClient
@@ -302,6 +303,8 @@ export class CopilotClient implements CodingAgentClient {
             // Wall-clock thinking timing
             let reasoningStartMs: number | null = null;
             let reasoningDurationMs = 0;
+            // Accumulated output tokens for streaming display (resets per stream call)
+            let streamingOutputTokens = 0;
 
             const eventHandler = (event: SdkSessionEvent) => {
               if (event.type === "assistant.message_delta") {
@@ -340,14 +343,15 @@ export class CopilotClient implements CodingAgentClient {
                   reasoningDurationMs += Date.now() - reasoningStartMs;
                   reasoningStartMs = null;
                 }
-                // Forward actual token counts from SDK (state already updated by handleSdkEvent)
+                // Accumulate output tokens across multi-turn API calls for display
+                streamingOutputTokens += event.data.outputTokens ?? 0;
                 chunks.push({
                   type: "text",
                   content: "",
                   role: "assistant",
                   metadata: {
                     streamingStats: {
-                      outputTokens: state.outputTokens,
+                      outputTokens: streamingOutputTokens,
                       thinkingMs: reasoningDurationMs,
                     },
                   },
@@ -467,10 +471,10 @@ export class CopilotClient implements CodingAgentClient {
   private handleSdkEvent(sessionId: string, event: SdkSessionEvent): void {
     const state = this.sessions.get(sessionId);
 
-    // Track token usage from usage events
+    // Track token usage from usage events (per-API-call totals, not deltas)
     if (event.type === "assistant.usage" && state) {
-      state.inputTokens += event.data.inputTokens ?? 0;
-      state.outputTokens += event.data.outputTokens ?? 0;
+      state.inputTokens = event.data.inputTokens ?? state.inputTokens;
+      state.outputTokens = event.data.outputTokens ?? state.outputTokens;
       const cache = (event.data as Record<string, unknown>).cacheWriteTokens as number | undefined
         ?? (event.data as Record<string, unknown>).cacheReadTokens as number | undefined
         ?? 0;
@@ -486,6 +490,10 @@ export class CopilotClient implements CodingAgentClient {
         state.systemToolsBaseline = data.currentTokens as number;
       }
       state.contextWindow = data.tokenLimit as number;
+      // currentTokens reflects the actual tokens in the context window,
+      // replacing any accumulated values from assistant.usage events
+      state.inputTokens = data.currentTokens as number;
+      state.outputTokens = 0;
     }
 
     // Map to unified event type
@@ -883,6 +891,26 @@ export class CopilotClient implements CodingAgentClient {
     // Start the client
     await this.sdkClient.start();
     this.isRunning = true;
+
+    // Probe for system tools baseline by creating a temporary session
+    // and waiting for the session.usage_info event which reports currentTokens
+    // (the pre-message baseline: system prompt + tool definitions)
+    try {
+      const probeSession = await this.sdkClient.createSession({});
+      const baseline = await new Promise<number | null>((resolve) => {
+        const timeout = setTimeout(() => resolve(null), 3000);
+        const unsub = probeSession.on("session.usage_info", (event) => {
+          unsub();
+          clearTimeout(timeout);
+          const data = event.data as Record<string, unknown>;
+          resolve((data.currentTokens as number) ?? null);
+        });
+      });
+      this.probeSystemToolsBaseline = baseline;
+      await probeSession.destroy();
+    } catch {
+      // Probe failed - baseline will be populated on first message
+    }
   }
 
   /**
@@ -968,7 +996,7 @@ export class CopilotClient implements CodingAgentClient {
    */
   async getModelDisplayInfo(
     modelHint?: string
-  ): Promise<{ model: string; tier: string; supportsReasoning?: boolean }> {
+  ): Promise<{ model: string; tier: string; supportsReasoning?: boolean; contextWindow?: number }> {
     // Query SDK for model metadata - this is the authoritative source
     if (this.isRunning && this.sdkClient) {
       try {
@@ -981,10 +1009,13 @@ export class CopilotClient implements CodingAgentClient {
             if (matched) {
               const caps = (matched as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
               const supports = caps?.supports as Record<string, unknown> | undefined;
+              const limits = caps?.limits as Record<string, unknown> | undefined;
+              const ctxWindow = limits?.max_context_window_tokens as number | undefined;
               return {
                 model: matched.id ?? "Copilot",
                 tier: "GitHub Copilot",
                 supportsReasoning: supports?.reasoningEffort === true,
+                contextWindow: ctxWindow,
               };
             }
           }
@@ -993,10 +1024,13 @@ export class CopilotClient implements CodingAgentClient {
           if (firstModel) {
             const caps = (firstModel as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
             const supports = caps?.supports as Record<string, unknown> | undefined;
+            const limits = caps?.limits as Record<string, unknown> | undefined;
+            const ctxWindow = limits?.max_context_window_tokens as number | undefined;
             return {
               model: firstModel.id ?? "Copilot",
               tier: "GitHub Copilot",
               supportsReasoning: supports?.reasoningEffort === true,
+              contextWindow: ctxWindow,
             };
           }
         }
@@ -1017,6 +1051,13 @@ export class CopilotClient implements CodingAgentClient {
       model: "Copilot",
       tier: "GitHub Copilot",
     };
+  }
+
+  /**
+   * Get the system tools token baseline captured during start() probe.
+   */
+  getSystemToolsTokens(): number | null {
+    return this.probeSystemToolsBaseline;
   }
 }
 

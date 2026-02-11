@@ -34,20 +34,6 @@ export {
 } from "./user-question-dialog.tsx";
 
 // ============================================================================
-// WORKFLOW STATUS BAR COMPONENT
-// ============================================================================
-
-export {
-  WorkflowStatusBar,
-  getWorkflowIcon,
-  formatWorkflowType,
-  formatIteration,
-  formatFeatureProgress,
-  type WorkflowStatusBarProps,
-  type FeatureProgress,
-} from "./workflow-status-bar.tsx";
-
-// ============================================================================
 // TOOL RESULT COMPONENT
 // ============================================================================
 
@@ -91,6 +77,14 @@ export {
   buildDisplayParts,
   type TimestampDisplayProps,
 } from "./timestamp-display.tsx";
+
+// ============================================================================
+// ANIMATED BLINK INDICATOR COMPONENT
+// ============================================================================
+
+export {
+  AnimatedBlinkIndicator,
+} from "./animated-blink-indicator.tsx";
 
 // ============================================================================
 // PARALLEL AGENTS TREE COMPONENT

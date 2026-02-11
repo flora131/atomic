@@ -11,6 +11,7 @@ import React from "react";
 import { useTerminalDimensions } from "@opentui/react";
 import { useTheme } from "../theme.tsx";
 import type { QueuedMessage } from "../hooks/use-message-queue.ts";
+import { truncateText } from "../utils/format.ts";
 
 // ============================================================================
 // TYPES
@@ -59,17 +60,9 @@ export function getQueueIcon(): string {
   return "⋮";
 }
 
-/**
- * Truncate message content for preview.
- *
- * @param content - Message content to truncate
- * @param maxLength - Maximum length before truncation (default: 20)
- * @returns Truncated content with ellipsis if needed
- */
-export function truncateContent(content: string, maxLength: number = 20): string {
-  if (content.length <= maxLength) return content;
-  return `${content.slice(0, maxLength - 3)}...`;
-}
+/** @deprecated Use truncateText from utils/format.ts directly */
+export const truncateContent = (content: string, maxLength: number = 20): string =>
+  truncateText(content, maxLength);
 
 // ============================================================================
 // QUEUE INDICATOR COMPONENT

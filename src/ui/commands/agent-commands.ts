@@ -1502,16 +1502,23 @@ export function createAgentCommand(agent: AgentDefinition): CommandDefinition {
     execute: (args: string, context: CommandContext): CommandResult => {
       const agentArgs = args.trim();
 
-      // Build the prompt with user arguments if provided
-      let prompt = agent.prompt;
-      if (agentArgs) {
-        // Append user arguments to the prompt
-        prompt = `${agent.prompt}\n\n## User Request\n\n${agentArgs}`;
-      }
+      // The agent prompt is passed as systemPrompt so the SDK treats it as
+      // system-level instructions.  The user message should contain ONLY the
+      // user's request so the model follows the system prompt (which instructs
+      // it to use tools like Read, Grep, etc.) instead of treating the entire
+      // prompt as text to echo back.
+      const message = agentArgs || agent.prompt;
 
-      // Send the prompt to the session
-      // The session will use the agent's tools and model settings
-      context.sendSilentMessage(prompt);
+      console.error(`[createAgentCommand] Spawning sub-agent: name=${agent.name}, argsLen=${agentArgs.length}`);
+      // Spawn as independent sub-agent with tree view
+      void context.spawnSubagent({
+        name: agent.name,
+        systemPrompt: agent.prompt,
+        message,
+        model: agent.model as "sonnet" | "opus" | "haiku" | undefined,
+        tools: agent.tools,
+      }).then(r => console.error(`[createAgentCommand] spawnSubagent resolved: success=${r.success}, error=${r.error}`))
+        .catch(e => console.error(`[createAgentCommand] spawnSubagent rejected:`, e));
 
       return {
         success: true,

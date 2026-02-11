@@ -224,32 +224,17 @@ atomic run copilot -i "/create-spec [research-path]"
 
 ### 3. Implement Features
 
+Use the Ralph workflow to autonomously implement features from the task list.
+
 ```bash
-# for claude-code
-atomic run claude "/implement-feature"
-
-# for opencode
-atomic run opencode
-# then type:
-/implement-feature
-
-# for copilot
-atomic run copilot -i "/implement-feature"
+# start the Ralph autonomous loop
+atomic run claude "/ralph"
 ```
 
 ```bash
 # clear context window before next feature implementation
 /clear
 ```
-
-**What happens:** The agent:
-
-1. Reads `feature-list.json` for the next highest priority unsolved task
-2. References the spec/research for context
-3. Generates a commit for the feature
-4. Updates `progress.txt`
-
-Repeat until all features pass.
 
 Or, use `/ralph:ralph-loop` for autonomous mode to enable multi-hour autonomous coding sessions. More in [Ralph Section](#autonomous-execution-ralph):
 
@@ -320,9 +305,6 @@ User-invocable slash commands that orchestrate workflows.
 | ---------------------- | ----------------- | -------------------------------------- |
 | `/research-codebase`   | `[question]`      | Analyze codebase and document findings |
 | `/create-spec`         | `[research-path]` | Generate technical specification       |
-| `/implement-feature`   | —                 | Implement next feature from list       |
-| `/commit`              | `[message]`       | Create conventional commit             |
-| `/create-gh-pr`        | —                 | Push and create pull request           |
 | `/explain-code`        | `[path]`          | Explain code section in detail         |
 | `/ralph:ralph-loop`    | —                 | Run autonomous implementation loop     |
 | `/ralph:cancel-ralph`  | —                 | Stop autonomous loop                   |
@@ -389,7 +371,7 @@ The [Ralph Wiggum Method](https://ghuntley.com/ralph/) enables multi-hour autono
 
 | Parameter                       | Default                      | Description                          |
 | ------------------------------- | ---------------------------- | ------------------------------------ |
-| `[PROMPT]`                      | `/implement-feature`         | Initial prompt to run each iteration |
+| `[PROMPT]`                      | —                            | Initial prompt to run each iteration |
 | `--max-iterations <n>`          | `0` (unlimited)              | Maximum iterations before auto-stop  |
 | `--completion-promise '<text>'` | `null`                       | Phrase that signals task completion  |
 | `--feature-list <path>`         | `research/feature-list.json` | Path to feature list JSON            |
@@ -400,7 +382,7 @@ The loop exits when **any** of these conditions are met:
 
 1. `--max-iterations` limit reached
 2. `--completion-promise` phrase detected in output (via `<promise>TEXT</promise>` tags)
-3. All features in `--feature-list` are passing (when using `/implement-feature` with no iteration limit)
+3. All features in `--feature-list` are passing (with no iteration limit)
 
 ### Graph Engine (Experimental)
 

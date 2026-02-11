@@ -14,6 +14,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../theme.tsx";
 import type { Model } from "../../models/model-transform.ts";
+import { navigateUp, navigateDown } from "../utils/navigation.ts";
 
 // ============================================================================
 // TYPES
@@ -258,11 +259,11 @@ export function ModelSelectorDialog({
 
         // Navigation
         if (key === "up" || key === "k") {
-          setSelectedIndex((prev) => (prev <= 0 ? totalItems - 1 : prev - 1));
+          setSelectedIndex((prev) => navigateUp(prev, totalItems));
           return true;
         }
         if (key === "down" || key === "j") {
-          setSelectedIndex((prev) => (prev >= totalItems - 1 ? 0 : prev + 1));
+          setSelectedIndex((prev) => navigateDown(prev, totalItems));
           return true;
         }
 

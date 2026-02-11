@@ -102,6 +102,7 @@ function createMockClient(): CodingAgentClient {
     async getModelDisplayInfo() {
       return { model: "Mock", tier: "Test" };
     },
+    getSystemToolsTokens() { return null; },
   };
 }
 

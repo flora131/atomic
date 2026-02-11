@@ -476,37 +476,54 @@ export const contextCommand: CommandDefinition = {
   description: "View context window usage",
   category: "builtin",
   execute: async (_args: string, context: CommandContext): Promise<CommandResult> => {
-    if (!context.session) {
-      return { success: false, message: "No active session. Send a message first." };
-    }
-
-    let usage;
-    let systemTools: number;
-    try {
-      usage = await context.session.getContextUsage();
-    } catch {
-      return { success: false, message: "Send a message first so token usage can be measured." };
-    }
-    try {
-      systemTools = context.session.getSystemToolsTokens();
-    } catch {
-      systemTools = 0;
-    }
-
     let model = "Unknown";
     let tier = "Unknown";
+    let modelContextWindow: number | undefined;
     if (context.getModelDisplayInfo) {
       try {
         const info = await context.getModelDisplayInfo();
         model = info.model;
         tier = info.tier;
+        modelContextWindow = info.contextWindow;
       } catch {
         // Use defaults
       }
     }
 
-    const { maxTokens, inputTokens, outputTokens } = usage;
-    const buffer = Math.floor(maxTokens * (1 - BACKGROUND_COMPACTION_THRESHOLD));
+    let maxTokens = 0;
+    let systemTools = 0;
+    let inputTokens = 0;
+    let outputTokens = 0;
+
+    if (context.session) {
+      try {
+        const usage = await context.session.getContextUsage();
+        maxTokens = usage.maxTokens;
+        inputTokens = usage.inputTokens;
+        outputTokens = usage.outputTokens;
+      } catch {
+        // No usage available yet (no messages sent)
+      }
+      try {
+        systemTools = context.session.getSystemToolsTokens();
+      } catch {
+        // Session baseline not yet captured — fall back to client-level probe
+      }
+    }
+
+    // Fall back to client-level system tools baseline (captured during start() probe)
+    // when session doesn't have it yet (e.g., before first message completes)
+    if (systemTools === 0 && context.getClientSystemToolsTokens) {
+      systemTools = context.getClientSystemToolsTokens() ?? 0;
+    }
+
+    // Prefer model metadata context window (reflects current/pending model)
+    // over session maxTokens which may be stale after a model change.
+    if (modelContextWindow) {
+      maxTokens = modelContextWindow;
+    }
+
+    const buffer = maxTokens > 0 ? Math.floor(maxTokens * (1 - BACKGROUND_COMPACTION_THRESHOLD)) : 0;
     const messages = Math.max(0, (inputTokens - systemTools) + outputTokens);
     const freeSpace = Math.max(0, maxTokens - systemTools - messages - buffer);
 

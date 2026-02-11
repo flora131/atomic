@@ -53,6 +53,10 @@ function createMockContext(
       }
     },
     spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
+    streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+    clearContext: async () => {},
+    setTodoItems: () => {},
+    updateWorkflowState: () => {},
     sentMessages,
   };
 }

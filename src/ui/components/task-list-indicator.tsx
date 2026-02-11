@@ -13,9 +13,11 @@
  * Reference: Issue #168
  */
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 
 import { useThemeColors } from "../theme.tsx";
+import { truncateText } from "../utils/format.ts";
+import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
 
 // ============================================================================
 // TYPES
@@ -51,9 +53,8 @@ export const TASK_STATUS_ICONS: Record<TaskItem["status"], string> = {
 /** Max content chars before truncation (prefix takes ~5 chars: "⎿  ● ") */
 export const MAX_CONTENT_LENGTH = 60;
 
-export function truncate(text: string, max: number): string {
-  return text.length > max ? text.slice(0, max - 1) + "…" : text;
-}
+/** @deprecated Use truncateText from utils/format.ts directly */
+export const truncate = truncateText;
 
 /** Map task status to semantic color key */
 export function getStatusColorKey(status: TaskItem["status"]): "muted" | "accent" | "success" | "error" {
@@ -63,37 +64,6 @@ export function getStatusColorKey(status: TaskItem["status"]): "muted" | "accent
     case "completed": return "success";
     case "error": return "error";
   }
-}
-
-// ============================================================================
-// ANIMATED STATUS INDICATOR
-// ============================================================================
-
-/**
- * Animated blinking indicator for in-progress task state.
- * Alternates between ● and · to simulate a blink, matching ToolResult behavior.
- */
-function AnimatedStatusIndicator({
-  color,
-  speed = 500,
-}: {
-  color: string;
-  speed?: number;
-}): React.ReactNode {
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setVisible((prev) => !prev);
-    }, speed);
-    return () => clearInterval(interval);
-  }, [speed]);
-
-  return (
-    <span style={{ fg: color }}>
-      {visible ? "●" : "·"}
-    </span>
-  );
 }
 
 // ============================================================================
@@ -124,11 +94,11 @@ export function TaskListIndicator({
           <text key={i}>
             <span style={{ fg: themeColors.muted }}>{i === 0 ? "⎿  " : "   "}</span>
             {isActive ? (
-              <AnimatedStatusIndicator color={color} speed={500} />
+              <AnimatedBlinkIndicator color={color} speed={500} />
             ) : (
               <span style={{ fg: color }}>{icon}</span>
             )}
-            <span style={{ fg: color }}>{" "}{expanded ? item.content : truncate(item.content, MAX_CONTENT_LENGTH)}</span>
+            <span style={{ fg: color }}>{" "}{expanded ? item.content : truncateText(item.content, MAX_CONTENT_LENGTH)}</span>
             {item.blockedBy && item.blockedBy.length > 0 && (
               <span style={{ fg: themeColors.muted }}>{` › blocked by ${item.blockedBy.map(id => id.startsWith("#") ? id : `#${id}`).join(", ")}`}</span>
             )}

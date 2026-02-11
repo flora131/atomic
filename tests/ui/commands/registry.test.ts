@@ -359,6 +359,10 @@ describe("CommandRegistry", () => {
         sendMessage: () => {},
         sendSilentMessage: () => {},
         spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+        streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+        clearContext: async () => {},
+        setTodoItems: () => {},
+        updateWorkflowState: () => {},
         agentType: undefined,
         modelOps: undefined,
       };
@@ -392,6 +396,10 @@ describe("CommandRegistry", () => {
         sendMessage: () => {},
         sendSilentMessage: () => {},
         spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+        streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+        clearContext: async () => {},
+        setTodoItems: () => {},
+        updateWorkflowState: () => {},
         agentType: undefined,
         modelOps: undefined,
       };
@@ -425,6 +433,10 @@ describe("CommandRegistry", () => {
         sendMessage: () => {},
         sendSilentMessage: () => {},
         spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+        streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+        clearContext: async () => {},
+        setTodoItems: () => {},
+        updateWorkflowState: () => {},
         agentType: undefined,
         modelOps: undefined,
       };
@@ -543,6 +555,10 @@ describe("CommandContext interface", () => {
       sendMessage: () => {},
       sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
     };
 
     expect(context.session).toBeNull();
@@ -557,6 +573,10 @@ describe("CommandContext interface", () => {
       sendMessage: () => {},
       sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
     };
 
     expect(context.state.isStreaming).toBe(true);
@@ -578,6 +598,10 @@ describe("CommandContext interface", () => {
       sendMessage: () => {},
       sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
     };
 
     context.addMessage("user", "Hello");
@@ -599,6 +623,10 @@ describe("CommandContext interface", () => {
       sendMessage: () => {},
       sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
     };
 
     context.setStreaming(true);
@@ -619,6 +647,10 @@ describe("CommandContext interface", () => {
       },
       sendSilentMessage: () => {},
       spawnSubagent: async () => ({ success: true, output: "" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
     };
 
     context.sendMessage("Test message");
@@ -638,6 +670,10 @@ describe("CommandContext interface", () => {
         success: true,
         output: `Executed with prompt: ${options.systemPrompt}`,
       }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
     };
 
     const result = await context.spawnSubagent({

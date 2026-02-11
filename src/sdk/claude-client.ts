@@ -512,10 +512,24 @@ export class ClaudeAgentClient implements CodingAgentClient {
                   }
                 }
               } else if (sdkMessage.type === "assistant") {
-                // Only yield the complete message if we haven't streamed deltas
-                // (deltas already contain the full content incrementally)
-                if (!hasYieldedDeltas) {
-                  const { type, content } = extractMessageContent(sdkMessage);
+                const { type, content } = extractMessageContent(sdkMessage);
+
+                // Always yield tool_use messages so callers can track tool
+                // invocations (e.g. SubagentSessionManager counts them for
+                // the tree view).  Text messages are only yielded when we
+                // haven't already streamed text deltas to avoid duplication.
+                if (type === "tool_use") {
+                  yield {
+                    type,
+                    content,
+                    role: "assistant",
+                    metadata: {
+                      toolName: typeof content === "object" && content !== null
+                        ? (content as Record<string, unknown>).name as string
+                        : undefined,
+                    },
+                  };
+                } else if (!hasYieldedDeltas) {
                   yield {
                     type,
                     content,
@@ -636,8 +650,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
     if (sdkMessage.type === "assistant") {
       const usage = sdkMessage.message.usage;
       if (usage) {
-        state.inputTokens += usage.input_tokens;
-        state.outputTokens += usage.output_tokens;
+        state.inputTokens = usage.input_tokens;
+        state.outputTokens = usage.output_tokens;
       }
     }
 
@@ -1036,14 +1050,23 @@ export class ClaudeAgentClient implements CodingAgentClient {
    */
   async getModelDisplayInfo(
     modelHint?: string
-  ): Promise<{ model: string; tier: string }> {
-    // Use detected model from SDK probe (authoritative), then hint, then raw fallback
-    const raw = this.detectedModel
-      ?? (modelHint ? stripProviderPrefix(modelHint) : null);
+  ): Promise<{ model: string; tier: string; contextWindow?: number }> {
+    // Prefer explicit hint (user's /model choice), then detected model from SDK probe, then raw fallback
+    const raw = (modelHint ? stripProviderPrefix(modelHint) : null)
+      ?? this.detectedModel;
+    const modelKey = raw ?? "Claude";
     return {
-      model: raw ?? "Claude",
+      model: modelKey,
       tier: "Claude Code",
+      contextWindow: this.capturedModelContextWindows.get(modelKey) ?? this.probeContextWindow ?? undefined,
     };
+  }
+
+  /**
+   * Get the system tools token baseline captured during start() probe.
+   */
+  getSystemToolsTokens(): number | null {
+    return this.probeSystemToolsBaseline;
   }
 }
 

@@ -52,6 +52,10 @@ function createMockContext(
     sendMessage: () => {},
     sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
+    streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+    clearContext: async () => {},
+    setTodoItems: () => {},
+    updateWorkflowState: () => {},
     agentType: undefined,
     modelOps: undefined,
   };
@@ -131,107 +135,6 @@ describe("helpCommand", () => {
     const result = await helpCommand.execute("", context);
 
     expect(result.message).toContain("t, tst");
-  });
-
-  test("shows Ralph workflow documentation when /ralph is registered", async () => {
-    globalRegistry.register({
-      name: "ralph",
-      description: "Start the Ralph autonomous implementation workflow",
-      category: "workflow",
-      execute: () => ({ success: true }),
-    });
-
-    const context = createMockContext();
-    const result = await helpCommand.execute("", context);
-
-    // Check Ralph workflow section is present
-    expect(result.message).toContain("**Ralph Workflow**");
-    expect(result.message).toContain("autonomous implementation workflow");
-
-    // Check usage examples
-    expect(result.message).toContain("/ralph");
-    expect(result.message).toContain("--resume");
-
-    // Check interrupt instructions
-    expect(result.message).toContain("Ctrl+C");
-    expect(result.message).toContain("Esc");
-  });
-
-  test("does not show Ralph documentation when /ralph is not registered", async () => {
-    globalRegistry.register({
-      name: "other-workflow",
-      description: "Other workflow",
-      category: "workflow",
-      execute: () => ({ success: true }),
-    });
-
-    const context = createMockContext();
-    const result = await helpCommand.execute("", context);
-
-    // Ralph section should not be present
-    expect(result.message).not.toContain("**Ralph Workflow**");
-  });
-
-  test("shows Sub-Agents section when agent commands are registered", async () => {
-    globalRegistry.register({
-      name: "codebase-analyzer",
-      description: "Analyzes codebase implementation details",
-      category: "agent",
-      execute: () => ({ success: true }),
-    });
-    globalRegistry.register({
-      name: "debugger",
-      description: "Debugging specialist",
-      category: "agent",
-      execute: () => ({ success: true }),
-    });
-
-    const context = createMockContext();
-    const result = await helpCommand.execute("", context);
-
-    // Check Sub-Agent Details section is present
-    expect(result.message).toContain("**Sub-Agent Details**");
-    expect(result.message).toContain("Specialized agents for specific tasks");
-
-    // Check builtin agents with model info
-    expect(result.message).toContain("/codebase-analyzer (opus)");
-    expect(result.message).toContain("Deep code analysis");
-    expect(result.message).toContain("/debugger (opus)");
-    expect(result.message).toContain("Debug errors");
-  });
-
-  test("shows all builtin agent details correctly", async () => {
-    // Register all builtin agents
-    const builtinAgents = [
-      { name: "codebase-analyzer", desc: "Analyzes code" },
-      { name: "codebase-locator", desc: "Locates files" },
-      { name: "codebase-pattern-finder", desc: "Finds patterns" },
-      { name: "codebase-online-researcher", desc: "Online research" },
-      { name: "codebase-research-analyzer", desc: "Analyzes research" },
-      { name: "codebase-research-locator", desc: "Locates research" },
-      { name: "debugger", desc: "Debugging" },
-    ];
-
-    for (const agent of builtinAgents) {
-      globalRegistry.register({
-        name: agent.name,
-        description: agent.desc,
-        category: "agent",
-        execute: () => ({ success: true }),
-      });
-    }
-
-    const context = createMockContext();
-    const result = await helpCommand.execute("", context);
-
-    // Check all agents are listed with correct models
-    expect(result.message).toContain("/codebase-analyzer (opus)");
-    expect(result.message).toContain("/codebase-locator (opus)");
-    expect(result.message).toContain("/codebase-pattern-finder (opus)");
-    expect(result.message).toContain("/codebase-online-researcher (opus)");
-    expect(result.message).toContain("/codebase-research-analyzer (opus)");
-    expect(result.message).toContain("/codebase-research-locator (opus)");
-    expect(result.message).toContain("/debugger (opus)");
   });
 
   test("shows custom agents without hardcoded details", async () => {

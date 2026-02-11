@@ -66,6 +66,8 @@ export interface ModelDisplayInfo {
   tier: string;
   /** Whether the model supports reasoning effort levels */
   supportsReasoning?: boolean;
+  /** Context window size in tokens (if known from model metadata) */
+  contextWindow?: number;
 }
 
 /**
@@ -576,6 +578,14 @@ export interface CodingAgentClient {
    * @param modelHint - Optional model ID to use for display (e.g., from CLI options)
    */
   getModelDisplayInfo(modelHint?: string): Promise<ModelDisplayInfo>;
+
+  /**
+   * Get the system tools token baseline at the client level (pre-session).
+   * Available after start() for SDKs that support probing (e.g., Claude SDK
+   * probe query, Copilot SDK session.usage_info event).
+   * Returns null if the baseline is not yet available.
+   */
+  getSystemToolsTokens(): number | null;
 }
 
 /**

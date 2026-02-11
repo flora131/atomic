@@ -68,6 +68,10 @@ function createMockContext(
       }
     },
     spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
+    streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+    clearContext: async () => {},
+    setTodoItems: () => {},
+    updateWorkflowState: () => {},
     sentMessages,
   };
 }
@@ -651,6 +655,10 @@ describe("builtin skill execution", () => {
         sentMessages.push(content);
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
       agentType: undefined,
       modelOps: undefined,
     };
@@ -680,6 +688,10 @@ describe("builtin skill execution", () => {
         sentMessages.push(content);
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
       agentType: undefined,
       modelOps: undefined,
     };
@@ -711,6 +723,10 @@ describe("builtin skill execution", () => {
         sentMessages.push(content);
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
       agentType: undefined,
       modelOps: undefined,
     };
@@ -740,6 +756,10 @@ describe("builtin skill execution", () => {
         sentMessages.push(content);
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
       agentType: undefined,
       modelOps: undefined,
     };
@@ -771,6 +791,10 @@ describe("builtin skill execution", () => {
         sentMessages.push(content);
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
       agentType: undefined,
       modelOps: undefined,
     };
@@ -800,6 +824,10 @@ describe("builtin skill execution", () => {
         sentMessages.push(content);
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
       agentType: undefined,
       modelOps: undefined,
     };

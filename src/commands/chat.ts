@@ -31,6 +31,7 @@ import {
   type ChatUIConfig,
   type Theme,
 } from "../ui/index.ts";
+import { VERSION } from "../version.ts";
 
 // ============================================================================
 // Types
@@ -199,7 +200,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
       theme: getTheme(theme),
       title: `Chat - ${agentName}`,
       placeholder: "Type a message...",
-      version: "0.4.4",
+      version: VERSION,
       model: displayModelName,
       tier: modelDisplayInfo.tier,
       workingDir: process.cwd(),

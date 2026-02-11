@@ -161,6 +161,11 @@ function createMockCommandContext(options?: {
       sentMessages.push(content);
     },
 
+    streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+    clearContext: async () => {},
+    setTodoItems: () => {},
+    updateWorkflowState: () => {},
+
     async spawnSubagent(
       opts: SpawnSubagentOptions
     ): Promise<SpawnSubagentResult> {
@@ -245,6 +250,7 @@ function createMockSubagentClient(): CodingAgentClient & {
     async getModelDisplayInfo() {
       return { model: "Mock Model", tier: "Test" };
     },
+    getSystemToolsTokens() { return null; },
   };
 }
 

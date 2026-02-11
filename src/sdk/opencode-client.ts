@@ -1493,6 +1493,15 @@ export class OpenCodeClient implements CodingAgentClient {
     }
     return undefined;
   }
+
+  /**
+   * Get the system tools token baseline.
+   * OpenCode SDK does not provide a lightweight probe mechanism;
+   * the baseline is only available after the first message completes.
+   */
+  getSystemToolsTokens(): number | null {
+    return null;
+  }
 }
 
 /**

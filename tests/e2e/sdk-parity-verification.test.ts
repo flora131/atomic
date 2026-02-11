@@ -217,6 +217,7 @@ function createMockAgentClient(agentType: "claude" | "opencode" | "copilot"): Co
         tier: agentType === "claude" ? "Claude Code" : agentType === "copilot" ? "GitHub Copilot" : "OpenCode",
       };
     },
+    getSystemToolsTokens() { return null; },
   };
 
   return client;
@@ -283,6 +284,10 @@ describe("SDK Parity Verification", () => {
           sendMessage: () => {},
           sendSilentMessage: () => {},
           spawnSubagent: async () => ({ success: true, output: "" }),
+          streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+          clearContext: async () => {},
+          setTodoItems: () => {},
+          updateWorkflowState: () => {},
           agentType,
         };
 
@@ -379,6 +384,10 @@ describe("SDK Parity Verification", () => {
           sendMessage: () => {},
           sendSilentMessage: () => {},
           spawnSubagent: async () => ({ success: true, output: "" }),
+          streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+          clearContext: async () => {},
+          setTodoItems: () => {},
+          updateWorkflowState: () => {},
           agentType: client.agentType as "claude" | "opencode" | "copilot",
           modelOps: {
             getCurrentModel: async () => "test-model",
@@ -420,6 +429,10 @@ describe("SDK Parity Verification", () => {
           sendMessage: () => {},
           sendSilentMessage: () => {},
           spawnSubagent: async () => ({ success: true, output: "" }),
+          streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+          clearContext: async () => {},
+          setTodoItems: () => {},
+          updateWorkflowState: () => {},
           agentType: client.agentType as "claude" | "opencode" | "copilot",
         };
 

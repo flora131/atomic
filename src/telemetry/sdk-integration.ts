@@ -391,6 +391,10 @@ export function withTelemetry(
     async getModelDisplayInfo(modelHint?: string) {
       return client.getModelDisplayInfo(modelHint);
     },
+
+    getSystemToolsTokens() {
+      return client.getSystemToolsTokens();
+    },
   };
 }
 

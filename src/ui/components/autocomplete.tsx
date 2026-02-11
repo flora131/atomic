@@ -12,6 +12,7 @@ import { useTerminalDimensions } from "@opentui/react";
 import { useTheme } from "../theme.tsx";
 import { globalRegistry, type CommandDefinition } from "../commands/index.ts";
 import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
+import { navigateUp, navigateDown } from "../utils/navigation.ts";
 
 // ============================================================================
 // TYPES
@@ -258,31 +259,8 @@ export function Autocomplete({
 // UTILITY FUNCTIONS
 // ============================================================================
 
-/**
- * Navigate the autocomplete selection up.
- * Wraps to bottom when at top.
- *
- * @param currentIndex - Current selected index
- * @param totalItems - Total number of suggestions
- * @returns New selected index
- */
-export function navigateUp(currentIndex: number, totalItems: number): number {
-  if (totalItems === 0) return 0;
-  return currentIndex <= 0 ? totalItems - 1 : currentIndex - 1;
-}
-
-/**
- * Navigate the autocomplete selection down.
- * Wraps to top when at bottom.
- *
- * @param currentIndex - Current selected index
- * @param totalItems - Total number of suggestions
- * @returns New selected index
- */
-export function navigateDown(currentIndex: number, totalItems: number): number {
-  if (totalItems === 0) return 0;
-  return currentIndex >= totalItems - 1 ? 0 : currentIndex + 1;
-}
+/** @deprecated Use navigateUp/navigateDown from utils/navigation.ts directly */
+export { navigateUp, navigateDown };
 
 // ============================================================================
 // KEYBOARD NAVIGATION HOOK

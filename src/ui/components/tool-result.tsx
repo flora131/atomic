@@ -5,8 +5,9 @@
  * Inspired by OpenCode's BasicTool with collapsible behavior.
  */
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { useTheme } from "../theme.tsx";
+import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
 import {
   getToolRenderer,
   parseMcpToolName,
@@ -45,33 +46,6 @@ const STATUS_ICONS: Record<ToolExecutionStatus, string> = {
   interrupted: "●",
 };
 
-/**
- * Animated blinking indicator for running tool state.
- * Alternates opacity by toggling between ● and · to simulate a blink.
- */
-function AnimatedStatusIndicator({
-  color,
-  speed = 500,
-}: {
-  color: string;
-  speed?: number;
-}): React.ReactNode {
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setVisible((prev) => !prev);
-    }, speed);
-    return () => clearInterval(interval);
-  }, [speed]);
-
-  return (
-    <text style={{ fg: color }}>
-      {visible ? "●" : "·"}
-    </text>
-  );
-}
-
 function StatusIndicator({
   status,
   theme,
@@ -94,7 +68,7 @@ function StatusIndicator({
 
   // Running state uses animated blinking ●
   if (status === "running") {
-    return <AnimatedStatusIndicator color={color} speed={500} />;
+    return <text><AnimatedBlinkIndicator color={color} speed={500} /></text>;
   }
 
   const icon = STATUS_ICONS[status];

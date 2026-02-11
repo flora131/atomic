@@ -23,9 +23,16 @@ import type {
   ExecutionContext,
   SignalData,
   ContextWindowUsage,
+  WorkflowToolContext,
 } from "./types.ts";
 import type { SessionConfig, AgentMessage, CodingAgentClient, Session, ContextUsage } from "../sdk/types.ts";
 import { DEFAULT_RETRY_CONFIG, BACKGROUND_COMPACTION_THRESHOLD, BUFFER_EXHAUSTION_THRESHOLD } from "./types.ts";
+import type { z } from "zod";
+import { getToolRegistry } from "../sdk/tools/registry.ts";
+import { SchemaValidationError, NodeExecutionError } from "./errors.ts";
+import { getSubagentBridge } from "./subagent-bridge.ts";
+import { getSubagentRegistry } from "./subagent-registry.ts";
+import type { SubagentResult, SubagentSpawnOptions } from "../ui/subagent-session-manager.ts";
 
 // ============================================================================
 // AGENT NODE
@@ -1552,4 +1559,280 @@ export async function compactContext(
   
   // "recreate" and "warn" don't perform automatic compaction
   return false;
+}
+
+// ============================================================================
+// CUSTOM TOOL NODE
+// ============================================================================
+
+/**
+ * Configuration for creating a custom tool node that resolves a tool by name
+ * from the ToolRegistry.
+ */
+export interface CustomToolNodeConfig<TState extends BaseState, TArgs = Record<string, unknown>, TResult = unknown> {
+  id: string;
+  toolName: string;
+  name?: string;
+  description?: string;
+  /** Zod schema enforcing the contract between the previous node's output and this tool's input.
+   *  On validation failure, SchemaValidationError triggers ancestor agent retry. */
+  inputSchema?: z.ZodType<TArgs>;
+  args?: TArgs | ((state: TState) => TArgs);
+  outputMapper?: (result: TResult, state: TState) => Partial<TState>;
+  timeout?: number;
+  /** Per-node failure budget. Each failure triggers ancestor agent retry. */
+  retry?: RetryConfig;
+}
+
+/**
+ * Create a custom tool node that resolves a tool by name from the ToolRegistry.
+ *
+ * Unlike `toolNode()` which requires an explicit `execute` function, `customToolNode()`
+ * references tools discovered from `.atomic/tools/` by name. The tool handler is
+ * resolved at execution time from the global ToolRegistry.
+ *
+ * @template TState - The state type for the workflow
+ * @template TArgs - The type of arguments the tool accepts
+ * @template TResult - The type of result the tool returns
+ * @param config - Custom tool node configuration
+ * @returns A NodeDefinition that executes the registered tool
+ */
+export function customToolNode<
+  TState extends BaseState,
+  TArgs = Record<string, unknown>,
+  TResult = unknown,
+>(config: CustomToolNodeConfig<TState, TArgs, TResult>): NodeDefinition<TState> {
+  return {
+    id: config.id,
+    type: "tool",
+    name: config.name ?? config.toolName,
+    description: config.description ?? `Execute custom tool: ${config.toolName}`,
+    retry: config.retry,
+    async execute(ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> {
+      const registry = getToolRegistry();
+      const entry = registry.get(config.toolName);
+      if (!entry) {
+        throw new Error(
+          `Custom tool "${config.toolName}" not found in registry. ` +
+          `Available tools: ${registry.getAll().map(t => t.name).join(", ")}`
+        );
+      }
+
+      const rawArgs = typeof config.args === "function"
+        ? (config.args as (state: TState) => TArgs)(ctx.state)
+        : config.args ?? ({} as TArgs);
+
+      // Validate args against Zod schema if provided
+      let args: TArgs;
+      if (config.inputSchema) {
+        const parseResult = config.inputSchema.safeParse(rawArgs);
+        if (!parseResult.success) {
+          throw new SchemaValidationError(
+            `Tool "${config.toolName}" input validation failed: ` +
+            `${parseResult.error.issues.map(i => `${i.path.join(".")}: ${i.message}`).join("; ")}`,
+            parseResult.error,
+          );
+        }
+        args = parseResult.data;
+      } else {
+        args = rawArgs as TArgs;
+      }
+
+      const toolContext: WorkflowToolContext = {
+        sessionID: ctx.state.executionId,
+        messageID: crypto.randomUUID(),
+        agent: "workflow",
+        directory: process.cwd(),
+        abort: config.timeout
+          ? AbortSignal.timeout(config.timeout)
+          : new AbortController().signal,
+        workflowState: Object.freeze({ ...ctx.state }),
+        nodeId: config.id,
+        executionId: ctx.state.executionId,
+      };
+
+      try {
+        const result = await entry.definition.handler(args as Record<string, unknown>, toolContext) as TResult;
+
+        const stateUpdate = config.outputMapper
+          ? config.outputMapper(result, ctx.state)
+          : { outputs: { ...ctx.state.outputs, [config.id]: result } } as Partial<TState>;
+
+        return { stateUpdate };
+      } catch (error) {
+        if (error instanceof SchemaValidationError) {
+          throw error;
+        }
+        throw new NodeExecutionError(
+          `Custom tool "${config.toolName}" failed: ${error instanceof Error ? error.message : String(error)}`,
+          config.id,
+          error instanceof Error ? error : undefined,
+        );
+      }
+    },
+  };
+}
+
+// ============================================================================
+// SUBAGENT NODE
+// ============================================================================
+
+/**
+ * Configuration for creating a sub-agent node that spawns a single sub-agent
+ * within graph execution. The agentName is resolved from SubagentTypeRegistry.
+ */
+export interface SubagentNodeConfig<TState extends BaseState> {
+  id: string;
+  name?: string;
+  description?: string;
+  /** Agent name resolved from SubagentTypeRegistry. Can reference built-in agents
+   *  (e.g., "codebase-analyzer"), user-global, or project-local agents. */
+  agentName: string;
+  task: string | ((state: TState) => string);
+  /** Override the agent's system prompt. If omitted, uses the registry definition. */
+  systemPrompt?: string | ((state: TState) => string);
+  model?: string;
+  tools?: string[];
+  outputMapper?: (result: SubagentResult, state: TState) => Partial<TState>;
+  retry?: RetryConfig;
+}
+
+/**
+ * Create a sub-agent node that spawns a single sub-agent within graph execution.
+ *
+ * The agent is resolved by name from the SubagentTypeRegistry, which contains
+ * built-in, user-global, and project-local agent definitions.
+ *
+ * @template TState - The state type for the workflow
+ * @param config - Sub-agent node configuration
+ * @returns A NodeDefinition that executes the sub-agent
+ */
+export function subagentNode<TState extends BaseState>(
+  config: SubagentNodeConfig<TState>,
+): NodeDefinition<TState> {
+  return {
+    id: config.id,
+    type: "agent",
+    name: config.name ?? config.agentName,
+    description: config.description ?? `Sub-agent: ${config.agentName}`,
+    retry: config.retry,
+    async execute(ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> {
+      const bridge = getSubagentBridge();
+      if (!bridge) {
+        throw new Error(
+          "SubagentGraphBridge not initialized. " +
+          "Ensure setSubagentBridge() is called before graph execution."
+        );
+      }
+
+      const registry = getSubagentRegistry();
+      const entry = registry.get(config.agentName);
+      if (!entry) {
+        throw new Error(
+          `Sub-agent "${config.agentName}" not found in registry. ` +
+          `Available agents: ${registry.getAll().map(a => a.name).join(", ")}`
+        );
+      }
+
+      const task = typeof config.task === "function"
+        ? config.task(ctx.state)
+        : config.task;
+
+      const systemPrompt = typeof config.systemPrompt === "function"
+        ? config.systemPrompt(ctx.state)
+        : config.systemPrompt ?? entry.definition.prompt;
+
+      const result = await bridge.spawn({
+        agentId: `${config.id}-${ctx.state.executionId}`,
+        agentName: config.agentName,
+        task,
+        systemPrompt,
+        model: config.model ?? entry.definition.model ?? ctx.model,
+        tools: config.tools ?? entry.definition.tools,
+      });
+
+      if (!result.success) {
+        throw new Error(
+          `Sub-agent "${config.agentName}" failed: ${result.error ?? "Unknown error"}`
+        );
+      }
+
+      const stateUpdate = config.outputMapper
+        ? config.outputMapper(result, ctx.state)
+        : { outputs: { ...ctx.state.outputs, [config.id]: result.output } } as Partial<TState>;
+
+      return { stateUpdate };
+    },
+  };
+}
+
+// ============================================================================
+// PARALLEL SUBAGENT NODE
+// ============================================================================
+
+/**
+ * Configuration for concurrent sub-agent execution with merge strategy.
+ */
+export interface ParallelSubagentNodeConfig<TState extends BaseState> {
+  id: string;
+  name?: string;
+  description?: string;
+  agents: Array<{
+    agentName: string;
+    task: string | ((state: TState) => string);
+    systemPrompt?: string;
+    model?: string;
+    tools?: string[];
+  }>;
+  merge: (results: Map<string, SubagentResult>, state: TState) => Partial<TState>;
+  retry?: RetryConfig;
+}
+
+/**
+ * Create a parallel sub-agent node that spawns multiple sub-agents concurrently.
+ *
+ * All agents run to completion via Promise.allSettled(). Individual results are
+ * persisted to the workflow session directory. The user-provided merge function
+ * aggregates results into a state update.
+ *
+ * @template TState - The state type for the workflow
+ * @param config - Parallel sub-agent node configuration
+ * @returns A NodeDefinition that executes multiple sub-agents in parallel
+ */
+export function parallelSubagentNode<TState extends BaseState>(
+  config: ParallelSubagentNodeConfig<TState>,
+): NodeDefinition<TState> {
+  return {
+    id: config.id,
+    type: "parallel",
+    name: config.name ?? `Parallel sub-agents (${config.agents.length})`,
+    description: config.description,
+    retry: config.retry,
+    async execute(ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> {
+      const bridge = getSubagentBridge();
+      if (!bridge) {
+        throw new Error("SubagentGraphBridge not initialized.");
+      }
+
+      const spawnOptions: SubagentSpawnOptions[] = config.agents.map((agent, i) => ({
+        agentId: `${config.id}-${i}-${ctx.state.executionId}`,
+        agentName: agent.agentName,
+        task: typeof agent.task === "function" ? agent.task(ctx.state) : agent.task,
+        systemPrompt: agent.systemPrompt,
+        model: agent.model ?? ctx.model,
+        tools: agent.tools,
+      }));
+
+      const results = await bridge.spawnParallel(spawnOptions);
+
+      const resultMap = new Map<string, SubagentResult>();
+      results.forEach((result, i) => {
+        const key = `${config.agents[i]!.agentName}-${i}`;
+        resultMap.set(key, result);
+      });
+
+      const stateUpdate = config.merge(resultMap, ctx.state);
+      return { stateUpdate };
+    },
+  };
 }

@@ -20,14 +20,8 @@
 export const ATOMIC_COMMANDS = [
   "/research-codebase",
   "/create-spec",
-  "/create-feature-list",
-  "/implement-feature",
-  "/commit",
-  "/create-gh-pr",
   "/explain-code",
-  "/ralph:ralph-loop",
-  "/ralph:cancel-ralph",
-  "/ralph:ralph-help",
+  "/ralph",
 ] as const;
 
 /** Type for valid Atomic command strings */

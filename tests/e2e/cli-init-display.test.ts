@@ -28,6 +28,9 @@ describe("CLI Init Display Ordering", () => {
 
   /**
    * Helper function to run the atomic CLI and capture output
+   *
+   * Uses a 5-second timeout to accommodate bun startup overhead,
+   * especially when running multiple tests in sequence.
    */
   function runAtomic(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
     return new Promise((resolve) => {
@@ -39,6 +42,7 @@ describe("CLI Init Display Ordering", () => {
 
       let stdout = "";
       let stderr = "";
+      let resolved = false;
 
       proc.stdout.on("data", (data) => {
         stdout += data.toString();
@@ -49,17 +53,28 @@ describe("CLI Init Display Ordering", () => {
       });
 
       // Auto-cancel any prompts by closing stdin after a delay
-      setTimeout(() => {
-        proc.stdin.end();
-        proc.kill("SIGTERM");
-      }, 2000);
+      // Use 5 seconds to accommodate bun startup time when running multiple tests
+      const timeoutId = setTimeout(() => {
+        if (!resolved) {
+          proc.stdin.end();
+          proc.kill("SIGTERM");
+        }
+      }, 5000);
 
       proc.on("close", (code) => {
-        resolve({ stdout, stderr, exitCode: code ?? 1 });
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeoutId);
+          resolve({ stdout, stderr, exitCode: code ?? 1 });
+        }
       });
 
       proc.on("error", () => {
-        resolve({ stdout, stderr, exitCode: 1 });
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeoutId);
+          resolve({ stdout, stderr, exitCode: 1 });
+        }
       });
     });
   }

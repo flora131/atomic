@@ -36,13 +36,16 @@ mock.module("ci-info", () => ({
 }));
 
 // Helper to create enabled telemetry state
+// Uses current month for rotatedAt to prevent ID rotation during tests
 function createEnabledState(): TelemetryState {
+  const now = new Date();
+  const currentMonth = new Date(now.getUTCFullYear(), now.getUTCMonth(), 1).toISOString();
   return {
     enabled: true,
     consentGiven: true,
     anonymousId: "session-test-uuid",
-    createdAt: "2026-01-01T00:00:00Z",
-    rotatedAt: "2026-01-01T00:00:00Z",
+    createdAt: currentMonth,
+    rotatedAt: currentMonth,
   };
 }
 
@@ -114,34 +117,34 @@ describe("extractCommandsFromTranscript", () => {
   });
 
   test("extracts multiple different commands from user message", () => {
-    const transcript = createMessage("user", "First /commit was run, then /create-gh-pr");
+    const transcript = createMessage("user", "First /research-codebase was run, then /create-spec");
     const result = extractCommandsFromTranscript(transcript);
-    expect(result).toContain("/commit");
-    expect(result).toContain("/create-gh-pr");
+    expect(result).toContain("/research-codebase");
+    expect(result).toContain("/create-spec");
     expect(result).toHaveLength(2);
   });
 
   test("ignores commands in system messages (skill instructions)", () => {
-    const transcript = createMessage("system", "Run the /commit command to save changes");
+    const transcript = createMessage("system", "Run the /ralph command to start the loop");
     const result = extractCommandsFromTranscript(transcript);
     expect(result).toEqual([]);
   });
 
   test("ignores commands in assistant messages (suggestions)", () => {
-    const transcript = createMessage("assistant", "You should run /commit next");
+    const transcript = createMessage("assistant", "You should run /ralph next");
     const result = extractCommandsFromTranscript(transcript);
     expect(result).toEqual([]);
   });
 
   test("only extracts from user messages in mixed transcript", () => {
     const transcript = [
-      createMessage("system", "Instructions: Use /commit to save"),
+      createMessage("system", "Instructions: Use /ralph to start"),
       createMessage("user", "/research-codebase src/"),
-      createMessage("assistant", "Great! Now run /commit"),
-      createMessage("user", "/commit"),
+      createMessage("assistant", "Great! Now run /ralph"),
+      createMessage("user", "/ralph"),
     ].join("\n");
     const result = extractCommandsFromTranscript(transcript);
-    expect(result).toEqual(["/research-codebase", "/commit"]);
+    expect(result).toEqual(["/research-codebase", "/ralph"]);
   });
 
   test("returns empty array for no commands in user messages", () => {
@@ -151,27 +154,27 @@ describe("extractCommandsFromTranscript", () => {
   });
 
   test("counts all occurrences of repeated commands for usage frequency", () => {
-    const transcript = createMessage("user", "/commit first, then /commit again, and /commit once more");
+    const transcript = createMessage("user", "/ralph first, then /ralph again, and /ralph once more");
     const result = extractCommandsFromTranscript(transcript);
-    expect(result).toEqual(["/commit", "/commit", "/commit"]);
+    expect(result).toEqual(["/ralph", "/ralph", "/ralph"]);
   });
 
-  test("extracts namespaced commands", () => {
-    const transcript = createMessage("user", "/ralph:ralph-loop");
+  test("extracts /ralph workflow command", () => {
+    // Note: /ralph:ralph-help removed - replaced by SDK-native /ralph workflow
+    const transcript = createMessage("user", "/ralph");
     const result = extractCommandsFromTranscript(transcript);
-    expect(result).toEqual(["/ralph:ralph-loop"]);
+    expect(result).toEqual(["/ralph"]);
   });
 
 
-  test("extracts all ralph commands from user", () => {
+  test("extracts ralph workflow command from user", () => {
+    // Note: /ralph:ralph-help removed - replaced by SDK-native /ralph workflow
     const transcript = createMessage(
       "user",
-      "/ralph:ralph-loop /ralph:cancel-ralph /ralph:ralph-help"
+      "/ralph with some args"
     );
     const result = extractCommandsFromTranscript(transcript);
-    expect(result).toContain("/ralph:ralph-loop");
-    expect(result).toContain("/ralph:cancel-ralph");
-    expect(result).toContain("/ralph:ralph-help");
+    expect(result).toContain("/ralph");
   });
 
   test("does not extract partial matches", () => {
@@ -200,12 +203,12 @@ describe("extractCommandsFromTranscript", () => {
   test("handles mixed valid and invalid lines", () => {
     const transcript = [
       "invalid line",
-      createMessage("user", "/commit"),
+      createMessage("user", "/research-codebase"),
       "{broken json",
-      createMessage("user", "/create-gh-pr"),
+      createMessage("user", "/explain-code"),
     ].join("\n");
     const result = extractCommandsFromTranscript(transcript);
-    expect(result).toEqual(["/commit", "/create-gh-pr"]);
+    expect(result).toEqual(["/research-codebase", "/explain-code"]);
   });
 });
 
@@ -225,7 +228,7 @@ describe("createSessionEvent", () => {
   });
 
   test("creates event with correct structure and format", () => {
-    const event = createSessionEvent("claude", ["/commit", "/create-gh-pr"]);
+    const event = createSessionEvent("claude", ["/research-codebase", "/explain-code"]);
 
     // Event type and IDs
     expect(event.eventType).toBe("agent_session");
@@ -238,7 +241,7 @@ describe("createSessionEvent", () => {
 
     // Agent and commands
     expect(event.agentType).toBe("claude");
-    expect(event.commands).toEqual(["/commit", "/create-gh-pr"]);
+    expect(event.commands).toEqual(["/research-codebase", "/explain-code"]);
     expect(event.commandCount).toBe(2);
 
     // Metadata
@@ -279,7 +282,7 @@ describe("trackAgentSession", () => {
     // Test env var: ATOMIC_TELEMETRY=0
     process.env.ATOMIC_TELEMETRY = "0";
     writeTelemetryStateToTest(createEnabledState());
-    trackAgentSession("claude", ["/commit"]);
+    trackAgentSession("claude", ["/ralph"]);
     expect(readSessionEvents("claude")).toHaveLength(0);
     delete process.env.ATOMIC_TELEMETRY;
 
@@ -292,7 +295,7 @@ describe("trackAgentSession", () => {
     // Test env var: DO_NOT_TRACK=1
     process.env.DO_NOT_TRACK = "1";
     writeTelemetryStateToTest(createEnabledState());
-    trackAgentSession("claude", ["/commit"]);
+    trackAgentSession("claude", ["/ralph"]);
     expect(readSessionEvents("claude")).toHaveLength(0);
     delete process.env.DO_NOT_TRACK;
 
@@ -306,7 +309,7 @@ describe("trackAgentSession", () => {
     const disabledState = createEnabledState();
     disabledState.enabled = false;
     writeTelemetryStateToTest(disabledState);
-    trackAgentSession("claude", ["/commit"]);
+    trackAgentSession("claude", ["/ralph"]);
     expect(readSessionEvents("claude")).toHaveLength(0);
   });
 
@@ -332,31 +335,31 @@ describe("trackAgentSession", () => {
   test("writes AgentSessionEvent when enabled and commands provided as array", () => {
     writeTelemetryStateToTest(createEnabledState());
 
-    trackAgentSession("claude", ["/commit", "/create-gh-pr"]);
+    trackAgentSession("claude", ["/research-codebase", "/explain-code"]);
 
     const events = readSessionEvents("claude");
     expect(events).toHaveLength(1);
     expect(events[0]?.eventType).toBe("agent_session");
-    expect(events[0]?.commands).toEqual(["/commit", "/create-gh-pr"]);
+    expect(events[0]?.commands).toEqual(["/research-codebase", "/explain-code"]);
     expect(events[0]?.commandCount).toBe(2);
   });
 
   test("writes AgentSessionEvent when enabled and commands extracted from transcript", () => {
     writeTelemetryStateToTest(createEnabledState());
 
-    const transcript = createMessage("user", "/research-codebase and then /commit");
+    const transcript = createMessage("user", "/research-codebase and then /ralph");
     trackAgentSession("claude", transcript);
 
     const events = readSessionEvents("claude");
     expect(events).toHaveLength(1);
     expect(events[0]?.commands).toContain("/research-codebase");
-    expect(events[0]?.commands).toContain("/commit");
+    expect(events[0]?.commands).toContain("/ralph");
   });
 
   test("event contains correct agentType", () => {
     writeTelemetryStateToTest(createEnabledState());
 
-    trackAgentSession("opencode", ["/commit"]);
+    trackAgentSession("opencode", ["/ralph"]);
 
     const events = readSessionEvents("opencode");
     expect(events).toHaveLength(1);
@@ -366,7 +369,7 @@ describe("trackAgentSession", () => {
   test("event has source as session_hook", () => {
     writeTelemetryStateToTest(createEnabledState());
 
-    trackAgentSession("claude", ["/commit"]);
+    trackAgentSession("claude", ["/ralph"]);
 
     const events = readSessionEvents("claude");
     expect(events).toHaveLength(1);
@@ -376,7 +379,7 @@ describe("trackAgentSession", () => {
   test("event uses anonymousId from state", () => {
     writeTelemetryStateToTest(createEnabledState());
 
-    trackAgentSession("claude", ["/commit"]);
+    trackAgentSession("claude", ["/ralph"]);
 
     const events = readSessionEvents("claude");
     expect(events).toHaveLength(1);
@@ -386,9 +389,9 @@ describe("trackAgentSession", () => {
   test("works with all agent types", () => {
     writeTelemetryStateToTest(createEnabledState());
 
-    trackAgentSession("claude", ["/commit"]);
+    trackAgentSession("claude", ["/ralph"]);
     trackAgentSession("opencode", ["/research-codebase"]);
-    trackAgentSession("copilot", ["/create-gh-pr"]);
+    trackAgentSession("copilot", ["/explain-code"]);
 
     const events = readAllSessionEvents();
     expect(events).toHaveLength(3);
@@ -400,9 +403,9 @@ describe("trackAgentSession", () => {
   test("each event has unique sessionId", () => {
     writeTelemetryStateToTest(createEnabledState());
 
-    trackAgentSession("claude", ["/commit"]);
+    trackAgentSession("claude", ["/ralph"]);
     trackAgentSession("claude", ["/research-codebase"]);
-    trackAgentSession("claude", ["/create-gh-pr"]);
+    trackAgentSession("claude", ["/explain-code"]);
 
     const events = readAllSessionEvents();
     expect(events).toHaveLength(3);
@@ -421,7 +424,7 @@ describe("trackAgentSession", () => {
 
     // Should not throw
     expect(() => {
-      trackAgentSession("claude", ["/commit"]);
+      trackAgentSession("claude", ["/ralph"]);
     }).not.toThrow();
   });
 });

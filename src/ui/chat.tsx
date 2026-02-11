@@ -1911,7 +1911,7 @@ export function ChatApp({
                   if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
                     return [
                       ...prev.slice(0, -1),
-                      { ...lastMsg, streaming: false, completedAt: new Date(), parallelAgents: finalizedAgents, taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" ? "completed" : t.status, blockedBy: t.blockedBy })) : undefined },
+                      { ...lastMsg, streaming: false, completedAt: new Date(), parallelAgents: finalizedAgents, taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined },
                     ];
                   }
                   return prev;
@@ -1925,7 +1925,7 @@ export function ChatApp({
                 if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
                   return [
                     ...prev.slice(0, -1),
-                    { ...lastMsg, streaming: false, completedAt: new Date(), taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" ? "completed" : t.status, blockedBy: t.blockedBy })) : undefined },
+                    { ...lastMsg, streaming: false, completedAt: new Date(), taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined },
                   ];
                 }
                 return prev;
@@ -2562,7 +2562,7 @@ export function ChatApp({
                           tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                         ),
                         parallelAgents: finalizedAgents,
-                        taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" ? "completed" : t.status, blockedBy: t.blockedBy })) : undefined,
+                        taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined,
                       }
                       : msg
                   )
@@ -3848,7 +3848,7 @@ export function ChatApp({
                         tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                       ),
                       parallelAgents: finalizedAgents,
-                      taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" ? "completed" : t.status, blockedBy: t.blockedBy })) : undefined,
+                      taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined,
                     }
                     : msg
                 )

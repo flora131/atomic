@@ -373,3 +373,54 @@ describe("createSubagentSession factory pattern", () => {
     expect(mockClient.createSession).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("SubagentGraphBridge initialization", () => {
+  test("bridge wraps session manager and delegates spawn()", async () => {
+    const { SubagentGraphBridge, setSubagentBridge, getSubagentBridge } = await import("../../graph/subagent-bridge.ts");
+
+    const mockSession = createMockSession([
+      { type: "text", content: "Analysis complete", role: "assistant" },
+    ]);
+    const createSession: CreateSessionFn = mock(async () => mockSession);
+    const onStatusUpdate = mock(() => {});
+
+    const manager = new SubagentSessionManager({ createSession, onStatusUpdate });
+    const bridge = new SubagentGraphBridge({ sessionManager: manager });
+
+    // setSubagentBridge makes it available globally
+    setSubagentBridge(bridge);
+    expect(getSubagentBridge()).toBe(bridge);
+
+    const result = await bridge.spawn({
+      agentId: "test-agent",
+      agentName: "explore",
+      task: "Find files",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.output).toBeDefined();
+
+    // Cleanup: reset bridge to null
+    setSubagentBridge(null);
+    expect(getSubagentBridge()).toBeNull();
+
+    manager.destroy();
+  });
+
+  test("setSubagentBridge(null) clears the global bridge", async () => {
+    const { SubagentGraphBridge, setSubagentBridge, getSubagentBridge } = await import("../../graph/subagent-bridge.ts");
+
+    const mockSession = createMockSession();
+    const createSession: CreateSessionFn = mock(async () => mockSession);
+    const manager = new SubagentSessionManager({ createSession, onStatusUpdate: mock(() => {}) });
+
+    const bridge = new SubagentGraphBridge({ sessionManager: manager });
+    setSubagentBridge(bridge);
+    expect(getSubagentBridge()).toBe(bridge);
+
+    setSubagentBridge(null);
+    expect(getSubagentBridge()).toBeNull();
+
+    manager.destroy();
+  });
+});

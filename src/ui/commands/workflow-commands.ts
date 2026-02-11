@@ -556,7 +556,7 @@ export function refreshWorkflowRegistry(): void {
 const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata<BaseState>[] = [
   {
     name: "ralph",
-    description: "Start the Ralph autonomous implementation workflow",
+    description: "Start autonomous implementation workflow",
     aliases: ["loop"],
     argumentHint: '"<prompt-or-spec-path>" [--resume UUID ["<prompt>"]]',
     createWorkflow: (config?: Record<string, unknown>) => {
@@ -693,11 +693,11 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
           };
         }
 
-        context.addMessage("system", `Resuming session: ${parsed.sessionId}`);
+        context.addMessage("system", `Resuming session ${parsed.sessionId}`);
 
         return {
           success: true,
-          message: `Resuming Ralph session ${parsed.sessionId}...`,
+          message: `Resuming session ${parsed.sessionId}...`,
           stateUpdate: {
             workflowActive: true,
             workflowType: metadata.name,
@@ -718,12 +718,12 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
       
       context.addMessage(
         "system",
-        `Started Ralph session: ${sessionId}\n\nStarting **ralph** workflow...\n\nPrompt: "${parsed.prompt}"`
+        `Session ${sessionId}\n\nStarting workflow...\n\nPrompt: "${parsed.prompt}"`
       );
 
       return {
         success: true,
-        message: `Started Ralph session: ${sessionId}\n\nWorkflow **ralph** initialized. Starting implementation...`,
+        message: `Session ${sessionId} started. Running workflow...`,
         stateUpdate: {
           workflowActive: true,
           workflowType: metadata.name,

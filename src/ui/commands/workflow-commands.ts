@@ -1,16 +1,15 @@
 /**
  * Workflow Commands for Chat UI
  *
- * Registers workflow commands that start graph-based workflow executions.
- * Each workflow command creates a new workflow instance and updates the UI state.
+ * Registers workflow commands as slash commands invocable from the TUI.
+ * The /ralph command implements a two-step autonomous workflow:
+ *   Step 1: Task list decomposition from user prompt
+ *   Step 2: Feature implementation using implement-feature.md
  *
- * The workflow sequence follows the Atomic pattern:
- * 1. /research-codebase → clear → 2. /create-spec → clear → 3. HIL spec review
- *
- * Reference: Feature 3 - Implement workflow command registration
+ * Session saving/resuming is powered by the workflow SDK session manager.
  */
 
-import { existsSync, watch } from "fs";
+import { existsSync, readFileSync, watch } from "fs";
 import { readFile } from "fs/promises";
 import { join } from "path";
 import type {
@@ -20,22 +19,17 @@ import type {
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
 
-import {
-  createRalphWorkflow,
-  type CreateRalphWorkflowConfig,
-} from "../../workflows/ralph/workflow.ts";
 import type { CompiledGraph, BaseState } from "../../graph/types.ts";
 import type { AtomicWorkflowState } from "../../graph/annotation.ts";
 import { setWorkflowResolver, type CompiledSubgraph } from "../../graph/nodes.ts";
-import {
-  generateRalphSessionId,
-  getRalphSessionPaths,
-} from "../../config/ralph.ts";
 import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 import {
-  generateSessionId,
-  getSessionDir,
-} from "../../workflows/ralph/session.ts";
+  initWorkflowSession,
+  saveWorkflowSession,
+  getWorkflowSessionDir,
+  type WorkflowSession,
+} from "../../workflows/session.ts";
+import { buildSpecToTasksPrompt } from "../../graph/nodes/ralph-nodes.ts";
 
 // ============================================================================
 // RALPH COMMAND PARSING
@@ -108,45 +102,6 @@ export interface WorkflowMetadata<TState extends BaseState = AtomicWorkflowState
   argumentHint?: string;
 }
 
-/**
- * Workflow session state for tracking multi-step workflow execution.
- */
-export interface WorkflowSession {
-  /** Unique session ID */
-  sessionId: string;
-  /** Agent type (claude, opencode, copilot) */
-  agentType: string;
-  /** Current workflow step */
-  currentStep: WorkflowStep;
-  /** Session-specific file paths */
-  paths: {
-    featureListPath: string;
-    progressFilePath: string;
-    stateFilePath: string;
-  };
-  /** Timestamp when session was created */
-  createdAt: number;
-  /** Research document path (if created) */
-  researchDocPath?: string;
-  /** Spec document path (if created) */
-  specDocPath?: string;
-}
-
-/**
- * Workflow steps for the Atomic workflow.
- */
-export type WorkflowStep =
-  | "research"
-  | "research_complete"
-  | "create_spec"
-  | "spec_complete"
-  | "spec_review"
-  | "spec_approved"
-  | "spec_rejected"
-  | "create_features"
-  | "implement"
-  | "complete";
-
 // ============================================================================
 // WORKFLOW SESSION MANAGEMENT
 // ============================================================================
@@ -155,40 +110,13 @@ export type WorkflowStep =
 const activeSessions = new Map<string, WorkflowSession>();
 
 /**
- * Create a new workflow session with unique file paths.
- */
-export function createWorkflowSession(agentType: string): WorkflowSession {
-  const sessionId = generateRalphSessionId();
-  const paths = getRalphSessionPaths(agentType, sessionId);
-
-  const session: WorkflowSession = {
-    sessionId,
-    agentType,
-    currentStep: "research",
-    paths,
-    createdAt: Date.now(),
-  };
-
-  activeSessions.set(sessionId, session);
-  return session;
-}
-
-/**
  * Get the current active session (most recent if multiple).
  */
 export function getActiveSession(): WorkflowSession | undefined {
   const sessions = Array.from(activeSessions.values());
-  return sessions.sort((a, b) => b.createdAt - a.createdAt)[0];
-}
-
-/**
- * Update a session's current step.
- */
-export function updateSessionStep(sessionId: string, step: WorkflowStep): void {
-  const session = activeSessions.get(sessionId);
-  if (session) {
-    session.currentStep = step;
-  }
+  return sessions.sort((a, b) =>
+    new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  )[0];
 }
 
 /**
@@ -552,6 +480,11 @@ export function refreshWorkflowRegistry(): void {
 /**
  * Built-in workflow definitions.
  * These can be overridden by local or global workflows with the same name.
+ *
+ * The ralph workflow uses a simple two-step approach:
+ *   1. Decompose user prompt into a task list
+ *   2. Send implement-feature.md prompt to execute tasks
+ * No graph engine is involved — the workflow is driven by two sequential prompts.
  */
 const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata<BaseState>[] = [
   {
@@ -559,17 +492,14 @@ const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata<BaseState>[] = [
     description: "Start autonomous implementation workflow",
     aliases: ["loop"],
     argumentHint: '"<prompt-or-spec-path>" [--resume UUID ["<prompt>"]]',
-    createWorkflow: (config?: Record<string, unknown>) => {
-      const ralphConfig: CreateRalphWorkflowConfig = {
-        checkpointing: typeof config?.checkpointing === "boolean" ? config.checkpointing : true,
-        userPrompt: typeof config?.userPrompt === "string" ? config.userPrompt : undefined,
-        resumeSessionId: typeof config?.resumeSessionId === "string" ? config.resumeSessionId : undefined,
-      };
-      return createRalphWorkflow(ralphConfig) as unknown as CompiledGraph<BaseState>;
-    },
-    defaultConfig: {
-      checkpointing: true,
-    },
+    // createWorkflow returns a no-op compiled graph — the actual execution
+    // is handled entirely by createRalphCommand() via sendSilentMessage + initialPrompt.
+    createWorkflow: () => ({
+      nodes: new Map(),
+      edges: [],
+      startNode: "noop",
+      endNodes: new Set(["noop"]),
+    }) as unknown as CompiledGraph<BaseState>,
     source: "builtin",
   },
 ];
@@ -644,6 +574,19 @@ function createWorkflowCommand(metadata: WorkflowMetadata<BaseState>): CommandDe
   };
 }
 
+/**
+ * Load the implement-feature.md prompt from the project root.
+ * Uses synchronous read so it can be used in the command handler.
+ * Falls back to a minimal default if the file is not found.
+ */
+function loadImplementFeaturePrompt(): string {
+  try {
+    return readFileSync(join(process.cwd(), "implement-feature.md"), "utf-8");
+  } catch {
+    return "You are tasked with implementing a SINGLE feature from the task list.\n\n1. Read the task list and choose the highest-priority item that's not yet done.\n2. Implement it with tests.\n3. Mark the feature as complete in the task list.\n4. Commit progress with a descriptive message.\n5. Write a summary to progress.txt.";
+  }
+}
+
 function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefinition {
   return {
     name: metadata.name,
@@ -685,7 +628,7 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
           };
         }
 
-        const sessionDir = getSessionDir(parsed.sessionId);
+        const sessionDir = getWorkflowSessionDir(parsed.sessionId);
         if (!existsSync(sessionDir)) {
           return {
             success: false,
@@ -695,13 +638,20 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
 
         context.addMessage("system", `Resuming session ${parsed.sessionId}`);
 
+        // Load implement-feature prompt and send it to continue the session
+        const implementPrompt = loadImplementFeaturePrompt();
+        const additionalPrompt = parsed.prompt ? `\n\nAdditional instructions: ${parsed.prompt}` : "";
+
+        // Send the implement-feature prompt to continue where we left off
+        context.sendSilentMessage(implementPrompt + additionalPrompt);
+
         return {
           success: true,
           message: `Resuming session ${parsed.sessionId}...`,
           stateUpdate: {
             workflowActive: true,
             workflowType: metadata.name,
-            initialPrompt: parsed.prompt,
+            initialPrompt: null,
             pendingApproval: false,
             specApproved: undefined,
             feedback: null,
@@ -713,13 +663,29 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
         };
       }
 
-      // Handle new run
-      const sessionId = generateSessionId();
-      
+      // ── Two-step workflow ────────────────────────────────────────────
+      // Step 1: Task decomposition (sent via sendSilentMessage, streams)
+      // Step 2: Feature implementation (set as initialPrompt, auto-sent
+      //         after step 1 streaming completes)
+      // ────────────────────────────────────────────────────────────────
+
+      // Initialize a workflow session via the SDK
+      const sessionId = crypto.randomUUID();
+      void initWorkflowSession("ralph", sessionId).then((session) => {
+        activeSessions.set(session.sessionId, session);
+      });
+
       context.addMessage(
         "system",
         `Session ${sessionId}\n\nStarting workflow...\n\nPrompt: "${parsed.prompt}"`
       );
+
+      // Step 1: Send task decomposition prompt immediately (sets isStreaming=true)
+      const step1Prompt = buildSpecToTasksPrompt(parsed.prompt);
+      context.sendSilentMessage(step1Prompt);
+
+      // Step 2: Load implement-feature prompt (auto-sent after step 1 streaming completes)
+      const step2Prompt = loadImplementFeaturePrompt();
 
       return {
         success: true,
@@ -727,7 +693,7 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
         stateUpdate: {
           workflowActive: true,
           workflowType: metadata.name,
-          initialPrompt: parsed.prompt,
+          initialPrompt: step2Prompt,
           pendingApproval: false,
           specApproved: undefined,
           feedback: null,
@@ -747,9 +713,10 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
 
 export function watchTasksJson(
   sessionDir: string,
-  onUpdate: (items: TodoItem[]) => void
+  onUpdate: (items: TodoItem[]) => void,
 ): () => void {
   const tasksPath = join(sessionDir, "tasks.json");
+  if (!existsSync(tasksPath)) return () => {};
   const watcher = watch(tasksPath, async () => {
     try {
       const content = await readFile(tasksPath, "utf-8");

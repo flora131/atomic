@@ -505,7 +505,7 @@ function buildProgressEntry(
 export function buildSpecToTasksPrompt(specContent: string): string {
   return `You are tasked with decomposing a feature specification into an ordered task list.
 
-Read the following specification and create a structured JSON array of tasks to be implemented in order of highest to lowest priority.
+Read the following specification and create a comprehensive and structured JSON array of tasks to be implemented in order of highest to lowest priority.
 
 <specification>
 ${specContent}
@@ -577,75 +577,6 @@ export function formatSessionStatus(status: RalphSessionStatus): string {
     failed: "Failed",
   };
   return statusMap[status] ?? status;
-}
-
-// ============================================================================
-// TERMINAL HYPERLINK SUPPORT
-// ============================================================================
-
-/**
- * Check if the terminal supports hyperlinks using OSC 8 escape sequences.
- *
- * Modern terminals that support hyperlinks include:
- * - iTerm2 (macOS)
- * - VTE-based terminals (GNOME Terminal, Tilix, etc.)
- * - Windows Terminal
- * - Hyper
- * - Alacritty (with recent versions)
- *
- * We detect support by checking environment variables that indicate
- * terminal capabilities.
- *
- * @returns True if the terminal likely supports hyperlinks
- */
-export function supportsTerminalHyperlinks(): boolean {
-  // Check if running in a TTY
-  if (!process.stdout.isTTY) {
-    return false;
-  }
-
-  // Check for known terminals that support hyperlinks
-  const termProgram = process.env.TERM_PROGRAM ?? "";
-  const term = process.env.TERM ?? "";
-  const wtSession = process.env.WT_SESSION; // Windows Terminal
-  const colorterm = process.env.COLORTERM ?? "";
-
-  // iTerm2 and similar macOS terminals
-  if (termProgram === "iTerm.app" || termProgram === "Apple_Terminal") {
-    return true;
-  }
-
-  // Windows Terminal
-  if (wtSession) {
-    return true;
-  }
-
-  // VTE-based terminals (GNOME Terminal, etc.)
-  if (process.env.VTE_VERSION) {
-    const vteVersion = parseInt(process.env.VTE_VERSION, 10);
-    // VTE 0.50.0 (version 5000) added hyperlink support
-    if (!isNaN(vteVersion) && vteVersion >= 5000) {
-      return true;
-    }
-  }
-
-  // Modern terminal with truecolor support often supports hyperlinks
-  if (colorterm === "truecolor" || colorterm === "24bit") {
-    return true;
-  }
-
-  // xterm-256color and similar modern terms often support hyperlinks
-  if (term.includes("256color") || term.includes("xterm")) {
-    return true;
-  }
-
-  // Hyper terminal
-  if (termProgram === "Hyper") {
-    return true;
-  }
-
-  // Default to false for unknown terminals
-  return false;
 }
 
 
@@ -1379,10 +1310,9 @@ export async function processCreatePRResult(
     totalFeatures: totalCount,
   });
 
-  // Log completion message with clickable URL if terminal supports it
+  // Log completion message
   if (prUrl) {
-    const clickableUrl = formatTerminalHyperlink(prUrl);
-    console.log(`Pull request created: ${clickableUrl}`);
+    console.log(`Pull request created: ${prUrl}`);
   } else {
     console.log("Session completed (no PR URL extracted from output)");
   }

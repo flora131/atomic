@@ -76,7 +76,7 @@ export interface ClaudeHookConfig {
  * Internal session state for tracking active queries
  */
 interface ClaudeSessionState {
-  query: Query;
+  query: Query | null;
   sessionId: string;
   /** SDK's session ID for resuming conversations (captured from first message) */
   sdkSessionId: string | null;
@@ -120,7 +120,12 @@ function mapEventTypeToHookEvent(eventType: EventType): HookEvent | null {
 }
 
 /**
- * Extracts content from SDK message
+ * Extracts content from SDK message.
+ *
+ * Handles multi-block assistant messages by scanning all content blocks.
+ * Priority: tool_use > text > thinking (tool_use is prioritized so the
+ * streaming layer can accurately count tool invocations even when the
+ * model emits thinking or text blocks before the tool_use block).
  */
 function extractMessageContent(message: SDKAssistantMessage): {
   type: MessageContentType;
@@ -131,24 +136,32 @@ function extractMessageContent(message: SDKAssistantMessage): {
     return { type: "text", content: "" };
   }
 
-  const firstBlock = betaMessage.content[0];
-  if (!firstBlock) {
-    return { type: "text", content: "" };
+  // Scan all blocks — prioritize tool_use, then text, then thinking
+  let textContent: string | null = null;
+  let thinkingContent: string | null = null;
+
+  for (const block of betaMessage.content) {
+    if (block.type === "tool_use") {
+      // Return immediately — tool_use has highest priority
+      return {
+        type: "tool_use",
+        content: { name: block.name, input: block.input },
+      };
+    }
+    if (block.type === "text" && textContent === null) {
+      textContent = block.text;
+    }
+    if (block.type === "thinking" && thinkingContent === null) {
+      thinkingContent = (block as { thinking: string }).thinking;
+    }
   }
 
-  if (firstBlock.type === "text") {
-    return { type: "text", content: firstBlock.text };
+  if (textContent !== null) {
+    return { type: "text", content: textContent };
   }
 
-  if (firstBlock.type === "tool_use") {
-    return {
-      type: "tool_use",
-      content: { name: firstBlock.name, input: firstBlock.input },
-    };
-  }
-
-  if (firstBlock.type === "thinking") {
-    return { type: "thinking", content: firstBlock.thinking };
+  if (thinkingContent !== null) {
+    return { type: "thinking", content: thinkingContent };
   }
 
   return { type: "text", content: "" };
@@ -318,6 +331,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
       options.mcpServers[name] = server;
     }
 
+    // Forward tool restrictions to the SDK so sub-agents only have access
+    // to the tools specified in their agent definition (e.g. ["Glob", "Grep", "Read"]).
+    // When config.tools is undefined, no restriction is applied (default tools).
+    if (config.tools && config.tools.length > 0) {
+      options.tools = config.tools;
+    }
+
     // Always bypass permissions - Atomic handles its own permission flow
     // via canUseTool/HITL callbacks above. The initClaudeOptions() defaults
     // already set bypassPermissions, so no mapping from config is needed.
@@ -336,7 +356,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
    * Wrap a Query into a unified Session interface
    */
   private wrapQuery(
-    queryInstance: Query,
+    queryInstance: Query | null,
     sessionId: string,
     config: SessionConfig
   ): Session {
@@ -611,7 +631,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
       destroy: async (): Promise<void> => {
         if (!state.isClosed) {
           state.isClosed = true;
-          state.query.close();
+          state.query?.close();
           this.sessions.delete(sessionId);
           this.emitEvent("session.idle", sessionId, { reason: "destroyed" });
         }
@@ -737,16 +757,15 @@ export class ClaudeAgentClient implements CodingAgentClient {
     const sessionId =
       config.sessionId ?? `claude-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    // Create initial query (prompt is empty — actual user messages come via send()/stream())
-    const prompt = "";
-    const options = this.buildSdkOptions({ ...config, sessionId }, sessionId);
-
-    const queryInstance = query({ prompt, options });
+    // Don't create an initial query here — send()/stream() each create
+    // their own query with the actual user message.  Previously an empty-prompt
+    // query was spawned here, which leaked a Claude Code subprocess that was
+    // never consumed.
 
     // Emit session start event
     this.emitEvent("session.start", sessionId, { config });
 
-    return this.wrapQuery(queryInstance, sessionId, config);
+    return this.wrapQuery(null, sessionId, config);
   }
 
   /**
@@ -949,7 +968,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
     // Reuse an existing active session's query if available
     for (const state of this.sessions.values()) {
-      if (!state.isClosed) {
+      if (!state.isClosed && state.query) {
         return await state.query.supportedModels();
       }
     }
@@ -1034,7 +1053,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
     for (const [_sessionId, state] of this.sessions) {
       if (!state.isClosed) {
         state.isClosed = true;
-        state.query.close();
+        state.query?.close();
       }
     }
 

@@ -58,7 +58,7 @@ export function getWorkflowIcon(workflowType: string | null | undefined): string
 
   const lower = workflowType.toLowerCase();
   if (lower === "atomic") return "⚛";
-  if (lower === "ralph" || lower.includes("ralph")) return "🔄";
+  if (lower === "ralph" || lower.includes("ralph")) return "⚡";
   return "⚡";
 }
 
@@ -201,12 +201,13 @@ export function WorkflowStatusBar({
       marginRight={1}
       gap={0}
     >
-      {/* Workflow icon and type */}
-      <StatusItem
-        text={`${icon} ${typeName}`}
-        color={theme.colors.accent}
-        bold={true}
-      />
+      {/* Workflow icon (fixed-width for consistent cross-platform alignment) and type */}
+      <box flexDirection="row" flexShrink={0}>
+        <box width={3} flexShrink={0}>
+          <text style={{ fg: theme.colors.accent, attributes: 1 }}>{` ${icon}`}</text>
+        </box>
+        <text style={{ fg: theme.colors.accent, attributes: 1 }}>{` ${typeName}`}</text>
+      </box>
 
       {/* Current node if present */}
       {currentNode && (
@@ -241,7 +242,7 @@ export function WorkflowStatusBar({
       {/* Queue count indicator */}
       {queueCount !== undefined && queueCount > 0 && (
         <StatusItem
-          text={`📝 ${queueCount} queued`}
+          text={`${queueCount} queued`}
           color={theme.colors.accent}
           separator={true}
           separatorColor={theme.colors.muted}

@@ -33,6 +33,8 @@ export interface TaskListIndicatorProps {
   items: TaskItem[];
   /** Maximum items to show before collapsing (default: 10) */
   maxVisible?: number;
+  /** When true, show full content without truncation (ctrl+t toggle) */
+  expanded?: boolean;
 }
 
 // ============================================================================
@@ -101,6 +103,7 @@ function AnimatedStatusIndicator({
 export function TaskListIndicator({
   items,
   maxVisible = 10,
+  expanded = false,
 }: TaskListIndicatorProps): React.ReactNode {
   const themeColors = useThemeColors();
 
@@ -125,7 +128,7 @@ export function TaskListIndicator({
             ) : (
               <span style={{ fg: color }}>{icon}</span>
             )}
-            <span style={{ fg: color }}>{" "}{truncate(item.content, MAX_CONTENT_LENGTH)}</span>
+            <span style={{ fg: color }}>{" "}{expanded ? item.content : truncate(item.content, MAX_CONTENT_LENGTH)}</span>
             {item.blockedBy && item.blockedBy.length > 0 && (
               <span style={{ fg: themeColors.muted }}>{` › blocked by ${item.blockedBy.map(id => id.startsWith("#") ? id : `#${id}`).join(", ")}`}</span>
             )}

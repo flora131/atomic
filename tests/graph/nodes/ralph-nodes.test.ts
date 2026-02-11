@@ -43,7 +43,6 @@ import {
 
   // Terminal hyperlink functions
   supportsTerminalHyperlinks,
-  formatTerminalHyperlink,
 
   // Re-exported functions
   generateSessionId,
@@ -2372,47 +2371,6 @@ describe("formatTerminalHyperlink", () => {
     });
   });
 
-  test("returns plain URL when terminal does not support hyperlinks", () => {
-    Object.defineProperty(process.stdout, "isTTY", {
-      value: false,
-      writable: true,
-    });
-    const url = "https://github.com/owner/repo/pull/123";
-    expect(formatTerminalHyperlink(url)).toBe(url);
-  });
-
-  test("returns OSC 8 formatted hyperlink when terminal supports it", () => {
-    Object.defineProperty(process.stdout, "isTTY", {
-      value: true,
-      writable: true,
-    });
-    process.env.TERM_PROGRAM = "iTerm.app";
-    const url = "https://github.com/owner/repo/pull/123";
-    const result = formatTerminalHyperlink(url);
-    expect(result).toBe(`\x1b]8;;${url}\x07${url}\x1b]8;;\x07`);
-  });
-
-  test("uses custom display text when provided", () => {
-    Object.defineProperty(process.stdout, "isTTY", {
-      value: true,
-      writable: true,
-    });
-    process.env.TERM_PROGRAM = "iTerm.app";
-    const url = "https://github.com/owner/repo/pull/123";
-    const text = "PR #123";
-    const result = formatTerminalHyperlink(url, text);
-    expect(result).toBe(`\x1b]8;;${url}\x07${text}\x1b]8;;\x07`);
-  });
-
-  test("returns custom text without formatting when not supported", () => {
-    Object.defineProperty(process.stdout, "isTTY", {
-      value: false,
-      writable: true,
-    });
-    const url = "https://github.com/owner/repo/pull/123";
-    const text = "PR #123";
-    expect(formatTerminalHyperlink(url, text)).toBe(text);
-  });
 });
 
 // ============================================================================

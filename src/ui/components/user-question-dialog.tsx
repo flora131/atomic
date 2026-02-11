@@ -331,8 +331,10 @@ export function UserQuestionDialog({
               ref={textareaRef}
               placeholder={isChatAboutThis ? "Type your thoughts..." : "Type your answer..."}
               focused={true}
-              height={1}
+              minHeight={1}
+              maxHeight={5}
               flexGrow={1}
+              wrapMode="word"
             />
           </box>
           <text style={{ fg: colors.muted }}>

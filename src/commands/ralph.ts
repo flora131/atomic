@@ -143,17 +143,17 @@ function getNodeDisplayName(nodeId: string): string {
 function getStatusEmoji(status: string): string {
   switch (status) {
     case "running":
-      return "🔄";
+      return "↻";
     case "paused":
-      return "⏸️";
+      return "◐";
     case "completed":
-      return "✅";
+      return "✓";
     case "failed":
-      return "❌";
+      return "✗";
     case "cancelled":
-      return "🚫";
+      return "⚐";
     default:
-      return "▶️";
+      return "▶";
   }
 }
 
@@ -169,7 +169,7 @@ async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number>
     checkpointing = true,
   } = options;
 
-  console.log("🚀 Starting Ralph workflow...\n");
+  console.log("▶ Starting Ralph workflow...\n");
   console.log(`Agent type: ${agentType}`);
   console.log(`Checkpointing: ${checkpointing ? "enabled" : "disabled"}`);
   console.log("");
@@ -216,11 +216,11 @@ async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number>
         );
 
         if (response.toLowerCase() === "q") {
-          console.log("\n🚫 Workflow cancelled by user.\n");
+          console.log("\n⚐ Workflow cancelled by user.\n");
           return 1;
         }
 
-        console.log("\n▶️ Continuing workflow...\n");
+        console.log("\n▶ Continuing workflow...\n");
       }
 
       // Handle completion
@@ -234,7 +234,7 @@ async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number>
         if (features.length > 0) {
           const passingCount = features.filter((f) => f.status === "passing").length;
           const totalCount = features.length;
-          console.log(`\n 📊 Final Feature Status: ${passingCount}/${totalCount} passing\n`);
+          console.log(`\n ◆ Final Feature Status: ${passingCount}/${totalCount} passing\n`);
 
           if (passingCount < totalCount) {
             console.log(" Pending Features:");
@@ -249,7 +249,7 @@ async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number>
 
       // Handle failure
       if (stepResult.status === "failed") {
-        console.error("\n❌ Workflow execution failed");
+        console.error("\n✗ Workflow execution failed");
         if (stepResult.error) {
           const errorMessage =
             stepResult.error.error instanceof Error
@@ -263,7 +263,7 @@ async function executeGraphWorkflow(options: RalphSetupOptions): Promise<number>
 
       // Handle cancellation
       if (stepResult.status === "cancelled") {
-        console.log("\n🚫 Workflow execution cancelled");
+        console.log("\n⚐ Workflow execution cancelled");
         return 1;
       }
     }

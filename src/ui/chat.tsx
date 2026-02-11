@@ -978,6 +978,16 @@ function findMentionRanges(text: string): [number, number][] {
   return ranges;
 }
 
+/** Convert a JS string index to a highlight offset by subtracting newline characters,
+ *  since addHighlightByCharRange expects display-width offsets excluding newlines. */
+function toHighlightOffset(text: string, index: number): number {
+  let newlineCount = 0;
+  for (let i = 0; i < index && i < text.length; i++) {
+    if (text[i] === "\n") newlineCount++;
+  }
+  return index - newlineCount;
+}
+
 /**
  * Check if the text starts with a registered slash command (not inside quotes/backticks).
  * Returns [start, end] character offset pair if found, or null.
@@ -2320,8 +2330,8 @@ export function ChatApp({
       const range = findSlashCommandRange(value);
       if (range) {
         textarea.addHighlightByCharRange({
-          start: range[0],
-          end: range[1],
+          start: toHighlightOffset(value, range[0]),
+          end: toHighlightOffset(value, range[1]),
           styleId: commandStyleIdRef.current,
           hlRef: HLREF_COMMAND,
         });
@@ -2332,8 +2342,8 @@ export function ChatApp({
       const mentionRanges = findMentionRanges(value);
       for (const [start, end] of mentionRanges) {
         textarea.addHighlightByCharRange({
-          start,
-          end,
+          start: toHighlightOffset(value, start),
+          end: toHighlightOffset(value, end),
           styleId: mentionStyleIdRef.current,
           hlRef: HLREF_MENTION,
         });

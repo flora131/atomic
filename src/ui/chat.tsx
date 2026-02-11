@@ -2279,11 +2279,20 @@ export function ChatApp({
           }
           : a
       );
+
+      // Collect sub-agent result text into the message content so it
+      // renders in the main conversation (like Claude Code's Task tool).
+      const agentOutputParts = finalizedAgents
+        .filter((a) => a.result && a.result.trim())
+        .map((a) => a.result!.trim());
+      const agentOutput = agentOutputParts.join("\n\n");
+
       setMessages((prev: ChatMessage[]) =>
         prev.map((msg: ChatMessage) =>
           msg.id === messageId
             ? {
               ...msg,
+              content: agentOutput || msg.content,
               streaming: false,
               completedAt: new Date(),
               durationMs,
@@ -2300,8 +2309,19 @@ export function ChatApp({
       setStreamingMeta(null);
       setParallelAgents([]);
       parallelAgentsRef.current = [];
+
+      // Drain the message queue — the agent-only path doesn't go through
+      // the SDK handleComplete callback, so we must dequeue here.
+      const nextMessage = messageQueue.dequeue();
+      if (nextMessage) {
+        setTimeout(() => {
+          if (sendMessageRef.current) {
+            sendMessageRef.current(nextMessage.content);
+          }
+        }, 50);
+      }
     }
-  }, [parallelAgents, model, onInterrupt]);
+  }, [parallelAgents, model, onInterrupt, messageQueue]);
 
   // Initialize SubagentSessionManager when createSubagentSession is available
   useEffect(() => {
@@ -4027,17 +4047,22 @@ export function ChatApp({
                 });
               } else if (selectedCommand.category === "agent") {
                 // Agent @ mention: execute the agent command
-                // Restore text without the mention, or just clear if mention was the whole input
+                // Use any remaining text (before/after the mention) as the agent's args
                 const remaining = (before + after).trim();
-                if (remaining) textarea.insertText(remaining);
+                textarea.gotoBufferHome();
+                textarea.gotoBufferEnd({ select: true });
+                textarea.deleteChar();
                 updateWorkflowState({
                   showAutocomplete: false,
                   autocompleteInput: "",
                   selectedSuggestionIndex: 0,
                   autocompleteMode: "command",
                 });
-                addMessage("user", `@${selectedCommand.name}`);
-                void executeCommand(selectedCommand.name, "");
+                const displayText = remaining
+                  ? `@${selectedCommand.name} ${remaining}`
+                  : `@${selectedCommand.name}`;
+                addMessage("user", displayText);
+                void executeCommand(selectedCommand.name, remaining);
               } else {
                 // File @ mention: insert completed mention into text
                 const replacement = `@${selectedCommand.name} `;

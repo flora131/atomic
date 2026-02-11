@@ -20,6 +20,7 @@ import { saveModelPreference } from "../../utils/settings.ts";
 import { discoverMcpConfigs } from "../../utils/mcp-config.ts";
 import { BACKGROUND_COMPACTION_THRESHOLD } from "../../graph/types.ts";
 
+
 // ============================================================================
 // COMMAND IMPLEMENTATIONS
 // ============================================================================
@@ -34,7 +35,7 @@ export const helpCommand: CommandDefinition = {
   description: "Show all available commands",
   category: "builtin",
   aliases: ["h", "?"],
-  execute: (_args: string, _context: CommandContext): CommandResult => {
+  execute: async (_args: string, context: CommandContext): Promise<CommandResult> => {
     const commands = globalRegistry.all();
 
     if (commands.length === 0) {
@@ -81,23 +82,12 @@ export const helpCommand: CommandDefinition = {
       }
     }
 
-    // Add Ralph workflow documentation if /ralph is registered
+    // Add Ralph workflow usage if /ralph is registered
     if (grouped["workflow"]?.some((cmd) => cmd.name === "ralph")) {
-      lines.push("**Ralph Workflow**");
-      lines.push("  The autonomous implementation workflow.");
-      lines.push("");
-      lines.push("  Usage:");
-      lines.push("    /ralph                        Start with feature-list.json");
-      lines.push("    /ralph --yolo <prompt>        Freestyle mode (no feature list)");
-      lines.push("    /ralph --resume <uuid>        Resume paused session");
-      lines.push("");
-      lines.push("  Options:");
-      lines.push("    --feature-list <path>         Feature list path (default: research/feature-list.json)");
-      lines.push("    --max-iterations <n>          Max iterations (default: 100, 0 = infinite)");
-      lines.push("");
-      lines.push("  Interrupt:");
-      lines.push("    Press Ctrl+C or Esc to pause the workflow.");
-      lines.push("    Resume later with: /ralph --resume <session-uuid>");
+      lines.push("**Workflow Usage**");
+      lines.push("  /ralph <prompt>                 Start new session");
+      lines.push("  /ralph --resume <uuid>          Resume paused session");
+      lines.push("  Ctrl+C or Esc to pause. Resume with /ralph --resume <uuid>");
       lines.push("");
     }
 
@@ -108,43 +98,34 @@ export const helpCommand: CommandDefinition = {
       lines.push("  Specialized agents for specific tasks. Invoke with /<agent-name> <query>");
       lines.push("");
 
-      // List each agent with model info
-      const agentDetails: Record<string, { desc: string; model: string }> = {
-        "codebase-analyzer": {
-          desc: "Deep code analysis and architecture review",
-          model: "opus",
-        },
-        "codebase-locator": {
-          desc: "Find files and components quickly",
-          model: "opus",
-        },
-        "codebase-pattern-finder": {
-          desc: "Find similar implementations and patterns",
-          model: "opus",
-        },
-        "codebase-online-researcher": {
-          desc: "Research using web sources",
-          model: "opus",
-        },
-        "codebase-research-analyzer": {
-          desc: "Analyze research/ directory documents",
-          model: "opus",
-        },
-        "codebase-research-locator": {
-          desc: "Find documents in research/ directory",
-          model: "opus",
-        },
-        debugger: {
-          desc: "Debug errors and test failures",
-          model: "opus",
-        },
+      // List each agent with current model info
+      let currentModelLabel = "current model";
+      if (context.getModelDisplayInfo) {
+        try {
+          const info = await context.getModelDisplayInfo();
+          if (info.model) {
+            currentModelLabel = info.model;
+          }
+        } catch {
+          // fall back to "current model"
+        }
+      }
+
+      const agentDetails: Record<string, string> = {
+        "codebase-analyzer": "Deep code analysis and architecture review",
+        "codebase-locator": "Find files and components quickly",
+        "codebase-pattern-finder": "Find similar implementations and patterns",
+        "codebase-online-researcher": "Research using web sources",
+        "codebase-research-analyzer": "Analyze research/ directory documents",
+        "codebase-research-locator": "Find documents in research/ directory",
+        debugger: "Debug errors and test failures",
       };
 
       for (const cmd of agentCommands) {
-        const details = agentDetails[cmd.name];
-        if (details) {
-          lines.push(`  /${cmd.name} (${details.model})`);
-          lines.push(`    ${details.desc}`);
+        const desc = agentDetails[cmd.name];
+        if (desc) {
+          lines.push(`  /${cmd.name} (${currentModelLabel})`);
+          lines.push(`    ${desc}`);
         } else {
           // For custom agents without hardcoded details
           lines.push(`  /${cmd.name}`);

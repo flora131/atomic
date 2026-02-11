@@ -180,9 +180,9 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     // Pass the model from CLI options if provided for accurate display
     const modelDisplayInfo = await client.getModelDisplayInfo(effectiveModel);
 
-    // For copilot, append reasoning effort to model display if persisted
+    // For copilot, append reasoning effort to model display if the model supports it
     let displayModelName = modelDisplayInfo.model;
-    if (agentType === "copilot" && effectiveReasoningEffort) {
+    if (agentType === "copilot" && effectiveReasoningEffort && modelDisplayInfo.supportsReasoning) {
       displayModelName += ` (${effectiveReasoningEffort})`;
     }
 

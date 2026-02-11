@@ -462,6 +462,11 @@ export class OpenCodeClient implements CodingAgentClient {
             delta,
             contentType: "text",
           });
+        } else if (part?.type === "reasoning" && delta) {
+          this.emitEvent("message.delta", partSessionId, {
+            delta,
+            contentType: "reasoning",
+          });
         } else if (part?.type === "tool") {
           const toolState = part?.state as Record<string, unknown> | undefined;
           const toolName = (part?.tool as string) ?? "";
@@ -811,6 +816,7 @@ export class OpenCodeClient implements CodingAgentClient {
           directory: client.clientOptions.directory,
           agent: agentMode,
           model: client.activePromptModel ?? initialPromptModel,
+          system: config.systemPrompt || undefined,
           parts: [{ type: "text", text: message }],
         });
 
@@ -891,11 +897,20 @@ export class OpenCodeClient implements CodingAgentClient {
               if (event.sessionId !== sessionId) return;
 
               const delta = event.data?.delta as string | undefined;
+              const contentType = event.data?.contentType as string | undefined;
               if (delta) {
                 deltaQueue.push({
-                  type: "text" as const,
+                  type: contentType === "reasoning" ? "thinking" as const : "text" as const,
                   content: delta,
                   role: "assistant" as const,
+                  ...(contentType === "reasoning" ? {
+                    metadata: {
+                      streamingStats: {
+                        thinkingMs: 0,
+                        outputTokens: 0,
+                      },
+                    },
+                  } : {}),
                 });
                 resolveNext?.();
               }
@@ -929,6 +944,7 @@ export class OpenCodeClient implements CodingAgentClient {
                 directory: client.clientOptions.directory,
                 agent: agentMode,
                 model: client.activePromptModel ?? initialPromptModel,
+                system: config.systemPrompt || undefined,
                 parts: [{ type: "text", text: message }],
               });
 
@@ -1058,7 +1074,21 @@ export class OpenCodeClient implements CodingAgentClient {
               if (!yieldedTextFromResponse) {
                 while (!streamDone || deltaQueue.length > 0) {
                   if (deltaQueue.length > 0) {
-                    yield deltaQueue.shift()!;
+                    const msg = deltaQueue.shift()!;
+                    // Track reasoning duration from SSE deltas
+                    if (msg.type === "thinking") {
+                      if (reasoningStartMs === null) {
+                        reasoningStartMs = Date.now();
+                      }
+                      const currentMs = reasoningDurationMs + (Date.now() - reasoningStartMs);
+                      msg.metadata = {
+                        streamingStats: { thinkingMs: currentMs, outputTokens: 0 },
+                      };
+                    } else if (reasoningStartMs !== null) {
+                      reasoningDurationMs += Date.now() - reasoningStartMs;
+                      reasoningStartMs = null;
+                    }
+                    yield msg;
                   } else if (!streamDone) {
                     // Wait for next delta or completion
                     await new Promise<void>((resolve) => {

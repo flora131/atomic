@@ -64,6 +64,8 @@ export interface ModelDisplayInfo {
   model: string;
   /** Provider or tier name for display (e.g., "Claude Code", "GitHub Copilot") */
   tier: string;
+  /** Whether the model supports reasoning effort levels */
+  supportsReasoning?: boolean;
 }
 
 /**

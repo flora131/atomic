@@ -212,8 +212,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
       model: config.model,
       maxTurns: config.maxTurns,
       maxBudgetUsd: config.maxBudgetUsd,
+      maxThinkingTokens: 16384,
       hooks: this.buildNativeHooks(),
       includePartialMessages: true,
+      // Use Claude Code's built-in system prompt, appending custom instructions if provided
+      systemPrompt: config.systemPrompt
+        ? { type: "preset", preset: "claude_code", append: config.systemPrompt }
+        : { type: "preset", preset: "claude_code" },
     };
 
     // Add canUseTool callback for HITL (Human-in-the-loop) interactions
@@ -718,8 +723,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
     const sessionId =
       config.sessionId ?? `claude-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    // Create initial query with system prompt if provided
-    const prompt = config.systemPrompt ?? "";
+    // Create initial query (prompt is empty — actual user messages come via send()/stream())
+    const prompt = "";
     const options = this.buildSdkOptions({ ...config, sessionId }, sessionId);
 
     const queryInstance = query({ prompt, options });

@@ -8,28 +8,23 @@
  *   atomic                          Interactive setup (same as 'atomic init')
  *   atomic init                     Interactive setup with agent selection
  *   atomic init -a <agent>          Setup specific agent (skip selection)
- *   atomic run <agent>              Run agent without arguments
- *   atomic run <agent> [args...]    Run agent with arguments
  *   atomic config set <key> <value> Set configuration value
  *   atomic update                   Self-update to latest version
  *   atomic uninstall                Remove atomic installation
- *   atomic ralph setup -a <agent>   Start Ralph loop
- *   atomic ralph stop -a <agent>    Stop Ralph loop
  *   atomic --version                Show version
  *   atomic --help                   Show help
  */
 
 import { spawn } from "child_process";
-import { Command, Argument, InvalidArgumentError } from "@commander-js/extra-typings";
+import { Command } from "@commander-js/extra-typings";
 import { VERSION } from "./version";
 import { COLORS } from "./utils/colors";
 import { AGENT_CONFIG, type AgentKey } from "./config";
 import { initCommand } from "./commands/init";
-import { runAgentCommand } from "./commands/run-agent";
 import { configCommand } from "./commands/config";
 import { updateCommand } from "./commands/update";
 import { uninstallCommand } from "./commands/uninstall";
-import { ralphSetup, ralphStop } from "./commands/ralph";
+import { chatCommand } from "./commands/chat";
 import { cleanupWindowsLeftoverFiles } from "./utils/cleanup";
 import { isTelemetryEnabledSync } from "./utils/telemetry";
 import { handleTelemetryUpload } from "./utils/telemetry/telemetry-upload";
@@ -95,34 +90,65 @@ export function createProgram() {
       });
     });
 
-  // Add run command to execute a specific agent
-  // This replaces the legacy `atomic --agent <name>` pattern with `atomic run <agent>`
-  // passThroughOptions() allows arguments after <agent> to pass through without requiring --
+  // Add chat command for interactive chat with coding agents
   program
-    .command("run")
-    .description("Run a coding agent")
-    .addArgument(
-      new Argument("<agent>", "Agent to run").choices(
-        Object.keys(AGENT_CONFIG) as AgentKey[]
-      )
+    .command("chat")
+    .description("Start an interactive chat session with a coding agent")
+    .option(
+      "-a, --agent <name>",
+      `Agent to chat with (${agentChoices})`,
+      "claude"
     )
-    .argument("[args...]", "Arguments to pass to the agent")
-    .passThroughOptions() // Options after <agent> are passed through to the agent
+    .option("-w, --workflow", "Enable graph workflow mode", false)
+    .option(
+      "-t, --theme <name>",
+      "UI theme (dark, light)",
+      "dark"
+    )
+    .option("-m, --model <name>", "Model to use for the chat session")
+    .option("--max-iterations <n>", "Maximum iterations for workflow mode", "100")
+    .argument("[prompt...]", "Initial prompt to send (opens interactive session with prompt)")
     .addHelpText(
       "after",
       `
 Examples:
-  $ atomic run claude                      Run Claude Code interactively
-  $ atomic run claude /commit "fix bug"    Run with a slash command
-  $ atomic run claude --help               Show agent's help
-  $ atomic run opencode /research-codebase Research the codebase`
-    )
-    .action(async (agent: AgentKey, args: string[]) => {
-      const globalOpts = program.opts();
+  $ atomic chat                              Start chat with Claude (default)
+  $ atomic chat -a opencode                  Start chat with OpenCode
+  $ atomic chat -a copilot --workflow        Start workflow-enabled chat with Copilot
+  $ atomic chat --theme light                Start chat with light theme
+  $ atomic chat -w --max-iterations 50       Start workflow with iteration limit
+  $ atomic chat "fix the typecheck errors"   Start chat with an initial prompt
+  $ atomic chat -a claude "refactor utils"   Start chat with agent and prompt
 
-      const exitCode = await runAgentCommand(agent, args, {
-        force: globalOpts.force,
-        yes: globalOpts.yes,
+Slash Commands (in workflow mode):
+  /workflow - Start the Atomic workflow
+  /theme    - Switch theme (dark/light)
+  /help     - Show available commands`
+    )
+    .action(async (promptParts: string[], localOpts) => {
+      // Validate agent choice
+      const validAgents = Object.keys(AGENT_CONFIG);
+      if (!validAgents.includes(localOpts.agent)) {
+        console.error(`${COLORS.red}Error: Unknown agent '${localOpts.agent}'${COLORS.reset}`);
+        console.error(`Valid agents: ${agentChoices}`);
+        process.exit(1);
+      }
+
+      // Validate theme choice
+      if (localOpts.theme !== "dark" && localOpts.theme !== "light") {
+        console.error(`${COLORS.red}Error: Invalid theme '${localOpts.theme}'${COLORS.reset}`);
+        console.error("Valid themes: dark, light");
+        process.exit(1);
+      }
+
+      const prompt = promptParts.length > 0 ? promptParts.join(" ") : undefined;
+      const exitCode = await chatCommand({
+        agentType: localOpts.agent as "claude" | "opencode" | "copilot",
+        workflow: localOpts.workflow,
+        theme: localOpts.theme as "dark" | "light",
+        model: localOpts.model,
+        maxIterations: parseInt(localOpts.maxIterations, 10),
+        initialPrompt: prompt,
       });
 
       process.exit(exitCode);
@@ -165,82 +191,6 @@ Examples:
         dryRun: localOpts.dryRun,
         keepConfig: localOpts.keepConfig,
       });
-    });
-
-  // Add ralph command for self-referential development loops
-  const ralphCmd = program
-    .command("ralph")
-    .description("Self-referential development loop for Claude Code");
-
-  /**
-   * Parse and validate --max-iterations argument
-   * Throws InvalidArgumentError for Commander.js error handling
-   */
-  function parseIterations(value: string): number {
-    if (!/^\d+$/.test(value)) {
-      throw new InvalidArgumentError("Must be a positive integer or 0");
-    }
-    return parseInt(value, 10);
-  }
-
-  // Add 'setup' subcommand to ralph
-  ralphCmd
-    .command("setup")
-    .description("Initialize and start a Ralph loop")
-    .requiredOption("-a, --agent <name>", "Agent to use (currently only 'claude' is supported)")
-    .argument("[prompt...]", "Initial prompt to start the loop")
-    .option("--max-iterations <n>", "Maximum iterations before auto-stop (default: unlimited)", parseIterations)
-    .option("--completion-promise <text>", "Promise phrase to signal completion")
-    .option("--feature-list <path>", "Path to feature list JSON", "research/feature-list.json")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ atomic ralph setup -a claude                       Use default prompt, run until all features pass
-  $ atomic ralph setup -a claude --max-iterations 20   Limit to 20 iterations
-  $ atomic ralph setup -a claude Build a todo API --completion-promise 'DONE' --max-iterations 20
-  $ atomic ralph setup -a claude Refactor cache layer  Custom prompt, runs forever
-
-Stopping:
-  Loop exits when any condition is met:
-  - --max-iterations limit reached
-  - --completion-promise detected in output (as <promise>TEXT</promise>)
-  - All features in --feature-list are passing (when max_iterations = 0)`
-    )
-    .action(async (promptParts: string[], localOpts) => {
-      // Validate agent is 'claude' (only supported agent for ralph)
-      if (localOpts.agent !== "claude") {
-        console.error(`${COLORS.red}Error: Ralph loop currently only supports 'claude' agent${COLORS.reset}`);
-        console.error(`You provided: ${localOpts.agent}`);
-        console.error("\n(Run 'atomic ralph setup --help' for usage information)");
-        process.exit(1);
-      }
-
-      // Pass options directly to ralphSetup (Commander.js handles all parsing)
-      const exitCode = await ralphSetup({
-        prompt: promptParts,
-        maxIterations: localOpts.maxIterations,
-        completionPromise: localOpts.completionPromise,
-        featureList: localOpts.featureList,
-      });
-      process.exit(exitCode);
-    });
-
-  // Add 'stop' subcommand to ralph
-  ralphCmd
-    .command("stop")
-    .description("Stop hook handler (called automatically by hooks)")
-    .requiredOption("-a, --agent <name>", "Agent to use (currently only 'claude' is supported)")
-    .action(async (localOpts) => {
-      // Validate agent is 'claude' (only supported agent for ralph)
-      if (localOpts.agent !== "claude") {
-        console.error(`${COLORS.red}Error: Ralph loop currently only supports 'claude' agent${COLORS.reset}`);
-        console.error(`You provided: ${localOpts.agent}`);
-        console.error("\n(Run 'atomic ralph stop --help' for usage information)");
-        process.exit(1);
-      }
-
-      await ralphStop();
     });
 
   // Add hidden command for internal telemetry upload (used by background process)

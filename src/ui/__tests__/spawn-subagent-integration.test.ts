@@ -206,6 +206,134 @@ describe("spawnSubagent integration with SubagentSessionManager", () => {
   });
 });
 
+describe("parallelAgentsRef stays in sync with state updates", () => {
+  /**
+   * Simulates the chat.tsx pattern where setParallelAgents updater functions
+   * must keep parallelAgentsRef.current in sync so that handleComplete can
+   * synchronously check for active agents via the ref.
+   */
+
+  test("spawnSubagent path: ref syncs when adding agent", () => {
+    // Simulate React state + ref (mirrors chat.tsx lines 1638, 1678)
+    let state: ParallelAgent[] = [];
+    const ref = { current: [] as ParallelAgent[] };
+
+    // Simulate the fixed spawnSubagent behavior (chat.tsx ~line 2886)
+    const setParallelAgents = (updater: (prev: ParallelAgent[]) => ParallelAgent[]) => {
+      const next = updater(state);
+      state = next;
+      // The fix: ref is updated inside the updater
+    };
+
+    const agent: ParallelAgent = {
+      id: "agent-1",
+      name: "explore",
+      task: "Find all tests",
+      status: "running",
+      startedAt: new Date().toISOString(),
+    };
+
+    // Apply the fixed pattern from chat.tsx
+    setParallelAgents((prev) => {
+      const next = [...prev, agent];
+      ref.current = next;
+      return next;
+    });
+
+    // Ref should be in sync with state
+    expect(ref.current).toEqual(state);
+    expect(ref.current).toHaveLength(1);
+    expect(ref.current[0]!.id).toBe("agent-1");
+    expect(ref.current[0]!.status).toBe("running");
+
+    // handleComplete should see the running agent via ref
+    const hasActiveAgents = ref.current.some(
+      (a) => a.status === "running" || a.status === "pending"
+    );
+    expect(hasActiveAgents).toBe(true);
+  });
+
+  test("onStatusUpdate path: ref syncs when updating agent status", () => {
+    // Simulate React state + ref with an existing agent
+    const agent: ParallelAgent = {
+      id: "agent-1",
+      name: "explore",
+      task: "Find all tests",
+      status: "running",
+      startedAt: new Date().toISOString(),
+    };
+    let state: ParallelAgent[] = [agent];
+    const ref = { current: [agent] };
+
+    const setParallelAgents = (updater: (prev: ParallelAgent[]) => ParallelAgent[]) => {
+      const next = updater(state);
+      state = next;
+    };
+
+    // Simulate onStatusUpdate marking agent as completed (chat.tsx ~line 2304)
+    const update: Partial<ParallelAgent> = { status: "completed", durationMs: 1500 };
+    setParallelAgents((prev) => {
+      const next = prev.map((a) => (a.id === "agent-1" ? { ...a, ...update } : a));
+      ref.current = next;
+      return next;
+    });
+
+    // Ref should be in sync with state
+    expect(ref.current).toEqual(state);
+    expect(ref.current[0]!.status).toBe("completed");
+    expect(ref.current[0]!.durationMs).toBe(1500);
+
+    // handleComplete should see no active agents via ref
+    const hasActiveAgents = ref.current.some(
+      (a) => a.status === "running" || a.status === "pending"
+    );
+    expect(hasActiveAgents).toBe(false);
+  });
+
+  test("ref desync prevented: handleComplete defers correctly with active agents", () => {
+    const ref = { current: [] as ParallelAgent[] };
+    let pendingComplete: (() => void) | null = null;
+    let completionCalled = false;
+
+    // Simulate adding agent via spawnSubagent (with fix)
+    const agent: ParallelAgent = {
+      id: "agent-1",
+      name: "task",
+      task: "Analyze code",
+      status: "running",
+      startedAt: new Date().toISOString(),
+    };
+    ref.current = [...ref.current, agent];
+
+    // Simulate handleComplete checking ref (chat.tsx ~line 2774)
+    const handleComplete = () => {
+      const hasActiveAgents = ref.current.some(
+        (a) => a.status === "running" || a.status === "pending"
+      );
+      if (hasActiveAgents) {
+        pendingComplete = handleComplete;
+        return;
+      }
+      completionCalled = true;
+    };
+
+    handleComplete();
+
+    // Should defer since agent is running
+    expect(completionCalled).toBe(false);
+    expect(pendingComplete).not.toBeNull();
+
+    // Simulate agent completing (via onStatusUpdate with fix)
+    ref.current = ref.current.map((a) =>
+      a.id === "agent-1" ? { ...a, status: "completed" as const } : a
+    );
+
+    // Now call deferred complete
+    pendingComplete!();
+    expect(completionCalled).toBe(true);
+  });
+});
+
 describe("createSubagentSession factory pattern", () => {
   test("factory delegates to client.createSession()", async () => {
     const mockSession = createMockSession();

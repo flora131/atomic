@@ -392,17 +392,20 @@ interface CustomToolNodeConfig<TState extends BaseState, TArgs, TResult> {
   description?: string;
   /** Zod schema enforcing the contract between the previous node's output and this tool's input.
    *  When provided, args are validated against this schema before tool execution.
-   *  On validation failure, the graph engine's retry mechanism re-runs the preceding
-   *  node to re-generate its output — controlled by the `retry` config. */
+   *  On validation failure, the ancestor agent retry mechanism (§5.12) kicks in:
+   *  the executor traverses backward to the nearest ancestor agent node and
+   *  re-runs it with the validation error, so the LLM can re-generate conforming output. */
   inputSchema?: z.ZodType<TArgs>;
   args?: TArgs | ((state: TState) => TArgs);
   outputMapper?: (result: TResult, state: TState) => Partial<TState>;
   timeout?: number;
-  /** Controls how many times the graph engine retries on failure (including Zod
-   *  validation errors from inputSchema). When inputSchema validation fails, the
-   *  error is propagated to the graph executor which re-runs the preceding node
-   *  to re-generate output conforming to the schema. If retries are exhausted,
-   *  the workflow fails with a SchemaValidationError. */
+  /** Maximum failures allowed for THIS node before the workflow aborts.
+   *  Each failure triggers the ancestor agent retry mechanism (§5.12):
+   *  the executor traverses backward (depth-first) to the nearest ancestor
+   *  agent node and re-runs it with the error message, so the LLM can
+   *  re-generate output that fixes the issue. If the immediately preceding
+   *  node is a tool (not an agent), traversal continues upward. This is a
+   *  per-node budget, not a global workflow limit. */
   retry?: RetryConfig;
 }
 
@@ -491,9 +494,22 @@ export class SchemaValidationError extends Error {
     this.name = "SchemaValidationError";
   }
 }
+
+export class NodeExecutionError extends Error {
+  constructor(
+    message: string,
+    public readonly nodeId: string,
+    public readonly cause?: Error,
+  ) {
+    super(message);
+    this.name = "NodeExecutionError";
+  }
+}
 ```
 
-**Retry semantics for schema validation:** When `inputSchema` validation fails, `SchemaValidationError` is thrown. The graph executor's existing retry loop catches this error and re-runs the *preceding* node (typically an `agentNode()`) to re-generate output that conforms to the schema. The `retry.maxAttempts` field controls how many re-generation cycles are attempted before the workflow fails. This leverages the same retry infrastructure used by all graph nodes ([Research §1 — Graph Executor](research/docs/2026-02-11-workflow-sdk-implementation.md#1-graph-execution-engine-srcgraph)).
+Both error types trigger the **ancestor agent retry** mechanism described in §5.12. `SchemaValidationError` indicates an input contract violation (args don't match the Zod schema), while `NodeExecutionError` wraps runtime failures from tool handlers. In both cases, the executor traverses backward to find the nearest ancestor `agentNode()` and re-runs it with the error injected into context.
+
+**Retry semantics for schema validation:** When `inputSchema` validation fails, `SchemaValidationError` is thrown. The graph executor catches this error and traverses the graph **backward (depth-first)** from the failed node to find the nearest ancestor agent node (e.g., `agentNode()`), then re-runs that agent with the error message injected into its context so the LLM can re-generate conforming output. If the previous node is itself a tool (not an agent), the traversal continues upward until an agent is found. The `retry.maxAttempts` field is a **per-node failure budget** — it controls how many times this specific node can fail before the workflow aborts, not the total retries across the workflow. See §5.12 for full error propagation and retry semantics.
 
 **Usage in workflow definitions:**
 
@@ -1008,6 +1024,194 @@ subagentNode.execute(ctx):
 Executor applies stateUpdate, checkpoints, continues traversal
 ```
 
+### 5.12 Error Propagation and Retry Semantics
+
+When a node fails during graph execution, the error must be routed to an ancestor node that can meaningfully act on it. Tool nodes and other non-agent nodes cannot self-correct — only agent nodes (backed by an LLM) can interpret an error message and re-generate output to fix the issue. This section formalizes the **ancestor agent retry** strategy.
+
+#### 5.12.1 Core Principle: Retry Targets the Nearest Ancestor Agent
+
+When a `customToolNode()`, `toolNode()`, or `subagentNode()` throws an error (including `SchemaValidationError`), the graph executor does **not** simply re-run the failed node. Instead, it traverses the graph **backward (depth-first)** from the failed node to find the **closest ancestor agent node** (`agentNode()` or `subagentNode()`) and re-executes that agent with the error message appended to its context. The agent can then re-generate its output to address the failure.
+
+```
+Graph: agentNode("plan") → toolNode("format") → customToolNode("lint") → agentNode("fix")
+                                                        ▲
+                                                   FAILS HERE
+
+Retry traversal (depth-first backward):
+  1. customToolNode("lint") — type: "tool" → skip (cannot self-correct)
+  2. toolNode("format") — type: "tool" → skip (cannot self-correct)
+  3. agentNode("plan") — type: "agent" → ✅ RE-RUN with error context
+```
+
+If no ancestor agent node is found (e.g., the first node in the graph is a tool node that fails), the error is thrown immediately without retry.
+
+#### 5.12.2 `RetryConfig` Semantics: Per-Node Failure Budget
+
+The `retry.maxAttempts` field on any node specifies the **maximum number of failures for that specific node**, not a global budget across the entire workflow. Each node tracks its own failure count independently.
+
+```typescript
+interface RetryConfig {
+  /** Maximum number of failures allowed for THIS node before the workflow fails.
+   *  Each failure triggers a re-run of the nearest ancestor agent with the error.
+   *  This is a per-node budget, not a global workflow limit. */
+  maxAttempts: number;
+  backoffMs: number;
+  backoffMultiplier: number;
+  retryOn?: (error: Error) => boolean;
+}
+```
+
+**Example:** If `customToolNode("lint")` has `retry: { maxAttempts: 3 }`, it can fail up to 3 times. Each failure re-runs the nearest ancestor agent. On the 4th failure, the workflow fails with the accumulated error.
+
+#### 5.12.3 Error Context Injection
+
+When an ancestor agent is re-run due to a downstream failure, the error is injected into the agent's execution context so the LLM can reason about what went wrong:
+
+```typescript
+interface ErrorFeedback {
+  /** The node that failed */
+  failedNodeId: string;
+  /** The error message from the failed node */
+  errorMessage: string;
+  /** The error type (e.g., "SchemaValidationError", "ToolExecutionError") */
+  errorType: string;
+  /** Which retry attempt this is (1-indexed) */
+  attempt: number;
+  /** Max attempts before workflow failure */
+  maxAttempts: number;
+  /** The output the agent produced that led to the failure (if available) */
+  previousOutput?: unknown;
+}
+```
+
+The `ErrorFeedback` is appended to the agent's message context. For `agentNode()`, this means the `buildMessage` function receives the error in `ctx.errors`, and the agent's system prompt is augmented with:
+
+```
+[RETRY] Your previous output caused a failure in downstream node "{failedNodeId}":
+Error ({errorType}): {errorMessage}
+Attempt {attempt}/{maxAttempts}. Please regenerate your output to fix this issue.
+```
+
+#### 5.12.4 Ancestor Traversal Algorithm
+
+The executor uses a depth-first backward traversal to find the retry target:
+
+```typescript
+function findRetryTarget(
+  failedNodeId: string,
+  graph: CompiledGraph<TState>,
+): NodeDefinition<TState> | null {
+  const visited = new Set<string>();
+
+  function traverse(nodeId: string): NodeDefinition<TState> | null {
+    if (visited.has(nodeId)) return null;
+    visited.add(nodeId);
+
+    // Get all predecessor nodes (nodes with edges pointing to nodeId)
+    const predecessors = graph.getPredecessors(nodeId);
+
+    for (const predId of predecessors) {
+      const predNode = graph.getNode(predId);
+      if (!predNode) continue;
+
+      // Agent nodes can self-correct — they are valid retry targets
+      if (predNode.type === "agent") {
+        return predNode;
+      }
+
+      // Non-agent nodes: continue traversing upward
+      const result = traverse(predId);
+      if (result) return result;
+    }
+
+    return null;
+  }
+
+  return traverse(failedNodeId);
+}
+```
+
+#### 5.12.5 Execution Flow on Failure
+
+```
+customToolNode("lint") throws ToolExecutionError("eslint: unexpected token")
+    │
+    ▼
+Executor catches error for node "lint"
+    │
+    ├── 1. Check retry budget: lint.failureCount < lint.retry.maxAttempts?
+    │       ├── NO  → Workflow fails with accumulated error
+    │       └── YES → Continue to step 2
+    │
+    ├── 2. findRetryTarget("lint", graph) → agentNode("plan")
+    │       ├── NOT FOUND → Throw error (no agent can correct)
+    │       └── FOUND     → Continue to step 3
+    │
+    ├── 3. Build ErrorFeedback { failedNodeId: "lint", errorMessage: "...", attempt: N }
+    │
+    ├── 4. Invalidate state outputs for all nodes between "plan" and "lint" (inclusive of "lint")
+    │
+    ├── 5. Re-execute agentNode("plan") with ErrorFeedback injected into context
+    │
+    ├── 6. Resume graph execution from "plan" forward (re-running intermediate nodes)
+    │
+    └── 7. Increment lint.failureCount
+```
+
+**State invalidation (step 4):** When the executor re-runs an ancestor agent, it clears `state.outputs` for all nodes on the path between the agent and the failed node (inclusive). This ensures intermediate nodes re-execute with the agent's fresh output rather than stale cached values.
+
+#### 5.12.6 Interaction with `inputSchema` Validation
+
+`SchemaValidationError` from `inputSchema` validation follows the same ancestor retry path. The Zod error details are included in `ErrorFeedback.errorMessage`, giving the ancestor agent precise information about which fields failed validation:
+
+```
+[RETRY] Your previous output caused a failure in downstream node "lint-code":
+Error (SchemaValidationError): filePath: Expected string, received undefined; severity: Invalid enum value
+Attempt 1/3. Please regenerate your output to fix this issue.
+```
+
+#### 5.12.7 `NodeExecutionError` for Runtime Tool Failures
+
+In addition to `SchemaValidationError` for input validation, a `NodeExecutionError` wraps runtime failures from tool handlers and sub-agent execution:
+
+**File:** `src/graph/errors.ts`
+
+```typescript
+export class NodeExecutionError extends Error {
+  constructor(
+    message: string,
+    public readonly nodeId: string,
+    public readonly cause?: Error,
+  ) {
+    super(message);
+    this.name = "NodeExecutionError";
+  }
+}
+```
+
+Both `SchemaValidationError` and `NodeExecutionError` trigger the ancestor retry mechanism. The `errorType` field in `ErrorFeedback` distinguishes them so the agent knows whether the failure was a contract violation (schema) or a runtime error (execution).
+
+#### 5.12.8 Updated `customToolNode()` Error Wrapping
+
+The `customToolNode()` factory wraps tool handler errors in `NodeExecutionError` to provide structured error context for the retry mechanism:
+
+```typescript
+// Inside customToolNode.execute():
+try {
+  const result = await entry.definition.handler(args, toolContext) as TResult;
+  // ... outputMapper, return
+} catch (error) {
+  if (error instanceof SchemaValidationError) {
+    throw error; // Already structured — propagate as-is
+  }
+  throw new NodeExecutionError(
+    `Custom tool "${config.toolName}" failed: ${error instanceof Error ? error.message : String(error)}`,
+    config.id,
+    error instanceof Error ? error : undefined,
+  );
+}
+```
+
 ## 6. Alternatives Considered
 
 | Option                                                              | Pros                                                                                 | Cons                                                                                                     | Reason for Rejection                                                                                    |
@@ -1023,10 +1227,13 @@ Executor applies stateUpdate, checkpoints, continues traversal
 
 ### 7.1 Error Handling
 
-- **Tool not found:** `customToolNode()` throws descriptive error listing available tools from registry
-- **Sub-agent failure:** `subagentNode()` throws with error message from `SubagentResult.error`; configurable via `retry` for transient failures
-- **Bridge not initialized:** Both `getSubagentBridge()` and `getToolRegistry()` throw clear initialization errors
-- **Tool timeout:** `customToolNode()` supports `timeout` via `AbortSignal.timeout()`, matching existing `toolNode()` behavior
+- **Tool not found:** `customToolNode()` throws descriptive error listing available tools from registry — this is a configuration error and is **not retried**
+- **Tool execution failure:** Runtime errors from tool handlers are wrapped in `NodeExecutionError` and trigger the **ancestor agent retry** mechanism (§5.12). The error message is fed back to the nearest ancestor `agentNode()` so the LLM can re-generate its output to fix the issue
+- **Schema validation failure:** `SchemaValidationError` from `inputSchema` validation also triggers ancestor agent retry (§5.12.6), with Zod error details included in the feedback
+- **Sub-agent failure:** `subagentNode()` throws with error message from `SubagentResult.error`; triggers ancestor agent retry with the sub-agent's error context
+- **Bridge not initialized:** Both `getSubagentBridge()` and `getToolRegistry()` throw clear initialization errors — **not retried** (configuration errors)
+- **Tool timeout:** `customToolNode()` supports `timeout` via `AbortSignal.timeout()`, matching existing `toolNode()` behavior — timeout errors trigger ancestor agent retry
+- **Retry budgets:** `retry.maxAttempts` is a **per-node failure budget**, not a global workflow limit. Each node tracks failures independently (§5.12.2)
 
 ### 7.2 Observability
 
@@ -1060,11 +1267,18 @@ Executor applies stateUpdate, checkpoints, continues traversal
 - `parallelSubagentNode()`: multi-agent spawning, merge function application, result map keying
 - `SubagentGraphBridge`: delegation to `SubagentSessionManager.spawn()` and `spawnParallel()`, session directory persistence
 - `WorkflowSessionManager`: session init, directory creation, `saveSubagentOutput()` file writing
+- `findRetryTarget()`: depth-first backward traversal finds nearest ancestor agent; skips tool/decision nodes; returns null when no agent ancestor exists
+- `ErrorFeedback`: correct construction from `SchemaValidationError` and `NodeExecutionError`; error type discrimination
+- Per-node retry budget: failure count is tracked independently per node; reaching `maxAttempts` on one node does not affect other nodes' budgets
 
 **Integration Tests:**
 - End-to-end graph execution with `customToolNode()` using a mock tool registered in `ToolRegistry`
 - End-to-end graph execution with `subagentNode()` using a mock `SubagentGraphBridge`
 - Mixed graph with `agentNode()`, `customToolNode()`, `subagentNode()`, and `decisionNode()` in a single workflow
+- Ancestor agent retry: `agentNode → toolNode → customToolNode` where custom tool fails; verify agent is re-run with error context and intermediate state is invalidated
+- Multi-hop ancestor retry: `agentNode → toolNode → toolNode → customToolNode` where custom tool fails; verify traversal skips both tool nodes and re-runs the agent
+- Schema validation retry: `agentNode → customToolNode(inputSchema)` where schema fails; verify Zod error details appear in agent's retry context
+- Retry budget exhaustion: node fails `maxAttempts` times; verify workflow aborts with accumulated error rather than infinite loop
 
 **Regression Tests:**
 - Existing `toolNode()` behavior unchanged after `ToolRegistry` addition
@@ -1080,7 +1294,7 @@ Executor applies stateUpdate, checkpoints, continues traversal
 | `src/sdk/tools/registry.ts`      | `ToolRegistry` singleton and `ToolEntry` type                          |
 | `src/graph/subagent-registry.ts` | `SubagentTypeRegistry` singleton, discovery, and `SubagentEntry` type  |
 | `src/graph/subagent-bridge.ts`   | `SubagentGraphBridge` class with session-aware persistence             |
-| `src/graph/errors.ts`            | `SchemaValidationError` for Zod input contract failures                |
+| `src/graph/errors.ts`            | `SchemaValidationError`, `NodeExecutionError`, `ErrorFeedback` type, `findRetryTarget()` |
 | `src/workflows/session.ts`       | `WorkflowSessionManager` for `~/.atomic/workflows/sessions/` lifecycle |
 
 ### Modified Files

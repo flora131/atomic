@@ -17,8 +17,6 @@ export const CLAUDE_ALIASES: Record<string, string> = {
   opus: 'opus',
   /** SDK resolves to latest Haiku */
   haiku: 'haiku',
-  /** Account default - resolves to Sonnet */
-  default: 'sonnet',
 };
 
 /**

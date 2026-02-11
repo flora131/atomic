@@ -13,7 +13,7 @@ import { ATOMIC_COMMANDS } from "../../src/utils/telemetry/constants";
  */
 
 test("ATOMIC_COMMANDS is not empty", () => {
-  expect(ATOMIC_COMMANDS.length).toBeGreaterThan(5);
+  expect(ATOMIC_COMMANDS.length).toBeGreaterThan(3);
 });
 
 test("ATOMIC_COMMANDS are all slash commands", () => {

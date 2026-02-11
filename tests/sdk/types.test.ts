@@ -499,6 +499,7 @@ describe("SDK Types Module", () => {
           eventHandlers.clear();
         },
         getModelDisplayInfo: async () => ({ model: "Mock", tier: "Test" }),
+        getSystemToolsTokens: () => null,
       };
 
       // Test the mock client
@@ -601,6 +602,7 @@ describe("SDK Types Module", () => {
           start: async () => {},
           stop: async () => {},
           getModelDisplayInfo: async () => ({ model: "Mock", tier: "Test" }),
+          getSystemToolsTokens: () => null,
         };
       };
 

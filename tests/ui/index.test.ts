@@ -134,6 +134,7 @@ describe("Mock Client Implementation", () => {
       async getModelDisplayInfo() {
         return { model: "Mock", tier: "Test" };
       },
+      getSystemToolsTokens() { return null; },
     };
 
     expect(mockClient.agentType).toBe("claude");
@@ -471,6 +472,7 @@ describe("Error Handling", () => {
       async getModelDisplayInfo() {
         return { model: "Mock", tier: "Test" };
       },
+      getSystemToolsTokens() { return null; },
     };
 
     // Verify the client throws on createSession

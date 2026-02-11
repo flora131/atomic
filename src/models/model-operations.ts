@@ -62,6 +62,12 @@ export interface ModelOperations {
    * @returns Full model identifier, or undefined if alias not recognized
    */
   resolveAlias(alias: string): string | undefined;
+
+  /**
+   * Get the pending model for agents that require new sessions (e.g., Copilot).
+   * @returns The pending model identifier, or undefined if no model change is pending
+   */
+  getPendingModel?(): string | undefined;
 }
 
 /**
@@ -87,12 +93,16 @@ export class UnifiedModelOperations implements ModelOperations {
    * @param agentType - The type of agent (claude, opencode, copilot)
    * @param sdkSetModel - Optional SDK-specific function to set the model
    * @param sdkListModels - Optional SDK-specific function to list models (used for Claude supportedModels())
+   * @param initialModel - Optional initial model ID so getCurrentModel() returns a value before any setModel() call
    */
   constructor(
     private agentType: AgentType,
     private sdkSetModel?: (model: string) => Promise<void>,
-    private sdkListModels?: () => Promise<Array<{ value: string; displayName: string; description: string }>>
-  ) {}
+    private sdkListModels?: () => Promise<Array<{ value: string; displayName: string; description: string }>>,
+    initialModel?: string,
+  ) {
+    this.currentModel = initialModel;
+  }
 
   /**
    * List available models for this agent type using the appropriate SDK.

@@ -7,7 +7,8 @@
 
 import type { ChatMessage, StreamingMeta } from "../chat.tsx";
 import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
-import { formatDuration, truncateText } from "../components/parallel-agents-tree.tsx";
+import { formatDuration } from "../components/parallel-agents-tree.tsx";
+import { truncateText, formatTimestamp as formatTimestampFull } from "./format.ts";
 
 // ============================================================================
 // TYPES
@@ -50,12 +51,7 @@ export interface FormatTranscriptOptions {
 // ============================================================================
 
 function formatTimestamp(iso: string): string {
-  const d = new Date(iso);
-  const hours = d.getHours();
-  const minutes = d.getMinutes().toString().padStart(2, "0");
-  const ampm = hours >= 12 ? "PM" : "AM";
-  const h12 = hours % 12 || 12;
-  return `${h12}:${minutes} ${ampm}`;
+  return formatTimestampFull(iso).text;
 }
 
 function line(type: TranscriptLineType, content: string, indent = 0): TranscriptLine {

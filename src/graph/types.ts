@@ -647,3 +647,31 @@ export const DEFAULT_GRAPH_CONFIG: Partial<GraphConfig> = {
   contextWindowThreshold: BACKGROUND_COMPACTION_THRESHOLD * 100,
   autoCheckpoint: true,
 };
+
+// ============================================================================
+// WORKFLOW TOOL CONTEXT
+// ============================================================================
+
+/**
+ * Extended tool context for custom tools invoked from graph nodes via customToolNode().
+ * Passed unconditionally — existing tools that only use base ToolContext properties
+ * work unchanged due to structural typing.
+ */
+export interface WorkflowToolContext {
+  /** Session ID (maps to execution ID in workflow context) */
+  sessionID: string;
+  /** Unique message ID for this tool invocation */
+  messageID: string;
+  /** Agent identifier (set to "workflow" for graph-invoked tools) */
+  agent: string;
+  /** Current working directory */
+  directory: string;
+  /** Abort signal for timeout/cancellation */
+  abort: AbortSignal;
+  /** Read-only snapshot of the current workflow state */
+  workflowState: Readonly<Record<string, unknown>>;
+  /** The graph node ID invoking this tool */
+  nodeId: string;
+  /** The workflow execution ID */
+  executionId: string;
+}

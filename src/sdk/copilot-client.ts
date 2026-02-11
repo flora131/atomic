@@ -968,7 +968,7 @@ export class CopilotClient implements CodingAgentClient {
    */
   async getModelDisplayInfo(
     modelHint?: string
-  ): Promise<{ model: string; tier: string }> {
+  ): Promise<{ model: string; tier: string; supportsReasoning?: boolean }> {
     // Query SDK for model metadata - this is the authoritative source
     if (this.isRunning && this.sdkClient) {
       try {
@@ -979,18 +979,24 @@ export class CopilotClient implements CodingAgentClient {
             const hintModelId = stripProviderPrefix(modelHint);
             const matched = models.find((m: { id?: string }) => m.id === hintModelId || m.id === modelHint);
             if (matched) {
+              const caps = (matched as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
+              const supports = caps?.supports as Record<string, unknown> | undefined;
               return {
                 model: matched.id ?? "Copilot",
                 tier: "GitHub Copilot",
+                supportsReasoning: supports?.reasoningEffort === true,
               };
             }
           }
           // No hint or hint not found - use the first model's raw ID
           const firstModel = models[0] as { name?: string; id?: string } | undefined;
           if (firstModel) {
+            const caps = (firstModel as unknown as Record<string, unknown>).capabilities as Record<string, unknown> | undefined;
+            const supports = caps?.supports as Record<string, unknown> | undefined;
             return {
               model: firstModel.id ?? "Copilot",
               tier: "GitHub Copilot",
+              supportsReasoning: supports?.reasoningEffort === true,
             };
           }
         }

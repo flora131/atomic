@@ -66,7 +66,7 @@ export class SubagentGraphBridge {
 
 let globalSubagentBridge: SubagentGraphBridge | null = null;
 
-export function setSubagentBridge(bridge: SubagentGraphBridge): void {
+export function setSubagentBridge(bridge: SubagentGraphBridge | null): void {
   globalSubagentBridge = bridge;
 }
 

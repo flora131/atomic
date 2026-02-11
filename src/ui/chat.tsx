@@ -38,6 +38,10 @@ import {
   type CreateSessionFn,
 } from "./subagent-session-manager.ts";
 import {
+  SubagentGraphBridge,
+  setSubagentBridge,
+} from "../graph/subagent-bridge.ts";
+import {
   UserQuestionDialog,
   type UserQuestion,
   type QuestionAnswer,
@@ -638,6 +642,12 @@ export interface WorkflowChatState {
   feedback: string | null;
   /** Whether to clear the context window between workflow steps (e.g., after task decomposition) */
   pendingContextClear: boolean;
+  /** Ralph-specific workflow configuration (session ID, user prompt, etc.) */
+  ralphConfig?: {
+    userPrompt: string | null;
+    resumeSessionId?: string;
+    sessionId?: string;
+  };
 }
 
 /**
@@ -1943,11 +1953,15 @@ export function ChatApp({
     ) {
       // Mark this prompt as started to prevent re-triggering
       workflowStartedRef.current = workflowState.initialPrompt;
+      console.error(`[ralph transition] auto-start effect triggered: pendingContextClear=${workflowState.pendingContextClear}, isStreaming=${isStreaming}, todoItems=${todoItemsRef.current.length}`);
 
       // Small delay to ensure state is settled before sending
       const timeoutId = setTimeout(() => {
         // Guard: if another stream started during the delay (e.g., dequeued message), bail
-        if (isStreamingRef.current) return;
+        if (isStreamingRef.current) {
+          console.error("[ralph transition] Bailed: isStreamingRef.current is true during timeout");
+          return;
+        }
 
         void (async () => {
           try {
@@ -1957,10 +1971,17 @@ export function ChatApp({
             if (workflowState.pendingContextClear) {
               // Save current todo items before clearing (use ref for up-to-date value)
               const savedTodos = todoItemsRef.current.map(t => ({ ...t }));
+              const sessionId = workflowState.ralphConfig?.sessionId;
+              console.error(`[ralph transition] pendingContextClear=true, savedTodos=${savedTodos.length}, sessionId=${sessionId ?? "none"}`);
 
               // Save tasks to session directory for persistence/resume
-              if (savedTodos.length > 0) {
-                void saveTasksToActiveSession(savedTodos);
+              if (savedTodos.length > 0 && sessionId) {
+                try {
+                  await saveTasksToActiveSession(savedTodos, sessionId);
+                  console.error(`[ralph transition] tasks.json saved successfully`);
+                } catch (e) {
+                  console.error(`[ralph transition] Failed to save tasks.json:`, e);
+                }
               }
 
               // Clear the SDK session (destroy context window)
@@ -1994,10 +2015,12 @@ export function ChatApp({
               setTodoItems([]);
             }
 
+          console.error(`[ralph transition] Starting step 2 stream, promptToSend length=${promptToSend.length}`);
           // Increment stream generation so stale handleComplete callbacks become no-ops
           const currentGeneration = ++streamGenerationRef.current;
           // Set streaming BEFORE calling onStreamMessage to prevent race conditions
           setIsStreaming(true);
+          isStreamingRef.current = true;
           streamingMetaRef.current = null;
           setStreamingMeta(null);
 
@@ -2311,9 +2334,14 @@ export function ChatApp({
 
     subagentManagerRef.current = manager;
 
+    // Initialize SubagentGraphBridge so graph nodes can spawn sub-agents
+    const bridge = new SubagentGraphBridge({ sessionManager: manager });
+    setSubagentBridge(bridge);
+
     return () => {
       manager.destroy();
       subagentManagerRef.current = null;
+      setSubagentBridge(null);
     };
   }, [createSubagentSession]);
 
@@ -2984,6 +3012,7 @@ export function ChatApp({
           specApproved: result.stateUpdate.specApproved !== undefined ? result.stateUpdate.specApproved : workflowState.specApproved,
           feedback: result.stateUpdate.feedback !== undefined ? result.stateUpdate.feedback : workflowState.feedback,
           pendingContextClear: result.stateUpdate.pendingContextClear !== undefined ? result.stateUpdate.pendingContextClear : workflowState.pendingContextClear,
+          ralphConfig: result.stateUpdate.ralphConfig !== undefined ? result.stateUpdate.ralphConfig : workflowState.ralphConfig,
         });
 
         // Also update isStreaming if specified

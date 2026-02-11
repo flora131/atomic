@@ -656,12 +656,22 @@ export async function startChatUI(
         const unsubscribe = subscribeToToolEvents();
         state.cleanupHandlers.push(unsubscribe);
 
-        // Apply pending copilot model/reasoning effort to sessionConfig
-        if (agentType === 'copilot' && modelOps && sessionConfig) {
+        // Apply the actively selected model for ALL agent types
+        if (modelOps && sessionConfig) {
           const pendingModel = modelOps.getPendingModel();
-          const pendingEffort = modelOps.getPendingReasoningEffort();
-          if (pendingModel) sessionConfig.model = pendingModel;
-          if (pendingEffort !== undefined) sessionConfig.reasoningEffort = pendingEffort;
+          const currentModel = await modelOps.getCurrentModel();
+          if (pendingModel) {
+            sessionConfig.model = pendingModel;
+          } else if (currentModel) {
+            sessionConfig.model = currentModel;
+          }
+          // Apply pending reasoning effort (Copilot-specific)
+          if (agentType === 'copilot') {
+            const pendingEffort = modelOps.getPendingReasoningEffort();
+            if (pendingEffort !== undefined) {
+              sessionConfig.reasoningEffort = pendingEffort;
+            }
+          }
         }
         state.session = await client.createSession(sessionConfig);
       } finally {
@@ -1019,6 +1029,16 @@ export async function startChatUI(
     const createSubagentSession = (config?: SessionConfig) =>
       client.createSession(config);
 
+    /**
+     * Handle model change from ChatApp (via /model command or model selector).
+     * Updates sessionConfig so that new sessions (e.g., after /clear) use the correct model.
+     */
+    const handleModelChange = (newModel: string) => {
+      if (sessionConfig) {
+        sessionConfig.model = newModel;
+      }
+    };
+
     state.root.render(
       React.createElement(
         ThemeProvider,
@@ -1055,6 +1075,7 @@ export async function startChatUI(
                 getSession,
                 createSubagentSession,
                 initialPrompt,
+                onModelChange: handleModelChange,
               }),
             }
           ),

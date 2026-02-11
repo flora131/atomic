@@ -99,3 +99,19 @@ export function saveReasoningEffortPreference(agentType: string, effort: string)
     // Silently fail
   }
 }
+
+/**
+ * Clear a persisted reasoning effort preference (e.g., when switching to a non-reasoning model).
+ */
+export function clearReasoningEffortPreference(agentType: string): void {
+  try {
+    const path = globalSettingsPath();
+    const settings = loadSettingsFile(path);
+    if (settings.reasoningEffort?.[agentType]) {
+      delete settings.reasoningEffort[agentType];
+      writeFileSync(path, JSON.stringify(settings, null, 2), "utf-8");
+    }
+  } catch {
+    // Silently fail
+  }
+}

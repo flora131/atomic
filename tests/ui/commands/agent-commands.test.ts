@@ -34,6 +34,7 @@ import {
   registerAgentCommands,
 } from "../../../src/ui/commands/agent-commands.ts";
 import { globalRegistry } from "../../../src/ui/commands/registry.ts";
+import type { SpawnSubagentOptions } from "../../../src/ui/commands/registry.ts";
 import { mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
@@ -1504,7 +1505,7 @@ describe("createAgentCommand", () => {
     expect(command.category).toBe("agent");
   });
 
-  test("execute handler calls sendSilentMessage with agent prompt", async () => {
+  test("execute handler calls spawnSubagent with agent prompt", async () => {
     const agent: AgentDefinition = {
       name: "message-agent",
       description: "Agent that sends message",
@@ -1514,17 +1515,15 @@ describe("createAgentCommand", () => {
 
     const command = createAgentCommand(agent);
 
-    let sentMessage = "";
+    let spawnOpts: SpawnSubagentOptions | null = null;
     const mockContext = {
       session: null,
       state: { isStreaming: false, messageCount: 0 },
       addMessage: () => {},
       setStreaming: () => {},
       sendMessage: () => {},
-      sendSilentMessage: (content: string) => {
-        sentMessage = content;
-      },
-      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      sendSilentMessage: () => {},
+      spawnSubagent: async (opts: SpawnSubagentOptions) => { spawnOpts = opts; return { success: true, output: "Mock output" }; },
       streamAndWait: async () => ({ content: "", wasInterrupted: false }),
       clearContext: async () => {},
       setTodoItems: () => {},
@@ -1534,9 +1533,12 @@ describe("createAgentCommand", () => {
     };
 
     const result = await command.execute("", mockContext);
+    // Allow async spawnSubagent to resolve
+    await new Promise(r => setTimeout(r, 10));
 
     expect(result.success).toBe(true);
-    expect(sentMessage).toBe("You are a helpful agent.");
+    expect(spawnOpts).not.toBeNull();
+    expect(spawnOpts!.systemPrompt).toBe("You are a helpful agent.");
   });
 
   test("execute handler appends user args to prompt", async () => {
@@ -1549,17 +1551,15 @@ describe("createAgentCommand", () => {
 
     const command = createAgentCommand(agent);
 
-    let sentMessage = "";
+    let spawnOpts: SpawnSubagentOptions | null = null;
     const mockContext = {
       session: null,
       state: { isStreaming: false, messageCount: 0 },
       addMessage: () => {},
       setStreaming: () => {},
       sendMessage: () => {},
-      sendSilentMessage: (content: string) => {
-        sentMessage = content;
-      },
-      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      sendSilentMessage: () => {},
+      spawnSubagent: async (opts: SpawnSubagentOptions) => { spawnOpts = opts; return { success: true, output: "Mock output" }; },
       streamAndWait: async () => ({ content: "", wasInterrupted: false }),
       clearContext: async () => {},
       setTodoItems: () => {},
@@ -1569,14 +1569,15 @@ describe("createAgentCommand", () => {
     };
 
     const result = await command.execute("analyze the login flow", mockContext);
+    await new Promise(r => setTimeout(r, 10));
 
     expect(result.success).toBe(true);
-    expect(sentMessage).toContain("You are a helpful agent.");
-    expect(sentMessage).toContain("## User Request");
-    expect(sentMessage).toContain("analyze the login flow");
+    expect(spawnOpts).not.toBeNull();
+    expect(spawnOpts!.systemPrompt).toBe("You are a helpful agent.");
+    expect(spawnOpts!.message).toContain("analyze the login flow");
   });
 
-  test("execute handler trims user args", () => {
+  test("execute handler trims user args", async () => {
     const agent: AgentDefinition = {
       name: "trim-agent",
       description: "Agent that trims args",
@@ -1586,17 +1587,15 @@ describe("createAgentCommand", () => {
 
     const command = createAgentCommand(agent);
 
-    let sentMessage = "";
+    let spawnOpts: SpawnSubagentOptions | null = null;
     const mockContext = {
       session: null,
       state: { isStreaming: false, messageCount: 0 },
       addMessage: () => {},
       setStreaming: () => {},
       sendMessage: () => {},
-      sendSilentMessage: (content: string) => {
-        sentMessage = content;
-      },
-      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      sendSilentMessage: () => {},
+      spawnSubagent: async (opts: SpawnSubagentOptions) => { spawnOpts = opts; return { success: true, output: "Mock output" }; },
       streamAndWait: async () => ({ content: "", wasInterrupted: false }),
       clearContext: async () => {},
       setTodoItems: () => {},
@@ -1605,10 +1604,13 @@ describe("createAgentCommand", () => {
       modelOps: undefined,
     };
 
-    // Empty whitespace args should not append User Request section
+    // Empty whitespace args should use default message
     command.execute("   ", mockContext);
-    expect(sentMessage).toBe("Test prompt.");
-    expect(sentMessage).not.toContain("## User Request");
+    await new Promise(r => setTimeout(r, 10));
+
+    expect(spawnOpts).not.toBeNull();
+    expect(spawnOpts!.systemPrompt).toBe("Test prompt.");
+    expect(spawnOpts!.message).toBe("Please proceed according to your instructions.");
   });
 });
 
@@ -1705,17 +1707,15 @@ describe("registerBuiltinAgents", () => {
     const command = globalRegistry.get("codebase-analyzer");
     expect(command).toBeDefined();
 
-    let sentMessage = "";
+    let spawnCalled = false;
     const mockContext = {
       session: null,
       state: { isStreaming: false, messageCount: 0 },
       addMessage: () => {},
       setStreaming: () => {},
       sendMessage: () => {},
-      sendSilentMessage: (content: string) => {
-        sentMessage = content;
-      },
-      spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      sendSilentMessage: () => {},
+      spawnSubagent: async () => { spawnCalled = true; return { success: true, output: "Mock output" }; },
       streamAndWait: async () => ({ content: "", wasInterrupted: false }),
       clearContext: async () => {},
       setTodoItems: () => {},
@@ -1725,9 +1725,10 @@ describe("registerBuiltinAgents", () => {
     };
 
     const result = await command!.execute("test args", mockContext);
+    await new Promise(r => setTimeout(r, 10));
 
     expect(result.success).toBe(true);
-    expect(sentMessage.length).toBeGreaterThan(0);
+    expect(spawnCalled).toBe(true);
   });
 });
 

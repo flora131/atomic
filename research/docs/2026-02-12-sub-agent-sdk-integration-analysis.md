@@ -5,10 +5,11 @@ git_commit: 337a7015da85d3d813930fbe7b8032fa2e12a996
 branch: lavaman131/hotfix/tool-ui
 repository: atomic
 topic: "Sub-agent SDK Integration Analysis: Built-in Commands and Custom Sub-agent Hookup Verification"
-tags: [research, codebase, sub-agents, sdk-integration, claude-sdk, opencode-sdk, copilot-sdk, built-in-commands]
+tags: [research, codebase, sub-agents, sdk-integration, claude-sdk, opencode-sdk, copilot-sdk, built-in-commands, skills]
 status: complete
 last_updated: 2026-02-12
 last_updated_by: opencode
+last_updated_note: "Added skill-to-sub-agent requirements analysis and debugger DeepWiki verification"
 ---
 
 # Research
@@ -59,15 +60,15 @@ User Types Command (/codebase-analyzer)
 
 Seven built-in agents are defined in the `BUILTIN_AGENTS` array:
 
-| Agent Name | Tools | Model | Purpose |
-|------------|-------|-------|---------|
-| `codebase-analyzer` | Glob, Grep, NotebookRead, Read, LS, Bash | opus | Analyzes implementation details |
-| `codebase-locator` | Glob, Grep, NotebookRead, Read, LS, Bash | opus | Locates files/directories |
-| `codebase-pattern-finder` | Glob, Grep, NotebookRead, Read, LS, Bash | opus | Finds similar implementations |
-| `codebase-online-researcher` | Glob, Grep, Read, WebFetch, WebSearch, MCP tools | opus | Web research with DeepWiki |
-| `codebase-research-analyzer` | Read, Grep, Glob, LS, Bash | opus | Extracts insights from research/ |
-| `codebase-research-locator` | Read, Grep, Glob, LS, Bash | opus | Discovers research/ documents |
-| `debugger` | All tools | opus | Debugs errors and test failures |
+| Agent Name                   | Tools                                            | Model | Purpose                          |
+| ---------------------------- | ------------------------------------------------ | ----- | -------------------------------- |
+| `codebase-analyzer`          | Glob, Grep, NotebookRead, Read, LS, Bash         | opus  | Analyzes implementation details  |
+| `codebase-locator`           | Glob, Grep, NotebookRead, Read, LS, Bash         | opus  | Locates files/directories        |
+| `codebase-pattern-finder`    | Glob, Grep, NotebookRead, Read, LS, Bash         | opus  | Finds similar implementations    |
+| `codebase-online-researcher` | Glob, Grep, Read, WebFetch, WebSearch, MCP tools | opus  | Web research with DeepWiki       |
+| `codebase-research-analyzer` | Read, Grep, Glob, LS, Bash                       | opus  | Extracts insights from research/ |
+| `codebase-research-locator`  | Read, Grep, Glob, LS, Bash                       | opus  | Discovers research/ documents    |
+| `debugger`                   | All tools                                        | opus  | Debugs errors and test failures  |
 
 **Agent Definition Interface** (`src/ui/commands/agent-commands.ts:175-225`):
 
@@ -289,22 +290,26 @@ export class SubagentTypeRegistry {
 
 ## Code References
 
-| File | Lines | Description |
-|------|-------|-------------|
-| `src/ui/commands/agent-commands.ts` | 237-1156 | `BUILTIN_AGENTS` array with 7 built-in agents |
-| `src/ui/commands/agent-commands.ts` | 175-225 | `AgentDefinition` interface |
-| `src/ui/commands/agent-commands.ts` | 1502-1542 | `createAgentCommand()` function |
-| `src/ui/subagent-session-manager.ts` | 23-54 | `SubagentSpawnOptions` and `SubagentResult` types |
-| `src/ui/subagent-session-manager.ts` | 283-298 | `executeSpawn()` creates independent session |
-| `src/sdk/claude-client.ts` | 224-355 | `buildSdkOptions()` - missing `agents` option |
-| `src/sdk/claude-client.ts` | 109-120 | Event type mapping including sub-agent hooks |
-| `src/sdk/opencode-client.ts` | 505-520 | SSE event mapping for agent parts |
-| `src/sdk/opencode-client.ts` | 826-833 | Session prompt with `agent` mode |
-| `src/sdk/copilot-client.ts` | 712-719 | Custom agent loading from disk |
-| `src/sdk/copilot-client.ts` | 761-806 | Session config with `customAgents` |
-| `src/sdk/copilot-client.ts` | 131-148 | SDK event type mapping |
-| `src/graph/subagent-bridge.ts` | 27-61 | `SubagentGraphBridge` class |
-| `src/graph/subagent-registry.ts` | 28-50 | `SubagentTypeRegistry` class |
+| File                                 | Lines     | Description                                       |
+| ------------------------------------ | --------- | ------------------------------------------------- |
+| `src/ui/commands/agent-commands.ts`  | 237-1156  | `BUILTIN_AGENTS` array with 7 built-in agents     |
+| `src/ui/commands/agent-commands.ts`  | 175-225   | `AgentDefinition` interface                       |
+| `src/ui/commands/agent-commands.ts`  | 1091-1156 | `debugger` agent with DeepWiki MCP tool           |
+| `src/ui/commands/agent-commands.ts`  | 1502-1542 | `createAgentCommand()` function                   |
+| `src/ui/commands/skill-commands.ts`  | 74-278    | `/research-codebase` skill prompt                 |
+| `src/ui/commands/skill-commands.ts`  | 280-400   | `/create-spec` skill prompt                       |
+| `src/ui/commands/skill-commands.ts`  | 1196      | `sendSilentMessage()` for skill execution         |
+| `src/ui/subagent-session-manager.ts` | 23-54     | `SubagentSpawnOptions` and `SubagentResult` types |
+| `src/ui/subagent-session-manager.ts` | 283-298   | `executeSpawn()` creates independent session      |
+| `src/sdk/claude-client.ts`           | 224-355   | `buildSdkOptions()` - missing `agents` option     |
+| `src/sdk/claude-client.ts`           | 109-120   | Event type mapping including sub-agent hooks      |
+| `src/sdk/opencode-client.ts`         | 505-520   | SSE event mapping for agent parts                 |
+| `src/sdk/opencode-client.ts`         | 826-833   | Session prompt with `agent` mode                  |
+| `src/sdk/copilot-client.ts`          | 712-719   | Custom agent loading from disk                    |
+| `src/sdk/copilot-client.ts`          | 761-806   | Session config with `customAgents`                |
+| `src/sdk/copilot-client.ts`          | 131-148   | SDK event type mapping                            |
+| `src/graph/subagent-bridge.ts`       | 27-61     | `SubagentGraphBridge` class                       |
+| `src/graph/subagent-registry.ts`     | 28-50     | `SubagentTypeRegistry` class                      |
 
 ## Architecture Documentation
 
@@ -383,13 +388,13 @@ No prior research documents found in the research/ directory related to sub-agen
 
 ## Comparison Matrix
 
-| Aspect | Claude SDK | OpenCode SDK | Copilot SDK |
-|--------|-----------|--------------|-------------|
-| **Native Agent API** | `options.agents` | `opencode.json` agents | `customAgents` config |
-| **Built-ins Registered?** | NO | NO | NO (disk only) |
-| **Event Mapping** | YES (hooks) | YES (SSE) | YES (events) |
-| **Tool Restriction** | YES | via permission | YES |
-| **Sub-agent Spawning** | Independent session | Independent session | Independent session |
+| Aspect                    | Claude SDK          | OpenCode SDK           | Copilot SDK           |
+| ------------------------- | ------------------- | ---------------------- | --------------------- |
+| **Native Agent API**      | `options.agents`    | `opencode.json` agents | `customAgents` config |
+| **Built-ins Registered?** | NO                  | NO                     | NO (disk only)        |
+| **Event Mapping**         | YES (hooks)         | YES (SSE)              | YES (events)          |
+| **Tool Restriction**      | YES                 | via permission         | YES                   |
+| **Sub-agent Spawning**    | Independent session | Independent session    | Independent session   |
 
 ## Identified Issues
 
@@ -428,6 +433,30 @@ The current `SubagentSessionManager` architecture creates fully independent sess
 - No SDK-optimized sub-agent orchestration
 - Events are mapped but not from native sub-agent lifecycle
 
+### Issue 5: Skills Cannot Invoke Sub-agents via SDK Native Task Tool
+
+**Location**: `src/ui/commands/skill-commands.ts`
+
+Skills like `/research-codebase` and `/create-spec` use `sendSilentMessage()` to send prompts that instruct the main agent to use the Task tool with specific `subagent_type` values. However, these sub-agent names are NOT registered with SDK-native APIs:
+
+**Affected Skills**:
+
+| Skill                | Required Sub-agents                                                                                                                                         | Status         |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `/research-codebase` | `codebase-locator`, `codebase-analyzer`, `codebase-pattern-finder`, `codebase-research-locator`, `codebase-research-analyzer`, `codebase-online-researcher` | NOT registered |
+| `/create-spec`       | `codebase-research-locator`, `codebase-research-analyzer`                                                                                                   | NOT registered |
+
+**Impact**: When the main agent tries to use the Task tool with these `subagent_type` values, the SDK cannot find them because they're not in:
+- Claude SDK's `options.agents`
+- OpenCode SDK's agent configuration
+- Copilot SDK's `customAgents` array
+
+### Verified Working: Debugger Agent DeepWiki Access
+
+**Location**: `src/ui/commands/agent-commands.ts:1108`
+
+The `debugger` agent correctly includes `mcp__deepwiki__ask_question` in its tool list, enabling DeepWiki documentation lookup for external libraries.
+
 ### Component 7: Skills and Sub-agent Invocation
 
 **File**: `src/ui/commands/skill-commands.ts`
@@ -449,13 +478,13 @@ The skill prompts embed instructions telling the main agent to use the Task tool
 
 This skill should have access to the following sub-agents via the Task tool:
 
-| Sub-agent | Purpose | Expected `subagent_type` |
-|-----------|---------|--------------------------|
-| `codebase-locator` | Find WHERE files and components live | `"codebase-locator"` |
-| `codebase-analyzer` | Understand HOW specific code works | `"codebase-analyzer"` |
-| `codebase-pattern-finder` | Find examples of existing patterns | `"codebase-pattern-finder"` |
-| `codebase-research-locator` | Discover documents in research/ | `"codebase-research-locator"` |
-| `codebase-research-analyzer` | Extract insights from research docs | `"codebase-research-analyzer"` |
+| Sub-agent                    | Purpose                                 | Expected `subagent_type`       |
+| ---------------------------- | --------------------------------------- | ------------------------------ |
+| `codebase-locator`           | Find WHERE files and components live    | `"codebase-locator"`           |
+| `codebase-analyzer`          | Understand HOW specific code works      | `"codebase-analyzer"`          |
+| `codebase-pattern-finder`    | Find examples of existing patterns      | `"codebase-pattern-finder"`    |
+| `codebase-research-locator`  | Discover documents in research/         | `"codebase-research-locator"`  |
+| `codebase-research-analyzer` | Extract insights from research docs     | `"codebase-research-analyzer"` |
 | `codebase-online-researcher` | External documentation via DeepWiki/Web | `"codebase-online-researcher"` |
 
 **Current Status**: The skill prompt references these agents correctly (lines 107-127), but they are NOT registered with SDK-native APIs.
@@ -466,9 +495,9 @@ This skill should have access to the following sub-agents via the Task tool:
 
 This skill should have access to:
 
-| Sub-agent | Purpose | Expected `subagent_type` |
-|-----------|---------|--------------------------|
-| `codebase-research-locator` | Find relevant research documents | `"codebase-research-locator"` |
+| Sub-agent                    | Purpose                           | Expected `subagent_type`       |
+| ---------------------------- | --------------------------------- | ------------------------------ |
+| `codebase-research-locator`  | Find relevant research documents  | `"codebase-research-locator"`  |
 | `codebase-research-analyzer` | Analyze research document content | `"codebase-research-analyzer"` |
 
 **Current Status**: The skill prompt mentions these agents (line 286), but they are NOT registered with SDK-native APIs.
@@ -563,3 +592,10 @@ When a skill's prompt instructs the main agent to use the Task tool with a speci
 4. For Copilot SDK, should `BUILTIN_AGENTS` be merged with `loadedAgents` before passing to `customAgents`?
 
 5. Is there a performance or cost benefit to using SDK-native sub-agent orchestration vs independent sessions?
+
+6. How should skills like `/research-codebase` invoke sub-agents? Should they:
+   - Use the current `sendSilentMessage()` approach (relying on main agent's Task tool)
+   - Directly call `spawnSubagent()` for each sub-agent
+   - Register built-in agents with SDK-native APIs so the Task tool can find them
+
+7. Should the `/research-codebase` skill's sub-agent access list be enforced programmatically, or is the current prompt-based approach sufficient?

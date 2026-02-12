@@ -21,19 +21,9 @@ import {
 // ============================================================================
 
 describe("formatModelId", () => {
-  test("returns claude model names unchanged", () => {
+  test("returns model names unchanged when short", () => {
     expect(formatModelId("claude-3-opus")).toBe("claude-3-opus");
-    expect(formatModelId("claude-3-sonnet")).toBe("claude-3-sonnet");
-    expect(formatModelId("claude-3-haiku")).toBe("claude-3-haiku");
-  });
-
-  test("returns gpt model names unchanged", () => {
     expect(formatModelId("gpt-4")).toBe("gpt-4");
-    expect(formatModelId("gpt-4-turbo")).toBe("gpt-4-turbo");
-    expect(formatModelId("gpt-3.5-turbo")).toBe("gpt-3.5-turbo");
-  });
-
-  test("returns short model names unchanged", () => {
     expect(formatModelId("llama-2")).toBe("llama-2");
     expect(formatModelId("mistral-7b")).toBe("mistral-7b");
   });

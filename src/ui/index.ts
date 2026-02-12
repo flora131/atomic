@@ -22,6 +22,7 @@ import type {
   AgentMessage,
 } from "../sdk/types.ts";
 import { UnifiedModelOperations } from "../models/model-operations.ts";
+import { parseTaskToolResult } from "./tools/registry.ts";
 
 /**
  * Build a system prompt section describing all registered capabilities.
@@ -172,6 +173,8 @@ interface ChatUIState {
   parallelAgents: ParallelAgent[];
   /** Promise lock to prevent concurrent session creation */
   sessionCreationPromise: Promise<void> | null;
+  /** Suppress streaming text after a Task tool completes (SDK echoes raw JSON) */
+  suppressPostTaskText: boolean;
 }
 
 /**
@@ -296,6 +299,7 @@ export async function startChatUI(
     parallelAgentHandler: null,
     parallelAgents: [],
     sessionCreationPromise: null,
+    suppressPostTaskText: false,
   };
 
   // Create a promise that resolves when the UI exits
@@ -514,6 +518,39 @@ export async function startChatUI(
           data.error,
           data.toolInput // Pass input to update if it wasn't available at start
         );
+
+        // Propagate Task tool result to the corresponding parallel agent.
+        // The subagent.complete event (from SubagentStop / step-finish hooks)
+        // doesn't carry the actual output text — only the PostToolUse /
+        // tool.execution_complete event for the "Task" tool has the result.
+        // Find the most recently completed agent that lacks a result and
+        // attach the tool output so the parallel agents tree can display it.
+        if (
+          (data.toolName === "Task" || data.toolName === "task") &&
+          data.toolResult &&
+          state.parallelAgentHandler &&
+          state.parallelAgents.length > 0
+        ) {
+          // Extract clean result text using the shared parser
+          const parsed = parseTaskToolResult(data.toolResult);
+          const resultStr = parsed.text ?? (typeof data.toolResult === "string"
+            ? data.toolResult
+            : JSON.stringify(data.toolResult));
+          // Find the last completed agent without a result (most likely match)
+          const agentToUpdate = [...state.parallelAgents]
+            .reverse()
+            .find((a) => a.status === "completed" && !a.result);
+          if (agentToUpdate) {
+            state.parallelAgents = state.parallelAgents.map((a) =>
+              a.id === agentToUpdate.id ? { ...a, result: resultStr } : a
+            );
+            state.parallelAgentHandler(state.parallelAgents);
+          }
+
+          // Mark that a Task tool just completed — the model may echo the
+          // raw tool_response JSON as streaming text which should be suppressed.
+          state.suppressPostTaskText = true;
+        }
 
         // Clean up tracking
         state.activeToolIds.delete(toolId);
@@ -749,6 +786,9 @@ export async function startChatUI(
       const streamToolIdMap = new Map<string, string>();
       let thinkingText = "";
 
+      // Reset the suppress flag at the start of each stream
+      state.suppressPostTaskText = false;
+
       for await (const message of abortableStream) {
         // Handle text content
         if (message.type === "text" && typeof message.content === "string") {
@@ -756,6 +796,13 @@ export async function startChatUI(
           if (thinkingStartLocal !== null) {
             thinkingMs = thinkingMs + (Date.now() - thinkingStartLocal);
             thinkingStartLocal = null;
+          }
+
+          // After a Task tool completes, the SDK model may echo back the raw
+          // tool_response JSON as streaming text. Suppress this since the
+          // result is already shown in the tool card and parallel agents tree.
+          if (state.suppressPostTaskText) {
+            continue;
           }
 
           if (message.content.length > 0) {

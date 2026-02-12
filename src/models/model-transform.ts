@@ -7,6 +7,8 @@ export interface Model {
   id: string;
   /** Provider identifier (e.g., 'anthropic', 'openai', 'github-copilot') */
   providerID: string;
+  /** Human-readable provider name from SDK (e.g., 'Anthropic', 'OpenAI') */
+  providerName?: string;
   /** Model identifier within provider (e.g., 'claude-sonnet-4-5', 'gpt-4o') */
   modelID: string;
   /** Human-readable model name */
@@ -194,11 +196,13 @@ export function fromOpenCodeModel(
   providerID: string,
   modelID: string,
   model: OpenCodeModel,
-  providerApi?: string
+  providerApi?: string,
+  providerName?: string
 ): Model {
   return {
     id: `${providerID}/${modelID}`,
     providerID,
+    providerName,
     modelID,
     name: model.name ?? modelID,
     api: providerApi,
@@ -242,6 +246,6 @@ export function fromOpenCodeProvider(
   provider: OpenCodeProvider
 ): Model[] {
   return Object.entries(provider.models).map(([modelID, model]) =>
-    fromOpenCodeModel(providerID, modelID, model, provider.api)
+    fromOpenCodeModel(providerID, modelID, model, provider.api, provider.name)
   );
 }

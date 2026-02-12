@@ -64,12 +64,18 @@ describe("UnifiedModelOperations", () => {
       expect(mockSdkSetModel).toHaveBeenCalledWith("sonnet");
     });
 
-    test("for OpenCode calls sdkSetModel", async () => {
+    test("for OpenCode calls sdkSetModel after validation", async () => {
       const mockSdkSetModel = mock(() => Promise.resolve());
       const ops = new UnifiedModelOperations(
         "opencode",
         mockSdkSetModel as (model: string) => Promise<void>
       );
+
+      // Pre-populate the model cache so validation passes without SDK
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ops as any).cachedModels = [
+        { id: "anthropic/claude-sonnet-4", modelID: "claude-sonnet-4", providerID: "anthropic" },
+      ];
 
       const result = await ops.setModel("anthropic/claude-sonnet-4");
 
@@ -78,12 +84,37 @@ describe("UnifiedModelOperations", () => {
       expect(mockSdkSetModel).toHaveBeenCalledWith("anthropic/claude-sonnet-4");
     });
 
-    test("for Copilot returns requiresNewSession: true", async () => {
+    test("for OpenCode rejects invalid model", async () => {
+      const mockSdkSetModel = mock(() => Promise.resolve());
+      const ops = new UnifiedModelOperations(
+        "opencode",
+        mockSdkSetModel as (model: string) => Promise<void>
+      );
+
+      // Pre-populate with a different model
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ops as any).cachedModels = [
+        { id: "anthropic/claude-sonnet-4", modelID: "claude-sonnet-4", providerID: "anthropic" },
+      ];
+
+      await expect(ops.setModel("openai/nonexistent-model")).rejects.toThrow(
+        "Model 'openai/nonexistent-model' is not available"
+      );
+      expect(mockSdkSetModel).not.toHaveBeenCalled();
+    });
+
+    test("for Copilot returns requiresNewSession: true after validation", async () => {
       const mockSdkSetModel = mock(() => Promise.resolve());
       const ops = new UnifiedModelOperations(
         "copilot",
         mockSdkSetModel as (model: string) => Promise<void>
       );
+
+      // Pre-populate the model cache so validation passes without SDK
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ops as any).cachedModels = [
+        { id: "github-copilot/gpt-4o", modelID: "gpt-4o", providerID: "github-copilot" },
+      ];
 
       const result = await ops.setModel("gpt-4o");
 
@@ -91,6 +122,20 @@ describe("UnifiedModelOperations", () => {
       expect(result.requiresNewSession).toBe(true);
       // SDK should NOT be called for Copilot
       expect(mockSdkSetModel).not.toHaveBeenCalled();
+    });
+
+    test("for Copilot rejects invalid model", async () => {
+      const ops = new UnifiedModelOperations("copilot");
+
+      // Pre-populate with a different model
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ops as any).cachedModels = [
+        { id: "github-copilot/gpt-4o", modelID: "gpt-4o", providerID: "github-copilot" },
+      ];
+
+      await expect(ops.setModel("nonexistent-model")).rejects.toThrow(
+        "Model 'nonexistent-model' is not available"
+      );
     });
 
     test("works without sdkSetModel function", async () => {
@@ -205,6 +250,12 @@ describe("UnifiedModelOperations", () => {
     test("returns pending model for Copilot after setModel", async () => {
       const ops = new UnifiedModelOperations("copilot");
 
+      // Pre-populate cache for validation
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (ops as any).cachedModels = [
+        { id: "github-copilot/gpt-4o", modelID: "gpt-4o", providerID: "github-copilot" },
+      ];
+
       await ops.setModel("gpt-4o");
       const pending = ops.getPendingModel();
 
@@ -222,6 +273,12 @@ describe("UnifiedModelOperations", () => {
     test("returns undefined for non-Copilot agents after setModel", async () => {
       const claudeOps = new UnifiedModelOperations("claude");
       const openCodeOps = new UnifiedModelOperations("opencode");
+
+      // Pre-populate OpenCode cache for validation
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (openCodeOps as any).cachedModels = [
+        { id: "anthropic/claude-sonnet-4", modelID: "claude-sonnet-4", providerID: "anthropic" },
+      ];
 
       await claudeOps.setModel("sonnet");
       await openCodeOps.setModel("anthropic/claude-sonnet-4");

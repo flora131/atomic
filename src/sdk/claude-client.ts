@@ -76,7 +76,7 @@ export interface ClaudeHookConfig {
  * Internal session state for tracking active queries
  */
 interface ClaudeSessionState {
-  query: Query;
+  query: Query | null;
   sessionId: string;
   /** SDK's session ID for resuming conversations (captured from first message) */
   sdkSessionId: string | null;
@@ -120,7 +120,12 @@ function mapEventTypeToHookEvent(eventType: EventType): HookEvent | null {
 }
 
 /**
- * Extracts content from SDK message
+ * Extracts content from SDK message.
+ *
+ * Handles multi-block assistant messages by scanning all content blocks.
+ * Priority: tool_use > text > thinking (tool_use is prioritized so the
+ * streaming layer can accurately count tool invocations even when the
+ * model emits thinking or text blocks before the tool_use block).
  */
 function extractMessageContent(message: SDKAssistantMessage): {
   type: MessageContentType;
@@ -131,24 +136,32 @@ function extractMessageContent(message: SDKAssistantMessage): {
     return { type: "text", content: "" };
   }
 
-  const firstBlock = betaMessage.content[0];
-  if (!firstBlock) {
-    return { type: "text", content: "" };
+  // Scan all blocks — prioritize tool_use, then text, then thinking
+  let textContent: string | null = null;
+  let thinkingContent: string | null = null;
+
+  for (const block of betaMessage.content) {
+    if (block.type === "tool_use") {
+      // Return immediately — tool_use has highest priority
+      return {
+        type: "tool_use",
+        content: { name: block.name, input: block.input },
+      };
+    }
+    if (block.type === "text" && textContent === null) {
+      textContent = block.text;
+    }
+    if (block.type === "thinking" && thinkingContent === null) {
+      thinkingContent = (block as { thinking: string }).thinking;
+    }
   }
 
-  if (firstBlock.type === "text") {
-    return { type: "text", content: firstBlock.text };
+  if (textContent !== null) {
+    return { type: "text", content: textContent };
   }
 
-  if (firstBlock.type === "tool_use") {
-    return {
-      type: "tool_use",
-      content: { name: firstBlock.name, input: firstBlock.input },
-    };
-  }
-
-  if (firstBlock.type === "thinking") {
-    return { type: "thinking", content: firstBlock.thinking };
+  if (thinkingContent !== null) {
+    return { type: "thinking", content: thinkingContent };
   }
 
   return { type: "text", content: "" };
@@ -212,8 +225,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
       model: config.model,
       maxTurns: config.maxTurns,
       maxBudgetUsd: config.maxBudgetUsd,
+      maxThinkingTokens: 16384,
       hooks: this.buildNativeHooks(),
       includePartialMessages: true,
+      // Use Claude Code's built-in system prompt, appending custom instructions if provided
+      systemPrompt: config.systemPrompt
+        ? { type: "preset", preset: "claude_code", append: config.systemPrompt }
+        : { type: "preset", preset: "claude_code" },
     };
 
     // Add canUseTool callback for HITL (Human-in-the-loop) interactions
@@ -313,6 +331,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
       options.mcpServers[name] = server;
     }
 
+    // Forward tool restrictions to the SDK so sub-agents only have access
+    // to the tools specified in their agent definition (e.g. ["Glob", "Grep", "Read"]).
+    // When config.tools is undefined, no restriction is applied (default tools).
+    if (config.tools && config.tools.length > 0) {
+      options.tools = config.tools;
+    }
+
     // Always bypass permissions - Atomic handles its own permission flow
     // via canUseTool/HITL callbacks above. The initClaudeOptions() defaults
     // already set bypassPermissions, so no mapping from config is needed.
@@ -331,7 +356,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
    * Wrap a Query into a unified Session interface
    */
   private wrapQuery(
-    queryInstance: Query,
+    queryInstance: Query | null,
     sessionId: string,
     config: SessionConfig
   ): Session {
@@ -507,10 +532,24 @@ export class ClaudeAgentClient implements CodingAgentClient {
                   }
                 }
               } else if (sdkMessage.type === "assistant") {
-                // Only yield the complete message if we haven't streamed deltas
-                // (deltas already contain the full content incrementally)
-                if (!hasYieldedDeltas) {
-                  const { type, content } = extractMessageContent(sdkMessage);
+                const { type, content } = extractMessageContent(sdkMessage);
+
+                // Always yield tool_use messages so callers can track tool
+                // invocations (e.g. SubagentSessionManager counts them for
+                // the tree view).  Text messages are only yielded when we
+                // haven't already streamed text deltas to avoid duplication.
+                if (type === "tool_use") {
+                  yield {
+                    type,
+                    content,
+                    role: "assistant",
+                    metadata: {
+                      toolName: typeof content === "object" && content !== null
+                        ? (content as Record<string, unknown>).name as string
+                        : undefined,
+                    },
+                  };
+                } else if (!hasYieldedDeltas) {
                   yield {
                     type,
                     content,
@@ -592,7 +631,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
       destroy: async (): Promise<void> => {
         if (!state.isClosed) {
           state.isClosed = true;
-          state.query.close();
+          state.query?.close();
           this.sessions.delete(sessionId);
           this.emitEvent("session.idle", sessionId, { reason: "destroyed" });
         }
@@ -631,8 +670,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
     if (sdkMessage.type === "assistant") {
       const usage = sdkMessage.message.usage;
       if (usage) {
-        state.inputTokens += usage.input_tokens;
-        state.outputTokens += usage.output_tokens;
+        state.inputTokens = usage.input_tokens;
+        state.outputTokens = usage.output_tokens;
       }
     }
 
@@ -718,16 +757,15 @@ export class ClaudeAgentClient implements CodingAgentClient {
     const sessionId =
       config.sessionId ?? `claude-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    // Create initial query with system prompt if provided
-    const prompt = config.systemPrompt ?? "";
-    const options = this.buildSdkOptions({ ...config, sessionId }, sessionId);
-
-    const queryInstance = query({ prompt, options });
+    // Don't create an initial query here — send()/stream() each create
+    // their own query with the actual user message.  Previously an empty-prompt
+    // query was spawned here, which leaked a Claude Code subprocess that was
+    // never consumed.
 
     // Emit session start event
     this.emitEvent("session.start", sessionId, { config });
 
-    return this.wrapQuery(queryInstance, sessionId, config);
+    return this.wrapQuery(null, sessionId, config);
   }
 
   /**
@@ -930,7 +968,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
     // Reuse an existing active session's query if available
     for (const state of this.sessions.values()) {
-      if (!state.isClosed) {
+      if (!state.isClosed && state.query) {
         return await state.query.supportedModels();
       }
     }
@@ -1015,7 +1053,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
     for (const [_sessionId, state] of this.sessions) {
       if (!state.isClosed) {
         state.isClosed = true;
-        state.query.close();
+        state.query?.close();
       }
     }
 
@@ -1031,14 +1069,23 @@ export class ClaudeAgentClient implements CodingAgentClient {
    */
   async getModelDisplayInfo(
     modelHint?: string
-  ): Promise<{ model: string; tier: string }> {
-    // Use detected model from SDK probe (authoritative), then hint, then raw fallback
-    const raw = this.detectedModel
-      ?? (modelHint ? stripProviderPrefix(modelHint) : null);
+  ): Promise<{ model: string; tier: string; contextWindow?: number }> {
+    // Prefer explicit hint (user's /model choice), then detected model from SDK probe, then raw fallback
+    const raw = (modelHint ? stripProviderPrefix(modelHint) : null)
+      ?? this.detectedModel;
+    const modelKey = raw ?? "Claude";
     return {
-      model: raw ?? "Claude",
+      model: modelKey,
       tier: "Claude Code",
+      contextWindow: this.capturedModelContextWindows.get(modelKey) ?? this.probeContextWindow ?? undefined,
     };
+  }
+
+  /**
+   * Get the system tools token baseline captured during start() probe.
+   */
+  getSystemToolsTokens(): number | null {
+    return this.probeSystemToolsBaseline;
   }
 }
 

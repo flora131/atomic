@@ -20,9 +20,6 @@
 export const ATOMIC_COMMANDS = [
   "/research-codebase",
   "/create-spec",
-  "/implement-feature",
-  "/commit",
-  "/create-gh-pr",
   "/explain-code",
   "/ralph",
 ] as const;

@@ -132,6 +132,10 @@ function createTestContext(models: Model[]): CommandContext {
     sendMessage: () => {},
     sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+    streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+    clearContext: async () => {},
+    setTodoItems: () => {},
+    updateWorkflowState: () => {},
     agentType: undefined,
     modelOps: createTestModelOps(models),
   };

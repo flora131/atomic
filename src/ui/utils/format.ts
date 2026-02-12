@@ -125,10 +125,33 @@ export function formatTimestamp(date: Date | string): FormattedTimestamp {
 }
 
 // ============================================================================
+// TEXT TRUNCATION
+// ============================================================================
+
+/**
+ * Truncate text to a maximum length with an ellipsis suffix.
+ *
+ * @param text - Text to truncate
+ * @param maxLength - Maximum length including ellipsis (default: 40)
+ * @returns Truncated text with "…" if it exceeded maxLength
+ *
+ * @example
+ * ```ts
+ * truncateText("Hello World", 8)   // "Hello W…"
+ * truncateText("Short", 10)        // "Short"
+ * ```
+ */
+export function truncateText(text: string, maxLength: number = 40): string {
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 3)}...`;
+}
+
+// ============================================================================
 // EXPORTS
 // ============================================================================
 
 export default {
   formatDuration,
   formatTimestamp,
+  truncateText,
 };

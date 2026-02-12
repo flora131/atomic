@@ -5,8 +5,9 @@
  * Inspired by OpenCode's BasicTool with collapsible behavior.
  */
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo } from "react";
 import { useTheme } from "../theme.tsx";
+import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
 import {
   getToolRenderer,
   parseMcpToolName,
@@ -45,33 +46,6 @@ const STATUS_ICONS: Record<ToolExecutionStatus, string> = {
   interrupted: "●",
 };
 
-/**
- * Animated blinking indicator for running tool state.
- * Alternates opacity by toggling between ● and · to simulate a blink.
- */
-function AnimatedStatusIndicator({
-  color,
-  speed = 500,
-}: {
-  color: string;
-  speed?: number;
-}): React.ReactNode {
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setVisible((prev) => !prev);
-    }, speed);
-    return () => clearInterval(interval);
-  }, [speed]);
-
-  return (
-    <text style={{ fg: color }}>
-      {visible ? "●" : "·"}
-    </text>
-  );
-}
-
 function StatusIndicator({
   status,
   theme,
@@ -94,7 +68,7 @@ function StatusIndicator({
 
   // Running state uses animated blinking ●
   if (status === "running") {
-    return <AnimatedStatusIndicator color={color} speed={500} />;
+    return <text><AnimatedBlinkIndicator color={color} speed={500} /></text>;
   }
 
   const icon = STATUS_ICONS[status];
@@ -205,8 +179,13 @@ export function getToolSummary(
   const strOutput = typeof output === "string" ? output : "";
   const lines = strOutput.split("\n").filter((l) => l.trim().length > 0);
 
-  switch (toolName) {
-    case "Read": {
+  // Normalize tool name to PascalCase for consistent matching
+  // (Claude uses PascalCase, OpenCode/Copilot may use lowercase)
+  const normalized = toolName.charAt(0).toUpperCase() + toolName.slice(1);
+
+  switch (normalized) {
+    case "Read":
+    case "View": {
       const lineCount = lines.length || contentLines;
       return { text: `${lineCount} line${lineCount !== 1 ? "s" : ""}`, count: lineCount };
     }
@@ -223,12 +202,14 @@ export function getToolSummary(
       const truncated = command.length > 30 ? command.slice(0, 27) + "…" : command;
       return { text: truncated || `${contentLines} lines`, count: contentLines };
     }
-    case "Edit": {
+    case "Edit":
+    case "Multiedit": {
       const filePath = (input.file_path as string) || "";
       const fileName = filePath.split("/").pop() || filePath;
       return { text: `→ ${fileName}`, count: undefined };
     }
-    case "Write": {
+    case "Write":
+    case "Create": {
       const filePath = (input.file_path as string) || "";
       const fileName = filePath.split("/").pop() || filePath;
       return { text: `→ ${fileName}`, count: undefined };
@@ -271,6 +252,8 @@ export function ToolResult({
     [toolName, input, output, renderResult.content.length]
   );
 
+  const linkifiedTitle = title;
+
   const isCollapsed = useMemo(
     () => shouldCollapse(renderResult.content.length, maxCollapsedLines, initialExpanded),
     [renderResult.content.length, maxCollapsedLines, initialExpanded]
@@ -285,38 +268,34 @@ export function ToolResult({
   return (
     <box flexDirection="column" marginBottom={1}>
       {/* Header line */}
-      <box flexDirection="row" gap={1} alignItems="center">
-        {/* Status indicator — first element on the line */}
-        <StatusIndicator status={status} theme={theme} />
-
-        {/* Tool icon — fixed width for consistent alignment across terminals */}
-        <box width={2}>
+      <box flexDirection="row" gap={1}>
+        {/* Status indicator + icon — fixed-width prefix so they stay on line 1 */}
+        <box flexDirection="row" gap={1} flexShrink={0} width={3}>
+          <StatusIndicator status={status} theme={theme} />
           <text style={{ fg: iconColor }}>
             {renderer.icon}
           </text>
         </box>
 
-        {/* Tool name (parsed for MCP tools) */}
-        <text style={{ fg: colors.accent }}>
-          {displayLabel}
+        {/* Tool name + title + summary — wraps as a single inline block */}
+        <text>
+          <span style={{ fg: colors.accent }}>
+            {displayLabel}
+          </span>
+          <span style={{ fg: colors.muted }}>
+            {" "}{linkifiedTitle}
+          </span>
+          {status === "completed" && !isExpanded && (
+            <span style={{ fg: colors.muted }}>
+              {" "}— {summary.text} (ctrl+o to expand)
+            </span>
+          )}
         </text>
-
-        {/* Title (e.g., filename) */}
-        <text style={{ fg: colors.muted }}>
-          {title}
-        </text>
-
-        {/* Summary when collapsed */}
-        {status === "completed" && !isExpanded && (
-          <text style={{ fg: colors.muted }}>
-            — {summary.text} (ctrl+o to expand)
-          </text>
-        )}
       </box>
 
       {/* Content - only when not pending */}
       {status !== "pending" && renderResult.content.length > 0 && (
-        <box marginTop={0} marginLeft={2}>
+        <box marginTop={0} marginLeft={1}>
           <CollapsibleContent
             content={renderResult.content}
             expanded={isExpanded || !isCollapsed}
@@ -330,7 +309,7 @@ export function ToolResult({
 
       {/* Error message - separate display */}
       {hasError && typeof output === "string" && !renderResult.content.includes(output) && (
-        <box marginTop={0} marginLeft={2}>
+        <box marginTop={0} marginLeft={1}>
           <text style={{ fg: colors.error }}>
             {output}
           </text>

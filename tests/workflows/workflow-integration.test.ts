@@ -177,9 +177,9 @@ function createMockSDKClient(): MockSDKClient {
 
       const session: MockSession = {
         id: sessionId,
+        messages: [],
         responses,
         responseIndex: 0,
-        messages: [],
 
         async send(message: string): Promise<string> {
           this.messages.push({ role: "user", content: message });

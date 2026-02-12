@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, mock, spyOn } from "bun:test";
 import { createProgram } from "../src/cli";
-import { AGENT_CONFIG, isValidAgent } from "../src/config";
+import { AGENT_CONFIG, isValidAgent, SCM_CONFIG, isValidScm } from "../src/config";
 
 /**
  * Unit tests for the new Commander.js CLI implementation
@@ -94,6 +94,28 @@ describe("Commander.js CLI", () => {
         expect(agentOption?.description).toContain(agent);
       }
     });
+
+    test("init command has -s/--scm option", () => {
+      const program = createProgram();
+      const initCmd = program.commands.find(cmd => cmd.name() === "init");
+      expect(initCmd).toBeDefined();
+
+      const scmOption = initCmd?.options.find(opt => opt.long === "--scm");
+      expect(scmOption).toBeDefined();
+      expect(scmOption?.short).toBe("-s");
+    });
+
+    test("init command shows available SCM types in help", () => {
+      const program = createProgram();
+      const initCmd = program.commands.find(cmd => cmd.name() === "init");
+      const scmOption = initCmd?.options.find(opt => opt.long === "--scm");
+
+      // Check that the description includes SCM type names
+      const scmNames = Object.keys(SCM_CONFIG);
+      for (const scm of scmNames) {
+        expect(scmOption?.description).toContain(scm);
+      }
+    });
   });
 
   describe("config command", () => {
@@ -154,6 +176,26 @@ describe("Commander.js CLI", () => {
       expect(AGENT_CONFIG).toHaveProperty("claude");
       expect(AGENT_CONFIG).toHaveProperty("opencode");
       expect(AGENT_CONFIG).toHaveProperty("copilot");
+    });
+  });
+
+  describe("SCM validation", () => {
+    test("isValidScm returns true for known SCM types", () => {
+      expect(isValidScm("github")).toBe(true);
+      expect(isValidScm("sapling-phabricator")).toBe(true);
+    });
+
+    test("isValidScm returns false for unknown SCM types", () => {
+      expect(isValidScm("unknown")).toBe(false);
+      expect(isValidScm("git")).toBe(false);
+      expect(isValidScm("sapling")).toBe(false);
+      expect(isValidScm("azure-devops")).toBe(false);
+      expect(isValidScm("")).toBe(false);
+    });
+
+    test("SCM_CONFIG contains expected SCM types", () => {
+      expect(SCM_CONFIG).toHaveProperty("github");
+      expect(SCM_CONFIG).toHaveProperty("sapling-phabricator");
     });
   });
 });

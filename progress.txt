@@ -13,3 +13,22 @@ The `.github/agents`, `.github/hooks`, `.github/prompts`, and `.github/scripts` 
 - Typecheck passes (`bun run typecheck`)
 - Tests pass (`bun test` on subset — full suite hangs, possibly pre-existing issue)
 - All remaining `package.json` `files` entries verified to exist on disk
+
+## 2026-02-12: Fix theme color test assertions (Task #2)
+
+### Problem
+Theme tests in `tests/ui/theme.test.ts` had 13 failures because the source theme
+(`src/ui/theme.tsx`) was updated to use Catppuccin colors (Mocha for dark, Latte for light),
+but the test assertions still used the old color hex values.
+
+### Changes
+Updated all hardcoded color assertions in `tests/ui/theme.test.ts` to match the current
+Catppuccin palette:
+- Dark theme: background "#1e1e2e", foreground "#cdd6f4", userMessage "#89b4fa", etc.
+- Light theme: background "#eff1f5", foreground "#4c4f69", userMessage "#1e66f5", etc.
+- Error/success/warning colors updated for both themes
+- getMessageColor assertions updated
+- createCustomTheme mutation test updated
+
+### Verification
+- All 35 tests in `tests/ui/theme.test.ts` pass (0 failures)

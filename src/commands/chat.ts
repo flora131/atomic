@@ -31,6 +31,7 @@ import {
   type ChatUIConfig,
   type Theme,
 } from "../ui/index.ts";
+import { VERSION } from "../version.ts";
 
 // ============================================================================
 // Types
@@ -180,9 +181,9 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     // Pass the model from CLI options if provided for accurate display
     const modelDisplayInfo = await client.getModelDisplayInfo(effectiveModel);
 
-    // For copilot, append reasoning effort to model display if persisted
+    // For copilot, append reasoning effort to model display if the model supports it
     let displayModelName = modelDisplayInfo.model;
-    if (agentType === "copilot" && effectiveReasoningEffort) {
+    if (agentType === "copilot" && effectiveReasoningEffort && modelDisplayInfo.supportsReasoning) {
       displayModelName += ` (${effectiveReasoningEffort})`;
     }
 
@@ -199,7 +200,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
       theme: getTheme(theme),
       title: `Chat - ${agentName}`,
       placeholder: "Type a message...",
-      version: "0.4.4",
+      version: VERSION,
       model: displayModelName,
       tier: modelDisplayInfo.tier,
       workingDir: process.cwd(),

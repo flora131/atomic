@@ -1525,6 +1525,10 @@ describe("createAgentCommand", () => {
         sentMessage = content;
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
       agentType: undefined,
       modelOps: undefined,
     };
@@ -1556,6 +1560,10 @@ describe("createAgentCommand", () => {
         sentMessage = content;
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
       agentType: undefined,
       modelOps: undefined,
     };
@@ -1589,6 +1597,10 @@ describe("createAgentCommand", () => {
         sentMessage = content;
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
       agentType: undefined,
       modelOps: undefined,
     };
@@ -1704,6 +1716,10 @@ describe("registerBuiltinAgents", () => {
         sentMessage = content;
       },
       spawnSubagent: async () => ({ success: true, output: "Mock output" }),
+      streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+      clearContext: async () => {},
+      setTodoItems: () => {},
+      updateWorkflowState: () => {},
       agentType: undefined,
       modelOps: undefined,
     };

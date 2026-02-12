@@ -9,10 +9,21 @@
 
 import type { Session, ModelDisplayInfo } from "../../sdk/types.ts";
 import type { AgentType, ModelOperations } from "../../models";
+import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 
 // ============================================================================
 // TYPES
 // ============================================================================
+
+/**
+ * Result returned when streaming completes via `streamAndWait`.
+ */
+export interface StreamResult {
+  /** The accumulated text content from the streaming response */
+  content: string;
+  /** Whether the stream was interrupted (e.g., Ctrl+C / ESC) */
+  wasInterrupted: boolean;
+}
 
 /**
  * State available to commands during execution.
@@ -22,6 +33,8 @@ import type { AgentType, ModelOperations } from "../../models";
  * Options for spawning a sub-agent.
  */
 export interface SpawnSubagentOptions {
+  /** Display name for the sub-agent in the tree view (e.g., "codebase-analyzer") */
+  name?: string;
   /** System prompt for the sub-agent */
   systemPrompt: string;
   /** Initial message/task for the sub-agent */
@@ -75,12 +88,33 @@ export interface CommandContext {
    * @returns Promise with the sub-agent execution result
    */
   spawnSubagent: (options: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
+  /**
+   * Send a message and wait for the streaming response to complete.
+   * Returns the accumulated content and whether it was interrupted.
+   * Use this for multi-step workflows that need sequential coordination.
+   */
+  streamAndWait: (prompt: string) => Promise<StreamResult>;
+  /**
+   * Clear the current context window (destroy SDK session, clear messages).
+   * Preserves todoItems across the clear.
+   */
+  clearContext: () => Promise<void>;
+  /**
+   * Update the task list UI with new items.
+   */
+  setTodoItems: (items: TodoItem[]) => void;
+  /**
+   * Update workflow state from a command handler.
+   */
+  updateWorkflowState: (update: Partial<CommandContextState>) => void;
   /** The type of agent currently in use (claude, opencode, copilot) */
   agentType?: AgentType;
   /** Model operations interface for listing, setting, and resolving models */
   modelOps?: ModelOperations;
   /** Resolve current model display info (name + tier) from the SDK client */
   getModelDisplayInfo?: () => Promise<ModelDisplayInfo>;
+  /** Get system tools tokens from the client (pre-session fallback) */
+  getClientSystemToolsTokens?: () => number | null;
 }
 
 /**

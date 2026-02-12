@@ -263,6 +263,7 @@ function createMockClaudeClient(permissionMode: PermissionMode = "bypass"): Codi
     async getModelDisplayInfo() {
       return { model: "Mock Claude", tier: "Claude Code" };
     },
+    getSystemToolsTokens() { return null; },
   };
 }
 
@@ -361,6 +362,7 @@ function createMockOpenCodeClient(
     async getModelDisplayInfo() {
       return { model: "Claude", tier: "OpenCode" };
     },
+    getSystemToolsTokens() { return null; },
   };
 }
 
@@ -459,6 +461,7 @@ function createMockCopilotClient(
     async getModelDisplayInfo() {
       return { model: "Copilot", tier: "GitHub Copilot" };
     },
+    getSystemToolsTokens() { return null; },
   };
 }
 

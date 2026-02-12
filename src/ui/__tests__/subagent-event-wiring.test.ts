@@ -87,6 +87,7 @@ function createMockClient(): CodingAgentClient & {
     async getModelDisplayInfo(_hint?: string): Promise<ModelDisplayInfo> {
       return { model: "Mock", tier: "Mock" };
     },
+    getSystemToolsTokens() { return null; },
 
     emit<T extends EventType>(eventType: T, event: AgentEvent<T>): void {
       const arr = handlers.get(eventType);

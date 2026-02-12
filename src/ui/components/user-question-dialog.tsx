@@ -10,6 +10,7 @@ import React, { useState, useCallback, useMemo, useRef, useEffect } from "react"
 import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { KeyEvent, TextareaRenderable, ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../theme.tsx";
+import { navigateUp, navigateDown } from "../utils/navigation.ts";
 
 // ============================================================================
 // TYPES
@@ -43,15 +44,8 @@ export interface UserQuestionDialogProps {
 // UTILITY FUNCTIONS
 // ============================================================================
 
-export function navigateUp(currentIndex: number, totalItems: number): number {
-  if (totalItems === 0) return 0;
-  return currentIndex <= 0 ? totalItems - 1 : currentIndex - 1;
-}
-
-export function navigateDown(currentIndex: number, totalItems: number): number {
-  if (totalItems === 0) return 0;
-  return currentIndex >= totalItems - 1 ? 0 : currentIndex + 1;
-}
+/** @deprecated Use navigateUp from utils/navigation.ts directly */
+export { navigateUp, navigateDown };
 
 export function toggleSelection(selected: string[], value: string): string[] {
   if (selected.includes(value)) {
@@ -331,8 +325,10 @@ export function UserQuestionDialog({
               ref={textareaRef}
               placeholder={isChatAboutThis ? "Type your thoughts..." : "Type your answer..."}
               focused={true}
-              height={1}
+              minHeight={1}
+              maxHeight={5}
               flexGrow={1}
+              wrapMode="word"
             />
           </box>
           <text style={{ fg: colors.muted }}>

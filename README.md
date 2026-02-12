@@ -115,14 +115,20 @@ bunx @bastani/atomic
 
 ### Getting started
 
-After installation, navigate to your project and run Atomic with your preferred agent:
+After installation, navigate to your project and set up Atomic:
 
 ```bash
 cd your-awesome-project
-atomic run claude
+atomic init
 ```
 
 Select your agent. The CLI configures your project automatically.
+
+Then start a chat session:
+
+```bash
+atomic chat -a claude
+```
 
 ### Install a specific version
 
@@ -180,21 +186,19 @@ Research → Plan (Spec) → Implement (Ralph) → (Debug) → PR
 
 ### 1. Research the Codebase
 
+Start a chat session and use the `/research-codebase` command:
+
 ```bash
-# for claude-code
-atomic run claude "/research-codebase [Describe your feature or question]"
-
-# for opencode
-atomic run opencode
-# then type:
-/research-codebase "Describe your feature or question"
-
-# for copilot
-atomic run copilot -i "/research-codebase Describe your feature or question"
+atomic chat -a <claude|opencode|copilot>
 ```
 
-```bash
-# clear context window before next step
+Then type in the chat:
+
+```
+/research-codebase [Describe your feature or question]
+```
+
+```
 /clear
 ```
 
@@ -202,21 +206,11 @@ atomic run copilot -i "/research-codebase Describe your feature or question"
 
 ### 2. Create a Specification
 
-```bash
-# for claude-code
-atomic run claude "/create-spec [research-path]"
-
-# for opencode
-atomic run opencode
-# then type:
+```
 /create-spec [research-path]
-
-# for copilot
-atomic run copilot -i "/create-spec [research-path]"
 ```
 
-```bash
-# clear context window before next step
+```
 /clear
 ```
 
@@ -224,88 +218,32 @@ atomic run copilot -i "/create-spec [research-path]"
 
 ### 3. Implement Features
 
-```bash
-# for claude-code
-atomic run claude "/implement-feature"
+Use the Ralph workflow to autonomously implement features from the task list. More in [Ralph Section](#autonomous-execution-ralph):
 
-# for opencode
-atomic run opencode
-# then type:
-/implement-feature
-
-# for copilot
-atomic run copilot -i "/implement-feature"
+```
+/ralph "<prompt-or-spec-path>"
 ```
 
-```bash
-# clear context window before next feature implementation
-/clear
-```
-
-**What happens:** The agent:
-
-1. Reads `feature-list.json` for the next highest priority unsolved task
-2. References the spec/research for context
-3. Generates a commit for the feature
-4. Updates `progress.txt`
-
-Repeat until all features pass.
-
-Or, use `/ralph:ralph-loop` for autonomous mode to enable multi-hour autonomous coding sessions. More in [Ralph Section](#autonomous-execution-ralph):
-
-```bash
-# for claude-code
-atomic run claude "/ralph:ralph-loop"
-
-# for opencode
-atomic run opencode
-# then type:
-/ralph:ralph-loop
-
-# for copilot
-atomic run copilot -i "/ralph:ralph-loop"
-```
-
-### 5. Debugging
+### 4. Debugging
 
 Software engineering is highly non-linear. You are bound to need to debug along the way.
 
-If something breaks during implementation that the agent did not catch, you can manually debug:
+If something breaks during implementation that the agent did not catch, you can manually debug. Type in the chat:
 
-First, generate a debugging report:
-
-```bash
-# for claude-code
-atomic run claude "Use the debugging agent to create a debugging report for [insert error message here]."
-
-# for opencode
-atomic run opencode
-# then type:
-"Use the debugging agent to create a debugging report for [insert error message here]."
-
-# for copilot
-atomic run copilot --agent debugger -i "Create a debugging report for [insert error message here]."
+```
+Use the debugging agent to create a debugging report for [insert error message here].
 ```
 
-Then, use the debugging report to guide your agent in the CLI:
+Then, use the debugging report to guide your agent:
 
-```txt
-"Follow the debugging report above to resolve the issue."
+```
+Follow the debugging report above to resolve the issue.
 ```
 
-### 6. Create Pull Request
+### 5. Create Pull Request
 
-```bash
-# for claude-code
-atomic run claude "/create-gh-pr"
-
-# for opencode
-atomic run opencode
-# then type:
-/create-gh-pr
-
-# for copilot
-atomic run copilot -i "/create-gh-pr"
+```
+/gh-create-pr
 ```
 
 ---
@@ -316,17 +254,12 @@ atomic run copilot -i "/create-gh-pr"
 
 User-invocable slash commands that orchestrate workflows.
 
-| Command                | Arguments         | Description                            |
-| ---------------------- | ----------------- | -------------------------------------- |
-| `/research-codebase`   | `[question]`      | Analyze codebase and document findings |
-| `/create-spec`         | `[research-path]` | Generate technical specification       |
-| `/implement-feature`   | —                 | Implement next feature from list       |
-| `/commit`              | `[message]`       | Create conventional commit             |
-| `/create-gh-pr`        | —                 | Push and create pull request           |
-| `/explain-code`        | `[path]`          | Explain code section in detail         |
-| `/ralph:ralph-loop`    | —                 | Run autonomous implementation loop     |
-| `/ralph:cancel-ralph`  | —                 | Stop autonomous loop                   |
-| `/ralph:ralph-help`    | —                 | Show Ralph documentation               |
+| Command              | Arguments                                 | Description                            |
+| -------------------- | ----------------------------------------- | -------------------------------------- |
+| `/research-codebase` | `[question]`                              | Analyze codebase and document findings |
+| `/create-spec`       | `[research-path]`                         | Generate technical specification       |
+| `/explain-code`      | `[path]`                                  | Explain code section in detail         |
+| `/ralph`             | `"<prompt>" [--resume UUID ["<prompt>"]]` | Run autonomous implementation workflow |
 
 ### Agents
 
@@ -355,11 +288,11 @@ Domain knowledge applied during work. These are automatically invoked when relev
 
 ## Supported Coding Agents
 
-| Agent              | CLI Command           | Folder       | Context File |
-| ------------------ | --------------------- | ------------ | ------------ |
-| Claude Code        | `atomic run claude`   | `.claude/`   | `CLAUDE.md`  |
-| OpenCode           | `atomic run opencode` | `.opencode/` | `AGENTS.md`  |
-| GitHub Copilot CLI | `atomic run copilot`  | `.github/`   | `AGENTS.md`  |
+| Agent              | CLI Command               | Folder       | Context File |
+| ------------------ | ------------------------- | ------------ | ------------ |
+| Claude Code        | `atomic chat -a claude`   | `.claude/`   | `CLAUDE.md`  |
+| OpenCode           | `atomic chat -a opencode` | `.opencode/` | `AGENTS.md`  |
+| GitHub Copilot CLI | `atomic chat -a copilot`  | `.github/`   | `AGENTS.md`  |
 
 ---
 
@@ -374,204 +307,48 @@ The [Ralph Wiggum Method](https://ghuntley.com/ralph/) enables multi-hour autono
 ### How It Works
 
 1. Create and approve your spec (`/create-spec`)
-2. Start autonomous loop (`/ralph:ralph-loop`)
+2. Start the workflow (`/ralph "<prompt-or-spec-path>"`)
 3. Ralph decomposes tasks and implements features one-by-one until complete
 
-### Commands
+### Usage
 
-| Command               | Description                          |
-| --------------------- | ------------------------------------ |
-| `/ralph:ralph-loop`   | Start autonomous implementation loop |
-| `/ralph:cancel-ralph` | Stop the autonomous loop             |
-| `/ralph:ralph-help`   | Show Ralph documentation             |
+```
+/ralph "<prompt-or-spec-path>"
+/ralph --resume <uuid>
+/ralph --resume <uuid> "<prompt>"
+```
 
-### Parameters
+| Argument          | Description                                           |
+| ----------------- | ----------------------------------------------------- |
+| `"<prompt>"`      | Prompt or path to a spec file (required for new runs) |
+| `--resume <uuid>` | Resume a previous session by its UUID                 |
 
-| Parameter                       | Default                      | Description                          |
-| ------------------------------- | ---------------------------- | ------------------------------------ |
-| `[PROMPT]`                      | `/implement-feature`         | Initial prompt to run each iteration |
-| `--max-iterations <n>`          | `0` (unlimited)              | Maximum iterations before auto-stop  |
-| `--completion-promise '<text>'` | `null`                       | Phrase that signals task completion  |
-| `--feature-list <path>`         | `research/feature-list.json` | Path to feature list JSON            |
+### Chat Interface
 
-### Exit Conditions
-
-The loop exits when **any** of these conditions are met:
-
-1. `--max-iterations` limit reached
-2. `--completion-promise` phrase detected in output (via `<promise>TEXT</promise>` tags)
-3. All features in `--feature-list` are passing (when using `/implement-feature` with no iteration limit)
-
-### Graph Engine (Experimental)
-
-Ralph supports an experimental graph-based execution engine that provides:
-
-- **Structured workflow execution** with defined nodes and edges
-- **Checkpointing** for workflow resumption after interruptions
-- **Context window monitoring** with automatic session compaction
-- **Human-in-the-loop approvals** for spec review before implementation
-
-To enable the graph engine, set the `ATOMIC_USE_GRAPH_ENGINE` environment variable:
+Ralph runs inside the Atomic TUI chat interface:
 
 ```bash
-# Enable graph-based execution
-export ATOMIC_USE_GRAPH_ENGINE=true
-atomic ralph setup -a claude
+# Start chat with your preferred agent: claude, opencode, or copilot
+atomic chat -a <claude|opencode|copilot>
 
-# Or inline
-ATOMIC_USE_GRAPH_ENGINE=true atomic ralph setup -a claude
+# Or even specify agent and theme
+atomic chat -a opencode --theme <light/dark>
 ```
-
-| Value   | Behavior                                      |
-| ------- | --------------------------------------------- |
-| `true`  | Uses graph-based workflow execution           |
-| `false` | Uses traditional hook-based execution (default) |
-
-> **Note:** The graph engine is in active development. It will become the default execution mode in a future release (Phase 8). During the rollout period, the flag defaults to `false` for stability.
-
-#### Graph Engine Architecture
-
-The graph engine uses a directed graph model where:
-
-- **Nodes** represent discrete workflow steps (research, spec creation, feature implementation)
-- **Edges** define transitions between nodes with optional conditions
-- **State** flows through the graph, accumulating outputs from each node
-
-```
-┌──────────┐    ┌─────────────┐    ┌─────────────┐    ┌──────────────────┐
-│ Research │───▶│ Create Spec │───▶│ Review Spec │───▶│ Create Features  │
-└──────────┘    └─────────────┘    └──────┬──────┘    └────────┬─────────┘
-                                          │                     │
-                                    ┌─────▼─────┐         ┌─────▼─────┐
-                                    │  Approval │         │  Feature  │◀─┐
-                                    │   Wait    │         │   Loop    │──┘
-                                    └───────────┘         └─────┬─────┘
-                                                                │
-                                                          ┌─────▼─────┐
-                                                          │ Create PR │
-                                                          └───────────┘
-```
-
-#### Workflow Definition with Fluent API
-
-Workflows are defined using a fluent builder pattern:
-
-```typescript
-import { graph, agentNode, waitNode, decisionNode } from "@bastani/atomic/graph";
-
-const workflow = graph<MyState>()
-  .start(researchNode)
-  .then(createSpecNode)
-  .if((state) => !state.specApproved)
-    .wait("Please review the specification")
-  .endif()
-  .then(implementNode)
-  .loop(featureNode, { until: (s) => s.allFeaturesPassing, maxIterations: 100 })
-  .then(createPRNode)
-  .end()
-  .compile({ checkpointer: new ResearchDirSaver() });
-```
-
-#### Node Types
-
-| Node Type  | Purpose                                    | Factory Function   |
-| ---------- | ------------------------------------------ | ------------------ |
-| `agent`    | Execute AI agent for complex tasks         | `agentNode()`      |
-| `tool`     | Run a specific tool/function               | `toolNode()`       |
-| `decision` | Route based on state conditions            | `decisionNode()`   |
-| `wait`     | Pause for human input                      | `waitNode()`       |
-| `parallel` | Execute multiple branches concurrently     | `parallelNode()`   |
-| `subgraph` | Execute a nested workflow                  | `subgraphNode()`   |
-
-#### Checkpointing and Resumption
-
-The graph engine automatically checkpoints state after each node execution. To resume an interrupted workflow:
-
-```bash
-# Resume from last checkpoint
-atomic ralph resume --execution-id <id>
-
-# List available checkpoints
-atomic ralph checkpoints --execution-id <id>
-```
-
-Checkpoint storage options:
-
-| Saver              | Location                        | Use Case                    |
-| ------------------ | ------------------------------- | --------------------------- |
-| `MemorySaver`      | In-memory                       | Testing, short workflows    |
-| `FileSaver`        | JSON files in `.atomic/`        | Development                 |
-| `ResearchDirSaver` | `research/checkpoints/` (YAML)  | Production, git-friendly    |
-
-#### OpenTUI Chat Interface
-
-The graph engine includes an interactive terminal chat interface:
-
-```bash
-# Start chat with default agent
-atomic chat
-
-# Start with workflow mode enabled
-atomic chat --workflow
-
-# Specify agent and theme
-atomic chat -a opencode --theme light
-```
-
-Chat commands:
-
-| Command    | Description                           |
-| ---------- | ------------------------------------- |
-| `/start`   | Begin the Atomic workflow             |
-| `/status`  | Show current workflow progress        |
-| `/approve` | Approve specification                 |
-| `/reject`  | Request spec revisions                |
-| `/theme`   | Toggle dark/light theme               |
-| `/help`    | Show available commands               |
-
-#### Migrating from Hook-Based to Graph Engine
-
-**Step 1:** Enable the feature flag temporarily to test:
-
-```bash
-ATOMIC_USE_GRAPH_ENGINE=true atomic ralph setup -a claude
-```
-
-**Step 2:** Verify workflow behaves as expected:
-- Checkpoints are saved to `research/checkpoints/`
-- Spec approval prompts appear before feature implementation
-- Context window warnings trigger at 60% usage
-
-**Step 3:** Make permanent by adding to your shell profile:
-
-```bash
-echo 'export ATOMIC_USE_GRAPH_ENGINE=true' >> ~/.bashrc
-```
-
-**Key differences:**
-
-| Aspect            | Hook-Based                     | Graph Engine                    |
-| ----------------- | ------------------------------ | ------------------------------- |
-| Execution model   | Sequential hooks               | Directed graph                  |
-| State persistence | YAML frontmatter               | Structured checkpoints          |
-| Resumption        | Manual restart                 | Automatic from checkpoint       |
-| Spec approval     | Pre-loop                       | In-graph wait node              |
-| Error recovery    | Script restart                 | Catch handlers with retry       |
 
 ### Examples
 
-```bash
-# Default: implement features until all pass
-/ralph:ralph-loop
+```
+# Start a new workflow with a prompt
+/ralph "Build a REST API for user management"
 
-# Limit iterations
-/ralph:ralph-loop --max-iterations 20
+# Start from a spec file
+/ralph "specs/my-feature.md"
 
-# Custom prompt with completion promise
-/ralph:ralph-loop "Build a todo API" --completion-promise "DONE" --max-iterations 20
+# Resume a previous session
+/ralph --resume a1b2c3d4-...
 
-# Custom feature list path
-/ralph:ralph-loop --feature-list specs/my-features.json
+# Resume with an additional prompt
+/ralph --resume a1b2c3d4-... "Continue with the auth module"
 ```
 
 ---
@@ -716,10 +493,10 @@ Atomic collects anonymous usage telemetry to help improve the product. All data 
 
 Telemetry data is stored locally before being sent:
 
-| Platform | Local Log Path |
-| -------- | -------------- |
-| Windows  | `%APPDATA%\atomic\telemetry\` |
-| macOS    | `~/Library/Application Support/atomic/telemetry/` |
+| Platform | Local Log Path                                     |
+| -------- | -------------------------------------------------- |
+| Windows  | `%APPDATA%\atomic\telemetry\`                      |
+| macOS    | `~/Library/Application Support/atomic/telemetry/`  |
 | Linux    | `~/.local/share/atomic/telemetry/` (XDG compliant) |
 
 ### Opt-Out Methods
@@ -789,35 +566,7 @@ git config --global user.email "you@example.com"
 
 **File Preservation:** When re-running `atomic init`, your custom `CLAUDE.md` and `AGENTS.md` files are preserved by default. Use `--force` to overwrite all files including `CLAUDE.md`/`AGENTS.md`.
 
-**Shell Interprets Backticks as Commands:** When passing prompts to Atomic CLI commands, your shell (bash/zsh) interprets backticks (`` ` ``) as command substitution before Atomic receives the input. This causes commands like `` `pytest` `` in your prompt to be executed by the shell, resulting in errors like `zsh: command not found: pytest`.
-
-```bash
-# Problem:
-atomic ralph setup -a claude "NEVER run the entire test suite at once with `pytest`."
-# Error: zsh: command not found: pytest
-
-# Solution: Escape backticks with backslash
-atomic ralph setup -a claude "NEVER run the entire test suite at once with \`pytest\`."
-```
-
-This behavior is intentional—shell interpolation allows powerful patterns like `$(cat prompt.txt)` or variable expansion. When you need literal backticks in prompts, escape them.
-
-**Ralph Continues After Stopping Session:** If you stop a Ralph session (e.g., Ctrl+C or esc) and open a new Claude session, Ralph may automatically resume. This is expected behavior—Ralph is designed to run autonomously until an exit condition is met (completion promise / max iterations / all features passing) or it’s explicitly cancelled. You can still interrupt and give it instructions during execution.
-
-To properly stop Ralph:
-
-```bash
-# for claude-code
-atomic run claude "/ralph:cancel-ralph"
-
-# for opencode
-atomic run opencode
-# then type:
-/ralph:cancel-ralph
-
-# for copilot
-atomic run copilot -i "/ralph:cancel-ralph"
-```
+**Ralph Continues After Stopping Session:** If you stop a Ralph session (e.g., Ctrl+C or esc) and open a new session, Ralph may automatically resume. This is expected behavior—Ralph is designed to run autonomously until an exit condition is met (completion promise / max iterations / all features passing) or it's explicitly cancelled. You can still interrupt and give it instructions during execution.
 
 **Best Practice:** Run Ralph in a separate [git worktree](https://git-scm.com/docs/git-worktree) to isolate autonomous execution from your main development session:
 
@@ -827,7 +576,8 @@ git worktree add ../my-project-ralph feature-branch
 
 # Run Ralph in the worktree
 cd ../my-project-ralph
-atomic run claude "/ralph:ralph-loop"
+atomic chat -a claude
+# then type: /ralph "Build the auth module"
 ```
 
 This keeps your main workspace free for other work while Ralph runs autonomously.

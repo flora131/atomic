@@ -20,6 +20,7 @@ import { saveModelPreference } from "../../utils/settings.ts";
 import { discoverMcpConfigs } from "../../utils/mcp-config.ts";
 import { BACKGROUND_COMPACTION_THRESHOLD } from "../../graph/types.ts";
 
+
 // ============================================================================
 // COMMAND IMPLEMENTATIONS
 // ============================================================================
@@ -34,7 +35,7 @@ export const helpCommand: CommandDefinition = {
   description: "Show all available commands",
   category: "builtin",
   aliases: ["h", "?"],
-  execute: (_args: string, _context: CommandContext): CommandResult => {
+  execute: async (_args: string, context: CommandContext): Promise<CommandResult> => {
     const commands = globalRegistry.all();
 
     if (commands.length === 0) {
@@ -81,23 +82,12 @@ export const helpCommand: CommandDefinition = {
       }
     }
 
-    // Add Ralph workflow documentation if /ralph is registered
+    // Add Ralph workflow usage if /ralph is registered
     if (grouped["workflow"]?.some((cmd) => cmd.name === "ralph")) {
-      lines.push("**Ralph Workflow**");
-      lines.push("  The autonomous implementation workflow.");
-      lines.push("");
-      lines.push("  Usage:");
-      lines.push("    /ralph                        Start with feature-list.json");
-      lines.push("    /ralph --yolo <prompt>        Freestyle mode (no feature list)");
-      lines.push("    /ralph --resume <uuid>        Resume paused session");
-      lines.push("");
-      lines.push("  Options:");
-      lines.push("    --feature-list <path>         Feature list path (default: research/feature-list.json)");
-      lines.push("    --max-iterations <n>          Max iterations (default: 100, 0 = infinite)");
-      lines.push("");
-      lines.push("  Interrupt:");
-      lines.push("    Press Ctrl+C or Esc to pause the workflow.");
-      lines.push("    Resume later with: /ralph --resume <session-uuid>");
+      lines.push("**Workflow Usage**");
+      lines.push("  /ralph <prompt>                 Start new session");
+      lines.push("  /ralph --resume <uuid>          Resume paused session");
+      lines.push("  Ctrl+C or Esc to pause. Resume with /ralph --resume <uuid>");
       lines.push("");
     }
 
@@ -108,43 +98,34 @@ export const helpCommand: CommandDefinition = {
       lines.push("  Specialized agents for specific tasks. Invoke with /<agent-name> <query>");
       lines.push("");
 
-      // List each agent with model info
-      const agentDetails: Record<string, { desc: string; model: string }> = {
-        "codebase-analyzer": {
-          desc: "Deep code analysis and architecture review",
-          model: "opus",
-        },
-        "codebase-locator": {
-          desc: "Find files and components quickly",
-          model: "opus",
-        },
-        "codebase-pattern-finder": {
-          desc: "Find similar implementations and patterns",
-          model: "opus",
-        },
-        "codebase-online-researcher": {
-          desc: "Research using web sources",
-          model: "opus",
-        },
-        "codebase-research-analyzer": {
-          desc: "Analyze research/ directory documents",
-          model: "opus",
-        },
-        "codebase-research-locator": {
-          desc: "Find documents in research/ directory",
-          model: "opus",
-        },
-        debugger: {
-          desc: "Debug errors and test failures",
-          model: "opus",
-        },
+      // List each agent with current model info
+      let currentModelLabel = "current model";
+      if (context.getModelDisplayInfo) {
+        try {
+          const info = await context.getModelDisplayInfo();
+          if (info.model) {
+            currentModelLabel = info.model;
+          }
+        } catch {
+          // fall back to "current model"
+        }
+      }
+
+      const agentDetails: Record<string, string> = {
+        "codebase-analyzer": "Deep code analysis and architecture review",
+        "codebase-locator": "Find files and components quickly",
+        "codebase-pattern-finder": "Find similar implementations and patterns",
+        "codebase-online-researcher": "Research using web sources",
+        "codebase-research-analyzer": "Analyze research/ directory documents",
+        "codebase-research-locator": "Find documents in research/ directory",
+        debugger: "Debug errors and test failures",
       };
 
       for (const cmd of agentCommands) {
-        const details = agentDetails[cmd.name];
-        if (details) {
-          lines.push(`  /${cmd.name} (${details.model})`);
-          lines.push(`    ${details.desc}`);
+        const desc = agentDetails[cmd.name];
+        if (desc) {
+          lines.push(`  /${cmd.name} (${currentModelLabel})`);
+          lines.push(`    ${desc}`);
         } else {
           // For custom agents without hardcoded details
           lines.push(`  /${cmd.name}`);
@@ -495,37 +476,54 @@ export const contextCommand: CommandDefinition = {
   description: "View context window usage",
   category: "builtin",
   execute: async (_args: string, context: CommandContext): Promise<CommandResult> => {
-    if (!context.session) {
-      return { success: false, message: "No active session. Send a message first." };
-    }
-
-    let usage;
-    let systemTools: number;
-    try {
-      usage = await context.session.getContextUsage();
-    } catch {
-      return { success: false, message: "Send a message first so token usage can be measured." };
-    }
-    try {
-      systemTools = context.session.getSystemToolsTokens();
-    } catch {
-      systemTools = 0;
-    }
-
     let model = "Unknown";
     let tier = "Unknown";
+    let modelContextWindow: number | undefined;
     if (context.getModelDisplayInfo) {
       try {
         const info = await context.getModelDisplayInfo();
         model = info.model;
         tier = info.tier;
+        modelContextWindow = info.contextWindow;
       } catch {
         // Use defaults
       }
     }
 
-    const { maxTokens, inputTokens, outputTokens } = usage;
-    const buffer = Math.floor(maxTokens * (1 - BACKGROUND_COMPACTION_THRESHOLD));
+    let maxTokens = 0;
+    let systemTools = 0;
+    let inputTokens = 0;
+    let outputTokens = 0;
+
+    if (context.session) {
+      try {
+        const usage = await context.session.getContextUsage();
+        maxTokens = usage.maxTokens;
+        inputTokens = usage.inputTokens;
+        outputTokens = usage.outputTokens;
+      } catch {
+        // No usage available yet (no messages sent)
+      }
+      try {
+        systemTools = context.session.getSystemToolsTokens();
+      } catch {
+        // Session baseline not yet captured — fall back to client-level probe
+      }
+    }
+
+    // Fall back to client-level system tools baseline (captured during start() probe)
+    // when session doesn't have it yet (e.g., before first message completes)
+    if (systemTools === 0 && context.getClientSystemToolsTokens) {
+      systemTools = context.getClientSystemToolsTokens() ?? 0;
+    }
+
+    // Prefer model metadata context window (reflects current/pending model)
+    // over session maxTokens which may be stale after a model change.
+    if (modelContextWindow) {
+      maxTokens = modelContextWindow;
+    }
+
+    const buffer = maxTokens > 0 ? Math.floor(maxTokens * (1 - BACKGROUND_COMPACTION_THRESHOLD)) : 0;
     const messages = Math.max(0, (inputTokens - systemTools) + outputTokens);
     const freeSpace = Math.max(0, maxTokens - systemTools - messages - buffer);
 

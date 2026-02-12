@@ -240,7 +240,6 @@ export const BUILTIN_AGENTS: AgentDefinition[] = [
     description:
       "Analyzes codebase implementation details. Call the codebase-analyzer agent when you need to find detailed information about specific components. As always, the more detailed your request prompt, the better! :)",
     tools: ["Glob", "Grep", "NotebookRead", "Read", "LS", "Bash"],
-    model: "opus",
     argumentHint: "[query]",
     prompt: `You are a specialist at understanding HOW code works. Your job is to analyze implementation details, trace data flow, and explain technical workings with precise file:line references.
 
@@ -376,7 +375,6 @@ Think of yourself as a technical writer documenting an existing system for someo
     description:
       "Locates files, directories, and components relevant to a feature or task. Call `codebase-locator` with human language prompt describing what you're looking for. Basically a \"Super Grep/Glob/LS tool\" — Use it if you find yourself desiring to use one of these tools more than once.",
     tools: ["Glob", "Grep", "NotebookRead", "Read", "LS", "Bash"],
-    model: "opus",
     argumentHint: "[search-query]",
     prompt: `You are a specialist at finding WHERE code lives in a codebase. Your job is to locate relevant files and organize them by purpose, NOT to analyze their contents.
 
@@ -492,7 +490,6 @@ You're a file finder and organizer, documenting the codebase exactly as it exist
     description:
       "codebase-pattern-finder is a useful subagent_type for finding similar implementations, usage examples, or existing patterns that can be modeled after. It will give you concrete code examples based on what you're looking for! It's sorta like codebase-locator, but it will not only tell you the location of files, it will also give you code details!",
     tools: ["Glob", "Grep", "NotebookRead", "Read", "LS", "Bash"],
-    model: "opus",
     argumentHint: "[pattern-query]",
     prompt: `You are a specialist at finding code patterns and examples in the codebase. Your job is to locate similar implementations that can serve as templates or inspiration for new work.
 
@@ -724,7 +721,6 @@ Think of yourself as creating a pattern catalog or reference guide that shows "h
       "WebFetch",
       "WebSearch",
     ],
-    model: "opus",
     argumentHint: "[research-question]",
     prompt: `You are an expert web research specialist focused on finding accurate, relevant information from web sources. Your primary tools are the DeepWiki \`ask_question\` tool and WebFetch/WebSearch tools, which you use to discover and retrieve information based on user queries.
 
@@ -841,7 +837,6 @@ Remember: You are the user's expert guide to web information. Be thorough but ef
     description:
       "The research equivalent of codebase-analyzer. Use this subagent_type when wanting to deep dive on a research topic. Not commonly needed otherwise.",
     tools: ["Read", "Grep", "Glob", "LS", "Bash"],
-    model: "opus",
     argumentHint: "[research-topic]",
     prompt: `You are a specialist at extracting HIGH-VALUE insights from thoughts documents. Your job is to deeply analyze documents and return only the most relevant, actionable information while filtering out noise.
 
@@ -988,7 +983,6 @@ Remember: You're a curator of insights, not a document summarizer. Return only h
     description:
       "Discovers relevant documents in research/ directory (We use this for all sorts of metadata storage!). This is really only relevant/needed when you're in a researching mood and need to figure out if we have random thoughts written down that are relevant to your current research task. Based on the name, I imagine you can guess this is the `research` equivalent of `codebase-locator`",
     tools: ["Read", "Grep", "Glob", "LS", "Bash"],
-    model: "opus",
     argumentHint: "[search-query]",
     prompt: `You are a specialist at finding documents in the research/ directory. Your job is to locate relevant research documents and categorize them, NOT to analyze their contents in depth.
 
@@ -1109,7 +1103,6 @@ Remember: You're a document finder for the research/ directory. Help users quick
       "WebFetch",
       "WebSearch",
     ],
-    model: "opus",
     argumentHint: "[error-description]",
     prompt: `You are tasked with debugging and identifying errors, test failures, and unexpected behavior in the codebase. Your goal is to identify root causes and generate a report detailing the issues and proposed fixes.
 
@@ -1509,16 +1502,27 @@ export function createAgentCommand(agent: AgentDefinition): CommandDefinition {
     execute: (args: string, context: CommandContext): CommandResult => {
       const agentArgs = args.trim();
 
-      // Build the prompt with user arguments if provided
-      let prompt = agent.prompt;
-      if (agentArgs) {
-        // Append user arguments to the prompt
-        prompt = `${agent.prompt}\n\n## User Request\n\n${agentArgs}`;
-      }
+      // The agent prompt is passed as systemPrompt so the SDK treats it as
+      // system-level instructions.  The user message should contain ONLY the
+      // user's request so the model follows the system prompt (which instructs
+      // it to use tools like Read, Grep, etc.) instead of treating the entire
+      // prompt as text to echo back.
+      //
+      // When no args are provided, send a short generic message rather than
+      // duplicating the system prompt as the user message (which confuses the
+      // model into echoing back the prompt instead of following it).
+      const message = agentArgs || "Please proceed according to your instructions.";
 
-      // Send the prompt to the session
-      // The session will use the agent's tools and model settings
-      context.sendSilentMessage(prompt);
+      console.error(`[createAgentCommand] Spawning sub-agent: name=${agent.name}, argsLen=${agentArgs.length}`);
+      // Spawn as independent sub-agent with tree view
+      void context.spawnSubagent({
+        name: agent.name,
+        systemPrompt: agent.prompt,
+        message,
+        model: agent.model as "sonnet" | "opus" | "haiku" | undefined,
+        tools: agent.tools,
+      }).then(r => console.error(`[createAgentCommand] spawnSubagent resolved: success=${r.success}, error=${r.error}`))
+        .catch(e => console.error(`[createAgentCommand] spawnSubagent rejected:`, e));
 
       return {
         success: true,

@@ -17,6 +17,7 @@ import type { CodingAgentClient, ToolDefinition, ToolContext, ToolHandlerResult 
 import type { ToolInput } from "./plugin.ts";
 import { zodToJsonSchema } from "./schema-utils.ts";
 import { truncateToolOutput } from "./truncate.ts";
+import { getToolRegistry } from "./registry.ts";
 
 // ============================================================================
 // Types
@@ -260,10 +261,18 @@ export async function loadToolsFromDisk(): Promise<LoadedCustomTool[]> {
 export async function registerCustomTools(
   client: CodingAgentClient
 ): Promise<number> {
+  const registry = getToolRegistry();
   discoveredCustomTools = await loadToolsFromDisk();
 
-  for (const { definition } of discoveredCustomTools) {
+  for (const { definition, source, filePath } of discoveredCustomTools) {
     client.registerTool(definition);
+    registry.register({
+      name: definition.name,
+      description: definition.description,
+      definition,
+      source,
+      filePath,
+    });
   }
 
   return discoveredCustomTools.length;

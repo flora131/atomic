@@ -208,7 +208,7 @@ describe("QueueIndicator rendering with correct count", () => {
 
   test("renders with queue icon", () => {
     const icon = getQueueIcon();
-    expect(icon).toBe("📋");
+    expect(icon).toBe("⋮");
   });
 });
 

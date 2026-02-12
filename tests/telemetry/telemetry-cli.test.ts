@@ -300,8 +300,8 @@ describe("extractCommandsFromArgs", () => {
   });
 
   test("extracts multiple different commands", () => {
-    const result = extractCommandsFromArgs(["/research-codebase", "/commit"]);
-    expect(result).toEqual(["/research-codebase", "/commit"]);
+    const result = extractCommandsFromArgs(["/research-codebase", "/explain-code"]);
+    expect(result).toEqual(["/research-codebase", "/explain-code"]);
   });
 
   test("returns empty array for no commands", () => {
@@ -310,13 +310,13 @@ describe("extractCommandsFromArgs", () => {
   });
 
   test("deduplicates repeated commands", () => {
-    const result = extractCommandsFromArgs(["/commit", "/commit"]);
-    expect(result).toEqual(["/commit"]);
+    const result = extractCommandsFromArgs(["/ralph", "/ralph"]);
+    expect(result).toEqual(["/ralph"]);
   });
 
   test("filters out invalid commands in mixed input", () => {
-    const result = extractCommandsFromArgs(["/commit", "--help", "/unknown"]);
-    expect(result).toEqual(["/commit"]);
+    const result = extractCommandsFromArgs(["/ralph", "--help", "/unknown"]);
+    expect(result).toEqual(["/ralph"]);
   });
 
   test("extracts namespaced commands", () => {
@@ -327,10 +327,10 @@ describe("extractCommandsFromArgs", () => {
 
   test("extracts multiple commands including ralph", () => {
     const result = extractCommandsFromArgs([
-      "/commit",
+      "/create-spec",
       "/ralph",
     ]);
-    expect(result).toEqual(["/commit", "/ralph"]);
+    expect(result).toEqual(["/create-spec", "/ralph"]);
   });
 
   test("handles empty args array", () => {
@@ -345,8 +345,8 @@ describe("extractCommandsFromArgs", () => {
   });
 
   test("extracts command followed by space and args", () => {
-    const result = extractCommandsFromArgs(["/commit -m fix bug"]);
-    expect(result).toEqual(["/commit"]);
+    const result = extractCommandsFromArgs(["/create-spec add auth system"]);
+    expect(result).toEqual(["/create-spec"]);
   });
 });
 
@@ -403,18 +403,18 @@ describe("trackCliInvocation", () => {
   test("event contains correct commandCount", () => {
     writeTelemetryState(createEnabledState());
 
-    trackCliInvocation("claude", ["/research-codebase", "/commit"]);
+    trackCliInvocation("claude", ["/research-codebase", "/explain-code"]);
 
     const events = readCliEvents("claude");
     expect(events).toHaveLength(1);
-    expect(events[0]?.commands).toEqual(["/research-codebase", "/commit"]);
+    expect(events[0]?.commands).toEqual(["/research-codebase", "/explain-code"]);
     expect(events[0]?.commandCount).toBe(2);
   });
 
   test("eventType is cli_command not atomic_command", () => {
     writeTelemetryState(createEnabledState());
 
-    trackCliInvocation("claude", ["/commit"]);
+    trackCliInvocation("claude", ["/ralph"]);
 
     const events = readCliEvents("claude");
     expect(events).toHaveLength(1);
@@ -435,7 +435,7 @@ describe("trackCliInvocation", () => {
 
     // Should not throw
     expect(() => {
-      trackCliInvocation("claude", ["/commit"]);
+      trackCliInvocation("claude", ["/ralph"]);
     }).not.toThrow();
   });
 });

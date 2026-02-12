@@ -7,8 +7,13 @@
  * Reference: Issue #4 - Add UI for visualizing parallel agents
  */
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { useTheme, getCatppuccinPalette } from "../theme.tsx";
+import { formatDuration as formatDurationObj, truncateText } from "../utils/format.ts";
+import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
+
+// Re-export for backward compatibility
+export { truncateText };
 
 // ============================================================================
 // TYPES
@@ -61,6 +66,8 @@ export interface ParallelAgentsTreeProps {
   compact?: boolean;
   /** Maximum agents to show before collapsing (default: 5) */
   maxVisible?: number;
+  /** Remove top margin (useful when the tree is the first element in a container) */
+  noTopMargin?: boolean;
 }
 
 // ============================================================================
@@ -154,18 +161,9 @@ export function getStatusIcon(status: AgentStatus): string {
  */
 export function formatDuration(ms: number | undefined): string {
   if (ms === undefined) return "";
-  if (ms < 1000) return `${ms}ms`;
-  if (ms < 60000) return `${Math.floor(ms / 1000)}s`;
-  return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
+  return formatDurationObj(ms).text;
 }
 
-/**
- * Truncate text to a maximum length.
- */
-export function truncateText(text: string, maxLength: number = 40): string {
-  if (text.length <= maxLength) return text;
-  return `${text.slice(0, maxLength - 3)}...`;
-}
 
 /**
  * Get elapsed time since start.
@@ -275,7 +273,7 @@ function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps):
       {/* Header: ● AgentType(task) */}
       <box flexDirection="row">
         {isRunning ? (
-          <AnimatedHeaderIcon color={indicatorColor} />
+          <text><AnimatedBlinkIndicator color={indicatorColor} /></text>
         ) : (
           <text style={{ fg: indicatorColor }}>●</text>
         )}
@@ -405,7 +403,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
             <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
             <box flexShrink={0}>
               {isRunning ? (
-                <AnimatedHeaderIcon color={rowIndicatorColor} />
+                <text><AnimatedBlinkIndicator color={rowIndicatorColor} /></text>
               ) : (
                 <text style={{ fg: rowIndicatorColor }}>●</text>
               )}
@@ -432,7 +430,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
           <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
           <box flexShrink={0}>
             {isRunning ? (
-              <AnimatedHeaderIcon color={rowIndicatorColor} />
+              <text><AnimatedBlinkIndicator color={rowIndicatorColor} /></text>
             ) : (
               <text style={{ fg: rowIndicatorColor }}>●</text>
             )}
@@ -495,7 +493,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
           <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
           <box flexShrink={0}>
             {isRunningFull ? (
-              <AnimatedHeaderIcon color={fullRowIndicatorColor} />
+              <text><AnimatedBlinkIndicator color={fullRowIndicatorColor} /></text>
             ) : (
               <text style={{ fg: fullRowIndicatorColor }}>●</text>
             )}
@@ -515,7 +513,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
         <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
         <box flexShrink={0}>
           {isRunningFull ? (
-            <AnimatedHeaderIcon color={fullRowIndicatorColor} />
+            <text><AnimatedBlinkIndicator color={fullRowIndicatorColor} /></text>
           ) : (
             <text style={{ fg: fullRowIndicatorColor }}>●</text>
           )}
@@ -573,23 +571,6 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
 // ANIMATED HEADER ICON
 // ============================================================================
 
-/**
- * Animated blinking ● for the tree header when agents are running.
- * Alternates between ● and · to simulate a blink.
- */
-function AnimatedHeaderIcon({ color, speed = 500 }: { color: string; speed?: number }): React.ReactNode {
-  const [visible, setVisible] = useState(true);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setVisible((prev) => !prev);
-    }, speed);
-    return () => clearInterval(interval);
-  }, [speed]);
-
-  return <text style={{ fg: color }}>{visible ? "●" : "·"}</text>;
-}
-
 // ============================================================================
 // PARALLEL AGENTS TREE COMPONENT
 // ============================================================================
@@ -614,6 +595,7 @@ export function ParallelAgentsTree({
   agents,
   compact = false,
   maxVisible = 5,
+  noTopMargin = false,
 }: ParallelAgentsTreeProps): React.ReactNode {
   const { theme } = useTheme();
 
@@ -690,12 +672,12 @@ export function ParallelAgentsTree({
     <box
       flexDirection="column"
       paddingLeft={1}
-      marginTop={1}
+      marginTop={noTopMargin ? 0 : 1}
     >
       {/* Header - Claude Code style with animated ● when running */}
       <box flexDirection="row">
         {runningCount > 0 ? (
-          <AnimatedHeaderIcon color={headerColor} />
+          <text><AnimatedBlinkIndicator color={headerColor} /></text>
         ) : (
           <text style={{ fg: headerColor }}>{headerIcon}</text>
         )}

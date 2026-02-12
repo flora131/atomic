@@ -87,8 +87,8 @@ export interface SubagentSessionManagerConfig {
 /** Maximum length of summary text returned to parent context */
 const MAX_SUMMARY_LENGTH = 2000;
 
-/** Default maximum concurrent sub-agents */
-const DEFAULT_MAX_CONCURRENT = 5;
+/** Default maximum concurrent sub-agents (Infinity = no limit) */
+const DEFAULT_MAX_CONCURRENT = Infinity;
 
 // ============================================================================
 // IMPLEMENTATION

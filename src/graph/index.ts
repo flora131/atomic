@@ -57,6 +57,9 @@ export type {
 
   // Model specification
   ModelSpec,
+
+  // Workflow SDK context
+  WorkflowToolContext,
 } from "./types.ts";
 
 // Value exports from types.ts
@@ -193,6 +196,13 @@ export type {
   ContextMonitoringState,
   ContextMonitorNodeConfig,
   ContextCheckOptions,
+
+  // Custom tool node types
+  CustomToolNodeConfig,
+
+  // Subagent node types (workflow SDK)
+  SubagentNodeConfig,
+  ParallelSubagentNodeConfig,
 } from "./nodes.ts";
 
 // Value exports from nodes.ts
@@ -225,6 +235,13 @@ export {
   isContextThresholdExceeded,
   checkContextUsage,
   compactContext,
+
+  // Custom tool node factory
+  customToolNode,
+
+  // Subagent node factories
+  subagentNode,
+  parallelSubagentNode,
 } from "./nodes.ts";
 
 // Type exports from compiled.ts
@@ -265,3 +282,22 @@ export {
   // Factory function
   createCheckpointer,
 } from "./checkpointer.ts";
+
+// Error types from errors.ts
+export type { ErrorFeedback } from "./errors.ts";
+export { SchemaValidationError, NodeExecutionError } from "./errors.ts";
+
+// Subagent registry from subagent-registry.ts
+export type { SubagentEntry } from "./subagent-registry.ts";
+export {
+  getSubagentRegistry,
+  setSubagentRegistry,
+  populateSubagentRegistry,
+} from "./subagent-registry.ts";
+
+// Subagent bridge from subagent-bridge.ts
+export {
+  SubagentGraphBridge,
+  setSubagentBridge,
+  getSubagentBridge,
+} from "./subagent-bridge.ts";

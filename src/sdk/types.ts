@@ -84,33 +84,12 @@ export function stripProviderPrefix(modelId: string): string {
 }
 
 /**
- * Formats a model ID into a human-readable display name.
+ * Formats a model ID for display. Returns the raw model ID as-is,
+ * stripping the provider prefix if present.
  */
 export function formatModelDisplayName(modelId: string): string {
-  if (!modelId) return "Claude";
-
-  const lower = modelId.toLowerCase();
-
-  if (lower === "sonnet" || lower === "anthropic/sonnet") return "sonnet";
-  if (lower === "opus" || lower === "anthropic/opus") return "opus";
-  if (lower === "haiku" || lower === "anthropic/haiku") return "haiku";
-  if (lower === "default") return "default";
-
-  if (lower.includes("claude") || lower.includes("opus") || lower.includes("sonnet") || lower.includes("haiku")) {
-    if (lower.includes("opus")) return "opus";
-    if (lower.includes("sonnet")) return "sonnet";
-    if (lower.includes("haiku")) return "haiku";
-    return "claude";
-  }
-
-  if (lower.includes("gpt")) {
-    return modelId.toUpperCase().replace(/-/g, "-");
-  }
-
-  return modelId
-    .split("-")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
+  if (!modelId) return "";
+  return stripProviderPrefix(modelId);
 }
 
 /**

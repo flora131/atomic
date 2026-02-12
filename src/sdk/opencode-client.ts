@@ -171,6 +171,7 @@ export class OpenCodeClient implements CodingAgentClient {
   /** Mutable context window updated when activePromptModel changes */
   private activeContextWindow: number | null = null;
 
+
   /**
    * Create a new OpenCodeClient
    * @param options - Client options
@@ -771,18 +772,25 @@ export class OpenCodeClient implements CodingAgentClient {
    * Wrap a session ID into a unified Session interface
    */
   /**
-   * Parse a model string into OpenCode SDK's { providerID, modelID } format.
-   * Handles "providerID/modelID" (e.g., "anthropic/claude-sonnet-4") and
-   * short aliases (e.g., "opus" → { providerID: "anthropic", modelID: "opus" }).
+   * Resolve a model string into OpenCode SDK's { providerID, modelID } format.
+   * Strictly requires "providerID/modelID" format (e.g., "anthropic/claude-sonnet-4").
+   * Bare model names without a provider prefix are rejected.
    */
-  private parseModelForPrompt(model?: string): { providerID: string; modelID: string } | undefined {
+  private resolveModelForPrompt(model?: string): { providerID: string; modelID: string } | undefined {
     if (!model) return undefined;
     if (model.includes("/")) {
       const [providerID, ...rest] = model.split("/");
-      return { providerID: providerID!, modelID: rest.join("/") };
+      const modelID = rest.join("/");
+      if (!providerID || !modelID) {
+        throw new Error(
+          `Invalid model format: '${model}'. Must be 'providerID/modelID' (e.g., 'anthropic/claude-sonnet-4').`
+        );
+      }
+      return { providerID, modelID };
     }
-    // Short alias without provider — default to anthropic
-    return { providerID: "anthropic", modelID: model };
+    throw new Error(
+      `Model '${model}' is missing a provider prefix. Use 'providerID/modelID' format (e.g., 'anthropic/${model}').`
+    );
   }
 
   private async wrapSession(sessionId: string, config: SessionConfig): Promise<Session> {
@@ -794,7 +802,7 @@ export class OpenCodeClient implements CodingAgentClient {
       client.clientOptions.defaultAgentMode ??
       "build";
     // Parse initial model preference as fallback; runtime switches use client.activePromptModel
-    const initialPromptModel = client.parseModelForPrompt(config.model);
+    const initialPromptModel = client.resolveModelForPrompt(config.model);
     if (!client.activePromptModel && initialPromptModel) {
       client.activePromptModel = initialPromptModel;
     }
@@ -1367,7 +1375,7 @@ export class OpenCodeClient implements CodingAgentClient {
    * @param model - Model string in "providerID/modelID" or short alias form
    */
   async setActivePromptModel(model?: string): Promise<void> {
-    this.activePromptModel = this.parseModelForPrompt(model);
+    this.activePromptModel = this.resolveModelForPrompt(model);
     // Update cached context window for getContextUsage()
     try {
       this.activeContextWindow = await this.resolveModelContextWindow(model);
@@ -1386,8 +1394,7 @@ export class OpenCodeClient implements CodingAgentClient {
 
   /**
    * Get model display information for UI rendering.
-   * Queries SDK provider metadata for authoritative model names.
-   * Falls back to the raw model ID (not formatted) if metadata is unavailable.
+   * Uses the raw model ID (stripped of provider prefix) for display.
    * @param modelHint - Optional model hint from saved preferences
    */
   async getModelDisplayInfo(
@@ -1444,7 +1451,7 @@ export class OpenCodeClient implements CodingAgentClient {
 
     // If we have a model hint, try to find it in provider models
     if (modelHint) {
-      const parsed = this.parseModelForPrompt(modelHint);
+      const parsed = this.resolveModelForPrompt(modelHint);
       if (parsed) {
         const provider = providerList.find(p => p.id === parsed.providerID);
         const model = provider?.models?.[parsed.modelID];

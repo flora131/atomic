@@ -41,8 +41,8 @@ export interface SpawnSubagentOptions {
   message: string;
   /** Tools available to the sub-agent (inherits all if omitted) */
   tools?: string[];
-  /** Model to use (sonnet, opus, haiku) */
-  model?: "sonnet" | "opus" | "haiku";
+  /** Model to use (providerID/modelID format) */
+  model?: string;
 }
 
 /**

@@ -1,27 +1,23 @@
 /**
- * Integration Tests for spawnSubagent() delegation to SubagentSessionManager
+ * Integration Tests for SubagentGraphBridge
  *
- * Verifies features 3 and 4:
- * - Feature 3: spawnSubagent() delegates to SubagentSessionManager (no placeholder timeouts)
- * - Feature 4: createSubagentSession factory is passed from startChatUI to ChatApp
- *
- * Tests cover:
- * - spawnSubagent returns error when createSubagentSession factory is not available
- * - spawnSubagent delegates to SubagentSessionManager.spawn() when factory is available
- * - spawnSubagent maps SpawnSubagentOptions → SubagentSpawnOptions correctly
- * - createSubagentSession factory delegates to client.createSession()
- * - SubagentSessionManager status updates propagate to setParallelAgents
+ * Verifies:
+ * - Bridge creates sessions via factory, streams, and returns results
+ * - Bridge handles session creation failure gracefully
+ * - Bridge destroys sessions in finally block
+ * - setSubagentBridge/getSubagentBridge singleton pattern
+ * - spawnParallel with mixed success/failure
  */
 
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import {
-  SubagentSessionManager,
+  SubagentGraphBridge,
+  setSubagentBridge,
+  getSubagentBridge,
   type CreateSessionFn,
   type SubagentSpawnOptions,
-  type SubagentResult,
-} from "../subagent-session-manager.ts";
+} from "../../graph/subagent-bridge.ts";
 import type { Session, AgentMessage, SessionConfig } from "../../sdk/types.ts";
-import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
 
 // ============================================================================
 // TEST UTILITIES
@@ -29,24 +25,47 @@ import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
 
 /** Creates a mock Session that streams given messages */
 function createMockSession(
-  messages: AgentMessage[] = [{ type: "text", content: "done", role: "assistant" }]
+  messages: AgentMessage[] = [{ type: "text", content: "done", role: "assistant" }],
+  options?: { destroyError?: Error; streamError?: Error }
 ): Session {
   return {
     id: `session-${Math.random().toString(36).slice(2, 8)}`,
     async send() {
       return { type: "text" as const, content: "ok", role: "assistant" as const };
     },
-    async *stream(): AsyncIterable<AgentMessage> {
-      for (const msg of messages) {
-        yield msg;
-      }
+    stream(_message: string): AsyncIterable<AgentMessage> {
+      const msgs = messages;
+      const err = options?.streamError;
+      return {
+        [Symbol.asyncIterator]() {
+          let index = 0;
+          let errorThrown = false;
+          return {
+            async next(): Promise<IteratorResult<AgentMessage>> {
+              if (err && !errorThrown) {
+                errorThrown = true;
+                throw err;
+              }
+              if (index < msgs.length) {
+                const value = msgs[index++]!;
+                return { done: false, value };
+              }
+              return { done: true, value: undefined };
+            },
+          };
+        },
+      };
     },
     async summarize() {},
     async getContextUsage() {
       return { inputTokens: 0, outputTokens: 0, maxTokens: 100000, usagePercentage: 0 };
     },
-    getSystemToolsTokens() { return 0; },
-    async destroy() {},
+    getSystemToolsTokens() {
+      return 0;
+    },
+    destroy: options?.destroyError
+      ? mock(() => Promise.reject(options.destroyError))
+      : mock(() => Promise.resolve()),
   };
 }
 
@@ -54,30 +73,30 @@ function createMockSession(
 // TESTS
 // ============================================================================
 
-describe("spawnSubagent integration with SubagentSessionManager", () => {
-  let statusUpdates: Array<{ agentId: string; update: Partial<ParallelAgent> }>;
+describe("SubagentGraphBridge.spawn()", () => {
   let mockCreateSession: ReturnType<typeof mock>;
-  let manager: SubagentSessionManager;
+  let bridge: SubagentGraphBridge;
 
   beforeEach(() => {
-    statusUpdates = [];
     mockCreateSession = mock(async (_config?: SessionConfig) =>
       createMockSession([
         { type: "text", content: "Research results here", role: "assistant" },
-        { type: "tool_use", content: "Using grep", role: "assistant", metadata: { toolName: "grep" } },
+        {
+          type: "tool_use",
+          content: "Using grep",
+          role: "assistant",
+          metadata: { toolName: "grep" },
+        },
         { type: "text", content: " and more analysis", role: "assistant" },
       ])
     );
 
-    manager = new SubagentSessionManager({
+    bridge = new SubagentGraphBridge({
       createSession: mockCreateSession as CreateSessionFn,
-      onStatusUpdate: (agentId, update) => {
-        statusUpdates.push({ agentId, update });
-      },
     });
   });
 
-  test("spawn() creates independent session via factory, streams, and returns result", async () => {
+  test("creates session via factory, streams, and returns result", async () => {
     const options: SubagentSpawnOptions = {
       agentId: "test-agent-1",
       agentName: "Explore",
@@ -86,14 +105,13 @@ describe("spawnSubagent integration with SubagentSessionManager", () => {
       model: "sonnet",
     };
 
-    const result = await manager.spawn(options);
+    const result = await bridge.spawn(options);
 
     // Factory was called
     expect(mockCreateSession).toHaveBeenCalledTimes(1);
     expect(mockCreateSession).toHaveBeenCalledWith({
       systemPrompt: "You are an explorer agent",
       model: "sonnet",
-      tools: undefined,
     });
 
     // Result is successful with accumulated text
@@ -104,47 +122,16 @@ describe("spawnSubagent integration with SubagentSessionManager", () => {
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
   });
 
-  test("spawn() emits correct status updates during execution", async () => {
-    const result = await manager.spawn({
-      agentId: "test-agent-2",
-      agentName: "Plan",
-      task: "Plan the implementation",
-    });
-
-    expect(result.success).toBe(true);
-
-    // Should have status updates: running, tool use, completed
-    const runningUpdate = statusUpdates.find(
-      (u) => u.agentId === "test-agent-2" && u.update.status === "running"
-    );
-    expect(runningUpdate).toBeDefined();
-
-    const toolUpdate = statusUpdates.find(
-      (u) => u.agentId === "test-agent-2" && u.update.currentTool === "grep"
-    );
-    expect(toolUpdate).toBeDefined();
-    expect(toolUpdate?.update.toolUses).toBe(1);
-
-    const completedUpdate = statusUpdates.find(
-      (u) => u.agentId === "test-agent-2" && u.update.status === "completed"
-    );
-    expect(completedUpdate).toBeDefined();
-    expect(completedUpdate?.update.toolUses).toBe(1);
-  });
-
-  test("spawn() handles session creation failure gracefully", async () => {
+  test("handles session creation failure gracefully", async () => {
     const failingFactory = mock(async () => {
       throw new Error("Connection refused");
     });
 
-    const failManager = new SubagentSessionManager({
+    const failBridge = new SubagentGraphBridge({
       createSession: failingFactory as CreateSessionFn,
-      onStatusUpdate: (agentId, update) => {
-        statusUpdates.push({ agentId, update });
-      },
     });
 
-    const result = await failManager.spawn({
+    const result = await failBridge.spawn({
       agentId: "fail-agent",
       agentName: "Broken",
       task: "This will fail",
@@ -153,35 +140,19 @@ describe("spawnSubagent integration with SubagentSessionManager", () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe("Connection refused");
     expect(result.agentId).toBe("fail-agent");
-
-    // Should have an error status update
-    const errorUpdate = statusUpdates.find(
-      (u) => u.agentId === "fail-agent" && u.update.status === "error"
-    );
-    expect(errorUpdate).toBeDefined();
   });
 
-  test("spawn() maps command options to SubagentSpawnOptions correctly", async () => {
-    // Simulate what chat.tsx's spawnSubagent does: maps SpawnSubagentOptions to SubagentSpawnOptions
-    const commandOptions = {
+  test("maps spawn options to session config correctly", async () => {
+    const options: SubagentSpawnOptions = {
+      agentId: "mapped-agent",
+      agentName: "Plan",
+      task: "Plan the implementation",
       systemPrompt: "You are a research agent",
-      message: "Research the authentication system",
+      model: "opus",
       tools: ["grep", "read"],
-      model: "opus" as const,
     };
 
-    // This simulates the mapping in chat.tsx
-    const agentId = "mapped-agent";
-    const spawnOptions: SubagentSpawnOptions = {
-      agentId,
-      agentName: commandOptions.model ?? "general-purpose",
-      task: commandOptions.message,
-      systemPrompt: commandOptions.systemPrompt,
-      model: commandOptions.model,
-      tools: commandOptions.tools,
-    };
-
-    const result = await manager.spawn(spawnOptions);
+    const result = await bridge.spawn(options);
 
     expect(result.success).toBe(true);
     expect(mockCreateSession).toHaveBeenCalledWith({
@@ -191,146 +162,136 @@ describe("spawnSubagent integration with SubagentSessionManager", () => {
     });
   });
 
-  test("destroy() prevents new spawn requests", async () => {
-    await manager.destroy();
+  test("destroys session after streaming completes", async () => {
+    const destroyMock = mock(() => Promise.resolve());
+    const mockSession: Session = {
+      ...createMockSession([
+        { type: "text", content: "done", role: "assistant" },
+      ]),
+      destroy: destroyMock,
+    };
+    const factory = mock(async () => mockSession);
 
-    const result = await manager.spawn({
-      agentId: "post-destroy",
-      agentName: "Ghost",
-      task: "Should not run",
+    const testBridge = new SubagentGraphBridge({
+      createSession: factory as CreateSessionFn,
+    });
+
+    await testBridge.spawn({
+      agentId: "cleanup-1",
+      agentName: "Test",
+      task: "Verify cleanup",
+    });
+
+    expect(destroyMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("destroys session even when streaming throws", async () => {
+    const destroyMock = mock(() => Promise.resolve());
+    const session = createMockSession([], {
+      streamError: new Error("Connection reset"),
+    });
+    (session as unknown as { destroy: typeof destroyMock }).destroy = destroyMock;
+
+    const factory = mock(async () => session);
+    const testBridge = new SubagentGraphBridge({
+      createSession: factory as CreateSessionFn,
+    });
+
+    const result = await testBridge.spawn({
+      agentId: "stream-fail",
+      agentName: "Explorer",
+      task: "This will fail mid-stream",
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).toBe("SubagentSessionManager has been destroyed");
-    expect(mockCreateSession).not.toHaveBeenCalled();
+    expect(result.error).toBe("Connection reset");
+    expect(destroyMock).toHaveBeenCalledTimes(1);
   });
 });
 
-describe("parallelAgentsRef stays in sync with state updates", () => {
-  /**
-   * Simulates the chat.tsx pattern where setParallelAgents updater functions
-   * must keep parallelAgentsRef.current in sync so that handleComplete can
-   * synchronously check for active agents via the ref.
-   */
-
-  test("spawnSubagent path: ref syncs when adding agent", () => {
-    // Simulate React state + ref (mirrors chat.tsx lines 1638, 1678)
-    let state: ParallelAgent[] = [];
-    const ref = { current: [] as ParallelAgent[] };
-
-    // Simulate the fixed spawnSubagent behavior (chat.tsx ~line 2886)
-    const setParallelAgents = (updater: (prev: ParallelAgent[]) => ParallelAgent[]) => {
-      const next = updater(state);
-      state = next;
-      // The fix: ref is updated inside the updater
-    };
-
-    const agent: ParallelAgent = {
-      id: "agent-1",
-      name: "explore",
-      task: "Find all tests",
-      status: "running",
-      startedAt: new Date().toISOString(),
-    };
-
-    // Apply the fixed pattern from chat.tsx
-    setParallelAgents((prev) => {
-      const next = [...prev, agent];
-      ref.current = next;
-      return next;
-    });
-
-    // Ref should be in sync with state
-    expect(ref.current).toEqual(state);
-    expect(ref.current).toHaveLength(1);
-    expect(ref.current[0]!.id).toBe("agent-1");
-    expect(ref.current[0]!.status).toBe("running");
-
-    // handleComplete should see the running agent via ref
-    const hasActiveAgents = ref.current.some(
-      (a) => a.status === "running" || a.status === "pending"
-    );
-    expect(hasActiveAgents).toBe(true);
-  });
-
-  test("onStatusUpdate path: ref syncs when updating agent status", () => {
-    // Simulate React state + ref with an existing agent
-    const agent: ParallelAgent = {
-      id: "agent-1",
-      name: "explore",
-      task: "Find all tests",
-      status: "running",
-      startedAt: new Date().toISOString(),
-    };
-    let state: ParallelAgent[] = [agent];
-    const ref = { current: [agent] };
-
-    const setParallelAgents = (updater: (prev: ParallelAgent[]) => ParallelAgent[]) => {
-      const next = updater(state);
-      state = next;
-    };
-
-    // Simulate onStatusUpdate marking agent as completed (chat.tsx ~line 2304)
-    const update: Partial<ParallelAgent> = { status: "completed", durationMs: 1500 };
-    setParallelAgents((prev) => {
-      const next = prev.map((a) => (a.id === "agent-1" ? { ...a, ...update } : a));
-      ref.current = next;
-      return next;
-    });
-
-    // Ref should be in sync with state
-    expect(ref.current).toEqual(state);
-    expect(ref.current[0]!.status).toBe("completed");
-    expect(ref.current[0]!.durationMs).toBe(1500);
-
-    // handleComplete should see no active agents via ref
-    const hasActiveAgents = ref.current.some(
-      (a) => a.status === "running" || a.status === "pending"
-    );
-    expect(hasActiveAgents).toBe(false);
-  });
-
-  test("ref desync prevented: handleComplete defers correctly with active agents", () => {
-    const ref = { current: [] as ParallelAgent[] };
-    let pendingComplete: (() => void) | null = null;
-    let completionCalled = false;
-
-    // Simulate adding agent via spawnSubagent (with fix)
-    const agent: ParallelAgent = {
-      id: "agent-1",
-      name: "task",
-      task: "Analyze code",
-      status: "running",
-      startedAt: new Date().toISOString(),
-    };
-    ref.current = [...ref.current, agent];
-
-    // Simulate handleComplete checking ref (chat.tsx ~line 2774)
-    const handleComplete = () => {
-      const hasActiveAgents = ref.current.some(
-        (a) => a.status === "running" || a.status === "pending"
-      );
-      if (hasActiveAgents) {
-        pendingComplete = handleComplete;
-        return;
+describe("SubagentGraphBridge.spawnParallel()", () => {
+  test("returns results for all agents including mixed success/failure", async () => {
+    let callCount = 0;
+    const mockFactory = mock(async () => {
+      callCount++;
+      if (callCount === 2) {
+        throw new Error("Agent 2 quota exceeded");
       }
-      completionCalled = true;
-    };
+      return createMockSession([
+        { type: "text", content: "Result from agent", role: "assistant" },
+        {
+          type: "tool_use",
+          content: "Using Bash",
+          role: "assistant",
+          metadata: { toolName: "Bash" },
+        },
+        { type: "text", content: " complete", role: "assistant" },
+      ]);
+    });
 
-    handleComplete();
+    const bridge = new SubagentGraphBridge({
+      createSession: mockFactory as CreateSessionFn,
+    });
 
-    // Should defer since agent is running
-    expect(completionCalled).toBe(false);
-    expect(pendingComplete).not.toBeNull();
+    const results = await bridge.spawnParallel([
+      { agentId: "par-1", agentName: "Explore", task: "Task 1" },
+      { agentId: "par-2", agentName: "Plan", task: "Task 2" },
+      { agentId: "par-3", agentName: "debugger", task: "Task 3" },
+    ]);
 
-    // Simulate agent completing (via onStatusUpdate with fix)
-    ref.current = ref.current.map((a) =>
-      a.id === "agent-1" ? { ...a, status: "completed" as const } : a
-    );
+    expect(results).toHaveLength(3);
 
-    // Now call deferred complete
-    pendingComplete!();
-    expect(completionCalled).toBe(true);
+    // Agent 1: success
+    expect(results[0]?.success).toBe(true);
+    expect(results[0]?.output).toBe("Result from agent complete");
+    expect(results[0]?.toolUses).toBe(1);
+
+    // Agent 2: failure
+    expect(results[1]?.success).toBe(false);
+    expect(results[1]?.error).toBe("Agent 2 quota exceeded");
+
+    // Agent 3: success
+    expect(results[2]?.success).toBe(true);
+    expect(results[2]?.output).toBe("Result from agent complete");
+  });
+});
+
+describe("SubagentGraphBridge singleton", () => {
+  test("setSubagentBridge makes bridge available globally", async () => {
+    const mockSession = createMockSession([
+      { type: "text", content: "Analysis complete", role: "assistant" },
+    ]);
+    const createSession: CreateSessionFn = mock(async () => mockSession);
+
+    const bridge = new SubagentGraphBridge({ createSession });
+
+    setSubagentBridge(bridge);
+    expect(getSubagentBridge()).toBe(bridge);
+
+    const result = await bridge.spawn({
+      agentId: "test-agent",
+      agentName: "explore",
+      task: "Find files",
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.output).toBeDefined();
+
+    // Cleanup
+    setSubagentBridge(null);
+    expect(getSubagentBridge()).toBeNull();
+  });
+
+  test("setSubagentBridge(null) clears the global bridge", () => {
+    const mockSession = createMockSession();
+    const createSession: CreateSessionFn = mock(async () => mockSession);
+    const bridge = new SubagentGraphBridge({ createSession });
+
+    setSubagentBridge(bridge);
+    expect(getSubagentBridge()).toBe(bridge);
+
+    setSubagentBridge(null);
+    expect(getSubagentBridge()).toBeNull();
   });
 });
 
@@ -341,15 +302,19 @@ describe("createSubagentSession factory pattern", () => {
       createSession: mock(async (_config?: SessionConfig) => mockSession),
     };
 
-    // This simulates what index.ts does:
-    // const createSubagentSession = (config?: SessionConfig) => client.createSession(config);
     const createSubagentSession = (config?: SessionConfig) =>
       mockClient.createSession(config);
 
-    const session = await createSubagentSession({ model: "haiku", systemPrompt: "test" });
+    const session = await createSubagentSession({
+      model: "haiku",
+      systemPrompt: "test",
+    });
 
     expect(mockClient.createSession).toHaveBeenCalledTimes(1);
-    expect(mockClient.createSession).toHaveBeenCalledWith({ model: "haiku", systemPrompt: "test" });
+    expect(mockClient.createSession).toHaveBeenCalledWith({
+      model: "haiku",
+      systemPrompt: "test",
+    });
     expect(session.id).toBe(mockSession.id);
   });
 
@@ -371,56 +336,5 @@ describe("createSubagentSession factory pattern", () => {
 
     expect(session1.id).not.toBe(session2.id);
     expect(mockClient.createSession).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("SubagentGraphBridge initialization", () => {
-  test("bridge wraps session manager and delegates spawn()", async () => {
-    const { SubagentGraphBridge, setSubagentBridge, getSubagentBridge } = await import("../../graph/subagent-bridge.ts");
-
-    const mockSession = createMockSession([
-      { type: "text", content: "Analysis complete", role: "assistant" },
-    ]);
-    const createSession: CreateSessionFn = mock(async () => mockSession);
-    const onStatusUpdate = mock(() => {});
-
-    const manager = new SubagentSessionManager({ createSession, onStatusUpdate });
-    const bridge = new SubagentGraphBridge({ sessionManager: manager });
-
-    // setSubagentBridge makes it available globally
-    setSubagentBridge(bridge);
-    expect(getSubagentBridge()).toBe(bridge);
-
-    const result = await bridge.spawn({
-      agentId: "test-agent",
-      agentName: "explore",
-      task: "Find files",
-    });
-
-    expect(result.success).toBe(true);
-    expect(result.output).toBeDefined();
-
-    // Cleanup: reset bridge to null
-    setSubagentBridge(null);
-    expect(getSubagentBridge()).toBeNull();
-
-    manager.destroy();
-  });
-
-  test("setSubagentBridge(null) clears the global bridge", async () => {
-    const { SubagentGraphBridge, setSubagentBridge, getSubagentBridge } = await import("../../graph/subagent-bridge.ts");
-
-    const mockSession = createMockSession();
-    const createSession: CreateSessionFn = mock(async () => mockSession);
-    const manager = new SubagentSessionManager({ createSession, onStatusUpdate: mock(() => {}) });
-
-    const bridge = new SubagentGraphBridge({ sessionManager: manager });
-    setSubagentBridge(bridge);
-    expect(getSubagentBridge()).toBe(bridge);
-
-    setSubagentBridge(null);
-    expect(getSubagentBridge()).toBeNull();
-
-    manager.destroy();
   });
 });

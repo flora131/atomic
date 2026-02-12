@@ -32,7 +32,7 @@ import { getToolRegistry } from "../sdk/tools/registry.ts";
 import { SchemaValidationError, NodeExecutionError } from "./errors.ts";
 import { getSubagentBridge } from "./subagent-bridge.ts";
 import { getSubagentRegistry } from "./subagent-registry.ts";
-import type { SubagentResult, SubagentSpawnOptions } from "../ui/subagent-session-manager.ts";
+import type { SubagentResult, SubagentSpawnOptions } from "./subagent-bridge.ts";
 
 // ============================================================================
 // AGENT NODE
@@ -1685,11 +1685,11 @@ export interface SubagentNodeConfig<TState extends BaseState> {
   id: string;
   name?: string;
   description?: string;
-  /** Agent name resolved from SubagentTypeRegistry. Can reference built-in agents
-   *  (e.g., "codebase-analyzer"), user-global, or project-local agents. */
+  /** Agent name resolved from SubagentTypeRegistry. Can reference config-defined
+   *  agents (e.g., "codebase-analyzer"), user-global, or project-local agents. */
   agentName: string;
   task: string | ((state: TState) => string);
-  /** Override the agent's system prompt. If omitted, uses the registry definition. */
+  /** Override the agent's system prompt. If omitted, SDK uses native config. */
   systemPrompt?: string | ((state: TState) => string);
   model?: string;
   tools?: string[];
@@ -1701,7 +1701,7 @@ export interface SubagentNodeConfig<TState extends BaseState> {
  * Create a sub-agent node that spawns a single sub-agent within graph execution.
  *
  * The agent is resolved by name from the SubagentTypeRegistry, which contains
- * built-in, user-global, and project-local agent definitions.
+ * config-defined agents from project-local and user-global directories.
  *
  * @template TState - The state type for the workflow
  * @param config - Sub-agent node configuration
@@ -1740,15 +1740,15 @@ export function subagentNode<TState extends BaseState>(
 
       const systemPrompt = typeof config.systemPrompt === "function"
         ? config.systemPrompt(ctx.state)
-        : config.systemPrompt ?? entry.definition.prompt;
+        : config.systemPrompt;
 
       const result = await bridge.spawn({
         agentId: `${config.id}-${ctx.state.executionId}`,
         agentName: config.agentName,
         task,
         systemPrompt,
-        model: config.model ?? entry.definition.model ?? ctx.model,
-        tools: config.tools ?? entry.definition.tools,
+        model: config.model ?? ctx.model,
+        tools: config.tools,
       });
 
       if (!result.success) {

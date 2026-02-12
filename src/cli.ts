@@ -19,7 +19,7 @@ import { spawn } from "child_process";
 import { Command } from "@commander-js/extra-typings";
 import { VERSION } from "./version";
 import { COLORS } from "./utils/colors";
-import { AGENT_CONFIG, type AgentKey, SCM_CONFIG, type SourceControlType } from "./config";
+import { AGENT_CONFIG, type AgentKey, SCM_CONFIG, type SourceControlType, isValidScm } from "./config";
 import { initCommand } from "./commands/init";
 import { configCommand } from "./commands/config";
 import { updateCommand } from "./commands/update";
@@ -86,6 +86,13 @@ export function createProgram() {
     )
     .action(async (localOpts) => {
       const globalOpts = program.opts();
+
+      // Validate SCM choice if provided
+      if (localOpts.scm && !isValidScm(localOpts.scm)) {
+        console.error(`${COLORS.red}Error: Unknown source control type '${localOpts.scm}'${COLORS.reset}`);
+        console.error(`Valid types: ${scmChoices}`);
+        process.exit(1);
+      }
 
       await initCommand({
         showBanner: globalOpts.banner !== false,

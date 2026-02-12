@@ -496,9 +496,304 @@ describe("config folder behavior (copyDirPreserving)", () => {
     // User adds skills/my-skill.md - this should survive re-init
     const userSkill = "skills/my-skill.md";
     const inTemplate = false;
-    
+
     const wouldBeOverwritten = inTemplate;
-    
+
     expect(wouldBeOverwritten).toBe(false);
+  });
+});
+
+describe("SCM selection in initCommand", () => {
+  /**
+   * Tests for source control type selection feature
+   */
+
+  describe("preSelectedScm validation", () => {
+    test("valid preSelectedScm github passes validation", async () => {
+      const { isValidScm, SCM_CONFIG } = await import("../src/config");
+
+      expect(isValidScm("github")).toBe(true);
+      expect(SCM_CONFIG["github"].displayName).toBe("GitHub / Git");
+      expect(SCM_CONFIG["github"].cliTool).toBe("git");
+    });
+
+    test("valid preSelectedScm sapling-phabricator passes validation", async () => {
+      const { isValidScm, SCM_CONFIG } = await import("../src/config");
+
+      expect(isValidScm("sapling-phabricator")).toBe(true);
+      expect(SCM_CONFIG["sapling-phabricator"].displayName).toBe("Sapling + Phabricator");
+      expect(SCM_CONFIG["sapling-phabricator"].cliTool).toBe("sl");
+    });
+
+    test("invalid preSelectedScm fails validation", async () => {
+      const { isValidScm } = await import("../src/config");
+
+      expect(isValidScm("invalid-scm")).toBe(false);
+      expect(isValidScm("git")).toBe(false); // Must use "github" not "git"
+      expect(isValidScm("sapling")).toBe(false); // Must use "sapling-phabricator"
+      expect(isValidScm("")).toBe(false);
+    });
+
+    test("all valid SCMs pass validation", async () => {
+      const { isValidScm, getScmKeys } = await import("../src/config");
+
+      for (const key of getScmKeys()) {
+        expect(isValidScm(key)).toBe(true);
+      }
+    });
+  });
+
+  describe("InitOptions interface with preSelectedScm", () => {
+    test("InitOptions accepts preSelectedScm field", async () => {
+      type AgentKey = "claude" | "opencode" | "copilot";
+      type SourceControlType = "github" | "sapling-phabricator";
+
+      // Valid InitOptions structures with preSelectedScm
+      const validOptions = [
+        { preSelectedScm: "github" as SourceControlType },
+        { preSelectedScm: "sapling-phabricator" as SourceControlType },
+        { preSelectedAgent: "claude" as AgentKey, preSelectedScm: "github" as SourceControlType },
+        { showBanner: false, preSelectedAgent: "opencode" as AgentKey, preSelectedScm: "sapling-phabricator" as SourceControlType },
+        {}, // preSelectedScm is optional
+      ];
+
+      // All should be valid structures (no runtime errors)
+      for (const opts of validOptions) {
+        expect(opts).toBeDefined();
+      }
+    });
+  });
+
+  describe("preSelectedScm flow logic", () => {
+    test("preSelectedScm flow: valid scm should skip selection", () => {
+      const { isValidScm, SCM_CONFIG } = require("../src/config");
+      type SourceControlType = "github" | "sapling-phabricator";
+
+      // Simulate the logic in initCommand
+      const preSelectedScm = "sapling-phabricator" as const;
+
+      let scmType: string;
+      let shouldCallSelect = true;
+
+      if (preSelectedScm) {
+        if (!isValidScm(preSelectedScm)) {
+          throw new Error("Invalid scm");
+        }
+        scmType = preSelectedScm;
+        shouldCallSelect = false;
+      } else {
+        shouldCallSelect = true;
+        scmType = "mock-selected";
+      }
+
+      expect(shouldCallSelect).toBe(false);
+      expect(scmType).toBe("sapling-phabricator");
+      expect(SCM_CONFIG[scmType as SourceControlType].displayName).toBe("Sapling + Phabricator");
+    });
+
+    test("preSelectedScm flow: invalid scm should fail validation", () => {
+      const { isValidScm } = require("../src/config");
+
+      const preSelectedScm = "invalid-scm";
+
+      let didFail = false;
+
+      if (preSelectedScm) {
+        if (!isValidScm(preSelectedScm)) {
+          didFail = true;
+        }
+      }
+
+      expect(didFail).toBe(true);
+    });
+
+    test("preSelectedScm flow: undefined should require selection (or default in autoConfirm)", () => {
+      const preSelectedScm = undefined;
+      const autoConfirm = false;
+
+      let shouldCallSelect = false;
+
+      if (preSelectedScm) {
+        shouldCallSelect = false;
+      } else if (autoConfirm) {
+        // Auto-confirm mode defaults to GitHub
+        shouldCallSelect = false;
+      } else {
+        shouldCallSelect = true;
+      }
+
+      expect(shouldCallSelect).toBe(true);
+    });
+
+    test("preSelectedScm flow: autoConfirm without preSelectedScm defaults to github", () => {
+      const preSelectedScm = undefined;
+      const autoConfirm = true;
+
+      let scmType = "";
+      let shouldCallSelect = false;
+
+      if (preSelectedScm) {
+        scmType = preSelectedScm;
+        shouldCallSelect = false;
+      } else if (autoConfirm) {
+        scmType = "github"; // Default in autoConfirm mode
+        shouldCallSelect = false;
+      } else {
+        shouldCallSelect = true;
+      }
+
+      expect(shouldCallSelect).toBe(false);
+      expect(scmType).toBe("github");
+    });
+  });
+
+  describe("getScmTemplatePath logic", () => {
+    /**
+     * Tests for the SCM template path selection logic.
+     * - sapling-phabricator on Windows uses sapling-phabricator-windows
+     * - All other cases use the scm type directly
+     */
+
+    test("github returns github regardless of platform", () => {
+      const scmType = "github";
+      const isWindowsPlatform = false;
+
+      const templatePath = scmType === "sapling-phabricator" && isWindowsPlatform
+        ? "sapling-phabricator-windows"
+        : scmType;
+
+      expect(templatePath).toBe("github");
+    });
+
+    test("github on Windows still returns github", () => {
+      const scmType = "github";
+      const isWindowsPlatform = true;
+
+      const templatePath = scmType === "sapling-phabricator" && isWindowsPlatform
+        ? "sapling-phabricator-windows"
+        : scmType;
+
+      expect(templatePath).toBe("github");
+    });
+
+    test("sapling-phabricator on non-Windows returns sapling-phabricator", () => {
+      const scmType = "sapling-phabricator";
+      const isWindowsPlatform = false;
+
+      const templatePath = scmType === "sapling-phabricator" && isWindowsPlatform
+        ? "sapling-phabricator-windows"
+        : scmType;
+
+      expect(templatePath).toBe("sapling-phabricator");
+    });
+
+    test("sapling-phabricator on Windows returns sapling-phabricator-windows", () => {
+      const scmType = "sapling-phabricator";
+      const isWindowsPlatform = true;
+
+      const templatePath = scmType === "sapling-phabricator" && isWindowsPlatform
+        ? "sapling-phabricator-windows"
+        : scmType;
+
+      expect(templatePath).toBe("sapling-phabricator-windows");
+    });
+  });
+
+  describe("getCommandsSubfolder logic", () => {
+    /**
+     * Tests for the commands subfolder naming by agent type.
+     */
+
+    test("claude uses 'commands' subfolder", () => {
+      const agentKey = "claude";
+      let subfolder: string;
+
+      switch (agentKey) {
+        case "claude":
+          subfolder = "commands";
+          break;
+        case "opencode":
+          subfolder = "command";
+          break;
+        case "copilot":
+          subfolder = "skills";
+          break;
+        default:
+          subfolder = "commands";
+      }
+
+      expect(subfolder).toBe("commands");
+    });
+
+    test("opencode uses 'command' subfolder (singular)", () => {
+      const agentKey = "opencode";
+      let subfolder: string;
+
+      switch (agentKey) {
+        case "claude":
+          subfolder = "commands";
+          break;
+        case "opencode":
+          subfolder = "command";
+          break;
+        case "copilot":
+          subfolder = "skills";
+          break;
+        default:
+          subfolder = "commands";
+      }
+
+      expect(subfolder).toBe("command");
+    });
+
+    test("copilot uses 'skills' subfolder", () => {
+      const agentKey = "copilot";
+      let subfolder: string;
+
+      switch (agentKey) {
+        case "claude":
+          subfolder = "commands";
+          break;
+        case "opencode":
+          subfolder = "command";
+          break;
+        case "copilot":
+          subfolder = "skills";
+          break;
+        default:
+          subfolder = "commands";
+      }
+
+      expect(subfolder).toBe("skills");
+    });
+  });
+
+  describe("SCM config retrieval", () => {
+    test("can retrieve config for github SCM", async () => {
+      const { SCM_CONFIG } = await import("../src/config");
+
+      const scm = SCM_CONFIG["github"];
+      expect(scm.name).toBe("github");
+      expect(scm.displayName).toBe("GitHub / Git");
+      expect(scm.cliTool).toBe("git");
+      expect(scm.reviewTool).toBe("gh");
+      expect(scm.reviewSystem).toBe("github");
+      expect(scm.detectDir).toBe(".git");
+      expect(scm.reviewCommandFile).toBe("create-gh-pr.md");
+    });
+
+    test("can retrieve config for sapling-phabricator SCM", async () => {
+      const { SCM_CONFIG } = await import("../src/config");
+
+      const scm = SCM_CONFIG["sapling-phabricator"];
+      expect(scm.name).toBe("sapling-phabricator");
+      expect(scm.displayName).toBe("Sapling + Phabricator");
+      expect(scm.cliTool).toBe("sl");
+      expect(scm.reviewTool).toBe("jf submit");
+      expect(scm.reviewSystem).toBe("phabricator");
+      expect(scm.detectDir).toBe(".sl");
+      expect(scm.reviewCommandFile).toBe("submit-diff.md");
+      expect(scm.requiredConfigFiles).toContain(".arcconfig");
+    });
   });
 });

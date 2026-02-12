@@ -50,7 +50,7 @@ describe("atomic-config", () => {
     });
 
     test("returns partial config when only some fields are set", async () => {
-      const config = { scm: "sapling-phabricator" };
+      const config: Partial<AtomicConfig> = { scm: "sapling-phabricator" };
       await writeFile(
         join(tempDir, ".atomic.json"),
         JSON.stringify(config),

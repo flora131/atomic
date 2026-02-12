@@ -28,10 +28,28 @@
 - src/config.ts - Added SCM types, interfaces, constants, and helper functions
 - tests/config.test.ts - Added comprehensive unit tests for SCM functionality
 
+#### Task #3-5: Create src/utils/atomic-config.ts module
+- Created AtomicConfig interface with fields: version, agent, scm, lastUpdated
+- Implemented readAtomicConfig() to read .atomic.json from project directory
+- Implemented saveAtomicConfig() to save/merge config updates
+- Implemented getSelectedScm() convenience function
+- All functions handle missing files gracefully (return null)
+- Config file is formatted with 2-space indentation and trailing newline
+
+#### Task #32: Write unit tests for atomic-config.ts
+- Added comprehensive tests in tests/utils/atomic-config.test.ts
+- Tests cover all three functions with edge cases
+- Tests use temp directories for isolation
+- All 14 tests pass
+
+### Files Modified (Session 2 - Config Persistence)
+- src/utils/atomic-config.ts - New file with AtomicConfig interface and functions
+- tests/utils/atomic-config.test.ts - New file with unit tests
+
 ### Next Priority Tasks
-1. Create src/utils/atomic-config.ts with AtomicConfig interface
-2. Implement readAtomicConfig and saveAtomicConfig functions
-3. Implement getSelectedScm convenience function
+1. Create templates/scm/github/ directory structure for all agents
+2. Write GitHub commit.md content (adapted from gh-commit.md)
+3. Write GitHub create-gh-pr.md content for all agents
 
 ### Notes
 - Pre-existing type errors exist in the codebase (copilot-client.ts, chat.tsx, various test files) but are unrelated to this feature

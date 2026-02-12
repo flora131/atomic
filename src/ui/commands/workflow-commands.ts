@@ -30,6 +30,7 @@ import {
   type WorkflowSession,
 } from "../../workflows/session.ts";
 import { buildSpecToTasksPrompt, buildImplementFeaturePrompt, buildTaskListPreamble } from "../../graph/nodes/ralph-nodes.ts";
+import { getSelectedScm } from "../../utils/atomic-config.ts";
 
 // ============================================================================
 // RALPH COMMAND PARSING
@@ -706,7 +707,9 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
         context.addMessage("system", `Resuming session ${parsed.sessionId}`);
 
         // Load implement-feature prompt and send it to continue the session
-        const implementPrompt = buildImplementFeaturePrompt();
+        // Read SCM type from .atomic.json for SCM-aware prompts
+        const scmType = await getSelectedScm(process.cwd()) ?? "github";
+        const implementPrompt = buildImplementFeaturePrompt(scmType);
         const additionalPrompt = parsed.prompt ? `\n\nAdditional instructions: ${parsed.prompt}` : "";
 
         // Send the implement-feature prompt to continue where we left off
@@ -767,10 +770,13 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
       // Clear context window between steps
       await context.clearContext();
 
+      // Read SCM type from .atomic.json for SCM-aware prompts
+      const scmType = await getSelectedScm(process.cwd()) ?? "github";
+
       // Step 2: Feature implementation (blocks until complete)
       const step2Prompt = tasks.length > 0
-        ? buildTaskListPreamble(tasks) + buildImplementFeaturePrompt()
-        : buildImplementFeaturePrompt();
+        ? buildTaskListPreamble(tasks) + buildImplementFeaturePrompt(scmType)
+        : buildImplementFeaturePrompt(scmType);
       await context.streamAndWait(step2Prompt);
 
       return { success: true };

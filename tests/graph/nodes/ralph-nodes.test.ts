@@ -3,7 +3,12 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { buildSpecToTasksPrompt, buildImplementFeaturePrompt } from "../../../src/graph/nodes/ralph-nodes.ts";
+import {
+  buildSpecToTasksPrompt,
+  buildImplementFeaturePrompt,
+  getHistoryCommand,
+  getCommitCommandReference,
+} from "../../../src/graph/nodes/ralph-nodes.ts";
 
 describe("buildSpecToTasksPrompt", () => {
   test("includes the spec content in the prompt", () => {
@@ -60,5 +65,43 @@ describe("buildImplementFeaturePrompt", () => {
   test("includes important notes about single feature focus", () => {
     const prompt = buildImplementFeaturePrompt();
     expect(prompt).toContain("ONLY work on the SINGLE highest priority feature");
+  });
+
+  test("defaults to github SCM when no argument provided", () => {
+    const prompt = buildImplementFeaturePrompt();
+    expect(prompt).toContain("git log --oneline -20");
+    expect(prompt).toContain("/commit (uses git commit)");
+  });
+
+  test("uses git commands when scm is github", () => {
+    const prompt = buildImplementFeaturePrompt("github");
+    expect(prompt).toContain("git log --oneline -20");
+    expect(prompt).toContain("/commit (uses git commit)");
+  });
+
+  test("uses sapling commands when scm is sapling-phabricator", () => {
+    const prompt = buildImplementFeaturePrompt("sapling-phabricator");
+    expect(prompt).toContain("sl smartlog -l 10");
+    expect(prompt).toContain("/commit (uses sl commit)");
+  });
+});
+
+describe("getHistoryCommand", () => {
+  test("returns git log command for github", () => {
+    expect(getHistoryCommand("github")).toBe("git log --oneline -20");
+  });
+
+  test("returns sl smartlog command for sapling-phabricator", () => {
+    expect(getHistoryCommand("sapling-phabricator")).toBe("sl smartlog -l 10");
+  });
+});
+
+describe("getCommitCommandReference", () => {
+  test("returns git commit reference for github", () => {
+    expect(getCommitCommandReference("github")).toBe("/commit (uses git commit)");
+  });
+
+  test("returns sl commit reference for sapling-phabricator", () => {
+    expect(getCommitCommandReference("sapling-phabricator")).toBe("/commit (uses sl commit)");
   });
 });

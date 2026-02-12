@@ -1759,16 +1759,25 @@ export function ChatApp({
     // Track that a tool is running (synchronous ref for keyboard handler)
     hasRunningToolRef.current = true;
 
-    // Add tool call to current streaming message, capturing content offset
-    // Deduplicate: if a tool call with the same ID already exists, skip adding
+    // Add tool call to current streaming message, capturing content offset.
+    // If a tool call with the same ID already exists, update its input
+    // (SDKs may send an initial event with empty input followed by a
+    // populated one for the same logical tool call).
     const messageId = streamingMessageIdRef.current;
     if (messageId) {
       setMessages((prev) =>
         prev.map((msg) => {
           if (msg.id === messageId) {
-            // Check if tool call with this ID already exists (prevents duplicates)
             const existing = msg.toolCalls?.find(tc => tc.id === toolId);
-            if (existing) return msg;
+            if (existing) {
+              // Update existing tool call's input with the latest values
+              return {
+                ...msg,
+                toolCalls: msg.toolCalls?.map(tc =>
+                  tc.id === toolId ? { ...tc, input } : tc
+                ),
+              };
+            }
 
             // Capture current content length as offset for inline rendering
             const contentOffsetAtStart = msg.content.length;

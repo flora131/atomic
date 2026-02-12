@@ -44,6 +44,8 @@ export interface McpServerConfig {
   timeout?: number;
   /** Whether the server is enabled (default: true) */
   enabled?: boolean;
+  /** Restrict available tools to this whitelist (default: all tools) */
+  tools?: string[];
 }
 
 /**

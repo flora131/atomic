@@ -396,22 +396,43 @@ export async function startChatUI(
     // should also be suppressed from the main conversation UI
     const subagentToolIds = new Set<string>();
 
+    // Map SDK tool use IDs to internal tool IDs for deduplication.
+    // SDKs like OpenCode emit tool.start for both "pending" and "running"
+    // statuses of the same tool call — this map ensures we reuse the same
+    // internal ID and update the existing UI entry instead of creating a duplicate.
+    const sdkToolIdMap = new Map<string, string>();
+
     // Subscribe to tool.start events
     const unsubStart = client.on("tool.start", (event) => {
-      const data = event.data as { toolName?: string; toolInput?: unknown };
+      const data = event.data as { toolName?: string; toolInput?: unknown; toolUseId?: string; toolUseID?: string };
       if (state.toolStartHandler && data.toolName) {
-        const toolId = `tool_${++state.toolIdCounter}`;
+        // Resolve SDK-provided tool use ID (OpenCode: toolUseId, Claude: toolUseID)
+        const sdkId = data.toolUseId ?? data.toolUseID;
+
+        let toolId: string;
+        let isUpdate = false;
+        if (sdkId && sdkToolIdMap.has(sdkId)) {
+          // Same logical tool call — reuse internal ID and update input
+          toolId = sdkToolIdMap.get(sdkId)!;
+          isUpdate = true;
+        } else {
+          // New tool call — assign a fresh internal ID
+          toolId = `tool_${++state.toolIdCounter}`;
+          if (sdkId) sdkToolIdMap.set(sdkId, toolId);
+        }
 
         // Check for duplicate events (same toolId already tracked)
-        if (state.activeToolIds.has(toolId)) {
+        if (!isUpdate && state.activeToolIds.has(toolId)) {
           return; // Skip duplicate event
         }
         state.activeToolIds.add(toolId);
 
         // Track name → ID stack (allows concurrent same-name tools)
-        const ids = toolNameToIds.get(data.toolName) ?? [];
-        ids.push(toolId);
-        toolNameToIds.set(data.toolName, ids);
+        if (!isUpdate) {
+          const ids = toolNameToIds.get(data.toolName) ?? [];
+          ids.push(toolId);
+          toolNameToIds.set(data.toolName, ids);
+        }
         toolNameToId.set(data.toolName, toolId);
 
         // Capture Task tool prompts for subagent.start correlation
@@ -652,9 +673,16 @@ export async function startChatUI(
     }
     state.sessionCreationPromise = (async () => {
       try {
-        // Subscribe to tool events BEFORE creating the session
-        const unsubscribe = subscribeToToolEvents();
-        state.cleanupHandlers.push(unsubscribe);
+        // Subscribe to tool events BEFORE creating the session.
+        // Only subscribe once — handlers reference `state` so they stay
+        // up-to-date even across session resets (e.g., /clear).
+        if (!state.toolEventsViaHooks) {
+          const unsubscribe = subscribeToToolEvents();
+          state.cleanupHandlers.push(unsubscribe);
+        }
+
+        // Clear stale tool tracking from any previous session
+        state.activeToolIds.clear();
 
         // Apply the actively selected model for ALL agent types
         if (modelOps && sessionConfig) {
@@ -717,6 +745,8 @@ export async function startChatUI(
       let sdkOutputTokens = 0;
       let thinkingMs = 0;
       let thinkingStartLocal: number | null = null;
+      // Map SDK tool use IDs to internal tool IDs for stream-path deduplication
+      const streamToolIdMap = new Map<string, string>();
       let thinkingText = "";
 
       for await (const message of abortableStream) {
@@ -779,9 +809,18 @@ export async function startChatUI(
         // Handle tool_use content - notify UI of tool invocation
         // Skip if we're getting tool events from hooks to avoid duplicates
         else if (message.type === "tool_use" && message.content && !state.toolEventsViaHooks) {
-          const toolContent = message.content as { name?: string; input?: Record<string, unknown> };
+          const toolContent = message.content as { name?: string; input?: Record<string, unknown>; toolUseId?: string };
           if (state.toolStartHandler && toolContent.name) {
-            const toolId = `tool_${++state.toolIdCounter}`;
+            // Deduplicate using SDK tool use ID (e.g., Claude's includePartialMessages
+            // emits multiple assistant messages for the same tool_use block)
+            const sdkId = toolContent.toolUseId ?? (message.metadata as Record<string, unknown> | undefined)?.toolId as string | undefined;
+            let toolId: string;
+            if (sdkId && streamToolIdMap.has(sdkId)) {
+              toolId = streamToolIdMap.get(sdkId)!;
+            } else {
+              toolId = `tool_${++state.toolIdCounter}`;
+              if (sdkId) streamToolIdMap.set(sdkId, toolId);
+            }
             state.toolStartHandler(
               toolId,
               toolContent.name,

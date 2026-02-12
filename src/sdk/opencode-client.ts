@@ -473,11 +473,14 @@ export class OpenCodeClient implements CodingAgentClient {
           const toolInput = (toolState?.input as Record<string, unknown>) ?? {};
 
           // Emit tool.start for pending or running status
-          // OpenCode sends "pending" first, then "running" with more complete input
+          // OpenCode sends "pending" first, then "running" with more complete input.
+          // Include the tool part ID so the UI can deduplicate events for
+          // the same logical tool call (pending → running transitions).
           if (toolState?.status === "pending" || toolState?.status === "running") {
             this.emitEvent("tool.start", partSessionId, {
               toolName,
               toolInput,
+              toolUseId: part?.id as string,
             });
           } else if (toolState?.status === "completed") {
             // Only emit complete if output is available

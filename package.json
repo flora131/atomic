@@ -23,10 +23,6 @@
     "src",
     ".claude",
     ".opencode",
-    ".github/agents",
-    ".github/hooks",
-    ".github/prompts",
-    ".github/scripts",
     ".github/skills",
     "CLAUDE.md",
     "AGENTS.md"

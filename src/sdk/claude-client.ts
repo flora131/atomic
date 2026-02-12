@@ -142,10 +142,12 @@ function extractMessageContent(message: SDKAssistantMessage): {
 
   for (const block of betaMessage.content) {
     if (block.type === "tool_use") {
-      // Return immediately — tool_use has highest priority
+      // Return immediately — tool_use has highest priority.
+      // Include toolUseId so the UI can deduplicate partial messages
+      // emitted by includePartialMessages (empty input → populated input).
       return {
         type: "tool_use",
-        content: { name: block.name, input: block.input },
+        content: { name: block.name, input: block.input, toolUseId: block.id },
       };
     }
     if (block.type === "text" && textContent === null) {
@@ -823,78 +825,113 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
     handlers.add(handler as EventHandler<EventType>);
 
+    // Track all hook callbacks added by this on() call so they can be
+    // removed on unsubscribe (prevents hook accumulation across session resets)
+    const addedHooks: Array<{ event: string; callback: HookCallback }> = [];
+
     // Also register as native hook if applicable
     const hookEvent = mapEventTypeToHookEvent(eventType);
     if (hookEvent) {
-      const hookCallback: HookCallback = async (
-        input: HookInput,
-        toolUseID: string | undefined,
-        _options: { signal: AbortSignal }
-      ): Promise<HookJSONOutput> => {
-        // Map hook input to the expected event data format
-        // The HookInput has fields like tool_name, tool_input, tool_result
-        // but the UI expects toolName, toolInput, toolResult
-        const hookInput = input as Record<string, unknown>;
-        const eventData: Record<string, unknown> = {
-          hookInput: input,
-          toolUseID,
+      // Factory: creates a hook callback that maps SDK HookInput to a unified
+      // AgentEvent and forwards it to the registered handler.
+      // `targetHookEvent` controls the `success` flag — "PostToolUseFailure"
+      // sets success=false so the UI knows the tool errored.
+      const createHookCallback = (targetHookEvent: string): HookCallback => {
+        return async (
+          input: HookInput,
+          toolUseID: string | undefined,
+          _options: { signal: AbortSignal }
+        ): Promise<HookJSONOutput> => {
+          // Map hook input to the expected event data format
+          // The HookInput has fields like tool_name, tool_input, tool_result
+          // but the UI expects toolName, toolInput, toolResult
+          const hookInput = input as Record<string, unknown>;
+          const eventData: Record<string, unknown> = {
+            hookInput: input,
+            toolUseID,
+          };
+
+          // Map tool-related fields for tool.start and tool.complete events
+          if (hookInput.tool_name) {
+            eventData.toolName = hookInput.tool_name;
+          }
+          if (hookInput.tool_input !== undefined) {
+            eventData.toolInput = hookInput.tool_input;
+          }
+          // PostToolUse hook provides tool_response (not tool_result)
+          if (hookInput.tool_response !== undefined) {
+            eventData.toolResult = hookInput.tool_response;
+          }
+          // PostToolUse hook means success, PostToolUseFailure means failure
+          eventData.success = targetHookEvent !== "PostToolUseFailure";
+          if (hookInput.error) {
+            eventData.error = hookInput.error;
+          }
+
+          // Map subagent-specific fields for subagent.start and subagent.complete events
+          // SubagentStartHookInput: { agent_id, agent_type }
+          // SubagentStopHookInput: { agent_id, agent_transcript_path }
+          if (hookInput.agent_id) {
+            eventData.subagentId = hookInput.agent_id;
+          }
+          if (hookInput.agent_type) {
+            eventData.subagentType = hookInput.agent_type;
+          }
+          if (targetHookEvent === "SubagentStop") {
+            // SubagentStop implies successful completion
+            eventData.success = true;
+          }
+
+          const event: AgentEvent<T> = {
+            type: eventType,
+            sessionId: input.session_id,
+            timestamp: new Date().toISOString(),
+            data: eventData as AgentEvent<T>["data"],
+          };
+
+          try {
+            await handler(event);
+          } catch (error) {
+            console.error(`Error in hook handler for ${eventType}:`, error);
+          }
+
+          return { continue: true };
         };
-
-        // Map tool-related fields for tool.start and tool.complete events
-        if (hookInput.tool_name) {
-          eventData.toolName = hookInput.tool_name;
-        }
-        if (hookInput.tool_input !== undefined) {
-          eventData.toolInput = hookInput.tool_input;
-        }
-        // PostToolUse hook provides tool_response (not tool_result)
-        if (hookInput.tool_response !== undefined) {
-          eventData.toolResult = hookInput.tool_response;
-        }
-        // PostToolUse hook means success, PostToolUseFailure means failure
-        eventData.success = hookEvent !== "PostToolUseFailure";
-        if (hookInput.error) {
-          eventData.error = hookInput.error;
-        }
-
-        // Map subagent-specific fields for subagent.start and subagent.complete events
-        // SubagentStartHookInput: { agent_id, agent_type }
-        // SubagentStopHookInput: { agent_id, agent_transcript_path }
-        if (hookInput.agent_id) {
-          eventData.subagentId = hookInput.agent_id;
-        }
-        if (hookInput.agent_type) {
-          eventData.subagentType = hookInput.agent_type;
-        }
-        if (hookEvent === "SubagentStop") {
-          // SubagentStop implies successful completion
-          eventData.success = true;
-        }
-
-        const event: AgentEvent<T> = {
-          type: eventType,
-          sessionId: input.session_id,
-          timestamp: new Date().toISOString(),
-          data: eventData as AgentEvent<T>["data"],
-        };
-
-        try {
-          await handler(event);
-        } catch (error) {
-          console.error(`Error in hook handler for ${eventType}:`, error);
-        }
-
-        return { continue: true };
       };
 
+      const hookCallback = createHookCallback(hookEvent);
       if (!this.registeredHooks[hookEvent]) {
         this.registeredHooks[hookEvent] = [];
       }
       this.registeredHooks[hookEvent]!.push(hookCallback);
+      addedHooks.push({ event: hookEvent, callback: hookCallback });
+
+      // For tool.complete events, also register a PostToolUseFailure hook
+      // so that failed tools are properly reported as completed with an error
+      // instead of remaining stuck in "running" status forever.
+      if (hookEvent === "PostToolUse") {
+        const failureCallback = createHookCallback("PostToolUseFailure");
+        if (!this.registeredHooks["PostToolUseFailure"]) {
+          this.registeredHooks["PostToolUseFailure"] = [];
+        }
+        this.registeredHooks["PostToolUseFailure"]!.push(failureCallback);
+        addedHooks.push({ event: "PostToolUseFailure", callback: failureCallback });
+      }
     }
 
     return () => {
       handlers?.delete(handler as EventHandler<EventType>);
+      // Remove all hook callbacks added by this on() call to prevent
+      // accumulation across session resets (e.g., after /clear)
+      for (const { event, callback } of addedHooks) {
+        const hooks = this.registeredHooks[event];
+        if (hooks) {
+          const idx = hooks.indexOf(callback);
+          if (idx !== -1) {
+            hooks.splice(idx, 1);
+          }
+        }
+      }
     };
   }
 

@@ -350,7 +350,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       // Should have spawned a sub-agent with the user's message
       expect(context.spawnRecords.length).toBeGreaterThan(0);
-      expect(context.spawnRecords[0].message).toContain("fix TypeError in parser.ts");
+      expect(context.spawnRecords[0]!.message).toContain("fix TypeError in parser.ts");
     });
 
     test("/debugger appends user request section to prompt", async () => {
@@ -364,8 +364,8 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       // Sub-agent spawn should include both system prompt and user message
       const spawn = context.spawnRecords[0];
-      expect(spawn.systemPrompt).toContain("tasked with debugging and identifying errors");
-      expect(spawn.message).toContain("fix undefined error in handler");
+      expect(spawn!.systemPrompt).toContain("tasked with debugging and identifying errors");
+      expect(spawn!.message).toContain("fix undefined error in handler");
     });
 
     test("/debugger handles empty arguments", async () => {
@@ -394,9 +394,9 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       await command!.execute(complexError, context);
 
       const spawn = context.spawnRecords[0];
-      expect(spawn.message).toContain(complexError);
-      expect(spawn.message).toContain("parser.ts:42");
-      expect(spawn.message).toContain("parseTokens");
+      expect(spawn!.message).toContain(complexError);
+      expect(spawn!.message).toContain("parser.ts:42");
+      expect(spawn!.message).toContain("parseTokens");
     });
   });
 
@@ -486,8 +486,8 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       // Sub-agent spawn should contain the system prompt content
       const spawn = context.spawnRecords[0];
-      expect(spawn.systemPrompt).toContain("tasked with debugging and identifying errors");
-      expect(spawn.systemPrompt).toContain(agent!.prompt);
+      expect(spawn!.systemPrompt).toContain("tasked with debugging and identifying errors");
+      expect(spawn!.systemPrompt).toContain(agent!.prompt);
     });
 
     test("system prompt covers common debugging patterns", () => {
@@ -710,7 +710,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       // Sub-agent should be spawned
       expect(context.spawnRecords).toHaveLength(1);
-      expect(context.spawnRecords[0].message).toBeTruthy();
+      expect(context.spawnRecords[0]!.message).toBeTruthy();
     });
 
     test("result includes user request in sent message", async () => {
@@ -723,8 +723,8 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       await command!.execute("fix the TypeError Cannot read property of undefined", context);
 
       const spawn = context.spawnRecords[0];
-      expect(spawn.message).toContain("TypeError");
-      expect(spawn.message).toContain("Cannot read property of undefined");
+      expect(spawn!.message).toContain("TypeError");
+      expect(spawn!.message).toContain("Cannot read property of undefined");
     });
 
     test("multiple invocations each return independent results", async () => {
@@ -744,8 +744,8 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       expect(result2.success).toBe(true);
 
       // Each context has its own spawn record
-      expect(context1.spawnRecords[0].message).toContain("fix error 1");
-      expect(context2.spawnRecords[0].message).toContain("fix error 2");
+      expect(context1.spawnRecords[0]!.message).toContain("fix error 1");
+      expect(context2.spawnRecords[0]!.message).toContain("fix error 2");
     });
 
     test("command result type is CommandResult", async () => {
@@ -873,8 +873,8 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       // 5. Verify spawn content
       const spawn = context.spawnRecords[0];
-      expect(spawn.systemPrompt).toContain("tasked with debugging and identifying errors");
-      expect(spawn.message).toContain("fix TypeError in parser.ts");
+      expect(spawn!.systemPrompt).toContain("tasked with debugging and identifying errors");
+      expect(spawn!.message).toContain("fix TypeError in parser.ts");
     });
 
     test("agent command works with session context", async () => {
@@ -945,15 +945,15 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       // Query 1
       await command!.execute("fix syntax error", context);
-      expect(context.spawnRecords[0].message).toContain("fix syntax error");
+      expect(context.spawnRecords[0]!.message).toContain("fix syntax error");
 
       // Query 2 (same context, appends)
       await command!.execute("fix runtime error", context);
-      expect(context.spawnRecords[1].message).toContain("fix runtime error");
+      expect(context.spawnRecords[1]!.message).toContain("fix runtime error");
 
       // Query 3
       await command!.execute("fix type error", context);
-      expect(context.spawnRecords[2].message).toContain("fix type error");
+      expect(context.spawnRecords[2]!.message).toContain("fix type error");
 
       expect(context.spawnRecords).toHaveLength(3);
     });
@@ -987,7 +987,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const result = await command!.execute(longArg, context);
 
       expect(result.success).toBe(true);
-      expect(context.spawnRecords[0].message).toContain(longArg);
+      expect(context.spawnRecords[0]!.message).toContain(longArg);
     });
 
     test("handles special characters in arguments", async () => {
@@ -1000,7 +1000,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const result = await command!.execute(specialArgs, context);
 
       expect(result.success).toBe(true);
-      expect(context.spawnRecords[0].message).toContain(specialArgs);
+      expect(context.spawnRecords[0]!.message).toContain(specialArgs);
     });
 
     test("handles newlines in arguments (stack traces)", async () => {
@@ -1016,8 +1016,8 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const result = await command!.execute(stackTrace, context);
 
       expect(result.success).toBe(true);
-      expect(context.spawnRecords[0].message).toContain("parser.ts:42");
-      expect(context.spawnRecords[0].message).toContain("parseTokens");
+      expect(context.spawnRecords[0]!.message).toContain("parser.ts:42");
+      expect(context.spawnRecords[0]!.message).toContain("parseTokens");
     });
 
     test("case-insensitive command lookup", () => {
@@ -1067,7 +1067,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const result = await command!.execute(errorWithPath, context);
 
       expect(result.success).toBe(true);
-      expect(context.spawnRecords[0].message).toContain("/home/user/project/src/parser.ts:42:15");
+      expect(context.spawnRecords[0]!.message).toContain("/home/user/project/src/parser.ts:42:15");
     });
   });
 

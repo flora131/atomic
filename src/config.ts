@@ -80,3 +80,79 @@ export function getAgentConfig(key: AgentKey): AgentConfig {
 export function getAgentKeys(): AgentKey[] {
   return [...AGENT_KEYS];
 }
+
+/**
+ * Source Control Management (SCM) configuration definitions
+ */
+
+/** Supported source control types */
+export type SourceControlType = "github" | "sapling-phabricator";
+// Future: | 'azure-devops'
+
+/** SCM keys for iteration */
+const SCM_KEYS = ["github", "sapling-phabricator"] as const;
+
+export interface ScmConfig {
+  /** Internal identifier */
+  name: string;
+  /** Display name for prompts */
+  displayName: string;
+  /** Primary CLI tool (git or sl) */
+  cliTool: string;
+  /** Code review tool (gh, jf submit, arc diff, etc.) */
+  reviewTool: string;
+  /** Code review system (github, phabricator) */
+  reviewSystem: string;
+  /** Directory marker for potential future auto-detection */
+  detectDir: string;
+  /** Code review command file name */
+  reviewCommandFile: string;
+  /** Required configuration files */
+  requiredConfigFiles?: string[];
+}
+
+export const SCM_CONFIG: Record<SourceControlType, ScmConfig> = {
+  github: {
+    name: "github",
+    displayName: "GitHub / Git",
+    cliTool: "git",
+    reviewTool: "gh",
+    reviewSystem: "github",
+    detectDir: ".git",
+    reviewCommandFile: "create-gh-pr.md",
+  },
+  "sapling-phabricator": {
+    name: "sapling-phabricator",
+    displayName: "Sapling + Phabricator",
+    cliTool: "sl",
+    reviewTool: "jf submit",
+    reviewSystem: "phabricator",
+    detectDir: ".sl",
+    reviewCommandFile: "submit-diff.md",
+    requiredConfigFiles: [".arcconfig", "~/.arcrc"],
+  },
+};
+
+/** Commands that have SCM-specific variants */
+export const SCM_SPECIFIC_COMMANDS = ["commit"];
+
+/**
+ * Get all SCM keys for iteration
+ */
+export function getScmKeys(): SourceControlType[] {
+  return [...SCM_KEYS];
+}
+
+/**
+ * Check if a string is a valid SCM type
+ */
+export function isValidScm(key: string): key is SourceControlType {
+  return key in SCM_CONFIG;
+}
+
+/**
+ * Get the configuration for a specific SCM type
+ */
+export function getScmConfig(key: SourceControlType): ScmConfig {
+  return SCM_CONFIG[key];
+}

@@ -787,7 +787,7 @@ export class CopilotClient implements CodingAgentClient {
                   type: (s.type === "sse" ? "sse" : "http") as "http" | "sse",
                   url: s.url,
                   headers: s.headers,
-                  tools: ["*"],
+                  tools: s.tools ?? ["*"],
                   timeout: s.timeout,
                 }];
               }
@@ -797,7 +797,7 @@ export class CopilotClient implements CodingAgentClient {
                 args: s.args ?? [],
                 env: s.env,
                 cwd: s.cwd,
-                tools: ["*"],
+                tools: s.tools ?? ["*"],
                 timeout: s.timeout,
               }];
             })

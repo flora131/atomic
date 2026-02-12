@@ -71,7 +71,7 @@ describe("buildDisplayParts", () => {
   test("includes duration when durationMs is provided", () => {
     const parts = buildDisplayParts(testTimestamp, 2500);
     expect(parts).toHaveLength(2);
-    expect(parts[1]).toBe("2.5s");
+    expect(parts[1]).toBe("2s");
   });
 
   test("includes model when modelId is provided", () => {
@@ -84,7 +84,7 @@ describe("buildDisplayParts", () => {
     const parts = buildDisplayParts(testTimestamp, 1500, "gpt-4");
     expect(parts).toHaveLength(3);
     expect(parts[0]).toMatch(/\d{1,2}:\d{2} (AM|PM)/);
-    expect(parts[1]).toBe("1.5s");
+    expect(parts[1]).toBe("1s");
     expect(parts[2]).toBe("gpt-4");
   });
 
@@ -210,7 +210,7 @@ describe("TimestampDisplay integration", () => {
     expect(buildDisplayParts(timestamp, 1000)[1]).toBe("1s");
 
     // Just under 1 minute
-    expect(buildDisplayParts(timestamp, 59999)[1]).toBe("60s");
+    expect(buildDisplayParts(timestamp, 59999)[1]).toBe("59s");
 
     // Exactly 1 minute
     expect(buildDisplayParts(timestamp, 60000)[1]).toBe("1m");

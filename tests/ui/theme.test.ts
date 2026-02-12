@@ -57,24 +57,24 @@ describe("darkTheme", () => {
   });
 
   test("has appropriate dark theme colors", () => {
-    expect(darkTheme.colors.background).toBe("black");
-    expect(darkTheme.colors.foreground).toBe("#ecf2f8");
+    expect(darkTheme.colors.background).toBe("#1e1e2e");
+    expect(darkTheme.colors.foreground).toBe("#cdd6f4");
   });
 
   test("has distinct message colors", () => {
-    expect(darkTheme.colors.userMessage).toBe("#60a5fa");      // Electric Blue (Blue 400)
-    expect(darkTheme.colors.assistantMessage).toBe("#2dd4bf"); // Atomic Teal
-    expect(darkTheme.colors.systemMessage).toBe("#a78bfa");    // Electric Purple (Violet 400)
+    expect(darkTheme.colors.userMessage).toBe("#89b4fa");      // Catppuccin Blue
+    expect(darkTheme.colors.assistantMessage).toBe("#94e2d5"); // Catppuccin Teal
+    expect(darkTheme.colors.systemMessage).toBe("#cba6f7");    // Catppuccin Mauve
   });
 
   test("has new theme fields", () => {
-    expect(darkTheme.colors.userBubbleBg).toBe("#3f3f46");
-    expect(darkTheme.colors.userBubbleFg).toBe("#ecf2f8");
-    expect(darkTheme.colors.dim).toBe("#555566");
-    expect(darkTheme.colors.scrollbarFg).toBe("#6b7280");
-    expect(darkTheme.colors.scrollbarBg).toBe("#3f3f46");
-    expect(darkTheme.colors.codeBorder).toBe("#3f3f46");
-    expect(darkTheme.colors.codeTitle).toBe("#2dd4bf");
+    expect(darkTheme.colors.userBubbleBg).toBe("#313244");
+    expect(darkTheme.colors.userBubbleFg).toBe("#cdd6f4");
+    expect(darkTheme.colors.dim).toBe("#585b70");
+    expect(darkTheme.colors.scrollbarFg).toBe("#6c7086");
+    expect(darkTheme.colors.scrollbarBg).toBe("#313244");
+    expect(darkTheme.colors.codeBorder).toBe("#45475a");
+    expect(darkTheme.colors.codeTitle).toBe("#94e2d5");
   });
 });
 
@@ -111,24 +111,24 @@ describe("lightTheme", () => {
   });
 
   test("has appropriate light theme colors", () => {
-    expect(lightTheme.colors.background).toBe("white");
-    expect(lightTheme.colors.foreground).toBe("#0f172a");
+    expect(lightTheme.colors.background).toBe("#eff1f5");
+    expect(lightTheme.colors.foreground).toBe("#4c4f69");
   });
 
   test("has distinct message colors", () => {
-    expect(lightTheme.colors.userMessage).toBe("#2563eb");      // Royal Blue (Blue 600)
-    expect(lightTheme.colors.assistantMessage).toBe("#0d9488"); // Deep Teal
-    expect(lightTheme.colors.systemMessage).toBe("#7c3aed");    // Deep Violet (Violet 600)
+    expect(lightTheme.colors.userMessage).toBe("#1e66f5");      // Catppuccin Blue
+    expect(lightTheme.colors.assistantMessage).toBe("#179299"); // Catppuccin Teal
+    expect(lightTheme.colors.systemMessage).toBe("#8839ef");    // Catppuccin Mauve
   });
 
   test("has new theme fields", () => {
-    expect(lightTheme.colors.userBubbleBg).toBe("#e2e8f0");
-    expect(lightTheme.colors.userBubbleFg).toBe("#0f172a");
-    expect(lightTheme.colors.dim).toBe("#94a3b8");
-    expect(lightTheme.colors.scrollbarFg).toBe("#94a3b8");
-    expect(lightTheme.colors.scrollbarBg).toBe("#e2e8f0");
-    expect(lightTheme.colors.codeBorder).toBe("#cbd5e1");
-    expect(lightTheme.colors.codeTitle).toBe("#0d9488");
+    expect(lightTheme.colors.userBubbleBg).toBe("#e6e9ef");
+    expect(lightTheme.colors.userBubbleFg).toBe("#4c4f69");
+    expect(lightTheme.colors.dim).toBe("#acb0be");
+    expect(lightTheme.colors.scrollbarFg).toBe("#9ca0b0");
+    expect(lightTheme.colors.scrollbarBg).toBe("#e6e9ef");
+    expect(lightTheme.colors.codeBorder).toBe("#ccd0da");
+    expect(lightTheme.colors.codeTitle).toBe("#179299");
   });
 });
 
@@ -140,18 +140,18 @@ describe("theme color consistency", () => {
   });
 
   test("error color is consistent", () => {
-    expect(darkTheme.colors.error).toBe("#fb7185");  // Rose 400
-    expect(lightTheme.colors.error).toBe("#e11d48"); // Rose 600
+    expect(darkTheme.colors.error).toBe("#f38ba8");  // Catppuccin Red
+    expect(lightTheme.colors.error).toBe("#d20f39"); // Catppuccin Red
   });
 
   test("success color is consistent", () => {
-    expect(darkTheme.colors.success).toBe("#4ade80");  // Green 400
-    expect(lightTheme.colors.success).toBe("#16a34a"); // Green 600
+    expect(darkTheme.colors.success).toBe("#a6e3a1");  // Catppuccin Green
+    expect(lightTheme.colors.success).toBe("#40a02b"); // Catppuccin Green
   });
 
   test("warning color is consistent", () => {
-    expect(darkTheme.colors.warning).toBe("#fbbf24");  // Amber 400
-    expect(lightTheme.colors.warning).toBe("#d97706"); // Amber 600
+    expect(darkTheme.colors.warning).toBe("#f9e2af");  // Catppuccin Yellow
+    expect(lightTheme.colors.warning).toBe("#df8e1d"); // Catppuccin Yellow
   });
 });
 
@@ -187,18 +187,18 @@ describe("getThemeByName", () => {
 
 describe("getMessageColor", () => {
   test("returns user color for user role", () => {
-    expect(getMessageColor("user", darkTheme.colors)).toBe("#60a5fa");  // Electric Blue
-    expect(getMessageColor("user", lightTheme.colors)).toBe("#2563eb"); // Royal Blue
+    expect(getMessageColor("user", darkTheme.colors)).toBe("#89b4fa");  // Catppuccin Blue
+    expect(getMessageColor("user", lightTheme.colors)).toBe("#1e66f5"); // Catppuccin Blue
   });
 
   test("returns assistant color for assistant role", () => {
-    expect(getMessageColor("assistant", darkTheme.colors)).toBe("#2dd4bf"); // Atomic Teal
-    expect(getMessageColor("assistant", lightTheme.colors)).toBe("#0d9488"); // Deep Teal
+    expect(getMessageColor("assistant", darkTheme.colors)).toBe("#94e2d5"); // Catppuccin Teal
+    expect(getMessageColor("assistant", lightTheme.colors)).toBe("#179299"); // Catppuccin Teal
   });
 
   test("returns system color for system role", () => {
-    expect(getMessageColor("system", darkTheme.colors)).toBe("#a78bfa"); // Electric Purple
-    expect(getMessageColor("system", lightTheme.colors)).toBe("#7c3aed"); // Deep Violet
+    expect(getMessageColor("system", darkTheme.colors)).toBe("#cba6f7"); // Catppuccin Mauve
+    expect(getMessageColor("system", lightTheme.colors)).toBe("#8839ef"); // Catppuccin Mauve
   });
 });
 
@@ -248,7 +248,7 @@ describe("createCustomTheme", () => {
     const custom = createCustomTheme(darkTheme, { background: "navy" });
     expect(custom).not.toBe(darkTheme);
     expect(custom.colors).not.toBe(darkTheme.colors);
-    expect(darkTheme.colors.background).toBe("black");
+    expect(darkTheme.colors.background).toBe("#1e1e2e");
   });
 });
 

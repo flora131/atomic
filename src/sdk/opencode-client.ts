@@ -479,15 +479,24 @@ export class OpenCodeClient implements CodingAgentClient {
               toolName,
               toolInput,
             });
-          } else if (
-            toolState?.status === "completed" ||
-            toolState?.status === "error"
-          ) {
+          } else if (toolState?.status === "completed") {
+            // Only emit complete if output is available
+            // The output field contains the formatted file content
+            const output = toolState?.output;
+            if (output !== undefined) {
+              this.emitEvent("tool.complete", partSessionId, {
+                toolName,
+                toolResult: output,
+                toolInput,
+                success: true,
+              });
+            }
+          } else if (toolState?.status === "error") {
             this.emitEvent("tool.complete", partSessionId, {
               toolName,
-              toolResult: toolState?.output,
-              toolInput, // Also include input in complete event for UI update
-              success: toolState?.status === "completed",
+              toolResult: toolState?.error ?? "Tool execution failed",
+              toolInput,
+              success: false,
             });
           }
         } else if (part?.type === "agent") {

@@ -1,0 +1,38 @@
+# Source Control Type Selection - Implementation Progress
+
+## Session: 2026-02-12
+
+### Completed Tasks
+
+#### Task #1: Add SourceControlType, ScmConfig, and SCM_CONFIG to src/config.ts
+- Added `SourceControlType` union type for supported SCM systems ('github' | 'sapling-phabricator')
+- Added `ScmConfig` interface with all required fields (name, displayName, cliTool, reviewTool, reviewSystem, detectDir, reviewCommandFile, requiredConfigFiles)
+- Added `SCM_CONFIG` constant with configurations for both GitHub and Sapling+Phabricator
+- Added `SCM_SPECIFIC_COMMANDS` array containing commands that need SCM-specific variants
+
+#### Task #2: Add SCM helper functions
+- Added `getScmKeys()` function to return all SCM type keys
+- Added `isValidScm()` type guard function to validate SCM type strings
+- Added `getScmConfig()` function to retrieve configuration for a specific SCM type
+
+#### Task #31: Write unit tests for SCM config functions
+- Added comprehensive tests in tests/config.test.ts
+- Tests cover all SCM_CONFIG fields validation
+- Tests cover isValidScm with valid and invalid inputs
+- Tests cover getScmConfig for both SCM types
+- Tests cover getScmKeys immutability
+- Tests cover SCM_SPECIFIC_COMMANDS content
+- All 33 tests pass (including 15 new SCM-related tests)
+
+### Files Modified
+- src/config.ts - Added SCM types, interfaces, constants, and helper functions
+- tests/config.test.ts - Added comprehensive unit tests for SCM functionality
+
+### Next Priority Tasks
+1. Create src/utils/atomic-config.ts with AtomicConfig interface
+2. Implement readAtomicConfig and saveAtomicConfig functions
+3. Implement getSelectedScm convenience function
+
+### Notes
+- Pre-existing type errors exist in the codebase (copilot-client.ts, chat.tsx, various test files) but are unrelated to this feature
+- The config.ts changes compile cleanly and all related tests pass

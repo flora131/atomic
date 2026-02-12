@@ -70,10 +70,50 @@ import type { AskUserQuestionEventData } from "../graph/index.ts";
 import type { AgentType, ModelOperations } from "../models";
 import { saveModelPreference, saveReasoningEffortPreference, clearReasoningEffortPreference } from "../utils/settings.ts";
 import { formatDuration } from "./utils/format.ts";
+import { getRandomVerb, getRandomCompletionVerb } from "./constants/index.ts";
 
 // ============================================================================
 // @ MENTION HELPERS
 // ============================================================================
+
+interface ParsedAtMention {
+  agentName: string;
+  args: string;
+}
+
+/**
+ * Parse @mentions in a message and extract agent invocations.
+ * Returns an array of { agentName, args } for each agent mention found.
+ */
+function parseAtMentions(message: string): ParsedAtMention[] {
+  const atMentions: ParsedAtMention[] = [];
+  const atRegex = /@(\S+)/g;
+  let atMatch: RegExpExecArray | null;
+  const agentPositions: Array<{ name: string; start: number; end: number }> = [];
+
+  while ((atMatch = atRegex.exec(message)) !== null) {
+    const candidateName = atMatch[1] ?? "";
+    const cmd = globalRegistry.get(candidateName);
+    if (cmd && cmd.category === "agent") {
+      agentPositions.push({
+        name: candidateName,
+        start: atMatch.index,
+        end: atMatch.index + atMatch[0].length,
+      });
+    }
+  }
+
+  for (let i = 0; i < agentPositions.length; i++) {
+    const pos = agentPositions[i]!;
+    const nextPos = agentPositions[i + 1];
+    const argsStart = pos.end;
+    const argsEnd = nextPos ? nextPos.start : message.length;
+    const args = message.slice(argsStart, argsEnd).trim();
+    atMentions.push({ agentName: pos.name, args });
+  }
+
+  return atMentions;
+}
 
 /**
  * Get autocomplete suggestions for @ mentions (agents and files).
@@ -761,40 +801,14 @@ export const MAX_VISIBLE_MESSAGES = 50;
 // ============================================================================
 
 /**
- * Configurable array of spinner verbs for the loading indicator.
- * These verbs are contextually appropriate for AI assistant actions.
- * One is randomly selected when LoadingIndicator mounts.
- */
-export const SPINNER_VERBS = [
-  "Thinking",
-  "Analyzing",
-  "Processing",
-  "Reasoning",
-  "Considering",
-  "Evaluating",
-  "Formulating",
-  "Generating",
-  "Orchestrating",
-  "Iterating",
-  "Synthesizing",
-  "Resolving",
-  "Fermenting",
-];
-
-/**
  * Spinner frames using braille characters for a smooth rotating dot effect.
  */
 const SPINNER_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
 
-/**
- * Select a random verb from the SPINNER_VERBS array.
- *
- * @returns A randomly selected verb string
- */
-export function getRandomSpinnerVerb(): string {
-  const index = Math.floor(Math.random() * SPINNER_VERBS.length);
-  return SPINNER_VERBS[index] as string;
-}
+// Re-export SPINNER_VERBS from constants for backward compatibility
+export { SPINNER_VERBS } from "./constants/index.ts";
+// Re-export getRandomVerb as getRandomSpinnerVerb for backward compatibility
+export { getRandomVerb as getRandomSpinnerVerb } from "./constants/index.ts";
 
 /**
  * Props for the LoadingIndicator component.
@@ -837,7 +851,7 @@ export function LoadingIndicator({ speed = 100, elapsedMs, outputTokens, thinkin
   const themeColors = useThemeColors();
   const [frameIndex, setFrameIndex] = useState(0);
   // Select random verb only on mount (empty dependency array)
-  const [verb] = useState(() => getRandomSpinnerVerb());
+  const [verb] = useState(() => getRandomVerb());
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -876,29 +890,6 @@ export function LoadingIndicator({ speed = 100, elapsedMs, outputTokens, thinkin
 // ============================================================================
 // COMPLETION SUMMARY COMPONENT
 // ============================================================================
-
-/**
- * Past-tense verbs for the completion summary line.
- * Displayed after a response finishes: "⣿ Worked for 1m 6s"
- */
-const COMPLETION_VERBS = [
-  "Worked",
-  "Crafted",
-  "Processed",
-  "Computed",
-  "Reasoned",
-  "Composed",
-  "Delivered",
-  "Produced",
-];
-
-/**
- * Pick a random completion verb.
- */
-function getRandomCompletionVerb(): string {
-  const index = Math.floor(Math.random() * COMPLETION_VERBS.length);
-  return COMPLETION_VERBS[index] as string;
-}
 
 /**
  * Completion character — full braille block, consistent with the streaming spinner frames.
@@ -1703,6 +1694,8 @@ export function ChatApp({
   // Ref to track whether any tool call is currently running (synchronous check
   // for keyboard handler to avoid stale closure issues with React state).
   const hasRunningToolRef = useRef(false);
+  // Counter to trigger effect when tools complete (used for deferred completion logic)
+  const [toolCompletionVersion, setToolCompletionVersion] = useState(0);
   // Ref to hold user messages that were dequeued and added to chat context
   // during tool execution. handleComplete checks this before the regular queue.
   const toolContextMessagesRef = useRef<string[]>([]);
@@ -1855,7 +1848,13 @@ export function ChatApp({
         // in the current streaming message after this completion.
         const streamMsg = updated.find((msg) => msg.id === messageId);
         const stillRunning = streamMsg?.toolCalls?.some((tc) => tc.status === "running") ?? false;
+        const wasRunning = hasRunningToolRef.current;
         hasRunningToolRef.current = stillRunning;
+
+        // If all tools completed and there's a pending complete, trigger effect
+        if (wasRunning && !stillRunning && pendingCompleteRef.current) {
+          setToolCompletionVersion(v => v + 1);
+        }
 
         return updated;
       });
@@ -2194,14 +2193,16 @@ export function ChatApp({
     }
   }, [registerParallelAgentHandler]);
 
-  // When all sub-agents finish and a dequeue was deferred, trigger it.
-  // This fires whenever parallelAgents changes (from SDK events OR interrupt handler).
+  // When all sub-agents/tools finish and a dequeue was deferred, trigger it.
+  // This fires whenever parallelAgents changes (from SDK events OR interrupt handler)
+  // or when tools complete (via toolCompletionVersion).
   // Also handles deferred user interrupts (Enter during streaming with active sub-agents).
   useEffect(() => {
     const hasActive = parallelAgents.some(
       (a) => a.status === "running" || a.status === "pending"
     );
-    if (hasActive) return;
+    // Also check if tools are still running
+    if (hasActive || hasRunningToolRef.current) return;
 
     // Deferred user interrupt takes priority over deferred SDK complete
     if (pendingInterruptMessageRef.current !== null) {
@@ -2243,6 +2244,29 @@ export function ChatApp({
       setIsStreaming(false);
       setStreamingMeta(null);
       onInterrupt?.();
+
+      // Check for @mentions in deferred message and spawn agents if found
+      const atMentions = parseAtMentions(deferredMessage);
+      if (atMentions.length > 0 && executeCommandRef.current) {
+        if (!skipUser) {
+          setMessages((prev: ChatMessage[]) => [...prev, createMessage("user", deferredMessage)]);
+        }
+
+        const assistantMsg = createMessage("assistant", "", true);
+        streamingMessageIdRef.current = assistantMsg.id;
+        isStreamingRef.current = true;
+        streamingStartRef.current = Date.now();
+        streamingMetaRef.current = null;
+        setIsStreaming(true);
+        setStreamingMeta(null);
+        setMessages((prev: ChatMessage[]) => [...prev, assistantMsg]);
+
+        for (const mention of atMentions) {
+          void executeCommandRef.current(mention.agentName, mention.args);
+        }
+        return;
+      }
+
       if (sendMessageRef.current) {
         sendMessageRef.current(deferredMessage, skipUser ? { skipUserMessage: true } : undefined);
       }
@@ -2321,7 +2345,7 @@ export function ChatApp({
         }, 50);
       }
     }
-  }, [parallelAgents, model, onInterrupt, messageQueue]);
+  }, [parallelAgents, model, onInterrupt, messageQueue, toolCompletionVersion]);
 
   // Initialize SubagentSessionManager when createSubagentSession is available
   useEffect(() => {
@@ -2334,6 +2358,19 @@ export function ChatApp({
       createSession: createSubagentSession,
       onStatusUpdate: (agentId, update) => {
         setParallelAgents((prev) => {
+          const existingIndex = prev.findIndex((a) => a.id === agentId);
+          if (existingIndex === -1 && update.status && update.name && update.task) {
+            const next = [...prev, {
+              id: agentId,
+              name: update.name,
+              task: update.task,
+              status: update.status,
+              startedAt: update.startedAt ?? new Date().toISOString(),
+              ...update,
+            } as ParallelAgent];
+            parallelAgentsRef.current = next;
+            return next;
+          }
           const next = prev.map((a) => (a.id === agentId ? { ...a, ...update } : a));
           parallelAgentsRef.current = next;
           return next;
@@ -2479,6 +2516,9 @@ export function ChatApp({
 
   // Ref for sendMessage to allow executeCommand to call it without circular dependencies
   const sendMessageRef = useRef<((content: string, options?: { skipUserMessage?: boolean }) => void) | null>(null);
+
+  // Ref for executeCommand to allow deferred message handling to spawn agents
+  const executeCommandRef = useRef<((commandName: string, args: string) => Promise<boolean>) | null>(null);
 
   /**
    * Handle input changes to detect slash command prefix or @ mentions.
@@ -2828,12 +2868,12 @@ export function ChatApp({
               return;
             }
 
-            // If sub-agents are still running, defer finalization and queue
+            // If sub-agents or tools are still running, defer finalization and queue
             // processing until they complete (preserves correct state).
             const hasActiveAgents = parallelAgentsRef.current.some(
               (a) => a.status === "running" || a.status === "pending"
             );
-            if (hasActiveAgents) {
+            if (hasActiveAgents || hasRunningToolRef.current) {
               pendingCompleteRef.current = handleComplete;
               return;
             }
@@ -2920,10 +2960,8 @@ export function ChatApp({
         }
       },
       spawnSubagent: async (options) => {
-        console.error(`[spawnSubagent] Called with name=${options.name}, model=${options.model}, msgLen=${options.message.length}`);
         const manager = subagentManagerRef.current;
         if (!manager) {
-          console.error(`[spawnSubagent] ERROR: SubagentSessionManager not available`);
           return {
             success: false,
             output: "",
@@ -2933,9 +2971,7 @@ export function ChatApp({
 
         const agentId = crypto.randomUUID().slice(0, 8);
         const agentName = options.name ?? options.model ?? "general-purpose";
-        console.error(`[spawnSubagent] Creating agent: id=${agentId}, name=${agentName}`);
 
-        // Add the agent to the parallel agents list before spawning
         const parallelAgent: ParallelAgent = {
           id: agentId,
           name: agentName,
@@ -2943,15 +2979,17 @@ export function ChatApp({
           status: "running",
           startedAt: new Date().toISOString(),
           model: options.model,
+          currentTool: "Initializing...",
         };
+
         setParallelAgents((prev) => {
-          console.error(`[spawnSubagent] setParallelAgents: prev.length=${prev.length}, adding agent ${agentId}`);
+          const existing = prev.find((a) => a.id === agentId);
+          if (existing) return prev;
           const next = [...prev, parallelAgent];
           parallelAgentsRef.current = next;
           return next;
         });
 
-        // Delegate to SubagentSessionManager for independent session execution
         const spawnOptions: ManagerSpawnOptions = {
           agentId,
           agentName,
@@ -2961,9 +2999,30 @@ export function ChatApp({
           tools: options.tools,
         };
 
-        console.error(`[spawnSubagent] Calling manager.spawn...`);
         const result = await manager.spawn(spawnOptions);
-        console.error(`[spawnSubagent] manager.spawn result: success=${result.success}, error=${result.error}`);
+
+        setParallelAgents((prev) => {
+          return prev.map((a) =>
+            a.id === agentId
+              ? {
+                  ...a,
+                  status: result.success ? "completed" : "error",
+                  result: result.success ? result.output : result.error,
+                  currentTool: undefined,
+                  durationMs: result.durationMs,
+                }
+              : a
+          );
+        });
+
+        if (result.success && result.output) {
+          const pipedOutput = `[${agentName} output]:\n${result.output}`;
+          setTimeout(() => {
+            if (sendMessageRef.current) {
+              sendMessageRef.current(pipedOutput, { skipUserMessage: true });
+            }
+          }, 50);
+        }
 
         return {
           success: result.success,
@@ -4336,6 +4395,11 @@ export function ChatApp({
     sendMessageRef.current = sendMessage;
   }, [sendMessage]);
 
+  // Keep the executeCommandRef in sync with executeCommand callback
+  useEffect(() => {
+    executeCommandRef.current = executeCommand;
+  }, [executeCommand]);
+
   // Auto-submit initial prompt from CLI argument
   const initialPromptSentRef = useRef(false);
   useEffect(() => {
@@ -4440,33 +4504,7 @@ export function ChatApp({
 
       // Check if this contains @agent mentions
       if (trimmedValue.startsWith("@")) {
-        // Parse all @agentName mentions in the message
-        const atMentions: Array<{ agentName: string; args: string }> = [];
-        const atRegex = /@(\S+)/g;
-        let atMatch: RegExpExecArray | null;
-        const agentPositions: Array<{ name: string; start: number; end: number }> = [];
-
-        while ((atMatch = atRegex.exec(trimmedValue)) !== null) {
-          const candidateName = atMatch[1] ?? "";
-          const cmd = globalRegistry.get(candidateName);
-          if (cmd && cmd.category === "agent") {
-            agentPositions.push({
-              name: candidateName,
-              start: atMatch.index,
-              end: atMatch.index + atMatch[0].length,
-            });
-          }
-        }
-
-        // Build mention list with args (text between this agent and the next)
-        for (let i = 0; i < agentPositions.length; i++) {
-          const pos = agentPositions[i]!;
-          const nextPos = agentPositions[i + 1];
-          const argsStart = pos.end;
-          const argsEnd = nextPos ? nextPos.start : trimmedValue.length;
-          const args = trimmedValue.slice(argsStart, argsEnd).trim();
-          atMentions.push({ agentName: pos.name, args });
-        }
+        const atMentions = parseAtMentions(trimmedValue);
 
         if (atMentions.length > 0) {
           // If sub-agents or streaming are already active, defer this

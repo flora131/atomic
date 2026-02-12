@@ -130,3 +130,12 @@ export {
 export {
   AppErrorBoundary,
 } from "./error-exit-screen.tsx";
+
+// ============================================================================
+// FOOTER STATUS COMPONENT
+// ============================================================================
+
+export {
+  FooterStatus,
+  type FooterStatusComponentProps,
+} from "./footer-status.tsx";

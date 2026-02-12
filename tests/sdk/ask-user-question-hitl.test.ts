@@ -101,7 +101,9 @@ describe("AskUserQuestion HITL Integration", () => {
       const session = await client.createSession({ permissionMode: "bypass" });
       expect(session).toBeDefined();
 
-      // Verify canUseTool callback was captured
+      // canUseTool callback is captured when send() triggers query(), not during createSession
+      // Trigger a send to initialize the query and capture the callback
+      await session.send("test").catch(() => {});
       expect(canUseToolCallback).not.toBeNull();
 
       // Simulate AskUserQuestion tool call via canUseTool callback
@@ -163,6 +165,8 @@ describe("AskUserQuestion HITL Integration", () => {
       // Create session with default (prompt) permission mode
       const session = await client.createSession({ permissionMode: "prompt" });
       expect(session).toBeDefined();
+      // Trigger send to initialize query and capture canUseTool callback
+      await session.send("test").catch(() => {});
       expect(canUseToolCallback).not.toBeNull();
 
       if (canUseToolCallback) {
@@ -210,6 +214,8 @@ describe("AskUserQuestion HITL Integration", () => {
 
       const session = await client.createSession({ permissionMode: "auto" });
       expect(session).toBeDefined();
+      // Trigger send to initialize query and capture canUseTool callback
+      await session.send("test").catch(() => {});
       expect(canUseToolCallback).not.toBeNull();
 
       if (canUseToolCallback) {

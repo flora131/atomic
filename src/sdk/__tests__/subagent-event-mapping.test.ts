@@ -353,22 +353,26 @@ describe("CopilotClient subagent event mapping", () => {
     expect(ev.data.success).toBe(true);
   });
 
-  test("subagent.failed maps to session.error with error data", () => {
-    const receivedEvents: AgentEvent<"session.error">[] = [];
-    client.on("session.error", (event) => {
-      receivedEvents.push(event as AgentEvent<"session.error">);
+  test("subagent.failed maps to subagent.complete with success=false", () => {
+    const receivedEvents: AgentEvent<"subagent.complete">[] = [];
+    client.on("subagent.complete", (event) => {
+      receivedEvents.push(event as AgentEvent<"subagent.complete">);
     });
 
     callHandleSdkEvent(client, "copilot-session-3", {
       type: "subagent.failed",
       data: {
+        toolCallId: "copilot-agent-003",
         error: "Subagent timed out",
       },
     });
 
     expect(receivedEvents.length).toBe(1);
     const ev = receivedEvents[0]!;
-    expect(ev.type).toBe("session.error");
+    expect(ev.type).toBe("subagent.complete");
+    expect(ev.sessionId).toBe("copilot-session-3");
+    expect(ev.data.subagentId).toBe("copilot-agent-003");
+    expect(ev.data.success).toBe(false);
     expect(ev.data.error).toBe("Subagent timed out");
   });
 });

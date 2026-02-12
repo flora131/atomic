@@ -151,3 +151,100 @@ could never spawn sub-agents.
 - "setSubagentBridge(null) clears the global bridge"
 
 All 12 tests pass (10 existing + 2 new).
+
+## Task #5: OpenCode TUI Empty File Fix and UI Consistency (COMPLETED)
+
+### Date: 2026-02-12
+
+### Summary
+The implementation for enhanced output extraction was already present in `src/ui/tools/registry.ts`. Added comprehensive test coverage for all SDK format variations.
+
+### What Was Already Implemented
+The extraction logic in `readToolRenderer.render()` already handled:
+- `parsed.file.content`, `parsed.content`, `parsed` (string), `parsed.text`, `parsed.value`, `parsed.data` for string outputs
+- `output.file.content`, `output.output`, `output.content`, `output.text`, `output.value`, `output.data`, `output.result` for object outputs
+- Empty file vs extraction failure differentiation
+- Debug info for extraction failures
+
+### Changes Made
+1. Removed unused `extractionFailed` variable in `src/ui/tools/registry.ts`
+2. Added 11 new test cases in `tests/ui/tools/registry.test.ts`:
+   - "render handles OpenCode direct string output"
+   - "render handles OpenCode { output: string } without metadata"
+   - "render handles output.text field"
+   - "render handles output.value field"
+   - "render handles output.data field"
+   - "render handles Copilot result field"
+   - "render differentiates empty file from extraction failure"
+   - "render shows extraction failure for unknown format"
+   - "render handles undefined output"
+   - "render handles null output"
+
+### Test Results
+- All 65 tests pass (54 existing + 11 new)
+- Lint passes with only pre-existing warnings unrelated to changes
+
+## Task #6: Verbose Mode and Footer Status Implementation (IN PROGRESS)
+
+### Date: 2026-02-12
+
+### Summary
+Implementation of verbose mode toggle functionality and footer status display for the TUI.
+
+### Completed Tasks
+
+**Task #1: Create useVerboseMode hook**
+- Created `src/ui/hooks/use-verbose-mode.ts`
+- Hook manages verbose mode state with `toggle`, `setVerboseMode`, `enable`, `disable` functions
+- Exported from `src/ui/hooks/index.ts`
+- All verbose mode tests pass (127 tests)
+
+**Task #2: Create spinner verbs constants**
+- Created `src/ui/constants/spinner-verbs.ts`
+- Exported `SPINNER_VERBS`, `COMPLETION_VERBS`, `getRandomVerb`, `getRandomCompletionVerb`
+- Created `src/ui/constants/index.ts` for module exports
+
+**Task #3: Add TypeScript types**
+- Created `src/ui/types.ts`
+- Added `FooterState`, `FooterStatusProps`, `VerboseProps`, `TimestampProps`, `DurationProps`, `ModelProps`, `EnhancedMessageMeta`
+- Re-exported `PermissionMode` from SDK types
+
+**Task #4: Create FooterStatus component**
+- Created `src/ui/components/footer-status.tsx`
+- Displays: modelId, streaming status, verbose mode, queued count, permission mode
+- Includes Ctrl+O hint for toggling verbose mode
+- Exported from `src/ui/components/index.ts`
+
+**Task #7: Enhance LoadingIndicator with spinner verbs**
+- Updated `src/ui/chat.tsx` to import spinner verbs from constants
+- Removed inline `SPINNER_VERBS` and `COMPLETION_VERBS`
+- Re-exported for backward compatibility
+
+**Task #8: Add formatTimestamp and formatDuration utilities**
+- Already existed in `src/ui/utils/format.ts`
+
+**Task #11: Fix Copilot subagent.failed mapping**
+- Changed mapping from `"subagent.failed": "session.error"` to `"subagent.failed": "subagent.complete"`
+- Updated event data to include `subagentId` and `success: false`
+- Updated test to reflect new mapping
+- All 14 subagent event mapping tests pass
+
+### Files Created
+- `src/ui/hooks/use-verbose-mode.ts`
+- `src/ui/constants/spinner-verbs.ts`
+- `src/ui/constants/index.ts`
+- `src/ui/types.ts`
+- `src/ui/components/footer-status.tsx`
+
+### Files Modified
+- `src/ui/hooks/index.ts` - Added useVerboseMode exports
+- `src/ui/components/index.ts` - Added FooterStatus exports
+- `src/ui/chat.tsx` - Updated spinner verb imports, added re-exports
+- `src/sdk/copilot-client.ts` - Fixed subagent.failed mapping
+- `src/sdk/__tests__/subagent-event-mapping.test.ts` - Updated test for new mapping
+
+### Remaining Tasks (High Priority)
+- Task #5: Enhance ToolResult component with verbose, timestamp, model, durationMs props
+- Task #6: Enhance ParallelAgentsTree component with isVerbose prop
+- Task #9: Integrate verbose mode and footer into src/ui/chat.tsx
+- Task #10: Wire Ctrl+O keyboard handler for global verbose toggle

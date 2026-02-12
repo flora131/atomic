@@ -34,6 +34,7 @@ import type {
   AgentEvent,
   EventHandler,
   ToolDefinition,
+  ToolContext,
   CodingAgentClient,
   CodingAgentClientFactory,
 } from "../../src/sdk/types.ts";
@@ -351,21 +352,35 @@ describe("SDK Types Module", () => {
           },
           required: ["operation", "a", "b"],
         },
-        handler: (input) => {
+        handler: (input, _context) => {
           const { operation, a, b } = input as { operation: string; a: number; b: number };
+          let result: number;
           switch (operation) {
             case "add":
-              return a + b;
+              result = a + b;
+              break;
             case "subtract":
-              return a - b;
+              result = a - b;
+              break;
             case "multiply":
-              return a * b;
+              result = a * b;
+              break;
             case "divide":
-              return a / b;
+              result = a / b;
+              break;
             default:
               throw new Error("Unknown operation");
           }
+          return { result };
         },
+      };
+
+      const mockContext: ToolContext = {
+        sessionID: "test-session",
+        messageID: "test-message",
+        agent: "test",
+        directory: "/tmp",
+        abort: new AbortController().signal,
       };
 
       expect(tool.name).toBe("calculator");
@@ -373,8 +388,8 @@ describe("SDK Types Module", () => {
       expect(tool.inputSchema.type).toBe("object");
 
       // Test the handler
-      const result = tool.handler({ operation: "add", a: 2, b: 3 });
-      expect(result).toBe(5);
+      const result = tool.handler({ operation: "add", a: 2, b: 3 }, mockContext);
+      expect(result).toEqual({ result: 5 });
     });
 
     test("supports async tool handlers", async () => {
@@ -382,12 +397,20 @@ describe("SDK Types Module", () => {
         name: "async_fetch",
         description: "Simulates async operation",
         inputSchema: { type: "object", properties: {} },
-        handler: async () => {
+        handler: async (_input, _context) => {
           return Promise.resolve({ status: "ok" });
         },
       };
 
-      const result = await asyncTool.handler({});
+      const mockContext: ToolContext = {
+        sessionID: "test-session",
+        messageID: "test-message",
+        agent: "test",
+        directory: "/tmp",
+        abort: new AbortController().signal,
+      };
+
+      const result = await asyncTool.handler({}, mockContext);
       expect(result).toEqual({ status: "ok" });
     });
   });

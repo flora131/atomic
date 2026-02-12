@@ -19,7 +19,7 @@ import { spawn } from "child_process";
 import { Command } from "@commander-js/extra-typings";
 import { VERSION } from "./version";
 import { COLORS } from "./utils/colors";
-import { AGENT_CONFIG, type AgentKey } from "./config";
+import { AGENT_CONFIG, type AgentKey, SCM_CONFIG, type SourceControlType } from "./config";
 import { initCommand } from "./commands/init";
 import { configCommand } from "./commands/config";
 import { updateCommand } from "./commands/update";
@@ -70,6 +70,7 @@ export function createProgram() {
 
   // Build agent choices string for help text
   const agentChoices = Object.keys(AGENT_CONFIG).join(", ");
+  const scmChoices = Object.keys(SCM_CONFIG).join(", ");
 
   // Add init command (default command when no subcommand is provided)
   program
@@ -79,12 +80,17 @@ export function createProgram() {
       "-a, --agent <name>",
       `Pre-select agent to configure (${agentChoices})`
     )
+    .option(
+      "-s, --scm <type>",
+      `Pre-select source control type (${scmChoices})`
+    )
     .action(async (localOpts) => {
       const globalOpts = program.opts();
 
       await initCommand({
         showBanner: globalOpts.banner !== false,
         preSelectedAgent: localOpts.agent as AgentKey | undefined,
+        preSelectedScm: localOpts.scm as SourceControlType | undefined,
         force: globalOpts.force,
         yes: globalOpts.yes,
       });

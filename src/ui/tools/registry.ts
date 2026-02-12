@@ -61,7 +61,7 @@ export interface ToolRenderer {
  * Handles both Claude SDK (file_path) and OpenCode (path, filePath) parameter names.
  */
 export const readToolRenderer: ToolRenderer = {
-  icon: "📄",
+  icon: "≡",
 
   getTitle(props: ToolRenderProps): string {
     // Handle multiple parameter name conventions
@@ -184,7 +184,7 @@ export const editToolRenderer: ToolRenderer = {
  * Handles both Claude SDK (command) and OpenCode (cmd) parameter names.
  */
 export const bashToolRenderer: ToolRenderer = {
-  icon: "💻",
+  icon: "$",
 
   getTitle(props: ToolRenderProps): string {
     // Handle multiple parameter name conventions
@@ -255,7 +255,7 @@ export const bashToolRenderer: ToolRenderer = {
  * Handles both Claude SDK (file_path) and OpenCode (path, filePath) parameter names.
  */
 export const writeToolRenderer: ToolRenderer = {
-  icon: "📝",
+  icon: "►",
 
   getTitle(props: ToolRenderProps): string {
     // Handle multiple parameter name conventions (Claude: file_path, OpenCode: path/filePath)
@@ -279,7 +279,7 @@ export const writeToolRenderer: ToolRenderer = {
     if (isSuccess) {
       content.push(`✓ File written: ${filePath}`);
     } else {
-      content.push(`⏳ Writing: ${filePath}`);
+      content.push(`○ Writing: ${filePath}`);
     }
 
     // Show preview of content (first few lines)
@@ -311,7 +311,7 @@ export const writeToolRenderer: ToolRenderer = {
  * Displays pattern and matching files.
  */
 export const globToolRenderer: ToolRenderer = {
-  icon: "🔍",
+  icon: "◆",
 
   getTitle(props: ToolRenderProps): string {
     const pattern = props.input.pattern as string | undefined;
@@ -399,7 +399,7 @@ export const globToolRenderer: ToolRenderer = {
  * Displays pattern and matching content.
  */
 export const grepToolRenderer: ToolRenderer = {
-  icon: "🔎",
+  icon: "★",
 
   getTitle(props: ToolRenderProps): string {
     const pattern = props.input.pattern as string | undefined;
@@ -462,7 +462,7 @@ export const grepToolRenderer: ToolRenderer = {
  * Shows generic input/output display.
  */
 export const defaultToolRenderer: ToolRenderer = {
-  icon: "🔧",
+  icon: "▶",
 
   getTitle(props: ToolRenderProps): string {
     // Try to extract a meaningful title from input
@@ -523,7 +523,7 @@ export function parseMcpToolName(toolName: string): { server: string; tool: stri
  * Displays server/tool name and input/output.
  */
 export const mcpToolRenderer: ToolRenderer = {
-  icon: "🔌",
+  icon: "§",
 
   getTitle(props: ToolRenderProps): string {
     const firstKey = Object.keys(props.input)[0];
@@ -548,6 +548,66 @@ export const mcpToolRenderer: ToolRenderer = {
       }
     }
     return { title: "MCP Tool Result", content, expandable: true };
+  },
+};
+
+// ============================================================================
+// TASK TOOL RENDERER
+// ============================================================================
+
+/**
+ * Renderer for the Task tool (sub-agent spawning).
+ * Shows agent type, description/prompt, and model info.
+ * Works for both Claude (Task) and Copilot (task) tool names.
+ */
+export const taskToolRenderer: ToolRenderer = {
+  icon: "◉",
+
+  getTitle(props: ToolRenderProps): string {
+    const desc = (props.input.description as string) || (props.input.prompt as string) || "";
+    const agentType = (props.input.agent_type as string) || "";
+    if (desc && agentType) return `${agentType}: ${desc}`;
+    if (desc) return desc;
+    if (agentType) return agentType;
+    return "Sub-agent task";
+  },
+
+  render(props: ToolRenderProps): ToolRenderResult {
+    const content: string[] = [];
+    const desc = (props.input.description as string) || "";
+    const prompt = (props.input.prompt as string) || "";
+    const agentType = (props.input.agent_type as string) || "";
+    const model = (props.input.model as string) || "";
+    const mode = (props.input.mode as string) || "";
+
+    if (agentType) content.push(`Agent: ${agentType}`);
+    if (model) content.push(`Model: ${model}`);
+    if (mode) content.push(`Mode: ${mode}`);
+    if (desc) content.push(`Task: ${desc}`);
+
+    // Show prompt (truncated if long)
+    if (prompt) {
+      const truncated = prompt.length > 200 ? prompt.slice(0, 197) + "…" : prompt;
+      content.push(`Prompt: ${truncated}`);
+    }
+
+    // Show output/result if present
+    if (props.output !== undefined) {
+      content.push("");
+      if (typeof props.output === "string") {
+        const lines = props.output.split("\n");
+        const preview = lines.slice(0, 15);
+        content.push(...preview);
+        if (lines.length > 15) {
+          content.push(`… ${lines.length - 15} more lines`);
+        }
+      } else {
+        content.push(JSON.stringify(props.output, null, 2));
+      }
+    }
+
+    const title = this.getTitle(props);
+    return { title, content, expandable: true };
   },
 };
 
@@ -594,6 +654,14 @@ export const TOOL_RENDERERS: Record<string, ToolRenderer> = {
   grep: grepToolRenderer,
   TodoWrite: todoWriteToolRenderer,
   todowrite: todoWriteToolRenderer,
+  Task: taskToolRenderer,
+  task: taskToolRenderer,
+  // Copilot equivalents
+  create: writeToolRenderer,
+  view: readToolRenderer,
+  // Claude MultiEdit
+  MultiEdit: editToolRenderer,
+  multiedit: editToolRenderer,
 };
 
 // ============================================================================

@@ -8,8 +8,10 @@
  */
 
 import React from "react";
+import { useTerminalDimensions } from "@opentui/react";
 import { useTheme } from "../theme.tsx";
 import type { QueuedMessage } from "../hooks/use-message-queue.ts";
+import { truncateText } from "../utils/format.ts";
 
 // ============================================================================
 // TYPES
@@ -55,20 +57,12 @@ export function formatQueueCount(count: number): string {
  * @returns Queue icon character
  */
 export function getQueueIcon(): string {
-  return "📋";
+  return "⋮";
 }
 
-/**
- * Truncate message content for preview.
- *
- * @param content - Message content to truncate
- * @param maxLength - Maximum length before truncation (default: 20)
- * @returns Truncated content with ellipsis if needed
- */
-export function truncateContent(content: string, maxLength: number = 20): string {
-  if (content.length <= maxLength) return content;
-  return `${content.slice(0, maxLength - 3)}...`;
-}
+/** @deprecated Use truncateText from utils/format.ts directly */
+export const truncateContent = (content: string, maxLength: number = 20): string =>
+  truncateText(content, maxLength);
 
 // ============================================================================
 // QUEUE INDICATOR COMPONENT
@@ -101,6 +95,7 @@ export function QueueIndicator({
   onEdit: _onEdit,
 }: QueueIndicatorProps): React.ReactNode {
   const { theme } = useTheme();
+  const { width: terminalWidth } = useTerminalDimensions();
 
   // Don't render if queue is empty
   if (count === 0) {
@@ -110,20 +105,26 @@ export function QueueIndicator({
   const icon = getQueueIcon();
   const countText = formatQueueCount(count);
 
+  // Calculate max truncation length based on terminal width
+  // Account for padding (2 left), prefix "❯ " (2), suffix " (+N more)" (~12), border padding (~4)
+  const queueMaxLength = Math.max(20, terminalWidth - 20);
+
   // Compact mode: shows icon, count, and first queued message preview
   if (compact) {
     // Get first message preview
     const firstMessage = queue && queue.length > 0 ? queue[0] : undefined;
-    const preview = firstMessage ? truncateContent(firstMessage.content, 40) : "";
+    const preview = firstMessage ? truncateContent(firstMessage.content, queueMaxLength) : "";
 
     return (
       <box flexDirection="column" gap={0}>
         <box flexDirection="row" gap={1}>
-          <text style={{ fg: theme.colors.accent }}>{icon}</text>
+          <box width={1} flexShrink={0}>
+            <text style={{ fg: theme.colors.accent }}>{icon}</text>
+          </box>
           <text style={{ fg: theme.colors.muted }}>{countText}</text>
         </box>
         {firstMessage && (
-          <box paddingLeft={2}>
+          <box paddingLeft={1}>
             <text style={{ fg: theme.colors.foreground }}>
               ❯ {preview}
             </text>
@@ -155,7 +156,7 @@ export function QueueIndicator({
 
     return (
       <text key={msg.id} style={style}>
-        {prefix}{truncateContent(msg.content)}
+        {prefix}{truncateContent(msg.content, queueMaxLength)}
       </text>
     );
   };
@@ -164,13 +165,15 @@ export function QueueIndicator({
   return (
     <box flexDirection="column" gap={0}>
       <box flexDirection="row" gap={1}>
-        <text style={{ fg: theme.colors.accent }}>{icon}</text>
+        <box width={1} flexShrink={0}>
+          <text style={{ fg: theme.colors.accent }}>{icon}</text>
+        </box>
         <text style={{ fg: theme.colors.foreground, attributes: 1 }}>
           {countText}
         </text>
       </box>
       {queue && queue.length > 0 && (
-        <box flexDirection="column" paddingLeft={2}>
+        <box flexDirection="column" paddingLeft={1}>
           {queue.slice(0, 3).map((msg, index) => renderMessage(msg, index))}
           {queue.length > 3 && (
             <text style={{ fg: theme.colors.muted }}>

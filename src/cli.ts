@@ -8,29 +8,22 @@
  *   atomic                          Interactive setup (same as 'atomic init')
  *   atomic init                     Interactive setup with agent selection
  *   atomic init -a <agent>          Setup specific agent (skip selection)
- *   atomic run <agent>              Run agent without arguments
- *   atomic run <agent> [args...]    Run agent with arguments
  *   atomic config set <key> <value> Set configuration value
  *   atomic update                   Self-update to latest version
  *   atomic uninstall                Remove atomic installation
- *   atomic ralph setup -a <agent>   Start Ralph loop
- *   atomic ralph stop -a <agent>    Stop Ralph loop
  *   atomic --version                Show version
  *   atomic --help                   Show help
  */
 
 import { spawn } from "child_process";
-import { Command, Argument } from "@commander-js/extra-typings";
+import { Command } from "@commander-js/extra-typings";
 import { VERSION } from "./version";
 import { COLORS } from "./utils/colors";
 import { AGENT_CONFIG, type AgentKey } from "./config";
-import type { AgentType } from "./utils/telemetry/types";
 import { initCommand } from "./commands/init";
-import { runAgentCommand } from "./commands/run-agent";
 import { configCommand } from "./commands/config";
 import { updateCommand } from "./commands/update";
 import { uninstallCommand } from "./commands/uninstall";
-import { ralphSetup } from "./commands/ralph";
 import { chatCommand } from "./commands/chat";
 import { cleanupWindowsLeftoverFiles } from "./utils/cleanup";
 import { isTelemetryEnabledSync } from "./utils/telemetry";
@@ -95,39 +88,6 @@ export function createProgram() {
         force: globalOpts.force,
         yes: globalOpts.yes,
       });
-    });
-
-  // Add run command to execute a specific agent
-  // This replaces the legacy `atomic --agent <name>` pattern with `atomic run <agent>`
-  // passThroughOptions() allows arguments after <agent> to pass through without requiring --
-  program
-    .command("run")
-    .description("Run a coding agent")
-    .addArgument(
-      new Argument("<agent>", "Agent to run").choices(
-        Object.keys(AGENT_CONFIG) as AgentKey[]
-      )
-    )
-    .argument("[args...]", "Arguments to pass to the agent")
-    .passThroughOptions() // Options after <agent> are passed through to the agent
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ atomic run claude                      Run Claude Code interactively
-  $ atomic run claude /commit "fix bug"    Run with a slash command
-  $ atomic run claude --help               Show agent's help
-  $ atomic run opencode /research-codebase Research the codebase`
-    )
-    .action(async (agent: AgentKey, args: string[]) => {
-      const globalOpts = program.opts();
-
-      const exitCode = await runAgentCommand(agent, args, {
-        force: globalOpts.force,
-        yes: globalOpts.yes,
-      });
-
-      process.exit(exitCode);
     });
 
   // Add chat command for interactive chat with coding agents
@@ -232,35 +192,6 @@ Slash Commands (in workflow mode):
         keepConfig: localOpts.keepConfig,
       });
     });
-
-  // Add ralph command for self-referential development loops
-  const ralphCmd = program
-    .command("ralph")
-    .description("Self-referential development loop for coding agents");
-
-  // Add 'setup' subcommand to ralph
-  ralphCmd
-    .command("setup")
-    .description("Initialize and start a Ralph loop")
-    .requiredOption("-a, --agent <name>", "Agent to use (claude, opencode, copilot)")
-    .argument("[prompt...]", "Initial prompt to start the loop")
-    .addHelpText(
-      "after",
-      `
-Examples:
-  $ atomic ralph setup -a claude                       Use default prompt, run until all features pass
-  $ atomic ralph setup -a claude Refactor cache layer  Custom prompt`
-    )
-    .action(async (promptParts: string[], localOpts) => {
-      const exitCode = await ralphSetup({
-        prompt: promptParts,
-        agentType: localOpts.agent as AgentType,
-      });
-      process.exit(exitCode);
-    });
-
-  // Note: 'ralph stop' subcommand was removed - hook-based execution is no longer supported.
-  // Graph engine is now the only execution mode.
 
   // Add hidden command for internal telemetry upload (used by background process)
   program

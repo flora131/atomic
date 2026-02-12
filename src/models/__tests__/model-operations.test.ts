@@ -172,7 +172,7 @@ describe("UnifiedModelOperations", () => {
       expect(ops.resolveAlias("sonnet")).toBe("sonnet");
       expect(ops.resolveAlias("opus")).toBe("opus");
       expect(ops.resolveAlias("haiku")).toBe("haiku");
-      expect(ops.resolveAlias("default")).toBe("sonnet");
+      expect(ops.resolveAlias("default")).toBeUndefined();
     });
 
     test("is case-insensitive for Claude aliases", () => {
@@ -236,11 +236,6 @@ describe("UnifiedModelOperations", () => {
       expect(CLAUDE_ALIASES).toHaveProperty("sonnet");
       expect(CLAUDE_ALIASES).toHaveProperty("opus");
       expect(CLAUDE_ALIASES).toHaveProperty("haiku");
-      expect(CLAUDE_ALIASES).toHaveProperty("default");
-    });
-
-    test("default resolves to sonnet", () => {
-      expect(CLAUDE_ALIASES["default"]).toBe("sonnet");
     });
   });
 });

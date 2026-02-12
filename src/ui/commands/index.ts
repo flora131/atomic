@@ -62,6 +62,7 @@ export {
   discoverWorkflowFiles,
   getWorkflowCommands,
   resolveWorkflowRef,
+  saveTasksToActiveSession,
   type WorkflowMetadata,
 } from "./workflow-commands.ts";
 

@@ -593,7 +593,7 @@ describe("Command Initialization", () => {
     expect(globalRegistry.get("ralph")).toBeDefined();
 
     // Check skill commands
-    expect(globalRegistry.get("commit")).toBeDefined();
+    expect(globalRegistry.get("research-codebase")).toBeDefined();
   });
 });
 

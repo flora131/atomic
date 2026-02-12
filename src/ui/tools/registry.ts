@@ -74,46 +74,80 @@ export const readToolRenderer: ToolRenderer = {
   },
 
   render(props: ToolRenderProps): ToolRenderResult {
-    // Handle multiple parameter name conventions
     const filePath = (props.input.file_path ?? props.input.path ?? props.input.filePath ?? "unknown") as string;
-    // Handle output which may be a string or an object (from tool response)
     let content: string | undefined;
+
     if (typeof props.output === "string") {
-      // Try parsing as JSON if it looks like JSON (Claude SDK response)
-      try {
-        const parsed = JSON.parse(props.output);
-        // Handle nested Claude SDK response format: { type: "text", file: { filePath, content } }
-        if (parsed.file && typeof parsed.file.content === "string") {
-          content = parsed.file.content;
-        } else if (typeof parsed.content === "string") {
-          content = parsed.content;
-        } else if (typeof parsed === "string") {
-          content = parsed;
-        } else {
+      if (props.output === "") {
+        content = "";
+      } else {
+        try {
+          const parsed = JSON.parse(props.output);
+          if (parsed.file && typeof parsed.file.content === "string") {
+            content = parsed.file.content;
+          } else if (typeof parsed.content === "string") {
+            content = parsed.content;
+          } else if (typeof parsed === "string") {
+            content = parsed;
+          } else if (typeof parsed.text === "string") {
+            content = parsed.text;
+          } else if (typeof parsed.value === "string") {
+            content = parsed.value;
+          } else if (typeof parsed.data === "string") {
+            content = parsed.data;
+          } else {
+            content = props.output;
+          }
+        } catch {
           content = props.output;
         }
-      } catch {
-        content = props.output;
       }
     } else if (props.output && typeof props.output === "object") {
-      // Tool response might be wrapped in an object with content field
       const output = props.output as Record<string, unknown>;
-      // Handle nested Claude SDK response format: { type: "text", file: { filePath, content } }
       if (output.file && typeof output.file === "object") {
         const file = output.file as Record<string, unknown>;
         content = typeof file.content === "string" ? file.content : undefined;
-      } else {
-        content = typeof output.content === "string" ? output.content : JSON.stringify(props.output, null, 2);
+      } else if (typeof output.output === "string") {
+        content = output.output;
+      } else if (typeof output.content === "string") {
+        content = output.content;
+      } else if (typeof output.text === "string") {
+        content = output.text;
+      } else if (typeof output.value === "string") {
+        content = output.value;
+      } else if (typeof output.data === "string") {
+        content = output.data;
+      } else if (typeof output.result === "string") {
+        content = output.result;
+      } else if (typeof output.rawOutput === "string") {
+        content = output.rawOutput;
       }
     }
 
-    // Detect language from file extension
     const ext = filePath.split(".").pop()?.toLowerCase() || "";
     const language = getLanguageFromExtension(ext);
 
+    if (content !== undefined) {
+      return {
+        title: filePath,
+        content: content === "" ? ["(empty file)"] : content.split("\n"),
+        language,
+        expandable: true,
+      };
+    }
+
+    if (props.output === undefined || props.output === null) {
+      return {
+        title: filePath,
+        content: ["(file read pending...)"],
+        language,
+        expandable: true,
+      };
+    }
+
     return {
       title: filePath,
-      content: content ? content.split("\n") : ["(empty file)"],
+      content: ["(could not extract file content)"],
       language,
       expandable: true,
     };

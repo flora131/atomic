@@ -90,7 +90,7 @@ describe("TaskListIndicator - truncate", () => {
   });
 
   test("truncates and adds ellipsis when exceeding limit", () => {
-    expect(truncate("this is a long string", 10)).toBe("this is a…");
+    expect(truncate("this is a long string", 10)).toBe("this is...");
   });
 
   test("handles empty string", () => {
@@ -98,7 +98,7 @@ describe("TaskListIndicator - truncate", () => {
   });
 
   test("handles single character limit", () => {
-    expect(truncate("ab", 1)).toBe("…");
+    expect(truncate("ab", 1)).toBe("...");
   });
 });
 

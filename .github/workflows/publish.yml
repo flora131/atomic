@@ -49,9 +49,8 @@ jobs:
             fi
           done
 
-      # TODO: Re-enable after fixing failing tests
-      # - name: Run tests
-      #   run: bun test
+      - name: Run tests
+        run: bun test
 
       - name: Run typecheck
         run: bun run typecheck
@@ -84,10 +83,6 @@ jobs:
           cp -r .claude config-staging/
           cp -r .opencode config-staging/
           mkdir -p config-staging/.github
-          cp -r .github/agents config-staging/.github/
-          cp -r .github/hooks config-staging/.github/
-          cp -r .github/prompts config-staging/.github/ 2>/dev/null || true
-          cp -r .github/scripts config-staging/.github/
           cp -r .github/skills config-staging/.github/
           cp CLAUDE.md config-staging/
           cp AGENTS.md config-staging/

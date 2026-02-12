@@ -141,7 +141,7 @@ function mapSdkEventToEventType(sdkEventType: SdkSessionEventType): EventType | 
     "skill.invoked": "skill.invoked",
     "subagent.started": "subagent.start",
     "subagent.completed": "subagent.complete",
-    "subagent.failed": "session.error",
+    "subagent.failed": "subagent.complete",
     "session.usage_info": "usage",
   };
   return mapping[sdkEventType] ?? null;
@@ -566,6 +566,8 @@ export class CopilotClient implements CodingAgentClient {
           break;
         case "subagent.failed":
           eventData = {
+            subagentId: event.data.toolCallId,
+            success: false,
             error: event.data.error,
           };
           break;

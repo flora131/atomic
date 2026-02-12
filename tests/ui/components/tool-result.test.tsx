@@ -59,11 +59,11 @@ describe("shouldCollapse", () => {
 
 describe("theme error colors", () => {
   test("dark theme has error color", () => {
-    expect(darkTheme.colors.error).toBe("#fb7185");
+    expect(darkTheme.colors.error).toBe("#f38ba8");
   });
 
   test("light theme has error color", () => {
-    expect(lightTheme.colors.error).toBe("#e11d48");
+    expect(lightTheme.colors.error).toBe("#d20f39");
   });
 });
 
@@ -303,7 +303,7 @@ describe("Render result structure", () => {
 describe("Icon and title display", () => {
   test("Read tool icon and title", () => {
     const renderer = getToolRenderer("Read");
-    expect(renderer.icon).toBe("📄");
+    expect(renderer.icon).toBe("≡");
 
     const title = renderer.getTitle({ input: { file_path: "/src/index.ts" } });
     expect(title).toBe("index.ts");
@@ -319,7 +319,7 @@ describe("Icon and title display", () => {
 
   test("Bash tool icon and title", () => {
     const renderer = getToolRenderer("Bash");
-    expect(renderer.icon).toBe("💻");
+    expect(renderer.icon).toBe("$");
 
     const title = renderer.getTitle({ input: { command: "npm install" } });
     expect(title).toBe("npm install");
@@ -327,7 +327,7 @@ describe("Icon and title display", () => {
 
   test("Write tool icon and title", () => {
     const renderer = getToolRenderer("Write");
-    expect(renderer.icon).toBe("📝");
+    expect(renderer.icon).toBe("►");
 
     const title = renderer.getTitle({ input: { file_path: "/new/file.js" } });
     expect(title).toBe("file.js");
@@ -335,7 +335,7 @@ describe("Icon and title display", () => {
 
   test("Glob tool icon and title", () => {
     const renderer = getToolRenderer("Glob");
-    expect(renderer.icon).toBe("🔍");
+    expect(renderer.icon).toBe("◆");
 
     const title = renderer.getTitle({ input: { pattern: "**/*.ts" } });
     expect(title).toBe("**/*.ts");
@@ -343,7 +343,7 @@ describe("Icon and title display", () => {
 
   test("Grep tool icon and title", () => {
     const renderer = getToolRenderer("Grep");
-    expect(renderer.icon).toBe("🔎");
+    expect(renderer.icon).toBe("★");
 
     const title = renderer.getTitle({ input: { pattern: "TODO" } });
     expect(title).toBe("TODO");

@@ -303,6 +303,8 @@ export class SubagentSessionManager {
       // 3. Emit running status with initial progress indicator
       this.onStatusUpdate(options.agentId, {
         status: "running",
+        name: options.agentName,
+        task: options.task,
         startedAt: new Date().toISOString(),
         currentTool: "Starting session...",
       });

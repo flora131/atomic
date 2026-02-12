@@ -1,0 +1,15 @@
+## 2026-02-12: Remove stale .github/* references
+
+### Problem
+The `.github/agents`, `.github/hooks`, `.github/prompts`, and `.github/scripts` directories no longer exist, but were still referenced in:
+1. `.github/workflows/publish.yml` — config archive step had `cp -r` commands for these dirs
+2. `package.json` — `files` array included these dirs
+
+### Changes
+- **publish.yml**: Removed 4 stale `cp -r .github/{agents,hooks,prompts,scripts}` lines from the config archive step. Kept `.github/skills` which exists.
+- **package.json**: Removed 4 stale `.github/{agents,hooks,prompts,scripts}` entries from `files` array. Kept `.github/skills` which exists.
+
+### Verification
+- Typecheck passes (`bun run typecheck`)
+- Tests pass (`bun test` on subset — full suite hangs, possibly pre-existing issue)
+- All remaining `package.json` `files` entries verified to exist on disk

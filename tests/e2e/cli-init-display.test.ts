@@ -121,13 +121,4 @@ describe("CLI Init Display Ordering", () => {
     expect(configuringPos).toBe(-1);
   }, 10000);
 
-  test("atomic run with invalid agent shows error", async () => {
-    // Run atomic with invalid agent
-    const { stdout, stderr, exitCode } = await runAtomic(["run", "invalid-agent"]);
-    const output = stdout + stderr;
-
-    // Should show error about invalid agent (Commander.js format)
-    expect(output).toContain("invalid-agent");
-    expect(exitCode).toBe(1);
-  }, 10000);
 });

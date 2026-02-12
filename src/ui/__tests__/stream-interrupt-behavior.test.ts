@@ -124,6 +124,7 @@ function createRunningAgent(name: string): ParallelAgent {
   return {
     id: `agent-${name}`,
     name,
+    task: `Task for ${name}`,
     status: "running",
     startedAt: new Date().toISOString(),
   };
@@ -349,6 +350,7 @@ describe("Enter with active sub-agents defers interrupt", () => {
     state.parallelAgents = [{
       id: "agent-pending",
       name: "pending-agent",
+      task: "Pending task",
       status: "pending",
       startedAt: new Date().toISOString(),
     }];

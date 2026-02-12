@@ -145,10 +145,11 @@ describe("model-transform", () => {
     };
 
     test("creates correct Model object with all fields", () => {
-      const result = fromOpenCodeModel("anthropic", "claude-sonnet-4", fullMockModel, "anthropic");
+      const result = fromOpenCodeModel("anthropic", "claude-sonnet-4", fullMockModel, "anthropic", "Anthropic");
 
       expect(result.id).toBe("anthropic/claude-sonnet-4");
       expect(result.providerID).toBe("anthropic");
+      expect(result.providerName).toBe("Anthropic");
       expect(result.modelID).toBe("claude-sonnet-4");
       expect(result.name).toBe("Claude Sonnet 4");
       expect(result.api).toBe("anthropic");
@@ -177,6 +178,7 @@ describe("model-transform", () => {
 
       expect(result.id).toBe("openai/gpt-4o");
       expect(result.providerID).toBe("openai");
+      expect(result.providerName).toBeUndefined();
       expect(result.modelID).toBe("gpt-4o");
       expect(result.name).toBe("GPT-4o");
       expect(result.api).toBeUndefined();
@@ -252,12 +254,14 @@ describe("model-transform", () => {
       expect(sonnetModel).toBeDefined();
       expect(sonnetModel!.id).toBe("anthropic/claude-sonnet-4");
       expect(sonnetModel!.name).toBe("Claude Sonnet 4");
+      expect(sonnetModel!.providerName).toBe("Anthropic");
       expect(sonnetModel!.api).toBe("anthropic");
 
       const opusModel = result.find((m) => m.modelID === "claude-opus-4");
       expect(opusModel).toBeDefined();
       expect(opusModel!.id).toBe("anthropic/claude-opus-4");
       expect(opusModel!.name).toBe("Claude Opus 4");
+      expect(opusModel!.providerName).toBe("Anthropic");
     });
 
     test("returns empty array for provider with no models", () => {
@@ -289,6 +293,7 @@ describe("model-transform", () => {
 
       expect(result.length).toBe(1);
       expect(result[0]!.api).toBe("openai");
+      expect(result[0]!.providerName).toBe("OpenAI");
     });
   });
 });

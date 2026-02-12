@@ -43,30 +43,12 @@ interface GroupedModels {
 // CONSTANTS
 // ============================================================================
 
-/** Provider display names */
-const PROVIDER_CONFIG: Record<string, { name: string }> = {
-  anthropic: { name: "Anthropic" },
-  "github-copilot": { name: "GitHub Copilot" },
-  openai: { name: "OpenAI" },
-  google: { name: "Google" },
-  opencode: { name: "OpenCode" },
-  default: { name: "Other" },
-};
-
-
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
 /**
- * Get provider display config
- */
-function getProviderConfig(providerID: string): { name: string } {
-  return PROVIDER_CONFIG[providerID] ?? PROVIDER_CONFIG["default"]!;
-}
-
-/**
- * Group models by provider
+ * Group models by provider using SDK-provided providerName, falling back to raw providerID.
  */
 function groupModelsByProvider(models: Model[]): GroupedModels[] {
   const groups = new Map<string, Model[]>();
@@ -77,18 +59,16 @@ function groupModelsByProvider(models: Model[]): GroupedModels[] {
     groups.set(model.providerID, arr);
   }
 
-  // Sort providers: anthropic first, then alphabetically
-  const sortedProviders = Array.from(groups.keys()).sort((a, b) => {
-    if (a === "anthropic") return -1;
-    if (b === "anthropic") return 1;
-    return a.localeCompare(b);
-  });
+  // Sort providers alphabetically
+  const sortedProviders = Array.from(groups.keys()).sort((a, b) =>
+    a.localeCompare(b)
+  );
 
-  return sortedProviders.map((providerID) => ({
-    providerID,
-    displayName: getProviderConfig(providerID).name,
-    models: groups.get(providerID) ?? [],
-  }));
+  return sortedProviders.map((providerID) => {
+    const groupModels = groups.get(providerID) ?? [];
+    const displayName = groupModels[0]?.providerName ?? providerID;
+    return { providerID, displayName, models: groupModels };
+  });
 }
 
 /**
@@ -407,7 +387,6 @@ export function ModelSelectorDialog({
           </box>
         ) : (
           groupedModels.map((group, groupIdx) => {
-            const config = getProviderConfig(group.providerID);
             const isLastGroup = groupIdx === groupedModels.length - 1;
 
             return (
@@ -415,7 +394,7 @@ export function ModelSelectorDialog({
                 {/* Provider Header */}
                 <box style={{ paddingTop: groupIdx > 0 ? 1 : 0 }}>
                   <text style={{ fg: colors.foreground }}>
-                    {config.name}
+                    {group.displayName}
                   </text>
                 </box>
 

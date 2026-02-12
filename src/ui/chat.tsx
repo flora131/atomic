@@ -33,13 +33,9 @@ import {
 import { TranscriptView } from "./components/transcript-view.tsx";
 import { appendToHistoryBuffer, readHistoryBuffer, clearHistoryBuffer } from "./utils/conversation-history-buffer.ts";
 import {
-  SubagentSessionManager,
-  type SubagentSpawnOptions as ManagerSpawnOptions,
-  type CreateSessionFn,
-} from "./subagent-session-manager.ts";
-import {
   SubagentGraphBridge,
   setSubagentBridge,
+  type CreateSessionFn,
 } from "../graph/subagent-bridge.ts";
 import {
   UserQuestionDialog,
@@ -1081,8 +1077,8 @@ interface InputScrollbarState {
  */
 export function AtomicHeader({
   version = "0.1.0",
-  model = "sonnet",
-  tier = "Claude Max",
+  model = "",
+  tier = "",
   workingDir = "~/",
 }: AtomicHeaderProps): React.ReactNode {
   const { theme } = useTheme();
@@ -1492,8 +1488,8 @@ export function ChatApp({
   title: _title,
   syntaxStyle,
   version = "0.1.0",
-  model = "sonnet",
-  tier = "Claude Max",
+  model = "",
+  tier = "",
   workingDir = "~/",
   suggestion: _suggestion,
   registerToolStartHandler,
@@ -1659,9 +1655,6 @@ export function ChatApp({
   const [historyIndex, setHistoryIndex] = useState(-1);
   // Store current input when entering history mode
   const savedInputRef = useRef<string>("");
-
-  // SubagentSessionManager ref for delegating sub-agent spawning
-  const subagentManagerRef = useRef<SubagentSessionManager | null>(null);
 
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
@@ -2356,46 +2349,17 @@ export function ChatApp({
     }
   }, [parallelAgents, model, onInterrupt, messageQueue, toolCompletionVersion]);
 
-  // Initialize SubagentSessionManager when createSubagentSession is available
+  // Initialize SubagentGraphBridge when createSubagentSession is available
   useEffect(() => {
     if (!createSubagentSession) {
-      subagentManagerRef.current = null;
+      setSubagentBridge(null);
       return;
     }
 
-    const manager = new SubagentSessionManager({
-      createSession: createSubagentSession,
-      onStatusUpdate: (agentId, update) => {
-        setParallelAgents((prev) => {
-          const existingIndex = prev.findIndex((a) => a.id === agentId);
-          if (existingIndex === -1 && update.status && update.name && update.task) {
-            const next = [...prev, {
-              id: agentId,
-              name: update.name,
-              task: update.task,
-              status: update.status,
-              startedAt: update.startedAt ?? new Date().toISOString(),
-              ...update,
-            } as ParallelAgent];
-            parallelAgentsRef.current = next;
-            return next;
-          }
-          const next = prev.map((a) => (a.id === agentId ? { ...a, ...update } : a));
-          parallelAgentsRef.current = next;
-          return next;
-        });
-      },
-    });
-
-    subagentManagerRef.current = manager;
-
-    // Initialize SubagentGraphBridge so graph nodes can spawn sub-agents
-    const bridge = new SubagentGraphBridge({ sessionManager: manager });
+    const bridge = new SubagentGraphBridge({ createSession: createSubagentSession });
     setSubagentBridge(bridge);
 
     return () => {
-      manager.destroy();
-      subagentManagerRef.current = null;
       setSubagentBridge(null);
     };
   }, [createSubagentSession]);
@@ -2969,74 +2933,19 @@ export function ChatApp({
         }
       },
       spawnSubagent: async (options) => {
-        const manager = subagentManagerRef.current;
-        if (!manager) {
-          return {
-            success: false,
-            output: "",
-            error: "Sub-agent session manager not available (no createSubagentSession factory)",
-          };
-        }
-
-        const agentId = crypto.randomUUID().slice(0, 8);
+        // Inject into main session — SDK's native sub-agent dispatch handles it.
+        // Wait for the streaming response so the caller gets the actual result
+        // (previously returned empty output immediately).
         const agentName = options.name ?? options.model ?? "general-purpose";
-
-        const parallelAgent: ParallelAgent = {
-          id: agentId,
-          name: agentName,
-          task: options.message.slice(0, 100) + (options.message.length > 100 ? "..." : ""),
-          status: "running",
-          startedAt: new Date().toISOString(),
-          model: options.model,
-          currentTool: "Initializing...",
-        };
-
-        setParallelAgents((prev) => {
-          const existing = prev.find((a) => a.id === agentId);
-          if (existing) return prev;
-          const next = [...prev, parallelAgent];
-          parallelAgentsRef.current = next;
-          return next;
+        const task = options.message;
+        const instruction = `Use the ${agentName} sub-agent to handle this task: ${task}`;
+        const result = await new Promise<import("./commands/registry.ts").StreamResult>((resolve) => {
+          streamCompletionResolverRef.current = resolve;
+          context.sendSilentMessage(instruction);
         });
-
-        const spawnOptions: ManagerSpawnOptions = {
-          agentId,
-          agentName,
-          task: options.message,
-          systemPrompt: options.systemPrompt,
-          model: options.model,
-          tools: options.tools,
-        };
-
-        const result = await manager.spawn(spawnOptions);
-
-        setParallelAgents((prev) => {
-          return prev.map((a) =>
-            a.id === agentId
-              ? {
-                  ...a,
-                  status: result.success ? "completed" : "error",
-                  result: result.success ? result.output : result.error,
-                  currentTool: undefined,
-                  durationMs: result.durationMs,
-                }
-              : a
-          );
-        });
-
-        if (result.success && result.output) {
-          const pipedOutput = `[${agentName} output]:\n${result.output}`;
-          setTimeout(() => {
-            if (sendMessageRef.current) {
-              sendMessageRef.current(pipedOutput, { skipUserMessage: true });
-            }
-          }, 50);
-        }
-
         return {
-          success: result.success,
-          output: result.output,
-          error: result.error,
+          success: !result.wasInterrupted,
+          output: result.content,
         };
       },
       streamAndWait: (prompt: string) => {
@@ -3525,10 +3434,7 @@ export function ChatApp({
             isStreamingRef.current = false;
             setIsStreaming(false);
 
-            // Cancel running sub-agents (from SubagentSessionManager)
-            if (subagentManagerRef.current) {
-              void subagentManagerRef.current.cancelAll();
-            }
+            // Sub-agent cancellation handled by SDK session interrupt
 
             // Clear any pending ask-user question so dialog dismisses on ESC
             setActiveQuestion(null);
@@ -3552,8 +3458,8 @@ export function ChatApp({
             return;
           }
 
-          // If not streaming but subagents are still running, cancel them
-          if (subagentManagerRef.current) {
+          // If not streaming but subagents are still running, mark them interrupted
+          {
             const currentAgents = parallelAgentsRef.current;
             const hasRunningAgents = currentAgents.some(
               (a) => a.status === "running" || a.status === "pending"
@@ -3583,7 +3489,6 @@ export function ChatApp({
               }
               parallelAgentsRef.current = [];
               setParallelAgents([]);
-              void subagentManagerRef.current.cancelAll();
               return;
             }
           }
@@ -3762,10 +3667,7 @@ export function ChatApp({
             // Discard any tool-context messages on interrupt — they won't be sent
             toolContextMessagesRef.current = [];
 
-            // Cancel running sub-agents (from SubagentSessionManager)
-            if (subagentManagerRef.current) {
-              void subagentManagerRef.current.cancelAll();
-            }
+            // Sub-agent cancellation handled by SDK session interrupt
 
             // Clear any pending ask-user question so dialog dismisses on ESC
             setActiveQuestion(null);
@@ -3782,8 +3684,8 @@ export function ChatApp({
             return;
           }
 
-          // If not streaming but subagents are still running, cancel them
-          if (subagentManagerRef.current) {
+          // If not streaming but subagents are still running, mark them interrupted
+          {
             const currentAgents = parallelAgentsRef.current;
             const hasRunningAgents = currentAgents.some(
               (a) => a.status === "running" || a.status === "pending"
@@ -3813,7 +3715,6 @@ export function ChatApp({
               }
               parallelAgentsRef.current = [];
               setParallelAgents([]);
-              void subagentManagerRef.current.cancelAll();
               return;
             }
           }

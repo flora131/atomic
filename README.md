@@ -54,6 +54,7 @@ This approach highlights the best of SDLC and gets you 40-60% of the way there s
 - [Commands, Agents, and Skills](#commands-agents-and-skills)
 - [Supported Coding Agents](#supported-coding-agents)
 - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
+- [Configuration Files](#configuration-files)
 - [Updating Atomic](#updating-atomic)
 - [Uninstalling Atomic](#uninstalling-atomic)
 - [Telemetry](#telemetry)
@@ -129,6 +130,37 @@ Then start a chat session:
 ```bash
 atomic chat -a claude
 ```
+
+### Source Control Selection
+
+During `atomic init`, you'll be prompted to select your source control system:
+
+| SCM Type             | CLI Tool | Code Review      | Use Case                    |
+| -------------------- | -------- | ---------------- | --------------------------- |
+| GitHub / Git         | `git`    | Pull Requests    | Most open-source projects   |
+| Sapling + Phabricator| `sl`     | Phabricator Diffs| Meta-style stacked workflows|
+
+**Pre-select via CLI flag:**
+
+```bash
+# Use GitHub/Git (default)
+atomic init --scm github
+
+# Use Sapling + Phabricator
+atomic init --scm sapling-phabricator
+```
+
+The selection is saved to `.atomic.json` in your project root and configures the appropriate commit and code review commands for your workflow.
+
+#### Sapling + Phabricator Setup
+
+If you select Sapling + Phabricator:
+
+1. Ensure `.arcconfig` exists in your repository root (required for Phabricator)
+2. Use `/commit` for creating commits with `sl commit`
+3. Use `/submit-diff` for submitting to Phabricator for code review
+
+**Note for Windows users:** Sapling templates use the full path `& 'C:\Program Files\Sapling\sl.exe'` to avoid conflicts with PowerShell's built-in `sl` alias for `Set-Location`.
 
 ### Install a specific version
 
@@ -350,6 +382,46 @@ atomic chat -a opencode --theme <light/dark>
 # Resume with an additional prompt
 /ralph --resume a1b2c3d4-... "Continue with the auth module"
 ```
+
+---
+
+## Configuration Files
+
+### `.atomic.json`
+
+Atomic stores project-level configuration in `.atomic.json` at the root of your project. This file is created automatically during `atomic init`.
+
+**Example `.atomic.json`:**
+
+```json
+{
+  "version": 1,
+  "agent": "claude",
+  "scm": "github",
+  "lastUpdated": "2026-02-12T12:00:00.000Z"
+}
+```
+
+**Fields:**
+
+| Field         | Type   | Description                                              |
+| ------------- | ------ | -------------------------------------------------------- |
+| `version`     | number | Config schema version (currently `1`)                    |
+| `agent`       | string | Selected coding agent (`claude`, `opencode`, `copilot`)  |
+| `scm`         | string | Source control type (`github`, `sapling-phabricator`)    |
+| `lastUpdated` | string | ISO 8601 timestamp of last configuration update          |
+
+**Note:** You generally don't need to edit this file manually. Use `atomic init` to reconfigure your project.
+
+### Agent-Specific Files
+
+Each agent has its own configuration folder:
+
+| Agent         | Folder       | Commands                    | Context File |
+| ------------- | ------------ | --------------------------- | ------------ |
+| Claude Code   | `.claude/`   | `.claude/commands/`         | `CLAUDE.md`  |
+| OpenCode      | `.opencode/` | `.opencode/command/`        | `AGENTS.md`  |
+| GitHub Copilot| `.github/`   | `.github/skills/`           | `AGENTS.md`  |
 
 ---
 

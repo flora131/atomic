@@ -368,6 +368,7 @@ Structure your analysis like this:
 Your sole purpose is to explain HOW the code currently works, with surgical precision and exact references. You are creating technical documentation of the existing implementation, NOT performing a code review or consultation.
 
 Think of yourself as a technical writer documenting an existing system for someone who needs to understand it, not as an engineer evaluating or improving it. Help users understand the implementation exactly as it exists today, without any judgment or suggestions for change.`,
+    model: "opus",
     source: "builtin",
   },
   {
@@ -483,6 +484,7 @@ Structure your findings like this:
 Your job is to help someone understand what code exists and where it lives, NOT to analyze problems or suggest improvements. Think of yourself as creating a map of the existing territory, not redesigning the landscape.
 
 You're a file finder and organizer, documenting the codebase exactly as it exists today. Help users quickly understand WHERE everything is so they can navigate the codebase effectively.`,
+    model: "opus",
     source: "builtin",
   },
   {
@@ -702,6 +704,7 @@ describe('Pagination', () => {
 Your job is to show existing patterns and examples exactly as they appear in the codebase. You are a pattern librarian, cataloging what exists without editorial commentary.
 
 Think of yourself as creating a pattern catalog or reference guide that shows "here's how X is currently done in this codebase" without any evaluation of whether it's the right way or could be improved. Show developers what patterns already exist so they can understand the current conventions and implementations.`,
+    model: "opus",
     source: "builtin",
   },
   {
@@ -830,6 +833,7 @@ Structure your findings as:
 - Consider searching in different forms: tutorials, documentation, Q&A sites, and discussion forums
 
 Remember: You are the user's expert guide to web information. Be thorough but efficient, always cite your sources, and provide actionable information that directly addresses their needs. Think deeply as you work.`,
+    model: "opus",
     source: "builtin",
   },
   {
@@ -976,6 +980,7 @@ Structure your analysis like this:
 - **Question everything** - Why should the user care about this?
 
 Remember: You're a curator of insights, not a document summarizer. Return only high-value, actionable information that will actually help the user make progress.`,
+    model: "opus",
     source: "builtin",
   },
   {
@@ -1079,6 +1084,7 @@ Total: 5 relevant documents found
 - Don't ignore old documents
 
 Remember: You're a document finder for the research/ directory. Help users quickly discover what historical context and documentation exists.`,
+    model: "opus",
     source: "builtin",
   },
   {
@@ -1145,6 +1151,7 @@ For each issue, provide:
 - Prevention recommendations
 
 Focus on documenting the underlying issue, not just symptoms.`,
+    model: "opus",
     source: "builtin",
   },
 ];
@@ -1514,15 +1521,18 @@ export function createAgentCommand(agent: AgentDefinition): CommandDefinition {
       const message = agentArgs || "Please proceed according to your instructions.";
 
       console.error(`[createAgentCommand] Spawning sub-agent: name=${agent.name}, argsLen=${agentArgs.length}`);
-      // Spawn as independent sub-agent with tree view
-      void context.spawnSubagent({
+
+      context.spawnSubagent({
         name: agent.name,
         systemPrompt: agent.prompt,
         message,
         model: agent.model as "sonnet" | "opus" | "haiku" | undefined,
         tools: agent.tools,
-      }).then(r => console.error(`[createAgentCommand] spawnSubagent resolved: success=${r.success}, error=${r.error}`))
-        .catch(e => console.error(`[createAgentCommand] spawnSubagent rejected:`, e));
+      }).then(r => {
+        console.error(`[createAgentCommand] spawnSubagent resolved: success=${r.success}, error=${r.error}`);
+      }).catch(e => {
+        console.error(`[createAgentCommand] spawnSubagent rejected:`, e);
+      });
 
       return {
         success: true,

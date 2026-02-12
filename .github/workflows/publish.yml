@@ -34,6 +34,12 @@ jobs:
       - name: Install dependencies
         run: bun ci
 
+      - name: Install all platform-specific opentui native bindings
+        run: |
+          bun add --optional @opentui/core-darwin-x64@0.1.79 @opentui/core-darwin-arm64@0.1.79 \
+            @opentui/core-linux-x64@0.1.79 @opentui/core-linux-arm64@0.1.79 \
+            @opentui/core-win32-x64@0.1.79 @opentui/core-win32-arm64@0.1.79
+
       # TODO: Re-enable after fixing failing tests
       # - name: Run tests
       #   run: bun test

@@ -6,6 +6,26 @@
  *   Step 2: Feature implementation (buildImplementFeaturePrompt)
  */
 
+import type { SourceControlType } from "../../config";
+
+/**
+ * Get SCM-appropriate history command for the implement feature prompt.
+ */
+export function getHistoryCommand(scm: SourceControlType): string {
+  return scm === "sapling-phabricator"
+    ? "sl smartlog -l 10"
+    : "git log --oneline -20";
+}
+
+/**
+ * Get SCM-appropriate commit command reference for the implement feature prompt.
+ */
+export function getCommitCommandReference(scm: SourceControlType): string {
+  return scm === "sapling-phabricator"
+    ? "/commit (uses sl commit)"
+    : "/commit (uses git commit)";
+}
+
 /** Build the spec-to-tasks prompt for decomposing a spec into TodoItem[] */
 export function buildSpecToTasksPrompt(specContent: string): string {
   return `You are tasked with decomposing a feature specification into an ordered task list.
@@ -67,8 +87,15 @@ After calling TodoWrite with the above tasks, proceed with the implementation in
 `;
 }
 
-/** Build the implement-feature prompt (step 2 of the ralph workflow) */
-export function buildImplementFeaturePrompt(): string {
+/**
+ * Build the implement-feature prompt (step 2 of the ralph workflow).
+ * Accepts optional SCM type to customize history and commit command references.
+ * Defaults to GitHub/Git if not specified.
+ */
+export function buildImplementFeaturePrompt(scm: SourceControlType = "github"): string {
+  const historyCmd = getHistoryCommand(scm);
+  const commitRef = getCommitCommandReference(scm);
+
   return `You are tasked with implementing a SINGLE feature from the task list.
 
 # Getting up to speed
@@ -88,7 +115,7 @@ A typical workflow will start something like this:
 [Tool Use] <read - progress.txt>
 [Tool Use] <read - task-list.json>
 [Assistant] Let me check the git log to see recent work.
-[Tool Use] <bash - git log --oneline -20>
+[Tool Use] <bash - ${historyCmd}>
 [Assistant] Now let me check if there's an init.sh script to restart the servers.
 <Starts the development server>
 [Assistant] Excellent! Now let me navigate to the application and verify that some fundamental features are still working.
@@ -140,7 +167,7 @@ Use the "Gang of Four" patterns as a shared vocabulary to solve recurring proble
 - You may be tempted to ignore unrelated errors that you introduced or were pre-existing before you started working on the feature. DO NOT IGNORE THEM. If you need to adjust priority, do so by updating the task list (move the fix to the top) and \`progress.txt\` file to reflect the new priorities
 - AFTER implementing the feature AND verifying its functionality by creating tests, mark the feature as complete in the task list
 - It is unacceptable to remove or edit tests because this could lead to missing or buggy functionality
-- Commit progress to git with descriptive commit messages by running the \`/commit\` command using the \`SlashCommand\` tool
+- Commit progress with descriptive commit messages by running ${commitRef} using the \`Skill\` tool
 - Write summaries of your progress in \`progress.txt\`
     - Tip: this can be useful to revert bad code changes and recover working states of the codebase
 - Note: you are competing with another coding agent that also implements features. The one who does a better job implementing features will be promoted. Focus on quality, correctness, and thorough testing. The agent who breaks the rules for implementation will be fired.`;

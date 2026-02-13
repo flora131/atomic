@@ -9,6 +9,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { STATUS } from "../../../src/ui/constants/icons.ts";
 import {
   readToolRenderer,
   editToolRenderer,
@@ -347,7 +348,7 @@ describe("writeToolRenderer", () => {
 
     const result = writeToolRenderer.render(props);
 
-    expect(result.content.some((line) => line.includes("✓"))).toBe(true);
+    expect(result.content.some((line) => line.includes(STATUS.success))).toBe(true);
   });
 
   test("render shows pending status when no output", () => {
@@ -357,7 +358,7 @@ describe("writeToolRenderer", () => {
 
     const result = writeToolRenderer.render(props);
 
-    expect(result.content.some((line) => line.includes("○"))).toBe(true);
+    expect(result.content.some((line) => line.includes(STATUS.pending))).toBe(true);
   });
 
   test("render shows content preview", () => {

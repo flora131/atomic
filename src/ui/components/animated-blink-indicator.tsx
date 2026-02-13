@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useEffect } from "react";
+import { STATUS, MISC } from "../constants/icons.ts";
 
 /**
  * Animated blinking indicator for active/running states.
@@ -28,5 +29,5 @@ export function AnimatedBlinkIndicator({
     return () => clearInterval(interval);
   }, [speed]);
 
-  return <span style={{ fg: color }}>{visible ? "●" : "·"}</span>;
+  return <span style={{ fg: color }}>{visible ? STATUS.active : MISC.separator}</span>;
 }

@@ -46,7 +46,7 @@ import {
   ModelSelectorDialog,
 } from "./components/model-selector-dialog.tsx";
 import type { Model } from "../models/model-transform.ts";
-import { TaskListIndicator, type TaskItem } from "./components/task-list-indicator.tsx";
+import { type TaskItem } from "./components/task-list-indicator.tsx";
 import {
   useStreamingState,
   type ToolExecutionStatus,
@@ -459,6 +459,10 @@ export interface ChatMessage {
   skillLoads?: MessageSkillLoad[];
   /** Snapshot of task items active during this message (baked on completion) */
   taskItems?: Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; blockedBy?: string[]}>;
+  /** Content offset when parallel agents first appeared (for chronological positioning) */
+  agentsContentOffset?: number;
+  /** Content offset when task list first appeared (for chronological positioning) */
+  tasksContentOffset?: number;
   /** MCP server list for rendering via McpServerListIndicator */
   mcpServers?: import("../sdk/types.ts").McpServerConfig[];
   contextInfo?: import("./commands/registry.ts").ContextDisplayInfo;
@@ -1127,42 +1131,86 @@ export function AtomicHeader({
  * Used for interleaving text content with tool calls at the correct positions.
  */
 interface ContentSegment {
-  type: "text" | "tool";
+  type: "text" | "tool" | "agents" | "tasks";
   content?: string;
   toolCall?: MessageToolCall;
+  agents?: ParallelAgent[];
+  taskItems?: TaskItem[];
+  tasksExpanded?: boolean;
   key: string;
 }
 
 /**
  * Build interleaved content segments from message content and tool calls.
  * Tool calls are inserted at their recorded content offsets.
+ * Agents and tasks are also inserted at their chronological offsets.
  */
-function buildContentSegments(content: string, toolCalls: MessageToolCall[]): ContentSegment[] {
+function buildContentSegments(
+  content: string,
+  toolCalls: MessageToolCall[],
+  agents?: ParallelAgent[] | null,
+  agentsOffset?: number,
+  taskItems?: TaskItem[] | null,
+  tasksOffset?: number,
+  tasksExpanded?: boolean,
+): ContentSegment[] {
   // Filter out HITL tools
   const visibleToolCalls = toolCalls.filter(tc =>
     tc.toolName !== "AskUserQuestion" && tc.toolName !== "question" && tc.toolName !== "ask_user"
   );
 
-  if (visibleToolCalls.length === 0) {
+  // Build unified list of insertion points
+  interface InsertionPoint {
+    offset: number;
+    segment: ContentSegment;
+    consumesText: boolean; // Only tool calls consume text at their offset
+  }
+
+  const insertions: InsertionPoint[] = [];
+
+  // Add tool call insertions
+  for (const tc of visibleToolCalls) {
+    insertions.push({
+      offset: tc.contentOffsetAtStart ?? 0,
+      segment: { type: "tool", toolCall: tc, key: `tool-${tc.id}` },
+      consumesText: true,
+    });
+  }
+
+  // Add agents tree insertion (if agents exist and offset is defined)
+  if (agents && agents.length > 0 && agentsOffset !== undefined) {
+    insertions.push({
+      offset: agentsOffset,
+      segment: { type: "agents", agents, key: "agents-tree" },
+      consumesText: false,
+    });
+  }
+
+  // Add task list insertion (if tasks exist and offset is defined)
+  if (taskItems && taskItems.length > 0 && tasksOffset !== undefined) {
+    insertions.push({
+      offset: tasksOffset,
+      segment: { type: "tasks", taskItems, tasksExpanded, key: "task-list" },
+      consumesText: false,
+    });
+  }
+
+  // Sort all insertions by offset ascending
+  insertions.sort((a, b) => a.offset - b.offset);
+
+  // If no insertions, return text-only segment
+  if (insertions.length === 0) {
     return content ? [{ type: "text", content, key: "text-0" }] : [];
   }
 
-  // Sort tool calls by their content offset (ascending)
-  const sortedToolCalls = [...visibleToolCalls].sort((a, b) => {
-    const offsetA = a.contentOffsetAtStart ?? 0;
-    const offsetB = b.contentOffsetAtStart ?? 0;
-    return offsetA - offsetB;
-  });
-
+  // Build segments by slicing content at insertion offsets
   const segments: ContentSegment[] = [];
   let lastOffset = 0;
 
-  for (const toolCall of sortedToolCalls) {
-    const offset = toolCall.contentOffsetAtStart ?? 0;
-
-    // Add text segment before this tool call (if any)
-    if (offset > lastOffset) {
-      const textContent = content.slice(lastOffset, offset).trimEnd();
+  for (const ins of insertions) {
+    // Add text segment before this insertion (if any)
+    if (ins.offset > lastOffset) {
+      const textContent = content.slice(lastOffset, ins.offset).trimEnd();
       if (textContent) {
         segments.push({
           type: "text",
@@ -1172,17 +1220,17 @@ function buildContentSegments(content: string, toolCalls: MessageToolCall[]): Co
       }
     }
 
-    // Add the tool call segment
-    segments.push({
-      type: "tool",
-      toolCall,
-      key: `tool-${toolCall.id}`,
-    });
+    // Add the insertion segment
+    segments.push(ins.segment);
 
-    lastOffset = offset;
+    // Only advance lastOffset for tool calls (which consume text)
+    // For agents/tasks, keep lastOffset where it is so text continues after them
+    if (ins.consumesText) {
+      lastOffset = ins.offset;
+    }
   }
 
-  // Add remaining text after the last tool call
+  // Add remaining text after the last insertion
   if (lastOffset < content.length) {
     const remainingContent = content.slice(lastOffset).trimStart();
     if (remainingContent) {
@@ -1310,8 +1358,22 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
 
   // Assistant message: bullet point prefix, with tool calls interleaved at correct positions
   if (message.role === "assistant") {
-    // Build interleaved content segments
-    const segments = buildContentSegments(message.content, message.toolCalls || []);
+    // Determine which agents and tasks to show (live during streaming, baked when completed)
+    const agentsToShow = parallelAgents?.length ? parallelAgents
+      : message.parallelAgents?.length ? message.parallelAgents
+      : null;
+    const taskItemsToShow = message.streaming ? todoItems : message.taskItems;
+
+    // Build interleaved content segments (now includes agents and tasks)
+    const segments = buildContentSegments(
+      message.content,
+      message.toolCalls || [],
+      agentsToShow,
+      message.agentsContentOffset,
+      taskItemsToShow,
+      message.tasksContentOffset,
+      tasksExpanded,
+    );
     const _hasContent = segments.length > 0;
 
     // Check if first segment is text (for bullet point prefix)
@@ -1384,7 +1446,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
           } else if (segment.type === "tool" && segment.toolCall) {
             // Tool call segment
             return (
-              <box key={segment.key} marginBottom={index < segments.length - 1 ? 1 : 0}>
+              <box key={segment.key}>
                 <ToolResult
                   toolName={segment.toolCall.toolName}
                   input={segment.toolCall.input}
@@ -1393,43 +1455,50 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
                 />
               </box>
             );
+          } else if (segment.type === "agents" && segment.agents) {
+            // Parallel agents tree segment (chronologically positioned)
+            return (
+              <ParallelAgentsTree
+                key={segment.key}
+                agents={segment.agents}
+                compact={true}
+                maxVisible={5}
+                noTopMargin={index === 0}
+              />
+            );
+          } else if (segment.type === "tasks" && segment.taskItems) {
+            // Tasks already rendered by TodoWrite tool result + persistent panel at top
+            return null;
           }
           return null;
         })}
 
-        {/* Inline parallel agents tree — between tool/text content and loading spinner */}
-        {/* Live agents (from prop) for the currently streaming message, or baked agents for completed messages */}
+        {/* Fallback: Render agents/tasks at bottom if not in segments (for legacy messages) */}
         {(() => {
-          const agentsToShow = parallelAgents && parallelAgents.length > 0
-            ? parallelAgents
-            : message.parallelAgents && message.parallelAgents.length > 0
-              ? message.parallelAgents
-              : null;
-          return agentsToShow ? (
-            <ParallelAgentsTree
-              agents={agentsToShow}
-              compact={true}
-              maxVisible={5}
-              noTopMargin={segments.length === 0}
-            />
-          ) : null;
+          const agentsInSegments = segments.some(s => s.type === "agents");
+          
+          return (
+            <>
+              {!agentsInSegments && agentsToShow && (
+                <ParallelAgentsTree
+                  agents={agentsToShow}
+                  compact={true}
+                  maxVisible={5}
+                  noTopMargin={segments.length === 0}
+                />
+              )}
+              {/* Tasks rendered by TodoWrite tool result + persistent panel */}
+            </>
+          );
         })()}
 
         {/* Loading spinner — always at bottom of streamed content */}
         {message.streaming && !hideLoading && (
-          <box flexDirection="row" alignItems="flex-start" marginTop={segments.length > 0 || (parallelAgents && parallelAgents.length > 0) ? 1 : 0}>
+          <box flexDirection="row" alignItems="flex-start" marginTop={segments.length > 0 || agentsToShow ? 1 : 0}>
             <text>
               <LoadingIndicator speed={120} elapsedMs={elapsedMs} outputTokens={streamingMeta?.outputTokens} thinkingMs={streamingMeta?.thinkingMs} />
             </text>
           </box>
-        )}
-
-        {/* Inline task list — shown under spinner during streaming, or from baked data in completed messages */}
-        {message.streaming && !hideLoading && todoItems && todoItems.length > 0 && (
-          <TaskListIndicator items={todoItems} expanded={tasksExpanded} />
-        )}
-        {!message.streaming && message.taskItems && message.taskItems.length > 0 && (
-          <TaskListIndicator items={message.taskItems} expanded={tasksExpanded} />
         )}
 
         {/* Completion summary: shown only when response took longer than 60s */}
@@ -1674,6 +1743,9 @@ export function ChatApp({
   // When the last agent finishes, the stored function is called to finalize
   // the message and process the next queued message.
   const pendingCompleteRef = useRef<(() => void) | null>(null);
+  // Tracks whether the current stream is an @mention-only stream (no SDK onComplete).
+  // Prevents the agent-only completion path from firing for SDK-spawned sub-agents.
+  const isAgentOnlyStreamRef = useRef(false);
   // Ref to hold a deferred user interrupt message when sub-agents are still running.
   // When the last agent finishes, the interrupt fires and the stored message is sent.
   const pendingInterruptMessageRef = useRef<string | null>(null);
@@ -1738,6 +1810,14 @@ export function ChatApp({
   }, []);
 
   /**
+   * Check if a tool spawns sub-agents (for offset capture).
+   */
+  function isSubAgentTool(toolName: string): boolean {
+    const subAgentTools = ["Task", "task"];
+    return subAgentTools.includes(toolName);
+  }
+
+  /**
    * Handle tool execution start event.
    * Updates streaming state and adds tool call to current message.
    * Captures content offset for inline rendering.
@@ -1781,10 +1861,19 @@ export function ChatApp({
               status: "running",
               contentOffsetAtStart,
             };
-            return {
+            
+            // Create updated message with new tool call
+            const updatedMsg = {
               ...msg,
               toolCalls: [...(msg.toolCalls || []), newToolCall],
             };
+            
+            // Capture agents offset on first sub-agent-spawning tool
+            if (isSubAgentTool(toolName) && msg.agentsContentOffset === undefined) {
+              updatedMsg.agentsContentOffset = msg.content.length;
+            }
+            
+            return updatedMsg;
           }
           return msg;
         })
@@ -1796,6 +1885,17 @@ export function ChatApp({
       const todos = input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>;
       todoItemsRef.current = todos;
       setTodoItems(todos);
+      
+      // Capture tasks offset on first TodoWrite call
+      if (messageId) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === messageId && msg.tasksContentOffset === undefined
+              ? { ...msg, tasksContentOffset: msg.content.length }
+              : msg
+          )
+        );
+      }
     }
   }, [streamingState]);
 
@@ -1993,6 +2093,7 @@ export function ChatApp({
                   toolCalls: [],
                 };
                 streamingMessageIdRef.current = newMessage.id;
+                isAgentOnlyStreamRef.current = false;
                 return [...prev, newMessage];
               });
             },
@@ -2256,6 +2357,7 @@ export function ChatApp({
 
         const assistantMsg = createMessage("assistant", "", true);
         streamingMessageIdRef.current = assistantMsg.id;
+        isAgentOnlyStreamRef.current = true;
         isStreamingRef.current = true;
         streamingStartRef.current = Date.now();
         streamingMetaRef.current = null;
@@ -2289,7 +2391,8 @@ export function ChatApp({
     if (
       parallelAgents.length > 0 &&
       streamingMessageIdRef.current &&
-      isStreamingRef.current
+      isStreamingRef.current &&
+      isAgentOnlyStreamRef.current
     ) {
       const messageId = streamingMessageIdRef.current;
       const durationMs = streamingStartRef.current
@@ -2318,11 +2421,12 @@ export function ChatApp({
           msg.id === messageId
             ? {
               ...msg,
-              content: agentOutput || msg.content,
+              content: (msg.toolCalls?.length ?? 0) > 0 ? msg.content : (agentOutput || msg.content),
               streaming: false,
               completedAt: new Date(),
               durationMs,
               parallelAgents: finalizedAgents,
+              taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined,
             }
             : msg
         )
@@ -2331,6 +2435,7 @@ export function ChatApp({
       streamingStartRef.current = null;
       streamingMetaRef.current = null;
       isStreamingRef.current = false;
+      isAgentOnlyStreamRef.current = false;
       setIsStreaming(false);
       setStreamingMeta(null);
       setParallelAgents([]);
@@ -2674,7 +2779,7 @@ export function ChatApp({
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       addMessage("assistant", `Failed to switch model: ${errorMessage}`);
     }
-  }, [modelOps, addMessage, onModelChange]);
+  }, [modelOps, addMessage, onModelChange, agentType]);
 
   /**
    * Handle model selector cancellation.
@@ -2760,6 +2865,7 @@ export function ChatApp({
           // Create placeholder assistant message for the response
           const assistantMessage = createMessage("assistant", "", true);
           streamingMessageIdRef.current = assistantMessage.id;
+          isAgentOnlyStreamRef.current = false;
           setMessages((prev: ChatMessage[]) => [...prev, assistantMessage]);
 
           const handleChunk = (chunk: string) => {
@@ -4148,6 +4254,7 @@ export function ChatApp({
         // Create placeholder assistant message
         const assistantMessage = createMessage("assistant", "", true);
         streamingMessageIdRef.current = assistantMessage.id;
+        isAgentOnlyStreamRef.current = false;
         setMessages((prev: ChatMessage[]) => [...prev, assistantMessage]);
 
         // Handle stream chunks — guarded by ref to drop post-interrupt chunks
@@ -4441,6 +4548,7 @@ export function ChatApp({
           // parallelAgents useEffect).
           const assistantMsg = createMessage("assistant", "", true);
           streamingMessageIdRef.current = assistantMsg.id;
+          isAgentOnlyStreamRef.current = true;
           isStreamingRef.current = true;
           streamingStartRef.current = Date.now();
           streamingMetaRef.current = null;

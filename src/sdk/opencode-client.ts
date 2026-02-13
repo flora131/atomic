@@ -1399,12 +1399,22 @@ export class OpenCodeClient implements CodingAgentClient {
    */
   async getModelDisplayInfo(
     modelHint?: string
-  ): Promise<{ model: string; tier: string }> {
+  ): Promise<{ model: string; tier: string; contextWindow?: number }> {
+    let contextWindow = this.activeContextWindow ?? undefined;
+    if (this.isRunning && this.sdkClient) {
+      try {
+        contextWindow = await this.resolveModelContextWindow(modelHint);
+      } catch {
+        // Keep cached value when provider metadata is temporarily unavailable.
+      }
+    }
+
     // Use raw model ID (strip provider prefix) for display
     if (modelHint) {
       return {
         model: stripProviderPrefix(modelHint),
         tier: "OpenCode",
+        contextWindow,
       };
     }
 
@@ -1412,13 +1422,14 @@ export class OpenCodeClient implements CodingAgentClient {
     if (this.isRunning && this.sdkClient) {
       const rawId = await this.lookupRawModelIdFromProviders();
       if (rawId) {
-        return { model: rawId, tier: "OpenCode" };
+        return { model: rawId, tier: "OpenCode", contextWindow };
       }
     }
 
     return {
       model: "OpenCode",
       tier: "OpenCode",
+      contextWindow,
     };
   }
 

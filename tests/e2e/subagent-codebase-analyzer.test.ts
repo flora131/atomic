@@ -349,9 +349,9 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const context = createMockCommandContext();
       command!.execute("analyze authentication flow", context);
 
-      // Should have sent a message containing the argument
-      expect(context.sentMessages.length).toBeGreaterThan(0);
-      expect(context.sentMessages[0]).toContain("analyze authentication flow");
+      // Should have spawned a subagent with the argument as message
+      expect(context.spawnRecords.length).toBeGreaterThan(0);
+      expect(context.spawnRecords[0]!.message).toContain("analyze authentication flow");
     });
 
     test("/codebase-analyzer appends user request section to prompt", () => {
@@ -363,10 +363,10 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const context = createMockCommandContext();
       command!.execute("analyze login handler", context);
 
-      // Sent message should include both agent prompt and user request
-      const sentMessage = context.sentMessages[0];
-      expect(sentMessage).toContain("## User Request");
-      expect(sentMessage).toContain("analyze login handler");
+      // Subagent should have system prompt and user message
+      const spawnRecord = context.spawnRecords[0]!;
+      expect(spawnRecord.systemPrompt).toBeDefined();
+      expect(spawnRecord.message).toContain("analyze login handler");
     });
 
     test("/codebase-analyzer handles empty arguments", async () => {
@@ -379,8 +379,8 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const result = await command!.execute("", context);
 
       expect(result.success).toBe(true);
-      // Should still send the base prompt without user request section
-      expect(context.sentMessages.length).toBeGreaterThan(0);
+      // Should still spawn subagent with default message
+      expect(context.spawnRecords.length).toBeGreaterThan(0);
     });
   });
 
@@ -452,7 +452,7 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       expect(prompt).toContain("Trace actual code paths");
     });
 
-    test("sendMessage includes full system prompt", () => {
+    test("spawnSubagent includes full system prompt", () => {
       registerBuiltinAgents();
 
       const agent = getBuiltinAgent("codebase-analyzer");
@@ -462,10 +462,10 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const context = createMockCommandContext();
       command!.execute("test query", context);
 
-      // Sent message should start with the system prompt content
-      const sentMessage = context.sentMessages[0];
-      expect(sentMessage).toContain("specialist at understanding HOW code works");
-      expect(sentMessage).toContain(agent!.prompt);
+      // Subagent should be spawned with the full system prompt
+      const spawnRecord = context.spawnRecords[0]!;
+      expect(spawnRecord.systemPrompt).toContain("specialist at understanding HOW code works");
+      expect(spawnRecord.systemPrompt).toContain(agent!.prompt);
     });
   });
 
@@ -643,7 +643,7 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       expect(result.message).toBeUndefined();
     });
 
-    test("command sends message to context", () => {
+    test("command spawns subagent", () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-analyzer");
@@ -652,12 +652,12 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const context = createMockCommandContext();
       command!.execute("analyze auth", context);
 
-      // Message should be sent
-      expect(context.sentMessages).toHaveLength(1);
-      expect(context.sentMessages[0]).toBeTruthy();
+      // Subagent should be spawned
+      expect(context.spawnRecords).toHaveLength(1);
+      expect(context.spawnRecords[0]!).toBeTruthy();
     });
 
-    test("result includes user request in sent message", () => {
+    test("result includes user request in spawn message", () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("codebase-analyzer");
@@ -666,8 +666,8 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const context = createMockCommandContext();
       command!.execute("analyze the authentication flow in detail", context);
 
-      const sentMessage = context.sentMessages[0];
-      expect(sentMessage).toContain("authentication flow");
+      const spawnRecord = context.spawnRecords[0]!;
+      expect(spawnRecord.message).toContain("authentication flow");
     });
 
     test("multiple invocations each return independent results", async () => {
@@ -686,9 +686,9 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       expect(result1.success).toBe(true);
       expect(result2.success).toBe(true);
 
-      // Each context has its own message
-      expect(context1.sentMessages[0]).toContain("query 1");
-      expect(context2.sentMessages[0]).toContain("query 2");
+      // Each context has its own spawn record
+      expect(context1.spawnRecords[0]!.message).toContain("query 1");
+      expect(context2.spawnRecords[0]!.message).toContain("query 2");
     });
 
     test("command result type is CommandResult", async () => {
@@ -728,12 +728,12 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
 
       // 4. Verify result
       expect(result.success).toBe(true);
-      expect(context.sentMessages).toHaveLength(1);
+      expect(context.spawnRecords).toHaveLength(1);
 
-      // 5. Verify message content
-      const message = context.sentMessages[0];
-      expect(message).toContain("specialist at understanding HOW code works");
-      expect(message).toContain("analyze authentication flow");
+      // 5. Verify spawn record content
+      const spawnRecord = context.spawnRecords[0]!;
+      expect(spawnRecord.systemPrompt).toContain("specialist at understanding HOW code works");
+      expect(spawnRecord.message).toContain("analyze authentication flow");
     });
 
     test("agent command works with session context", async () => {
@@ -749,7 +749,7 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const result = await command!.execute("find auth handlers", context);
 
       expect(result.success).toBe(true);
-      expect(context.sentMessages).toHaveLength(1);
+      expect(context.spawnRecords).toHaveLength(1);
     });
 
     test("agent command description matches expected format", () => {
@@ -805,17 +805,17 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
 
       // Query 1
       command!.execute("analyze login", context);
-      expect(context.sentMessages[0]).toContain("analyze login");
+      expect(context.spawnRecords[0]!.message).toContain("analyze login");
 
       // Query 2 (same context, appends)
       command!.execute("analyze logout", context);
-      expect(context.sentMessages[1]).toContain("analyze logout");
+      expect(context.spawnRecords[1]!.message).toContain("analyze logout");
 
       // Query 3
       command!.execute("analyze session management", context);
-      expect(context.sentMessages[2]).toContain("session management");
+      expect(context.spawnRecords[2]!.message).toContain("session management");
 
-      expect(context.sentMessages).toHaveLength(3);
+      expect(context.spawnRecords).toHaveLength(3);
     });
   });
 
@@ -833,8 +833,8 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const result = await command!.execute("   ", context);
 
       expect(result.success).toBe(true);
-      // Should send prompt without user request section (whitespace trimmed)
-      expect(context.sentMessages).toHaveLength(1);
+      // Should spawn subagent with default message (whitespace trimmed)
+      expect(context.spawnRecords).toHaveLength(1);
     });
 
     test("handles very long arguments", async () => {
@@ -847,7 +847,7 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const result = await command!.execute(longArg, context);
 
       expect(result.success).toBe(true);
-      expect(context.sentMessages[0]).toContain(longArg);
+      expect(context.spawnRecords[0]!.message).toContain(longArg);
     });
 
     test("handles special characters in arguments", async () => {
@@ -860,7 +860,7 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const result = await command!.execute(specialArgs, context);
 
       expect(result.success).toBe(true);
-      expect(context.sentMessages[0]).toContain(specialArgs);
+      expect(context.spawnRecords[0]!.message).toContain(specialArgs);
     });
 
     test("handles newlines in arguments", async () => {
@@ -873,8 +873,8 @@ describe("E2E test: Sub-agent invocation /codebase-analyzer", () => {
       const result = await command!.execute(multilineArgs, context);
 
       expect(result.success).toBe(true);
-      expect(context.sentMessages[0]).toContain("line 1");
-      expect(context.sentMessages[0]).toContain("line 2");
+      expect(context.spawnRecords[0]!.message).toContain("line 1");
+      expect(context.spawnRecords[0]!.message).toContain("line 2");
     });
 
     test("case-insensitive command lookup", () => {

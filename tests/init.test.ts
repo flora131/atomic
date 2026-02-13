@@ -655,7 +655,7 @@ describe("SCM selection in initCommand", () => {
      */
 
     test("github returns github regardless of platform", () => {
-      const scmType = "github";
+      const scmType: string = "github";
       const isWindowsPlatform = false;
 
       const templatePath = scmType === "sapling-phabricator" && isWindowsPlatform
@@ -666,7 +666,7 @@ describe("SCM selection in initCommand", () => {
     });
 
     test("github on Windows still returns github", () => {
-      const scmType = "github";
+      const scmType: string = "github";
       const isWindowsPlatform = true;
 
       const templatePath = scmType === "sapling-phabricator" && isWindowsPlatform
@@ -705,7 +705,7 @@ describe("SCM selection in initCommand", () => {
      */
 
     test("claude uses 'commands' subfolder", () => {
-      const agentKey = "claude";
+      const agentKey: string = "claude";
       let subfolder: string;
 
       switch (agentKey) {
@@ -726,7 +726,7 @@ describe("SCM selection in initCommand", () => {
     });
 
     test("opencode uses 'command' subfolder (singular)", () => {
-      const agentKey = "opencode";
+      const agentKey: string = "opencode";
       let subfolder: string;
 
       switch (agentKey) {
@@ -747,7 +747,7 @@ describe("SCM selection in initCommand", () => {
     });
 
     test("copilot uses 'skills' subfolder", () => {
-      const agentKey = "copilot";
+      const agentKey: string = "copilot";
       let subfolder: string;
 
       switch (agentKey) {

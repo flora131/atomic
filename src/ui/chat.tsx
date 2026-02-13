@@ -1557,7 +1557,8 @@ export function ChatApp({
     if (selection) {
       const selectedText = selection.getSelectedText();
       if (selectedText) {
-        renderer.copyToClipboardOSC52(selectedText);
+        // Type assertion for method that exists at runtime but not in type definitions
+        (renderer as unknown as { copyToClipboardOSC52: (text: string) => void }).copyToClipboardOSC52(selectedText);
       }
     }
   }, [renderer]);
@@ -3350,12 +3351,15 @@ export function ChatApp({
   // Checks both textarea selection and renderer (mouse-drag) selection
   const handleCopy = useCallback(() => {
     const textarea = textareaRef.current;
+    // Type assertion for method that exists at runtime but not in type definitions
+    const copyToClipboard = (text: string) =>
+      (renderer as unknown as { copyToClipboardOSC52: (text: string) => void }).copyToClipboardOSC52(text);
 
     // First, check textarea selection (input area)
     if (textarea?.hasSelection()) {
       const selectedText = textarea.getSelectedText();
       if (selectedText) {
-        renderer.copyToClipboardOSC52(selectedText);
+        copyToClipboard(selectedText);
         return;
       }
     }
@@ -3365,7 +3369,7 @@ export function ChatApp({
     if (selection) {
       const selectedText = selection.getSelectedText();
       if (selectedText) {
-        renderer.copyToClipboardOSC52(selectedText);
+        copyToClipboard(selectedText);
         renderer.clearSelection();
       }
     }

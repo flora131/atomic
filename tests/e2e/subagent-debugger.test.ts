@@ -348,9 +348,9 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const context = createMockCommandContext();
       await command!.execute("fix TypeError in parser.ts", context);
 
-      // Should have sent a message containing the argument
-      expect(context.sentMessages.length).toBeGreaterThan(0);
-      expect(context.sentMessages[0]).toContain("fix TypeError in parser.ts");
+      // Should have spawned a subagent with the argument as message
+      expect(context.spawnRecords.length).toBeGreaterThan(0);
+      expect(context.spawnRecords[0]!.message).toContain("fix TypeError in parser.ts");
     });
 
     test("/debugger appends user request section to prompt", async () => {
@@ -362,10 +362,10 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const context = createMockCommandContext();
       await command!.execute("fix undefined error in handler", context);
 
-      // Sent message should include both agent prompt and user request
-      const sentMessage = context.sentMessages[0];
-      expect(sentMessage).toContain("## User Request");
-      expect(sentMessage).toContain("fix undefined error in handler");
+      // Subagent should have system prompt and user message
+      const spawnRecord = context.spawnRecords[0]!;
+      expect(spawnRecord.systemPrompt).toBeDefined();
+      expect(spawnRecord.message).toContain("fix undefined error in handler");
     });
 
     test("/debugger handles empty arguments", async () => {
@@ -378,8 +378,8 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const result = await command!.execute("", context);
 
       expect(result.success).toBe(true);
-      // Should still send the base prompt without user request section
-      expect(context.sentMessages.length).toBeGreaterThan(0);
+      // Should still spawn subagent with default message
+      expect(context.spawnRecords.length).toBeGreaterThan(0);
     });
 
     test("/debugger handles complex error descriptions", async () => {
@@ -393,10 +393,10 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
         "TypeError: Cannot read property 'map' of undefined at parser.ts:42 in parseTokens()";
       await command!.execute(complexError, context);
 
-      const sentMessage = context.sentMessages[0];
-      expect(sentMessage).toContain(complexError);
-      expect(sentMessage).toContain("parser.ts:42");
-      expect(sentMessage).toContain("parseTokens");
+      const spawnRecord = context.spawnRecords[0]!;
+      expect(spawnRecord.message).toContain(complexError);
+      expect(spawnRecord.message).toContain("parser.ts:42");
+      expect(spawnRecord.message).toContain("parseTokens");
     });
   });
 
@@ -484,10 +484,10 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const context = createMockCommandContext();
       await command!.execute("test query", context);
 
-      // Sent message should start with the system prompt content
-      const sentMessage = context.sentMessages[0];
-      expect(sentMessage).toContain("tasked with debugging and identifying errors");
-      expect(sentMessage).toContain(agent!.prompt);
+      // Subagent should be spawned with the full system prompt
+      const spawnRecord = context.spawnRecords[0]!;
+      expect(spawnRecord.systemPrompt).toContain("tasked with debugging and identifying errors");
+      expect(spawnRecord.systemPrompt).toContain(agent!.prompt);
     });
 
     test("system prompt covers common debugging patterns", () => {
@@ -699,7 +699,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       expect(result.message).toBeUndefined();
     });
 
-    test("command sends message to context", async () => {
+    test("command spawns subagent", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
@@ -708,12 +708,12 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const context = createMockCommandContext();
       await command!.execute("fix auth issue", context);
 
-      // Message should be sent
-      expect(context.sentMessages).toHaveLength(1);
-      expect(context.sentMessages[0]).toBeTruthy();
+      // Subagent should be spawned
+      expect(context.spawnRecords).toHaveLength(1);
+      expect(context.spawnRecords[0]!).toBeTruthy();
     });
 
-    test("result includes user request in sent message", async () => {
+    test("result includes user request in spawn message", async () => {
       registerBuiltinAgents();
 
       const command = globalRegistry.get("debugger");
@@ -722,9 +722,9 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const context = createMockCommandContext();
       await command!.execute("fix the TypeError Cannot read property of undefined", context);
 
-      const sentMessage = context.sentMessages[0];
-      expect(sentMessage).toContain("TypeError");
-      expect(sentMessage).toContain("Cannot read property of undefined");
+      const spawnRecord = context.spawnRecords[0]!;
+      expect(spawnRecord.message).toContain("TypeError");
+      expect(spawnRecord.message).toContain("Cannot read property of undefined");
     });
 
     test("multiple invocations each return independent results", async () => {
@@ -743,9 +743,9 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       expect(result1.success).toBe(true);
       expect(result2.success).toBe(true);
 
-      // Each context has its own message
-      expect(context1.sentMessages[0]).toContain("fix error 1");
-      expect(context2.sentMessages[0]).toContain("fix error 2");
+      // Each context has its own spawn record
+      expect(context1.spawnRecords[0]!.message).toContain("fix error 1");
+      expect(context2.spawnRecords[0]!.message).toContain("fix error 2");
     });
 
     test("command result type is CommandResult", async () => {
@@ -869,12 +869,12 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       // 4. Verify result
       expect(result.success).toBe(true);
-      expect(context.sentMessages).toHaveLength(1);
+      expect(context.spawnRecords).toHaveLength(1);
 
-      // 5. Verify message content
-      const message = context.sentMessages[0];
-      expect(message).toContain("tasked with debugging and identifying errors");
-      expect(message).toContain("fix TypeError in parser.ts");
+      // 5. Verify spawn record content
+      const spawnRecord = context.spawnRecords[0]!;
+      expect(spawnRecord.systemPrompt).toContain("tasked with debugging and identifying errors");
+      expect(spawnRecord.message).toContain("fix TypeError in parser.ts");
     });
 
     test("agent command works with session context", async () => {
@@ -890,7 +890,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const result = await command!.execute("fix failing tests", context);
 
       expect(result.success).toBe(true);
-      expect(context.sentMessages).toHaveLength(1);
+      expect(context.spawnRecords).toHaveLength(1);
     });
 
     test("agent command description matches expected format", () => {
@@ -945,17 +945,17 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
 
       // Query 1
       await command!.execute("fix syntax error", context);
-      expect(context.sentMessages[0]).toContain("fix syntax error");
+      expect(context.spawnRecords[0]!.message).toContain("fix syntax error");
 
       // Query 2 (same context, appends)
       await command!.execute("fix runtime error", context);
-      expect(context.sentMessages[1]).toContain("fix runtime error");
+      expect(context.spawnRecords[1]!.message).toContain("fix runtime error");
 
       // Query 3
       await command!.execute("fix type error", context);
-      expect(context.sentMessages[2]).toContain("fix type error");
+      expect(context.spawnRecords[2]!.message).toContain("fix type error");
 
-      expect(context.sentMessages).toHaveLength(3);
+      expect(context.spawnRecords).toHaveLength(3);
     });
   });
 
@@ -973,8 +973,8 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const result = await command!.execute("   ", context);
 
       expect(result.success).toBe(true);
-      // Should send prompt without user request section (whitespace trimmed)
-      expect(context.sentMessages).toHaveLength(1);
+      // Should spawn subagent with default message (whitespace trimmed)
+      expect(context.spawnRecords).toHaveLength(1);
     });
 
     test("handles very long arguments", async () => {
@@ -987,7 +987,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const result = await command!.execute(longArg, context);
 
       expect(result.success).toBe(true);
-      expect(context.sentMessages[0]).toContain(longArg);
+      expect(context.spawnRecords[0]!.message).toContain(longArg);
     });
 
     test("handles special characters in arguments", async () => {
@@ -1000,7 +1000,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const result = await command!.execute(specialArgs, context);
 
       expect(result.success).toBe(true);
-      expect(context.sentMessages[0]).toContain(specialArgs);
+      expect(context.spawnRecords[0]!.message).toContain(specialArgs);
     });
 
     test("handles newlines in arguments (stack traces)", async () => {
@@ -1016,8 +1016,8 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const result = await command!.execute(stackTrace, context);
 
       expect(result.success).toBe(true);
-      expect(context.sentMessages[0]).toContain("parser.ts:42");
-      expect(context.sentMessages[0]).toContain("parseTokens");
+      expect(context.spawnRecords[0]!.message).toContain("parser.ts:42");
+      expect(context.spawnRecords[0]!.message).toContain("parseTokens");
     });
 
     test("case-insensitive command lookup", () => {
@@ -1067,7 +1067,7 @@ describe("E2E test: Sub-agent invocation /debugger", () => {
       const result = await command!.execute(errorWithPath, context);
 
       expect(result.success).toBe(true);
-      expect(context.sentMessages[0]).toContain("/home/user/project/src/parser.ts:42:15");
+      expect(context.spawnRecords[0]!.message).toContain("/home/user/project/src/parser.ts:42:15");
     });
   });
 

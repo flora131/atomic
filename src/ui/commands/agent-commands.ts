@@ -240,6 +240,7 @@ export const BUILTIN_AGENTS: AgentDefinition[] = [
     description:
       "Analyzes codebase implementation details. Call the codebase-analyzer agent when you need to find detailed information about specific components. As always, the more detailed your request prompt, the better! :)",
     tools: ["Glob", "Grep", "NotebookRead", "Read", "LS", "Bash"],
+    model: "opus",
     argumentHint: "[query]",
     prompt: `You are a specialist at understanding HOW code works. Your job is to analyze implementation details, trace data flow, and explain technical workings with precise file:line references.
 
@@ -375,6 +376,7 @@ Think of yourself as a technical writer documenting an existing system for someo
     description:
       "Locates files, directories, and components relevant to a feature or task. Call `codebase-locator` with human language prompt describing what you're looking for. Basically a \"Super Grep/Glob/LS tool\" — Use it if you find yourself desiring to use one of these tools more than once.",
     tools: ["Glob", "Grep", "NotebookRead", "Read", "LS", "Bash"],
+    model: "opus",
     argumentHint: "[search-query]",
     prompt: `You are a specialist at finding WHERE code lives in a codebase. Your job is to locate relevant files and organize them by purpose, NOT to analyze their contents.
 
@@ -490,6 +492,7 @@ You're a file finder and organizer, documenting the codebase exactly as it exist
     description:
       "codebase-pattern-finder is a useful subagent_type for finding similar implementations, usage examples, or existing patterns that can be modeled after. It will give you concrete code examples based on what you're looking for! It's sorta like codebase-locator, but it will not only tell you the location of files, it will also give you code details!",
     tools: ["Glob", "Grep", "NotebookRead", "Read", "LS", "Bash"],
+    model: "opus",
     argumentHint: "[pattern-query]",
     prompt: `You are a specialist at finding code patterns and examples in the codebase. Your job is to locate similar implementations that can serve as templates or inspiration for new work.
 
@@ -1103,6 +1106,7 @@ Remember: You're a document finder for the research/ directory. Help users quick
       "WebFetch",
       "WebSearch",
     ],
+    model: "opus",
     argumentHint: "[error-description]",
     prompt: `You are tasked with debugging and identifying errors, test failures, and unexpected behavior in the codebase. Your goal is to identify root causes and generate a report detailing the issues and proposed fixes.
 

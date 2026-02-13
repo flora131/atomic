@@ -18,6 +18,7 @@ import type {
 } from "@opentui/core";
 import { MacOSScrollAccel, SyntaxStyle, RGBA } from "@opentui/core";
 import { useTheme, useThemeColors, darkTheme, lightTheme, createMarkdownSyntaxStyle } from "./theme.tsx";
+import { STATUS, CONNECTOR, ARROW, PROMPT, SPINNER_FRAMES, SPINNER_COMPLETE, CHECKBOX, SCROLLBAR, MISC } from "./constants/icons.ts";
 
 import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplete.tsx";
 import { ToolResult } from "./components/tool-result.tsx";
@@ -800,10 +801,7 @@ export const MAX_VISIBLE_MESSAGES = 50;
 // LOADING INDICATOR COMPONENT
 // ============================================================================
 
-/**
- * Spinner frames using braille characters for a smooth rotating dot effect.
- */
-const SPINNER_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
+// SPINNER_FRAMES imported from ./constants/icons.ts
 
 // Re-export SPINNER_VERBS from constants for backward compatibility
 export { SPINNER_VERBS } from "./constants/index.ts";
@@ -869,12 +867,12 @@ export function LoadingIndicator({ speed = 100, elapsedMs, outputTokens, thinkin
     parts.push(formatDuration(elapsedMs).text);
   }
   if (outputTokens != null && outputTokens > 0) {
-    parts.push(`↓ ${formatTokenCount(outputTokens)} tokens`);
+    parts.push(`${ARROW.down} ${formatTokenCount(outputTokens)} tokens`);
   }
   if (thinkingMs != null && thinkingMs >= 1000) {
     parts.push(`thought for ${formatCompletionDuration(thinkingMs)}`);
   }
-  const infoText = parts.length > 0 ? ` (${parts.join(" · ")})` : "";
+  const infoText = parts.length > 0 ? ` (${parts.join(` ${MISC.separator} `)})` : "";
 
   return (
     <>
@@ -895,7 +893,7 @@ export function LoadingIndicator({ speed = 100, elapsedMs, outputTokens, thinkin
  * Completion character — full braille block, consistent with the streaming spinner frames.
  */
 function getCompletionChar(): string {
-  return "⣿";
+  return SPINNER_COMPLETE;
 }
 
 /**
@@ -932,7 +930,7 @@ export function CompletionSummary({ durationMs, outputTokens, thinkingMs }: Comp
 
   const parts: string[] = [`${verb} for ${formatCompletionDuration(durationMs)}`];
   if (outputTokens != null && outputTokens > 0) {
-    parts.push(`↓ ${formatTokenCount(outputTokens)} tokens`);
+    parts.push(`${ARROW.down} ${formatTokenCount(outputTokens)} tokens`);
   }
   if (thinkingMs != null && thinkingMs >= 1000) {
     parts.push(`thought for ${formatCompletionDuration(thinkingMs)}`);
@@ -942,7 +940,7 @@ export function CompletionSummary({ durationMs, outputTokens, thinkingMs }: Comp
     <box flexDirection="row">
       <text style={{ fg: themeColors.muted }}>
         <span style={{ fg: themeColors.accent }}>{spinChar} </span>
-        <span>{parts.join(" · ")}</span>
+        <span>{parts.join(` ${MISC.separator} `)}</span>
       </text>
     </box>
   );
@@ -969,7 +967,7 @@ export function StreamingBullet({ speed = 500 }: { speed?: number }): React.Reac
     return () => clearInterval(interval);
   }, [speed]);
 
-  return <span style={{ fg: themeColors.accent }}>{visible ? "●" : "·"} </span>;
+  return <span style={{ fg: themeColors.accent }}>{visible ? STATUS.active : MISC.separator} </span>;
 }
 
 const HLREF_COMMAND = 1;
@@ -1112,7 +1110,7 @@ export function AtomicHeader({
 
         {/* Model info line */}
         <text style={{ fg: theme.colors.muted }}>
-          {model} · {tier}
+          {model} {MISC.separator} {tier}
         </text>
 
         {/* Working directory line */}
@@ -1259,8 +1257,8 @@ function buildContentSegments(
  */
 function preprocessTaskListCheckboxes(content: string): string {
   return content
-    .replace(/^(\s*[-*+]\s+)\[ \]/gm, "$1☐")
-    .replace(/^(\s*[-*+]\s+)\[[xX]\]/gm, "$1☑");
+    .replace(/^(\s*[-*+]\s+)\[ \]/gm, `$1${CHECKBOX.unchecked}`)
+    .replace(/^(\s*[-*+]\s+)\[[xX]\]/gm, `$1${CHECKBOX.checked}`);
 }
 export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, parallelAgents, todoItems, tasksExpanded = false, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
@@ -1282,7 +1280,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
       return (
         <box paddingLeft={1} paddingRight={1} marginBottom={0}>
           <text wrapMode="char" selectable>
-            <span style={{ fg: themeColors.dim }}>❯ </span>
+            <span style={{ fg: themeColors.dim }}>{PROMPT.cursor} </span>
             <span style={{ fg: themeColors.muted }}>{truncate(message.content, 78)}</span>
           </text>
         </box>
@@ -1292,12 +1290,12 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
     if (message.role === "assistant") {
       const toolCount = message.toolCalls?.length ?? 0;
       const toolLabel = toolCount > 0
-        ? ` · ${toolCount} tool${toolCount !== 1 ? "s" : ""}`
+        ? ` ${MISC.separator} ${toolCount} tool${toolCount !== 1 ? "s" : ""}`
         : "";
       return (
         <box paddingLeft={1} paddingRight={1} marginBottom={isLast ? 0 : 1}>
           <text wrapMode="char">
-            <span style={{ fg: themeColors.dim }}>  ⎿ </span>
+            <span style={{ fg: themeColors.dim }}>  {CONNECTOR.subStatus} </span>
             <span style={{ fg: themeColors.muted }}>{truncate(message.content, 74)}</span>
             <span style={{ fg: themeColors.dim }}>{toolLabel}</span>
           </text>
@@ -1324,7 +1322,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
       >
         <box flexGrow={1} flexShrink={1} minWidth={0}>
           <text wrapMode="char">
-            <span style={{ fg: themeColors.accent }}>❯ </span>
+            <span style={{ fg: themeColors.accent }}>{PROMPT.cursor} </span>
             <span style={{ bg: themeColors.userBubbleBg, fg: themeColors.userBubbleFg }}> {message.content} </span>
           </text>
         </box>
@@ -1340,7 +1338,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
                   : "Read";
               return (
                 <text key={i} wrapMode="char" style={{ fg: themeColors.muted }}>
-                  {` ⎿  ${verb} `}
+                  {` ${CONNECTOR.subStatus}  ${verb} `}
                   {f.path}
                   {f.isDirectory
                     ? ""
@@ -1420,7 +1418,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
             const bulletColor = themeColors.foreground;
             // Inline bullet prefix as <span> to avoid flex layout issues
             const bulletSpan = isFirst
-              ? (isActivelyStreaming ? <StreamingBullet speed={500} /> : <span style={{ fg: bulletColor }}>● </span>)
+              ? (isActivelyStreaming ? <StreamingBullet speed={500} /> : <span style={{ fg: bulletColor }}>{STATUS.active} </span>)
               : "  ";
             const trimmedContent = syntaxStyle 
               ? segment.content.replace(/^\n+/, "")
@@ -1428,7 +1426,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
             return syntaxStyle ? (
               <box key={segment.key} flexDirection="row" alignItems="flex-start" marginBottom={index < segments.length - 1 ? 1 : 0}>
                 <box flexShrink={0}>{isFirst
-                  ? (isActivelyStreaming ? <text><StreamingBullet speed={500} /></text> : <text style={{ fg: bulletColor }}>● </text>)
+                  ? (isActivelyStreaming ? <text><StreamingBullet speed={500} /></text> : <text style={{ fg: bulletColor }}>{STATUS.active} </text>)
                   : <text>  </text>}</box>
                 <box flexGrow={1} flexShrink={1} minWidth={0}>
                   <markdown
@@ -4769,7 +4767,7 @@ export function ChatApp({
       {showTodoPanel && !isStreaming && todoItems.length > 0 && (
         <box flexDirection="column" paddingLeft={2} paddingRight={2} marginBottom={1}>
           <text style={{ fg: themeColors.muted }}>
-            {`☑ ${todoItems.length} tasks (${todoItems.filter(t => t.status === "completed").length} done, ${todoItems.filter(t => t.status !== "completed").length} open) · ctrl+t to hide`}
+            {`${CHECKBOX.checked} ${todoItems.length} tasks (${todoItems.filter(t => t.status === "completed").length} done, ${todoItems.filter(t => t.status !== "completed").length} open) ${MISC.separator} ctrl+t to hide`}
           </text>
         </box>
       )}
@@ -4844,7 +4842,7 @@ export function ChatApp({
               flexDirection="row"
               alignItems="flex-start"
             >
-              <text flexShrink={0} style={{ fg: themeColors.accent }}>❯{" "}</text>
+              <text flexShrink={0} style={{ fg: themeColors.accent }}>{PROMPT.cursor}{" "}</text>
               <textarea
                 ref={textareaRef}
                 placeholder={messages.length === 0 ? dynamicPlaceholder : ""}
@@ -4877,7 +4875,7 @@ export function ChatApp({
                         key={`input-scroll-${i}`}
                         style={{ fg: inThumb ? themeColors.scrollbarFg : themeColors.scrollbarBg }}
                       >
-                        {inThumb ? "█" : "│"}
+                        {inThumb ? SCROLLBAR.thumb : SCROLLBAR.track}
                       </text>
                     );
                   })}
@@ -4890,7 +4888,7 @@ export function ChatApp({
                 <text style={{ fg: themeColors.muted }}>
                   esc to interrupt
                 </text>
-                <text style={{ fg: themeColors.muted }}>·</text>
+                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
                 <text style={{ fg: themeColors.muted }}>
                   ctrl+d enqueue
                 </text>

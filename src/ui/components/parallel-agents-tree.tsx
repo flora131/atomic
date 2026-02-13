@@ -11,6 +11,7 @@ import React from "react";
 import { useTheme, getCatppuccinPalette } from "../theme.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "../utils/format.ts";
 import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
+import { STATUS, TREE, CONNECTOR } from "../constants/icons.ts";
 
 // Re-export for backward compatibility
 export { truncateText };
@@ -78,12 +79,12 @@ export interface ParallelAgentsTreeProps {
  * Status icons for different agent states.
  */
 export const STATUS_ICONS: Record<AgentStatus, string> = {
-  pending: "○",
-  running: "●",
-  completed: "●",
-  error: "●",
-  background: "◌",
-  interrupted: "●",
+  pending: STATUS.pending,
+  running: STATUS.active,
+  completed: STATUS.active,
+  error: STATUS.active,
+  background: STATUS.background,
+  interrupted: STATUS.active,
 };
 
 /**
@@ -110,16 +111,6 @@ export function getAgentColors(isDark: boolean): Record<string, string> {
  * Static AGENT_COLORS for backward compatibility (Mocha/dark defaults).
  */
 export const AGENT_COLORS: Record<string, string> = getAgentColors(true);
-
-/**
- * Tree drawing characters.
- */
-const TREE_CHARS = {
-  branch: "├─",
-  lastBranch: "└─",
-  vertical: "│ ",
-  space: "  ",
-};
 
 /**
  * Indentation for sub-status lines beneath a tree row.
@@ -284,7 +275,7 @@ function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps):
       {isRunning && subStatus && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {"     ⎿  "}{truncateText(subStatus, 50)}
+            {`     ${CONNECTOR.subStatus}  `}{truncateText(subStatus, 50)}
           </text>
         </box>
       )}
@@ -303,7 +294,7 @@ function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps):
       {isCompleted && doneSummary && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {"  ⎿  "}{doneSummary}
+            {`  ${CONNECTOR.subStatus}  `}{doneSummary}
           </text>
         </box>
       )}
@@ -312,7 +303,7 @@ function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps):
       {isError && agent.error && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.error }}>
-            {"  ⎿  "}{truncateText(agent.error, 60)}
+            {`  ${CONNECTOR.subStatus}  `}{truncateText(agent.error, 60)}
           </text>
         </box>
       )}
@@ -321,7 +312,7 @@ function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps):
       {isInterrupted && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.warning }}>
-            {"  ⎿  "}Interrupted
+            {`  ${CONNECTOR.subStatus}  `}Interrupted
           </text>
         </box>
       )}
@@ -359,7 +350,7 @@ function formatTokens(tokens: number | undefined): string {
  * Follows Claude Code's parallel agent display style.
  */
 function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React.ReactNode {
-  const treeChar = isLast ? TREE_CHARS.lastBranch : TREE_CHARS.branch;
+  const treeChar = isLast ? TREE.lastBranch : TREE.branch;
 
   // Build metrics text (tool uses and tokens) - Claude Code style
   const metricsText = [
@@ -393,7 +384,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
             : themeColors.muted;
 
     // Continuation line prefix for sub-status and hints
-    const continuationPrefix = isLast ? TREE_CHARS.space : TREE_CHARS.vertical;
+    const continuationPrefix = isLast ? TREE.space : TREE.vertical;
 
     if (!hasTask && displaySubStatus) {
       // Empty task: show agent name + sub-status inline on the tree line
@@ -446,7 +437,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
         {displaySubStatus && (
           <box flexDirection="row">
             <text style={{ fg: themeColors.muted }}>
-              {continuationPrefix}{SUB_STATUS_PAD}⎿  {truncateText(displaySubStatus, 50)}
+              {continuationPrefix}{SUB_STATUS_PAD}{CONNECTOR.subStatus}  {truncateText(displaySubStatus, 50)}
             </text>
           </box>
         )}
@@ -483,7 +474,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
           : themeColors.muted;
 
   // Continuation line prefix for sub-status lines
-  const fullContinuationPrefix = isLast ? TREE_CHARS.space : TREE_CHARS.vertical;
+  const fullContinuationPrefix = isLast ? TREE.space : TREE.vertical;
 
   // If task is empty, show agent name + sub-status inline on the tree line
   if (!hasTaskFull && displaySubStatusFull) {
@@ -529,7 +520,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
       {displaySubStatusFull && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {fullContinuationPrefix}{SUB_STATUS_PAD}⎿  {displaySubStatusFull}
+            {fullContinuationPrefix}{SUB_STATUS_PAD}{CONNECTOR.subStatus}  {displaySubStatusFull}
           </text>
         </box>
       )}
@@ -539,7 +530,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
           <text style={{ fg: themeColors.muted }}>
             {fullContinuationPrefix}{SUB_STATUS_PAD}</text>
           <text style={{ fg: themeColors.success }}>
-            ⎿  {truncateText(agent.result, 60)}
+            {CONNECTOR.subStatus}  {truncateText(agent.result, 60)}
           </text>
         </box>
       )}
@@ -549,7 +540,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
           <text style={{ fg: themeColors.muted }}>
             {fullContinuationPrefix}{SUB_STATUS_PAD}</text>
           <text style={{ fg: themeColors.error }}>
-            ⎿  {truncateText(agent.error, 60)}
+            {CONNECTOR.subStatus}  {truncateText(agent.error, 60)}
           </text>
         </box>
       )}
@@ -559,7 +550,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
           <text style={{ fg: themeColors.muted }}>
             {fullContinuationPrefix}{SUB_STATUS_PAD}</text>
           <text style={{ fg: themeColors.warning }}>
-            ⎿  Interrupted
+            {CONNECTOR.subStatus}  Interrupted
           </text>
         </box>
       )}
@@ -702,7 +693,7 @@ export function ParallelAgentsTree({
       {hiddenCount > 0 && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {TREE_CHARS.lastBranch} ...and {hiddenCount} more
+            {TREE.lastBranch} ...and {hiddenCount} more
           </text>
         </box>
       )}

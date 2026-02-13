@@ -12,6 +12,7 @@ import { useTerminalDimensions } from "@opentui/react";
 import { useTheme } from "../theme.tsx";
 import type { QueuedMessage } from "../hooks/use-message-queue.ts";
 import { truncateText } from "../utils/format.ts";
+import { PROMPT, MISC } from "../constants/icons.ts";
 
 // ============================================================================
 // TYPES
@@ -57,7 +58,7 @@ export function formatQueueCount(count: number): string {
  * @returns Queue icon character
  */
 export function getQueueIcon(): string {
-  return "⋮";
+  return MISC.queue;
 }
 
 /** @deprecated Use truncateText from utils/format.ts directly */
@@ -126,7 +127,7 @@ export function QueueIndicator({
         {firstMessage && (
           <box paddingLeft={1}>
             <text style={{ fg: theme.colors.foreground }}>
-              ❯ {preview}
+              {PROMPT.cursor} {preview}
             </text>
             {count > 1 && (
               <text style={{ fg: theme.colors.muted }}>
@@ -148,7 +149,7 @@ export function QueueIndicator({
    */
   const renderMessage = (msg: QueuedMessage, index: number): React.ReactNode => {
     const isEditing = editable && editIndex === index;
-    const prefix = isEditing ? "› " : "❯ ";
+    const prefix = isEditing ? "› " : `${PROMPT.cursor} `;
     const style = {
       fg: isEditing ? theme.colors.accent : theme.colors.muted,
       attributes: isEditing ? 1 : 0, // bold when editing

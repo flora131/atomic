@@ -11,6 +11,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { KeyEvent, TextareaRenderable, ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../theme.tsx";
 import { navigateUp, navigateDown } from "../utils/navigation.ts";
+import { PROMPT, STATUS, CONNECTOR } from "../constants/icons.ts";
 
 // ============================================================================
 // TYPES
@@ -297,9 +298,9 @@ export function UserQuestionDialog({
       {/* Header badge - Claude Code style: compact inline badge */}
       <box marginBottom={1}>
         <text>
-          <span style={{ fg: colors.border }}>╭─</span>
-          <span style={{ fg: colors.foreground }}> □ {question.header} </span>
-          <span style={{ fg: colors.border }}>─╮</span>
+          <span style={{ fg: colors.border }}>{CONNECTOR.roundedTopLeft}{CONNECTOR.horizontal}</span>
+          <span style={{ fg: colors.foreground }}> {STATUS.pending} {question.header} </span>
+          <span style={{ fg: colors.border }}>{CONNECTOR.horizontal}{CONNECTOR.roundedTopRight}</span>
         </text>
       </box>
 
@@ -320,7 +321,7 @@ export function UserQuestionDialog({
             flexDirection="row"
             alignItems="center"
           >
-            <text style={{ fg: colors.accent }}>❯ </text>
+            <text style={{ fg: colors.accent }}>{PROMPT.cursor} </text>
             <textarea
               ref={textareaRef}
               placeholder={isChatAboutThis ? "Type your thoughts..." : "Type your answer..."}
@@ -377,12 +378,12 @@ export function UserQuestionDialog({
                   {/* Label line: ❯ N. Label */}
                   <text>
                     <span style={{ fg: isHighlighted ? colors.accent : colors.muted }}>
-                      {isHighlighted ? "❯ " : "  "}
+                      {isHighlighted ? `${PROMPT.cursor} ` : "  "}
                     </span>
                     <span style={{ fg: labelColor }}>
                       {displayNumber}. {question.multiSelect && !isSpecialOption ? (
                         <span style={{ fg: isSelected ? colors.success : colors.muted }}>
-                          {isSelected ? "[✓] " : "[ ] "}
+                          {isSelected ? `[${STATUS.success}] ` : "[ ] "}
                         </span>
                       ) : null}
                       <span style={{ fg: labelColor, attributes: isHighlighted ? 1 : undefined }}>

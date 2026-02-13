@@ -10,6 +10,7 @@
 
 import React, { useState, useEffect } from "react";
 import { useTheme } from "../theme.tsx";
+import { STATUS, MISC } from "../constants/icons.ts";
 
 // ============================================================================
 // TYPES
@@ -42,7 +43,7 @@ export function SkillLoadIndicator({
         ? colors.success
         : colors.error;
 
-  const icon = status === "error" ? "✕" : "●";
+  const icon = status === "error" ? STATUS.error : STATUS.active;
   const message =
     status === "loading"
       ? "Loading skill..."
@@ -91,7 +92,7 @@ function AnimatedDot({ color }: { color: string }): React.ReactNode {
 
   return (
     <text style={{ fg: color }}>
-      {visible ? "●" : "·"}
+      {visible ? STATUS.active : MISC.separator}
     </text>
   );
 }

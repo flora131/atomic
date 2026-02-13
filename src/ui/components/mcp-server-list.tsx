@@ -13,6 +13,7 @@
 
 import React from "react";
 import { useTheme } from "../theme.tsx";
+import { STATUS } from "../constants/icons.ts";
 import type { McpServerConfig } from "../../sdk/types.ts";
 
 // ============================================================================
@@ -53,7 +54,7 @@ export function McpServerListIndicator({
       {servers.map((server) => {
         const isEnabled = server.enabled !== false;
         const statusColor = isEnabled ? colors.success : colors.error;
-        const statusIcon = isEnabled ? "●" : "○";
+        const statusIcon = isEnabled ? STATUS.active : STATUS.pending;
         const statusLabel = isEnabled ? "enabled" : "disabled";
         const transport = server.type ?? (server.url ? "http" : "stdio");
         const target = server.url ?? server.command ?? "—";

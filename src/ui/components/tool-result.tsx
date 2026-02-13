@@ -8,6 +8,7 @@
 import React, { useState, useMemo } from "react";
 import { useTheme } from "../theme.tsx";
 import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
+import { STATUS, MISC } from "../constants/icons.ts";
 import {
   getToolRenderer,
   parseMcpToolName,
@@ -39,11 +40,11 @@ export interface ToolSummary {
 // ============================================================================
 
 const STATUS_ICONS: Record<ToolExecutionStatus, string> = {
-  pending: "○",
-  running: "●",
-  completed: "●",
-  error: "✕",
-  interrupted: "●",
+  pending: STATUS.pending,
+  running: STATUS.active,
+  completed: STATUS.active,
+  error: STATUS.error,
+  interrupted: STATUS.active,
 };
 
 function StatusIndicator({
@@ -147,7 +148,7 @@ function CollapsibleContent({
       {isCollapsible && !expanded && (
         <box marginLeft={1}>
           <text style={{ fg: colors.muted }}>
-            ▾ {hiddenCount} more lines
+            {MISC.collapsed} {hiddenCount} more lines
           </text>
         </box>
       )}

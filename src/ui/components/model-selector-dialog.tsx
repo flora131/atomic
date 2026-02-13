@@ -15,6 +15,7 @@ import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../theme.tsx";
 import type { Model } from "../../models/model-transform.ts";
 import { navigateUp, navigateDown } from "../utils/navigation.ts";
+import { PROMPT, CONNECTOR } from "../constants/icons.ts";
 
 // ============================================================================
 // TYPES
@@ -303,7 +304,7 @@ export function ModelSelectorDialog({
         <box style={{ flexDirection: "column", paddingLeft: 2 }}>
           {reasoningOptions.map((option, idx) => {
             const isSelected = idx === reasoningIndex;
-            const indicator = isSelected ? "❯" : " ";
+            const indicator = isSelected ? PROMPT.cursor : " ";
             const number = idx + 1;
 
             return (
@@ -407,7 +408,7 @@ export function ModelSelectorDialog({
                   const contextInfo = getCapabilityInfo(model);
 
                   // Selection indicator and number
-                  const indicator = isSelected ? "❯" : " ";
+                  const indicator = isSelected ? PROMPT.cursor : " ";
                   const number = currentGlobalIndex + 1;
 
                   return (
@@ -479,7 +480,7 @@ export function ModelSelectorDialog({
                 {!isLastGroup && (
                   <box style={{ paddingTop: 0 }}>
                     <text style={{ fg: colors.border }}>
-                      {"  "}{"─".repeat(30)}
+                      {"  "}{CONNECTOR.horizontal.repeat(30)}
                     </text>
                   </box>
                 )}

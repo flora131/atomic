@@ -11,6 +11,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { MISC } from "../../../src/ui/constants/icons.ts";
 import {
   formatQueueCount,
   getQueueIcon,
@@ -50,7 +51,7 @@ describe("formatQueueCount", () => {
 
 describe("getQueueIcon", () => {
   test("returns clipboard icon", () => {
-    expect(getQueueIcon()).toBe("⋮");
+    expect(getQueueIcon()).toBe(MISC.queue);
   });
 
   test("returns consistent icon", () => {
@@ -186,7 +187,7 @@ describe("Display logic", () => {
     const icon = getQueueIcon();
     const countText = formatQueueCount(3);
 
-    expect(icon).toBe("⋮");
+    expect(icon).toBe(MISC.queue);
     expect(countText).toBe("3 messages queued");
   });
 
@@ -589,7 +590,7 @@ describe("Integration", () => {
     const countText = formatQueueCount(queue.length);
     const previews = queue.map((msg, i) => `${i + 1}. ${truncateContent(msg.content)}`);
 
-    expect(icon).toBe("⋮");
+    expect(icon).toBe(MISC.queue);
     expect(countText).toBe("2 messages queued");
     expect(previews).toEqual([
       "1. What is the meani...",

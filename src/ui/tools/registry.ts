@@ -8,6 +8,7 @@
  */
 
 import type { SyntaxStyle } from "@opentui/core";
+import { STATUS, CHECKBOX } from "../constants/icons.ts";
 
 // ============================================================================
 // TYPES
@@ -311,9 +312,9 @@ export const writeToolRenderer: ToolRenderer = {
 
     const content: string[] = [];
     if (isSuccess) {
-      content.push(`✓ File written: ${filePath}`);
+      content.push(`${STATUS.success} File written: ${filePath}`);
     } else {
-      content.push(`○ Writing: ${filePath}`);
+      content.push(`${STATUS.pending} Writing: ${filePath}`);
     }
 
     // Show preview of content (first few lines)
@@ -716,7 +717,7 @@ export const taskToolRenderer: ToolRenderer = {
 };
 
 export const todoWriteToolRenderer: ToolRenderer = {
-  icon: "☑",
+  icon: CHECKBOX.checked,
   getTitle(props: ToolRenderProps): string {
     const todos = (props.input?.todos as Array<{ content: string; status: string }>) ?? [];
     const done = todos.filter((t) => t.status === "completed").length;
@@ -729,7 +730,7 @@ export const todoWriteToolRenderer: ToolRenderer = {
     const open = todos.length - done;
     const title = `${todos.length} tasks (${done} done, ${open} open)`;
     const content: string[] = todos.map((t) => {
-      const prefix = t.status === "completed" ? "✓ " : t.status === "in_progress" ? "◉ " : "□ ";
+      const prefix = t.status === "completed" ? `${STATUS.success} ` : t.status === "in_progress" ? `${STATUS.selected} ` : `${STATUS.pending} `;
       return prefix + t.content;
     });
     return { title, content, expandable: false };

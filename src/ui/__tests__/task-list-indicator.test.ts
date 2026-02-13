@@ -2,7 +2,7 @@
  * Tests for TaskListIndicator utility functions
  *
  * Covers:
- * - TASK_STATUS_ICONS mapping (○ pending, ● in_progress/completed, ✕ error)
+ * - TASK_STATUS_ICONS mapping (○ pending, ● in_progress/completed, ✗ error)
  * - getStatusColorKey returns correct semantic color key
  * - truncate function behavior
  * - MAX_CONTENT_LENGTH constant
@@ -23,6 +23,7 @@ import {
   type TaskItem,
   type TaskListIndicatorProps,
 } from "../components/task-list-indicator.tsx";
+import { STATUS } from "../constants/icons.ts";
 
 // ============================================================================
 // STATUS ICONS TESTS
@@ -30,19 +31,19 @@ import {
 
 describe("TaskListIndicator - TASK_STATUS_ICONS", () => {
   test("pending uses ○ (open circle)", () => {
-    expect(TASK_STATUS_ICONS.pending).toBe("○");
+    expect(TASK_STATUS_ICONS.pending).toBe(STATUS.pending);
   });
 
   test("in_progress uses ● (filled circle)", () => {
-    expect(TASK_STATUS_ICONS.in_progress).toBe("●");
+    expect(TASK_STATUS_ICONS.in_progress).toBe(STATUS.active);
   });
 
   test("completed uses ● (filled circle)", () => {
-    expect(TASK_STATUS_ICONS.completed).toBe("●");
+    expect(TASK_STATUS_ICONS.completed).toBe(STATUS.active);
   });
 
-  test("error uses ✕ (cross)", () => {
-    expect(TASK_STATUS_ICONS.error).toBe("✕");
+  test("error uses ✗ (cross)", () => {
+    expect(TASK_STATUS_ICONS.error).toBe(STATUS.error);
   });
 
   test("covers all TaskItem statuses", () => {

@@ -10,6 +10,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { STATUS } from "../../../src/ui/constants/icons.ts";
 import {
   shouldCollapse,
   getToolSummary,
@@ -168,7 +169,7 @@ describe("Tool renderer integration", () => {
       output: true,
     });
 
-    expect(result.content.some((l) => l.includes("✓"))).toBe(true);
+    expect(result.content.some((l) => l.includes(STATUS.success))).toBe(true);
   });
 
   test("Unknown tool uses default renderer", () => {
@@ -191,15 +192,15 @@ describe("Status display", () => {
   test("pending status config", () => {
     // Verify status configurations are correct
     const statusConfig = {
-      pending: { icon: "○", label: "pending" },
+      pending: { icon: STATUS.pending, label: "pending" },
       running: { icon: "◐", label: "running" },
-      completed: { icon: "●", label: "done" },
+      completed: { icon: STATUS.active, label: "done" },
       error: { icon: "✗", label: "error" },
     };
 
-    expect(statusConfig.pending.icon).toBe("○");
+    expect(statusConfig.pending.icon).toBe(STATUS.pending);
     expect(statusConfig.running.icon).toBe("◐");
-    expect(statusConfig.completed.icon).toBe("●");
+    expect(statusConfig.completed.icon).toBe(STATUS.active);
     expect(statusConfig.error.icon).toBe("✗");
   });
 });

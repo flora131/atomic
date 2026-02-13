@@ -486,14 +486,25 @@ export class CopilotClient implements CodingAgentClient {
     // Track context window and system tools baseline from usage_info events
     if (event.type === "session.usage_info" && state) {
       const data = event.data as Record<string, unknown>;
-      if (state.systemToolsBaseline === null) {
-        state.systemToolsBaseline = data.currentTokens as number;
+      const currentTokens = typeof data.currentTokens === "number"
+        ? data.currentTokens
+        : null;
+      if (
+        currentTokens !== null
+        && currentTokens > 0
+        && (state.systemToolsBaseline === null || state.systemToolsBaseline <= 0)
+      ) {
+        state.systemToolsBaseline = currentTokens;
       }
-      state.contextWindow = data.tokenLimit as number;
+      if (typeof data.tokenLimit === "number") {
+        state.contextWindow = data.tokenLimit;
+      }
       // currentTokens reflects the actual tokens in the context window,
       // replacing any accumulated values from assistant.usage events
-      state.inputTokens = data.currentTokens as number;
-      state.outputTokens = 0;
+      if (currentTokens !== null) {
+        state.inputTokens = currentTokens;
+        state.outputTokens = 0;
+      }
     }
 
     // Map to unified event type
@@ -900,12 +911,20 @@ export class CopilotClient implements CodingAgentClient {
     try {
       const probeSession = await this.sdkClient.createSession({});
       const baseline = await new Promise<number | null>((resolve) => {
-        const timeout = setTimeout(() => resolve(null), 3000);
-        const unsub = probeSession.on("session.usage_info", (event) => {
-          unsub();
-          clearTimeout(timeout);
+        let unsub: (() => void) | null = null;
+        const timeout = setTimeout(() => {
+          unsub?.();
+          resolve(null);
+        }, 3000);
+        unsub = probeSession.on("session.usage_info", (event) => {
           const data = event.data as Record<string, unknown>;
-          resolve((data.currentTokens as number) ?? null);
+          const currentTokens = data.currentTokens;
+          if (typeof currentTokens !== "number" || currentTokens <= 0) {
+            return;
+          }
+          unsub?.();
+          clearTimeout(timeout);
+          resolve(currentTokens);
         });
       });
       this.probeSystemToolsBaseline = baseline;

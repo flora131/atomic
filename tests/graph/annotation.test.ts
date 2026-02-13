@@ -644,12 +644,17 @@ describe("createRalphState", () => {
     const state2 = createRalphState();
     expect(state1.ralphSessionId).not.toBe(state2.ralphSessionId);
   });
+
+  test("creates state with yolo mode options", () => {
+    const state = createRalphState(undefined, {
+      yoloPrompt: "Build a snake game in Rust",
+    });
     expect(state.yoloPrompt).toBe("Build a snake game in Rust");
   });
 
   test("creates state with feature-list mode options", () => {
-    const state = createRalphState(undefined, {
-    });
+    const state = createRalphState(undefined, {});
+    expect(state).toBeDefined();
   });
 
   test("uses provided ralphSessionId and derives sessionDir", () => {
@@ -670,6 +675,7 @@ describe("createRalphState", () => {
     expect(state.ralphSessionId).toBe("test-session-123");
     expect(state.ralphSessionDir).toBe("/custom/path/to/session/");
   });
+});
 
 describe("updateRalphState", () => {
   test("updates specific fields while preserving others", () => {

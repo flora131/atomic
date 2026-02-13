@@ -15,6 +15,7 @@
 
 import React from "react";
 
+import { STATUS, CONNECTOR } from "../constants/icons.ts";
 import { useThemeColors } from "../theme.tsx";
 import { truncateText } from "../utils/format.ts";
 import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
@@ -44,10 +45,10 @@ export interface TaskListIndicatorProps {
 // ============================================================================
 
 export const TASK_STATUS_ICONS: Record<TaskItem["status"], string> = {
-  pending: "○",
-  in_progress: "●",
-  completed: "●",
-  error: "✕",
+  pending: STATUS.pending,
+  in_progress: STATUS.active,
+  completed: STATUS.active,
+  error: STATUS.error,
 };
 
 /** Max content chars before truncation (prefix takes ~5 chars: "⎿  ● ") */
@@ -92,7 +93,7 @@ export function TaskListIndicator({
         const isActive = item.status === "in_progress";
         return (
           <text key={i}>
-            <span style={{ fg: themeColors.muted }}>{i === 0 ? "⎿  " : "   "}</span>
+            <span style={{ fg: themeColors.muted }}>{i === 0 ? `${CONNECTOR.subStatus}  ` : "   "}</span>
             {isActive ? (
               <AnimatedBlinkIndicator color={color} speed={500} />
             ) : (

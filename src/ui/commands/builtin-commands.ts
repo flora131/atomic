@@ -16,7 +16,7 @@ import type {
   ContextDisplayInfo,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
-import { saveModelPreference } from "../../utils/settings.ts";
+import { saveModelPreference, clearReasoningEffortPreference } from "../../utils/settings.ts";
 import { discoverMcpConfigs } from "../../utils/mcp-config.ts";
 import { BACKGROUND_COMPACTION_THRESHOLD } from "../../graph/types.ts";
 
@@ -344,6 +344,9 @@ export const modelCommand: CommandDefinition = {
       const result = await modelOps?.setModel(resolvedModel);
       if (agentType) {
         saveModelPreference(agentType, resolvedModel);
+        // Clear reasoning effort since the text command can't prompt for it;
+        // user should use the interactive selector (/model select) to set effort
+        clearReasoningEffortPreference(agentType);
       }
       if (result?.requiresNewSession) {
         return {

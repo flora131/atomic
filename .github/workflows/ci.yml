@@ -35,6 +35,10 @@ jobs:
       - name: Run linting
         run: bun run lint
 
-      # TODO: Re-enable after fixing failing tests
-      # - name: Run tests
-      #   run: bun test
+      - name: Run tests with coverage
+        run: bun test --coverage --coverage-reporter=lcov
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage/lcov.info

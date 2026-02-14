@@ -396,6 +396,15 @@ export async function startChatUI(
     // Queue of task descriptions from Task tool calls, consumed by subagent.start
     const pendingTaskPrompts: string[] = [];
 
+    // Queue of internal toolIds for pending Task tool calls, consumed by subagent.start
+    // for FIFO-based correlation (fallback when SDK-level IDs are unavailable)
+    const pendingTaskToolIds: string[] = [];
+
+    // Maps SDK-level correlation IDs to agent IDs for ID-based result attribution.
+    // Populated by subagent.start, consumed by tool.complete for Task tools.
+    // Keys: toolUseID (Claude), toolCallId (Copilot), internal toolId (FIFO fallback)
+    const toolCallToAgentMap = new Map<string, string>();
+
     // Tool IDs attributed to running subagents — their tool.complete events
     // should also be suppressed from the main conversation UI
     const subagentToolIds = new Set<string>();
@@ -439,13 +448,17 @@ export async function startChatUI(
         }
         toolNameToId.set(data.toolName, toolId);
 
-        // Capture Task tool prompts for subagent.start correlation
+        // Capture Task tool prompts and toolIds for subagent.start correlation
         if (data.toolName === "Task" && data.toolInput) {
           const input = data.toolInput as Record<string, unknown>;
           const prompt = (input.prompt as string) ?? (input.description as string) ?? "";
           if (prompt) {
             pendingTaskPrompts.push(prompt);
           }
+          // Track internal toolId for FIFO-based agent correlation.
+          // When subagent.start fires, the next pending toolId is consumed
+          // and mapped to the agent's subagentId.
+          pendingTaskToolIds.push(toolId);
         }
 
         // Propagate tool progress to running subagents in the parallel agents tree.
@@ -455,7 +468,8 @@ export async function startChatUI(
         // When a tool is attributed to a subagent, skip the main tool UI to avoid
         // showing subagent-internal tools as top-level conversation entries.
         let attributedToSubagent = false;
-        if (state.isStreaming && state.parallelAgentHandler && state.parallelAgents.length > 0) {
+        const isTaskTool = data.toolName === "Task" || data.toolName === "task";
+        if (!isTaskTool && state.isStreaming && state.parallelAgentHandler && state.parallelAgents.length > 0) {
           const runningAgent = [...state.parallelAgents]
             .reverse()
             .find((a) => a.status === "running");
@@ -487,7 +501,7 @@ export async function startChatUI(
 
     // Subscribe to tool.complete events
     const unsubComplete = client.on("tool.complete", (event) => {
-      const data = event.data as { toolName?: string; toolResult?: unknown; success?: boolean; error?: string; toolInput?: Record<string, unknown> };
+      const data = event.data as { toolName?: string; toolResult?: unknown; success?: boolean; error?: string; toolInput?: Record<string, unknown>; toolUseID?: string; toolCallId?: string; toolUseId?: string };
       if (state.toolCompleteHandler) {
         // Find the matching tool ID from the stack (FIFO order)
         let toolId: string;
@@ -523,8 +537,8 @@ export async function startChatUI(
         // The subagent.complete event (from SubagentStop / step-finish hooks)
         // doesn't carry the actual output text — only the PostToolUse /
         // tool.execution_complete event for the "Task" tool has the result.
-        // Find the most recently completed agent that lacks a result and
-        // attach the tool output so the parallel agents tree can display it.
+        // Use ID-based correlation to attribute results to the correct agent,
+        // falling back to reverse heuristic for backward compatibility.
         if (
           (data.toolName === "Task" || data.toolName === "task") &&
           data.toolResult &&
@@ -536,15 +550,31 @@ export async function startChatUI(
           const resultStr = parsed.text ?? (typeof data.toolResult === "string"
             ? data.toolResult
             : JSON.stringify(data.toolResult));
-          // Find the last completed agent without a result (most likely match)
-          const agentToUpdate = [...state.parallelAgents]
-            .reverse()
-            .find((a) => a.status === "completed" && !a.result);
-          if (agentToUpdate) {
+
+          // Try ID-based correlation: SDK-level IDs first, then internal toolId
+          const sdkCorrelationId = data.toolUseID ?? data.toolCallId ?? data.toolUseId;
+          const agentId = (sdkCorrelationId && toolCallToAgentMap.get(sdkCorrelationId))
+            || toolCallToAgentMap.get(toolId);
+
+          if (agentId) {
             state.parallelAgents = state.parallelAgents.map((a) =>
-              a.id === agentToUpdate.id ? { ...a, result: resultStr } : a
+              a.id === agentId ? { ...a, result: resultStr } : a
             );
             state.parallelAgentHandler(state.parallelAgents);
+            // Clean up consumed mappings
+            if (sdkCorrelationId) toolCallToAgentMap.delete(sdkCorrelationId);
+            toolCallToAgentMap.delete(toolId);
+          } else {
+            // Fallback: find the last completed agent without a result
+            const agentToUpdate = [...state.parallelAgents]
+              .reverse()
+              .find((a) => a.status === "completed" && !a.result);
+            if (agentToUpdate) {
+              state.parallelAgents = state.parallelAgents.map((a) =>
+                a.id === agentToUpdate.id ? { ...a, result: resultStr } : a
+              );
+              state.parallelAgentHandler(state.parallelAgents);
+            }
           }
 
           // Mark that a Task tool just completed — the model may echo the
@@ -616,6 +646,8 @@ export async function startChatUI(
         subagentId?: string;
         subagentType?: string;
         task?: string;
+        toolUseID?: string; // Claude: parent Task tool's use ID
+        toolCallId?: string; // Copilot: same as subagentId
       };
 
       // Skip if stream already ended — late events should not revive cleared agents
@@ -640,6 +672,18 @@ export async function startChatUI(
         };
         state.parallelAgents = [...state.parallelAgents, newAgent];
         state.parallelAgentHandler(state.parallelAgents);
+
+        // Build correlation mapping: SDK-level ID → agentId
+        // This allows tool.complete to attribute results to the correct agent.
+        const sdkCorrelationId = data.toolUseID ?? data.toolCallId;
+        if (sdkCorrelationId) {
+          toolCallToAgentMap.set(sdkCorrelationId, data.subagentId);
+        }
+        // FIFO fallback: consume pending Task toolId and map it to this agent
+        const fifoToolId = pendingTaskToolIds.shift();
+        if (fifoToolId) {
+          toolCallToAgentMap.set(fifoToolId, data.subagentId);
+        }
       }
     });
 
@@ -671,18 +715,11 @@ export async function startChatUI(
         );
         state.parallelAgentHandler(state.parallelAgents);
 
-        // If the stream text has ended (no abort controller) and all agents
-        // are now done, clean up streaming state so subsequent messages can
-        // start fresh.
-        if (!state.streamAbortController) {
-          const allDone = !state.parallelAgents.some(
-            (a) => a.status === "running" || a.status === "pending"
-          );
-          if (allDone) {
-            state.parallelAgents = [];
-            state.isStreaming = false;
-          }
-        }
+        // Note: Do NOT clear parallelAgents here. The Task tool.complete
+        // events fire after subagent.complete and need parallelAgents to
+        // still be populated to propagate results. Cleanup is handled by
+        // chat.tsx's handleComplete / isAgentOnlyStream effect which properly
+        // bakes agents into the final message before clearing.
       }
     });
 

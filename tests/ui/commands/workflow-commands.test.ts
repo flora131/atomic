@@ -71,7 +71,7 @@ function createMockContext(
       sentSilentMessages.push(content);
     },
     spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
-    streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+    streamAndWait: async (_prompt: string, _options?: { hideContent?: boolean }) => ({ content: "", wasInterrupted: false }),
     clearContext: async () => {},
     setTodoItems: (items) => {
       todoItemsUpdates.push(items);
@@ -627,13 +627,13 @@ describe("ralph command --resume flag", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
-    const { context } = createMockContext();
+    const { context, workflowStateUpdates } = createMockContext();
     const result = await ralphCmd!.execute(`--resume ${testSessionId}`, context);
 
     expect(result.success).toBe(true);
-    expect(result.stateUpdate?.ralphConfig?.resumeSessionId).toBe(testSessionId);
-    expect(result.message).toContain("Resuming");
-    expect(result.message).toContain(testSessionId);
+    // Workflow state is set via updateWorkflowState, not stateUpdate return
+    const stateUpdate = workflowStateUpdates.find(u => u.ralphConfig?.resumeSessionId === testSessionId);
+    expect(stateUpdate).toBeDefined();
   });
 
   test("ralph command with --resume flag and invalid UUID fails", async () => {
@@ -691,14 +691,16 @@ describe("ralph command --resume flag", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
-    const { context } = createMockContext();
+    const { context, workflowStateUpdates } = createMockContext();
     const result = await ralphCmd!.execute(`--resume ${testSessionId}`, context);
 
     expect(result.success).toBe(true);
-    expect(result.stateUpdate?.workflowActive).toBe(true);
-    expect(result.stateUpdate?.workflowType).toBe("ralph");
-    expect(result.stateUpdate?.initialPrompt).toBeNull();
-    expect(result.stateUpdate?.ralphConfig?.resumeSessionId).toBe(testSessionId);
+    // Workflow state is set via updateWorkflowState (not stateUpdate return)
+    const stateUpdate = workflowStateUpdates.find(u => u.workflowActive === true);
+    expect(stateUpdate).toBeDefined();
+    expect(stateUpdate!.workflowActive).toBe(true);
+    expect(stateUpdate!.workflowType).toBe("ralph");
+    expect(stateUpdate!.ralphConfig?.resumeSessionId).toBe(testSessionId);
   });
 });
 
@@ -820,14 +822,15 @@ describe("ralph command session UUID display", () => {
     mkdirSync(sessionDir, { recursive: true });
 
     try {
-      const { context } = createMockContext();
+      const { context, workflowStateUpdates } = createMockContext();
       const result = await ralphCmd!.execute(`--resume ${testSessionId}`, context);
 
       expect(result.success).toBe(true);
       // Resume should use the provided session ID, not generate a new one
-      expect(result.stateUpdate?.ralphConfig?.resumeSessionId).toBe(testSessionId);
+      const stateUpdate = workflowStateUpdates.find(u => u.ralphConfig?.resumeSessionId === testSessionId);
+      expect(stateUpdate).toBeDefined();
       // Should not have a new sessionId field (resume uses resumeSessionId)
-      expect(result.stateUpdate?.ralphConfig?.sessionId).toBeUndefined();
+      expect(stateUpdate!.ralphConfig?.sessionId).toBeUndefined();
     } finally {
       // Clean up
       if (existsSync(sessionDir)) {

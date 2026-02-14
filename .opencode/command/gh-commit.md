@@ -1,7 +1,6 @@
 ---
 description: Create well-formatted commits with conventional commit format.
 agent: build
-model: anthropic/claude-opus-4-5
 ---
 
 # Smart Git Commit

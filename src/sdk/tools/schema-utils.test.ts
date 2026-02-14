@@ -47,7 +47,11 @@ describe("zodToJsonSchema", () => {
     const result = zodToJsonSchema(schema);
     
     expect(result.required).toBeDefined();
-    expect((result.required as string[]).sort()).toEqual(["required1", "required2"]);
+    expect(Array.isArray(result.required)).toBe(true);
+    if (Array.isArray(result.required)) {
+      const sorted = [...result.required].sort();
+      expect(JSON.stringify(sorted)).toBe(JSON.stringify(["required1", "required2"]));
+    }
   });
 
   test("converts object schema with optional fields", () => {
@@ -58,7 +62,10 @@ describe("zodToJsonSchema", () => {
     const result = zodToJsonSchema(schema);
     
     expect(result.required).toBeDefined();
-    expect(result.required).toEqual(["required"]);
+    expect(Array.isArray(result.required)).toBe(true);
+    if (Array.isArray(result.required)) {
+      expect(JSON.stringify(result.required)).toBe(JSON.stringify(["required"]));
+    }
   });
 
   test("converts array schema", () => {
@@ -129,6 +136,9 @@ describe("zodToJsonSchema", () => {
     const result = zodToJsonSchema(schema);
     
     expect(result.enum).toBeDefined();
-    expect(result.enum).toEqual(["option1", "option2", "option3"]);
+    expect(Array.isArray(result.enum)).toBe(true);
+    if (Array.isArray(result.enum)) {
+      expect(JSON.stringify(result.enum)).toBe(JSON.stringify(["option1", "option2", "option3"]));
+    }
   });
 });

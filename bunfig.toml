@@ -1,0 +1,14 @@
+[test]
+# Coverage
+coverage = true
+coverageThreshold = { lines = 0.35, functions = 0.25 }
+coverageReporter = ["text", "lcov"]
+coverageDir = "coverage"
+coverageSkipTestFiles = true
+coveragePathIgnorePatterns = [
+  "src/cli.ts",
+  "src/version.ts"
+]
+
+# Execution
+timeout = 10000

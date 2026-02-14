@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatDuration, formatTimestamp, truncateText } from "./format.ts";
+import { formatDuration, formatTimestamp, truncateText } from "./format";
 
 describe("formatDuration", () => {
   test("formats milliseconds under 1 second", () => {

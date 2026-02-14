@@ -14,6 +14,7 @@ import { describe, test, expect } from "bun:test";
 import {
   useMessageQueue,
   type QueuedMessage,
+  type EnqueueMessageOptions,
   type UseMessageQueueReturn,
 } from "../../../src/ui/hooks/use-message-queue.ts";
 
@@ -27,7 +28,7 @@ import {
  */
 function createMockQueueState(): {
   queue: QueuedMessage[];
-  enqueue: (content: string) => void;
+  enqueue: (content: string, options?: EnqueueMessageOptions) => void;
   dequeue: () => QueuedMessage | undefined;
   clear: () => void;
   count: () => number;
@@ -47,10 +48,12 @@ function createMockQueueState(): {
     get currentEditIndex() {
       return currentEditIndex;
     },
-    enqueue: (content: string) => {
+    enqueue: (content: string, options?: EnqueueMessageOptions) => {
       const message: QueuedMessage = {
         id: `queue_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
         content,
+        displayContent: options?.displayContent,
+        skipUserMessage: options?.skipUserMessage ?? false,
         queuedAt: new Date().toISOString(),
       };
       queue = [...queue, message];
@@ -83,6 +86,8 @@ function createMockQueueState(): {
         id: message.id,
         queuedAt: message.queuedAt,
         content,
+        displayContent: content,
+        skipUserMessage: message.skipUserMessage ?? false,
       };
       queue = updated;
     },
@@ -288,6 +293,21 @@ describe("enqueue operation", () => {
     state.enqueue(unicodeContent);
 
     expect(state.queue[0]?.content).toBe(unicodeContent);
+  });
+
+  test("supports displayContent override for queue preview", () => {
+    const state = createMockQueueState();
+    state.enqueue("processed payload", { displayContent: "visible preview" });
+
+    expect(state.queue[0]?.content).toBe("processed payload");
+    expect(state.queue[0]?.displayContent).toBe("visible preview");
+  });
+
+  test("supports skipUserMessage metadata", () => {
+    const state = createMockQueueState();
+    state.enqueue("deferred", { skipUserMessage: true });
+
+    expect(state.queue[0]?.skipUserMessage).toBe(true);
   });
 });
 

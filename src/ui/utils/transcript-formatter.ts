@@ -9,6 +9,7 @@ import type { ChatMessage, StreamingMeta } from "../chat.tsx";
 import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
 import { formatDuration } from "../components/parallel-agents-tree.tsx";
 import { truncateText, formatTimestamp as formatTimestampFull } from "./format.ts";
+import { STATUS, TREE, CONNECTOR, PROMPT, SPINNER_FRAMES, SPINNER_COMPLETE, SEPARATOR, MISC } from "../constants/icons.ts";
 
 // ============================================================================
 // TYPES
@@ -81,13 +82,13 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
   for (const msg of messages) {
     if (msg.role === "user") {
       // User prompt line
-      lines.push(line("user-prompt", `❯ ${msg.content}`));
+      lines.push(line("user-prompt", `${PROMPT.cursor} ${msg.content}`));
 
       // Files read via @mention
       if (msg.filesRead && msg.filesRead.length > 0) {
         for (const file of msg.filesRead) {
           const sizeKb = file.sizeBytes ? `(${(file.sizeBytes / 1024).toFixed(1)}KB)` : "";
-          lines.push(line("file-read", `⎿  Read ${file.path} ${sizeKb}`, 1));
+          lines.push(line("file-read", `${CONNECTOR.subStatus}  Read ${file.path} ${sizeKb}`, 1));
         }
       }
 
@@ -96,7 +97,7 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
       // Thinking trace (baked from completed message or live)
       const thinkingContent = msg.thinkingText || (!msg.streaming ? undefined : liveThinkingText);
       if (thinkingContent) {
-        lines.push(line("thinking-header", "∴ Thinking…"));
+        lines.push(line("thinking-header", `${MISC.thinking} Thinking…`));
         // Split thinking text into lines, indent each
         const thinkingLines = thinkingContent.split("\n");
         for (const tl of thinkingLines) {
@@ -120,7 +121,7 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
         const contentLines = content.split("\n");
         const firstLine = contentLines[0]?.trim();
         if (firstLine) {
-          lines.push(line("assistant-bullet", `● ${firstLine}`));
+          lines.push(line("assistant-bullet", `${STATUS.active} ${firstLine}`));
         }
         for (let i = 1; i < contentLines.length; i++) {
           const cl = contentLines[i];
@@ -133,7 +134,7 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
       // Tool calls
       if (msg.toolCalls && msg.toolCalls.length > 0) {
         for (const tc of msg.toolCalls) {
-          const statusIcon = tc.status === "completed" ? "●" : tc.status === "running" ? "●" : tc.status === "error" ? "✕" : "○";
+          const statusIcon = tc.status === "completed" ? STATUS.active : tc.status === "running" ? STATUS.active : tc.status === "error" ? STATUS.error : STATUS.pending;
           const toolTitle = formatToolTitle(tc.toolName, tc.input);
           lines.push(line("tool-header", `${statusIcon} ${tc.toolName} ${toolTitle}`));
 
@@ -170,8 +171,8 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
         const runningCount = agents.filter(a => a.status === "running" || a.status === "pending").length;
         const completedCount = agents.filter(a => a.status === "completed").length;
         const headerText = runningCount > 0
-          ? `● Running ${runningCount} agent${runningCount !== 1 ? "s" : ""}…`
-          : `● ${completedCount} agent${completedCount !== 1 ? "s" : ""} finished`;
+          ? `${STATUS.active} Running ${runningCount} agent${runningCount !== 1 ? "s" : ""}…`
+          : `${STATUS.active} ${completedCount} agent${completedCount !== 1 ? "s" : ""} finished`;
         lines.push(line("agent-header", headerText));
 
         for (const agent of agents) {
@@ -181,16 +182,17 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
           if (agent.durationMs !== undefined) metricsParts.push(formatDuration(agent.durationMs));
           const metrics = metricsParts.length > 0 ? ` · ${metricsParts.join(" · ")}` : "";
 
-          const agentIcon = agent.status === "completed" ? "●" : agent.status === "running" ? "●" : "○";
-          lines.push(line("agent-row", `├─ ${agentIcon} ${taskText}${metrics}`));
+          const agentIcon = agent.status === "completed" ? STATUS.active : agent.status === "running" ? STATUS.active : STATUS.pending;
+          lines.push(line("agent-row", `${TREE.branch} ${agentIcon} ${taskText}${metrics}`));
 
           // Sub-status
           if (agent.status === "completed") {
-            lines.push(line("agent-substatus", `│  ⎿  Done${metrics ? ` (${metricsParts.join(" · ")})` : ""}`));
+            const resultText = agent.result ? truncateText(agent.result, 60) : "Done";
+            lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${resultText}${metrics ? ` (${metricsParts.join(" · ")})` : ""}`));
           } else if (agent.status === "running" && agent.currentTool) {
-            lines.push(line("agent-substatus", `│  ⎿  ${truncateText(agent.currentTool, 50)}`));
+            lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${truncateText(agent.currentTool, 50)}`));
           } else if (agent.status === "error" && agent.error) {
-            lines.push(line("agent-substatus", `│  ⎿  ${truncateText(agent.error, 60)}`));
+            lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${truncateText(agent.error, 60)}`));
           }
         }
       }
@@ -200,7 +202,7 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
         lines.push(line("blank", ""));
         const dur = formatDuration(msg.durationMs);
         const tokensLabel = msg.outputTokens ? ` · ${msg.outputTokens} tokens` : "";
-        lines.push(line("separator", `⣿ Worked for ${dur}${tokensLabel}`));
+        lines.push(line("separator", `${SPINNER_COMPLETE} Worked for ${dur}${tokensLabel}`));
       }
 
       lines.push(line("blank", ""));
@@ -218,11 +220,11 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
     const tokenLabel = streamingMeta.outputTokens > 0
       ? ` · ${streamingMeta.outputTokens} tokens`
       : "";
-    lines.push(line("separator", `⣾ Streaming…${thinkingLabel}${tokenLabel}`));
+    lines.push(line("separator", `${SPINNER_FRAMES[0]} Streaming…${thinkingLabel}${tokenLabel}`));
   }
 
   // Footer
-  lines.push(line("separator", "────────────────────────────────────────────────────────────────────────────────────────────────────"));
+  lines.push(line("separator", SEPARATOR.line.repeat(25)));
   lines.push(line("footer", "  Showing detailed transcript · ctrl+o to toggle"));
 
   return lines;

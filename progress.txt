@@ -1,56 +1,49 @@
-# Source Control Type Selection - Implementation Progress
+# Progress Log
 
-## Session: 2026-02-12
+## 2026-02-14 - Added Tests for frontend-design Built-in Skill
+
+### Summary
+Successfully added comprehensive tests for the new `frontend-design` built-in skill to the existing test files. All tests pass successfully.
+
+### Changes Made
+
+#### tests/ui/commands/skill-commands.test.ts
+Added the following test cases in the BUILTIN_SKILLS section:
+1. **contains frontend-design skill** - Verifies the skill exists with correct description and aliases ("fd", "design")
+2. **frontend-design skill has $ARGUMENTS placeholder** - Ensures the prompt template includes $ARGUMENTS
+3. **frontend-design skill includes design guidelines sections** - Verifies all key sections exist (Design Thinking, Frontend Aesthetics Guidelines, Typography, Color & Theme, Motion)
+4. **frontend-design skill does not require arguments** - Confirms requiredArguments is undefined
+
+Added the following test cases in the getBuiltinSkill section:
+1. **finds frontend-design builtin skill by name** - Tests lookup by "frontend-design"
+2. **finds frontend-design builtin skill by alias 'fd'** - Tests lookup by "fd" alias
+3. **finds frontend-design builtin skill by alias 'design'** - Tests lookup by "design" alias
+
+Updated existing tests in the registerBuiltinSkills section:
+1. Added `expect(globalRegistry.has("frontend-design")).toBe(true);` to "registers all builtin skills" test
+2. Added `expect(globalRegistry.has("fd")).toBe(true);` and `expect(globalRegistry.has("design")).toBe(true);` to "registers builtin skill aliases" test
+
+#### tests/ui/commands/skill-discovery.test.ts
+Added test in the PINNED_BUILTIN_SKILLS section:
+1. **does not contain frontend-design** - Confirms frontend-design is not a pinned skill
+
+### Test Results
+- `bun test tests/ui/commands/skill-commands.test.ts` - 116 tests passed
+- `bun test tests/ui/commands/skill-discovery.test.ts` - 25 tests passed
+
+### Git Commit
+Committed with message: "test(skills): add comprehensive tests for frontend-design builtin skill"
+
+## 2026-02-12 - Source Control Type Selection
 
 ### Completed Tasks
-
-#### Task #1: Add SourceControlType, ScmConfig, and SCM_CONFIG to src/config.ts
-- Added `SourceControlType` union type for supported SCM systems ('github' | 'sapling-phabricator')
-- Added `ScmConfig` interface with all required fields (name, displayName, cliTool, reviewTool, reviewSystem, detectDir, reviewCommandFile, requiredConfigFiles)
-- Added `SCM_CONFIG` constant with configurations for both GitHub and Sapling+Phabricator
-- Added `SCM_SPECIFIC_COMMANDS` array containing commands that need SCM-specific variants
-
-#### Task #2: Add SCM helper functions
-- Added `getScmKeys()` function to return all SCM type keys
-- Added `isValidScm()` type guard function to validate SCM type strings
-- Added `getScmConfig()` function to retrieve configuration for a specific SCM type
-
-#### Task #31: Write unit tests for SCM config functions
-- Added comprehensive tests in tests/config.test.ts
-- Tests cover all SCM_CONFIG fields validation
-- Tests cover isValidScm with valid and invalid inputs
-- Tests cover getScmConfig for both SCM types
-- Tests cover getScmKeys immutability
-- Tests cover SCM_SPECIFIC_COMMANDS content
-- All 33 tests pass (including 15 new SCM-related tests)
+- Added `SourceControlType`, `ScmConfig`, `SCM_CONFIG` to src/config.ts
+- Added SCM helper functions (`getScmKeys`, `isValidScm`, `getScmConfig`)
+- Created src/utils/atomic-config.ts module (AtomicConfig, readAtomicConfig, saveAtomicConfig, getSelectedScm)
+- Added comprehensive unit tests for all SCM-related functionality
 
 ### Files Modified
-- src/config.ts - Added SCM types, interfaces, constants, and helper functions
-- tests/config.test.ts - Added comprehensive unit tests for SCM functionality
-
-#### Task #3-5: Create src/utils/atomic-config.ts module
-- Created AtomicConfig interface with fields: version, agent, scm, lastUpdated
-- Implemented readAtomicConfig() to read .atomic.json from project directory
-- Implemented saveAtomicConfig() to save/merge config updates
-- Implemented getSelectedScm() convenience function
-- All functions handle missing files gracefully (return null)
-- Config file is formatted with 2-space indentation and trailing newline
-
-#### Task #32: Write unit tests for atomic-config.ts
-- Added comprehensive tests in tests/utils/atomic-config.test.ts
-- Tests cover all three functions with edge cases
-- Tests use temp directories for isolation
-- All 14 tests pass
-
-### Files Modified (Session 2 - Config Persistence)
-- src/utils/atomic-config.ts - New file with AtomicConfig interface and functions
-- tests/utils/atomic-config.test.ts - New file with unit tests
-
-### Next Priority Tasks
-1. Create templates/scm/github/ directory structure for all agents
-2. Write GitHub commit.md content (adapted from gh-commit.md)
-3. Write GitHub create-gh-pr.md content for all agents
-
-### Notes
-- Pre-existing type errors exist in the codebase (copilot-client.ts, chat.tsx, various test files) but are unrelated to this feature
-- The config.ts changes compile cleanly and all related tests pass
+- src/config.ts - SCM types, interfaces, constants, helper functions
+- tests/config.test.ts - SCM unit tests
+- src/utils/atomic-config.ts - AtomicConfig interface and functions
+- tests/utils/atomic-config.test.ts - atomic-config unit tests

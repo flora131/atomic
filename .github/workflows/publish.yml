@@ -34,6 +34,21 @@ jobs:
       - name: Install dependencies
         run: bun ci
 
+      - name: Install all platform-specific opentui native bindings
+        run: |
+          # Platform packages have os/cpu fields that block install on foreign platforms.
+          # Download and extract tarballs directly to bypass platform checks.
+          OPENTUI_VERSION="0.1.79"
+          for platform in darwin-x64 darwin-arm64 linux-arm64 win32-x64 win32-arm64; do
+            pkg="@opentui/core-${platform}"
+            dest="node_modules/@opentui/core-${platform}"
+            if [ ! -d "$dest" ]; then
+              mkdir -p "$dest"
+              npm pack "${pkg}@${OPENTUI_VERSION}" --pack-destination /tmp 2>/dev/null
+              tar -xzf "/tmp/opentui-core-${platform}-${OPENTUI_VERSION}.tgz" -C "$dest" --strip-components=1
+            fi
+          done
+
       - name: Run tests
         run: bun test
 
@@ -68,14 +83,9 @@ jobs:
           cp -r .claude config-staging/
           cp -r .opencode config-staging/
           mkdir -p config-staging/.github
-          cp -r .github/agents config-staging/.github/
-          cp -r .github/hooks config-staging/.github/
-          cp -r .github/prompts config-staging/.github/ 2>/dev/null || true
-          cp -r .github/scripts config-staging/.github/
           cp -r .github/skills config-staging/.github/
           cp CLAUDE.md config-staging/
           cp AGENTS.md config-staging/
-          cp .mcp.json config-staging/ 2>/dev/null || true
 
           # Remove node_modules from .opencode if present
           rm -rf config-staging/.opencode/node_modules

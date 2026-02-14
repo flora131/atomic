@@ -11,6 +11,7 @@ import { useKeyboard, useTerminalDimensions } from "@opentui/react";
 import type { KeyEvent, TextareaRenderable, ScrollBoxRenderable } from "@opentui/core";
 import { useTheme } from "../theme.tsx";
 import { navigateUp, navigateDown } from "../utils/navigation.ts";
+import { PROMPT, STATUS, CONNECTOR } from "../constants/icons.ts";
 
 // ============================================================================
 // TYPES
@@ -108,15 +109,8 @@ export function UserQuestionDialog({
   const optionRowOffsets = useMemo(() => {
     const offsets: number[] = [];
     let row = 0;
-    const chatIdx = allOptions.length - 1;
     for (let i = 0; i < allOptions.length; i++) {
       const option = allOptions[i]!;
-      const prevOption = i > 0 ? allOptions[i - 1] : null;
-      const showSeparator = i === chatIdx;
-      const needsSpacingAfterDescription = prevOption?.description && !showSeparator;
-
-      if (showSeparator) row += 2; // marginTop + separator row
-      if (needsSpacingAfterDescription) row += 1;
 
       offsets.push(row);
       row += 1; // label row
@@ -285,9 +279,6 @@ export function UserQuestionDialog({
     return null;
   }
 
-  // Index where "Chat about this" starts (after separator)
-  const chatAboutThisIndex = optionsCount - 1;
-
   // Render inline within the chat flow (not as overlay) to match Claude Code behavior
   return (
     <box
@@ -297,9 +288,9 @@ export function UserQuestionDialog({
       {/* Header badge - Claude Code style: compact inline badge */}
       <box marginBottom={1}>
         <text>
-          <span style={{ fg: colors.border }}>╭─</span>
-          <span style={{ fg: colors.foreground }}> □ {question.header} </span>
-          <span style={{ fg: colors.border }}>─╮</span>
+          <span style={{ fg: colors.border }}>{CONNECTOR.roundedTopLeft}{CONNECTOR.horizontal}</span>
+          <span style={{ fg: colors.foreground }}> {STATUS.pending} {question.header} </span>
+          <span style={{ fg: colors.border }}>{CONNECTOR.horizontal}{CONNECTOR.roundedTopRight}</span>
         </text>
       </box>
 
@@ -320,7 +311,7 @@ export function UserQuestionDialog({
             flexDirection="row"
             alignItems="center"
           >
-            <text style={{ fg: colors.accent }}>❯ </text>
+            <text style={{ fg: colors.accent }}>{PROMPT.cursor} </text>
             <textarea
               ref={textareaRef}
               placeholder={isChatAboutThis ? "Type your thoughts..." : "Type your answer..."}
@@ -352,37 +343,21 @@ export function UserQuestionDialog({
               // Sequential numbering: 1, 2, 3, 4, 5, 6...
               const displayNumber = index + 1;
 
-              // Add separator before "Chat about this" (last option)
-              const showSeparator = index === chatAboutThisIndex;
-
               // Use accent color for highlighted items (like autocomplete)
               const labelColor = isHighlighted ? colors.accent : colors.foreground;
               const descColor = isHighlighted ? colors.accent : colors.muted;
 
-              // Check if previous option had a description (need spacing)
-              const prevOption = index > 0 ? allOptions[index - 1] : null;
-              const needsSpacingAfterDescription = prevOption?.description && !showSeparator;
-
               return (
                 <React.Fragment key={option.value}>
-                  {showSeparator && (
-                    <box marginTop={1} marginBottom={0}>
-                      <text style={{ fg: colors.muted }}>{" "}</text>
-                    </box>
-                  )}
-                  {/* Add newline spacing after previous option's description */}
-                  {needsSpacingAfterDescription && (
-                    <box height={1} />
-                  )}
                   {/* Label line: ❯ N. Label */}
                   <text>
                     <span style={{ fg: isHighlighted ? colors.accent : colors.muted }}>
-                      {isHighlighted ? "❯ " : "  "}
+                      {isHighlighted ? `${PROMPT.cursor} ` : "  "}
                     </span>
                     <span style={{ fg: labelColor }}>
                       {displayNumber}. {question.multiSelect && !isSpecialOption ? (
                         <span style={{ fg: isSelected ? colors.success : colors.muted }}>
-                          {isSelected ? "[✓] " : "[ ] "}
+                          {isSelected ? `[${STATUS.success}] ` : "[ ] "}
                         </span>
                       ) : null}
                       <span style={{ fg: labelColor, attributes: isHighlighted ? 1 : undefined }}>

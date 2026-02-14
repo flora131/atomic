@@ -18,6 +18,7 @@
 
 import React from "react";
 import { useTheme } from "../theme.tsx";
+import { STATUS, PROGRESS } from "../constants/icons.ts";
 import type { ContextDisplayInfo } from "../commands/registry.ts";
 
 // ============================================================================
@@ -73,8 +74,8 @@ export function ContextInfoDisplay({
     barColor = colors.error;
   }
 
-  const filledBar = "█".repeat(filledCount);
-  const emptyBar = "░".repeat(emptyCount);
+  const filledBar = PROGRESS.filled.repeat(filledCount);
+  const emptyBar = PROGRESS.empty.repeat(emptyCount);
 
   const categories = [
     { label: "System/Tools", value: systemTools },
@@ -90,7 +91,7 @@ export function ContextInfoDisplay({
       </text>
       <text>{""}</text>
       <text>
-        <span style={{ fg: colors.success }}>{"  ● "}</span>
+        <span style={{ fg: colors.success }}>{`  ${STATUS.active} `}</span>
         <span style={{ fg: colors.foreground, attributes: 1 }}>{model}</span>
         <span style={{ fg: colors.muted }}>{` · ${tier} · `}</span>
         <span style={{ fg: colors.foreground }}>

@@ -7,9 +7,10 @@
  * Reference: Feature 1 - Create CommandRegistry class and CommandDefinition interface
  */
 
-import type { Session, ModelDisplayInfo } from "../../sdk/types.ts";
+import type { Session, ModelDisplayInfo, McpServerConfig } from "../../sdk/types.ts";
 import type { AgentType, ModelOperations } from "../../models";
 import type { TodoItem } from "../../sdk/tools/todo-write.ts";
+import type { McpServerToggleMap, McpSnapshotView } from "../utils/mcp-output.ts";
 
 // ============================================================================
 // TYPES
@@ -129,6 +130,12 @@ export interface CommandContext {
   getModelDisplayInfo?: () => Promise<ModelDisplayInfo>;
   /** Get system tools tokens from the client (pre-session fallback) */
   getClientSystemToolsTokens?: () => number | null;
+  /** Get current session-level MCP toggles keyed by server name */
+  getMcpServerToggles?: () => McpServerToggleMap;
+  /** Set one MCP server toggle for this TUI session */
+  setMcpServerEnabled?: (name: string, enabled: boolean) => void;
+  /** Update MCP servers used when creating the next SDK session */
+  setSessionMcpServers?: (servers: McpServerConfig[]) => void;
 }
 
 /**
@@ -209,6 +216,8 @@ export interface CommandResult {
   showMcpOverlay?: boolean;
   /** MCP server list to display via McpServerListIndicator */
   mcpServers?: import("../../sdk/types.ts").McpServerConfig[];
+  /** Rich MCP snapshot display payload for Codex-style /mcp output */
+  mcpSnapshot?: McpSnapshotView;
   /** Display name for the model (used to update the header after /model command) */
   modelDisplayName?: string;
   /** Context usage info to display via ContextInfoDisplay */

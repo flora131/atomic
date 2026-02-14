@@ -5,7 +5,7 @@
  * coding agent SDKs (Claude, OpenCode, Copilot) through a common abstraction.
  */
 
-import type { AgentType } from "../utils/telemetry/types.ts";
+import type { AgentType } from "../telemetry/types.ts";
 
 /**
  * Permission modes for tool execution approval
@@ -44,8 +44,42 @@ export interface McpServerConfig {
   timeout?: number;
   /** Whether the server is enabled (default: true) */
   enabled?: boolean;
+  /** Optional reason shown when the server is disabled */
+  disabledReason?: string;
   /** Restrict available tools to this whitelist (default: all tools) */
   tools?: string[];
+}
+
+/** Authentication status for an MCP server. */
+export type McpAuthStatus = "Unsupported" | "Not logged in" | "Bearer token" | "OAuth";
+
+/** MCP resource metadata from runtime server introspection. */
+export interface McpRuntimeResource {
+  name: string;
+  title?: string;
+  uri: string;
+}
+
+/** MCP resource template metadata from runtime server introspection. */
+export interface McpRuntimeResourceTemplate {
+  name: string;
+  title?: string;
+  uriTemplate: string;
+}
+
+/** Runtime MCP details for a specific server. */
+export interface McpRuntimeServerSnapshot {
+  authStatus?: McpAuthStatus;
+  tools?: string[];
+  resources?: McpRuntimeResource[];
+  resourceTemplates?: McpRuntimeResourceTemplate[];
+  httpHeaders?: Record<string, string>;
+  envHttpHeaders?: Record<string, string>;
+}
+
+/** Runtime MCP details keyed by server name. */
+export interface McpRuntimeSnapshot {
+  servers: Record<string, McpRuntimeServerSnapshot>;
 }
 
 /**
@@ -219,6 +253,12 @@ export interface Session {
    * Throws if called before the baseline has been captured (before first query completes).
    */
   getSystemToolsTokens(): number;
+
+  /**
+   * Optional runtime MCP server snapshot.
+   * Implementations may omit this and callers should gracefully fall back.
+   */
+  getMcpSnapshot?(): Promise<McpRuntimeSnapshot | null>;
 
   /**
    * Destroy the session and release resources.

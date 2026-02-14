@@ -248,12 +248,13 @@ function wireResultAttribution(
 ): {
   getAgents: () => ParallelAgent[];
   setStreaming: (v: boolean) => void;
+  onStreamComplete: () => void;
 } {
   let agents: ParallelAgent[] = [];
   let isStreaming = true;
 
   // Maps from subscribeToToolEvents()
-  const pendingTaskToolIds: string[] = [];
+  const pendingTaskEntries: Array<{ toolId: string }> = [];
   const toolCallToAgentMap = new Map<string, string>();
   const toolNameToIds = new Map<string, string[]>();
   let toolIdCounter = 0;
@@ -268,8 +269,8 @@ function wireResultAttribution(
     ids.push(toolId);
     toolNameToIds.set(data.toolName, ids);
 
-    if (data.toolName === "Task") {
-      pendingTaskToolIds.push(toolId);
+    if (data.toolName === "Task" || data.toolName === "task") {
+      pendingTaskEntries.push({ toolId });
     }
   });
 
@@ -300,7 +301,7 @@ function wireResultAttribution(
       toolCallToAgentMap.set(sdkCorrelationId, data.subagentId);
     }
     // FIFO fallback
-    const fifoToolId = pendingTaskToolIds.shift();
+    const fifoToolId = pendingTaskEntries.shift()?.toolId;
     if (fifoToolId) {
       toolCallToAgentMap.set(fifoToolId, data.subagentId);
     }
@@ -338,6 +339,10 @@ function wireResultAttribution(
     // Resolve internal toolId via FIFO
     const ids = toolNameToIds.get(data.toolName);
     const toolId = ids?.shift() ?? `tool_${toolIdCounter}`;
+    const pendingIdx = pendingTaskEntries.findIndex((entry) => entry.toolId === toolId);
+    if (pendingIdx !== -1) {
+      pendingTaskEntries.splice(pendingIdx, 1);
+    }
 
     // Try ID-based correlation
     const sdkCorrelationId = data.toolUseID ?? data.toolCallId ?? data.toolUseId;
@@ -366,6 +371,17 @@ function wireResultAttribution(
   return {
     getAgents: () => agents,
     setStreaming: (v: boolean) => { isStreaming = v; },
+    onStreamComplete: () => {
+      // Match fixed behavior: don't clear completed agents if Task result
+      // correlation is still pending after stream completion.
+      const hasActiveAgents = agents.some((a) => a.status === "running" || a.status === "pending");
+      const hasPendingCorrelations =
+        pendingTaskEntries.length > 0 || toolCallToAgentMap.size > 0;
+      if (!hasActiveAgents && !hasPendingCorrelations) {
+        agents = [];
+      }
+      isStreaming = false;
+    },
   };
 }
 
@@ -611,5 +627,46 @@ describe("ID-Based Result Attribution", () => {
     const agents = getAgents();
     expect(agents.find((a) => a.id === "agent-2")?.result).toBe("Result 2");
     expect(agents.find((a) => a.id === "agent-1")?.result).toBe("Result 1");
+  });
+
+  test("retains completed agents for late Task result after stream completion", () => {
+    const { getAgents, onStreamComplete } = wireResultAttribution(client);
+
+    client.emit("tool.start", {
+      type: "tool.start",
+      sessionId: "s1",
+      timestamp: new Date().toISOString(),
+      data: { toolName: "Task", toolInput: { prompt: "Late result task" } },
+    });
+
+    client.emit("subagent.start", {
+      type: "subagent.start",
+      sessionId: "s1",
+      timestamp: new Date().toISOString(),
+      data: { subagentId: "agent-late", subagentType: "Explore", task: "Late result task" },
+    });
+
+    client.emit("subagent.complete", {
+      type: "subagent.complete",
+      sessionId: "s1",
+      timestamp: new Date().toISOString(),
+      data: { subagentId: "agent-late", success: true },
+    });
+
+    // Main stream ends before Task tool.complete arrives.
+    onStreamComplete();
+
+    // Late Task completion should still backfill sub-agent result.
+    client.emit("tool.complete", {
+      type: "tool.complete",
+      sessionId: "s1",
+      timestamp: new Date().toISOString(),
+      data: { toolName: "Task", success: true, toolResult: "Late-arriving result" },
+    });
+
+    const agents = getAgents();
+    expect(agents).toHaveLength(1);
+    expect(agents[0]?.id).toBe("agent-late");
+    expect(agents[0]?.result).toBe("Late-arriving result");
   });
 });

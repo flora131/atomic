@@ -1,0 +1,45 @@
+# Progress Log
+
+## 2026-02-14 - Added Tests for frontend-design Built-in Skill
+
+### Summary
+Successfully added comprehensive tests for the new `frontend-design` built-in skill to the existing test files. All tests pass successfully.
+
+### Changes Made
+
+#### tests/ui/commands/skill-commands.test.ts
+Added the following test cases in the BUILTIN_SKILLS section:
+1. **contains frontend-design skill** - Verifies the skill exists with correct description and aliases ("fd", "design")
+2. **frontend-design skill has $ARGUMENTS placeholder** - Ensures the prompt template includes $ARGUMENTS
+3. **frontend-design skill includes design guidelines sections** - Verifies all key sections exist (Design Thinking, Frontend Aesthetics Guidelines, Typography, Color & Theme, Motion)
+4. **frontend-design skill does not require arguments** - Confirms requiredArguments is undefined
+
+Added the following test cases in the getBuiltinSkill section:
+1. **finds frontend-design builtin skill by name** - Tests lookup by "frontend-design"
+2. **finds frontend-design builtin skill by alias 'fd'** - Tests lookup by "fd" alias
+3. **finds frontend-design builtin skill by alias 'design'** - Tests lookup by "design" alias
+
+Updated existing tests in the registerBuiltinSkills section:
+1. Added `expect(globalRegistry.has("frontend-design")).toBe(true);` to "registers all builtin skills" test
+2. Added `expect(globalRegistry.has("fd")).toBe(true);` and `expect(globalRegistry.has("design")).toBe(true);` to "registers builtin skill aliases" test
+
+#### tests/ui/commands/skill-discovery.test.ts
+Added test in the PINNED_BUILTIN_SKILLS section:
+1. **does not contain frontend-design** - Confirms frontend-design is not a pinned skill
+
+### Test Results
+- `bun test tests/ui/commands/skill-commands.test.ts` - ✅ 116 tests passed
+- `bun test tests/ui/commands/skill-discovery.test.ts` - ✅ 25 tests passed
+
+### Git Commit
+Committed with message: "test(skills): add comprehensive tests for frontend-design builtin skill"
+
+### Tasks Completed
+- Task #7: Add tests for frontend-design skill in skill-commands.test.ts
+- Task #8: Add tests for frontend-design skill in skill-discovery.test.ts
+- Task #9: Verify all tests pass (mentioned in original task description)
+
+### Notes
+- Tests follow the exact patterns already established in the test files
+- All new tests verify critical functionality including skill registration, alias resolution, and prompt structure
+- The frontend-design skill is correctly NOT pinned, allowing it to be overridden by user/project skills if needed

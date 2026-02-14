@@ -8,6 +8,7 @@
  */
 
 import type { SyntaxStyle } from "@opentui/core";
+import { STATUS, CHECKBOX } from "../constants/icons.ts";
 
 // ============================================================================
 // TYPES
@@ -311,9 +312,9 @@ export const writeToolRenderer: ToolRenderer = {
 
     const content: string[] = [];
     if (isSuccess) {
-      content.push(`✓ File written: ${filePath}`);
+      content.push(`${STATUS.success} File written: ${filePath}`);
     } else {
-      content.push(`○ Writing: ${filePath}`);
+      content.push(`${STATUS.pending} Writing: ${filePath}`);
     }
 
     // Show preview of content (first few lines)
@@ -586,6 +587,77 @@ export const mcpToolRenderer: ToolRenderer = {
 };
 
 // ============================================================================
+// TASK TOOL RESULT PARSING
+// ============================================================================
+
+/**
+ * Extract the clean result text from a Task tool response.
+ * The SDK may return the result in different formats:
+ *
+ * 1. Actual SDK format: { content: [{ type: "text", text: "..." }], totalDurationMs, ... }
+ * 2. Documented TaskOutput: { result: "..." }
+ * 3. Plain string
+ *
+ * Returns the extracted text and optional metadata.
+ */
+export function parseTaskToolResult(output: unknown): {
+  text: string | undefined;
+  durationMs?: number;
+  toolUses?: number;
+  tokens?: number;
+} {
+  if (output === undefined || output === null) {
+    return { text: undefined };
+  }
+
+  // Plain string result
+  if (typeof output === "string") {
+    // Try parsing as JSON first
+    try {
+      const parsed = JSON.parse(output);
+      return parseTaskToolResult(parsed);
+    } catch {
+      return { text: output };
+    }
+  }
+
+  if (typeof output !== "object") {
+    return { text: String(output) };
+  }
+
+  const obj = output as Record<string, unknown>;
+
+  // Format 1: Actual SDK response with content array
+  if (Array.isArray(obj.content)) {
+    const textBlock = (obj.content as Array<Record<string, unknown>>).find(
+      (b) => b.type === "text" && typeof b.text === "string"
+    );
+    const text = textBlock?.text as string | undefined;
+    return {
+      text,
+      durationMs: typeof obj.totalDurationMs === "number" ? obj.totalDurationMs : undefined,
+      toolUses: typeof obj.totalToolUseCount === "number" ? obj.totalToolUseCount : undefined,
+      tokens: typeof obj.totalTokens === "number" ? obj.totalTokens : undefined,
+    };
+  }
+
+  // Format 2: Documented TaskOutput with result field
+  if (typeof obj.result === "string") {
+    return {
+      text: obj.result,
+      durationMs: typeof obj.duration_ms === "number" ? obj.duration_ms : undefined,
+    };
+  }
+
+  // Fallback: try common text fields
+  if (typeof obj.text === "string") return { text: obj.text };
+  if (typeof obj.output === "string") return { text: obj.output };
+
+  // Last resort: stringify
+  return { text: JSON.stringify(output, null, 2) };
+}
+
+// ============================================================================
 // TASK TOOL RENDERER
 // ============================================================================
 
@@ -625,18 +697,17 @@ export const taskToolRenderer: ToolRenderer = {
       content.push(`Prompt: ${truncated}`);
     }
 
-    // Show output/result if present
+    // Show clean result text (not raw JSON)
     if (props.output !== undefined) {
-      content.push("");
-      if (typeof props.output === "string") {
-        const lines = props.output.split("\n");
+      const parsed = parseTaskToolResult(props.output);
+      if (parsed.text) {
+        content.push("");
+        const lines = parsed.text.split("\n");
         const preview = lines.slice(0, 15);
         content.push(...preview);
         if (lines.length > 15) {
           content.push(`… ${lines.length - 15} more lines`);
         }
-      } else {
-        content.push(JSON.stringify(props.output, null, 2));
       }
     }
 
@@ -646,7 +717,7 @@ export const taskToolRenderer: ToolRenderer = {
 };
 
 export const todoWriteToolRenderer: ToolRenderer = {
-  icon: "☑",
+  icon: CHECKBOX.checked,
   getTitle(props: ToolRenderProps): string {
     const todos = (props.input?.todos as Array<{ content: string; status: string }>) ?? [];
     const done = todos.filter((t) => t.status === "completed").length;
@@ -659,7 +730,7 @@ export const todoWriteToolRenderer: ToolRenderer = {
     const open = todos.length - done;
     const title = `${todos.length} tasks (${done} done, ${open} open)`;
     const content: string[] = todos.map((t) => {
-      const prefix = t.status === "completed" ? "✓ " : t.status === "in_progress" ? "◉ " : "□ ";
+      const prefix = t.status === "completed" ? `${STATUS.success} ` : t.status === "in_progress" ? `${STATUS.selected} ` : `${STATUS.pending} `;
       return prefix + t.content;
     });
     return { title, content, expandable: false };

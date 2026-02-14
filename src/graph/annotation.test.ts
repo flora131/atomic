@@ -38,8 +38,8 @@ describe("Reducers", () => {
   });
 
   test("merge reducer performs shallow object merge", () => {
-    const current = { a: 1, b: 2 };
-    const update = { b: 3, c: 4 };
+    const current: Record<string, number> = { a: 1, b: 2 };
+    const update: Record<string, number> = { b: 3, c: 4 };
     const result = Reducers.merge(current, update);
     
     expect(result).toEqual({ a: 1, b: 3, c: 4 });
@@ -229,7 +229,7 @@ describe("initializeState", () => {
 
   test("creates independent state instances", () => {
     const schema = {
-      items: annotation(() => []),
+      items: annotation<string[]>(() => []),
     };
     
     const state1 = initializeState(schema);
@@ -292,6 +292,8 @@ describe("applyStateUpdate", () => {
     const current = { defined: 10 };
     const update = { defined: 20, extra: 999 };
     
+    // TypeScript doesn't allow extra keys, but at runtime it works
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = applyStateUpdate(schema, current, update as any);
     
     expect(result).toEqual({ defined: 20, extra: 999 });

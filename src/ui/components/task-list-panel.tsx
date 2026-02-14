@@ -10,6 +10,7 @@
 import React, { useState, useEffect } from "react";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { useTerminalDimensions } from "@opentui/react";
 
 import { watchTasksJson } from "../commands/workflow-commands.ts";
 import { MISC } from "../constants/icons.ts";
@@ -41,6 +42,7 @@ export function TaskListPanel({
 }: TaskListPanelProps): React.ReactNode {
   const themeColors = useThemeColors();
   const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const { width: terminalWidth } = useTerminalDimensions();
 
   useEffect(() => {
     // Initial load: read tasks.json synchronously on mount to avoid flash
@@ -66,19 +68,25 @@ export function TaskListPanel({
   const completed = tasks.filter(t => t.status === "completed").length;
   const total = tasks.length;
 
+  // Calculate max content length for task descriptions based on container width.
+  // Overhead: paddingLeft(2) + paddingRight(2) + borderLeft(1) + borderRight(1)
+  //         + innerPaddingLeft(1) + innerPaddingRight(1) + iconPrefix("   ● " = 5)
+  // Total: 13 chars
+  const maxContentLength = Math.max(20, terminalWidth - 13);
+
   return (
     <box flexDirection="column" paddingLeft={2} paddingRight={2} marginTop={1}>
       <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.muted} paddingLeft={1} paddingRight={1}>
         <text style={{ fg: themeColors.accent }} attributes={1}>
-          {`Ralph Workflow ${MISC.separator} ${completed}/${total} tasks`}
+          {`Task Progress ${MISC.separator} ${completed}/${total} tasks`}
         </text>
         {sessionId && (
           <text style={{ fg: themeColors.muted }}>
-            {`Session: ${sessionId} ${MISC.separator} /ralph --resume ${sessionId}`}
+            {`Session: ${sessionId}`}
           </text>
         )}
         <scrollbox maxHeight={15}>
-          <TaskListIndicator items={tasks} expanded={expanded} />
+          <TaskListIndicator items={tasks} expanded={expanded} maxVisible={Infinity} showConnector={false} maxContentLength={maxContentLength} />
         </scrollbox>
       </box>
     </box>

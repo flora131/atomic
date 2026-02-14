@@ -35,8 +35,8 @@ export interface StreamResult {
 export interface SpawnSubagentOptions {
   /** Display name for the sub-agent in the tree view (e.g., "codebase-analyzer") */
   name?: string;
-  /** System prompt for the sub-agent */
-  systemPrompt: string;
+  /** System prompt for the sub-agent (omit to use the agent definition's prompt) */
+  systemPrompt?: string;
   /** Initial message/task for the sub-agent */
   message: string;
   /** Tools available to the sub-agent (inherits all if omitted) */
@@ -92,8 +92,14 @@ export interface CommandContext {
    * Send a message and wait for the streaming response to complete.
    * Returns the accumulated content and whether it was interrupted.
    * Use this for multi-step workflows that need sequential coordination.
+   *
+   * @param prompt - The prompt to send
+   * @param options - Optional settings
+   * @param options.hideContent - When true, suppresses content rendering in the chat
+   *   (content is still accumulated and returned in StreamResult). Useful for
+   *   intermediate workflow steps whose raw output (e.g., JSON) shouldn't be shown.
    */
-  streamAndWait: (prompt: string) => Promise<StreamResult>;
+  streamAndWait: (prompt: string, options?: { hideContent?: boolean }) => Promise<StreamResult>;
   /**
    * Clear the current context window (destroy SDK session, clear messages).
    * Preserves todoItems across the clear.

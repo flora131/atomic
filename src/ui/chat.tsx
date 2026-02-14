@@ -1708,14 +1708,18 @@ export function ChatApp({
   const lastStreamingContentRef = useRef<string>("");
   // Resolver for streamAndWait: when set, handleComplete resolves the Promise instead of processing the queue
   const streamCompletionResolverRef = useRef<((result: import("./commands/registry.ts").StreamResult) => void) | null>(null);
+  // When true, streaming chunks are accumulated but NOT rendered in the assistant message (for hidden workflow steps)
+  const hideStreamContentRef = useRef(false);
   const [showTodoPanel, setShowTodoPanel] = useState(true);
   // Whether task list items are expanded (full content, no truncation)
-  const [tasksExpanded, setTasksExpanded] = useState(false);
+  const [tasksExpanded, _setTasksExpanded] = useState(false);
   // Ralph workflow persistent task list
   const [ralphSessionDir, setRalphSessionDir] = useState<string | null>(null);
   const ralphSessionDirRef = useRef<string | null>(null);
   const [ralphSessionId, setRalphSessionId] = useState<string | null>(null);
   const ralphSessionIdRef = useRef<string | null>(null);
+  // Greyed-out resume suggestion shown in chatbox after ralph is interrupted with remaining tasks
+  const [resumeSuggestion, setResumeSuggestion] = useState<string | null>(null);
   // State for input textarea scrollbar (shown only when input overflows)
   const [inputScrollbar, setInputScrollbar] = useState<InputScrollbarState>({
     visible: false,
@@ -1802,6 +1806,28 @@ export function ChatApp({
   useEffect(() => {
     ralphSessionIdRef.current = ralphSessionId;
   }, [ralphSessionId]);
+
+  /**
+   * Finalize task items on interrupt: mark in_progress → error, update state/ref,
+   * persist to tasks.json if Ralph is active, and return taskItems for baking into message.
+   */
+  const finalizeTaskItemsOnInterrupt = useCallback((): TaskItem[] | undefined => {
+    const current = todoItemsRef.current;
+    if (current.length === 0) return undefined;
+
+    const updated = current.map(t =>
+      t.status === "in_progress" ? { ...t, status: "error" as const } : t
+    );
+    todoItemsRef.current = updated;
+    setTodoItems(updated);
+
+    // Persist to tasks.json if ralph workflow is active
+    if (ralphSessionIdRef.current) {
+      void saveTasksToActiveSession(updated, ralphSessionIdRef.current);
+    }
+
+    return updated.map(t => ({ id: t.id, content: t.content, status: t.status, blockedBy: t.blockedBy }));
+  }, []);
 
   // Dynamic placeholder based on queue state
   const dynamicPlaceholder = useMemo(() => {
@@ -2724,6 +2750,11 @@ export function ChatApp({
     handleInputChange(value, cursorOffset);
     syncInputScrollbar();
 
+    // Clear resume suggestion when user starts typing
+    if (value.length > 0) {
+      setResumeSuggestion(null);
+    }
+
     // Apply slash command highlighting
     if (textarea) {
       textarea.removeHighlightsByRef(HLREF_COMMAND);
@@ -2892,6 +2923,8 @@ export function ChatApp({
             if (streamGenerationRef.current !== currentGeneration) return;
             // Accumulate content for step 1 → step 2 task parsing
             lastStreamingContentRef.current += chunk;
+            // Skip rendering in message when content is hidden (e.g., step 1 JSON output)
+            if (hideStreamContentRef.current) return;
             const messageId = streamingMessageIdRef.current;
             if (messageId) {
               setMessages((prev: ChatMessage[]) =>
@@ -2940,6 +2973,11 @@ export function ChatApp({
               const resolver = streamCompletionResolverRef.current;
               if (resolver) {
                 streamCompletionResolverRef.current = null;
+                // Remove the empty placeholder message when content was hidden
+                if (hideStreamContentRef.current && messageId) {
+                  setMessages((prev: ChatMessage[]) => prev.filter((msg: ChatMessage) => msg.id !== messageId));
+                }
+                hideStreamContentRef.current = false;
                 resolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
                 return;
               }
@@ -3024,6 +3062,11 @@ export function ChatApp({
             const resolver = streamCompletionResolverRef.current;
             if (resolver) {
               streamCompletionResolverRef.current = null;
+              // Remove the empty placeholder message when content was hidden
+              if (hideStreamContentRef.current && messageId) {
+                setMessages((prev: ChatMessage[]) => prev.filter((msg: ChatMessage) => msg.id !== messageId));
+              }
+              hideStreamContentRef.current = false;
               resolver({ content: lastStreamingContentRef.current, wasInterrupted: false });
               return;
             }
@@ -3072,9 +3115,10 @@ export function ChatApp({
           output: result.content,
         };
       },
-      streamAndWait: (prompt: string) => {
+      streamAndWait: (prompt: string, options?: { hideContent?: boolean }) => {
         return new Promise<import("./commands/registry.ts").StreamResult>((resolve) => {
           streamCompletionResolverRef.current = resolve;
+          hideStreamContentRef.current = options?.hideContent ?? false;
           // Delegate to sendSilentMessage logic
           context.sendSilentMessage(prompt);
         });
@@ -3545,6 +3589,9 @@ export function ChatApp({
             parallelAgentsRef.current = [];
             setParallelAgents([]);
 
+            // Finalize in_progress task items → error and bake into message
+            const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
+
             // Bake interrupted agents into message and stop streaming
             const interruptedId = streamingMessageIdRef.current;
             if (interruptedId) {
@@ -3556,6 +3603,7 @@ export function ChatApp({
                       wasInterrupted: true,
                       streaming: false,
                       parallelAgents: interruptedAgents,
+                      taskItems: interruptedTaskItems,
                       toolCalls: msg.toolCalls?.map((tc) =>
                         tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                       ),
@@ -3584,6 +3632,14 @@ export function ChatApp({
               });
             }
 
+            // If ralph has remaining tasks, suggest resume command in chatbox
+            if (ralphSessionIdRef.current) {
+              const remaining = todoItemsRef.current.filter(t => t.status !== "completed");
+              if (remaining.length > 0) {
+                setResumeSuggestion(`/ralph --resume ${ralphSessionIdRef.current}`);
+              }
+            }
+
             setInterruptCount(0);
             if (interruptTimeoutRef.current) {
               clearTimeout(interruptTimeoutRef.current);
@@ -3606,6 +3662,9 @@ export function ChatApp({
                   ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
                   : a
               );
+              // Finalize in_progress task items → error and bake into message
+              const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
+
               const interruptedId = streamingMessageIdRef.current;
               if (interruptedId) {
                 setMessages((prev: ChatMessage[]) =>
@@ -3614,6 +3673,7 @@ export function ChatApp({
                       ? {
                         ...msg,
                         parallelAgents: interruptedAgents,
+                        taskItems: interruptedTaskItems,
                         toolCalls: msg.toolCalls?.map((tc) =>
                           tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                         ),
@@ -3687,10 +3747,9 @@ export function ChatApp({
           return;
         }
 
-        // Ctrl+T - toggle todo list panel visibility and task expansion
+        // Ctrl+T - toggle todo list panel visibility
         if (event.ctrl && !event.shift && event.name === "t") {
           setShowTodoPanel(prev => !prev);
-          setTasksExpanded(prev => !prev);
           return;
         }
 
@@ -3775,6 +3834,9 @@ export function ChatApp({
             parallelAgentsRef.current = [];
             setParallelAgents([]);
 
+            // Finalize in_progress task items → error and bake into message
+            const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
+
             // Bake interrupted agents into message and stop streaming
             const interruptedId = streamingMessageIdRef.current;
             if (interruptedId) {
@@ -3786,6 +3848,7 @@ export function ChatApp({
                       wasInterrupted: true,
                       streaming: false,
                       parallelAgents: interruptedAgents,
+                      taskItems: interruptedTaskItems,
                       toolCalls: msg.toolCalls?.map((tc) =>
                         tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                       ),
@@ -3816,6 +3879,14 @@ export function ChatApp({
                 initialPrompt: null,
               });
             }
+
+            // If ralph has remaining tasks, suggest resume command in chatbox
+            if (ralphSessionIdRef.current) {
+              const remaining = todoItemsRef.current.filter(t => t.status !== "completed");
+              if (remaining.length > 0) {
+                setResumeSuggestion(`/ralph --resume ${ralphSessionIdRef.current}`);
+              }
+            }
             return;
           }
 
@@ -3832,6 +3903,9 @@ export function ChatApp({
                   ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
                   : a
               );
+              // Finalize in_progress task items → error and bake into message
+              const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
+
               const interruptedId = streamingMessageIdRef.current;
               if (interruptedId) {
                 setMessages((prev: ChatMessage[]) =>
@@ -3840,6 +3914,7 @@ export function ChatApp({
                       ? {
                         ...msg,
                         parallelAgents: interruptedAgents,
+                        taskItems: interruptedTaskItems,
                         toolCalls: msg.toolCalls?.map((tc) =>
                           tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                         ),
@@ -4061,6 +4136,21 @@ export function ChatApp({
           return;
         }
 
+        // Tab: auto-complete resume suggestion when input is empty
+        if (event.name === "tab" && resumeSuggestion && !workflowState.showAutocomplete) {
+          const textarea = textareaRef.current;
+          const inputValue = textarea?.plainText ?? "";
+          if (inputValue.trim() === "" && textarea) {
+            textarea.gotoBufferHome();
+            textarea.gotoBufferEnd({ select: true });
+            textarea.deleteChar();
+            textarea.insertText(resumeSuggestion);
+            setResumeSuggestion(null);
+            event.stopPropagation();
+            return;
+          }
+        }
+
         // Autocomplete: Tab - complete the selected command
         if (event.name === "tab" && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
           const selectedCommand = autocompleteSuggestions[workflowState.selectedSuggestionIndex];
@@ -4222,7 +4312,7 @@ export function ChatApp({
           syncInputScrollbar();
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer, resumeSuggestion]
     )
   );
 
@@ -4496,6 +4586,11 @@ export function ChatApp({
       const trimmedValue = value.trim();
       if (!trimmedValue) {
         return;
+      }
+
+      // Clear resume suggestion on submit
+      if (resumeSuggestion) {
+        setResumeSuggestion(null);
       }
 
       // Line continuation: trailing \ before Enter inserts a newline instead of submitting.
@@ -4813,7 +4908,7 @@ export function ChatApp({
         </box>
       )}
 
-      {/* Message display area - scrollable console below input */}
+      {/* Message display area - scrollable chat history */}
       {/* Text can be selected with mouse and copied with Ctrl+C */}
       <scrollbox
         ref={scrollboxRef}
@@ -4868,8 +4963,7 @@ export function ChatApp({
             />
           </box>
         )}
-
-        {/* Input Area - inside scrollbox, flows after messages */}
+        {/* Input Area - flows with content inside scrollbox */}
         {/* Hidden when question dialog or model selector is active */}
         {!activeQuestion && !showModelSelector && (
           <>
@@ -4879,14 +4973,17 @@ export function ChatApp({
               borderColor={themeColors.inputFocus}
               paddingLeft={1}
               paddingRight={1}
+              marginLeft={1}
+              marginRight={1}
               marginTop={messages.length > 0 ? 1 : 0}
               flexDirection="row"
               alignItems="flex-start"
+              flexShrink={0}
             >
               <text flexShrink={0} style={{ fg: themeColors.accent }}>{PROMPT.cursor}{" "}</text>
               <textarea
                 ref={textareaRef}
-                placeholder={messages.length === 0 ? dynamicPlaceholder : ""}
+                placeholder={resumeSuggestion ? `${resumeSuggestion}  (tab to complete)` : (messages.length === 0 ? dynamicPlaceholder : "")}
                 focused={inputFocused}
                 keyBindings={textareaKeyBindings}
                 syntaxStyle={inputSyntaxStyle}
@@ -4925,7 +5022,7 @@ export function ChatApp({
             </box>
             {/* Streaming hints - shows "esc to interrupt" and "ctrl+d enqueue" during streaming */}
             {isStreaming ? (
-              <box paddingLeft={2} flexDirection="row" gap={1}>
+              <box paddingLeft={2} flexDirection="row" gap={1} flexShrink={0}>
                 <text style={{ fg: themeColors.muted }}>
                   esc to interrupt
                 </text>
@@ -4938,9 +5035,9 @@ export function ChatApp({
           </>
         )}
 
-        {/* Autocomplete dropdown for slash commands and @ mentions - inside scrollbox */}
+        {/* Autocomplete dropdown for slash commands and @ mentions */}
         {workflowState.showAutocomplete && (
-          <box marginTop={0} marginBottom={0}>
+          <box marginTop={0} marginBottom={0} marginLeft={1} marginRight={1}>
             <Autocomplete
               input={workflowState.autocompleteInput}
               visible={workflowState.showAutocomplete}
@@ -4955,14 +5052,15 @@ export function ChatApp({
 
         {/* Ctrl+C warning message */}
         {ctrlCPressed && (
-          <box paddingLeft={2}>
+          <box paddingLeft={2} flexShrink={0}>
             <text style={{ fg: themeColors.muted }}>
               Press Ctrl-C again to exit
             </text>
           </box>
         )}
       </scrollbox>
-      {/* Ralph persistent task list - pinned below scrollbox, Ctrl+T toggleable */}
+
+      {/* Ralph persistent task list - separate scroll context from chat, Ctrl+T toggleable */}
       {ralphSessionDir && showTodoPanel && (
         <TaskListPanel
           sessionDir={ralphSessionDir}

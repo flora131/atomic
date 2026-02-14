@@ -12,10 +12,11 @@
  * Reference: Feature 30 - Chat interface with SDK clients
  */
 
-import type { AgentType } from "../utils/telemetry/types.ts";
+import type { AgentType } from "../telemetry/types.ts";
 import type { CodingAgentClient } from "../sdk/types.ts";
 import { getModelPreference, getReasoningEffortPreference } from "../utils/settings.ts";
 import { discoverMcpConfigs } from "../utils/mcp-config.ts";
+import { trackAtomicCommand } from "../telemetry/index.ts";
 
 // SDK client imports
 import { createClaudeAgentClient } from "../sdk/claude-client.ts";
@@ -154,6 +155,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
     agentType = "claude",
     theme = "dark",
     model,
+    workflow = false,
     initialPrompt,
   } = options;
 
@@ -207,13 +209,16 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
       suggestion: 'Try "fix typecheck errors"',
       agentType,
       initialPrompt,
+      workflowEnabled: workflow,
     };
 
     // Start standard chat
     const result = await startChatUI(client, chatConfig);
     console.log(`\nChat ended. ${result.messageCount} messages exchanged.`);
+    trackAtomicCommand("chat", agentType, true);
     return 0;
   } catch (error) {
+    trackAtomicCommand("chat", agentType, false);
     console.error("Chat error:", error instanceof Error ? error.message : String(error));
     return 1;
   } finally {

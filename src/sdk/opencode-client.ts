@@ -53,6 +53,7 @@ import {
   type SessionConfig,
   type AgentMessage,
   type ContextUsage,
+  type McpRuntimeSnapshot,
   type EventType,
   type EventHandler,
   type AgentEvent,
@@ -108,6 +109,22 @@ export interface OpenCodeSdkEvent {
 const DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096";
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
+
+function parseOpenCodeMcpToolId(toolId: string): { server: string; tool: string } | null {
+  const match = toolId.match(/^mcp__(.+?)__(.+)$/);
+  if (!match) return null;
+  const server = match[1]?.trim();
+  const tool = match[2]?.trim();
+  if (!server || !tool) return null;
+  return { server, tool };
+}
+
+function mapOpenCodeMcpStatusToAuth(status: string | undefined): "Not logged in" | undefined {
+  if (status === "needs_auth") {
+    return "Not logged in";
+  }
+  return undefined;
+}
 
 /**
  * Options for creating an OpenCode client
@@ -795,6 +812,101 @@ export class OpenCodeClient implements CodingAgentClient {
     );
   }
 
+  private async buildOpenCodeMcpSnapshot(): Promise<McpRuntimeSnapshot | null> {
+    if (!this.sdkClient) {
+      return null;
+    }
+
+    const directory = this.clientOptions.directory;
+    const [statusResult, toolIdsResult, resourcesResult] = await Promise.allSettled([
+      this.sdkClient.mcp.status({ directory }),
+      this.sdkClient.tool.ids({ directory }),
+      this.sdkClient.experimental.resource.list({ directory }),
+    ]);
+
+    let hasSuccessfulSource = false;
+    const servers: McpRuntimeSnapshot["servers"] = {};
+
+    const ensureServer = (name: string) => {
+      if (!servers[name]) {
+        servers[name] = {};
+      }
+      return servers[name]!;
+    };
+
+    if (statusResult.status === "fulfilled" && !statusResult.value.error && statusResult.value.data) {
+      hasSuccessfulSource = true;
+      const statuses = statusResult.value.data as Record<string, { status?: string }>;
+      for (const [serverName, status] of Object.entries(statuses)) {
+        const server = ensureServer(serverName);
+        const authStatus = mapOpenCodeMcpStatusToAuth(status.status);
+        if (authStatus) {
+          server.authStatus = authStatus;
+        }
+      }
+    }
+
+    if (toolIdsResult.status === "fulfilled" && !toolIdsResult.value.error && Array.isArray(toolIdsResult.value.data)) {
+      hasSuccessfulSource = true;
+      for (const toolId of toolIdsResult.value.data) {
+        if (typeof toolId !== "string") continue;
+        const parsed = parseOpenCodeMcpToolId(toolId);
+        if (!parsed) continue;
+        const server = ensureServer(parsed.server);
+        const toolNames = server.tools ?? [];
+        toolNames.push(toolId);
+        server.tools = toolNames;
+      }
+    }
+
+    if (resourcesResult.status === "fulfilled" && !resourcesResult.value.error && resourcesResult.value.data) {
+      hasSuccessfulSource = true;
+      const resourceMap = resourcesResult.value.data as Record<string, {
+        name?: string;
+        uri?: string;
+        client?: string;
+      }>;
+      for (const resource of Object.values(resourceMap)) {
+        if (!resource.client || !resource.name || !resource.uri) continue;
+        const server = ensureServer(resource.client);
+        const serverResources = server.resources ?? [];
+        serverResources.push({
+          name: resource.name,
+          uri: resource.uri,
+        });
+        server.resources = serverResources;
+      }
+    }
+
+    if (!hasSuccessfulSource) {
+      return null;
+    }
+
+    for (const server of Object.values(servers)) {
+      if (server.tools && server.tools.length > 0) {
+        server.tools = [...new Set(server.tools)].sort((a, b) => a.localeCompare(b));
+      }
+
+      if (server.resources && server.resources.length > 0) {
+        const deduped: typeof server.resources = [];
+        const seen = new Set<string>();
+        for (const resource of server.resources) {
+          const key = `${resource.name}\u0000${resource.uri}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          deduped.push(resource);
+        }
+        server.resources = deduped.sort((a, b) => {
+          const byName = a.name.localeCompare(b.name);
+          if (byName !== 0) return byName;
+          return a.uri.localeCompare(b.uri);
+        });
+      }
+    }
+
+    return { servers };
+  }
+
   private async wrapSession(sessionId: string, config: SessionConfig): Promise<Session> {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const client = this;
@@ -1209,6 +1321,13 @@ export class OpenCodeClient implements CodingAgentClient {
           throw new Error("System tools baseline unavailable: no query has completed. Send a message first.");
         }
         return sessionState.systemToolsBaseline;
+      },
+
+      getMcpSnapshot: async (): Promise<McpRuntimeSnapshot | null> => {
+        if (sessionState.isClosed) {
+          return null;
+        }
+        return client.buildOpenCodeMcpSnapshot();
       },
 
       destroy: async (): Promise<void> => {

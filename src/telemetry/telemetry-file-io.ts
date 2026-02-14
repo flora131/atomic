@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, appendFileSync } from "fs";
 import { join } from "path";
-import { getBinaryDataDir } from "../config-path";
+import { getBinaryDataDir } from "../utils/config-path";
 import type { TelemetryEvent, AgentType } from "./types";
 
 /**

@@ -12,7 +12,7 @@
 
 import { join } from "path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
-import { getBinaryDataDir } from "../config-path";
+import { getBinaryDataDir } from "../utils/config-path";
 import type { TelemetryState } from "./types";
 import { handleTelemetryError } from "./telemetry-errors";
 

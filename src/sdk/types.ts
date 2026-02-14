@@ -44,6 +44,8 @@ export interface McpServerConfig {
   timeout?: number;
   /** Whether the server is enabled (default: true) */
   enabled?: boolean;
+  /** Restrict available tools to this whitelist (default: all tools) */
+  tools?: string[];
 }
 
 /**
@@ -82,33 +84,12 @@ export function stripProviderPrefix(modelId: string): string {
 }
 
 /**
- * Formats a model ID into a human-readable display name.
+ * Formats a model ID for display. Returns the raw model ID as-is,
+ * stripping the provider prefix if present.
  */
 export function formatModelDisplayName(modelId: string): string {
-  if (!modelId) return "Claude";
-
-  const lower = modelId.toLowerCase();
-
-  if (lower === "sonnet" || lower === "anthropic/sonnet") return "sonnet";
-  if (lower === "opus" || lower === "anthropic/opus") return "opus";
-  if (lower === "haiku" || lower === "anthropic/haiku") return "haiku";
-  if (lower === "default") return "default";
-
-  if (lower.includes("claude") || lower.includes("opus") || lower.includes("sonnet") || lower.includes("haiku")) {
-    if (lower.includes("opus")) return "opus";
-    if (lower.includes("sonnet")) return "sonnet";
-    if (lower.includes("haiku")) return "haiku";
-    return "claude";
-  }
-
-  if (lower.includes("gpt")) {
-    return modelId.toUpperCase().replace(/-/g, "-");
-  }
-
-  return modelId
-    .split("-")
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
+  if (!modelId) return "";
+  return stripProviderPrefix(modelId);
 }
 
 /**
@@ -325,6 +306,12 @@ export interface ToolStartEventData extends BaseEventData {
   toolName: string;
   /** Input arguments for the tool */
   toolInput?: unknown;
+  /** SDK-native tool use ID (camelCase variant) */
+  toolUseId?: string;
+  /** SDK-native tool use ID (Claude hook variant) */
+  toolUseID?: string;
+  /** SDK-native tool call ID (Copilot variant) */
+  toolCallId?: string;
 }
 
 /**
@@ -339,6 +326,12 @@ export interface ToolCompleteEventData extends BaseEventData {
   success: boolean;
   /** Error message if tool failed */
   error?: string;
+  /** SDK-native tool use ID (camelCase variant) */
+  toolUseId?: string;
+  /** SDK-native tool use ID (Claude hook variant) */
+  toolUseID?: string;
+  /** SDK-native tool call ID (Copilot variant) */
+  toolCallId?: string;
 }
 
 /**
@@ -361,6 +354,10 @@ export interface SubagentStartEventData extends BaseEventData {
   subagentType?: string;
   /** Task assigned to the subagent */
   task?: string;
+  /** SDK-native tool use ID (Claude hook variant) */
+  toolUseID?: string;
+  /** SDK-native tool call ID (Copilot variant) */
+  toolCallId?: string;
 }
 
 /**

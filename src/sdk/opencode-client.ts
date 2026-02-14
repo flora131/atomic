@@ -493,6 +493,7 @@ export class OpenCodeClient implements CodingAgentClient {
                 toolResult: output,
                 toolInput,
                 success: true,
+                toolUseId: part?.id as string,
               });
             }
           } else if (toolState?.status === "error") {
@@ -501,6 +502,7 @@ export class OpenCodeClient implements CodingAgentClient {
               toolResult: toolState?.error ?? "Tool execution failed",
               toolInput,
               success: false,
+              toolUseId: part?.id as string,
             });
           }
         } else if (part?.type === "agent") {

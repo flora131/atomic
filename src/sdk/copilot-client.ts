@@ -554,6 +554,7 @@ export class CopilotClient implements CodingAgentClient {
             success: event.data.success,
             toolResult: event.data.result?.content,
             error: event.data.error?.message,
+            toolCallId: event.data.toolCallId,
           };
           break;
         }

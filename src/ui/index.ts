@@ -22,6 +22,7 @@ import type {
   AgentMessage,
 } from "../sdk/types.ts";
 import { UnifiedModelOperations } from "../models/model-operations.ts";
+import { parseTaskToolResult } from "./tools/registry.ts";
 
 /**
  * Build a system prompt section describing all registered capabilities.
@@ -172,6 +173,12 @@ interface ChatUIState {
   parallelAgents: ParallelAgent[];
   /** Promise lock to prevent concurrent session creation */
   sessionCreationPromise: Promise<void> | null;
+  /**
+   * Suppress streaming text that is a raw JSON echo of the Task tool result.
+   * When set, holds the result text so suppression is content-aware.
+   * Reset when the model produces non-echo text or starts a new tool.
+   */
+  suppressPostTaskResult: string | null;
 }
 
 /**
@@ -296,6 +303,7 @@ export async function startChatUI(
     parallelAgentHandler: null,
     parallelAgents: [],
     sessionCreationPromise: null,
+    suppressPostTaskResult: null,
   };
 
   // Create a promise that resolves when the UI exits
@@ -389,39 +397,84 @@ export async function startChatUI(
     // Track tool name → stack of tool IDs (for concurrent same-name tools)
     const toolNameToIds = new Map<string, string[]>();
 
-    // Queue of task descriptions from Task tool calls, consumed by subagent.start
-    const pendingTaskPrompts: string[] = [];
+    // FIFO queue of pending Task tool calls consumed by subagent.start.
+    // Keeps prompt + internal toolId together to avoid queue skew.
+    const pendingTaskEntries: Array<{ toolId: string; prompt?: string }> = [];
+
+    // Maps SDK-level correlation IDs to agent IDs for ID-based result attribution.
+    // Populated by subagent.start, consumed by tool.complete for Task tools.
+    // Keys: toolUseID (Claude), toolCallId (Copilot), internal toolId (FIFO fallback)
+    const toolCallToAgentMap = new Map<string, string>();
 
     // Tool IDs attributed to running subagents — their tool.complete events
     // should also be suppressed from the main conversation UI
     const subagentToolIds = new Set<string>();
 
+    // Map SDK tool use IDs to internal tool IDs for deduplication.
+    // SDKs like OpenCode emit tool.start for both "pending" and "running"
+    // statuses of the same tool call — this map ensures we reuse the same
+    // internal ID and update the existing UI entry instead of creating a duplicate.
+    const sdkToolIdMap = new Map<string, string>();
+
+    // Internal cleanup gate for correlation tracking.
+    // Keep completed agents around until late Task tool.complete events are consumed.
+    const tryFinalizeParallelTracking = (): void => {
+      const hasActiveAgents = state.parallelAgents.some(
+        (a) => a.status === "running" || a.status === "pending"
+      );
+      const hasPendingCorrelations =
+        pendingTaskEntries.length > 0 || toolCallToAgentMap.size > 0;
+      if (!hasActiveAgents && !hasPendingCorrelations) {
+        state.parallelAgents = [];
+      }
+    };
+
     // Subscribe to tool.start events
     const unsubStart = client.on("tool.start", (event) => {
-      const data = event.data as { toolName?: string; toolInput?: unknown };
+      const data = event.data as { toolName?: string; toolInput?: unknown; toolUseId?: string; toolUseID?: string };
       if (state.toolStartHandler && data.toolName) {
-        const toolId = `tool_${++state.toolIdCounter}`;
+        // Resolve SDK-provided tool use ID (OpenCode: toolUseId, Claude: toolUseID)
+        const sdkId = data.toolUseId ?? data.toolUseID;
+
+        let toolId: string;
+        let isUpdate = false;
+        if (sdkId && sdkToolIdMap.has(sdkId)) {
+          // Same logical tool call — reuse internal ID and update input
+          toolId = sdkToolIdMap.get(sdkId)!;
+          isUpdate = true;
+        } else {
+          // New tool call — assign a fresh internal ID
+          toolId = `tool_${++state.toolIdCounter}`;
+          if (sdkId) sdkToolIdMap.set(sdkId, toolId);
+        }
 
         // Check for duplicate events (same toolId already tracked)
-        if (state.activeToolIds.has(toolId)) {
+        if (!isUpdate && state.activeToolIds.has(toolId)) {
           return; // Skip duplicate event
         }
         state.activeToolIds.add(toolId);
 
         // Track name → ID stack (allows concurrent same-name tools)
-        const ids = toolNameToIds.get(data.toolName) ?? [];
-        ids.push(toolId);
-        toolNameToIds.set(data.toolName, ids);
+        if (!isUpdate) {
+          const ids = toolNameToIds.get(data.toolName) ?? [];
+          ids.push(toolId);
+          toolNameToIds.set(data.toolName, ids);
+        }
         toolNameToId.set(data.toolName, toolId);
 
-        // Capture Task tool prompts for subagent.start correlation
-        if (data.toolName === "Task" && data.toolInput) {
+        // Capture Task tool prompts and toolIds for subagent.start correlation.
+        // Only queue on first logical start; SDK updates for the same call
+        // must not enqueue duplicates.
+        if ((data.toolName === "Task" || data.toolName === "task") && data.toolInput && !isUpdate) {
           const input = data.toolInput as Record<string, unknown>;
           const prompt = (input.prompt as string) ?? (input.description as string) ?? "";
-          if (prompt) {
-            pendingTaskPrompts.push(prompt);
-          }
+          pendingTaskEntries.push({ toolId, prompt: prompt || undefined });
         }
+
+        // Reset post-task text suppression when the model invokes a new tool —
+        // the model has moved past any potential JSON echo of the previous
+        // task result and is generating new output.
+        state.suppressPostTaskResult = null;
 
         // Propagate tool progress to running subagents in the parallel agents tree.
         // SDK events (subagent.start / subagent.complete) don't carry intermediate
@@ -430,7 +483,8 @@ export async function startChatUI(
         // When a tool is attributed to a subagent, skip the main tool UI to avoid
         // showing subagent-internal tools as top-level conversation entries.
         let attributedToSubagent = false;
-        if (state.isStreaming && state.parallelAgentHandler && state.parallelAgents.length > 0) {
+        const isTaskTool = data.toolName === "Task" || data.toolName === "task";
+        if (!isTaskTool && state.isStreaming && state.parallelAgentHandler && state.parallelAgents.length > 0) {
           const runningAgent = [...state.parallelAgents]
             .reverse()
             .find((a) => a.status === "running");
@@ -462,7 +516,7 @@ export async function startChatUI(
 
     // Subscribe to tool.complete events
     const unsubComplete = client.on("tool.complete", (event) => {
-      const data = event.data as { toolName?: string; toolResult?: unknown; success?: boolean; error?: string; toolInput?: Record<string, unknown> };
+      const data = event.data as { toolName?: string; toolResult?: unknown; success?: boolean; error?: string; toolInput?: Record<string, unknown>; toolUseID?: string; toolCallId?: string; toolUseId?: string };
       if (state.toolCompleteHandler) {
         // Find the matching tool ID from the stack (FIFO order)
         let toolId: string;
@@ -483,6 +537,7 @@ export async function startChatUI(
         if (subagentToolIds.has(toolId)) {
           subagentToolIds.delete(toolId);
           state.activeToolIds.delete(toolId);
+          tryFinalizeParallelTracking();
           return;
         }
 
@@ -494,8 +549,70 @@ export async function startChatUI(
           data.toolInput // Pass input to update if it wasn't available at start
         );
 
+        const isTaskTool = data.toolName === "Task" || data.toolName === "task";
+        if (isTaskTool) {
+          // Task completion consumed this call even if output is empty.
+          // Remove unresolved FIFO entry to avoid stale correlation state.
+          const pendingIdx = pendingTaskEntries.findIndex((entry) => entry.toolId === toolId);
+          if (pendingIdx !== -1) {
+            pendingTaskEntries.splice(pendingIdx, 1);
+          }
+        }
+
+        // Propagate Task tool result to the corresponding parallel agent.
+        // The subagent.complete event (from SubagentStop / step-finish hooks)
+        // doesn't carry the actual output text — only the PostToolUse /
+        // tool.execution_complete event for the "Task" tool has the result.
+        // Use ID-based correlation to attribute results to the correct agent,
+        // falling back to reverse heuristic for backward compatibility.
+        if (
+          isTaskTool &&
+          data.toolResult &&
+          state.parallelAgentHandler &&
+          state.parallelAgents.length > 0
+        ) {
+          // Extract clean result text using the shared parser
+          const parsed = parseTaskToolResult(data.toolResult);
+          const resultStr = parsed.text ?? (typeof data.toolResult === "string"
+            ? data.toolResult
+            : JSON.stringify(data.toolResult));
+
+          // Try ID-based correlation: SDK-level IDs first, then internal toolId
+          const sdkCorrelationId = data.toolUseID ?? data.toolCallId ?? data.toolUseId;
+          const agentId = (sdkCorrelationId && toolCallToAgentMap.get(sdkCorrelationId))
+            || toolCallToAgentMap.get(toolId);
+
+          if (agentId) {
+            state.parallelAgents = state.parallelAgents.map((a) =>
+              a.id === agentId ? { ...a, result: resultStr } : a
+            );
+            state.parallelAgentHandler(state.parallelAgents);
+            // Clean up consumed mappings
+            if (sdkCorrelationId) toolCallToAgentMap.delete(sdkCorrelationId);
+            toolCallToAgentMap.delete(toolId);
+          } else {
+            // Fallback: find the last completed agent without a result
+            const agentToUpdate = [...state.parallelAgents]
+              .reverse()
+              .find((a) => a.status === "completed" && !a.result);
+            if (agentToUpdate) {
+              state.parallelAgents = state.parallelAgents.map((a) =>
+                a.id === agentToUpdate.id ? { ...a, result: resultStr } : a
+              );
+              state.parallelAgentHandler(state.parallelAgents);
+            }
+          }
+
+          // Store the result text so we can content-match against it.
+          // The SDK model may echo back the raw tool_response JSON as
+          // streaming text — we suppress text that matches the result but
+          // allow the model's real follow-up response through.
+          state.suppressPostTaskResult = resultStr;
+        }
+
         // Clean up tracking
         state.activeToolIds.delete(toolId);
+        tryFinalizeParallelTracking();
       }
     });
 
@@ -558,15 +675,19 @@ export async function startChatUI(
         subagentId?: string;
         subagentType?: string;
         task?: string;
+        toolUseID?: string; // Claude: parent Task tool's use ID
+        toolCallId?: string; // Copilot: same as subagentId
       };
 
       // Skip if stream already ended — late events should not revive cleared agents
       if (!state.isStreaming) return;
 
       if (state.parallelAgentHandler && data.subagentId) {
+        const pendingTaskEntry = pendingTaskEntries.shift();
+
         // Use task from event data, or dequeue a pending Task tool prompt
         const task = data.task
-          || pendingTaskPrompts.shift()
+          || pendingTaskEntry?.prompt
           || data.subagentType
           || "Sub-agent";
         const agentTypeName = data.subagentType ?? "agent";
@@ -582,6 +703,18 @@ export async function startChatUI(
         };
         state.parallelAgents = [...state.parallelAgents, newAgent];
         state.parallelAgentHandler(state.parallelAgents);
+
+        // Build correlation mapping: SDK-level ID → agentId
+        // This allows tool.complete to attribute results to the correct agent.
+        const sdkCorrelationId = data.toolUseID ?? data.toolCallId;
+        if (sdkCorrelationId) {
+          toolCallToAgentMap.set(sdkCorrelationId, data.subagentId);
+        }
+        // FIFO fallback: consume pending Task toolId and map it to this agent
+        const fifoToolId = pendingTaskEntry?.toolId;
+        if (fifoToolId) {
+          toolCallToAgentMap.set(fifoToolId, data.subagentId);
+        }
       }
     });
 
@@ -613,18 +746,12 @@ export async function startChatUI(
         );
         state.parallelAgentHandler(state.parallelAgents);
 
-        // If the stream text has ended (no abort controller) and all agents
-        // are now done, clean up streaming state so subsequent messages can
-        // start fresh.
-        if (!state.streamAbortController) {
-          const allDone = !state.parallelAgents.some(
-            (a) => a.status === "running" || a.status === "pending"
-          );
-          if (allDone) {
-            state.parallelAgents = [];
-            state.isStreaming = false;
-          }
-        }
+        // Note: Do NOT clear parallelAgents here. The Task tool.complete
+        // events fire after subagent.complete and need parallelAgents to
+        // still be populated to propagate results. Cleanup is handled by
+        // chat.tsx's handleComplete / isAgentOnlyStream effect which properly
+        // bakes agents into the final message before clearing.
+        tryFinalizeParallelTracking();
       }
     });
 
@@ -652,9 +779,16 @@ export async function startChatUI(
     }
     state.sessionCreationPromise = (async () => {
       try {
-        // Subscribe to tool events BEFORE creating the session
-        const unsubscribe = subscribeToToolEvents();
-        state.cleanupHandlers.push(unsubscribe);
+        // Subscribe to tool events BEFORE creating the session.
+        // Only subscribe once — handlers reference `state` so they stay
+        // up-to-date even across session resets (e.g., /clear).
+        if (!state.toolEventsViaHooks) {
+          const unsubscribe = subscribeToToolEvents();
+          state.cleanupHandlers.push(unsubscribe);
+        }
+
+        // Clear stale tool tracking from any previous session
+        state.activeToolIds.clear();
 
         // Apply the actively selected model for ALL agent types
         if (modelOps && sessionConfig) {
@@ -717,7 +851,12 @@ export async function startChatUI(
       let sdkOutputTokens = 0;
       let thinkingMs = 0;
       let thinkingStartLocal: number | null = null;
+      // Map SDK tool use IDs to internal tool IDs for stream-path deduplication
+      const streamToolIdMap = new Map<string, string>();
       let thinkingText = "";
+
+      // Reset the suppress state at the start of each stream
+      state.suppressPostTaskResult = null;
 
       for await (const message of abortableStream) {
         // Handle text content
@@ -726,6 +865,28 @@ export async function startChatUI(
           if (thinkingStartLocal !== null) {
             thinkingMs = thinkingMs + (Date.now() - thinkingStartLocal);
             thinkingStartLocal = null;
+          }
+
+          // After a Task tool completes, the SDK model may echo back the raw
+          // tool_response as streaming text. Suppress only text that looks
+          // like the echoed result (starts with JSON delimiters or is a
+          // substring of the stored result). Once non-echo text arrives,
+          // clear the suppression so the model's real response flows through.
+          const cachedResult = state.suppressPostTaskResult;
+          if (cachedResult !== null) {
+            const trimmed = message.content.trim();
+            if (trimmed.length === 0) {
+              // Skip empty/whitespace chunks while suppression is active
+              continue;
+            }
+            const isJsonEcho = trimmed.startsWith("{") || trimmed.startsWith("[");
+            const isResultSubstring = (cachedResult as string).indexOf(trimmed) !== -1;
+            if (isJsonEcho || isResultSubstring) {
+              continue;
+            }
+            // Non-echo text arrived — model is generating real output.
+            // Clear suppression and let this chunk (and all future) through.
+            state.suppressPostTaskResult = null;
           }
 
           if (message.content.length > 0) {
@@ -779,9 +940,18 @@ export async function startChatUI(
         // Handle tool_use content - notify UI of tool invocation
         // Skip if we're getting tool events from hooks to avoid duplicates
         else if (message.type === "tool_use" && message.content && !state.toolEventsViaHooks) {
-          const toolContent = message.content as { name?: string; input?: Record<string, unknown> };
+          const toolContent = message.content as { name?: string; input?: Record<string, unknown>; toolUseId?: string };
           if (state.toolStartHandler && toolContent.name) {
-            const toolId = `tool_${++state.toolIdCounter}`;
+            // Deduplicate using SDK tool use ID (e.g., Claude's includePartialMessages
+            // emits multiple assistant messages for the same tool_use block)
+            const sdkId = toolContent.toolUseId ?? (message.metadata as Record<string, unknown> | undefined)?.toolId as string | undefined;
+            let toolId: string;
+            if (sdkId && streamToolIdMap.has(sdkId)) {
+              toolId = streamToolIdMap.get(sdkId)!;
+            } else {
+              toolId = `tool_${++state.toolIdCounter}`;
+              if (sdkId) streamToolIdMap.set(sdkId, toolId);
+            }
             state.toolStartHandler(
               toolId,
               toolContent.name,
@@ -804,15 +974,6 @@ export async function startChatUI(
       }
 
       state.messageCount++;
-      // Only clear parallel agents if none are still actively running.
-      // When sub-agents outlive the stream, handleComplete in chat.tsx
-      // defers queue processing until they finish.
-      const hasActiveAgents = state.parallelAgents.some(
-        (a) => a.status === "running" || a.status === "pending"
-      );
-      if (!hasActiveAgents) {
-        state.parallelAgents = [];
-      }
       onComplete();
     } catch (error) {
       // Ignore AbortError - this is expected when user interrupts
@@ -956,6 +1117,8 @@ export async function startChatUI(
     // - useKittyKeyboard: with disambiguate so Ctrl+C is received as keyboard event
     state.renderer = await createCliRenderer({
       useMouse: true,
+      enableMouseMovement: false,
+      openConsoleOnError: false,
       useAlternateScreen: true,
       exitOnCtrlC: false,
       useKittyKeyboard: { disambiguate: true },

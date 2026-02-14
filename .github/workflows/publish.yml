@@ -86,7 +86,6 @@ jobs:
           cp -r .github/skills config-staging/.github/
           cp CLAUDE.md config-staging/
           cp AGENTS.md config-staging/
-          cp .mcp.json config-staging/ 2>/dev/null || true
 
           # Remove node_modules from .opencode if present
           rm -rf config-staging/.opencode/node_modules

@@ -126,10 +126,11 @@ interface CopilotSessionState {
 }
 
 /**
- * Maps SDK event types to unified EventType
+ * Maps SDK event types to unified EventType.
+ * Uses string key type to accommodate SDK event types that may not be in the type definition.
  */
-function mapSdkEventToEventType(sdkEventType: SdkSessionEventType): EventType | null {
-  const mapping: Partial<Record<SdkSessionEventType, EventType>> = {
+function mapSdkEventToEventType(sdkEventType: SdkSessionEventType | string): EventType | null {
+  const mapping: Record<string, EventType> = {
     "session.start": "session.start",
     "session.resume": "session.start",
     "session.idle": "session.idle",
@@ -486,14 +487,25 @@ export class CopilotClient implements CodingAgentClient {
     // Track context window and system tools baseline from usage_info events
     if (event.type === "session.usage_info" && state) {
       const data = event.data as Record<string, unknown>;
-      if (state.systemToolsBaseline === null) {
-        state.systemToolsBaseline = data.currentTokens as number;
+      const currentTokens = typeof data.currentTokens === "number"
+        ? data.currentTokens
+        : null;
+      if (
+        currentTokens !== null
+        && currentTokens > 0
+        && (state.systemToolsBaseline === null || state.systemToolsBaseline <= 0)
+      ) {
+        state.systemToolsBaseline = currentTokens;
       }
-      state.contextWindow = data.tokenLimit as number;
+      if (typeof data.tokenLimit === "number") {
+        state.contextWindow = data.tokenLimit;
+      }
       // currentTokens reflects the actual tokens in the context window,
       // replacing any accumulated values from assistant.usage events
-      state.inputTokens = data.currentTokens as number;
-      state.outputTokens = 0;
+      if (currentTokens !== null) {
+        state.inputTokens = currentTokens;
+        state.outputTokens = 0;
+      }
     }
 
     // Map to unified event type
@@ -501,7 +513,9 @@ export class CopilotClient implements CodingAgentClient {
     if (eventType) {
       let eventData: Record<string, unknown> = {};
 
-      switch (event.type) {
+      // Cast event.data to access properties (type narrowing doesn't work after casting event.type)
+      const data = event.data as Record<string, unknown>;
+      switch (event.type as string) {
         case "session.start":
           eventData = { config: state?.config };
           break;
@@ -509,76 +523,81 @@ export class CopilotClient implements CodingAgentClient {
           eventData = { reason: "idle" };
           break;
         case "session.error":
-          eventData = { error: event.data.message };
+          eventData = { error: data.message };
           break;
         case "assistant.message_delta":
-          eventData = { delta: event.data.deltaContent };
+          eventData = { delta: data.deltaContent };
           break;
         case "assistant.message":
           eventData = {
             message: {
               type: "text",
-              content: event.data.content,
+              content: data.content,
               role: "assistant",
             },
           };
           break;
-        case "tool.execution_start":
+        case "tool.execution_start": {
           // Track toolCallId -> toolName mapping for the complete event
-          if (state && event.data.toolCallId && event.data.toolName) {
-            state.toolCallIdToName.set(event.data.toolCallId, event.data.toolName);
+          const toolCallId = data.toolCallId as string | undefined;
+          const toolName = data.toolName as string | undefined;
+          if (state && toolCallId && toolName) {
+            state.toolCallIdToName.set(toolCallId, toolName);
           }
           eventData = {
-            toolName: event.data.toolName,
-            toolInput: event.data.arguments,
+            toolName: toolName,
+            toolInput: data.arguments,
           };
           break;
+        }
         case "tool.execution_complete": {
           // Look up the actual tool name from the toolCallId
-          const toolName = state?.toolCallIdToName.get(event.data.toolCallId) ?? event.data.toolCallId;
+          const toolCallId = data.toolCallId as string;
+          const toolName = state?.toolCallIdToName.get(toolCallId) ?? toolCallId;
           // Clean up the mapping
-          state?.toolCallIdToName.delete(event.data.toolCallId);
+          state?.toolCallIdToName.delete(toolCallId);
+          const resultData = data.result as Record<string, unknown> | undefined;
+          const errorData = data.error as Record<string, unknown> | undefined;
           eventData = {
             toolName,
-            success: event.data.success,
-            toolResult: event.data.result?.content,
-            error: event.data.error?.message,
+            success: data.success,
+            toolResult: resultData?.content,
+            error: errorData?.message,
+            toolCallId: data.toolCallId,
           };
           break;
         }
         case "subagent.started":
           eventData = {
-            subagentId: event.data.toolCallId,
-            subagentType: event.data.agentName,
+            subagentId: data.toolCallId,
+            subagentType: data.agentName,
           };
           break;
         case "skill.invoked":
           eventData = {
-            skillName: event.data.name,
-            skillPath: event.data.path,
+            skillName: data.name,
+            skillPath: data.path,
           };
           break;
         case "subagent.completed":
           eventData = {
-            subagentId: event.data.toolCallId,
+            subagentId: data.toolCallId,
             success: true,
           };
           break;
         case "subagent.failed":
           eventData = {
-            subagentId: event.data.toolCallId,
+            subagentId: data.toolCallId,
             success: false,
-            error: event.data.error,
+            error: data.error,
           };
           break;
-        case "session.usage_info": {
-          const usageData = event.data as Record<string, unknown>;
+        case "session.usage_info":
           eventData = {
-            currentTokens: usageData.currentTokens,
-            tokenLimit: usageData.tokenLimit,
+            currentTokens: data.currentTokens,
+            tokenLimit: data.tokenLimit,
           };
           break;
-        }
       }
 
       this.emitEvent(eventType, sessionId, eventData);
@@ -758,12 +777,13 @@ export class CopilotClient implements CodingAgentClient {
       throw new Error("Failed to resolve context window size from Copilot SDK listModels()");
     }
 
-    const sdkConfig: SdkSessionConfig = {
+    // Build SDK config - use type assertion to handle reasoningEffort which may not be in SDK types
+    const sdkConfig = {
       sessionId: config.sessionId,
       model: resolvedModel,
-      reasoningEffort: modelSupportsReasoning
-        ? config.reasoningEffort as SdkSessionConfig["reasoningEffort"]
-        : undefined,
+      ...(modelSupportsReasoning && config.reasoningEffort
+        ? { reasoningEffort: config.reasoningEffort }
+        : {}),
       systemMessage: config.systemPrompt
         ? { mode: "append", content: config.systemPrompt }
         : undefined,
@@ -787,7 +807,7 @@ export class CopilotClient implements CodingAgentClient {
                   type: (s.type === "sse" ? "sse" : "http") as "http" | "sse",
                   url: s.url,
                   headers: s.headers,
-                  tools: ["*"],
+                  tools: s.tools ?? ["*"],
                   timeout: s.timeout,
                 }];
               }
@@ -797,13 +817,13 @@ export class CopilotClient implements CodingAgentClient {
                 args: s.args ?? [],
                 env: s.env,
                 cwd: s.cwd,
-                tools: ["*"],
+                tools: s.tools ?? ["*"],
                 timeout: s.timeout,
               }];
             })
           )
         : undefined,
-    };
+    } as SdkSessionConfig;
 
     const sdkSession = await this.sdkClient.createSession(sdkConfig);
 
@@ -900,12 +920,20 @@ export class CopilotClient implements CodingAgentClient {
     try {
       const probeSession = await this.sdkClient.createSession({});
       const baseline = await new Promise<number | null>((resolve) => {
-        const timeout = setTimeout(() => resolve(null), 3000);
-        const unsub = probeSession.on("session.usage_info", (event) => {
-          unsub();
-          clearTimeout(timeout);
+        let unsub: (() => void) | null = null;
+        const timeout = setTimeout(() => {
+          unsub?.();
+          resolve(null);
+        }, 3000);
+        unsub = probeSession.on("session.usage_info", (event) => {
           const data = event.data as Record<string, unknown>;
-          resolve((data.currentTokens as number) ?? null);
+          const currentTokens = data.currentTokens;
+          if (typeof currentTokens !== "number" || currentTokens <= 0) {
+            return;
+          }
+          unsub?.();
+          clearTimeout(timeout);
+          resolve(currentTokens);
         });
       });
       this.probeSystemToolsBaseline = baseline;

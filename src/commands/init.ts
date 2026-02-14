@@ -16,17 +16,29 @@ import {
 import { join } from "path";
 import { mkdir, readdir } from "fs/promises";
 
-import { AGENT_CONFIG, type AgentKey, getAgentKeys, isValidAgent } from "../config";
+import {
+  AGENT_CONFIG,
+  type AgentKey,
+  getAgentKeys,
+  isValidAgent,
+  SCM_CONFIG,
+  type SourceControlType,
+  getScmKeys,
+  isValidScm,
+} from "../config";
 import { displayBanner } from "../utils/banner";
 import { copyFile, pathExists, isFileEmpty } from "../utils/copy";
 import { getConfigRoot } from "../utils/config-path";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL, getOppositeScriptExtension } from "../utils/detect";
 import { mergeJsonFile } from "../utils/merge";
 import { trackAtomicCommand, handleTelemetryConsent, type AgentType } from "../utils/telemetry";
+import { saveAtomicConfig } from "../utils/atomic-config";
 
 interface InitOptions {
   showBanner?: boolean;
   preSelectedAgent?: AgentKey;
+  /** Pre-selected source control type (skip SCM selection prompt) */
+  preSelectedScm?: SourceControlType;
   configNotFoundMessage?: string;
   /** Force overwrite of preserved files (bypass preservation/merge logic) */
   force?: boolean;
@@ -35,6 +47,98 @@ interface InitOptions {
 }
 
 
+
+/**
+ * Get the appropriate SCM template directory based on OS and SCM selection.
+ *
+ * For Sapling on Windows, uses the windows-specific variant that includes
+ * full paths to avoid the PowerShell `sl` alias conflict.
+ */
+function getScmTemplatePath(scmType: SourceControlType): string {
+  if (scmType === "sapling-phabricator" && isWindows()) {
+    return "sapling-phabricator-windows";
+  }
+  return scmType;
+}
+
+/**
+ * Get the commands subfolder name for a given agent type.
+ *
+ * Different agents use different folder names for commands:
+ * - Claude: .claude/commands/
+ * - OpenCode: .opencode/command/ (singular)
+ * - Copilot: .github/skills/
+ */
+function getCommandsSubfolder(agentKey: AgentKey): string {
+  switch (agentKey) {
+    case "claude":
+      return "commands";
+    case "opencode":
+      return "command";
+    case "copilot":
+      return "skills";
+    default:
+      return "commands";
+  }
+}
+
+interface CopyScmCommandsOptions {
+  scmType: SourceControlType;
+  agentKey: AgentKey;
+  agentFolder: string;
+  targetDir: string;
+  configRoot: string;
+}
+
+/**
+ * Copy SCM-specific command files to the target directory.
+ *
+ * This copies the appropriate commit/PR commands based on the selected SCM type.
+ */
+async function copyScmCommands(options: CopyScmCommandsOptions): Promise<void> {
+  const { scmType, agentKey, agentFolder, targetDir, configRoot } = options;
+
+  const scmTemplatePath = getScmTemplatePath(scmType);
+  const commandsSubfolder = getCommandsSubfolder(agentKey);
+
+  // Source: templates/scm/<scm-type>/<agent-folder>/<commands-subfolder>/
+  const srcDir = join(
+    configRoot,
+    "templates",
+    "scm",
+    scmTemplatePath,
+    agentFolder,
+    commandsSubfolder
+  );
+
+  // Destination: <target>/<agent-folder>/<commands-subfolder>/
+  const destDir = join(targetDir, agentFolder, commandsSubfolder);
+
+  // Check if source directory exists
+  if (!(await pathExists(srcDir))) {
+    if (process.env.DEBUG === "1") {
+      console.log(`[DEBUG] SCM template not found: ${srcDir}`);
+    }
+    return;
+  }
+
+  // Ensure destination directory exists
+  await mkdir(destDir, { recursive: true });
+
+  // Copy all files from SCM template
+  const entries = await readdir(srcDir, { withFileTypes: true });
+  for (const entry of entries) {
+    const srcPath = join(srcDir, entry.name);
+    const destPath = join(destDir, entry.name);
+
+    if (entry.isDirectory()) {
+      // For Copilot skills, we need to copy the skill directories
+      await copyDirPreserving(srcPath, destPath);
+    } else {
+      await copyFile(srcPath, destPath);
+    }
+  }
+}
 
 interface CopyDirPreservingOptions {
   /** Paths to exclude (base names) */
@@ -139,6 +243,55 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   // Auto-confirm mode for CI/testing
   const autoConfirm = options.yes ?? false;
 
+  // Select source control type (after agent selection)
+  let scmType: SourceControlType;
+
+  if (options.preSelectedScm) {
+    // Pre-selected SCM - validate and skip selection prompt
+    if (!isValidScm(options.preSelectedScm)) {
+      cancel(`Unknown source control: ${options.preSelectedScm}`);
+      process.exit(1);
+    }
+    scmType = options.preSelectedScm;
+    log.info(`Using ${SCM_CONFIG[scmType].displayName} for source control...`);
+  } else if (autoConfirm) {
+    // Auto-confirm mode defaults to GitHub
+    scmType = "github";
+    log.info("Defaulting to GitHub/Git for source control...");
+  } else {
+    // Interactive selection
+    const scmOptions = getScmKeys().map((key) => ({
+      value: key,
+      label: SCM_CONFIG[key].displayName,
+      hint: `Uses ${SCM_CONFIG[key].cliTool} + ${SCM_CONFIG[key].reviewSystem}`,
+    }));
+
+    const selectedScm = await select({
+      message: "Select your source control system:",
+      options: scmOptions,
+    });
+
+    if (isCancel(selectedScm)) {
+      cancel("Operation cancelled.");
+      process.exit(0);
+    }
+
+    scmType = selectedScm as SourceControlType;
+  }
+
+  // Show Phabricator configuration warning if Sapling is selected
+  if (scmType === "sapling-phabricator") {
+    const arcconfigPath = join(targetDir, ".arcconfig");
+    const hasArcconfig = await pathExists(arcconfigPath);
+
+    if (!hasArcconfig) {
+      log.warn(
+        "Note: Sapling + Phabricator requires .arcconfig in your repository root.\n" +
+          "See: https://www.phacility.com/phabricator/ for Phabricator setup."
+      );
+    }
+  }
+
   // Confirm directory
   let confirmDir: boolean | symbol = true;
   if (!autoConfirm) {
@@ -215,6 +368,21 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     // User's custom files not in template are preserved (not deleted)
     await copyDirPreserving(sourceFolder, targetFolder, {
       exclude: agent.exclude,
+    });
+
+    // Copy SCM-specific command files
+    await copyScmCommands({
+      scmType,
+      agentKey,
+      agentFolder: agent.folder,
+      targetDir,
+      configRoot,
+    });
+
+    // Save SCM selection to .atomic.json
+    await saveAtomicConfig(targetDir, {
+      scm: scmType,
+      agent: agentKey,
     });
 
     // Copy additional files with preservation and merge logic

@@ -88,6 +88,9 @@ export class UnifiedModelOperations implements ModelOperations {
   /** Pending reasoning effort for agents that require new sessions (e.g., Copilot) */
   private pendingReasoningEffort?: string;
 
+  /** Cached available models for validation (opencode/copilot) */
+  private cachedModels: Model[] | null = null;
+
   /**
    * Create a new UnifiedModelOperations instance
    * @param agentType - The type of agent (claude, opencode, copilot)
@@ -106,19 +109,26 @@ export class UnifiedModelOperations implements ModelOperations {
 
   /**
    * List available models for this agent type using the appropriate SDK.
+   * Results are cached for subsequent validation in setModel().
    * Errors propagate to the caller.
    */
   async listAvailableModels(): Promise<Model[]> {
+    let models: Model[];
     switch (this.agentType) {
       case 'claude':
-        return await this.listModelsForClaude();
+        models = await this.listModelsForClaude();
+        break;
       case 'copilot':
-        return await this.listModelsForCopilot();
+        models = await this.listModelsForCopilot();
+        break;
       case 'opencode':
-        return await this.listModelsForOpenCode();
+        models = await this.listModelsForOpenCode();
+        break;
       default:
         throw new Error(`Unsupported agent type: ${this.agentType}`);
     }
+    this.cachedModels = models;
+    return models;
   }
 
   /**
@@ -200,7 +210,7 @@ export class UnifiedModelOperations implements ModelOperations {
         // Skip deprecated models
         if (model.status === 'deprecated') continue;
 
-        models.push(fromOpenCodeModel(provider.id, modelID, model as OpenCodeModel, provider.api));
+        models.push(fromOpenCodeModel(provider.id, modelID, model as OpenCodeModel, provider.api, provider.name));
       }
     }
 
@@ -235,6 +245,11 @@ export class UnifiedModelOperations implements ModelOperations {
       resolvedModel = modelId;
     }
 
+    // Validate model exists for opencode and copilot
+    if (this.agentType === 'opencode' || this.agentType === 'copilot') {
+      await this.validateModelExists(resolvedModel);
+    }
+
     // Copilot limitation: model changes require a new session
     if (this.agentType === 'copilot') {
       this.pendingModel = resolvedModel;
@@ -249,6 +264,27 @@ export class UnifiedModelOperations implements ModelOperations {
 
     this.currentModel = resolvedModel;
     return { success: true };
+  }
+
+  /**
+   * Validate that a model exists in the available models list.
+   * Fetches and caches the model list if not already cached.
+   * @param model - Model identifier to validate (full ID or modelID)
+   * @throws Error if the model is not found
+   */
+  private async validateModelExists(model: string): Promise<void> {
+    if (!this.cachedModels) {
+      this.cachedModels = await this.listAvailableModels();
+    }
+
+    const found = this.cachedModels.some(
+      m => m.id === model || m.modelID === model
+    );
+    if (!found) {
+      throw new Error(
+        `Model '${model}' is not available. Use /model to see available models.`
+      );
+    }
   }
 
   async getCurrentModel(): Promise<string | undefined> {

@@ -4,7 +4,7 @@
  * Registers workflow commands as slash commands invocable from the TUI.
  * The /ralph command implements a two-step autonomous workflow:
  *   Step 1: Task list decomposition from user prompt
- *   Step 2: Feature implementation using buildImplementFeaturePrompt
+ *   Step 2: Feature implementation via worker sub-agent (worker.md)
  *
  * Session saving/resuming is powered by the workflow SDK session manager.
  */
@@ -29,7 +29,7 @@ import {
   getWorkflowSessionDir,
   type WorkflowSession,
 } from "../../workflows/session.ts";
-import { buildSpecToTasksPrompt, buildImplementFeaturePrompt, buildTaskListPreamble } from "../../graph/nodes/ralph-nodes.ts";
+import { buildSpecToTasksPrompt, buildTaskListPreamble } from "../../graph/nodes/ralph.ts";
 
 // ============================================================================
 // RALPH COMMAND PARSING
@@ -154,6 +154,19 @@ export async function saveTasksToActiveSession(
     await Bun.write(tasksPath, JSON.stringify(tasks, null, 2));
   } catch (error) {
     console.error("[ralph] Failed to write tasks.json:", error);
+  }
+}
+
+/** Read current task state from tasks.json on disk */
+async function readTasksFromDisk(
+  sessionDir: string,
+): Promise<Array<{ id?: string; content: string; status: string; activeForm: string; blockedBy?: string[] }>> {
+  const tasksPath = join(sessionDir, "tasks.json");
+  try {
+    const content = await readFile(tasksPath, "utf-8");
+    return JSON.parse(content) as Array<{ id?: string; content: string; status: string; activeForm: string; blockedBy?: string[] }>;
+  } catch {
+    return [];
   }
 }
 
@@ -514,7 +527,7 @@ export function refreshWorkflowRegistry(): void {
  *
  * The ralph workflow is a two-step sequential graph:
  *   1. decompose — Task list decomposition from user prompt
- *   2. implement — Feature implementation via buildImplementFeaturePrompt
+ *   2. implement — Feature implementation via worker sub-agent
  *
  * The graph definition describes the structure; actual execution is handled
  * by createRalphCommand() which sends prompts via sendSilentMessage + initialPrompt.
@@ -705,47 +718,57 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
 
         context.addMessage("system", `Resuming session ${parsed.sessionId}`);
 
-        // Load implement-feature prompt and send it to continue the session
-        const implementPrompt = buildImplementFeaturePrompt();
+        // Load tasks from disk and reset in_progress → pending (BUG-3 fix)
+        const currentTasks = await readTasksFromDisk(sessionDir);
+        for (const t of currentTasks) {
+          if (t.status === "in_progress") t.status = "pending";
+        }
+        await saveTasksToActiveSession(currentTasks, parsed.sessionId);
+
+        // Update TodoPanel summary with loaded tasks (BUG-6 fix)
+        context.setTodoItems(currentTasks as TodoItem[]);
+
+        // Activate ralph task list panel
+        context.setRalphSessionDir(sessionDir);
+        context.setRalphSessionId(parsed.sessionId);
+
+        context.updateWorkflowState({
+          workflowActive: true,
+          workflowType: metadata.name,
+          ralphConfig: {
+            resumeSessionId: parsed.sessionId,
+            userPrompt: parsed.prompt,
+          },
+        });
+
         const additionalPrompt = parsed.prompt ? `\n\nAdditional instructions: ${parsed.prompt}` : "";
 
-        // Send the implement-feature prompt to continue where we left off
-        context.sendSilentMessage(implementPrompt + additionalPrompt);
+        // Worker loop: spawn worker sub-agent per iteration until all tasks are done (BUG-2/4 fix)
+        const maxIterations = currentTasks.length * 2;
+        for (let i = 0; i < maxIterations; i++) {
+          const tasks = await readTasksFromDisk(sessionDir);
+          const pending = tasks.filter(t => t.status !== "completed");
+          if (pending.length === 0) break;
 
-        return {
-          success: true,
-          message: `Resuming session ${parsed.sessionId}...`,
-          stateUpdate: {
-            workflowActive: true,
-            workflowType: metadata.name,
-            initialPrompt: null,
-            pendingApproval: false,
-            specApproved: undefined,
-            feedback: null,
-            ralphConfig: {
-              resumeSessionId: parsed.sessionId,
-              userPrompt: parsed.prompt,
-            },
-          },
-        };
+          const message = buildTaskListPreamble(tasks) + additionalPrompt;
+          const result = await context.spawnSubagent({ name: "worker", message });
+          if (!result.success) break;
+        }
+
+        return { success: true };
       }
 
       // ── Two-step workflow (async/await) ──────────────────────────────
       // Step 1: Task decomposition via streamAndWait
-      // Step 2: Feature implementation via streamAndWait (after context clear)
+      // Step 2: Feature implementation via worker sub-agent
       // ────────────────────────────────────────────────────────────────
 
       // Initialize a workflow session via the SDK
       const sessionId = crypto.randomUUID();
+      const sessionDir = getWorkflowSessionDir(sessionId);
       void initWorkflowSession("ralph", sessionId).then((session) => {
         activeSessions.set(session.sessionId, session);
       });
-
-      // Inform user of the session ID for resume capability
-      context.addMessage(
-        "system",
-        `Session **${sessionId}**\nResume later with: \`/ralph --resume ${sessionId}\``
-      );
 
       context.updateWorkflowState({
         workflowActive: true,
@@ -754,24 +777,33 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
       });
 
       // Step 1: Task decomposition (blocks until streaming completes)
-      const step1 = await context.streamAndWait(buildSpecToTasksPrompt(parsed.prompt));
+      // hideContent suppresses raw JSON rendering in the chat — content is still
+      // accumulated in StreamResult for parseTasks() and the TaskListPanel takes over.
+      const step1 = await context.streamAndWait(buildSpecToTasksPrompt(parsed.prompt), { hideContent: true });
       if (step1.wasInterrupted) return { success: true };
 
-      // Parse tasks from step 1 output
+      // Parse tasks from step 1 output and save to disk (file watcher handles UI)
       const tasks = parseTasks(step1.content);
-      context.setTodoItems(tasks);
       if (tasks.length > 0) {
         await saveTasksToActiveSession(tasks, sessionId);
       }
 
-      // Clear context window between steps
-      await context.clearContext();
+      // Activate ralph task list panel AFTER tasks.json exists on disk
+      context.setRalphSessionDir(sessionDir);
+      context.setRalphSessionId(sessionId);
 
-      // Step 2: Feature implementation (blocks until complete)
-      const step2Prompt = tasks.length > 0
-        ? buildTaskListPreamble(tasks) + buildImplementFeaturePrompt()
-        : buildImplementFeaturePrompt();
-      await context.streamAndWait(step2Prompt);
+      // Worker loop: spawn worker sub-agent per iteration until all tasks are done
+      const maxIterations = tasks.length * 2; // safety limit
+      for (let i = 0; i < maxIterations; i++) {
+        // Read current task state from disk
+        const currentTasks = await readTasksFromDisk(sessionDir);
+        const pending = currentTasks.filter(t => t.status !== "completed");
+        if (pending.length === 0) break;
+
+        const message = buildTaskListPreamble(currentTasks);
+        const result = await context.spawnSubagent({ name: "worker", message });
+        if (!result.success) break;
+      }
 
       return { success: true };
     },
@@ -787,8 +819,11 @@ export function watchTasksJson(
   onUpdate: (items: TodoItem[]) => void,
 ): () => void {
   const tasksPath = join(sessionDir, "tasks.json");
-  if (!existsSync(tasksPath)) return () => {};
-  const watcher = watch(tasksPath, async () => {
+
+  // Watch the directory instead of the file so we catch file creation
+  // even if tasks.json doesn't exist yet at mount time (BUG-7 fix)
+  const watcher = watch(sessionDir, async (eventType, filename) => {
+    if (filename !== "tasks.json") return;
     try {
       const content = await readFile(tasksPath, "utf-8");
       const tasks = JSON.parse(content) as TodoItem[];

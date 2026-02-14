@@ -3,12 +3,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import {
-  buildSpecToTasksPrompt,
-  buildImplementFeaturePrompt,
-  getHistoryCommand,
-  getCommitCommandReference,
-} from "../../../src/graph/nodes/ralph-nodes.ts";
+import { buildSpecToTasksPrompt, buildTaskListPreamble } from "../../../src/graph/nodes/ralph.ts";
 
 describe("buildSpecToTasksPrompt", () => {
   test("includes the spec content in the prompt", () => {
@@ -38,70 +33,26 @@ describe("buildSpecToTasksPrompt", () => {
   });
 });
 
-describe("buildImplementFeaturePrompt", () => {
-  test("returns a non-empty prompt", () => {
-    const prompt = buildImplementFeaturePrompt();
-    expect(prompt.length).toBeGreaterThan(0);
+describe("buildTaskListPreamble", () => {
+  test("includes the task list JSON", () => {
+    const tasks = [
+      { id: "#1", content: "Setup project", status: "completed", activeForm: "Setting up project", blockedBy: [] as string[] },
+      { id: "#2", content: "Add auth", status: "pending", activeForm: "Adding auth", blockedBy: ["#1"] },
+    ];
+    const preamble = buildTaskListPreamble(tasks);
+
+    expect(preamble).toContain('"#1"');
+    expect(preamble).toContain('"#2"');
+    expect(preamble).toContain("Setup project");
+    expect(preamble).toContain("Add auth");
+    expect(preamble).toContain('"blockedBy"');
   });
 
-  test("includes getting up to speed instructions", () => {
-    const prompt = buildImplementFeaturePrompt();
-    expect(prompt).toContain("Getting up to speed");
-    expect(prompt).toContain("highest-priority item");
-  });
+  test("instructs agent to call TodoWrite first", () => {
+    const tasks = [{ id: "#1", content: "Task", status: "pending", activeForm: "Tasking" }];
+    const preamble = buildTaskListPreamble(tasks);
 
-  test("includes test-driven development section", () => {
-    const prompt = buildImplementFeaturePrompt();
-    expect(prompt).toContain("Test-Driven Development");
-  });
-
-  test("includes design principles", () => {
-    const prompt = buildImplementFeaturePrompt();
-    expect(prompt).toContain("SOLID");
-    expect(prompt).toContain("KISS");
-    expect(prompt).toContain("YAGNI");
-  });
-
-  test("includes important notes about single feature focus", () => {
-    const prompt = buildImplementFeaturePrompt();
-    expect(prompt).toContain("ONLY work on the SINGLE highest priority feature");
-  });
-
-  test("defaults to github SCM when no argument provided", () => {
-    const prompt = buildImplementFeaturePrompt();
-    expect(prompt).toContain("git log --oneline -20");
-    expect(prompt).toContain("/commit (uses git commit)");
-  });
-
-  test("uses git commands when scm is github", () => {
-    const prompt = buildImplementFeaturePrompt("github");
-    expect(prompt).toContain("git log --oneline -20");
-    expect(prompt).toContain("/commit (uses git commit)");
-  });
-
-  test("uses sapling commands when scm is sapling-phabricator", () => {
-    const prompt = buildImplementFeaturePrompt("sapling-phabricator");
-    expect(prompt).toContain("sl smartlog -l 10");
-    expect(prompt).toContain("/commit (uses sl commit)");
-  });
-});
-
-describe("getHistoryCommand", () => {
-  test("returns git log command for github", () => {
-    expect(getHistoryCommand("github")).toBe("git log --oneline -20");
-  });
-
-  test("returns sl smartlog command for sapling-phabricator", () => {
-    expect(getHistoryCommand("sapling-phabricator")).toBe("sl smartlog -l 10");
-  });
-});
-
-describe("getCommitCommandReference", () => {
-  test("returns git commit reference for github", () => {
-    expect(getCommitCommandReference("github")).toBe("/commit (uses git commit)");
-  });
-
-  test("returns sl commit reference for sapling-phabricator", () => {
-    expect(getCommitCommandReference("sapling-phabricator")).toBe("/commit (uses sl commit)");
+    expect(preamble).toContain("TodoWrite");
+    expect(preamble).toContain("FIRST action");
   });
 });

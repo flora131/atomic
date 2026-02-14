@@ -21,8 +21,22 @@ export interface QueuedMessage {
   id: string;
   /** Message content text */
   content: string;
+  /** Optional display content (when sent content differs from preview) */
+  displayContent?: string;
+  /** Whether to skip re-adding the user bubble when dispatched */
+  skipUserMessage?: boolean;
   /** ISO timestamp of when the message was queued */
   queuedAt: string;
+}
+
+/**
+ * Options for queueing a message.
+ */
+export interface EnqueueMessageOptions {
+  /** Optional display-only text used by QueueIndicator previews */
+  displayContent?: string;
+  /** Preserve existing user bubble when dispatching this queue entry */
+  skipUserMessage?: boolean;
 }
 
 /**
@@ -32,7 +46,7 @@ export interface UseMessageQueueReturn {
   /** Current queue of messages */
   queue: QueuedMessage[];
   /** Add a message to the end of the queue */
-  enqueue: (content: string) => void;
+  enqueue: (content: string, options?: EnqueueMessageOptions) => void;
   /** Remove and return the first message from the queue */
   dequeue: () => QueuedMessage | undefined;
   /** Clear all messages from the queue */
@@ -126,10 +140,12 @@ export function useMessageQueue(): UseMessageQueueReturn {
    * Add a message to the end of the queue.
    * Logs warnings when queue grows too large to prevent memory issues.
    */
-  const enqueue = useCallback((content: string) => {
+  const enqueue = useCallback((content: string, options?: EnqueueMessageOptions) => {
     const message: QueuedMessage = {
       id: generateQueueId(),
       content,
+      displayContent: options?.displayContent,
+      skipUserMessage: options?.skipUserMessage ?? false,
       queuedAt: getCurrentTimestamp(),
     };
     setQueue((prev) => {
@@ -213,6 +229,8 @@ export function useMessageQueue(): UseMessageQueueReturn {
         id: message.id,
         queuedAt: message.queuedAt,
         content,
+        displayContent: content,
+        skipUserMessage: message.skipUserMessage ?? false,
       };
       return updated;
     });

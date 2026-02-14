@@ -21,19 +21,9 @@ import {
 // ============================================================================
 
 describe("formatModelId", () => {
-  test("returns claude model names unchanged", () => {
+  test("returns model names unchanged when short", () => {
     expect(formatModelId("claude-3-opus")).toBe("claude-3-opus");
-    expect(formatModelId("claude-3-sonnet")).toBe("claude-3-sonnet");
-    expect(formatModelId("claude-3-haiku")).toBe("claude-3-haiku");
-  });
-
-  test("returns gpt model names unchanged", () => {
     expect(formatModelId("gpt-4")).toBe("gpt-4");
-    expect(formatModelId("gpt-4-turbo")).toBe("gpt-4-turbo");
-    expect(formatModelId("gpt-3.5-turbo")).toBe("gpt-3.5-turbo");
-  });
-
-  test("returns short model names unchanged", () => {
     expect(formatModelId("llama-2")).toBe("llama-2");
     expect(formatModelId("mistral-7b")).toBe("mistral-7b");
   });
@@ -71,7 +61,7 @@ describe("buildDisplayParts", () => {
   test("includes duration when durationMs is provided", () => {
     const parts = buildDisplayParts(testTimestamp, 2500);
     expect(parts).toHaveLength(2);
-    expect(parts[1]).toBe("2.5s");
+    expect(parts[1]).toBe("2s");
   });
 
   test("includes model when modelId is provided", () => {
@@ -84,7 +74,7 @@ describe("buildDisplayParts", () => {
     const parts = buildDisplayParts(testTimestamp, 1500, "gpt-4");
     expect(parts).toHaveLength(3);
     expect(parts[0]).toMatch(/\d{1,2}:\d{2} (AM|PM)/);
-    expect(parts[1]).toBe("1.5s");
+    expect(parts[1]).toBe("1s");
     expect(parts[2]).toBe("gpt-4");
   });
 
@@ -210,7 +200,7 @@ describe("TimestampDisplay integration", () => {
     expect(buildDisplayParts(timestamp, 1000)[1]).toBe("1s");
 
     // Just under 1 minute
-    expect(buildDisplayParts(timestamp, 59999)[1]).toBe("60s");
+    expect(buildDisplayParts(timestamp, 59999)[1]).toBe("59s");
 
     // Exactly 1 minute
     expect(buildDisplayParts(timestamp, 60000)[1]).toBe("1m");

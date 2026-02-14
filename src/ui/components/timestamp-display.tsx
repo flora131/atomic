@@ -39,15 +39,6 @@ export interface TimestampDisplayProps {
  * @returns Shortened model name
  */
 export function formatModelId(modelId: string): string {
-  // Common model name patterns to shorten
-  if (modelId.includes("claude")) {
-    // Extract claude version (e.g., "claude-3-opus" → "claude-3-opus")
-    return modelId;
-  }
-  if (modelId.includes("gpt")) {
-    return modelId;
-  }
-  // For other models, truncate if too long
   if (modelId.length > 25) {
     return `${modelId.slice(0, 22)}...`;
   }

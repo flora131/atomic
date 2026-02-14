@@ -44,8 +44,8 @@ describe("initializeCommands", () => {
     expect(globalRegistry.has("ralph")).toBe(true);
 
     // Skill commands
-    expect(globalRegistry.has("commit")).toBe(true);
     expect(globalRegistry.has("research-codebase")).toBe(true);
+    expect(globalRegistry.has("create-spec")).toBe(true);
   });
 
   test("returns count of newly registered commands", () => {
@@ -76,8 +76,8 @@ describe("initializeCommands", () => {
     expect(globalRegistry.has("loop")).toBe(true); // atomic
 
     // Skill aliases
-    expect(globalRegistry.has("ci")).toBe(true); // commit
     expect(globalRegistry.has("spec")).toBe(true); // create-spec
+    expect(globalRegistry.has("research")).toBe(true); // research-codebase
     // Note: ralph-help alias removed - replaced by SDK-native /ralph workflow
   });
 

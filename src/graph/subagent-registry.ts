@@ -1,15 +1,15 @@
 /**
  * Sub-Agent Type Registry
  *
- * A singleton registry that stores discovered sub-agent definitions and provides
- * name-based lookup. Enables workflow authors to reference built-in, user-global,
- * and project-local agents by name within subagentNode() and parallelSubagentNode().
+ * A singleton registry that stores discovered sub-agent info and provides
+ * name-based lookup. Enables workflow authors to reference config-defined
+ * agents by name within subagentNode() and parallelSubagentNode().
  *
  * Follows the existing setClientProvider() / setWorkflowResolver() global setter pattern.
  */
 
-import type { AgentDefinition, AgentSource } from "../ui/commands/agent-commands.ts";
-import { discoverAgents, BUILTIN_AGENTS } from "../ui/commands/agent-commands.ts";
+import type { AgentInfo, AgentSource } from "../ui/commands/agent-commands.ts";
+import { discoverAgentInfos } from "../ui/commands/agent-commands.ts";
 
 // ============================================================================
 // Types
@@ -17,7 +17,7 @@ import { discoverAgents, BUILTIN_AGENTS } from "../ui/commands/agent-commands.ts
 
 export interface SubagentEntry {
   name: string;
-  definition: AgentDefinition;
+  info: AgentInfo;
   source: AgentSource;
 }
 
@@ -71,30 +71,19 @@ export function setSubagentRegistry(registry: SubagentTypeRegistry): void {
 // ============================================================================
 
 /**
- * Populate the SubagentTypeRegistry with built-in and discovered agents.
- * Built-in agents are registered first (lowest priority), then discovered
- * agents overwrite on name conflict (project > user > built-in).
+ * Populate the SubagentTypeRegistry with discovered agents from config directories.
+ * Project-local agents overwrite user-global on name conflict.
  *
  * @returns Number of agents in the registry after population
  */
 export async function populateSubagentRegistry(): Promise<number> {
   const registry = getSubagentRegistry();
 
-  // Built-in agents (lowest priority, registered first)
-  for (const agent of BUILTIN_AGENTS) {
-    registry.register({
-      name: agent.name,
-      definition: agent,
-      source: "builtin",
-    });
-  }
-
-  // Discovered agents (project + user) — overwrites built-in on conflict
-  const discovered = await discoverAgents();
+  const discovered = discoverAgentInfos();
   for (const agent of discovered) {
     registry.register({
       name: agent.name,
-      definition: agent,
+      info: agent,
       source: agent.source,
     });
   }

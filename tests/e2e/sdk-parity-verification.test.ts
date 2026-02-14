@@ -287,6 +287,8 @@ describe("SDK Parity Verification", () => {
           streamAndWait: async () => ({ content: "", wasInterrupted: false }),
           clearContext: async () => {},
           setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
           updateWorkflowState: () => {},
           agentType,
         };
@@ -387,6 +389,8 @@ describe("SDK Parity Verification", () => {
           streamAndWait: async () => ({ content: "", wasInterrupted: false }),
           clearContext: async () => {},
           setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
           updateWorkflowState: () => {},
           agentType: client.agentType as "claude" | "opencode" | "copilot",
           modelOps: {
@@ -432,6 +436,8 @@ describe("SDK Parity Verification", () => {
           streamAndWait: async () => ({ content: "", wasInterrupted: false }),
           clearContext: async () => {},
           setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
           updateWorkflowState: () => {},
           agentType: client.agentType as "claude" | "opencode" | "copilot",
         };

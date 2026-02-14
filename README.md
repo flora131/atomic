@@ -4,15 +4,7 @@
   <img src="assets/atomic.png" alt="Atomic" width="800">
 </p>
 
-AI coding agents are exceptionally powerful but have key gaps in principled software engineering, context, and memory. This makes them difficult to use in large codebases or generate higher quality code.
-
-Engineers spend a lot of their time figuring out how to get tools to work for them rather than iterating on and shipping code with AI coding agents.
-
-This project is named 'Atomic' for its approach of decomposing complex goals into discrete, manageable steps. By following core Software Development Lifecycle (SDLC) principles, it creates a foundation for effectively steering AI coding agents. This approach enables engineers to transition from vibe coding to true AI-assisted development.
-
-This repo automates AI coding agents with an operating procedure and memory.
-
-We provide the procedures that agents use to work on your project based on software engineering best practices, and specs that persist as memory of decisions made and lessons learned.
+Ship complex features with AI agents that actually understand your codebase. Research, spec, implement — then wake up to completed code ready for review.
 
 ---
 
@@ -33,20 +25,74 @@ We provide the procedures that agents use to work on your project based on softw
 
 ---
 
-## The ROI
+## What Engineers Use Atomic For
 
-**1 minute of setup. Maximum output.**
+### Ship Complex Features End-to-End
 
-- **Minimal set of curated sub-agents** for the most common workflows
-- **Skills and commands** that enforce proven software engineering practices
-- **Overnight autonomous execution** (Ralph) means waking up to completed features ready for review
+Not just bug fixes — scoped, multi-file features that require architectural understanding:
 
-This approach highlights the best of SDLC and gets you 40-60% of the way there so you can review, refactor, and continue in a flow state.
+- Database migrations across large codebases
+- Entire new services (building a complete GraphRAG service from scratch)
+- Features spanning dozens of files that need to understand existing patterns first
+- Trying different implementation approaches — spec it out, try one framework, revert, try another
+
+The workflow: `/research-codebase` → review → `/create-spec` → review → `/create-feature-list` → review → `/implement-feature` (manually one-by-one, or let Ralph run overnight). Wake up to completed features ready for review.
+
+Works on macOS, Linux, and Windows.
+
+### Deep Codebase Research & Root Cause Analysis
+
+You know the pain:
+- **Hours lost** hunting through unfamiliar code manually
+- **Agents missing key files** even when you know they're relevant
+- **Repeating yourself** — mentioning the same file over and over, only for the agent to ignore it
+- **Context window blown** before you've even started the real work
+- **Files too large to paste** — so you just... can't share the context you need
+
+The `/research-codebase` command dispatches specialized sub-agents to do the hunting for you:
+
+- Understand how authentication flows work in an unfamiliar codebase
+- Track down root causes by analyzing code paths across dozens of files
+- Search through docs, READMEs, and inline documentation in your repo
+- Get up to speed on a new project in minutes instead of hours
+
+This is the fastest path to value — install, run one command, get answers.
+
+### Explore Multiple Implementation Approaches
+
+When you're evaluating libraries, exploring implementation approaches, or need best practices before building, Atomic's research phase pulls in external knowledge — not just your codebase — to inform the spec and implementation plan.
+
+**Example: Researching three GraphRAG implementation approaches in parallel**
+
+```bash
+# Run 3 parallel research sessions in separate terminals
+atomic run claude "/research-codebase Research implementing GraphRAG using \
+  LangChain's graph retrieval patterns. Look up langchain-ai/langchain for \
+  graph store integrations, chunking strategies, and retrieval patterns. \
+  Document how this would integrate with our existing vector store."
+
+atomic run claude "/research-codebase Research implementing GraphRAG using \
+  Microsoft's GraphRAG library. Look up microsoft/graphrag for their \
+  community detection, entity extraction, and summarization pipeline. \
+  Document the infrastructure requirements and how it fits our data model."
+
+atomic run claude "/research-codebase Research implementing GraphRAG using \
+  LlamaIndex's property graph index. Look up run-llama/llama_index for \
+  their KnowledgeGraphIndex and property graph patterns. Document trade-offs \
+  vs our current RAG implementation."
+```
+
+**What happens:** Each agent spawns `codebase-online-researcher` sub-agents that query DeepWiki for the specified repos, pull external documentation, and cross-reference with your existing codebase patterns. You get three research documents.
+
+**From there:** Run `/create-spec` and `/create-feature-list` on each research doc in parallel terminals. Then spin up three git worktrees and run `/ralph:ralph-loop` in each. Wake up to three complete implementations on separate branches — review, benchmark, and choose the winner.
+
+> **Note:** This workflow works identically with `atomic run opencode` and `atomic run copilot` — just substitute the CLI command.
 
 ---
 
 ## Table of Contents
 
+- [What Engineers Use Atomic For](#what-engineers-use-atomic-for)
 - [Set up Atomic](#set-up-atomic)
 - [The Flywheel](#the-flywheel)
 - [How It Works](#how-it-works)

@@ -10,6 +10,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { STATUS } from "../../../src/ui/constants/icons.ts";
 import {
   shouldCollapse,
   getToolSummary,
@@ -59,11 +60,11 @@ describe("shouldCollapse", () => {
 
 describe("theme error colors", () => {
   test("dark theme has error color", () => {
-    expect(darkTheme.colors.error).toBe("#fb7185");
+    expect(darkTheme.colors.error).toBe("#f38ba8");
   });
 
   test("light theme has error color", () => {
-    expect(lightTheme.colors.error).toBe("#e11d48");
+    expect(lightTheme.colors.error).toBe("#d20f39");
   });
 });
 
@@ -168,7 +169,7 @@ describe("Tool renderer integration", () => {
       output: true,
     });
 
-    expect(result.content.some((l) => l.includes("✓"))).toBe(true);
+    expect(result.content.some((l) => l.includes(STATUS.success))).toBe(true);
   });
 
   test("Unknown tool uses default renderer", () => {
@@ -191,15 +192,15 @@ describe("Status display", () => {
   test("pending status config", () => {
     // Verify status configurations are correct
     const statusConfig = {
-      pending: { icon: "○", label: "pending" },
+      pending: { icon: STATUS.pending, label: "pending" },
       running: { icon: "◐", label: "running" },
-      completed: { icon: "●", label: "done" },
+      completed: { icon: STATUS.active, label: "done" },
       error: { icon: "✗", label: "error" },
     };
 
-    expect(statusConfig.pending.icon).toBe("○");
+    expect(statusConfig.pending.icon).toBe(STATUS.pending);
     expect(statusConfig.running.icon).toBe("◐");
-    expect(statusConfig.completed.icon).toBe("●");
+    expect(statusConfig.completed.icon).toBe(STATUS.active);
     expect(statusConfig.error.icon).toBe("✗");
   });
 });
@@ -303,7 +304,7 @@ describe("Render result structure", () => {
 describe("Icon and title display", () => {
   test("Read tool icon and title", () => {
     const renderer = getToolRenderer("Read");
-    expect(renderer.icon).toBe("📄");
+    expect(renderer.icon).toBe("≡");
 
     const title = renderer.getTitle({ input: { file_path: "/src/index.ts" } });
     expect(title).toBe("index.ts");
@@ -319,7 +320,7 @@ describe("Icon and title display", () => {
 
   test("Bash tool icon and title", () => {
     const renderer = getToolRenderer("Bash");
-    expect(renderer.icon).toBe("💻");
+    expect(renderer.icon).toBe("$");
 
     const title = renderer.getTitle({ input: { command: "npm install" } });
     expect(title).toBe("npm install");
@@ -327,7 +328,7 @@ describe("Icon and title display", () => {
 
   test("Write tool icon and title", () => {
     const renderer = getToolRenderer("Write");
-    expect(renderer.icon).toBe("📝");
+    expect(renderer.icon).toBe("►");
 
     const title = renderer.getTitle({ input: { file_path: "/new/file.js" } });
     expect(title).toBe("file.js");
@@ -335,7 +336,7 @@ describe("Icon and title display", () => {
 
   test("Glob tool icon and title", () => {
     const renderer = getToolRenderer("Glob");
-    expect(renderer.icon).toBe("🔍");
+    expect(renderer.icon).toBe("◆");
 
     const title = renderer.getTitle({ input: { pattern: "**/*.ts" } });
     expect(title).toBe("**/*.ts");
@@ -343,7 +344,7 @@ describe("Icon and title display", () => {
 
   test("Grep tool icon and title", () => {
     const renderer = getToolRenderer("Grep");
-    expect(renderer.icon).toBe("🔎");
+    expect(renderer.icon).toBe("★");
 
     const title = renderer.getTitle({ input: { pattern: "TODO" } });
     expect(title).toBe("TODO");

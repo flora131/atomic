@@ -12,6 +12,8 @@ import {
   generateMessageId,
   createMessage,
   formatTimestamp,
+  computeMessageWindow,
+  MAX_VISIBLE_MESSAGES,
   SPINNER_VERBS,
   getRandomSpinnerVerb,
   type ChatMessage,
@@ -134,6 +136,40 @@ describe("formatTimestamp", () => {
     // End of day
     const endOfDay = formatTimestamp("2024-01-15T23:59:59.999Z");
     expect(endOfDay).toBeDefined();
+  });
+});
+
+describe("computeMessageWindow", () => {
+  test("returns all messages when under visible limit", () => {
+    const messages = [
+      createMessage("user", "one"),
+      createMessage("assistant", "two"),
+    ];
+    const result = computeMessageWindow(messages, 0);
+
+    expect(result.visibleMessages).toHaveLength(2);
+    expect(result.hiddenMessageCount).toBe(0);
+  });
+
+  test("returns only last MAX_VISIBLE_MESSAGES when overflow exists", () => {
+    const messages: ChatMessage[] = Array.from({ length: MAX_VISIBLE_MESSAGES + 3 }, (_, i) =>
+      createMessage(i % 2 === 0 ? "user" : "assistant", `message-${i + 1}`)
+    );
+    const result = computeMessageWindow(messages, 0);
+
+    expect(result.visibleMessages).toHaveLength(MAX_VISIBLE_MESSAGES);
+    expect(result.hiddenMessageCount).toBe(3);
+    expect(result.visibleMessages[0]?.content).toBe("message-4");
+  });
+
+  test("includes previously trimmed count in hidden message total", () => {
+    const messages = Array.from({ length: 5 }, (_, i) =>
+      createMessage("assistant", `recent-${i + 1}`)
+    );
+    const result = computeMessageWindow(messages, 12);
+
+    expect(result.visibleMessages).toHaveLength(5);
+    expect(result.hiddenMessageCount).toBe(12);
   });
 });
 

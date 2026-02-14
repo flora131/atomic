@@ -114,7 +114,8 @@ export function QueueIndicator({
   if (compact) {
     // Get first message preview
     const firstMessage = queue && queue.length > 0 ? queue[0] : undefined;
-    const preview = firstMessage ? truncateContent(firstMessage.content, queueMaxLength) : "";
+    const previewText = firstMessage?.displayContent ?? firstMessage?.content;
+    const preview = previewText ? truncateContent(previewText, queueMaxLength) : "";
 
     return (
       <box flexDirection="column" gap={0}>
@@ -157,7 +158,7 @@ export function QueueIndicator({
 
     return (
       <text key={msg.id} style={style}>
-        {prefix}{truncateContent(msg.content, queueMaxLength)}
+        {prefix}{truncateContent(msg.displayContent ?? msg.content, queueMaxLength)}
       </text>
     );
   };
@@ -175,7 +176,7 @@ export function QueueIndicator({
       </box>
       {queue && queue.length > 0 && (
         <box flexDirection="column" paddingLeft={1}>
-          {queue.slice(0, 3).map((msg, index) => renderMessage(msg, index))}
+        {queue.slice(0, 3).map((msg, index) => renderMessage(msg, index))}
           {queue.length > 3 && (
             <text style={{ fg: theme.colors.muted }}>
               ...and {queue.length - 3} more

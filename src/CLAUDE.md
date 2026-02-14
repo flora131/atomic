@@ -89,6 +89,18 @@ Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
    a. [TypeScript V2 SDK](../docs/claude-agent-sdk/typescript-v2-sdk.md), preferred (fallback to v1 if something is not supported)
    b. [TypeScript SDK](../docs/claude-agent-sdk/typescript-sdk.md)
 
+### Coding Agent Configuration Locations
+
+1. OpenCode:
+   - global: `~/.opencode`
+   - local: `.opencode` in the project directory
+2. Claude Code:
+   - global: `~/.claude`
+   - local: `.claude` in the project directory
+3. Copilot CLI:
+   - global: `~/.config/.copilot`
+   - local: `.github` in the project directory
+
 ## Tips
 
 1. Note: for the `.github` config for GitHub Copilot CLI, ignore the `.github/workflows` and `.github/dependabot.yml` files as they are NOT for Copilot CLI.

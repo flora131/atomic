@@ -81,6 +81,8 @@ function createMockContext(
     streamAndWait: async () => ({ content: "", wasInterrupted: false }),
     clearContext: async () => {},
     setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
     updateWorkflowState: () => {},
     agentType: undefined,
     modelOps: undefined,

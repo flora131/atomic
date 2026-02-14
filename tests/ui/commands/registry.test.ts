@@ -362,6 +362,8 @@ describe("CommandRegistry", () => {
         streamAndWait: async () => ({ content: "", wasInterrupted: false }),
         clearContext: async () => {},
         setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
         updateWorkflowState: () => {},
         agentType: undefined,
         modelOps: undefined,
@@ -399,6 +401,8 @@ describe("CommandRegistry", () => {
         streamAndWait: async () => ({ content: "", wasInterrupted: false }),
         clearContext: async () => {},
         setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
         updateWorkflowState: () => {},
         agentType: undefined,
         modelOps: undefined,
@@ -436,6 +440,8 @@ describe("CommandRegistry", () => {
         streamAndWait: async () => ({ content: "", wasInterrupted: false }),
         clearContext: async () => {},
         setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
         updateWorkflowState: () => {},
         agentType: undefined,
         modelOps: undefined,
@@ -558,6 +564,8 @@ describe("CommandContext interface", () => {
       streamAndWait: async () => ({ content: "", wasInterrupted: false }),
       clearContext: async () => {},
       setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
       updateWorkflowState: () => {},
     };
 
@@ -576,6 +584,8 @@ describe("CommandContext interface", () => {
       streamAndWait: async () => ({ content: "", wasInterrupted: false }),
       clearContext: async () => {},
       setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
       updateWorkflowState: () => {},
     };
 
@@ -601,6 +611,8 @@ describe("CommandContext interface", () => {
       streamAndWait: async () => ({ content: "", wasInterrupted: false }),
       clearContext: async () => {},
       setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
       updateWorkflowState: () => {},
     };
 
@@ -626,6 +638,8 @@ describe("CommandContext interface", () => {
       streamAndWait: async () => ({ content: "", wasInterrupted: false }),
       clearContext: async () => {},
       setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
       updateWorkflowState: () => {},
     };
 
@@ -650,6 +664,8 @@ describe("CommandContext interface", () => {
       streamAndWait: async () => ({ content: "", wasInterrupted: false }),
       clearContext: async () => {},
       setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
       updateWorkflowState: () => {},
     };
 
@@ -673,6 +689,8 @@ describe("CommandContext interface", () => {
       streamAndWait: async () => ({ content: "", wasInterrupted: false }),
       clearContext: async () => {},
       setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
       updateWorkflowState: () => {},
     };
 

@@ -8,7 +8,9 @@
 import { test, expect, beforeEach } from "bun:test";
 import {
   appendToHistoryBuffer,
+  appendCompactionSummary,
   readHistoryBuffer,
+  replaceHistoryBuffer,
   clearHistoryBuffer,
 } from "../../../src/ui/utils/conversation-history-buffer.ts";
 import type { ChatMessage } from "../../../src/ui/chat.tsx";
@@ -36,9 +38,10 @@ test("appendToHistoryBuffer persists messages that can be read back", () => {
     makeMessage("1", "user", "Hello"),
     makeMessage("2", "assistant", "Hi there"),
   ];
-  appendToHistoryBuffer(msgs);
+  const appended = appendToHistoryBuffer(msgs);
 
   const result = readHistoryBuffer();
+  expect(appended).toBe(2);
   expect(result).toHaveLength(2);
   expect(result[0]?.id).toBe("1");
   expect(result[0]?.content).toBe("Hello");
@@ -48,10 +51,12 @@ test("appendToHistoryBuffer persists messages that can be read back", () => {
 
 test("appendToHistoryBuffer deduplicates by message id", () => {
   const msgs: ChatMessage[] = [makeMessage("1", "user", "Hello")];
-  appendToHistoryBuffer(msgs);
-  appendToHistoryBuffer(msgs); // duplicate
+  const first = appendToHistoryBuffer(msgs);
+  const second = appendToHistoryBuffer(msgs); // duplicate
 
   const result = readHistoryBuffer();
+  expect(first).toBe(1);
+  expect(second).toBe(0);
   expect(result).toHaveLength(1);
 });
 
@@ -74,8 +79,9 @@ test("clearHistoryBuffer empties the history", () => {
 });
 
 test("appendToHistoryBuffer ignores empty array", () => {
-  appendToHistoryBuffer([]);
+  const appended = appendToHistoryBuffer([]);
   const result = readHistoryBuffer();
+  expect(appended).toBe(0);
   expect(result).toEqual([]);
 });
 
@@ -117,6 +123,49 @@ test("history accumulates across multiple compactions", () => {
   expect(result).toHaveLength(4);
   expect(result[0]?.id).toBe("r1-1");
   expect(result[3]?.id).toBe("r2-2");
+});
+
+test("replaceHistoryBuffer overwrites existing history", () => {
+  appendToHistoryBuffer([
+    makeMessage("old-1", "user", "Old message"),
+    makeMessage("old-2", "assistant", "Old response"),
+  ]);
+  expect(readHistoryBuffer()).toHaveLength(2);
+
+  const replacement: ChatMessage[] = [
+    makeMessage("new-1", "assistant", "Fresh start"),
+  ];
+  replaceHistoryBuffer(replacement);
+
+  const result = readHistoryBuffer();
+  expect(result).toHaveLength(1);
+  expect(result[0]?.id).toBe("new-1");
+  expect(result[0]?.content).toBe("Fresh start");
+});
+
+test("appendCompactionSummary adds a transcript summary message", () => {
+  appendCompactionSummary("Conversation compacted summary");
+  const result = readHistoryBuffer();
+
+  expect(result).toHaveLength(1);
+  expect(result[0]?.role).toBe("assistant");
+  expect(result[0]?.content).toBe("Conversation compacted summary");
+  expect(result[0]?.id).toMatch(/^compact_/);
+});
+
+test("compact reset policy: clear then append summary keeps only summary", () => {
+  appendToHistoryBuffer([
+    makeMessage("before-1", "user", "Before compact"),
+    makeMessage("before-2", "assistant", "Working..."),
+  ]);
+  expect(readHistoryBuffer()).toHaveLength(2);
+
+  clearHistoryBuffer();
+  appendCompactionSummary("Context compacted");
+
+  const result = readHistoryBuffer();
+  expect(result).toHaveLength(1);
+  expect(result[0]?.content).toBe("Context compacted");
 });
 
 test("preserves all ChatMessage fields", () => {

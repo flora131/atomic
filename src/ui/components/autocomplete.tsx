@@ -92,23 +92,29 @@ function SuggestionRow({
   // Calculate column widths based on terminal width
   // Layout: 2 (padding) + cmdCol + 2 (gap) + descCol + 2 (padding)
   const padding = 4; // 2 left + 2 right
-  const gap = 2;
+  const rawDesc = command.description.replace(/\n/g, " ").trim();
+  const hasDescription = rawDesc.length > 0;
+  const gap = hasDescription ? 2 : 0;
   const availableWidth = terminalWidth - padding - gap;
 
-  // Command column gets ~30% of available width, min 18, max 28
-  const cmdColWidth = Math.min(28, Math.max(18, Math.floor(availableWidth * 0.3)));
+  // When no description (e.g. file/folder mentions), name gets the full row width.
+  // Otherwise two-column layout: command column gets ~30%, min 18, max 28.
+  const cmdColWidth = hasDescription
+    ? Math.min(28, Math.max(18, Math.floor(availableWidth * 0.3)))
+    : availableWidth;
   const descColWidth = availableWidth - cmdColWidth;
 
   // Truncate command name if needed — use "..." for clean display
   const displayName = fullName.length > cmdColWidth
     ? `${fullName.slice(0, cmdColWidth - 3)}...`
-    : fullName.padEnd(cmdColWidth);
+    : hasDescription ? fullName.padEnd(cmdColWidth) : fullName;
 
   // Truncate description to single line — use "..." for clean display
-  const rawDesc = command.description.replace(/\n/g, " ").trim();
-  const description = rawDesc.length > descColWidth
-    ? `${rawDesc.slice(0, descColWidth - 3)}...`
-    : rawDesc;
+  const description = hasDescription
+    ? (rawDesc.length > descColWidth
+      ? `${rawDesc.slice(0, descColWidth - 3)}...`
+      : rawDesc)
+    : "";
 
   return (
     <box
@@ -119,17 +125,21 @@ function SuggestionRow({
       paddingRight={2}
     >
       {/* Command name column */}
-      <box width={cmdColWidth} height={1}>
+      <box width={hasDescription ? cmdColWidth : undefined} flexGrow={hasDescription ? undefined : 1} height={1}>
         <text fg={fgColor} attributes={isSelected ? 1 : undefined}>{displayName}</text>
       </box>
-      {/* Gap between columns */}
-      <box width={gap} height={1}>
-        <text>{" "}</text>
-      </box>
-      {/* Description column */}
-      <box flexGrow={1} height={1}>
-        <text fg={descColor}>{description}</text>
-      </box>
+      {hasDescription && (
+        <>
+          {/* Gap between columns */}
+          <box width={gap} height={1}>
+            <text>{" "}</text>
+          </box>
+          {/* Description column */}
+          <box flexGrow={1} height={1}>
+            <text fg={descColor}>{description}</text>
+          </box>
+        </>
+      )}
     </box>
   );
 }

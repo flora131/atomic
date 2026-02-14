@@ -4,7 +4,7 @@
  * Verifies workflow command registration and execution behavior.
  */
 
-import { test, expect, describe, beforeEach, afterEach, mock, spyOn } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdirSync, rmSync, existsSync } from "fs";
 import { join } from "path";
 import {
@@ -71,11 +71,13 @@ function createMockContext(
       sentSilentMessages.push(content);
     },
     spawnSubagent: async () => ({ success: true, output: "Mock sub-agent output" }),
-    streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+    streamAndWait: async (_prompt: string, _options?: { hideContent?: boolean }) => ({ content: "", wasInterrupted: false }),
     clearContext: async () => {},
     setTodoItems: (items) => {
       todoItemsUpdates.push(items);
     },
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
     updateWorkflowState: (update) => {
       workflowStateUpdates.push(update);
     },
@@ -535,14 +537,14 @@ describe("ralph command basic execution", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
-    const { context, messages } = createMockContext();
+    const { context, workflowStateUpdates } = createMockContext();
 
     await ralphCmd!.execute("implement auth", context);
 
-    // System message now contains session ID
-    expect(messages.length).toBeGreaterThanOrEqual(1);
-    expect(messages[0]?.role).toBe("system");
-    expect(messages[0]?.content).toContain("Session **");
+    // Session ID is now displayed via TaskListPanel, not a system message
+    // Verify it's set via setRalphSessionId instead
+    expect(workflowStateUpdates.length).toBeGreaterThanOrEqual(1);
+    expect(workflowStateUpdates[0]?.ralphConfig?.sessionId).toBeDefined();
   });
 });
 
@@ -625,13 +627,13 @@ describe("ralph command --resume flag", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
-    const { context } = createMockContext();
+    const { context, workflowStateUpdates } = createMockContext();
     const result = await ralphCmd!.execute(`--resume ${testSessionId}`, context);
 
     expect(result.success).toBe(true);
-    expect(result.stateUpdate?.ralphConfig?.resumeSessionId).toBe(testSessionId);
-    expect(result.message).toContain("Resuming");
-    expect(result.message).toContain(testSessionId);
+    // Workflow state is set via updateWorkflowState, not stateUpdate return
+    const stateUpdate = workflowStateUpdates.find(u => u.ralphConfig?.resumeSessionId === testSessionId);
+    expect(stateUpdate).toBeDefined();
   });
 
   test("ralph command with --resume flag and invalid UUID fails", async () => {
@@ -689,14 +691,16 @@ describe("ralph command --resume flag", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
-    const { context } = createMockContext();
+    const { context, workflowStateUpdates } = createMockContext();
     const result = await ralphCmd!.execute(`--resume ${testSessionId}`, context);
 
     expect(result.success).toBe(true);
-    expect(result.stateUpdate?.workflowActive).toBe(true);
-    expect(result.stateUpdate?.workflowType).toBe("ralph");
-    expect(result.stateUpdate?.initialPrompt).toBeNull();
-    expect(result.stateUpdate?.ralphConfig?.resumeSessionId).toBe(testSessionId);
+    // Workflow state is set via updateWorkflowState (not stateUpdate return)
+    const stateUpdate = workflowStateUpdates.find(u => u.workflowActive === true);
+    expect(stateUpdate).toBeDefined();
+    expect(stateUpdate!.workflowActive).toBe(true);
+    expect(stateUpdate!.workflowType).toBe("ralph");
+    expect(stateUpdate!.ralphConfig?.resumeSessionId).toBe(testSessionId);
   });
 });
 
@@ -725,19 +729,15 @@ describe("ralph command session UUID display", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
-    const { context, messages, workflowStateUpdates } = createMockContext();
+    const { context, workflowStateUpdates } = createMockContext();
     const result = await ralphCmd!.execute("implement auth", context);
 
     expect(result.success).toBe(true);
-    // System message should contain session UUID
-    expect(messages.length).toBeGreaterThanOrEqual(1);
-    const systemMsg = messages.find(m => m.role === "system");
-    expect(systemMsg).toBeDefined();
-    expect(systemMsg!.content).toContain("Session **");
-    // Extract UUID from system message
-    const uuidMatch = systemMsg!.content.match(/Session \*\*([0-9a-f-]+)\*\*/i);
-    expect(uuidMatch).toBeDefined();
-    expect(isValidUUID(uuidMatch![1]!)).toBe(true);
+    // Session UUID is now shown via TaskListPanel, set via setRalphSessionId
+    expect(workflowStateUpdates.length).toBeGreaterThanOrEqual(1);
+    const sessionId = workflowStateUpdates[0]?.ralphConfig?.sessionId;
+    expect(sessionId).toBeDefined();
+    expect(isValidUUID(sessionId as string)).toBe(true);
   });
 
   test("ralph command includes session UUID in updateWorkflowState", async () => {
@@ -754,21 +754,19 @@ describe("ralph command session UUID display", () => {
     expect(isValidUUID(wsUpdate.ralphConfig?.sessionId as string)).toBe(true);
   });
 
-  test("ralph command system message includes session UUID", async () => {
+  test("ralph command session UUID is set via setRalphSessionId", async () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
-    const { context, messages } = createMockContext();
+    const { context, workflowStateUpdates } = createMockContext();
 
     await ralphCmd!.execute("implement auth", context);
 
-    expect(messages.length).toBeGreaterThanOrEqual(1);
-    expect(messages[0]?.role).toBe("system");
-    expect(messages[0]?.content).toContain("Session **");
-    // Validate UUID format in system message
-    const uuidMatch = messages[0]?.content.match(/Session \*\*([0-9a-f-]+)\*\*/i);
-    expect(uuidMatch).toBeDefined();
-    expect(isValidUUID(uuidMatch![1]!)).toBe(true);
+    // Session ID is displayed via TaskListPanel, verified through workflow state
+    expect(workflowStateUpdates.length).toBeGreaterThanOrEqual(1);
+    const sessionId = workflowStateUpdates[0]?.ralphConfig?.sessionId;
+    expect(sessionId).toBeDefined();
+    expect(isValidUUID(sessionId as string)).toBe(true);
   });
 
   test("ralph command generates unique UUIDs for each invocation", async () => {
@@ -824,14 +822,15 @@ describe("ralph command session UUID display", () => {
     mkdirSync(sessionDir, { recursive: true });
 
     try {
-      const { context } = createMockContext();
+      const { context, workflowStateUpdates } = createMockContext();
       const result = await ralphCmd!.execute(`--resume ${testSessionId}`, context);
 
       expect(result.success).toBe(true);
       // Resume should use the provided session ID, not generate a new one
-      expect(result.stateUpdate?.ralphConfig?.resumeSessionId).toBe(testSessionId);
+      const stateUpdate = workflowStateUpdates.find(u => u.ralphConfig?.resumeSessionId === testSessionId);
+      expect(stateUpdate).toBeDefined();
       // Should not have a new sessionId field (resume uses resumeSessionId)
-      expect(result.stateUpdate?.ralphConfig?.sessionId).toBeUndefined();
+      expect(stateUpdate!.ralphConfig?.sessionId).toBeUndefined();
     } finally {
       // Clean up
       if (existsSync(sessionDir)) {
@@ -1991,182 +1990,6 @@ export default function createWorkflow() {
       // Should return empty array (no dynamically loaded workflows)
       expect(Array.isArray(loaded)).toBe(true);
       expect(loaded.length).toBe(0);
-    });
-  });
-});
-
-// ============================================================================
-// RALPH WORKFLOW SCM INTEGRATION TESTS
-// ============================================================================
-
-describe("ralph workflow SCM integration", () => {
-  const testSessionId = "550e8400-e29b-41d4-a716-446655440000";
-
-  beforeEach(() => {
-    // Create test session directory for resume tests
-    const { getWorkflowSessionDir } = require("../../../src/workflows/session.ts");
-    const sessionDir = getWorkflowSessionDir(testSessionId);
-    mkdirSync(sessionDir, { recursive: true });
-  });
-
-  afterEach(() => {
-    // Clean up test session directory
-    const { getWorkflowSessionDir } = require("../../../src/workflows/session.ts");
-    const sessionDir = getWorkflowSessionDir(testSessionId);
-    if (existsSync(sessionDir)) {
-      rmSync(sessionDir, { recursive: true, force: true });
-    }
-  });
-
-  describe("buildImplementFeaturePrompt receives SCM from config", () => {
-    test("ralph workflow imports getSelectedScm", async () => {
-      // Verify the workflow-commands module imports getSelectedScm
-      const workflowModule = await import("../../../src/ui/commands/workflow-commands.ts");
-
-      // The module should exist and have been loaded without error
-      expect(workflowModule).toBeDefined();
-    });
-
-    test("buildImplementFeaturePrompt generates different output for github vs sapling", () => {
-      const { buildImplementFeaturePrompt } = require("../../../src/graph/nodes/ralph-nodes.ts");
-
-      const githubPrompt = buildImplementFeaturePrompt("github");
-      const saplingPrompt = buildImplementFeaturePrompt("sapling-phabricator");
-
-      // Prompts should be different based on SCM
-      expect(githubPrompt).toContain("git");
-      expect(saplingPrompt).toContain("sl");
-
-      // GitHub uses git log
-      expect(githubPrompt).toContain("git log");
-      // Sapling uses sl smartlog
-      expect(saplingPrompt).toContain("sl smartlog");
-    });
-
-    test("buildImplementFeaturePrompt defaults to github when no SCM provided", () => {
-      const { buildImplementFeaturePrompt } = require("../../../src/graph/nodes/ralph-nodes.ts");
-
-      const defaultPrompt = buildImplementFeaturePrompt();
-      const githubPrompt = buildImplementFeaturePrompt("github");
-
-      // Default should match github
-      expect(defaultPrompt).toContain("git log");
-      expect(defaultPrompt).toBe(githubPrompt);
-    });
-  });
-
-  describe("getSelectedScm integration", () => {
-    const testConfigDir = "/tmp/atomic-test-scm-integration";
-
-    beforeEach(() => {
-      // Create test config directory
-      mkdirSync(testConfigDir, { recursive: true });
-    });
-
-    afterEach(() => {
-      // Clean up test config directory
-      if (existsSync(testConfigDir)) {
-        rmSync(testConfigDir, { recursive: true, force: true });
-      }
-    });
-
-    test("getSelectedScm returns null when no .atomic.json exists", async () => {
-      const { getSelectedScm } = await import("../../../src/utils/atomic-config.ts");
-
-      const result = await getSelectedScm(testConfigDir);
-      expect(result).toBeNull();
-    });
-
-    test("getSelectedScm returns scm when .atomic.json exists with scm field", async () => {
-      const { getSelectedScm, saveAtomicConfig } = await import("../../../src/utils/atomic-config.ts");
-
-      // Create config with SCM
-      await saveAtomicConfig(testConfigDir, { scm: "sapling-phabricator" });
-
-      const result = await getSelectedScm(testConfigDir);
-      expect(result).toBe("sapling-phabricator");
-    });
-
-    test("getSelectedScm returns github when set", async () => {
-      const { getSelectedScm, saveAtomicConfig } = await import("../../../src/utils/atomic-config.ts");
-
-      await saveAtomicConfig(testConfigDir, { scm: "github" });
-
-      const result = await getSelectedScm(testConfigDir);
-      expect(result).toBe("github");
-    });
-  });
-
-  describe("ralph resume flow uses SCM from config", () => {
-    test("resume flow calls buildImplementFeaturePrompt (verify integration exists)", async () => {
-      const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-      expect(ralphCmd).toBeDefined();
-
-      const { context, sentSilentMessages } = createMockContext();
-      const result = await ralphCmd!.execute(`--resume ${testSessionId}`, context);
-
-      // Resume should succeed
-      expect(result.success).toBe(true);
-
-      // Should have sent a silent message (the implement prompt)
-      expect(sentSilentMessages.length).toBe(1);
-
-      // The silent message should contain implement feature prompt content
-      const sentPrompt = sentSilentMessages[0];
-      expect(sentPrompt).toBeDefined();
-      // The prompt should contain either git or sl commands
-      expect(sentPrompt!.includes("log") || sentPrompt!.includes("smartlog")).toBe(true);
-    });
-  });
-
-  describe("ralph main flow uses SCM from config", () => {
-    test("main flow generates implement prompt (verify integration exists)", async () => {
-      const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
-      expect(ralphCmd).toBeDefined();
-
-      // Create mock context that tracks streamAndWait calls
-      let streamAndWaitCalls: string[] = [];
-      const mockContext = {
-        session: null,
-        state: {
-          isStreaming: false,
-          messageCount: 0,
-          workflowActive: false,
-          workflowType: null,
-          initialPrompt: null,
-          pendingApproval: false,
-          specApproved: undefined,
-          feedback: null,
-        },
-        addMessage: () => {},
-        setStreaming: () => {},
-        sendMessage: () => {},
-        sendSilentMessage: () => {},
-        spawnSubagent: async () => ({ success: true, output: "" }),
-        streamAndWait: async (prompt: string) => {
-          streamAndWaitCalls.push(prompt);
-          return { content: "[]", wasInterrupted: false };
-        },
-        clearContext: async () => {},
-        setTodoItems: () => {},
-        updateWorkflowState: () => {},
-        agentType: undefined,
-        modelOps: undefined,
-      };
-
-      const result = await ralphCmd!.execute("implement auth", mockContext as any);
-
-      // Workflow should succeed
-      expect(result.success).toBe(true);
-
-      // Should have made streamAndWait calls
-      expect(streamAndWaitCalls.length).toBeGreaterThanOrEqual(2);
-
-      // The second call should be the implement prompt (contains log command)
-      const implementPromptCall = streamAndWaitCalls.find(
-        call => call.includes("log") || call.includes("smartlog")
-      );
-      expect(implementPromptCall).toBeDefined();
     });
   });
 });

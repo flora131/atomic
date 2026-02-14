@@ -142,7 +142,7 @@ function mapSdkEventToEventType(sdkEventType: SdkSessionEventType | string): Eve
     "skill.invoked": "skill.invoked",
     "subagent.started": "subagent.start",
     "subagent.completed": "subagent.complete",
-    "subagent.failed": "session.error",
+    "subagent.failed": "subagent.complete",
     "session.usage_info": "usage",
   };
   return mapping[sdkEventType] ?? null;
@@ -487,14 +487,25 @@ export class CopilotClient implements CodingAgentClient {
     // Track context window and system tools baseline from usage_info events
     if (event.type === "session.usage_info" && state) {
       const data = event.data as Record<string, unknown>;
-      if (state.systemToolsBaseline === null) {
-        state.systemToolsBaseline = data.currentTokens as number;
+      const currentTokens = typeof data.currentTokens === "number"
+        ? data.currentTokens
+        : null;
+      if (
+        currentTokens !== null
+        && currentTokens > 0
+        && (state.systemToolsBaseline === null || state.systemToolsBaseline <= 0)
+      ) {
+        state.systemToolsBaseline = currentTokens;
       }
-      state.contextWindow = data.tokenLimit as number;
+      if (typeof data.tokenLimit === "number") {
+        state.contextWindow = data.tokenLimit;
+      }
       // currentTokens reflects the actual tokens in the context window,
       // replacing any accumulated values from assistant.usage events
-      state.inputTokens = data.currentTokens as number;
-      state.outputTokens = 0;
+      if (currentTokens !== null) {
+        state.inputTokens = currentTokens;
+        state.outputTokens = 0;
+      }
     }
 
     // Map to unified event type
@@ -552,6 +563,7 @@ export class CopilotClient implements CodingAgentClient {
             success: data.success,
             toolResult: resultData?.content,
             error: errorData?.message,
+            toolCallId: data.toolCallId,
           };
           break;
         }
@@ -575,6 +587,8 @@ export class CopilotClient implements CodingAgentClient {
           break;
         case "subagent.failed":
           eventData = {
+            subagentId: data.toolCallId,
+            success: false,
             error: data.error,
           };
           break;
@@ -793,7 +807,7 @@ export class CopilotClient implements CodingAgentClient {
                   type: (s.type === "sse" ? "sse" : "http") as "http" | "sse",
                   url: s.url,
                   headers: s.headers,
-                  tools: ["*"],
+                  tools: s.tools ?? ["*"],
                   timeout: s.timeout,
                 }];
               }
@@ -803,7 +817,7 @@ export class CopilotClient implements CodingAgentClient {
                 args: s.args ?? [],
                 env: s.env,
                 cwd: s.cwd,
-                tools: ["*"],
+                tools: s.tools ?? ["*"],
                 timeout: s.timeout,
               }];
             })
@@ -906,12 +920,20 @@ export class CopilotClient implements CodingAgentClient {
     try {
       const probeSession = await this.sdkClient.createSession({});
       const baseline = await new Promise<number | null>((resolve) => {
-        const timeout = setTimeout(() => resolve(null), 3000);
-        const unsub = probeSession.on("session.usage_info", (event) => {
-          unsub();
-          clearTimeout(timeout);
+        let unsub: (() => void) | null = null;
+        const timeout = setTimeout(() => {
+          unsub?.();
+          resolve(null);
+        }, 3000);
+        unsub = probeSession.on("session.usage_info", (event) => {
           const data = event.data as Record<string, unknown>;
-          resolve((data.currentTokens as number) ?? null);
+          const currentTokens = data.currentTokens;
+          if (typeof currentTokens !== "number" || currentTokens <= 0) {
+            return;
+          }
+          unsub?.();
+          clearTimeout(timeout);
+          resolve(currentTokens);
         });
       });
       this.probeSystemToolsBaseline = baseline;

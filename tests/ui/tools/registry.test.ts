@@ -9,6 +9,7 @@
  */
 
 import { describe, test, expect } from "bun:test";
+import { STATUS } from "../../../src/ui/constants/icons.ts";
 import {
   readToolRenderer,
   editToolRenderer,
@@ -31,7 +32,7 @@ import {
 
 describe("readToolRenderer", () => {
   test("has correct icon", () => {
-    expect(readToolRenderer.icon).toBe("📄");
+    expect(readToolRenderer.icon).toBe("≡");
   });
 
   test("getTitle returns filename from path", () => {
@@ -68,6 +69,151 @@ describe("readToolRenderer", () => {
 
     const result = readToolRenderer.render(props);
     expect(result.content).toEqual(["(empty file)"]);
+  });
+
+  test("render handles OpenCode SDK format with nested output", () => {
+    const props: ToolRenderProps = {
+      input: { path: "/path/to/file.rs" },
+      output: {
+        title: "file.rs",
+        output: "fn main() {\n    println!(\"Hello\");\n}",
+        metadata: { preview: "fn main() {", truncated: false },
+      },
+    };
+
+    const result = readToolRenderer.render(props);
+
+    expect(result.title).toBe("/path/to/file.rs");
+    expect(result.content).toEqual([
+      'fn main() {',
+      '    println!("Hello");',
+      "}",
+    ]);
+    expect(result.language).toBe("rust");
+  });
+
+  test("render handles Claude SDK format with file.content", () => {
+    const props: ToolRenderProps = {
+      input: { file_path: "/path/to/file.py" },
+      output: {
+        file: {
+          filePath: "/path/to/file.py",
+          content: "def hello():\n    pass",
+        },
+      },
+    };
+
+    const result = readToolRenderer.render(props);
+
+    expect(result.title).toBe("/path/to/file.py");
+    expect(result.content).toEqual(["def hello():", "    pass"]);
+    expect(result.language).toBe("python");
+  });
+
+  test("render handles OpenCode direct string output", () => {
+    const props: ToolRenderProps = {
+      input: { path: "/path/to/file.ts" },
+      output: "const x = 1;",
+    };
+
+    const result = readToolRenderer.render(props);
+    expect(result.content).toEqual(["const x = 1;"]);
+  });
+
+  test("render handles OpenCode { output: string } without metadata", () => {
+    const props: ToolRenderProps = {
+      input: { path: "/path/to/file.ts" },
+      output: { output: "const x = 1;" },
+    };
+
+    const result = readToolRenderer.render(props);
+    expect(result.content).toEqual(["const x = 1;"]);
+  });
+
+  test("render handles output.text field", () => {
+    const props: ToolRenderProps = {
+      input: { path: "/path/to/file.ts" },
+      output: { text: "const x = 1;" },
+    };
+
+    const result = readToolRenderer.render(props);
+    expect(result.content).toEqual(["const x = 1;"]);
+  });
+
+  test("render handles output.value field", () => {
+    const props: ToolRenderProps = {
+      input: { path: "/path/to/file.ts" },
+      output: { value: "const x = 1;" },
+    };
+
+    const result = readToolRenderer.render(props);
+    expect(result.content).toEqual(["const x = 1;"]);
+  });
+
+  test("render handles output.data field", () => {
+    const props: ToolRenderProps = {
+      input: { path: "/path/to/file.ts" },
+      output: { data: "const x = 1;" },
+    };
+
+    const result = readToolRenderer.render(props);
+    expect(result.content).toEqual(["const x = 1;"]);
+  });
+
+  test("render handles Copilot result field", () => {
+    const props: ToolRenderProps = {
+      input: { path: "/path/to/file.ts" },
+      output: { result: "const x = 1;" },
+    };
+
+    const result = readToolRenderer.render(props);
+    expect(result.content).toEqual(["const x = 1;"]);
+  });
+
+  test("render differentiates empty file from extraction failure", () => {
+    const emptyProps: ToolRenderProps = {
+      input: { path: "/path/to/empty.txt" },
+      output: { content: "" },
+    };
+    const emptyResult = readToolRenderer.render(emptyProps);
+    expect(emptyResult.content).toEqual(["(empty file)"]);
+
+    const failedProps: ToolRenderProps = {
+      input: { path: "/path/to/file.ts" },
+      output: { unknownField: "value" },
+    };
+    const failedResult = readToolRenderer.render(failedProps);
+    expect(failedResult.content[0]).toBe("(could not extract file content)");
+  });
+
+  test("render shows extraction failure for unknown format", () => {
+    const props: ToolRenderProps = {
+      input: { path: "/path/to/file.ts" },
+      output: { unknown: { nested: "value" } },
+    };
+
+    const result = readToolRenderer.render(props);
+    expect(result.content[0]).toBe("(could not extract file content)");
+  });
+
+  test("render handles undefined output", () => {
+    const props: ToolRenderProps = {
+      input: { path: "/path/to/file.ts" },
+      output: undefined,
+    };
+
+    const result = readToolRenderer.render(props);
+    expect(result.content[0]).toBe("(file read pending...)");
+  });
+
+  test("render handles null output", () => {
+    const props: ToolRenderProps = {
+      input: { path: "/path/to/file.ts" },
+      output: null,
+    };
+
+    const result = readToolRenderer.render(props);
+    expect(result.content[0]).toBe("(file read pending...)");
   });
 });
 
@@ -131,7 +277,7 @@ describe("editToolRenderer", () => {
 
 describe("bashToolRenderer", () => {
   test("has correct icon", () => {
-    expect(bashToolRenderer.icon).toBe("💻");
+    expect(bashToolRenderer.icon).toBe("$");
   });
 
   test("getTitle returns command", () => {
@@ -184,7 +330,7 @@ describe("bashToolRenderer", () => {
 
 describe("writeToolRenderer", () => {
   test("has correct icon", () => {
-    expect(writeToolRenderer.icon).toBe("📝");
+    expect(writeToolRenderer.icon).toBe("►");
   });
 
   test("getTitle returns filename", () => {
@@ -202,7 +348,7 @@ describe("writeToolRenderer", () => {
 
     const result = writeToolRenderer.render(props);
 
-    expect(result.content.some((line) => line.includes("✓"))).toBe(true);
+    expect(result.content.some((line) => line.includes(STATUS.success))).toBe(true);
   });
 
   test("render shows pending status when no output", () => {
@@ -212,7 +358,7 @@ describe("writeToolRenderer", () => {
 
     const result = writeToolRenderer.render(props);
 
-    expect(result.content.some((line) => line.includes("⏳"))).toBe(true);
+    expect(result.content.some((line) => line.includes(STATUS.pending))).toBe(true);
   });
 
   test("render shows content preview", () => {
@@ -246,7 +392,7 @@ describe("writeToolRenderer", () => {
 
 describe("globToolRenderer", () => {
   test("has correct icon", () => {
-    expect(globToolRenderer.icon).toBe("🔍");
+    expect(globToolRenderer.icon).toBe("◆");
   });
 
   test("getTitle returns pattern", () => {
@@ -288,7 +434,7 @@ describe("globToolRenderer", () => {
 
 describe("grepToolRenderer", () => {
   test("has correct icon", () => {
-    expect(grepToolRenderer.icon).toBe("🔎");
+    expect(grepToolRenderer.icon).toBe("★");
   });
 
   test("getTitle returns pattern", () => {
@@ -328,7 +474,7 @@ describe("grepToolRenderer", () => {
 
 describe("defaultToolRenderer", () => {
   test("has correct icon", () => {
-    expect(defaultToolRenderer.icon).toBe("🔧");
+    expect(defaultToolRenderer.icon).toBe("▶");
   });
 
   test("getTitle extracts first input value", () => {

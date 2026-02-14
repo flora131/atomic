@@ -1597,14 +1597,18 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
             );
           } else if (segment.type === "agents" && segment.agents) {
             // Parallel agents tree segment (chronologically positioned)
+            const nextSegment = segments[index + 1];
+            const addBottomGap =
+              nextSegment?.type === "text" && Boolean(nextSegment.content?.trim());
             return (
-              <ParallelAgentsTree
-                key={segment.key}
-                agents={segment.agents}
-                compact={true}
-                maxVisible={5}
-                noTopMargin={index === 0}
-              />
+              <box key={segment.key} marginBottom={addBottomGap ? 1 : 0}>
+                <ParallelAgentsTree
+                  agents={segment.agents}
+                  compact={true}
+                  maxVisible={5}
+                  noTopMargin={index === 0}
+                />
+              </box>
             );
           } else if (segment.type === "tasks" && segment.taskItems) {
             // Tasks already rendered by TodoWrite tool result + persistent panel at top

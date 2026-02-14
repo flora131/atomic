@@ -6,18 +6,5 @@
   "permissions": {
     "defaultMode": "bypassPermissions"
   },
-  "enableAllProjectMcpServers": true,
-  "enabledPlugins": {
-    "tmux-cli@cctools-plugins": true,
-    "frontend-design@claude-plugins-official": true,
-    "ralph-loop@claude-plugins-official": true
-  },
-  "extraKnownMarketplaces": {
-    "cctools-plugins": {
-      "source": {
-        "source": "github",
-        "repo": "pchalasani/claude-code-tools"
-      }
-    }
-  }
+  "enableAllProjectMcpServers": true
 }

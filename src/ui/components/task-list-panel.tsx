@@ -1,0 +1,98 @@
+/**
+ * TaskListPanel Component
+ *
+ * Persistent, file-driven task list panel pinned below the scrollbox
+ * during /ralph workflow execution. Reads from tasks.json via file watcher.
+ *
+ * Reference: specs/ralph-task-list-ui.md
+ */
+
+import React, { useState, useEffect } from "react";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
+import { watchTasksJson } from "../commands/workflow-commands.ts";
+import { MISC } from "../constants/icons.ts";
+import { useThemeColors } from "../theme.tsx";
+import { TaskListIndicator, type TaskItem } from "./task-list-indicator.tsx";
+import type { TodoItem } from "../../sdk/tools/todo-write.ts";
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+export interface TaskListPanelProps {
+  /** Workflow session directory path */
+  sessionDir: string;
+  /** Workflow session ID (displayed for resume capability) */
+  sessionId?: string | null;
+  /** Whether to show full task content without truncation */
+  expanded?: boolean;
+}
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
+export function TaskListPanel({
+  sessionDir,
+  sessionId,
+  expanded = false,
+}: TaskListPanelProps): React.ReactNode {
+  const themeColors = useThemeColors();
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+
+  useEffect(() => {
+    // Initial load: read tasks.json synchronously on mount to avoid flash
+    const tasksPath = join(sessionDir, "tasks.json");
+    if (existsSync(tasksPath)) {
+      try {
+        const content = readFileSync(tasksPath, "utf-8");
+        const parsed = JSON.parse(content) as TodoItem[];
+        setTasks(parsed.map(toTaskItem));
+      } catch { /* ignore parse errors */ }
+    }
+
+    // Start file watcher for live updates
+    const cleanup = watchTasksJson(sessionDir, (items) => {
+      setTasks(items.map(toTaskItem));
+    });
+
+    return cleanup;
+  }, [sessionDir]);
+
+  if (tasks.length === 0) return null;
+
+  const completed = tasks.filter(t => t.status === "completed").length;
+  const total = tasks.length;
+
+  return (
+    <box flexDirection="column" paddingLeft={2} paddingRight={2} marginTop={1}>
+      <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.muted} paddingLeft={1} paddingRight={1}>
+        <text style={{ fg: themeColors.accent }} attributes={1}>
+          {`Ralph Workflow ${MISC.separator} ${completed}/${total} tasks`}
+        </text>
+        {sessionId && (
+          <text style={{ fg: themeColors.muted }}>
+            {`Session: ${sessionId} ${MISC.separator} /ralph --resume ${sessionId}`}
+          </text>
+        )}
+        <scrollbox maxHeight={15}>
+          <TaskListIndicator items={tasks} expanded={expanded} />
+        </scrollbox>
+      </box>
+    </box>
+  );
+}
+
+/** Convert TodoItem from disk to TaskItem for TaskListIndicator */
+function toTaskItem(t: TodoItem): TaskItem {
+  return {
+    id: t.id,
+    content: t.content,
+    status: t.status as TaskItem["status"],
+    blockedBy: t.blockedBy,
+  };
+}
+
+export default TaskListPanel;

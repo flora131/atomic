@@ -23,6 +23,8 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
     streamAndWait: async () => ({ content: "", wasInterrupted: false }),
     clearContext: async () => {},
     setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
     updateWorkflowState: () => {},
     ...overrides,
   };

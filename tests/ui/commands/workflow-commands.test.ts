@@ -76,6 +76,8 @@ function createMockContext(
     setTodoItems: (items) => {
       todoItemsUpdates.push(items);
     },
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
     updateWorkflowState: (update) => {
       workflowStateUpdates.push(update);
     },
@@ -535,14 +537,14 @@ describe("ralph command basic execution", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
-    const { context, messages } = createMockContext();
+    const { context, workflowStateUpdates } = createMockContext();
 
     await ralphCmd!.execute("implement auth", context);
 
-    // System message now contains session ID
-    expect(messages.length).toBeGreaterThanOrEqual(1);
-    expect(messages[0]?.role).toBe("system");
-    expect(messages[0]?.content).toContain("Session **");
+    // Session ID is now displayed via TaskListPanel, not a system message
+    // Verify it's set via setRalphSessionId instead
+    expect(workflowStateUpdates.length).toBeGreaterThanOrEqual(1);
+    expect(workflowStateUpdates[0]?.ralphConfig?.sessionId).toBeDefined();
   });
 });
 
@@ -725,19 +727,15 @@ describe("ralph command session UUID display", () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
-    const { context, messages, workflowStateUpdates } = createMockContext();
+    const { context, workflowStateUpdates } = createMockContext();
     const result = await ralphCmd!.execute("implement auth", context);
 
     expect(result.success).toBe(true);
-    // System message should contain session UUID
-    expect(messages.length).toBeGreaterThanOrEqual(1);
-    const systemMsg = messages.find(m => m.role === "system");
-    expect(systemMsg).toBeDefined();
-    expect(systemMsg!.content).toContain("Session **");
-    // Extract UUID from system message
-    const uuidMatch = systemMsg!.content.match(/Session \*\*([0-9a-f-]+)\*\*/i);
-    expect(uuidMatch).toBeDefined();
-    expect(isValidUUID(uuidMatch![1]!)).toBe(true);
+    // Session UUID is now shown via TaskListPanel, set via setRalphSessionId
+    expect(workflowStateUpdates.length).toBeGreaterThanOrEqual(1);
+    const sessionId = workflowStateUpdates[0]?.ralphConfig?.sessionId;
+    expect(sessionId).toBeDefined();
+    expect(isValidUUID(sessionId as string)).toBe(true);
   });
 
   test("ralph command includes session UUID in updateWorkflowState", async () => {
@@ -754,21 +752,19 @@ describe("ralph command session UUID display", () => {
     expect(isValidUUID(wsUpdate.ralphConfig?.sessionId as string)).toBe(true);
   });
 
-  test("ralph command system message includes session UUID", async () => {
+  test("ralph command session UUID is set via setRalphSessionId", async () => {
     const ralphCmd = workflowCommands.find((c) => c.name === "ralph");
     expect(ralphCmd).toBeDefined();
 
-    const { context, messages } = createMockContext();
+    const { context, workflowStateUpdates } = createMockContext();
 
     await ralphCmd!.execute("implement auth", context);
 
-    expect(messages.length).toBeGreaterThanOrEqual(1);
-    expect(messages[0]?.role).toBe("system");
-    expect(messages[0]?.content).toContain("Session **");
-    // Validate UUID format in system message
-    const uuidMatch = messages[0]?.content.match(/Session \*\*([0-9a-f-]+)\*\*/i);
-    expect(uuidMatch).toBeDefined();
-    expect(isValidUUID(uuidMatch![1]!)).toBe(true);
+    // Session ID is displayed via TaskListPanel, verified through workflow state
+    expect(workflowStateUpdates.length).toBeGreaterThanOrEqual(1);
+    const sessionId = workflowStateUpdates[0]?.ralphConfig?.sessionId;
+    expect(sessionId).toBeDefined();
+    expect(isValidUUID(sessionId as string)).toBe(true);
   });
 
   test("ralph command generates unique UUIDs for each invocation", async () => {

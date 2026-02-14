@@ -48,6 +48,8 @@ import {
 } from "./components/model-selector-dialog.tsx";
 import type { Model } from "../models/model-transform.ts";
 import { type TaskItem } from "./components/task-list-indicator.tsx";
+import { TaskListPanel } from "./components/task-list-panel.tsx";
+import { saveTasksToActiveSession } from "./commands/workflow-commands.ts";
 import {
   useStreamingState,
   type ToolExecutionStatus,
@@ -1709,6 +1711,11 @@ export function ChatApp({
   const [showTodoPanel, setShowTodoPanel] = useState(true);
   // Whether task list items are expanded (full content, no truncation)
   const [tasksExpanded, setTasksExpanded] = useState(false);
+  // Ralph workflow persistent task list
+  const [ralphSessionDir, setRalphSessionDir] = useState<string | null>(null);
+  const ralphSessionDirRef = useRef<string | null>(null);
+  const [ralphSessionId, setRalphSessionId] = useState<string | null>(null);
+  const ralphSessionIdRef = useRef<string | null>(null);
   // State for input textarea scrollbar (shown only when input overflows)
   const [inputScrollbar, setInputScrollbar] = useState<InputScrollbarState>({
     visible: false,
@@ -1787,6 +1794,14 @@ export function ChatApp({
   useEffect(() => {
     todoItemsRef.current = todoItems;
   }, [todoItems]);
+
+  // Keep ralph session refs in sync with state
+  useEffect(() => {
+    ralphSessionDirRef.current = ralphSessionDir;
+  }, [ralphSessionDir]);
+  useEffect(() => {
+    ralphSessionIdRef.current = ralphSessionId;
+  }, [ralphSessionId]);
 
   // Dynamic placeholder based on queue state
   const dynamicPlaceholder = useMemo(() => {
@@ -1883,6 +1898,11 @@ export function ChatApp({
       const todos = input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>;
       todoItemsRef.current = todos;
       setTodoItems(todos);
+
+      // Persist to tasks.json when ralph workflow is active (drives TaskListPanel via file watcher)
+      if (ralphSessionIdRef.current) {
+        void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
+      }
       
       // Capture tasks offset on first TodoWrite call
       if (messageId) {
@@ -3073,10 +3093,21 @@ export function ChatApp({
         // Restore todoItems (preserved across context clears)
         const saved = todoItemsRef.current;
         setTodoItems(saved);
+        // Restore ralph session state (preserved across context clears)
+        setRalphSessionDir(ralphSessionDirRef.current);
+        setRalphSessionId(ralphSessionIdRef.current);
       },
       setTodoItems: (items) => {
         todoItemsRef.current = items;
         setTodoItems(items);
+      },
+      setRalphSessionDir: (dir: string | null) => {
+        ralphSessionDirRef.current = dir;
+        setRalphSessionDir(dir);
+      },
+      setRalphSessionId: (id: string | null) => {
+        ralphSessionIdRef.current = id;
+        setRalphSessionId(id);
       },
       updateWorkflowState: (update) => {
         updateWorkflowState(update);
@@ -4517,6 +4548,16 @@ export function ChatApp({
         return;
       }
 
+      // Dismiss ralph panel when user sends a non-ralph message
+      if (ralphSessionDirRef.current && !trimmedValue.startsWith("/ralph")) {
+        setRalphSessionDir(null);
+        setRalphSessionId(null);
+        ralphSessionDirRef.current = null;
+        ralphSessionIdRef.current = null;
+        todoItemsRef.current = [];
+        setTodoItems([]);
+      }
+
       // Check if this contains @agent mentions
       if (trimmedValue.startsWith("@")) {
         const atMentions = parseAtMentions(trimmedValue);
@@ -4921,6 +4962,14 @@ export function ChatApp({
           </box>
         )}
       </scrollbox>
+      {/* Ralph persistent task list - pinned below scrollbox, Ctrl+T toggleable */}
+      {ralphSessionDir && showTodoPanel && (
+        <TaskListPanel
+          sessionDir={ralphSessionDir}
+          sessionId={ralphSessionId}
+          expanded={tasksExpanded}
+        />
+      )}
       </>
       )}
 

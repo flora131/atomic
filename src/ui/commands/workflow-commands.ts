@@ -157,6 +157,19 @@ export async function saveTasksToActiveSession(
   }
 }
 
+/** Read current task state from tasks.json on disk */
+async function readTasksFromDisk(
+  sessionDir: string,
+): Promise<Array<{ id?: string; content: string; status: string; activeForm: string; blockedBy?: string[] }>> {
+  const tasksPath = join(sessionDir, "tasks.json");
+  try {
+    const content = await readFile(tasksPath, "utf-8");
+    return JSON.parse(content) as Array<{ id?: string; content: string; status: string; activeForm: string; blockedBy?: string[] }>;
+  } catch {
+    return [];
+  }
+}
+
 // ============================================================================
 // WORKFLOW DIRECTORY LOADING
 // ============================================================================
@@ -705,6 +718,10 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
 
         context.addMessage("system", `Resuming session ${parsed.sessionId}`);
 
+        // Activate ralph task list panel
+        context.setRalphSessionDir(sessionDir);
+        context.setRalphSessionId(parsed.sessionId);
+
         // Load implement-feature prompt and send it to continue the session
         const implementPrompt = buildImplementFeaturePrompt();
         const additionalPrompt = parsed.prompt ? `\n\nAdditional instructions: ${parsed.prompt}` : "";
@@ -737,15 +754,10 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
 
       // Initialize a workflow session via the SDK
       const sessionId = crypto.randomUUID();
+      const sessionDir = getWorkflowSessionDir(sessionId);
       void initWorkflowSession("ralph", sessionId).then((session) => {
         activeSessions.set(session.sessionId, session);
       });
-
-      // Inform user of the session ID for resume capability
-      context.addMessage(
-        "system",
-        `Session **${sessionId}**\nResume later with: \`/ralph --resume ${sessionId}\``
-      );
 
       context.updateWorkflowState({
         workflowActive: true,
@@ -757,21 +769,28 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
       const step1 = await context.streamAndWait(buildSpecToTasksPrompt(parsed.prompt));
       if (step1.wasInterrupted) return { success: true };
 
-      // Parse tasks from step 1 output
+      // Parse tasks from step 1 output and save to disk (file watcher handles UI)
       const tasks = parseTasks(step1.content);
-      context.setTodoItems(tasks);
       if (tasks.length > 0) {
         await saveTasksToActiveSession(tasks, sessionId);
       }
 
-      // Clear context window between steps
-      await context.clearContext();
+      // Activate ralph task list panel AFTER tasks.json exists on disk
+      context.setRalphSessionDir(sessionDir);
+      context.setRalphSessionId(sessionId);
 
-      // Step 2: Feature implementation (blocks until complete)
-      const step2Prompt = tasks.length > 0
-        ? buildTaskListPreamble(tasks) + buildImplementFeaturePrompt()
-        : buildImplementFeaturePrompt();
-      await context.streamAndWait(step2Prompt);
+      // Worker loop: iterate through tasks one at a time until all are done
+      const maxIterations = tasks.length * 2; // safety limit
+      for (let i = 0; i < maxIterations; i++) {
+        // Read current task state from disk
+        const currentTasks = await readTasksFromDisk(sessionDir);
+        const pending = currentTasks.filter(t => t.status !== "completed");
+        if (pending.length === 0) break;
+
+        const step2Prompt = buildTaskListPreamble(currentTasks) + buildImplementFeaturePrompt();
+        const result = await context.streamAndWait(step2Prompt);
+        if (result.wasInterrupted) break;
+      }
 
       return { success: true };
     },

@@ -135,6 +135,8 @@ function createTestContext(models: Model[]): CommandContext {
     streamAndWait: async () => ({ content: "", wasInterrupted: false }),
     clearContext: async () => {},
     setTodoItems: () => {},
+    setRalphSessionDir: () => {},
+    setRalphSessionId: () => {},
     updateWorkflowState: () => {},
     agentType: undefined,
     modelOps: createTestModelOps(models),

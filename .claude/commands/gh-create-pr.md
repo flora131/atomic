@@ -7,7 +7,7 @@ argument-hint: [code-path]
 
 # Create Pull Request Command
 
-Commit changes using the `/commit` command, push all changes, and submit a pull request.
+Commit changes using the `git commit` command, push all changes, and submit a pull request.
 
 ## Behavior
 - Creates logical commits for unstaged changes

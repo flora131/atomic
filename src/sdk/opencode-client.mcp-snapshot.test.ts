@@ -1,18 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { McpRuntimeSnapshot } from "./types.ts";
-import { OpenCodeClient } from "./opencode-client.ts";
-
-interface OpenCodeSnapshotHarness {
-  sdkClient: unknown;
-  buildOpenCodeMcpSnapshot: () => Promise<McpRuntimeSnapshot | null>;
-}
+import { buildOpenCodeMcpSnapshot } from "./opencode-client.ts";
 
 describe("OpenCode MCP runtime snapshot", () => {
   test("builds snapshot from status, tool ids, and resources", async () => {
-    const client = new OpenCodeClient({ directory: "/tmp/project" });
-    const harness = client as unknown as OpenCodeSnapshotHarness;
-
-    harness.sdkClient = {
+    const mockSdkClient = {
       mcp: {
         status: async () => ({
           data: {
@@ -43,7 +35,7 @@ describe("OpenCode MCP runtime snapshot", () => {
       },
     };
 
-    const snapshot = await harness.buildOpenCodeMcpSnapshot();
+    const snapshot = await buildOpenCodeMcpSnapshot(mockSdkClient, "/tmp/project");
     expect(snapshot).not.toBeNull();
     expect(snapshot?.servers.deepwiki?.authStatus).toBe("Not logged in");
     expect(snapshot?.servers.deepwiki?.tools).toEqual(["mcp__deepwiki__ask_question"]);
@@ -57,10 +49,7 @@ describe("OpenCode MCP runtime snapshot", () => {
   });
 
   test("returns partial snapshot when only one source succeeds", async () => {
-    const client = new OpenCodeClient({ directory: "/tmp/project" });
-    const harness = client as unknown as OpenCodeSnapshotHarness;
-
-    harness.sdkClient = {
+    const mockSdkClient = {
       mcp: {
         status: async () => {
           throw new Error("status unavailable");
@@ -80,16 +69,13 @@ describe("OpenCode MCP runtime snapshot", () => {
       },
     };
 
-    const snapshot = await harness.buildOpenCodeMcpSnapshot();
+    const snapshot = await buildOpenCodeMcpSnapshot(mockSdkClient, "/tmp/project");
     expect(snapshot).not.toBeNull();
     expect(snapshot?.servers.deepwiki?.tools).toEqual(["mcp__deepwiki__ask_question"]);
   });
 
   test("returns null when all sources fail", async () => {
-    const client = new OpenCodeClient({ directory: "/tmp/project" });
-    const harness = client as unknown as OpenCodeSnapshotHarness;
-
-    harness.sdkClient = {
+    const mockSdkClient = {
       mcp: {
         status: async () => {
           throw new Error("status unavailable");
@@ -109,7 +95,7 @@ describe("OpenCode MCP runtime snapshot", () => {
       },
     };
 
-    const snapshot = await harness.buildOpenCodeMcpSnapshot();
+    const snapshot = await buildOpenCodeMcpSnapshot(mockSdkClient, "/tmp/project");
     expect(snapshot).toBeNull();
   });
 });

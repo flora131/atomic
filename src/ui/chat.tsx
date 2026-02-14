@@ -72,9 +72,16 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, dirname, basename } from "node:path";
 import type { AskUserQuestionEventData } from "../graph/index.ts";
 import type { AgentType, ModelOperations } from "../models";
+import type { McpServerConfig } from "../sdk/types.ts";
 import { saveModelPreference, saveReasoningEffortPreference, clearReasoningEffortPreference } from "../utils/settings.ts";
 import { formatDuration } from "./utils/format.ts";
 import { getRandomVerb, getRandomCompletionVerb } from "./constants/index.ts";
+import type { McpServerToggleMap, McpSnapshotView } from "./utils/mcp-output.ts";
+import {
+  getHitlResponseRecord,
+  normalizeHitlAnswer,
+  type HitlResponseRecord,
+} from "./utils/hitl-response.ts";
 
 // ============================================================================
 // @ MENTION HELPERS
@@ -420,6 +427,8 @@ export interface MessageToolCall {
   status: ToolExecutionStatus;
   /** Content offset at the time tool call started (for inline rendering) */
   contentOffsetAtStart?: number;
+  /** Structured HITL response data preserved across late tool.complete events */
+  hitlResponse?: HitlResponseRecord;
 }
 
 export interface MessageSkillLoad {
@@ -471,8 +480,8 @@ export interface ChatMessage {
   agentsContentOffset?: number;
   /** Content offset when task list first appeared (for chronological positioning) */
   tasksContentOffset?: number;
-  /** MCP server list for rendering via McpServerListIndicator */
-  mcpServers?: import("../sdk/types.ts").McpServerConfig[];
+  /** MCP snapshot for rendering Codex-style /mcp output */
+  mcpSnapshot?: McpSnapshotView;
   contextInfo?: import("./commands/registry.ts").ContextDisplayInfo;
   /** Output tokens used in this message (baked on completion) */
   outputTokens?: number;
@@ -538,6 +547,33 @@ export type OnInterrupt = () => void;
  * Called when askUserNode emits a human_input_required signal.
  */
 export type OnAskUserQuestion = (eventData: AskUserQuestionEventData) => void;
+
+/**
+ * Trigger source for a command execution from the TUI.
+ */
+export type CommandExecutionTrigger = "input" | "autocomplete" | "initial_prompt" | "mention";
+
+/**
+ * Telemetry payload for command execution.
+ */
+export interface CommandExecutionTelemetry {
+  commandName: string;
+  commandCategory: CommandCategory | "unknown";
+  argsLength: number;
+  success: boolean;
+  trigger: CommandExecutionTrigger;
+}
+
+/**
+ * Telemetry payload for user message submissions.
+ */
+export interface MessageSubmitTelemetry {
+  messageLength: number;
+  queued: boolean;
+  fromInitialPrompt: boolean;
+  hasFileMentions: boolean;
+  hasAgentMentions: boolean;
+}
 
 /**
  * Props for the ChatApp component.
@@ -638,10 +674,16 @@ export interface ChatAppProps {
   initialPrompt?: string;
   /** Callback when the active model changes (via /model command or model selector) */
   onModelChange?: (model: string) => void;
+  /** Callback to update MCP servers used by the next SDK session */
+  onSessionMcpServersChange?: (servers: McpServerConfig[]) => void;
   /** Raw model ID from session config, used to seed currentModelRef for accurate /context display */
   initialModelId?: string;
   /** Get system tools tokens from the client (pre-session fallback) */
   getClientSystemToolsTokens?: () => number | null;
+  /** Callback for slash command telemetry events */
+  onCommandExecutionTelemetry?: (event: CommandExecutionTelemetry) => void;
+  /** Callback for user message submission telemetry events */
+  onMessageSubmitTelemetry?: (event: MessageSubmitTelemetry) => void;
 }
 
 /**
@@ -1168,10 +1210,7 @@ function CompletedQuestionDisplay({ toolCall }: { toolCall: MessageToolCall }): 
     || questions?.[0]?.question
     || "";
 
-  // Extract user's answer from tool output
-  const outputData = toolCall.output as { answer?: string | null; cancelled?: boolean } | undefined;
-  const cancelled = outputData?.cancelled ?? false;
-  const answerText = outputData?.answer ?? null;
+  const hitlResponse = getHitlResponseRecord(toolCall);
 
   return (
     <box flexDirection="column" marginBottom={1}>
@@ -1192,13 +1231,12 @@ function CompletedQuestionDisplay({ toolCall }: { toolCall: MessageToolCall }): 
       ) : null}
 
       {/* User's answer */}
-      {cancelled ? (
-        <text style={{ fg: themeColors.muted }} wrapMode="word">
-          {PROMPT.cursor} User declined to answer question. Use your best judgement.
-        </text>
-      ) : answerText ? (
-        <text style={{ fg: themeColors.accent }} wrapMode="word">
-          {PROMPT.cursor} {answerText}
+      {hitlResponse ? (
+        <text
+          style={{ fg: hitlResponse.cancelled ? themeColors.muted : themeColors.accent }}
+          wrapMode="word"
+        >
+          {PROMPT.cursor} {hitlResponse.displayText}
         </text>
       ) : null}
     </box>
@@ -1494,10 +1532,10 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
             />
           </box>
         ))}
-        {/* MCP server list indicator */}
-        {message.mcpServers && (
+        {/* MCP snapshot indicator */}
+        {message.mcpSnapshot && (
           <box key="mcp-servers" marginBottom={1}>
-            <McpServerListIndicator servers={message.mcpServers} />
+            <McpServerListIndicator snapshot={message.mcpSnapshot} />
           </box>
         )}
         {message.contextInfo && (
@@ -1679,8 +1717,11 @@ export function ChatApp({
   createSubagentSession,
   initialPrompt,
   onModelChange,
+  onSessionMcpServersChange,
   initialModelId,
   getClientSystemToolsTokens,
+  onCommandExecutionTelemetry,
+  onMessageSubmitTelemetry,
 }: ChatAppProps): React.ReactNode {
   // title and suggestion are deprecated, kept for backwards compatibility
   void _title;
@@ -1749,6 +1790,7 @@ export function ChatApp({
   const [currentModelId, setCurrentModelId] = useState<string | undefined>(undefined);
   // Store the display name separately to match what's shown in the selector dropdown
   const [currentModelDisplayName, setCurrentModelDisplayName] = useState<string | undefined>(undefined);
+  const [mcpServerToggles, setMcpServerToggles] = useState<McpServerToggleMap>({});
 
   // Compute display model name reactively
   // Uses stored display name when available, falls back to initial model prop
@@ -1961,6 +2003,10 @@ export function ChatApp({
     setWorkflowState((prev) => ({ ...prev, ...updates }));
   }, []);
 
+  const emitMessageSubmitTelemetry = useCallback((event: MessageSubmitTelemetry) => {
+    onMessageSubmitTelemetry?.(event);
+  }, [onMessageSubmitTelemetry]);
+
   /**
    * Check if a tool spawns sub-agents (for offset capture).
    */
@@ -2094,10 +2140,31 @@ export function ChatApp({
                   const updatedInput = (input && Object.keys(tc.input).length === 0)
                     ? input
                     : tc.input;
+                  const isHitlTool = tc.toolName === "AskUserQuestion"
+                    || tc.toolName === "question"
+                    || tc.toolName === "ask_user";
+                  let mergedOutput = output !== undefined ? output : tc.output;
+
+                  // Preserve the canonical HITL answer text if tool.complete arrives later.
+                  if (isHitlTool && tc.hitlResponse) {
+                    const outputObject = (
+                      mergedOutput !== null
+                      && typeof mergedOutput === "object"
+                    )
+                      ? mergedOutput as Record<string, unknown>
+                      : {};
+                    mergedOutput = {
+                      ...outputObject,
+                      answer: tc.hitlResponse.answerText,
+                      cancelled: tc.hitlResponse.cancelled,
+                      responseMode: tc.hitlResponse.responseMode,
+                      displayText: tc.hitlResponse.displayText,
+                    };
+                  }
                   return {
                     ...tc,
                     input: updatedInput,
-                    output: output !== undefined ? output : tc.output,
+                    output: mergedOutput,
                     status: success ? "completed" as const : "error" as const,
                   };
                 }
@@ -2568,6 +2635,8 @@ export function ChatApp({
    * - Otherwise, sends the answer through session.send() for standalone agent mode
    */
   const handleQuestionAnswer = useCallback((answer: QuestionAnswer) => {
+    const normalizedHitl = normalizeHitlAnswer(answer);
+
     // Clear active question first
     setActiveQuestion(null);
 
@@ -2618,12 +2687,6 @@ export function ChatApp({
       activeHitlToolCallIdRef.current = null;
       answerStoredOnToolCall = true;
 
-      const answerText = answer.cancelled
-        ? null
-        : Array.isArray(answer.selected)
-          ? answer.selected.join(", ")
-          : answer.selected;
-
       setMessages((prev) =>
         prev.map((msg) => {
           if (!msg.toolCalls?.some(tc => tc.id === hitlToolId)) return msg;
@@ -2633,7 +2696,16 @@ export function ChatApp({
               tc.id === hitlToolId
                 ? {
                     ...tc,
-                    output: { answer: answerText, cancelled: answer.cancelled },
+                    output: {
+                      ...(tc.output && typeof tc.output === "object"
+                        ? tc.output as Record<string, unknown>
+                        : {}),
+                      answer: normalizedHitl.answerText,
+                      cancelled: normalizedHitl.cancelled,
+                      responseMode: normalizedHitl.responseMode,
+                      displayText: normalizedHitl.displayText,
+                    },
+                    hitlResponse: normalizedHitl,
                     contentOffsetAtStart: msg.content.length,
                   }
                 : tc
@@ -2644,10 +2716,12 @@ export function ChatApp({
     }
 
     // Fallback for askUserNode questions (no tool call) — insert as user message
-    if (!answer.cancelled && !answerStoredOnToolCall) {
-      const answerText = Array.isArray(answer.selected)
-        ? answer.selected.join(", ")
-        : answer.selected;
+    if (!answerStoredOnToolCall) {
+      const answerText = answer.cancelled
+        ? normalizedHitl.displayText
+        : Array.isArray(answer.selected)
+          ? answer.selected.join(", ")
+          : answer.selected;
       setMessages((prev) => {
         const streamingIdx = prev.findIndex(m => m.streaming);
         const answerMsg = createMessage("user", answerText);
@@ -2726,7 +2800,7 @@ export function ChatApp({
   const sendMessageRef = useRef<((content: string, options?: { skipUserMessage?: boolean }) => void) | null>(null);
 
   // Ref for executeCommand to allow deferred message handling to spawn agents
-  const executeCommandRef = useRef<((commandName: string, args: string) => Promise<boolean>) | null>(null);
+  const executeCommandRef = useRef<((commandName: string, args: string, trigger?: CommandExecutionTrigger) => Promise<boolean>) | null>(null);
   const dispatchQueuedMessageRef = useRef<(queuedMessage: QueuedMessage) => void>(() => {});
 
   const dispatchQueuedMessage = useCallback((queuedMessage: QueuedMessage) => {
@@ -2750,7 +2824,7 @@ export function ChatApp({
       setMessages((prev: ChatMessage[]) => [...prev, assistantMsg]);
 
       for (const mention of atMentions) {
-        void executeCommandRef.current(mention.agentName, mention.args);
+        void executeCommandRef.current(mention.agentName, mention.args, "mention");
       }
       return;
     }
@@ -2963,7 +3037,8 @@ export function ChatApp({
    */
   const executeCommand = useCallback(async (
     commandName: string,
-    args: string
+    args: string,
+    trigger: CommandExecutionTrigger = "input"
   ): Promise<boolean> => {
     // Clear stale todo items from previous commands
     setTodoItems([]);
@@ -2974,6 +3049,13 @@ export function ChatApp({
     if (!command) {
       // Command not found - show error message
       addMessage("system", `Unknown command: /${commandName}. Type /help for available commands.`);
+      onCommandExecutionTelemetry?.({
+        commandName,
+        commandCategory: "unknown",
+        argsLength: args.length,
+        success: false,
+        trigger,
+      });
       return false;
     }
 
@@ -3258,6 +3340,16 @@ export function ChatApp({
         }
         : undefined,
       getClientSystemToolsTokens,
+      getMcpServerToggles: () => mcpServerToggles,
+      setMcpServerEnabled: (name: string, enabled: boolean) => {
+        setMcpServerToggles((previous) => ({
+          ...previous,
+          [name]: enabled,
+        }));
+      },
+      setSessionMcpServers: (servers: McpServerConfig[]) => {
+        onSessionMcpServersChange?.(servers);
+      },
     };
 
     // Delayed spinner: show loading indicator if command takes >250ms
@@ -3380,20 +3472,20 @@ export function ChatApp({
         });
       }
 
-      // Track MCP server list in message for UI indicator
-      if (result.mcpServers) {
-        const mcpServers = result.mcpServers;
+      // Track MCP snapshot in message for UI indicator
+      if (result.mcpSnapshot) {
+        const mcpSnapshot = result.mcpSnapshot;
         setMessages((prev) => {
           const lastMsg = prev[prev.length - 1];
           if (lastMsg && lastMsg.role === "assistant") {
             return [
               ...prev.slice(0, -1),
-              { ...lastMsg, mcpServers },
+              { ...lastMsg, mcpSnapshot },
             ];
           }
-          // No assistant message yet — create one with MCP servers
+          // No assistant message yet — create one with MCP snapshot
           const msg = createMessage("assistant", "");
-          msg.mcpServers = mcpServers;
+          msg.mcpSnapshot = mcpSnapshot;
           return [...prev, msg];
         });
       }
@@ -3446,12 +3538,15 @@ export function ChatApp({
       clearTimeout(commandSpinnerTimer);
       if (commandSpinnerShown && commandSpinnerMsgId) {
         const msgId = commandSpinnerMsgId;
-        if (result.message && !result.clearMessages) {
-          // Replace spinner message with result content
+        const hasStructuredPayload = Boolean(
+          result.mcpSnapshot || result.contextInfo || result.skillLoaded
+        );
+        if ((result.message || hasStructuredPayload) && !result.clearMessages) {
+          // Preserve the spinner placeholder when command data is attached to it.
           setMessages((prev) =>
             prev.map((msg) =>
               msg.id === msgId
-                ? { ...msg, content: result.message!, streaming: false }
+                ? { ...msg, content: result.message ?? msg.content, streaming: false }
                 : msg
             )
           );
@@ -3463,6 +3558,14 @@ export function ChatApp({
         setIsStreaming(false);
         streamingStartRef.current = null;
       }
+
+      onCommandExecutionTelemetry?.({
+        commandName,
+        commandCategory: command.category,
+        argsLength: args.length,
+        success: result.success,
+        trigger,
+      });
 
       return result.success;
     } catch (error) {
@@ -3478,9 +3581,16 @@ export function ChatApp({
       // Handle execution error (as assistant message, not system)
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
       addMessage("assistant", `Error executing /${commandName}: ${errorMessage}`);
+      onCommandExecutionTelemetry?.({
+        commandName,
+        commandCategory: command.category,
+        argsLength: args.length,
+        success: false,
+        trigger,
+      });
       return false;
     }
-  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model, onModelChange]);
+  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model, onModelChange, onSessionMcpServersChange, onCommandExecutionTelemetry, mcpServerToggles]);
 
   /**
    * Handle autocomplete selection (Tab for complete, Enter for execute).
@@ -3558,7 +3668,7 @@ export function ChatApp({
             argumentHint: "",
           });
           addMessage("user", remaining ? `@${command.name} ${remaining}` : `@${command.name}`);
-          void executeCommand(command.name, remaining);
+          void executeCommand(command.name, remaining, "mention");
         }
       }
     } else {
@@ -3579,7 +3689,7 @@ export function ChatApp({
         textarea.insertText(`/${command.name} `);
       } else {
         addMessage("user", `/${command.name}`);
-        void executeCommand(command.name, "");
+        void executeCommand(command.name, "", "autocomplete");
       }
     }
   }, [updateWorkflowState, executeCommand, addMessage, workflowState.autocompleteMode, workflowState.mentionStartOffset, workflowState.autocompleteInput]);
@@ -3866,6 +3976,15 @@ export function ChatApp({
             const textarea = textareaRef.current;
             const value = textarea?.plainText?.trim() ?? "";
             if (value) {
+              const hasAgentMentions = parseAtMentions(value).length > 0;
+              const hasAnyMentionToken = /@([\w./_-]+)/.test(value);
+              emitMessageSubmitTelemetry({
+                messageLength: value.length,
+                queued: true,
+                fromInitialPrompt: false,
+                hasFileMentions: hasAnyMentionToken && !hasAgentMentions,
+                hasAgentMentions,
+              });
               messageQueue.enqueue(value);
               // Clear textarea
               if (textarea) {
@@ -4351,7 +4470,7 @@ export function ChatApp({
                   ? `@${selectedCommand.name} ${remaining}`
                   : `@${selectedCommand.name}`;
                 addMessage("user", displayText);
-                void executeCommand(selectedCommand.name, remaining);
+                void executeCommand(selectedCommand.name, remaining, "mention");
               } else {
                 // File @ mention: insert completed mention into text
                 const replacement = `@${selectedCommand.name} `;
@@ -4377,7 +4496,7 @@ export function ChatApp({
                 autocompleteMode: "command",
               });
               addMessage("user", `/${selectedCommand.name}`);
-              void executeCommand(selectedCommand.name, "");
+              void executeCommand(selectedCommand.name, "", "autocomplete");
             }
           }
           // Prevent textarea's built-in "return → submit" from firing
@@ -4407,7 +4526,7 @@ export function ChatApp({
           syncInputScrollbar();
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer, resumeSuggestion]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer, resumeSuggestion, emitMessageSubmitTelemetry]
     )
   );
 
@@ -4628,7 +4747,7 @@ export function ChatApp({
         const parsed = parseSlashCommand(initialPrompt);
         if (parsed.isCommand) {
           addMessage("user", initialPrompt);
-          void executeCommand(parsed.name, parsed.args);
+          void executeCommand(parsed.name, parsed.args, "initial_prompt");
           return;
         }
 
@@ -4641,16 +4760,23 @@ export function ChatApp({
           const agentCommand = globalRegistry.get(agentName);
           if (agentCommand && agentCommand.category === "agent") {
             addMessage("user", initialPrompt);
-            void executeCommand(agentName, agentArgs);
+            void executeCommand(agentName, agentArgs, "mention");
             return;
           }
         }
 
-        const { message: processed } = processFileMentions(initialPrompt);
+        const { message: processed, filesRead } = processFileMentions(initialPrompt);
+        emitMessageSubmitTelemetry({
+          messageLength: initialPrompt.length,
+          queued: false,
+          fromInitialPrompt: true,
+          hasFileMentions: filesRead.length > 0,
+          hasAgentMentions: false,
+        });
         sendMessage(processed);
       }, 0);
     }
-  }, [initialPrompt, sendMessage, addMessage, executeCommand]);
+  }, [initialPrompt, sendMessage, addMessage, executeCommand, emitMessageSubmitTelemetry]);
 
   /**
    * Handle message submission from textarea.
@@ -4718,7 +4844,7 @@ export function ChatApp({
         // Add the slash command to conversation history like any regular user message
         addMessage("user", trimmedValue);
         // Execute the slash command (allowed even during streaming)
-        void executeCommand(parsed.name, parsed.args);
+        void executeCommand(parsed.name, parsed.args, "input");
         return;
       }
 
@@ -4740,10 +4866,24 @@ export function ChatApp({
           // @mention invocations queue while streaming so they stay in the
           // same round-robin queue UI as Ctrl+D inputs.
           if (isStreamingRef.current) {
+            emitMessageSubmitTelemetry({
+              messageLength: trimmedValue.length,
+              queued: true,
+              fromInitialPrompt: false,
+              hasFileMentions: false,
+              hasAgentMentions: true,
+            });
             messageQueue.enqueue(trimmedValue);
             return;
           }
 
+          emitMessageSubmitTelemetry({
+            messageLength: trimmedValue.length,
+            queued: false,
+            fromInitialPrompt: false,
+            hasFileMentions: false,
+            hasAgentMentions: true,
+          });
           addMessage("user", trimmedValue);
 
           // Create a streaming assistant message immediately so the parallel
@@ -4764,7 +4904,7 @@ export function ChatApp({
           setMessages((prev) => [...prev, assistantMsg]);
 
           for (const mention of atMentions) {
-            void executeCommand(mention.agentName, mention.args);
+            void executeCommand(mention.agentName, mention.args, "mention");
           }
           return;
         }
@@ -4787,6 +4927,13 @@ export function ChatApp({
             (a) => a.status === "running" || a.status === "pending"
           );
           if (hasActiveSubagents) {
+            emitMessageSubmitTelemetry({
+              messageLength: trimmedValue.length,
+              queued: true,
+              fromInitialPrompt: false,
+              hasFileMentions: true,
+              hasAgentMentions: false,
+            });
             messageQueue.enqueue(processedValue, {
               skipUserMessage: true,
               displayContent: trimmedValue,
@@ -4824,9 +4971,23 @@ export function ChatApp({
           setIsStreaming(false);
           setStreamingMeta(null);
           onInterrupt?.();
+          emitMessageSubmitTelemetry({
+            messageLength: trimmedValue.length,
+            queued: false,
+            fromInitialPrompt: false,
+            hasFileMentions: true,
+            hasAgentMentions: false,
+          });
           sendMessage(processedValue, { skipUserMessage: true });
           return;
         }
+        emitMessageSubmitTelemetry({
+          messageLength: trimmedValue.length,
+          queued: false,
+          fromInitialPrompt: false,
+          hasFileMentions: true,
+          hasAgentMentions: false,
+        });
         sendMessage(processedValue, { skipUserMessage: true });
         return;
       }
@@ -4838,6 +4999,13 @@ export function ChatApp({
           (a) => a.status === "running" || a.status === "pending"
         );
         if (hasActiveSubagents) {
+          emitMessageSubmitTelemetry({
+            messageLength: trimmedValue.length,
+            queued: true,
+            fromInitialPrompt: false,
+            hasFileMentions: false,
+            hasAgentMentions: false,
+          });
           messageQueue.enqueue(processedValue);
           return;
         }
@@ -4876,14 +5044,28 @@ export function ChatApp({
         // Abort the SDK stream (stale handleComplete is a no-op via generation guard)
         onInterrupt?.();
         // Send immediately — starts a new stream generation
+        emitMessageSubmitTelemetry({
+          messageLength: trimmedValue.length,
+          queued: false,
+          fromInitialPrompt: false,
+          hasFileMentions: false,
+          hasAgentMentions: false,
+        });
         sendMessage(processedValue);
         return;
       }
 
       // Send the message (no file mentions - normal flow)
+      emitMessageSubmitTelemetry({
+        messageLength: trimmedValue.length,
+        queued: false,
+        fromInitialPrompt: false,
+        hasFileMentions: false,
+        hasAgentMentions: false,
+      });
       sendMessage(processedValue);
     },
-    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt]
+    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt, emitMessageSubmitTelemetry]
   );
 
   // Get the visible messages and hidden transcript count for UI rendering.

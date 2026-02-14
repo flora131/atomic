@@ -33,6 +33,7 @@ export interface UserQuestion {
 export interface QuestionAnswer {
   selected: string | string[];
   cancelled: boolean;
+  responseMode: "option" | "custom_input" | "chat_about_this" | "declined";
 }
 
 export interface UserQuestionDialogProps {
@@ -138,10 +139,14 @@ export function UserQuestionDialog({
   }, [highlightedIndex, optionRowOffsets, listHeight, isEditingCustom, isChatAboutThis, allOptions]);
 
   // Submit the answer
-  const submitAnswer = useCallback((values: string[]) => {
+  const submitAnswer = useCallback((
+    values: string[],
+    responseMode: "option" | "custom_input" | "chat_about_this" = "option"
+  ) => {
     onAnswer({
       selected: question.multiSelect ? values : values[0] ?? "",
       cancelled: false,
+      responseMode,
     });
   }, [question.multiSelect, onAnswer]);
 
@@ -150,18 +155,23 @@ export function UserQuestionDialog({
     onAnswer({
       selected: question.multiSelect ? [] : "",
       cancelled: true,
+      responseMode: "declined",
     });
   }, [question.multiSelect, onAnswer]);
 
   // Handle custom text submission - read from textarea ref
   const submitCustomText = useCallback(() => {
     const text = textareaRef.current?.plainText ?? "";
-    if (text.trim()) {
-      submitAnswer([text.trim()]);
+    const trimmed = text.trim();
+    if (trimmed || isChatAboutThis) {
+      submitAnswer(
+        [trimmed],
+        isChatAboutThis ? "chat_about_this" : "custom_input"
+      );
     }
     setIsEditingCustom(false);
     setIsChatAboutThis(false);
-  }, [submitAnswer]);
+  }, [submitAnswer, isChatAboutThis]);
 
   useKeyboard(
     useCallback(

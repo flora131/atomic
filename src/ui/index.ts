@@ -10,7 +10,17 @@
 import React from "react";
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { createRoot, type Root } from "@opentui/react";
-import { ChatApp, type OnToolStart, type OnToolComplete, type OnSkillInvoked, type OnPermissionRequest as ChatOnPermissionRequest, type OnInterrupt, type OnAskUserQuestion } from "./chat.tsx";
+import {
+  ChatApp,
+  type OnToolStart,
+  type OnToolComplete,
+  type OnSkillInvoked,
+  type OnPermissionRequest as ChatOnPermissionRequest,
+  type OnInterrupt,
+  type OnAskUserQuestion,
+  type CommandExecutionTelemetry,
+  type MessageSubmitTelemetry,
+} from "./chat.tsx";
 import type { ParallelAgent } from "./components/parallel-agents-tree.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
 import { AppErrorBoundary } from "./components/error-exit-screen.tsx";
@@ -23,6 +33,10 @@ import type {
 } from "../sdk/types.ts";
 import { UnifiedModelOperations } from "../models/model-operations.ts";
 import { parseTaskToolResult } from "./tools/registry.ts";
+import {
+  createTuiTelemetrySessionTracker,
+  type TuiTelemetrySessionTracker,
+} from "../telemetry/index.ts";
 
 /**
  * Build a system prompt section describing all registered capabilities.
@@ -101,6 +115,8 @@ export interface ChatUIConfig {
   agentType?: import("../models").AgentType;
   /** Initial prompt to auto-submit on session start */
   initialPrompt?: string;
+  /** Whether workflow mode was requested for this chat session */
+  workflowEnabled?: boolean;
 }
 
 /**
@@ -179,6 +195,8 @@ interface ChatUIState {
    * Reset when the model produces non-echo text or starts a new tool.
    */
   suppressPostTaskResult: string | null;
+  /** Native TUI telemetry tracker (null when telemetry is disabled or agent type is unknown) */
+  telemetryTracker: TuiTelemetrySessionTracker | null;
 }
 
 /**
@@ -264,6 +282,7 @@ export async function startChatUI(
     suggestion,
     agentType,
     initialPrompt,
+    workflowEnabled = false,
   } = config;
 
   // Create model operations for the agent
@@ -304,6 +323,13 @@ export async function startChatUI(
     parallelAgents: [],
     sessionCreationPromise: null,
     suppressPostTaskResult: null,
+    telemetryTracker: agentType
+      ? createTuiTelemetrySessionTracker({
+        agentType,
+        workflowEnabled,
+        hasInitialPrompt: !!initialPrompt,
+      })
+      : null,
   };
 
   // Create a promise that resolves when the UI exits
@@ -354,10 +380,16 @@ export async function startChatUI(
     }
 
     // Resolve the exit promise
+    const duration = Date.now() - state.startTime;
+    state.telemetryTracker?.end({
+      durationMs: duration,
+      messageCount: state.messageCount,
+    });
+
     const result: ChatUIResult = {
       session: null, // Session already destroyed
       messageCount: state.messageCount,
-      duration: Date.now() - state.startTime,
+      duration,
     };
 
     resolveExit(result);
@@ -432,6 +464,9 @@ export async function startChatUI(
     // Subscribe to tool.start events
     const unsubStart = client.on("tool.start", (event) => {
       const data = event.data as { toolName?: string; toolInput?: unknown; toolUseId?: string; toolUseID?: string };
+      if (data.toolName) {
+        state.telemetryTracker?.trackToolStart(data.toolName);
+      }
       if (state.toolStartHandler && data.toolName) {
         // Resolve SDK-provided tool use ID (OpenCode: toolUseId, Claude: toolUseID)
         const sdkId = data.toolUseId ?? data.toolUseID;
@@ -517,6 +552,9 @@ export async function startChatUI(
     // Subscribe to tool.complete events
     const unsubComplete = client.on("tool.complete", (event) => {
       const data = event.data as { toolName?: string; toolResult?: unknown; success?: boolean; error?: string; toolInput?: Record<string, unknown>; toolUseID?: string; toolCallId?: string; toolUseId?: string };
+      if (data.toolName) {
+        state.telemetryTracker?.trackToolComplete(data.toolName, data.success ?? true);
+      }
       if (state.toolCompleteHandler) {
         // Find the matching tool ID from the stack (FIFO order)
         let toolId: string;
@@ -942,6 +980,7 @@ export async function startChatUI(
         else if (message.type === "tool_use" && message.content && !state.toolEventsViaHooks) {
           const toolContent = message.content as { name?: string; input?: Record<string, unknown>; toolUseId?: string };
           if (state.toolStartHandler && toolContent.name) {
+            state.telemetryTracker?.trackToolStart(toolContent.name);
             // Deduplicate using SDK tool use ID (e.g., Claude's includePartialMessages
             // emits multiple assistant messages for the same tool_use block)
             const sdkId = toolContent.toolUseId ?? (message.metadata as Record<string, unknown> | undefined)?.toolId as string | undefined;
@@ -963,6 +1002,10 @@ export async function startChatUI(
         // Skip if we're getting tool events from hooks to avoid duplicates
         else if (message.type === "tool_result" && !state.toolEventsViaHooks) {
           if (state.toolCompleteHandler) {
+            const toolNameFromMeta = typeof message.metadata?.toolName === "string"
+              ? message.metadata.toolName
+              : "unknown";
+            state.telemetryTracker?.trackToolComplete(toolNameFromMeta, true);
             const toolId = `tool_${state.toolIdCounter}`;
             state.toolCompleteHandler(
               toolId,
@@ -1007,7 +1050,7 @@ export async function startChatUI(
    * Handle interrupt request (from signal or UI).
    * If streaming, abort the stream. If idle, use double-press to exit.
    */
-  function handleInterrupt(): void {
+  function handleInterrupt(sourceType: "ui" | "signal"): void {
     // If streaming, abort the current operation
     if (state.isStreaming && state.streamAbortController) {
       // Skip if already aborted (e.g., keyboard handler already triggered abort
@@ -1018,6 +1061,7 @@ export async function startChatUI(
       state.isStreaming = false;
       state.parallelAgents = [];
       state.streamAbortController.abort();
+      state.telemetryTracker?.trackInterrupt(sourceType);
       // Reset interrupt state
       state.interruptCount = 0;
       if (state.interruptTimeout) {
@@ -1065,7 +1109,7 @@ export async function startChatUI(
   // Set up signal handlers for cleanup
   // Ctrl+C (SIGINT) uses the unified interrupt handler
   const sigintHandler = () => {
-    handleInterrupt();
+    handleInterrupt("signal");
   };
 
   const sigtermHandler = () => {
@@ -1162,7 +1206,7 @@ export async function startChatUI(
      * This is called by ChatApp when user presses interrupt keys.
      */
     const handleInterruptFromUI = () => {
-      handleInterrupt();
+      handleInterrupt("ui");
     };
 
     /**
@@ -1200,6 +1244,24 @@ export async function startChatUI(
       if (sessionConfig) {
         sessionConfig.model = newModel;
       }
+    };
+
+    /**
+     * Update MCP servers for future session creation.
+     * Toggle changes from /mcp apply on the next session reset/reconnect.
+     */
+    const handleSessionMcpServersChange = (servers: SessionConfig["mcpServers"]) => {
+      if (sessionConfig) {
+        sessionConfig.mcpServers = servers;
+      }
+    };
+
+    const handleCommandTelemetry = (event: CommandExecutionTelemetry) => {
+      state.telemetryTracker?.trackCommandExecution(event);
+    };
+
+    const handleMessageTelemetry = (event: MessageSubmitTelemetry) => {
+      state.telemetryTracker?.trackMessageSubmit(event);
     };
 
     state.root.render(
@@ -1241,6 +1303,9 @@ export async function startChatUI(
                 createSubagentSession,
                 initialPrompt,
                 onModelChange: handleModelChange,
+                onSessionMcpServersChange: handleSessionMcpServersChange,
+                onCommandExecutionTelemetry: handleCommandTelemetry,
+                onMessageSubmitTelemetry: handleMessageTelemetry,
               }),
             }
           ),

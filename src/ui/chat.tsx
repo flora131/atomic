@@ -1123,6 +1123,68 @@ export function AtomicHeader({
 }
 
 // ============================================================================
+// COMPLETED QUESTION DISPLAY (HITL history record)
+// ============================================================================
+
+/**
+ * Compact inline display for a completed AskUserQuestion tool call.
+ * Renders in the chat history as a resolved question badge so the
+ * conversation record shows what was asked.
+ */
+function CompletedQuestionDisplay({ toolCall }: { toolCall: MessageToolCall }): React.ReactNode {
+  const themeColors = useThemeColors();
+
+  // Extract question data from the tool input
+  const questions = toolCall.input.questions as Array<{
+    header?: string;
+    question?: string;
+  }> | undefined;
+
+  const header = (toolCall.input.header as string)
+    || questions?.[0]?.header
+    || "Question";
+  const questionText = (toolCall.input.question as string)
+    || questions?.[0]?.question
+    || "";
+
+  // Extract user's answer from tool output
+  const outputData = toolCall.output as { answer?: string | null; cancelled?: boolean } | undefined;
+  const cancelled = outputData?.cancelled ?? false;
+  const answerText = outputData?.answer ?? null;
+
+  return (
+    <box flexDirection="column" marginBottom={1}>
+      {/* Header badge — echoes dialog header style in completed state */}
+      <box>
+        <text>
+          <span style={{ fg: themeColors.border }}>{CONNECTOR.roundedTopLeft}{CONNECTOR.horizontal}</span>
+          <span style={{ fg: themeColors.muted }}> {STATUS.pending} {header} </span>
+          <span style={{ fg: themeColors.border }}>{CONNECTOR.horizontal}{CONNECTOR.roundedTopRight}</span>
+        </text>
+      </box>
+
+      {/* Question text */}
+      {questionText ? (
+        <text style={{ fg: themeColors.foreground, attributes: 1 }} wrapMode="word">
+          {questionText}
+        </text>
+      ) : null}
+
+      {/* User's answer */}
+      {cancelled ? (
+        <text style={{ fg: themeColors.muted }} wrapMode="word">
+          {PROMPT.cursor} User declined to answer question. Use your best judgement.
+        </text>
+      ) : answerText ? (
+        <text style={{ fg: themeColors.accent }} wrapMode="word">
+          {PROMPT.cursor} {answerText}
+        </text>
+      ) : null}
+    </box>
+  );
+}
+
+// ============================================================================
 // MESSAGE BUBBLE COMPONENT
 // ============================================================================
 
@@ -1131,7 +1193,7 @@ export function AtomicHeader({
  * Used for interleaving text content with tool calls at the correct positions.
  */
 interface ContentSegment {
-  type: "text" | "tool" | "agents" | "tasks";
+  type: "text" | "tool" | "hitl" | "agents" | "tasks";
   content?: string;
   toolCall?: MessageToolCall;
   agents?: ParallelAgent[];
@@ -1154,10 +1216,13 @@ function buildContentSegments(
   tasksOffset?: number,
   tasksExpanded?: boolean,
 ): ContentSegment[] {
-  // Filter out HITL tools
-  const visibleToolCalls = toolCalls.filter(tc =>
-    tc.toolName !== "AskUserQuestion" && tc.toolName !== "question" && tc.toolName !== "ask_user"
-  );
+  // Separate HITL tools from regular tools:
+  // - Running/pending HITL tools are hidden (the dialog handles display)
+  // - Completed HITL tools are shown as compact inline question records
+  const isHitlTool = (name: string) =>
+    name === "AskUserQuestion" || name === "question" || name === "ask_user";
+  const visibleToolCalls = toolCalls.filter(tc => !isHitlTool(tc.toolName));
+  const completedHitlCalls = toolCalls.filter(tc => isHitlTool(tc.toolName) && tc.status === "completed");
 
   // Build unified list of insertion points
   interface InsertionPoint {
@@ -1173,6 +1238,15 @@ function buildContentSegments(
     insertions.push({
       offset: tc.contentOffsetAtStart ?? 0,
       segment: { type: "tool", toolCall: tc, key: `tool-${tc.id}` },
+      consumesText: true,
+    });
+  }
+
+  // Add completed HITL question insertions (rendered as compact inline records)
+  for (const tc of completedHitlCalls) {
+    insertions.push({
+      offset: tc.contentOffsetAtStart ?? 0,
+      segment: { type: "hitl", toolCall: tc, key: `hitl-${tc.id}` },
       consumesText: true,
     });
   }
@@ -1453,6 +1527,13 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
                   output={segment.toolCall.output}
                   status={segment.toolCall.status}
                 />
+              </box>
+            );
+          } else if (segment.type === "hitl" && segment.toolCall) {
+            // Completed HITL question — compact inline record in chat history
+            return (
+              <box key={segment.key}>
+                <CompletedQuestionDisplay toolCall={segment.toolCall} />
               </box>
             );
           } else if (segment.type === "agents" && segment.agents) {
@@ -1901,12 +1982,17 @@ export function ChatApp({
               contentOffsetAtStart,
             };
             
+            // Track active HITL tool call for answer storage
+            if (toolName === "AskUserQuestion" || toolName === "question" || toolName === "ask_user") {
+              activeHitlToolCallIdRef.current = toolId;
+            }
+
             // Create updated message with new tool call
             const updatedMsg = {
               ...msg,
               toolCalls: [...(msg.toolCalls || []), newToolCall],
             };
-            
+
             // Capture agents offset on first sub-agent-spawning tool
             if (isSubAgentTool(toolName) && msg.agentsContentOffset === undefined) {
               updatedMsg.agentsContentOffset = msg.content.length;
@@ -1979,7 +2065,7 @@ export function ChatApp({
                   return {
                     ...tc,
                     input: updatedInput,
-                    output,
+                    output: output !== undefined ? output : tc.output,
                     status: success ? "completed" as const : "error" as const,
                   };
                 }
@@ -2267,6 +2353,7 @@ export function ChatApp({
 
   // Store the requestId for askUserNode questions (for workflow resumption)
   const askUserQuestionRequestIdRef = useRef<string | null>(null);
+  const activeHitlToolCallIdRef = useRef<string | null>(null);
 
   /**
    * Handle AskUserQuestion event from askUserNode.
@@ -2564,12 +2651,52 @@ export function ChatApp({
       }
     }
 
-    // Display user's answer in chat so the conversation flow is visible
-    if (!answer.cancelled) {
+    // Store the user's answer on the HITL tool call so it renders inline
+    // in the chat history via CompletedQuestionDisplay.
+    let answerStoredOnToolCall = false;
+    if (activeHitlToolCallIdRef.current) {
+      const hitlToolId = activeHitlToolCallIdRef.current;
+      activeHitlToolCallIdRef.current = null;
+      answerStoredOnToolCall = true;
+
+      const answerText = answer.cancelled
+        ? null
+        : Array.isArray(answer.selected)
+          ? answer.selected.join(", ")
+          : answer.selected;
+
+      setMessages((prev) =>
+        prev.map((msg) => {
+          if (!msg.toolCalls?.some(tc => tc.id === hitlToolId)) return msg;
+          return {
+            ...msg,
+            toolCalls: msg.toolCalls!.map((tc) =>
+              tc.id === hitlToolId
+                ? {
+                    ...tc,
+                    output: { answer: answerText, cancelled: answer.cancelled },
+                    contentOffsetAtStart: msg.content.length,
+                  }
+                : tc
+            ),
+          };
+        })
+      );
+    }
+
+    // Fallback for askUserNode questions (no tool call) — insert as user message
+    if (!answer.cancelled && !answerStoredOnToolCall) {
       const answerText = Array.isArray(answer.selected)
         ? answer.selected.join(", ")
         : answer.selected;
-      setMessages((prev) => [...prev, createMessage("user", answerText)]);
+      setMessages((prev) => {
+        const streamingIdx = prev.findIndex(m => m.streaming);
+        const answerMsg = createMessage("user", answerText);
+        if (streamingIdx >= 0) {
+          return [...prev.slice(0, streamingIdx), answerMsg, ...prev.slice(streamingIdx)];
+        }
+        return [...prev, answerMsg];
+      });
     }
 
     // Update workflow state if this was spec approval
@@ -3613,6 +3740,7 @@ export function ChatApp({
             // Clear any pending ask-user question so dialog dismisses on ESC
             setActiveQuestion(null);
             askUserQuestionRequestIdRef.current = null;
+            activeHitlToolCallIdRef.current = null;
 
             // Cancel active workflow too (if running)
             if (workflowState.workflowActive) {
@@ -3861,6 +3989,7 @@ export function ChatApp({
             // Clear any pending ask-user question so dialog dismisses on ESC
             setActiveQuestion(null);
             askUserQuestionRequestIdRef.current = null;
+            activeHitlToolCallIdRef.current = null;
 
             // Cancel active workflow too (if running)
             if (workflowState.workflowActive) {

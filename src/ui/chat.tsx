@@ -1682,7 +1682,7 @@ export function ChatApp({
     const mentionId = style.registerStyle("mention", {
       fg: RGBA.fromHex(themeColors.accent),
       bold: false,
-      underline: true,
+      underline: false,
     });
     inputSyntaxStyleRef.current = style;
     commandStyleIdRef.current = cmdId;
@@ -2768,17 +2768,8 @@ export function ChatApp({
         });
       }
 
-      // Apply @ mention highlighting
+      // Clear any existing @ mention highlighting
       textarea.removeHighlightsByRef(HLREF_MENTION);
-      const mentionRanges = findMentionRanges(value);
-      for (const [start, end] of mentionRanges) {
-        textarea.addHighlightByCharRange({
-          start: toHighlightOffset(value, start),
-          end: toHighlightOffset(value, end),
-          styleId: mentionStyleIdRef.current,
-          hlRef: HLREF_MENTION,
-        });
-      }
     }
   }, [handleInputChange, syncInputScrollbar]);
 
@@ -4886,7 +4877,7 @@ export function ChatApp({
           streamingMeta={streamingMeta}
         />
       ) : (
-      <>
+      <box flexDirection="column" flexGrow={1}>
       {/* Compaction History - shows expanded compaction summary */}
       {showCompactionHistory && compactionSummary && parallelAgents.length === 0 && (
         <box flexDirection="column" paddingLeft={2} paddingRight={2} marginTop={1} marginBottom={1}>
@@ -5068,7 +5059,7 @@ export function ChatApp({
           expanded={tasksExpanded}
         />
       )}
-      </>
+      </box>
       )}
 
     </box>

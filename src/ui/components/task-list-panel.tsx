@@ -75,7 +75,7 @@ export function TaskListPanel({
   const maxContentLength = Math.max(20, terminalWidth - 13);
 
   return (
-    <box flexDirection="column" paddingLeft={2} paddingRight={2} marginTop={1}>
+    <box flexDirection="column" paddingLeft={2} paddingRight={2} marginTop={1} flexShrink={0}>
       <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.muted} paddingLeft={1} paddingRight={1}>
         <text style={{ fg: themeColors.accent }} attributes={1}>
           {`Task Progress ${MISC.separator} ${completed}/${total} tasks`}

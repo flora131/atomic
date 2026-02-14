@@ -180,6 +180,7 @@ describe("registerBuiltinSkills", () => {
     expect(globalRegistry.has("research-codebase")).toBe(true);
     expect(globalRegistry.has("create-spec")).toBe(true);
     expect(globalRegistry.has("explain-code")).toBe(true);
+    expect(globalRegistry.has("frontend-design")).toBe(true);
   });
 
   test("registers builtin skill aliases", () => {
@@ -188,6 +189,8 @@ describe("registerBuiltinSkills", () => {
     expect(globalRegistry.has("research")).toBe(true); // research-codebase alias
     expect(globalRegistry.has("spec")).toBe(true); // create-spec alias
     expect(globalRegistry.has("explain")).toBe(true); // explain-code alias
+    expect(globalRegistry.has("fd")).toBe(true); // frontend-design alias
+    expect(globalRegistry.has("design")).toBe(true); // frontend-design alias
   });
 
   test("is idempotent", () => {
@@ -565,6 +568,35 @@ describe("BUILTIN_SKILLS", () => {
     expect(explainCode?.prompt).toContain("Go");
     expect(explainCode?.prompt).toContain("Rust");
   });
+
+  test("contains frontend-design skill", () => {
+    const frontendDesign = BUILTIN_SKILLS.find((s) => s.name === "frontend-design");
+    expect(frontendDesign).toBeDefined();
+    expect(frontendDesign?.description).toBe("Create distinctive, production-grade frontend interfaces with high design quality");
+    expect(frontendDesign?.aliases).toContain("fd");
+    expect(frontendDesign?.aliases).toContain("design");
+    expect(frontendDesign?.prompt).toBeDefined();
+    expect(frontendDesign?.prompt.length).toBeGreaterThan(100);
+  });
+
+  test("frontend-design skill has $ARGUMENTS placeholder", () => {
+    const frontendDesign = BUILTIN_SKILLS.find((s) => s.name === "frontend-design");
+    expect(frontendDesign?.prompt).toContain("$ARGUMENTS");
+  });
+
+  test("frontend-design skill includes design guidelines sections", () => {
+    const frontendDesign = BUILTIN_SKILLS.find((s) => s.name === "frontend-design");
+    expect(frontendDesign?.prompt).toContain("Design Thinking");
+    expect(frontendDesign?.prompt).toContain("Frontend Aesthetics Guidelines");
+    expect(frontendDesign?.prompt).toContain("Typography");
+    expect(frontendDesign?.prompt).toContain("Color & Theme");
+    expect(frontendDesign?.prompt).toContain("Motion");
+  });
+
+  test("frontend-design skill does not require arguments", () => {
+    const frontendDesign = BUILTIN_SKILLS.find((s) => s.name === "frontend-design");
+    expect(frontendDesign?.requiredArguments).toBeUndefined();
+  });
 });
 
 describe("getBuiltinSkill", () => {
@@ -636,6 +668,24 @@ describe("getBuiltinSkill", () => {
     const byAlias = getBuiltinSkill("explain");
     expect(byAlias).toBeDefined();
     expect(byAlias?.name).toBe("explain-code");
+  });
+
+  test("finds frontend-design builtin skill by name", () => {
+    const fd = getBuiltinSkill("frontend-design");
+    expect(fd).toBeDefined();
+    expect(fd?.name).toBe("frontend-design");
+  });
+
+  test("finds frontend-design builtin skill by alias 'fd'", () => {
+    const byAlias = getBuiltinSkill("fd");
+    expect(byAlias).toBeDefined();
+    expect(byAlias?.name).toBe("frontend-design");
+  });
+
+  test("finds frontend-design builtin skill by alias 'design'", () => {
+    const byAlias = getBuiltinSkill("design");
+    expect(byAlias).toBeDefined();
+    expect(byAlias?.name).toBe("frontend-design");
   });
 });
 

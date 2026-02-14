@@ -98,7 +98,7 @@ export function TaskListIndicator({
         const icon = TASK_STATUS_ICONS[item.status];
         const isActive = item.status === "in_progress";
         return (
-          <text key={item.id ?? i}>
+          <text key={item.id ?? i} wrapMode="none">
             <span style={{ fg: themeColors.muted }}>{showConnector && i === 0 ? `${CONNECTOR.subStatus}  ` : "   "}</span>
             {isActive ? (
               <AnimatedBlinkIndicator color={color} speed={500} />

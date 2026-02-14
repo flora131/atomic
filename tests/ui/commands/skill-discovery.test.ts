@@ -92,6 +92,10 @@ describe("PINNED_BUILTIN_SKILLS", () => {
     expect(PINNED_BUILTIN_SKILLS.has("testing-anti-patterns")).toBe(true);
   });
 
+  test("does not contain frontend-design", () => {
+    expect(PINNED_BUILTIN_SKILLS.has("frontend-design")).toBe(false);
+  });
+
   test("does not contain regular skills", () => {
     expect(PINNED_BUILTIN_SKILLS.has("commit")).toBe(false);
     expect(PINNED_BUILTIN_SKILLS.has("research-codebase")).toBe(false);

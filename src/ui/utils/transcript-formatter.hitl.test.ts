@@ -30,8 +30,25 @@ describe("formatTranscript HITL rendering", () => {
       isStreaming: false,
     });
 
-    const rendered = lines.map((line) => line.content).join("\n");
-    expect(rendered).toContain('User answered: ""');
-    expect(rendered).not.toContain('{"answer"');
+    // Find the HITL tool lines
+    const toolHeaderLine = lines.find((line) => line.type === "tool-header");
+    const toolContentLines = lines.filter((line) => line.type === "tool-content");
+
+    // Assert tool header exists and contains tool name
+    expect(toolHeaderLine).toBeDefined();
+    expect(toolHeaderLine?.content).toContain("question");
+
+    // Assert tool content includes the question text
+    const questionLine = toolContentLines.find((line) => line.content.includes("Pick one"));
+    expect(questionLine).toBeDefined();
+
+    // Assert tool content includes the canonical HITL response (not raw JSON)
+    const responseLine = toolContentLines.find((line) => line.content.includes('User answered: ""'));
+    expect(responseLine).toBeDefined();
+    expect(responseLine?.indent).toBe(1); // Should be indented
+
+    // Assert raw JSON is NOT present in any line
+    const hasRawJson = lines.some((line) => line.content.includes('{"answer"'));
+    expect(hasRawJson).toBe(false);
   });
 });

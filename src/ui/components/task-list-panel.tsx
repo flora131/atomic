@@ -16,6 +16,7 @@ import { watchTasksJson } from "../commands/workflow-commands.ts";
 import { MISC } from "../constants/icons.ts";
 import { useThemeColors } from "../theme.tsx";
 import { TaskListIndicator, type TaskItem } from "./task-list-indicator.tsx";
+import { sortTasksTopologically } from "./task-order.ts";
 import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 
 // ============================================================================
@@ -51,13 +52,13 @@ export function TaskListPanel({
       try {
         const content = readFileSync(tasksPath, "utf-8");
         const parsed = JSON.parse(content) as TodoItem[];
-        setTasks(parsed.map(toTaskItem));
+        setTasks(sortTasksTopologically(parsed.map(toTaskItem)));
       } catch { /* ignore parse errors */ }
     }
 
     // Start file watcher for live updates
     const cleanup = watchTasksJson(sessionDir, (items) => {
-      setTasks(items.map(toTaskItem));
+      setTasks(sortTasksTopologically(items.map(toTaskItem)));
     });
 
     return cleanup;

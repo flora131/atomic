@@ -63,7 +63,7 @@ export interface SubagentResult {
 // ============================================================================
 
 /** Maximum length of summary text returned to parent context */
-const MAX_SUMMARY_LENGTH = 2000;
+const MAX_SUMMARY_LENGTH = 4000;
 
 // ============================================================================
 // Bridge Configuration

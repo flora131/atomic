@@ -296,7 +296,8 @@ describe("applyStateUpdate", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const result = applyStateUpdate(schema, current, update as any);
     
-    expect(result).toEqual({ defined: 20, extra: 999 });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect(result as any).toEqual({ defined: 20, extra: 999 });
   });
 
   test("preserves current state when update is empty", () => {

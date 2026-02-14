@@ -173,8 +173,12 @@ interface ChatUIState {
   parallelAgents: ParallelAgent[];
   /** Promise lock to prevent concurrent session creation */
   sessionCreationPromise: Promise<void> | null;
-  /** Suppress streaming text after a Task tool completes (SDK echoes raw JSON) */
-  suppressPostTaskText: boolean;
+  /**
+   * Suppress streaming text that is a raw JSON echo of the Task tool result.
+   * When set, holds the result text so suppression is content-aware.
+   * Reset when the model produces non-echo text or starts a new tool.
+   */
+  suppressPostTaskResult: string | null;
 }
 
 /**
@@ -299,7 +303,7 @@ export async function startChatUI(
     parallelAgentHandler: null,
     parallelAgents: [],
     sessionCreationPromise: null,
-    suppressPostTaskText: false,
+    suppressPostTaskResult: null,
   };
 
   // Create a promise that resolves when the UI exits
@@ -393,12 +397,9 @@ export async function startChatUI(
     // Track tool name → stack of tool IDs (for concurrent same-name tools)
     const toolNameToIds = new Map<string, string[]>();
 
-    // Queue of task descriptions from Task tool calls, consumed by subagent.start
-    const pendingTaskPrompts: string[] = [];
-
-    // Queue of internal toolIds for pending Task tool calls, consumed by subagent.start
-    // for FIFO-based correlation (fallback when SDK-level IDs are unavailable)
-    const pendingTaskToolIds: string[] = [];
+    // FIFO queue of pending Task tool calls consumed by subagent.start.
+    // Keeps prompt + internal toolId together to avoid queue skew.
+    const pendingTaskEntries: Array<{ toolId: string; prompt?: string }> = [];
 
     // Maps SDK-level correlation IDs to agent IDs for ID-based result attribution.
     // Populated by subagent.start, consumed by tool.complete for Task tools.
@@ -414,6 +415,19 @@ export async function startChatUI(
     // statuses of the same tool call — this map ensures we reuse the same
     // internal ID and update the existing UI entry instead of creating a duplicate.
     const sdkToolIdMap = new Map<string, string>();
+
+    // Internal cleanup gate for correlation tracking.
+    // Keep completed agents around until late Task tool.complete events are consumed.
+    const tryFinalizeParallelTracking = (): void => {
+      const hasActiveAgents = state.parallelAgents.some(
+        (a) => a.status === "running" || a.status === "pending"
+      );
+      const hasPendingCorrelations =
+        pendingTaskEntries.length > 0 || toolCallToAgentMap.size > 0;
+      if (!hasActiveAgents && !hasPendingCorrelations) {
+        state.parallelAgents = [];
+      }
+    };
 
     // Subscribe to tool.start events
     const unsubStart = client.on("tool.start", (event) => {
@@ -448,18 +462,19 @@ export async function startChatUI(
         }
         toolNameToId.set(data.toolName, toolId);
 
-        // Capture Task tool prompts and toolIds for subagent.start correlation
-        if (data.toolName === "Task" && data.toolInput) {
+        // Capture Task tool prompts and toolIds for subagent.start correlation.
+        // Only queue on first logical start; SDK updates for the same call
+        // must not enqueue duplicates.
+        if ((data.toolName === "Task" || data.toolName === "task") && data.toolInput && !isUpdate) {
           const input = data.toolInput as Record<string, unknown>;
           const prompt = (input.prompt as string) ?? (input.description as string) ?? "";
-          if (prompt) {
-            pendingTaskPrompts.push(prompt);
-          }
-          // Track internal toolId for FIFO-based agent correlation.
-          // When subagent.start fires, the next pending toolId is consumed
-          // and mapped to the agent's subagentId.
-          pendingTaskToolIds.push(toolId);
+          pendingTaskEntries.push({ toolId, prompt: prompt || undefined });
         }
+
+        // Reset post-task text suppression when the model invokes a new tool —
+        // the model has moved past any potential JSON echo of the previous
+        // task result and is generating new output.
+        state.suppressPostTaskResult = null;
 
         // Propagate tool progress to running subagents in the parallel agents tree.
         // SDK events (subagent.start / subagent.complete) don't carry intermediate
@@ -522,6 +537,7 @@ export async function startChatUI(
         if (subagentToolIds.has(toolId)) {
           subagentToolIds.delete(toolId);
           state.activeToolIds.delete(toolId);
+          tryFinalizeParallelTracking();
           return;
         }
 
@@ -533,6 +549,16 @@ export async function startChatUI(
           data.toolInput // Pass input to update if it wasn't available at start
         );
 
+        const isTaskTool = data.toolName === "Task" || data.toolName === "task";
+        if (isTaskTool) {
+          // Task completion consumed this call even if output is empty.
+          // Remove unresolved FIFO entry to avoid stale correlation state.
+          const pendingIdx = pendingTaskEntries.findIndex((entry) => entry.toolId === toolId);
+          if (pendingIdx !== -1) {
+            pendingTaskEntries.splice(pendingIdx, 1);
+          }
+        }
+
         // Propagate Task tool result to the corresponding parallel agent.
         // The subagent.complete event (from SubagentStop / step-finish hooks)
         // doesn't carry the actual output text — only the PostToolUse /
@@ -540,7 +566,7 @@ export async function startChatUI(
         // Use ID-based correlation to attribute results to the correct agent,
         // falling back to reverse heuristic for backward compatibility.
         if (
-          (data.toolName === "Task" || data.toolName === "task") &&
+          isTaskTool &&
           data.toolResult &&
           state.parallelAgentHandler &&
           state.parallelAgents.length > 0
@@ -577,13 +603,16 @@ export async function startChatUI(
             }
           }
 
-          // Mark that a Task tool just completed — the model may echo the
-          // raw tool_response JSON as streaming text which should be suppressed.
-          state.suppressPostTaskText = true;
+          // Store the result text so we can content-match against it.
+          // The SDK model may echo back the raw tool_response JSON as
+          // streaming text — we suppress text that matches the result but
+          // allow the model's real follow-up response through.
+          state.suppressPostTaskResult = resultStr;
         }
 
         // Clean up tracking
         state.activeToolIds.delete(toolId);
+        tryFinalizeParallelTracking();
       }
     });
 
@@ -654,9 +683,11 @@ export async function startChatUI(
       if (!state.isStreaming) return;
 
       if (state.parallelAgentHandler && data.subagentId) {
+        const pendingTaskEntry = pendingTaskEntries.shift();
+
         // Use task from event data, or dequeue a pending Task tool prompt
         const task = data.task
-          || pendingTaskPrompts.shift()
+          || pendingTaskEntry?.prompt
           || data.subagentType
           || "Sub-agent";
         const agentTypeName = data.subagentType ?? "agent";
@@ -680,7 +711,7 @@ export async function startChatUI(
           toolCallToAgentMap.set(sdkCorrelationId, data.subagentId);
         }
         // FIFO fallback: consume pending Task toolId and map it to this agent
-        const fifoToolId = pendingTaskToolIds.shift();
+        const fifoToolId = pendingTaskEntry?.toolId;
         if (fifoToolId) {
           toolCallToAgentMap.set(fifoToolId, data.subagentId);
         }
@@ -720,6 +751,7 @@ export async function startChatUI(
         // still be populated to propagate results. Cleanup is handled by
         // chat.tsx's handleComplete / isAgentOnlyStream effect which properly
         // bakes agents into the final message before clearing.
+        tryFinalizeParallelTracking();
       }
     });
 
@@ -823,8 +855,8 @@ export async function startChatUI(
       const streamToolIdMap = new Map<string, string>();
       let thinkingText = "";
 
-      // Reset the suppress flag at the start of each stream
-      state.suppressPostTaskText = false;
+      // Reset the suppress state at the start of each stream
+      state.suppressPostTaskResult = null;
 
       for await (const message of abortableStream) {
         // Handle text content
@@ -836,10 +868,25 @@ export async function startChatUI(
           }
 
           // After a Task tool completes, the SDK model may echo back the raw
-          // tool_response JSON as streaming text. Suppress this since the
-          // result is already shown in the tool card and parallel agents tree.
-          if (state.suppressPostTaskText) {
-            continue;
+          // tool_response as streaming text. Suppress only text that looks
+          // like the echoed result (starts with JSON delimiters or is a
+          // substring of the stored result). Once non-echo text arrives,
+          // clear the suppression so the model's real response flows through.
+          const cachedResult = state.suppressPostTaskResult;
+          if (cachedResult !== null) {
+            const trimmed = message.content.trim();
+            if (trimmed.length === 0) {
+              // Skip empty/whitespace chunks while suppression is active
+              continue;
+            }
+            const isJsonEcho = trimmed.startsWith("{") || trimmed.startsWith("[");
+            const isResultSubstring = (cachedResult as string).indexOf(trimmed) !== -1;
+            if (isJsonEcho || isResultSubstring) {
+              continue;
+            }
+            // Non-echo text arrived — model is generating real output.
+            // Clear suppression and let this chunk (and all future) through.
+            state.suppressPostTaskResult = null;
           }
 
           if (message.content.length > 0) {
@@ -927,15 +974,6 @@ export async function startChatUI(
       }
 
       state.messageCount++;
-      // Only clear parallel agents if none are still actively running.
-      // When sub-agents outlive the stream, handleComplete in chat.tsx
-      // defers queue processing until they finish.
-      const hasActiveAgents = state.parallelAgents.some(
-        (a) => a.status === "running" || a.status === "pending"
-      );
-      if (!hasActiveAgents) {
-        state.parallelAgents = [];
-      }
       onComplete();
     } catch (error) {
       // Ignore AbortError - this is expected when user interrupts

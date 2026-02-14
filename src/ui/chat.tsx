@@ -32,7 +32,12 @@ import {
   type ParallelAgent,
 } from "./components/parallel-agents-tree.tsx";
 import { TranscriptView } from "./components/transcript-view.tsx";
-import { appendToHistoryBuffer, readHistoryBuffer, clearHistoryBuffer } from "./utils/conversation-history-buffer.ts";
+import {
+  appendCompactionSummary,
+  appendToHistoryBuffer,
+  readHistoryBuffer,
+  clearHistoryBuffer,
+} from "./utils/conversation-history-buffer.ts";
 import {
   SubagentGraphBridge,
   setSubagentBridge,
@@ -54,7 +59,7 @@ import {
   useStreamingState,
   type ToolExecutionStatus,
 } from "./hooks/use-streaming-state.ts";
-import { useMessageQueue } from "./hooks/use-message-queue.ts";
+import { useMessageQueue, type QueuedMessage } from "./hooks/use-message-queue.ts";
 import {
   globalRegistry,
   parseSlashCommand,
@@ -793,11 +798,27 @@ export function formatTimestamp(isoString: string): string {
 
 /**
  * Maximum number of messages to display in the chat UI.
- * Set to Infinity to show all messages (no truncation).
- * The scrollbox handles large message counts efficiently.
- * Messages are only cleared by /clear or /compact commands.
+ * Older messages are evicted from in-memory state and persisted to
+ * the temp-file transcript buffer for Ctrl+O.
  */
 export const MAX_VISIBLE_MESSAGES = 50;
+
+/**
+ * Compute the visible in-memory message window and hidden transcript count.
+ * Hidden count includes both already-trimmed messages and any transient overflow.
+ */
+export function computeMessageWindow(
+  messages: ChatMessage[],
+  trimmedMessageCount: number,
+  maxVisible = MAX_VISIBLE_MESSAGES
+): { visibleMessages: ChatMessage[]; hiddenMessageCount: number } {
+  const inMemoryOverflow = Math.max(0, messages.length - maxVisible);
+  const visibleMessages = inMemoryOverflow > 0 ? messages.slice(-maxVisible) : messages;
+  return {
+    visibleMessages,
+    hiddenMessageCount: trimmedMessageCount + inMemoryOverflow,
+  };
+}
 
 // ============================================================================
 // LOADING INDICATOR COMPONENT
@@ -1667,6 +1688,7 @@ export function ChatApp({
 
   // Core message state
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
+  const [trimmedMessageCount, setTrimmedMessageCount] = useState(0);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingElapsedMs, setStreamingElapsedMs] = useState(0);
   const [streamingMeta, setStreamingMeta] = useState<StreamingMeta | null>(null);
@@ -1836,11 +1858,6 @@ export function ChatApp({
   // Tracks whether the current stream is an @mention-only stream (no SDK onComplete).
   // Prevents the agent-only completion path from firing for SDK-spawned sub-agents.
   const isAgentOnlyStreamRef = useRef(false);
-  // Ref to hold a deferred user interrupt message when sub-agents are still running.
-  // When the last agent finishes, the interrupt fires and the stored message is sent.
-  const pendingInterruptMessageRef = useRef<string | null>(null);
-  // Whether the pending interrupt came from a filesRead (skipUserMessage) flow
-  const pendingInterruptSkipUserRef = useRef(false);
   // Stream generation counter — incremented each time a new stream starts.
   // handleComplete closures capture the generation at creation time and skip
   // if it no longer matches, preventing stale callbacks from corrupting a
@@ -1851,9 +1868,6 @@ export function ChatApp({
   const hasRunningToolRef = useRef(false);
   // Counter to trigger effect when tools complete (used for deferred completion logic)
   const [toolCompletionVersion, setToolCompletionVersion] = useState(0);
-  // Ref to hold user messages that were dequeued and added to chat context
-  // during tool execution. handleComplete checks this before the regular queue.
-  const toolContextMessagesRef = useRef<string[]>([]);
   // Ref for scrollbox to enable programmatic scrolling
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
 
@@ -1879,6 +1893,19 @@ export function ChatApp({
   useEffect(() => {
     todoItemsRef.current = todoItems;
   }, [todoItems]);
+
+  // Keep only the most recent MAX_VISIBLE_MESSAGES in memory for TUI performance.
+  // Evicted messages are persisted to the temp-file transcript buffer for Ctrl+O.
+  useEffect(() => {
+    if (messages.length <= MAX_VISIBLE_MESSAGES) return;
+    const overflowCount = messages.length - MAX_VISIBLE_MESSAGES;
+    const evicted = messages.slice(0, overflowCount);
+    const appendedCount = appendToHistoryBuffer(evicted);
+    if (appendedCount > 0) {
+      setTrimmedMessageCount((prev) => prev + appendedCount);
+    }
+    setMessages(messages.slice(overflowCount));
+  }, [messages]);
 
   // Keep ralph session refs in sync with state
   useEffect(() => {
@@ -2430,83 +2457,12 @@ export function ChatApp({
   // When all sub-agents/tools finish and a dequeue was deferred, trigger it.
   // This fires whenever parallelAgents changes (from SDK events OR interrupt handler)
   // or when tools complete (via toolCompletionVersion).
-  // Also handles deferred user interrupts (Enter during streaming with active sub-agents).
   useEffect(() => {
     const hasActive = parallelAgents.some(
       (a) => a.status === "running" || a.status === "pending"
     );
     // Also check if tools are still running
     if (hasActive || hasRunningToolRef.current) return;
-
-    // Deferred user interrupt takes priority over deferred SDK complete
-    if (pendingInterruptMessageRef.current !== null) {
-      const deferredMessage = pendingInterruptMessageRef.current;
-      const skipUser = pendingInterruptSkipUserRef.current;
-      pendingInterruptMessageRef.current = null;
-      pendingInterruptSkipUserRef.current = false;
-      // Also clear any pending SDK complete since we're interrupting
-      pendingCompleteRef.current = null;
-
-      // Perform the interrupt: finalize current stream and send deferred message
-      const interruptedId = streamingMessageIdRef.current;
-      if (interruptedId) {
-        const durationMs = streamingStartRef.current ? Date.now() - streamingStartRef.current : undefined;
-        const finalMeta = streamingMetaRef.current;
-        setMessages((prev: ChatMessage[]) =>
-          prev.map((msg: ChatMessage) =>
-            msg.id === interruptedId
-              ? {
-                ...msg,
-                streaming: false,
-                durationMs,
-                modelId: currentModelRef.current,
-                outputTokens: finalMeta?.outputTokens,
-                thinkingMs: finalMeta?.thinkingMs,
-                thinkingText: finalMeta?.thinkingText || undefined,
-                toolCalls: msg.toolCalls?.map((tc) =>
-                  tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                ),
-              }
-              : msg
-          )
-        );
-      }
-      streamingMessageIdRef.current = null;
-      streamingStartRef.current = null;
-      streamingMetaRef.current = null;
-      isStreamingRef.current = false;
-      setIsStreaming(false);
-      setStreamingMeta(null);
-      onInterrupt?.();
-
-      // Check for @mentions in deferred message and spawn agents if found
-      const atMentions = parseAtMentions(deferredMessage);
-      if (atMentions.length > 0 && executeCommandRef.current) {
-        if (!skipUser) {
-          setMessages((prev: ChatMessage[]) => [...prev, createMessage("user", deferredMessage)]);
-        }
-
-        const assistantMsg = createMessage("assistant", "", true);
-        streamingMessageIdRef.current = assistantMsg.id;
-        isAgentOnlyStreamRef.current = true;
-        isStreamingRef.current = true;
-        streamingStartRef.current = Date.now();
-        streamingMetaRef.current = null;
-        setIsStreaming(true);
-        setStreamingMeta(null);
-        setMessages((prev: ChatMessage[]) => [...prev, assistantMsg]);
-
-        for (const mention of atMentions) {
-          void executeCommandRef.current(mention.agentName, mention.args);
-        }
-        return;
-      }
-
-      if (sendMessageRef.current) {
-        sendMessageRef.current(deferredMessage, skipUser ? { skipUserMessage: true } : undefined);
-      }
-      return;
-    }
 
     if (pendingCompleteRef.current) {
       const complete = pendingCompleteRef.current;
@@ -2577,13 +2533,11 @@ export function ChatApp({
       const nextMessage = messageQueue.dequeue();
       if (nextMessage) {
         setTimeout(() => {
-          if (sendMessageRef.current) {
-            sendMessageRef.current(nextMessage.content);
-          }
+          dispatchQueuedMessageRef.current(nextMessage);
         }, 50);
       }
     }
-  }, [parallelAgents, model, onInterrupt, messageQueue, toolCompletionVersion]);
+  }, [parallelAgents, messageQueue, toolCompletionVersion]);
 
   // Initialize SubagentGraphBridge when createSubagentSession is available
   useEffect(() => {
@@ -2768,6 +2722,45 @@ export function ChatApp({
 
   // Ref for executeCommand to allow deferred message handling to spawn agents
   const executeCommandRef = useRef<((commandName: string, args: string) => Promise<boolean>) | null>(null);
+  const dispatchQueuedMessageRef = useRef<(queuedMessage: QueuedMessage) => void>(() => {});
+
+  const dispatchQueuedMessage = useCallback((queuedMessage: QueuedMessage) => {
+    const atMentions = parseAtMentions(queuedMessage.content);
+    if (atMentions.length > 0 && executeCommandRef.current) {
+      if (!queuedMessage.skipUserMessage) {
+        const visibleContent = queuedMessage.displayContent ?? queuedMessage.content;
+        setMessages((prev: ChatMessage[]) => [...prev, createMessage("user", visibleContent)]);
+      }
+
+      const assistantMsg = createMessage("assistant", "", true);
+      streamingMessageIdRef.current = assistantMsg.id;
+      isAgentOnlyStreamRef.current = true;
+      isStreamingRef.current = true;
+      streamingStartRef.current = Date.now();
+      streamingMetaRef.current = null;
+      setIsStreaming(true);
+      setStreamingMeta(null);
+      todoItemsRef.current = [];
+      setTodoItems([]);
+      setMessages((prev: ChatMessage[]) => [...prev, assistantMsg]);
+
+      for (const mention of atMentions) {
+        void executeCommandRef.current(mention.agentName, mention.args);
+      }
+      return;
+    }
+
+    if (sendMessageRef.current) {
+      sendMessageRef.current(
+        queuedMessage.content,
+        queuedMessage.skipUserMessage ? { skipUserMessage: true } : undefined
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    dispatchQueuedMessageRef.current = dispatchQueuedMessage;
+  }, [dispatchQueuedMessage]);
 
   /**
    * Handle input changes to detect slash command prefix or @ mentions.
@@ -3100,23 +3093,11 @@ export function ChatApp({
                 return;
               }
 
-              // Check for messages added to chat context during tool execution first
-              const toolCtxMsg = toolContextMessagesRef.current.shift();
-              if (toolCtxMsg) {
+              const nextMessage = messageQueue.dequeue();
+              if (nextMessage) {
                 setTimeout(() => {
-                  if (sendMessageRef.current) {
-                    sendMessageRef.current(toolCtxMsg, { skipUserMessage: true });
-                  }
+                  dispatchQueuedMessageRef.current(nextMessage);
                 }, 50);
-              } else {
-                const nextMessage = messageQueue.dequeue();
-                if (nextMessage) {
-                  setTimeout(() => {
-                    if (sendMessageRef.current) {
-                      sendMessageRef.current(nextMessage.content);
-                    }
-                  }, 50);
-                }
               }
               return;
             }
@@ -3189,23 +3170,11 @@ export function ChatApp({
               return;
             }
 
-            // Check for messages added to chat context during tool execution first
-            const toolCtxMessage = toolContextMessagesRef.current.shift();
-            if (toolCtxMessage) {
+            const nextMessage = messageQueue.dequeue();
+            if (nextMessage) {
               setTimeout(() => {
-                if (sendMessageRef.current) {
-                  sendMessageRef.current(toolCtxMessage, { skipUserMessage: true });
-                }
+                dispatchQueuedMessageRef.current(nextMessage);
               }, 50);
-            } else {
-              const nextMessage = messageQueue.dequeue();
-              if (nextMessage) {
-                setTimeout(() => {
-                  if (sendMessageRef.current) {
-                    sendMessageRef.current(nextMessage.content);
-                  }
-                }, 50);
-              }
             }
           };
 
@@ -3249,6 +3218,7 @@ export function ChatApp({
           appendToHistoryBuffer(prev);
           return [];
         });
+        setTrimmedMessageCount(0);
         setCompactionSummary(null);
         setShowCompactionHistory(false);
         setParallelAgents([]);
@@ -3323,12 +3293,22 @@ export function ChatApp({
         setParallelAgents([]);
         setTranscriptMode(false);
         clearHistoryBuffer();
+        setTrimmedMessageCount(0);
       }
 
       // Handle clearMessages flag — persist history before clearing
       if (result.clearMessages) {
-        appendToHistoryBuffer(messages);
+        const shouldResetHistory = result.destroySession || Boolean(result.compactionSummary);
+        if (shouldResetHistory) {
+          clearHistoryBuffer();
+          if (result.compactionSummary) {
+            appendCompactionSummary(result.compactionSummary);
+          }
+        } else {
+          appendToHistoryBuffer(messages);
+        }
         setMessages([]);
+        setTrimmedMessageCount(0);
       }
 
       // Store compaction summary if present (from /compact command)
@@ -3873,23 +3853,12 @@ export function ChatApp({
         }
 
         // Ctrl+D - enqueue message (round-robin) during streaming
-        // When a tool call is executing, dequeue immediately and add the
-        // user prompt to the chat context so it's visible while waiting.
         if (event.ctrl && event.name === "d") {
           if (isStreamingRef.current) {
             const textarea = textareaRef.current;
             const value = textarea?.plainText?.trim() ?? "";
             if (value) {
-              if (hasRunningToolRef.current) {
-                // Tool is running — add user message to chat context immediately
-                // and store for sending when the stream completes.
-                const userMsg = createMessage("user", value);
-                setMessages((prev) => [...prev, userMsg]);
-                toolContextMessagesRef.current.push(value);
-              } else {
-                // No tool running — enqueue for later (existing behavior)
-                messageQueue.enqueue(value);
-              }
+              messageQueue.enqueue(value);
               // Clear textarea
               if (textarea) {
                 textarea.gotoBufferHome();
@@ -3981,8 +3950,6 @@ export function ChatApp({
             isStreamingRef.current = false;
             setIsStreaming(false);
             hasRunningToolRef.current = false;
-            // Discard any tool-context messages on interrupt — they won't be sent
-            toolContextMessagesRef.current = [];
 
             // Sub-agent cancellation handled by SDK session interrupt
 
@@ -4547,19 +4514,11 @@ export function ChatApp({
             setStreamingMeta(null);
             hasRunningToolRef.current = false;
 
-            // Check for messages added to chat context during tool execution first
-            const toolCtxMsg = toolContextMessagesRef.current.shift();
-            if (toolCtxMsg) {
+            const nextMessage = messageQueue.dequeue();
+            if (nextMessage) {
               setTimeout(() => {
-                sendMessage(toolCtxMsg, { skipUserMessage: true });
+                dispatchQueuedMessageRef.current(nextMessage);
               }, 50);
-            } else {
-              const nextMessage = messageQueue.dequeue();
-              if (nextMessage) {
-                setTimeout(() => {
-                  sendMessage(nextMessage.content);
-                }, 50);
-              }
             }
             return;
           }
@@ -4618,19 +4577,11 @@ export function ChatApp({
           setIsStreaming(false);
           setStreamingMeta(null);
           hasRunningToolRef.current = false;
-          // Check for messages added to chat context during tool execution first
-          const toolCtxMessage = toolContextMessagesRef.current.shift();
-          if (toolCtxMessage) {
+          const nextMessage = messageQueue.dequeue();
+          if (nextMessage) {
             setTimeout(() => {
-              sendMessage(toolCtxMessage, { skipUserMessage: true });
+              dispatchQueuedMessageRef.current(nextMessage);
             }, 50);
-          } else {
-            const nextMessage = messageQueue.dequeue();
-            if (nextMessage) {
-              setTimeout(() => {
-                sendMessage(nextMessage.content);
-              }, 50);
-            }
           }
         };
 
@@ -4778,19 +4729,11 @@ export function ChatApp({
         const atMentions = parseAtMentions(trimmedValue);
 
         if (atMentions.length > 0) {
-          // If sub-agents or streaming are already active, defer this
-          // @mention until they finish (same queuing behaviour as regular
-          // messages — active runs are always prioritised).
+          // @mention invocations queue while streaming so they stay in the
+          // same round-robin queue UI as Ctrl+D inputs.
           if (isStreamingRef.current) {
-            const hasActiveSubagents = parallelAgentsRef.current.some(
-              (a) => a.status === "running" || a.status === "pending"
-            );
-            if (hasActiveSubagents) {
-              addMessage("user", trimmedValue);
-              pendingInterruptMessageRef.current = trimmedValue;
-              pendingInterruptSkipUserRef.current = true;
-              return;
-            }
+            messageQueue.enqueue(trimmedValue);
+            return;
           }
 
           addMessage("user", trimmedValue);
@@ -4836,8 +4779,10 @@ export function ChatApp({
             (a) => a.status === "running" || a.status === "pending"
           );
           if (hasActiveSubagents) {
-            pendingInterruptMessageRef.current = processedValue;
-            pendingInterruptSkipUserRef.current = true;
+            messageQueue.enqueue(processedValue, {
+              skipUserMessage: true,
+              displayContent: trimmedValue,
+            });
             return;
           }
           // No sub-agents — interrupt and inject immediately
@@ -4885,8 +4830,7 @@ export function ChatApp({
           (a) => a.status === "running" || a.status === "pending"
         );
         if (hasActiveSubagents) {
-          pendingInterruptMessageRef.current = processedValue;
-          pendingInterruptSkipUserRef.current = false;
+          messageQueue.enqueue(processedValue);
           return;
         }
 
@@ -4934,14 +4878,11 @@ export function ChatApp({
     [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt]
   );
 
-  // Get the visible messages (limit to MAX_VISIBLE_MESSAGES for performance)
-  // Show the most recent messages, truncating older ones
-  const visibleMessages = messages.length > MAX_VISIBLE_MESSAGES
-    ? messages.slice(-MAX_VISIBLE_MESSAGES)
-    : messages;
-
-  // Show truncation indicator if there are hidden messages
-  const hiddenMessageCount = messages.length - visibleMessages.length;
+  // Get the visible messages and hidden transcript count for UI rendering.
+  const { visibleMessages, hiddenMessageCount } = computeMessageWindow(
+    messages,
+    trimmedMessageCount
+  );
 
   // Render message list (no empty state text)
   const messageContent = messages.length > 0 ? (
@@ -4950,7 +4891,7 @@ export function ChatApp({
       {hiddenMessageCount > 0 && (
         <box marginBottom={1} paddingLeft={1}>
           <text style={{ fg: themeColors.muted }}>
-            ↑ {hiddenMessageCount} earlier message{hiddenMessageCount !== 1 ? "s" : ""} hidden
+            ↑ {hiddenMessageCount} earlier message{hiddenMessageCount !== 1 ? "s" : ""} in transcript (ctrl+o)
           </text>
         </box>
       )}

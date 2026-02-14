@@ -36,6 +36,7 @@ import {
   type HookInput,
   type HookJSONOutput,
   type McpSdkServerConfigWithInstance,
+  type McpServerStatus,
 } from "@anthropic-ai/claude-agent-sdk";
 import type {
   CodingAgentClient,
@@ -43,6 +44,8 @@ import type {
   SessionConfig,
   AgentMessage,
   ContextUsage,
+  McpAuthStatus,
+  McpRuntimeSnapshot,
   EventType,
   EventHandler,
   AgentEvent,
@@ -167,6 +170,13 @@ function extractMessageContent(message: SDKAssistantMessage): {
   }
 
   return { type: "text", content: "" };
+}
+
+function mapAuthStatusFromMcpServerStatus(status: McpServerStatus["status"]): McpAuthStatus | undefined {
+  if (status === "needs-auth") {
+    return "Not logged in";
+  }
+  return undefined;
 }
 
 /**
@@ -418,6 +428,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
           prompt: message,
           options,
         });
+        state.query = newQuery;
 
         // Consume all messages and return the final assistant message
         let lastAssistantMessage: AgentMessage | null = null;
@@ -480,6 +491,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
               prompt: message,
               options,
             });
+            state.query = newQuery;
 
             // Track if we've yielded streaming deltas to avoid duplicating content
             let hasYieldedDeltas = false;
@@ -625,6 +637,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
           prompt: "/compact",
           options,
         });
+        state.query = newQuery;
 
         // Consume all messages to complete the compaction
         for await (const sdkMessage of newQuery) {
@@ -651,6 +664,46 @@ export class ClaudeAgentClient implements CodingAgentClient {
           throw new Error("System tools baseline unavailable: no query has completed. Send a message first.");
         }
         return state.systemToolsBaseline;
+      },
+
+      getMcpSnapshot: async (): Promise<McpRuntimeSnapshot | null> => {
+        if (state.isClosed) {
+          return null;
+        }
+
+        let statusQuery: Query | null = null;
+        let shouldClose = false;
+
+        try {
+          if (state.sdkSessionId) {
+            const options = this.buildSdkOptions(config, sessionId);
+            options.resume = state.sdkSessionId;
+            options.maxTurns = 0;
+            statusQuery = query({ prompt: "", options });
+            shouldClose = true;
+          } else if (state.query) {
+            statusQuery = state.query;
+          } else {
+            return null;
+          }
+
+          const statusList = await statusQuery.mcpServerStatus();
+          const servers: McpRuntimeSnapshot["servers"] = {};
+          for (const status of statusList) {
+            const authStatus = mapAuthStatusFromMcpServerStatus(status.status);
+            servers[status.name] = {
+              ...(authStatus ? { authStatus } : {}),
+              tools: status.tools?.map((tool) => tool.name).filter((name) => name.length > 0) ?? [],
+            };
+          }
+          return { servers };
+        } catch {
+          return null;
+        } finally {
+          if (shouldClose) {
+            statusQuery?.close();
+          }
+        }
       },
 
       destroy: async (): Promise<void> => {

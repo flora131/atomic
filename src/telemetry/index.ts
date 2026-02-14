@@ -15,6 +15,14 @@ export type {
   AtomicCommandEvent,
   CliCommandEvent,
   AgentSessionEvent,
+  TuiSessionStartEvent,
+  TuiSessionEndEvent,
+  TuiMessageSubmitEvent,
+  TuiCommandExecutionEvent,
+  TuiToolLifecycleEvent,
+  TuiInterruptEvent,
+  TuiCommandCategory,
+  TuiCommandTrigger,
   TelemetryEvent,
 } from "./types";
 
@@ -33,10 +41,18 @@ export {
 // CLI telemetry tracking
 export {
   trackAtomicCommand,
-  trackCliInvocation,
-  extractCommandsFromArgs,
   getEventsFilePath,
 } from "./telemetry-cli";
+
+// Native TUI telemetry tracking
+export {
+  createTuiTelemetrySessionTracker,
+  TuiTelemetrySessionTracker,
+  type CreateTuiTelemetrySessionOptions,
+  type TrackTuiMessageSubmitOptions,
+  type TrackTuiCommandExecutionOptions,
+  type TuiSessionSummary,
+} from "./telemetry-tui";
 
 // Session telemetry tracking (for agent hooks)
 export {
@@ -61,3 +77,11 @@ export {
   TELEMETRY_UPLOAD_CONFIG,
   type UploadResult,
 } from "./telemetry-upload";
+
+// Graph workflow telemetry integration
+export {
+  trackWorkflowExecution,
+  type WorkflowTracker,
+  type WorkflowTelemetryConfig,
+  type WorkflowTelemetryEvent,
+} from "./graph-integration";

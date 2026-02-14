@@ -21,7 +21,7 @@ import {
   getBinaryInstallDir,
 } from "../utils/config-path";
 import { isWindows } from "../utils/detect";
-import { trackAtomicCommand } from "../utils/telemetry";
+import { trackAtomicCommand } from "../telemetry";
 
 /** Options for the uninstall command */
 export interface UninstallOptions {

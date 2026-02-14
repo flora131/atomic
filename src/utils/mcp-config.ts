@@ -141,7 +141,7 @@ const BUILTIN_MCP_SERVERS: McpServerConfig[] = [
  * Discovery order (lowest to highest priority):
  * 1. Built-in defaults (deepwiki with ask_question only)
  * 2. User-level configs (~/.claude/.mcp.json, ~/.copilot/mcp-config.json, ~/.github/mcp-config.json)
- * 3. Project-level configs (.copilot/mcp-config.json, .github/mcp-config.json, opencode.json, opencode.jsonc, .opencode/opencode.json)
+ * 3. Project-level configs (.mcp.json, .copilot/mcp-config.json, .github/mcp-config.json, opencode.json, opencode.jsonc, .opencode/opencode.json)
  *
  * @param cwd - Project root directory (defaults to process.cwd())
  * @returns Deduplicated array of McpServerConfig
@@ -161,6 +161,7 @@ export function discoverMcpConfigs(cwd?: string): McpServerConfig[] {
   sources.push(...parseCopilotMcpConfig(join(homeDir, ".github", "mcp-config.json")));
 
   // Project-level configs (higher priority — override user-level)
+  sources.push(...parseClaudeMcpConfig(join(projectRoot, ".mcp.json")));
   sources.push(...parseCopilotMcpConfig(join(projectRoot, ".copilot", "mcp-config.json")));
   sources.push(...parseCopilotMcpConfig(join(projectRoot, ".github", "mcp-config.json")));
   sources.push(...parseOpenCodeMcpConfig(join(projectRoot, "opencode.json")));

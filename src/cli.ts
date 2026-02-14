@@ -26,8 +26,6 @@ import { updateCommand } from "./commands/update";
 import { uninstallCommand } from "./commands/uninstall";
 import { chatCommand } from "./commands/chat";
 import { cleanupWindowsLeftoverFiles } from "./utils/cleanup";
-import { isTelemetryEnabledSync } from "./utils/telemetry";
-import { handleTelemetryUpload } from "./utils/telemetry/telemetry-upload";
 
 /**
  * Create and configure the main CLI program

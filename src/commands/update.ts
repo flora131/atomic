@@ -27,7 +27,7 @@ import {
   getDownloadUrl,
   getChecksumsUrl,
 } from "../utils/download";
-import { trackAtomicCommand } from "../utils/telemetry";
+import { trackAtomicCommand } from "../telemetry";
 
 /**
  * Compare two semver version strings.

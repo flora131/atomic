@@ -8,7 +8,7 @@
  */
 
 import { log } from "@clack/prompts";
-import { setTelemetryEnabled } from "../utils/telemetry";
+import { setTelemetryEnabled } from "../telemetry";
 
 /**
  * Execute the config command

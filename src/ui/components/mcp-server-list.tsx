@@ -1,27 +1,19 @@
 /**
  * McpServerListIndicator Component
  *
- * Renders a colored list of discovered MCP servers with status indicators.
- * Uses theme colors for green (enabled) and red (disabled) indicators.
- *
- * Layout:
- *   ● MCP Servers
- *     ● deepwiki (stdio) — npx
- *     ○ disabled-server (http) — https://example.com
- *   Use /mcp enable <name> or /mcp disable <name> to toggle.
+ * Renders Codex-style /mcp output in the assistant transcript.
  */
 
 import React from "react";
 import { useTheme } from "../theme.tsx";
-import { STATUS } from "../constants/icons.ts";
-import type { McpServerConfig } from "../../sdk/types.ts";
+import type { McpSnapshotView } from "../utils/mcp-output.ts";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 export interface McpServerListIndicatorProps {
-  servers: McpServerConfig[];
+  snapshot: McpSnapshotView;
 }
 
 // ============================================================================
@@ -29,52 +21,96 @@ export interface McpServerListIndicatorProps {
 // ============================================================================
 
 export function McpServerListIndicator({
-  servers,
+  snapshot,
 }: McpServerListIndicatorProps): React.ReactNode {
   const { theme } = useTheme();
   const colors = theme.colors;
 
-  if (servers.length === 0) {
-    return (
-      <box flexDirection="column">
-        <text style={{ fg: colors.muted }}>
-          No MCP servers found.
-        </text>
-        <text style={{ fg: colors.muted }}>
-          {"\n"}Add servers via .mcp.json, .copilot/mcp-config.json, .github/mcp-config.json, or .opencode/opencode.json.
-        </text>
-      </box>
-    );
-  }
+  const formatResources = (items: Array<{ label: string; uri: string }>): string =>
+    items.map((item) => `${item.label} (${item.uri})`).join(", ");
+
+  const formatTemplates = (items: Array<{ label: string; uriTemplate: string }>): string =>
+    items.map((item) => `${item.label} (${item.uriTemplate})`).join(", ");
 
   return (
     <box flexDirection="column">
-      <text style={{ fg: colors.foreground, attributes: 1 }}>MCP Servers</text>
+      <text style={{ fg: colors.foreground, attributes: 1 }}>{snapshot.heading}</text>
       <text>{""}</text>
-      {servers.map((server) => {
-        const isEnabled = server.enabled !== false;
-        const statusColor = isEnabled ? colors.success : colors.error;
-        const statusIcon = isEnabled ? STATUS.active : STATUS.pending;
-        const statusLabel = isEnabled ? "enabled" : "disabled";
-        const transport = server.type ?? (server.url ? "http" : "stdio");
-        const target = server.url ?? server.command ?? "—";
+
+      {!snapshot.hasConfiguredServers && (
+        <box flexDirection="column">
+          <text style={{ fg: colors.muted }}>{`  • No MCP servers configured.`}</text>
+          <text style={{ fg: colors.muted }}>{`    ${snapshot.docsHint}`}</text>
+        </box>
+      )}
+
+      {snapshot.hasConfiguredServers && snapshot.noToolsAvailable && (
+        <box flexDirection="column">
+          <text style={{ fg: colors.muted }}>{`  • No MCP tools available.`}</text>
+          <text>{""}</text>
+        </box>
+      )}
+
+      {snapshot.servers.map((server) => {
+        if (!server.enabled) {
+          return (
+            <box key={server.name} flexDirection="column" marginBottom={1}>
+              <box flexDirection="row">
+                <text style={{ fg: colors.foreground }}>{`  • ${server.name} `}</text>
+                <text style={{ fg: colors.error }}>(disabled)</text>
+              </box>
+              {server.disabledReason && (
+                <text style={{ fg: colors.muted }}>{`    • Reason: ${server.disabledReason}`}</text>
+              )}
+            </box>
+          );
+        }
 
         return (
-          <box key={server.name} flexDirection="column" marginBottom={0}>
+          <box key={server.name} flexDirection="column" marginBottom={1}>
+            <text style={{ fg: colors.foreground }}>{`  • ${server.name}`}</text>
             <box flexDirection="row">
-              <text style={{ fg: statusColor }}>{`  ${statusIcon} `}</text>
-              <text style={{ fg: colors.foreground, attributes: 1 }}>{server.name}</text>
-              <text style={{ fg: colors.muted }}>{` (${transport}) `}</text>
-              <text style={{ fg: statusColor }}>{statusLabel}</text>
+              <text style={{ fg: colors.foreground }}>{`    • Status: `}</text>
+              <text style={{ fg: colors.success }}>enabled</text>
             </box>
-            <text style={{ fg: colors.muted }}>{`    ${target}`}</text>
+            <text style={{ fg: colors.foreground }}>{`    • Auth: ${server.authStatus}`}</text>
+
+            {server.transport.kind === "stdio" && (
+              <box flexDirection="column">
+                <text style={{ fg: colors.foreground }}>{`    • Command: ${server.transport.commandLine ?? "(none)"}`}</text>
+                {server.transport.cwd && (
+                  <text style={{ fg: colors.foreground }}>{`    • Cwd: ${server.transport.cwd}`}</text>
+                )}
+                {server.transport.env && server.transport.env !== "-" && (
+                  <text style={{ fg: colors.foreground }}>{`    • Env: ${server.transport.env}`}</text>
+                )}
+              </box>
+            )}
+
+            {(server.transport.kind === "http" || server.transport.kind === "sse") && (
+              <box flexDirection="column">
+                <text style={{ fg: colors.foreground }}>{`    • URL: ${server.transport.url ?? "(none)"}`}</text>
+                {server.transport.httpHeaders && server.transport.httpHeaders !== "-" && (
+                  <text style={{ fg: colors.foreground }}>{`    • HTTP headers: ${server.transport.httpHeaders}`}</text>
+                )}
+                {server.transport.envHttpHeaders && server.transport.envHttpHeaders !== "-" && (
+                  <text style={{ fg: colors.foreground }}>{`    • Env HTTP headers: ${server.transport.envHttpHeaders}`}</text>
+                )}
+              </box>
+            )}
+
+            <text style={{ fg: colors.foreground }}>
+              {`    • Tools: ${server.tools.length === 1 && server.tools[0] === "*" ? "(all)" : server.tools.length > 0 ? server.tools.join(", ") : "(none)"}`}
+            </text>
+            <text style={{ fg: colors.foreground }}>
+              {`    • Resources: ${server.resources.length > 0 ? formatResources(server.resources) : "(none)"}`}
+            </text>
+            <text style={{ fg: colors.foreground }}>
+              {`    • Resource templates: ${server.resourceTemplates.length > 0 ? formatTemplates(server.resourceTemplates) : "(none)"}`}
+            </text>
           </box>
         );
       })}
-      <text>{""}</text>
-      <text style={{ fg: colors.muted }}>
-        Use /mcp enable {"<name>"} or /mcp disable {"<name>"} to toggle.
-      </text>
     </box>
   );
 }

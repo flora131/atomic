@@ -16,13 +16,10 @@ import { logs, SeverityNumber } from "@opentelemetry/api-logs";
 import { useAzureMonitor, shutdownAzureMonitor } from "@azure/monitor-opentelemetry";
 import { getEventsFilePath } from "./telemetry-cli";
 import { isTelemetryEnabledSync } from "./telemetry";
-import { getBinaryDataDir } from "../config-path";
+import { getBinaryDataDir } from "../utils/config-path";
 import { handleTelemetryError } from "./telemetry-errors";
 import type {
   TelemetryEvent,
-  AtomicCommandEvent,
-  CliCommandEvent,
-  AgentSessionEvent,
 } from "./types";
 
 /**
@@ -238,11 +235,6 @@ function emitEventsToAppInsights(events: TelemetryEvent[]): void {
   const logger = logs.getLogger("atomic-telemetry");
 
   for (const event of events) {
-    // Type-safe attribute extraction
-    const atomicCommandEvent = event as AtomicCommandEvent;
-    const cliOrSessionEvent = event as CliCommandEvent | AgentSessionEvent;
-    const sessionEvent = event as AgentSessionEvent;
-
     // Build attributes object, excluding null values for type safety
     const attributes: Record<string, string | number | boolean> = {
       // Required attribute for App Insights custom event routing
@@ -256,24 +248,61 @@ function emitEventsToAppInsights(events: TelemetryEvent[]): void {
       source: event.source,
     };
 
-    // Add event-specific fields if present
-    if (atomicCommandEvent.command !== undefined) {
-      attributes.command = atomicCommandEvent.command;
-    }
-    if (cliOrSessionEvent.commands !== undefined) {
-      attributes.commands = cliOrSessionEvent.commands.join(",");
-    }
-    if (cliOrSessionEvent.commandCount !== undefined) {
-      attributes.command_count = cliOrSessionEvent.commandCount;
-    }
-    if (event.agentType !== undefined && event.agentType !== null) {
+    if ("agentType" in event && event.agentType !== undefined && event.agentType !== null) {
       attributes.agent_type = event.agentType;
     }
-    if (atomicCommandEvent.success !== undefined) {
-      attributes.success = atomicCommandEvent.success;
+    if ("sessionId" in event && typeof event.sessionId === "string") {
+      attributes.session_id = event.sessionId;
     }
-    if (sessionEvent.sessionId !== undefined) {
-      attributes.session_id = sessionEvent.sessionId;
+
+    switch (event.eventType) {
+      case "atomic_command":
+        attributes.command = event.command;
+        attributes.success = event.success;
+        break;
+      case "cli_command":
+        attributes.commands = event.commands.join(",");
+        attributes.command_count = event.commandCount;
+        break;
+      case "agent_session":
+        attributes.commands = event.commands.join(",");
+        attributes.command_count = event.commandCount;
+        break;
+      case "tui_session_start":
+        attributes.workflow_enabled = event.workflowEnabled;
+        attributes.has_initial_prompt = event.hasInitialPrompt;
+        break;
+      case "tui_session_end":
+        attributes.duration_ms = event.durationMs;
+        attributes.message_count = event.messageCount;
+        attributes.command_count = event.commandCount;
+        attributes.tool_call_count = event.toolCallCount;
+        attributes.interrupt_count = event.interruptCount;
+        break;
+      case "tui_message_submit":
+        attributes.message_length = event.messageLength;
+        attributes.queued = event.queued;
+        attributes.from_initial_prompt = event.fromInitialPrompt;
+        attributes.has_file_mentions = event.hasFileMentions;
+        attributes.has_agent_mentions = event.hasAgentMentions;
+        break;
+      case "tui_command_execution":
+        attributes.command_name = event.commandName;
+        attributes.command_category = event.commandCategory;
+        attributes.args_length = event.argsLength;
+        attributes.success = event.success;
+        attributes.trigger = event.trigger;
+        break;
+      case "tui_tool_lifecycle":
+        attributes.tool_name = event.toolName;
+        attributes.phase = event.phase;
+        if (event.success !== undefined) {
+          attributes.success = event.success;
+        }
+        break;
+      case "tui_interrupt":
+        attributes.interrupt_source = event.sourceType;
+        break;
     }
 
     logger.emit({

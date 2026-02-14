@@ -14,7 +14,7 @@ import {
   log,
 } from "@clack/prompts";
 import { join } from "path";
-import { mkdir, readdir } from "fs/promises";
+import { mkdir, readdir, rm } from "fs/promises";
 
 import {
   AGENT_CONFIG,
@@ -31,7 +31,7 @@ import { copyFile, pathExists, isFileEmpty } from "../utils/copy";
 import { getConfigRoot } from "../utils/config-path";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL, getOppositeScriptExtension } from "../utils/detect";
 import { mergeJsonFile } from "../utils/merge";
-import { trackAtomicCommand, handleTelemetryConsent, type AgentType } from "../utils/telemetry";
+import { trackAtomicCommand, handleTelemetryConsent, type AgentType } from "../telemetry";
 import { saveAtomicConfig } from "../utils/atomic-config";
 
 interface InitOptions {
@@ -46,19 +46,13 @@ interface InitOptions {
   yes?: boolean;
 }
 
+const SCM_PREFIX_BY_TYPE: Record<SourceControlType, "gh-" | "sl-"> = {
+  github: "gh-",
+  "sapling-phabricator": "sl-",
+};
 
-
-/**
- * Get the appropriate SCM template directory based on OS and SCM selection.
- *
- * For Sapling on Windows, uses the windows-specific variant that includes
- * full paths to avoid the PowerShell `sl` alias conflict.
- */
-function getScmTemplatePath(scmType: SourceControlType): string {
-  if (scmType === "sapling-phabricator" && isWindows()) {
-    return "sapling-phabricator-windows";
-  }
-  return scmType;
+function getScmPrefix(scmType: SourceControlType): "gh-" | "sl-" {
+  return SCM_PREFIX_BY_TYPE[scmType];
 }
 
 /**
@@ -82,60 +76,55 @@ function getCommandsSubfolder(agentKey: AgentKey): string {
   }
 }
 
-interface CopyScmCommandsOptions {
+function isManagedScmEntry(name: string): boolean {
+  return name.startsWith("gh-") || name.startsWith("sl-");
+}
+
+interface ReconcileScmVariantsOptions {
   scmType: SourceControlType;
-  agentKey: AgentKey;
   agentFolder: string;
+  commandsSubfolder: string;
   targetDir: string;
   configRoot: string;
 }
 
 /**
- * Copy SCM-specific command files to the target directory.
+ * Keep only selected SCM variants (gh-* or sl-*) for managed entries.
  *
- * This copies the appropriate commit/PR commands based on the selected SCM type.
+ * User-defined or unmanaged entries are preserved.
  */
-async function copyScmCommands(options: CopyScmCommandsOptions): Promise<void> {
-  const { scmType, agentKey, agentFolder, targetDir, configRoot } = options;
-
-  const scmTemplatePath = getScmTemplatePath(scmType);
-  const commandsSubfolder = getCommandsSubfolder(agentKey);
-
-  // Source: templates/scm/<scm-type>/<agent-folder>/<commands-subfolder>/
-  const srcDir = join(
-    configRoot,
-    "templates",
-    "scm",
-    scmTemplatePath,
-    agentFolder,
-    commandsSubfolder
-  );
-
-  // Destination: <target>/<agent-folder>/<commands-subfolder>/
+export async function reconcileScmVariants(options: ReconcileScmVariantsOptions): Promise<void> {
+  const { scmType, agentFolder, commandsSubfolder, targetDir, configRoot } = options;
+  const selectedPrefix = getScmPrefix(scmType);
+  const srcDir = join(configRoot, agentFolder, commandsSubfolder);
   const destDir = join(targetDir, agentFolder, commandsSubfolder);
 
-  // Check if source directory exists
   if (!(await pathExists(srcDir))) {
     if (process.env.DEBUG === "1") {
-      console.log(`[DEBUG] SCM template not found: ${srcDir}`);
+      console.log(`[DEBUG] SCM source directory not found: ${srcDir}`);
     }
     return;
   }
 
-  // Ensure destination directory exists
-  await mkdir(destDir, { recursive: true });
+  if (!(await pathExists(destDir))) return;
 
-  // Copy all files from SCM template
-  const entries = await readdir(srcDir, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = join(srcDir, entry.name);
-    const destPath = join(destDir, entry.name);
+  const sourceEntries = await readdir(srcDir, { withFileTypes: true });
+  const managedEntries = new Set(
+    sourceEntries
+      .filter((entry) => isManagedScmEntry(entry.name))
+      .map((entry) => entry.name)
+  );
+  if (managedEntries.size === 0) return;
 
-    if (entry.isDirectory()) {
-      // For Copilot skills, we need to copy the skill directories
-      await copyDirPreserving(srcPath, destPath);
-    } else {
-      await copyFile(srcPath, destPath);
+  const targetEntries = await readdir(destDir, { withFileTypes: true });
+  for (const entry of targetEntries) {
+    if (!managedEntries.has(entry.name)) continue;
+    if (entry.name.startsWith(selectedPrefix)) continue;
+
+    const entryPath = join(destDir, entry.name);
+    await rm(entryPath, { recursive: true, force: true });
+    if (process.env.DEBUG === "1") {
+      console.log(`[DEBUG] Removed SCM variant not selected (${scmType}): ${entryPath}`);
     }
   }
 }
@@ -370,11 +359,11 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       exclude: agent.exclude,
     });
 
-    // Copy SCM-specific command files
-    await copyScmCommands({
+    // Keep SCM-specific managed command/skill variants aligned with selected SCM
+    await reconcileScmVariants({
       scmType,
-      agentKey,
       agentFolder: agent.folder,
+      commandsSubfolder: getCommandsSubfolder(agentKey),
       targetDir,
       configRoot,
     });

@@ -30,7 +30,7 @@ export function parseClaudeMcpConfig(filePath: string): McpServerConfig[] {
       url: cfg.url as string | undefined,
       headers: cfg.headers as Record<string, string> | undefined,
       tools: Array.isArray(cfg.tools) ? (cfg.tools as string[]) : undefined,
-      enabled: true,
+      enabled: cfg.enabled !== false,
     }));
   } catch {
     return [];
@@ -61,7 +61,7 @@ export function parseCopilotMcpConfig(filePath: string): McpServerConfig[] {
         cwd: cfg.cwd as string | undefined,
         timeout: cfg.timeout as number | undefined,
         tools: Array.isArray(cfg.tools) ? (cfg.tools as string[]) : undefined,
-        enabled: true,
+        enabled: cfg.enabled !== false,
       };
     });
   } catch {
@@ -136,44 +136,81 @@ const BUILTIN_MCP_SERVERS: McpServerConfig[] = [
 
 /**
  * Discover and load MCP server configs from all known config file locations.
- * Deduplicates by server name — later sources override earlier ones.
  *
- * Discovery order (lowest to highest priority):
- * 1. Built-in defaults (deepwiki with ask_question only)
- * 2. User-level configs (~/.claude/.mcp.json, ~/.copilot/mcp-config.json, ~/.github/mcp-config.json)
- * 3. Project-level configs (.mcp.json, .copilot/mcp-config.json, .github/mcp-config.json, opencode.json, opencode.jsonc, .opencode/opencode.json)
+ * Configs from different ecosystems (Claude, Copilot, OpenCode) are independent:
+ * within the same ecosystem, later sources (project-level) override earlier ones
+ * (user-level), but configs from one ecosystem never override another's.
+ * Builtins can be overridden by any ecosystem.
+ *
+ * Discovery order per ecosystem:
+ * 1. Built-in defaults (overridable by any ecosystem)
+ * 2. Claude: ~/.claude/.mcp.json → .mcp.json
+ * 3. Copilot: ~/.copilot/mcp-config.json → .github/mcp-config.json, mcp-config.json
+ * 4. OpenCode: opencode.json, opencode.jsonc, .opencode/opencode.json
  *
  * @param cwd - Project root directory (defaults to process.cwd())
  * @returns Deduplicated array of McpServerConfig
  */
-export function discoverMcpConfigs(cwd?: string): McpServerConfig[] {
+export interface DiscoverMcpConfigsOptions {
+  includeDisabled?: boolean;
+}
+
+type ConfigEcosystem = "builtin" | "claude" | "copilot" | "opencode";
+
+interface TaggedSource {
+  config: McpServerConfig;
+  ecosystem: ConfigEcosystem;
+}
+
+export function discoverMcpConfigs(cwd?: string, options: DiscoverMcpConfigsOptions = {}): McpServerConfig[] {
   const projectRoot = cwd ?? process.cwd();
   const homeDir = process.env.HOME ?? process.env.USERPROFILE ?? "";
 
-  const sources: McpServerConfig[] = [];
+  const sources: TaggedSource[] = [];
 
-  // Built-in defaults (lowest priority)
-  sources.push(...BUILTIN_MCP_SERVERS);
-
-  // User-level configs
-  sources.push(...parseClaudeMcpConfig(join(homeDir, ".claude", ".mcp.json")));
-  sources.push(...parseCopilotMcpConfig(join(homeDir, ".copilot", "mcp-config.json")));
-  sources.push(...parseCopilotMcpConfig(join(homeDir, ".github", "mcp-config.json")));
-
-  // Project-level configs (higher priority — override user-level)
-  sources.push(...parseClaudeMcpConfig(join(projectRoot, ".mcp.json")));
-  sources.push(...parseCopilotMcpConfig(join(projectRoot, ".copilot", "mcp-config.json")));
-  sources.push(...parseCopilotMcpConfig(join(projectRoot, ".github", "mcp-config.json")));
-  sources.push(...parseOpenCodeMcpConfig(join(projectRoot, "opencode.json")));
-  sources.push(...parseOpenCodeMcpConfig(join(projectRoot, "opencode.jsonc")));
-  sources.push(...parseOpenCodeMcpConfig(join(projectRoot, ".opencode", "opencode.json")));
-
-  // Deduplicate by name (last wins)
-  const byName = new Map<string, McpServerConfig>();
-  for (const server of sources) {
-    byName.set(server.name, server);
+  function addSources(configs: McpServerConfig[], ecosystem: ConfigEcosystem): void {
+    for (const config of configs) {
+      sources.push({ config, ecosystem });
+    }
   }
 
-  // Filter out disabled servers
-  return Array.from(byName.values()).filter(s => s.enabled !== false);
+  // Built-in defaults (overridable by any ecosystem)
+  addSources(BUILTIN_MCP_SERVERS, "builtin");
+
+  // User-level configs (lowest priority within each ecosystem)
+  addSources(parseClaudeMcpConfig(join(homeDir, ".claude", ".mcp.json")), "claude");
+  addSources(parseCopilotMcpConfig(join(homeDir, ".copilot", "mcp-config.json")), "copilot");
+
+  // Project-level configs (override user-level within the same ecosystem)
+  addSources(parseClaudeMcpConfig(join(projectRoot, ".mcp.json")), "claude");
+  addSources(parseCopilotMcpConfig(join(projectRoot, ".github", "mcp-config.json")), "copilot");
+  addSources(parseCopilotMcpConfig(join(projectRoot, "mcp-config.json")), "copilot");
+  addSources(parseOpenCodeMcpConfig(join(projectRoot, "opencode.json")), "opencode");
+  addSources(parseOpenCodeMcpConfig(join(projectRoot, "opencode.jsonc")), "opencode");
+  addSources(parseOpenCodeMcpConfig(join(projectRoot, ".opencode", "opencode.json")), "opencode");
+
+  // Deduplicate by name with ecosystem isolation.
+  // A source can override the existing entry only if:
+  // - the existing entry is from "builtin", OR
+  // - the source is from the same ecosystem
+  const byName = new Map<string, TaggedSource>();
+  for (const entry of sources) {
+    const existing = byName.get(entry.config.name);
+    if (!existing || existing.ecosystem === "builtin" || existing.ecosystem === entry.ecosystem) {
+      byName.set(entry.config.name, entry);
+    }
+    // else: different non-builtin ecosystem already owns this name — skip
+  }
+
+  // Apply default: missing tools means all tools are available.
+  const allServers = Array.from(byName.values()).map((s) => ({
+    ...s.config,
+    tools: s.config.tools ?? ["*"],
+  }));
+  if (options.includeDisabled) {
+    return allServers;
+  }
+
+  // Default behavior: only return enabled servers.
+  return allServers.filter(s => s.enabled !== false);
 }

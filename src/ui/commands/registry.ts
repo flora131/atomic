@@ -104,6 +104,14 @@ export interface CommandContext {
    */
   setTodoItems: (items: TodoItem[]) => void;
   /**
+   * Set the ralph workflow session directory for the persistent task list panel.
+   */
+  setRalphSessionDir: (dir: string | null) => void;
+  /**
+   * Set the ralph workflow session ID for the persistent task list panel.
+   */
+  setRalphSessionId: (id: string | null) => void;
+  /**
    * Update workflow state from a command handler.
    */
   updateWorkflowState: (update: Partial<CommandContextState>) => void;

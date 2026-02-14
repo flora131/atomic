@@ -9,6 +9,7 @@ import type { ChatMessage, StreamingMeta } from "../chat.tsx";
 import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
 import { formatDuration } from "../components/parallel-agents-tree.tsx";
 import { truncateText, formatTimestamp as formatTimestampFull } from "./format.ts";
+import { getHitlResponseRecord } from "./hitl-response.ts";
 import { STATUS, TREE, CONNECTOR, PROMPT, SPINNER_FRAMES, SPINNER_COMPLETE, SEPARATOR, MISC } from "../constants/icons.ts";
 
 // ============================================================================
@@ -134,6 +135,34 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
       // Tool calls
       if (msg.toolCalls && msg.toolCalls.length > 0) {
         for (const tc of msg.toolCalls) {
+          const isHitlTool = tc.toolName === "AskUserQuestion"
+            || tc.toolName === "question"
+            || tc.toolName === "ask_user";
+          if (isHitlTool) {
+            const statusIcon = tc.status === "completed"
+              ? STATUS.active
+              : tc.status === "running"
+                ? STATUS.active
+                : tc.status === "error"
+                  ? STATUS.error
+                  : STATUS.pending;
+            lines.push(line("tool-header", `${statusIcon} ${tc.toolName}`));
+
+            const questions = tc.input.questions as Array<{ question?: string }> | undefined;
+            const questionText = (tc.input.question as string)
+              || questions?.[0]?.question
+              || "";
+            if (questionText) {
+              lines.push(line("tool-content", `  ${questionText}`, 1));
+            }
+
+            const hitlResponse = getHitlResponseRecord(tc);
+            if (hitlResponse) {
+              lines.push(line("tool-content", `  ${PROMPT.cursor} ${hitlResponse.displayText}`, 1));
+            }
+            continue;
+          }
+
           const statusIcon = tc.status === "completed" ? STATUS.active : tc.status === "running" ? STATUS.active : tc.status === "error" ? STATUS.error : STATUS.pending;
           const toolTitle = formatToolTitle(tc.toolName, tc.input);
           lines.push(line("tool-header", `${statusIcon} ${tc.toolName} ${toolTitle}`));

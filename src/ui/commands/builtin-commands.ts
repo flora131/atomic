@@ -19,6 +19,11 @@ import { globalRegistry } from "./registry.ts";
 import { saveModelPreference, clearReasoningEffortPreference } from "../../utils/settings.ts";
 import { discoverMcpConfigs } from "../../utils/mcp-config.ts";
 import { BACKGROUND_COMPACTION_THRESHOLD } from "../../graph/types.ts";
+import {
+  buildMcpSnapshotView,
+  getActiveMcpServers,
+  type McpServerToggleMap,
+} from "../utils/mcp-output.ts";
 
 
 // ============================================================================
@@ -422,37 +427,64 @@ export const mcpCommand: CommandDefinition = {
   description: "View and toggle MCP servers",
   category: "builtin",
   argumentHint: "[enable|disable <server>]",
-  execute: (args: string, _context: CommandContext): CommandResult => {
-    const servers = discoverMcpConfigs();
-    const trimmed = args.trim().toLowerCase();
+  execute: async (args: string, context: CommandContext): Promise<CommandResult> => {
+    const servers = discoverMcpConfigs(undefined, { includeDisabled: true });
+    const toggles = context.getMcpServerToggles?.() ?? {};
+    const trimmed = args.trim();
+    const normalized = trimmed.toLowerCase();
+
+    let runtimeSnapshot = null;
+    if (context.session?.getMcpSnapshot) {
+      try {
+        runtimeSnapshot = await context.session.getMcpSnapshot();
+      } catch {
+        runtimeSnapshot = null;
+      }
+    }
 
     // No args: list servers (rendered via McpServerListIndicator component)
-    if (!trimmed) {
+    if (!normalized) {
       return {
         success: true,
-        mcpServers: servers,
+        mcpSnapshot: buildMcpSnapshotView({
+          servers,
+          toggles,
+          runtimeSnapshot,
+        }),
       };
     }
 
     // enable/disable subcommands
-    const parts = trimmed.split(/\s+/);
+    const parts = normalized.split(/\s+/);
     const subcommand = parts[0];
-    const serverName = parts.slice(1).join(" ");
+    const serverName = trimmed.split(/\s+/).slice(1).join(" ");
 
     if ((subcommand === "enable" || subcommand === "disable") && serverName) {
-      const found = servers.find(s => s.name.toLowerCase() === serverName.toLowerCase());
+      const found = servers.find((server) => server.name.toLowerCase() === serverName.toLowerCase());
       if (!found) {
         return {
           success: false,
           message: `MCP server '${serverName}' not found. Run /mcp to see available servers.`,
         };
       }
+
+      const enabled = subcommand === "enable";
+      const nextToggles: McpServerToggleMap = {
+        ...toggles,
+        [found.name]: enabled,
+      };
+
+      context.setMcpServerEnabled?.(found.name, enabled);
+      context.setSessionMcpServers?.(getActiveMcpServers(servers, nextToggles));
+
       return {
         success: true,
-        message: `MCP server '${found.name}' ${subcommand}d for this session.`,
-        stateUpdate: {
-          mcpToggle: { name: found.name, enabled: subcommand === "enable" },
-        } as unknown as CommandResult["stateUpdate"],
+        message: `MCP server '${found.name}' ${enabled ? "enabled" : "disabled"} for this session. Changes apply to the next session.`,
+        mcpSnapshot: buildMcpSnapshotView({
+          servers,
+          toggles: nextToggles,
+          runtimeSnapshot,
+        }),
       };
     }
 

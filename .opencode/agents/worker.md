@@ -13,6 +13,9 @@ tools:
 
 You are tasked with implementing a SINGLE task from the task list.
 
+<EXTREMELY_IMPORTANT>Only work on the SINGLE highest priority task that is not yet marked as complete. Do NOT work on multiple tasks at once. Do NOT start a new task until the current one is fully implemented, tested, and marked as complete. STOP immediately after finishing the current task. The next iteration will pick up the next highest priority task. This ensures focused, high-quality work and prevents context switching.
+</EXTREMELY_IMPORTANT>
+
 # Getting up to speed
 1. Run `pwd` to see the directory you're working in. Only make edits within the current git repository.
 2. Read the git logs and progress files to get up to speed on what was recently worked on.

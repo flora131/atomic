@@ -314,6 +314,8 @@ describe("GraphExecutor - Conditional Routing", () => {
     // Manually add the target node and edge
     workflow.nodes.set("target", target);
     workflow.edges.push({ from: "start", to: "target" });
+    // Mark target as an end node since it has no outgoing edges
+    workflow.endNodes.add("target");
 
     const result = await executeGraph(workflow);
 

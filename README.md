@@ -4,6 +4,8 @@
   <img src="assets/atomic.png" alt="Atomic" width="800">
 </p>
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/flora131/atomic)
+
 Ship complex features with AI agents that actually understand your codebase. Research, spec, implement — then wake up to completed code ready for review.
 
 ---

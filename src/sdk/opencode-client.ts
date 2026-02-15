@@ -942,7 +942,7 @@ export class OpenCodeClient implements CodingAgentClient {
   }
 
   private async buildOpenCodeMcpSnapshot(): Promise<McpRuntimeSnapshot | null> {
-    if (!this.sdkClient) {
+    if (!this.sdkClient || !this.clientOptions.directory) {
       return null;
     }
     return buildOpenCodeMcpSnapshot(this.sdkClient, this.clientOptions.directory);

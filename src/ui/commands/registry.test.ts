@@ -248,7 +248,7 @@ describe("CommandRegistry", () => {
 
       const results = registry.search("h");
       expect(results.length).toBe(1);
-      expect(results[0].name).toBe("help");
+      expect(results[0]!.name).toBe("help");
     });
 
     test("excludes hidden commands from search results", () => {
@@ -269,7 +269,7 @@ describe("CommandRegistry", () => {
 
       const results = registry.search("h");
       expect(results.length).toBe(1);
-      expect(results[0].name).toBe("help");
+      expect(results[0]!.name).toBe("help");
     });
 
     test("returns empty array when no matches found", () => {
@@ -294,7 +294,7 @@ describe("CommandRegistry", () => {
 
       const results = registry.search("hel");
       expect(results.length).toBe(1);
-      expect(results[0].name).toBe("Help");
+      expect(results[0]!.name).toBe("Help");
     });
 
     test("sorts results with exact matches first", () => {
@@ -313,8 +313,8 @@ describe("CommandRegistry", () => {
       });
 
       const results = registry.search("test");
-      expect(results[0].name).toBe("test");
-      expect(results[1].name).toBe("testing");
+      expect(results[0]!.name).toBe("test");
+      expect(results[1]!.name).toBe("testing");
     });
 
     test("avoids duplicate results when alias matches", () => {
@@ -328,7 +328,7 @@ describe("CommandRegistry", () => {
 
       const results = registry.search("h");
       expect(results.length).toBe(1);
-      expect(results[0].name).toBe("help");
+      expect(results[0]!.name).toBe("help");
     });
   });
 
@@ -532,9 +532,9 @@ describe("CommandRegistry", () => {
       const results = registry.search("test");
       
       // Workflow should be first, then skill, then builtin
-      expect(results[0].category).toBe("workflow");
-      expect(results[1].category).toBe("skill");
-      expect(results[2].category).toBe("builtin");
+      expect(results[0]!.category).toBe("workflow");
+      expect(results[1]!.category).toBe("skill");
+      expect(results[2]!.category).toBe("builtin");
     });
 
     test("sorts alphabetically within same category", () => {
@@ -553,8 +553,8 @@ describe("CommandRegistry", () => {
       });
 
       const results = registry.search("");
-      expect(results[0].name).toBe("apple");
-      expect(results[1].name).toBe("zebra");
+      expect(results[0]!.name).toBe("apple");
+      expect(results[1]!.name).toBe("zebra");
     });
   });
 });

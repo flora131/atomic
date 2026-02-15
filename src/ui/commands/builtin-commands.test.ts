@@ -92,45 +92,45 @@ describe("Built-in Commands", () => {
   });
 
   describe("themeCommand", () => {
-    test("switches to dark theme when specified", () => {
+    test("switches to dark theme when specified", async () => {
       const context = createMockContext();
-      const result = themeCommand.execute("dark", context);
+      const result = await themeCommand.execute("dark", context);
 
       expect(result.success).toBe(true);
       expect(result.themeChange).toBe("dark");
       expect(result.message).toContain("dark");
     });
 
-    test("switches to light theme when specified", () => {
+    test("switches to light theme when specified", async () => {
       const context = createMockContext();
-      const result = themeCommand.execute("light", context);
+      const result = await themeCommand.execute("light", context);
 
       expect(result.success).toBe(true);
       expect(result.themeChange).toBe("light");
       expect(result.message).toContain("light");
     });
 
-    test("toggles theme when no argument provided", () => {
+    test("toggles theme when no argument provided", async () => {
       const context = createMockContext();
-      const result = themeCommand.execute("", context);
+      const result = await themeCommand.execute("", context);
 
       expect(result.success).toBe(true);
       expect(result.themeChange).toBe("toggle");
       expect(result.message).toContain("toggled");
     });
 
-    test("returns error for invalid theme", () => {
+    test("returns error for invalid theme", async () => {
       const context = createMockContext();
-      const result = themeCommand.execute("invalid", context);
+      const result = await themeCommand.execute("invalid", context);
 
       expect(result.success).toBe(false);
       expect(result.message).toContain("Unknown theme");
     });
 
-    test("handles case-insensitive theme names", () => {
+    test("handles case-insensitive theme names", async () => {
       const context = createMockContext();
-      const resultDark = themeCommand.execute("DARK", context);
-      const resultLight = themeCommand.execute("Light", context);
+      const resultDark = await themeCommand.execute("DARK", context);
+      const resultLight = await themeCommand.execute("Light", context);
 
       expect(resultDark.success).toBe(true);
       expect(resultDark.themeChange).toBe("dark");
@@ -138,9 +138,9 @@ describe("Built-in Commands", () => {
       expect(resultLight.themeChange).toBe("light");
     });
 
-    test("trims whitespace from arguments", () => {
+    test("trims whitespace from arguments", async () => {
       const context = createMockContext();
-      const result = themeCommand.execute("  dark  ", context);
+      const result = await themeCommand.execute("  dark  ", context);
 
       expect(result.success).toBe(true);
       expect(result.themeChange).toBe("dark");
@@ -148,9 +148,9 @@ describe("Built-in Commands", () => {
   });
 
   describe("clearCommand", () => {
-    test("clears messages and destroys session", () => {
+    test("clears messages and destroys session", async () => {
       const context = createMockContext();
-      const result = clearCommand.execute("", context);
+      const result = await clearCommand.execute("", context);
 
       expect(result.success).toBe(true);
       expect(result.clearMessages).toBe(true);
@@ -159,9 +159,9 @@ describe("Built-in Commands", () => {
   });
 
   describe("exitCommand", () => {
-    test("signals exit with goodbye message", () => {
+    test("signals exit with goodbye message", async () => {
       const context = createMockContext();
-      const result = exitCommand.execute("", context);
+      const result = await exitCommand.execute("", context);
 
       expect(result.success).toBe(true);
       expect(result.shouldExit).toBe(true);
@@ -460,7 +460,7 @@ describe("Built-in Commands", () => {
   });
 
   describe("groupByProvider", () => {
-    test("groups models by provider ID", () => {
+    test("groups models by provider ID", async () => {
       const models = [
         { providerID: "anthropic", modelID: "model1", name: "Model 1" },
         { providerID: "anthropic", modelID: "model2", name: "Model 2" },
@@ -474,14 +474,14 @@ describe("Built-in Commands", () => {
       expect(grouped.get("openai")?.length).toBe(1);
     });
 
-    test("handles empty model list", () => {
+    test("handles empty model list", async () => {
       const grouped = groupByProvider([]);
       expect(grouped.size).toBe(0);
     });
   });
 
   describe("formatGroupedModels", () => {
-    test("formats models with provider headers", () => {
+    test("formats models with provider headers", async () => {
       const grouped = new Map([
         ["anthropic", [
           { providerID: "anthropic", modelID: "model1", name: "Model 1" },
@@ -500,7 +500,7 @@ describe("Built-in Commands", () => {
       expect(lines.join("\n")).toContain("model2");
     });
 
-    test("includes status annotations for non-active models", () => {
+    test("includes status annotations for non-active models", async () => {
       const grouped = new Map([
         ["anthropic", [
           { providerID: "anthropic", modelID: "model1", name: "Model 1", status: "beta" },
@@ -511,7 +511,7 @@ describe("Built-in Commands", () => {
       expect(lines.join("\n")).toContain("beta");
     });
 
-    test("includes context limit annotations", () => {
+    test("includes context limit annotations", async () => {
       const grouped = new Map([
         ["anthropic", [
           { providerID: "anthropic", modelID: "model1", name: "Model 1", limits: { context: 200000 } },
@@ -522,14 +522,14 @@ describe("Built-in Commands", () => {
       expect(lines.join("\n")).toContain("200k ctx");
     });
 
-    test("handles empty grouped models", () => {
+    test("handles empty grouped models", async () => {
       const lines = formatGroupedModels(new Map());
       expect(lines.length).toBe(0);
     });
   });
 
   describe("builtinCommands", () => {
-    test("exports all builtin commands", () => {
+    test("exports all builtin commands", async () => {
       expect(builtinCommands).toBeDefined();
       expect(Array.isArray(builtinCommands)).toBe(true);
       expect(builtinCommands.length).toBeGreaterThan(0);
@@ -547,7 +547,7 @@ describe("Built-in Commands", () => {
   });
 
   describe("registerBuiltinCommands", () => {
-    test("registers all builtin commands with registry", () => {
+    test("registers all builtin commands with registry", async () => {
       const registry = new CommandRegistry();
       
       // Register commands manually since we're testing in isolation
@@ -567,7 +567,7 @@ describe("Built-in Commands", () => {
       expect(registry.has("context")).toBe(true);
     });
 
-    test("is idempotent - allows multiple registrations", () => {
+    test("is idempotent - allows multiple registrations", async () => {
       const registry = new CommandRegistry();
       
       // First registration

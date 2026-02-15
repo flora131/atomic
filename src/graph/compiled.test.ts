@@ -750,7 +750,7 @@ describe("GraphExecutor - Context Access", () => {
     });
 
     const node2 = createNode<TestState>("node2", "tool", async (ctx) => {
-      const node1Output = ctx.getNodeOutput("node1");
+      const node1Output = ctx.getNodeOutput!("node1");
       return {
         stateUpdate: {
           outputs: {

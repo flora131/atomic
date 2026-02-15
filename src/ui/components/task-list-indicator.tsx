@@ -18,6 +18,7 @@ import React from "react";
 import { STATUS, CONNECTOR } from "../constants/icons.ts";
 import { useThemeColors } from "../theme.tsx";
 import { truncateText } from "../utils/format.ts";
+import { normalizeTaskStatus } from "../utils/task-status.ts";
 import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
 
 // ============================================================================
@@ -68,7 +69,13 @@ export function getStatusColorKey(status: TaskItem["status"]): "muted" | "accent
     case "in_progress": return "accent";
     case "completed": return "success";
     case "error": return "error";
+    default: return "muted";
   }
+}
+
+/** Normalize unknown runtime status values to a render-safe status. */
+export function getRenderableTaskStatus(status: unknown): TaskItem["status"] {
+  return normalizeTaskStatus(status);
 }
 
 // ============================================================================
@@ -94,9 +101,10 @@ export function TaskListIndicator({
   return (
     <box flexDirection="column">
       {visibleItems.map((item, i) => {
-        const color = themeColors[getStatusColorKey(item.status)];
-        const icon = TASK_STATUS_ICONS[item.status];
-        const isActive = item.status === "in_progress";
+        const status = getRenderableTaskStatus(item.status);
+        const color = themeColors[getStatusColorKey(status)];
+        const icon = TASK_STATUS_ICONS[status];
+        const isActive = status === "in_progress";
         return (
           <text key={item.id ?? i} wrapMode="none">
             <span style={{ fg: themeColors.muted }}>{showConnector && i === 0 ? `${CONNECTOR.subStatus}  ` : "   "}</span>

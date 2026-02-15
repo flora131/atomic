@@ -17,7 +17,7 @@ import { MISC } from "../constants/icons.ts";
 import { useThemeColors } from "../theme.tsx";
 import { TaskListIndicator, type TaskItem } from "./task-list-indicator.tsx";
 import { sortTasksTopologically } from "./task-order.ts";
-import type { TodoItem } from "../../sdk/tools/todo-write.ts";
+import { normalizeTaskItem, normalizeTaskItems } from "../utils/task-status.ts";
 
 // ============================================================================
 // TYPES
@@ -51,8 +51,7 @@ export function TaskListPanel({
     if (existsSync(tasksPath)) {
       try {
         const content = readFileSync(tasksPath, "utf-8");
-        const parsed = JSON.parse(content) as TodoItem[];
-        setTasks(sortTasksTopologically(parsed.map(toTaskItem)));
+        setTasks(sortTasksTopologically(normalizeTaskItems(JSON.parse(content))));
       } catch { /* ignore parse errors */ }
     }
 
@@ -94,14 +93,9 @@ export function TaskListPanel({
   );
 }
 
-/** Convert TodoItem from disk to TaskItem for TaskListIndicator */
-function toTaskItem(t: TodoItem): TaskItem {
-  return {
-    id: t.id,
-    content: t.content,
-    status: t.status as TaskItem["status"],
-    blockedBy: t.blockedBy,
-  };
+/** Convert persisted disk payload to a normalized TaskItem for TaskListIndicator */
+function toTaskItem(t: unknown): TaskItem {
+  return normalizeTaskItem(t);
 }
 
 export default TaskListPanel;

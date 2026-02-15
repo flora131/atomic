@@ -11,6 +11,171 @@ function normalizeTaskId(id: string | undefined): string | null {
 }
 
 /**
+ * Result type for deadlock detection.
+ */
+export type DeadlockDiagnostic =
+  | { type: "none" }
+  | { type: "cycle"; cycle: string[] }
+  | { type: "error_dependency"; taskId: string; errorDependencies: string[] };
+
+/**
+ * Detect deadlocks in task dependencies.
+ *
+ * Returns:
+ * - { type: "cycle", cycle: [...] } if there's a dependency cycle
+ * - { type: "error_dependency", taskId, errorDependencies } if a pending task depends on errored tasks
+ * - { type: "none" } if no deadlock is detected
+ *
+ * Priority: cycles are checked first, then error dependencies.
+ */
+export function detectDeadlock(tasks: TaskItem[]): DeadlockDiagnostic {
+  if (tasks.length === 0) return { type: "none" };
+
+  // Build normalized ID map and status map
+  const normalizedIds = tasks.map((task) => normalizeTaskId(task.id));
+  const idCounts = new Map<string, number>();
+  for (const id of normalizedIds) {
+    if (!id) continue;
+    idCounts.set(id, (idCounts.get(id) ?? 0) + 1);
+  }
+
+  // Mark tasks with invalid IDs (missing or duplicate)
+  const valid = Array.from({ length: tasks.length }, () => false);
+  for (let i = 0; i < tasks.length; i++) {
+    const id = normalizedIds[i];
+    if (id && (idCounts.get(id) ?? 0) === 1) {
+      valid[i] = true;
+    }
+  }
+
+  // Build ID to index mapping for valid tasks
+  const idToIndex = new Map<string, number>();
+  const statusByNormalizedId = new Map<string, TaskItem["status"]>();
+  for (let i = 0; i < tasks.length; i++) {
+    if (!valid[i]) continue;
+    const id = normalizedIds[i];
+    if (!id) continue;
+    idToIndex.set(id, i);
+    statusByNormalizedId.set(id, tasks[i].status);
+  }
+
+  // Build adjacency list for valid tasks only
+  const adjList = new Map<number, number[]>();
+  const blockersByTaskIndex = new Map<number, string[]>();
+
+  for (let i = 0; i < tasks.length; i++) {
+    if (!valid[i]) continue;
+    const task = tasks[i];
+    if (!task) continue;
+
+    const blockedBy = Array.isArray(task.blockedBy) ? task.blockedBy : [];
+    const normalizedBlockers = Array.from(
+      new Set(
+        blockedBy
+          .map((blockerId) => normalizeTaskId(blockerId))
+          .filter((id): id is string => id !== null),
+      ),
+    );
+
+    blockersByTaskIndex.set(i, normalizedBlockers);
+
+    // Only add edges for blockers that exist in the valid task set
+    const validBlockers = normalizedBlockers.filter((blockerId) =>
+      idToIndex.has(blockerId),
+    );
+    
+    for (const blockerId of validBlockers) {
+      const blockerIndex = idToIndex.get(blockerId);
+      if (blockerIndex === undefined) continue;
+
+      // Add edge from dependent task to blocker (reversed for cycle detection)
+      if (!adjList.has(i)) {
+        adjList.set(i, []);
+      }
+      adjList.get(i)?.push(blockerIndex);
+    }
+  }
+
+  // Detect cycles using DFS
+  const visited = new Set<number>();
+  const recursionStack = new Set<number>();
+  const parent = new Map<number, number>();
+
+  function dfsCycle(node: number): string[] | null {
+    visited.add(node);
+    recursionStack.add(node);
+
+    const neighbors = adjList.get(node) ?? [];
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor)) {
+        parent.set(neighbor, node);
+        const cycle = dfsCycle(neighbor);
+        if (cycle) return cycle;
+      } else if (recursionStack.has(neighbor)) {
+        // Found a cycle, reconstruct it
+        const cycle: number[] = [neighbor];
+        let current = node;
+        while (current !== neighbor) {
+          cycle.push(current);
+          const p = parent.get(current);
+          if (p === undefined) break;
+          current = p;
+        }
+        cycle.reverse();
+        
+        // Convert indices to task IDs
+        return cycle
+          .map((idx) => normalizedIds[idx])
+          .filter((id): id is string => id !== null);
+      }
+    }
+
+    recursionStack.delete(node);
+    return null;
+  }
+
+  // Check all valid tasks for cycles
+  for (let i = 0; i < tasks.length; i++) {
+    if (!valid[i]) continue;
+    if (visited.has(i)) continue;
+    
+    const cycle = dfsCycle(i);
+    if (cycle && cycle.length > 0) {
+      return { type: "cycle", cycle };
+    }
+  }
+
+  // Check for error dependencies (pending tasks that depend on error tasks)
+  for (let i = 0; i < tasks.length; i++) {
+    const task = tasks[i];
+    if (!task || task.status !== "pending") continue;
+
+    const blockedBy = Array.isArray(task.blockedBy) ? task.blockedBy : [];
+    const normalizedBlockers = blockedBy
+      .map((blockerId) => normalizeTaskId(blockerId))
+      .filter((id): id is string => id !== null);
+
+    const errorDependencies = normalizedBlockers.filter((blockerId) => {
+      const status = statusByNormalizedId.get(blockerId);
+      return status === "error";
+    });
+
+    if (errorDependencies.length > 0) {
+      const taskId = normalizeTaskId(task.id);
+      if (taskId) {
+        return {
+          type: "error_dependency",
+          taskId,
+          errorDependencies,
+        };
+      }
+    }
+  }
+
+  return { type: "none" };
+}
+
+/**
  * Sort tasks so dependencies appear before dependent tasks.
  *
  * Tasks with invalid dependency metadata (missing/duplicate IDs, unknown blockers,

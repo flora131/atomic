@@ -242,7 +242,7 @@ export interface ContextDisplayInfo {
 /**
  * Command category for grouping and display.
  */
-export type CommandCategory = "builtin" | "workflow" | "skill" | "agent" | "custom";
+export type CommandCategory = "builtin" | "workflow" | "skill" | "agent" | "custom" | "file" | "folder";
 
 /**
  * Definition of a slash command.
@@ -469,6 +469,8 @@ export class CommandRegistry {
       agent: 2,
       builtin: 3,
       custom: 4,
+      folder: 5,
+      file: 6,
     };
 
     return commands.sort((a, b) => {

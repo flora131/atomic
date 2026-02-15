@@ -73,7 +73,7 @@ import {
   type CommandCategory,
 } from "./commands/index.ts";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, dirname, basename } from "node:path";
+import { join } from "node:path";
 import type { AskUserQuestionEventData } from "../graph/index.ts";
 import type { AgentType, ModelOperations } from "../models";
 import type { McpServerConfig } from "../sdk/types.ts";
@@ -164,52 +164,61 @@ function getMentionSuggestions(input: string): CommandDefinition[] {
   });
   suggestions.push(...agentMatches);
 
-  // File/directory suggestions after agents
+  // File/directory suggestions after agents — depth 2 with fuzzy matching
   try {
     const cwd = process.cwd();
-    let searchDir: string;
-    let filterPrefix: string;
-    let pathPrefix: string;
+    const allEntries: Array<{ relPath: string; isDir: boolean }> = [];
 
-    if (input.endsWith("/")) {
-      // Browsing a directory - show its contents
-      searchDir = join(cwd, input);
-      filterPrefix = "";
-      pathPrefix = input;
-    } else if (input.includes("/")) {
-      // Typing a name within a directory
-      searchDir = join(cwd, dirname(input));
-      filterPrefix = basename(input);
-      pathPrefix = dirname(input) + "/";
-    } else {
-      // Top-level - search cwd
-      searchDir = cwd;
-      filterPrefix = input;
-      pathPrefix = "";
+    // Depth 1: read cwd
+    const rootEntries = readdirSync(cwd, { withFileTypes: true });
+    for (const entry of rootEntries) {
+      if (entry.name.startsWith(".")) continue;
+      const isDir = entry.isDirectory();
+      allEntries.push({ relPath: isDir ? `${entry.name}/` : entry.name, isDir });
+
+      // Depth 2: read subdirectories
+      if (isDir) {
+        try {
+          const subEntries = readdirSync(join(cwd, entry.name), { withFileTypes: true });
+          for (const sub of subEntries) {
+            if (sub.name.startsWith(".")) continue;
+            const subIsDir = sub.isDirectory();
+            allEntries.push({
+              relPath: subIsDir ? `${entry.name}/${sub.name}/` : `${entry.name}/${sub.name}`,
+              isDir: subIsDir,
+            });
+          }
+        } catch {
+          // Skip unreadable directories
+        }
+      }
     }
 
-    const entries = readdirSync(searchDir, { withFileTypes: true });
-    const filtered = entries
-      .filter(e => e.name.toLowerCase().startsWith(filterPrefix.toLowerCase()) && !e.name.startsWith("."))
-      .sort((a, b) => {
-        // Directories first, then alphabetical
-        if (a.isDirectory() && !b.isDirectory()) return -1;
-        if (!a.isDirectory() && b.isDirectory()) return 1;
-        return a.name.localeCompare(b.name);
-      });
-    // Ensure both directories and files are represented in results
-    const dirs = filtered.filter(e => e.isDirectory());
-    const files = filtered.filter(e => !e.isDirectory());
+    // Fuzzy (substring) match on the full relative path
+    const filtered = searchKey
+      ? allEntries.filter(e => e.relPath.toLowerCase().includes(searchKey))
+      : allEntries;
+
+    // Sort: directories first, then alphabetical
+    filtered.sort((a, b) => {
+      if (a.isDir && !b.isDir) return -1;
+      if (!a.isDir && b.isDir) return 1;
+      return a.relPath.localeCompare(b.relPath);
+    });
+
+    // Cap results to keep the dropdown manageable
+    const dirs = filtered.filter(e => e.isDir);
+    const files = filtered.filter(e => !e.isDir);
     const maxDirs = Math.min(dirs.length, 7);
     const maxFiles = Math.min(files.length, 15 - maxDirs);
     const mixed = [...dirs.slice(0, maxDirs), ...files.slice(0, maxFiles)];
-    const fileMatches = mixed
-      .map(e => ({
-        name: `${pathPrefix}${e.name}${e.isDirectory() ? "/" : ""}`,
-        description: "",
-        category: "custom" as CommandCategory,
-        execute: () => ({ success: true as const }),
-      }));
+
+    const fileMatches = mixed.map(e => ({
+      name: e.relPath,
+      description: "",
+      category: (e.isDir ? "folder" : "file") as CommandCategory,
+      execute: () => ({ success: true as const }),
+    }));
 
     suggestions.push(...fileMatches);
   } catch {

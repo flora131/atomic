@@ -104,7 +104,7 @@ export type TuiCommandTrigger = "input" | "autocomplete" | "initial_prompt" | "m
  * Command categories used by the TUI command registry.
  * Kept local to telemetry to avoid coupling telemetry to UI modules.
  */
-export type TuiCommandCategory = "builtin" | "workflow" | "skill" | "agent" | "custom" | "unknown";
+export type TuiCommandCategory = "builtin" | "workflow" | "skill" | "agent" | "custom" | "file" | "folder" | "unknown";
 
 /**
  * Event logged when a TUI chat session starts.

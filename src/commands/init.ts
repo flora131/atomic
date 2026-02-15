@@ -319,7 +319,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
 
   if (folderExists && !shouldForce && !autoConfirm) {
     const update = await confirm({
-      message: `${agent.folder} already exists. Update config files? (CLAUDE.md/AGENTS.md will be preserved)`,
+      message: `${agent.folder} already exists. Update config files?`,
       initialValue: true,
       active: "Yes, update",
       inactive: "No, cancel",
@@ -342,8 +342,8 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   }
   // Note: When autoConfirm is true and folder exists, we proceed with the update
   // but do NOT set shouldForce to true. This preserves the correct behavior where
-  // --yes auto-confirms prompts but preserved files (CLAUDE.md/AGENTS.md) are still
-  // protected unless --force is also provided.
+  // --yes auto-confirms prompts but preserved files are still protected unless
+  // --force is also provided.
 
   // Copy files with spinner
   const s = spinner();
@@ -385,7 +385,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       const shouldPreserve = agent.preserve_files.includes(file);
       const shouldMerge = agent.merge_files.includes(file);
 
-      // Preserved files (CLAUDE.md, AGENTS.md) are only overwritten if:
+      // Preserved files are only overwritten if:
       // 1. --force flag is set, OR
       // 2. The file is empty (0 bytes or whitespace-only)
       if (shouldPreserve && destExists && !shouldForce) {

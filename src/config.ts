@@ -34,8 +34,8 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     folder: ".claude",
     install_url: "https://docs.anthropic.com/en/docs/claude-code/setup",
     exclude: [".DS_Store"],
-    additional_files: ["CLAUDE.md", ".mcp.json"],
-    preserve_files: ["CLAUDE.md"],
+    additional_files: [".mcp.json"],
+    preserve_files: [],
     merge_files: [".mcp.json"],
   },
   opencode: {
@@ -51,8 +51,8 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
       "package.json",
       ".DS_Store",
     ],
-    additional_files: ["AGENTS.md"],
-    preserve_files: ["AGENTS.md"],
+    additional_files: [],
+    preserve_files: [],
     merge_files: [],
   },
   copilot: {
@@ -63,8 +63,8 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     install_url:
       "https://github.com/github/copilot-cli?tab=readme-ov-file#installation",
     exclude: ["workflows", "dependabot.yml", ".DS_Store"],
-    additional_files: ["AGENTS.md"],
-    preserve_files: ["AGENTS.md"],
+    additional_files: [],
+    preserve_files: [],
     merge_files: [],
   },
 };

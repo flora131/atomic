@@ -84,8 +84,6 @@ jobs:
           cp -r .opencode config-staging/
           mkdir -p config-staging/.github
           cp -r .github/skills config-staging/.github/
-          cp CLAUDE.md config-staging/
-          cp AGENTS.md config-staging/
 
           # Remove node_modules from .opencode if present
           rm -rf config-staging/.opencode/node_modules

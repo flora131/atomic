@@ -346,9 +346,17 @@ export const modelCommand: CommandDefinition = {
 
     try {
       const resolvedModel = modelOps?.resolveAlias(trimmed) ?? trimmed;
+      if (modelOps && "setPendingReasoningEffort" in modelOps) {
+        (modelOps as { setPendingReasoningEffort: (effort: string | undefined) => void })
+          .setPendingReasoningEffort(undefined);
+      }
       const result = await modelOps?.setModel(resolvedModel);
+      const effectiveModel =
+        modelOps?.getPendingModel?.()
+        ?? await modelOps?.getCurrentModel?.()
+        ?? resolvedModel;
       if (agentType) {
-        saveModelPreference(agentType, resolvedModel);
+        saveModelPreference(agentType, effectiveModel);
         // Clear reasoning effort since the text command can't prompt for it;
         // user should use the interactive selector (/model select) to set effort
         clearReasoningEffortPreference(agentType);
@@ -356,14 +364,14 @@ export const modelCommand: CommandDefinition = {
       if (result?.requiresNewSession) {
         return {
           success: true,
-          message: `Model **${resolvedModel}** will be used for the next session. (${agentType} requires a new session for model changes)`,
-          stateUpdate: { pendingModel: resolvedModel } as unknown as CommandResult["stateUpdate"],
+          message: `Model **${effectiveModel}** will be used for the next session. (${agentType} requires a new session for model changes)`,
+          stateUpdate: { pendingModel: effectiveModel } as unknown as CommandResult["stateUpdate"],
         };
       }
       return {
         success: true,
-        message: `Model switched to **${resolvedModel}**`,
-        stateUpdate: { model: resolvedModel } as unknown as CommandResult["stateUpdate"],
+        message: `Model switched to **${effectiveModel}**`,
+        stateUpdate: { model: effectiveModel } as unknown as CommandResult["stateUpdate"],
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Unknown error";

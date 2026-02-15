@@ -617,6 +617,15 @@ export interface CodingAgentClient {
   getModelDisplayInfo(modelHint?: string): Promise<ModelDisplayInfo>;
 
   /**
+   * Update the model for the currently active session, when the SDK supports it.
+   * Implementations should preserve existing conversation history.
+   */
+  setActiveSessionModel?(
+    model: string,
+    options?: { reasoningEffort?: string }
+  ): Promise<void>;
+
+  /**
    * Get the system tools token baseline at the client level (pre-session).
    * Available after start() for SDKs that support probing (e.g., Claude SDK
    * probe query, Copilot SDK session.usage_info event).

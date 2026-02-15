@@ -3046,22 +3046,26 @@ export function ChatApp({
     setShowModelSelector(false);
 
     try {
-      const result = await modelOps?.setModel(selectedModel.id);
       if (modelOps && 'setPendingReasoningEffort' in modelOps) {
         (modelOps as { setPendingReasoningEffort: (e: string | undefined) => void }).setPendingReasoningEffort(reasoningEffort);
       }
+      const result = await modelOps?.setModel(selectedModel.id);
+      const effectiveModel =
+        modelOps?.getPendingModel?.()
+        ?? await modelOps?.getCurrentModel?.()
+        ?? selectedModel.id;
       const effortSuffix = reasoningEffort ? ` (${reasoningEffort})` : "";
       if (result?.requiresNewSession) {
         addMessage("assistant", `Model **${selectedModel.modelID}**${effortSuffix} will be used for the next session.`);
       } else {
         addMessage("assistant", `Switched to model **${selectedModel.modelID}**${effortSuffix}`);
       }
-      setCurrentModelId(selectedModel.id);
-      onModelChange?.(selectedModel.id);
+      setCurrentModelId(effectiveModel);
+      onModelChange?.(effectiveModel);
       const displaySuffix = (agentType === "copilot" && reasoningEffort) ? ` (${reasoningEffort})` : "";
       setCurrentModelDisplayName(`${selectedModel.modelID}${displaySuffix}`);
       if (agentType) {
-        saveModelPreference(agentType, selectedModel.id);
+        saveModelPreference(agentType, effectiveModel);
         if (reasoningEffort) {
           saveReasoningEffortPreference(agentType, reasoningEffort);
         } else {

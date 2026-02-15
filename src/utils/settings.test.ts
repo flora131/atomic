@@ -55,7 +55,7 @@ describe("settings persistence", () => {
     const localPath = join(cwdDir, ".atomic", "settings.json");
     writeJson(localPath, { model: { claude: "anthropic/default" } });
 
-    expect(getModelPreference("claude")).toBe("anthropic/opus");
+    expect(getModelPreference("claude")).toBe("opus");
   });
 
   test("writes model preferences to global only and normalizes claude default", () => {
@@ -129,7 +129,18 @@ describe("settings persistence", () => {
     const globalPath = join(homeDir, ".atomic", "settings.json");
     writeJson(globalPath, { model: { claude: "anthropic/default" } });
 
-    expect(getModelPreference("claude")).toBe("anthropic/opus");
+    expect(getModelPreference("claude")).toBe("opus");
+  });
+
+  test("saveModelPreference strips Claude provider prefix and stores canonical alias", () => {
+    const globalPath = join(homeDir, ".atomic", "settings.json");
+
+    saveModelPreference("claude", "anthropic/sonnet");
+
+    const settings = JSON.parse(readFileSync(globalPath, "utf-8")) as {
+      model?: Record<string, string>;
+    };
+    expect(settings.model?.claude).toBe("sonnet");
   });
 
   test("getModelPreference trims whitespace from model ID", () => {

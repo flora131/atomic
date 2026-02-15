@@ -758,12 +758,12 @@ export const skillToolRenderer: ToolRenderer = {
   icon: STATUS.active,
 
   getTitle(props: ToolRenderProps): string {
-    const skillName = (props.input.skill as string) || "unknown";
+    const skillName = (props.input.skill as string) || (props.input.name as string) || "unknown";
     return `Skill(${skillName})`;
   },
 
   render(props: ToolRenderProps): ToolRenderResult {
-    const skillName = (props.input.skill as string) || "unknown";
+    const skillName = (props.input.skill as string) || (props.input.name as string) || "unknown";
     return {
       title: `Skill(${skillName})`,
       content: ["Successfully loaded skill"],

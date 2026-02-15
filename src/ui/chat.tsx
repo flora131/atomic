@@ -1282,12 +1282,16 @@ function buildContentSegments(
   tasksOffset?: number,
   tasksExpanded?: boolean,
 ): ContentSegment[] {
-  // Separate HITL tools from regular tools:
+  // Separate HITL tools and sub-agent Task tools from regular tools:
   // - Running/pending HITL tools are hidden (the dialog handles display)
   // - Completed HITL tools are shown as compact inline question records
+  // - Task tools are hidden — sub-agents are shown via ParallelAgentsTree;
+  //   individual tool traces are available in the ctrl+o detail view only.
   const isHitlTool = (name: string) =>
     name === "AskUserQuestion" || name === "question" || name === "ask_user";
-  const visibleToolCalls = toolCalls.filter(tc => !isHitlTool(tc.toolName));
+  const isSubAgentTool = (name: string) =>
+    name === "Task" || name === "task";
+  const visibleToolCalls = toolCalls.filter(tc => !isHitlTool(tc.toolName) && !isSubAgentTool(tc.toolName));
   const completedHitlCalls = toolCalls.filter(tc => isHitlTool(tc.toolName) && tc.status === "completed");
 
   // Build unified list of insertion points
@@ -1317,13 +1321,38 @@ function buildContentSegments(
     });
   }
 
-  // Add agents tree insertion (if agents exist and offset is defined)
-  if (agents && agents.length > 0 && agentsOffset !== undefined) {
-    insertions.push({
-      offset: agentsOffset,
-      segment: { type: "agents", agents, key: "agents-tree" },
-      consumesText: false,
-    });
+  // Add agents tree insertion(s). When sub-agents are spawned sequentially
+  // (with text between invocations), each group of concurrent agents is
+  // rendered as a separate tree at its chronological content offset.
+  if (agents && agents.length > 0) {
+    // Build a map from agent ID → content offset using the Task tool calls
+    const taskToolOffsets = new Map<string, number>();
+    for (const tc of toolCalls) {
+      if (tc.toolName === "Task" || tc.toolName === "task") {
+        taskToolOffsets.set(tc.id, tc.contentOffsetAtStart ?? agentsOffset ?? 0);
+      }
+    }
+
+    // Group agents by their content offset
+    const groups = new Map<number, ParallelAgent[]>();
+    for (const agent of agents) {
+      const offset = taskToolOffsets.get(agent.id) ?? agentsOffset ?? 0;
+      const group = groups.get(offset);
+      if (group) {
+        group.push(agent);
+      } else {
+        groups.set(offset, [agent]);
+      }
+    }
+
+    // Create a tree insertion for each group
+    for (const [offset, groupAgents] of groups) {
+      insertions.push({
+        offset,
+        segment: { type: "agents", agents: groupAgents, key: `agents-tree-${offset}` },
+        consumesText: false,
+      });
+    }
   }
 
   // Add task list insertion (if tasks exist and offset is defined)
@@ -1921,6 +1950,10 @@ export function ChatApp({
   // Store current input when entering history mode
   const savedInputRef = useRef<string>("");
 
+  // Track skills that have already shown the "loaded" UI indicator this session.
+  // Once a skill is loaded, subsequent invocations should not show the indicator again.
+  const loadedSkillsRef = useRef<Set<string>>(new Set());
+
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
   // Ref to track when streaming started for duration calculation
@@ -2261,6 +2294,10 @@ export function ChatApp({
     skillName: string,
     _skillPath?: string
   ) => {
+    // Only show "loaded" indicator on the first invocation per session
+    if (loadedSkillsRef.current.has(skillName)) return;
+    loadedSkillsRef.current.add(skillName);
+
     const skillLoad: MessageSkillLoad = {
       skillName,
       status: "loaded",
@@ -3152,6 +3189,23 @@ export function ChatApp({
         }
         // Handle streaming response if handler provided
         if (onStreamMessage) {
+          // Finalize any previous streaming message before starting a new one.
+          // This prevents duplicate "Generating..." spinners when sendSilentMessage
+          // is called from an @mention handler that already created a placeholder.
+          const prevStreamingId = streamingMessageIdRef.current;
+          if (prevStreamingId) {
+            setMessagesWindowed((prev: ChatMessage[]) =>
+              prev.map((msg: ChatMessage) =>
+                msg.id === prevStreamingId && msg.streaming
+                  ? { ...msg, streaming: false }
+                  : msg
+              ).filter((msg: ChatMessage) =>
+                // Remove the previous placeholder if it has no content
+                !(msg.id === prevStreamingId && !msg.content.trim())
+              )
+            );
+          }
+
           // Increment stream generation so stale handleComplete callbacks become no-ops
           const currentGeneration = ++streamGenerationRef.current;
           isStreamingRef.current = true;
@@ -3449,6 +3503,7 @@ export function ChatApp({
         setTranscriptMode(false);
         clearHistoryBuffer();
         setTrimmedMessageCount(0);
+        loadedSkillsRef.current.clear();
       }
 
       // Handle clearMessages flag — persist history before clearing
@@ -3508,8 +3563,12 @@ export function ChatApp({
         addMessage("assistant", result.message);
       }
 
-      // Track skill load in message for UI indicator
-      if (result.skillLoaded) {
+      // Track skill load in message for UI indicator (only on first successful load per session;
+      // errors are always shown so the user sees the failure)
+      if (result.skillLoaded && (result.skillLoadError || !loadedSkillsRef.current.has(result.skillLoaded))) {
+        if (!result.skillLoadError) {
+          loadedSkillsRef.current.add(result.skillLoaded);
+        }
         const skillLoad: MessageSkillLoad = {
           skillName: result.skillLoaded,
           status: result.skillLoadError ? "error" : "loaded",

@@ -98,7 +98,6 @@ describe("Built-in Commands", () => {
 
       expect(result.success).toBe(true);
       expect(result.themeChange).toBe("dark");
-      expect(result.message).toContain("dark");
     });
 
     test("switches to light theme when specified", async () => {
@@ -107,7 +106,6 @@ describe("Built-in Commands", () => {
 
       expect(result.success).toBe(true);
       expect(result.themeChange).toBe("light");
-      expect(result.message).toContain("light");
     });
 
     test("toggles theme when no argument provided", async () => {
@@ -116,7 +114,6 @@ describe("Built-in Commands", () => {
 
       expect(result.success).toBe(true);
       expect(result.themeChange).toBe("toggle");
-      expect(result.message).toContain("toggled");
     });
 
     test("returns error for invalid theme", async () => {
@@ -124,6 +121,9 @@ describe("Built-in Commands", () => {
       const result = await themeCommand.execute("invalid", context);
 
       expect(result.success).toBe(false);
+      // No themeChange should be set on error
+      expect(result.themeChange).toBeUndefined();
+      // Message confirms the rejected input (display text, no structured equivalent)
       expect(result.message).toContain("Unknown theme");
     });
 
@@ -165,7 +165,6 @@ describe("Built-in Commands", () => {
 
       expect(result.success).toBe(true);
       expect(result.shouldExit).toBe(true);
-      expect(result.message).toContain("Goodbye");
     });
   });
 
@@ -175,6 +174,10 @@ describe("Built-in Commands", () => {
       const result = await compactCommand.execute("", context);
 
       expect(result.success).toBe(false);
+      // No compaction artifacts should be present on error
+      expect(result.clearMessages).toBeUndefined();
+      expect(result.compactionSummary).toBeUndefined();
+      // Error message describes the issue (display text, no structured equivalent)
       expect(result.message).toContain("No active session");
     });
 
@@ -198,7 +201,6 @@ describe("Built-in Commands", () => {
       expect(result.success).toBe(true);
       expect(result.clearMessages).toBe(true);
       expect(result.compactionSummary).toBeDefined();
-      expect(result.message).toContain("compacted");
     });
 
     test("handles summarize error gracefully", async () => {
@@ -215,6 +217,10 @@ describe("Built-in Commands", () => {
       const result = await compactCommand.execute("", context);
 
       expect(result.success).toBe(false);
+      // No compaction artifacts should be present on error
+      expect(result.clearMessages).toBeUndefined();
+      expect(result.compactionSummary).toBeUndefined();
+      // Error message includes the underlying error (display text, no structured equivalent)
       expect(result.message).toContain("Failed to compact");
       expect(result.message).toContain("Summarization failed");
     });
@@ -258,7 +264,10 @@ describe("Built-in Commands", () => {
       const result = await modelCommand.execute("list", context);
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain("Available Models");
+      // No interactive selector should be shown for list subcommand
+      expect(result.showModelSelector).toBeUndefined();
+      // Message is formatted display text from groupByProvider/formatGroupedModels
+      // (those utilities are tested separately); verify the message includes provider names
       expect(result.message).toContain("anthropic");
       expect(result.message).toContain("openai");
     });
@@ -278,6 +287,9 @@ describe("Built-in Commands", () => {
       const result = await modelCommand.execute("list anthropic", context);
 
       expect(result.success).toBe(true);
+      expect(result.showModelSelector).toBeUndefined();
+      // Filtered output should only contain the requested provider
+      // (display text from formatGroupedModels, tested separately)
       expect(result.message).toContain("anthropic");
       expect(result.message).not.toContain("openai");
     });
@@ -292,6 +304,9 @@ describe("Built-in Commands", () => {
       const result = await modelCommand.execute("list", context);
 
       expect(result.success).toBe(true);
+      expect(result.showModelSelector).toBeUndefined();
+      expect(result.stateUpdate).toBeUndefined();
+      // Informational message when no models exist (display text, no structured equivalent)
       expect(result.message).toContain("No models available");
     });
 
@@ -307,6 +322,10 @@ describe("Built-in Commands", () => {
       const result = await modelCommand.execute("claude-opus-4", context);
 
       expect(result.success).toBe(false);
+      // No model state changes should occur when blocked
+      expect(result.stateUpdate).toBeUndefined();
+      expect(result.showModelSelector).toBeUndefined();
+      // Error message explains the blocking reason (display text, no structured equivalent)
       expect(result.message).toContain("Cannot switch models while");
     });
 
@@ -326,8 +345,8 @@ describe("Built-in Commands", () => {
       const result = await modelCommand.execute("claude-sonnet-4", context);
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain("switched");
       expect(result.stateUpdate).toBeDefined();
+      expect(result.stateUpdate).toHaveProperty("model", "claude-sonnet-4");
     });
 
     test("handles model switch requiring new session", async () => {
@@ -346,8 +365,8 @@ describe("Built-in Commands", () => {
       const result = await modelCommand.execute("claude-opus-4", context);
 
       expect(result.success).toBe(true);
-      expect(result.message).toContain("next session");
       expect(result.stateUpdate).toBeDefined();
+      expect(result.stateUpdate).toHaveProperty("pendingModel", "claude-opus-4");
     });
 
     test("handles model switch error", async () => {
@@ -367,6 +386,10 @@ describe("Built-in Commands", () => {
       const result = await modelCommand.execute("invalid-model", context);
 
       expect(result.success).toBe(false);
+      // No model state changes should occur on error
+      expect(result.stateUpdate).toBeUndefined();
+      expect(result.showModelSelector).toBeUndefined();
+      // Error message includes failure reason (display text, no structured equivalent)
       expect(result.message).toContain("Failed to switch model");
     });
   });
@@ -391,6 +414,9 @@ describe("Built-in Commands", () => {
       const result = await mcpCommand.execute("enable", context);
 
       expect(result.success).toBe(false);
+      // No MCP snapshot should be produced on usage error
+      expect(result.mcpSnapshot).toBeUndefined();
+      // Usage hint message (display text, no structured equivalent)
       expect(result.message).toContain("Usage");
     });
 
@@ -402,6 +428,9 @@ describe("Built-in Commands", () => {
       const result = await mcpCommand.execute("enable unknown-server", context);
 
       expect(result.success).toBe(false);
+      // No MCP snapshot should be produced when server is not found
+      expect(result.mcpSnapshot).toBeUndefined();
+      // Error message names the unknown server (display text, no structured equivalent)
       expect(result.message).toContain("not found");
     });
   });
@@ -493,11 +522,15 @@ describe("Built-in Commands", () => {
 
       const lines = formatGroupedModels(grouped);
 
+      // formatGroupedModels returns string[] -- its API IS formatted text,
+      // so .toContain() on the joined output is the correct assertion pattern.
       expect(lines.length).toBeGreaterThan(0);
-      expect(lines.join("\n")).toContain("anthropic");
-      expect(lines.join("\n")).toContain("openai");
-      expect(lines.join("\n")).toContain("model1");
-      expect(lines.join("\n")).toContain("model2");
+      // Verify provider headers appear as bold markdown
+      expect(lines).toContainEqual("**anthropic**");
+      expect(lines).toContainEqual("**openai**");
+      // Verify model IDs appear as indented list items
+      expect(lines).toContainEqual("  - model1");
+      expect(lines).toContainEqual("  - model2");
     });
 
     test("includes status annotations for non-active models", async () => {
@@ -508,7 +541,9 @@ describe("Built-in Commands", () => {
       ]);
 
       const lines = formatGroupedModels(grouped);
-      expect(lines.join("\n")).toContain("beta");
+      // Status annotation should appear parenthesized after model ID
+      // formatGroupedModels returns string[] -- text formatting is its API
+      expect(lines).toContainEqual("  - model1 (beta)");
     });
 
     test("includes context limit annotations", async () => {
@@ -519,7 +554,9 @@ describe("Built-in Commands", () => {
       ]);
 
       const lines = formatGroupedModels(grouped);
-      expect(lines.join("\n")).toContain("200k ctx");
+      // Context annotation should appear parenthesized after model ID
+      // formatGroupedModels returns string[] -- text formatting is its API
+      expect(lines).toContainEqual("  - model1 (200k ctx)");
     });
 
     test("handles empty grouped models", async () => {

@@ -1111,6 +1111,34 @@ export class ClaudeAgentClient implements CodingAgentClient {
   }
 
   /**
+   * Switch model for the active Claude session while preserving history.
+   *
+   * This client uses turn-scoped queries (send/stream each create a new Query),
+   * so persisting the model on session config is sufficient for future turns.
+   * Calling query.setModel() on the previous Query instance is unsafe because
+   * its underlying transport may already be closed between turns.
+   */
+  async setActiveSessionModel(model: string): Promise<void> {
+    const targetModel = stripProviderPrefix(model).trim();
+    if (!targetModel) {
+      throw new Error("Model ID cannot be empty.");
+    }
+    if (targetModel.toLowerCase() === "default") {
+      throw new Error("Model 'default' is not supported for Claude. Use one of: opus, sonnet, haiku.");
+    }
+
+    // Use the most recently created active session as the primary chat session.
+    const activeSessions = Array.from(this.sessions.values()).filter((state) => !state.isClosed);
+    const activeSession = activeSessions[activeSessions.length - 1];
+
+    if (!activeSession) {
+      return;
+    }
+
+    activeSession.config.model = targetModel;
+  }
+
+  /**
    * Start the client
    */
   async start(): Promise<void> {

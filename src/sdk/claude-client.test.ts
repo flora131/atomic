@@ -50,3 +50,41 @@ describe("ClaudeAgentClient.getModelDisplayInfo", () => {
     expect(canonicalInfo.contextWindow).toBe(300_000);
   });
 });
+
+describe("ClaudeAgentClient.setActiveSessionModel", () => {
+  test("updates active session config without writing to the previous query transport", async () => {
+    const client = new ClaudeAgentClient();
+    const setModelCalls: string[] = [];
+
+    const sessions = (client as unknown as { sessions: Map<string, unknown> }).sessions;
+    const state = {
+      query: {
+        setModel: async (model: string) => {
+          setModelCalls.push(model);
+        },
+      },
+      sessionId: "test-session",
+      sdkSessionId: null,
+      config: {},
+      inputTokens: 0,
+      outputTokens: 0,
+      isClosed: false,
+      contextWindow: null,
+      systemToolsBaseline: null,
+    };
+    sessions.set("test-session", state);
+
+    await client.setActiveSessionModel("anthropic/sonnet");
+
+    expect((state.config as { model?: string }).model).toBe("sonnet");
+    expect(setModelCalls).toHaveLength(0);
+  });
+
+  test("rejects default model alias", async () => {
+    const client = new ClaudeAgentClient();
+
+    await expect(client.setActiveSessionModel("default")).rejects.toThrow(
+      "Model 'default' is not supported for Claude. Use one of: opus, sonnet, haiku."
+    );
+  });
+});

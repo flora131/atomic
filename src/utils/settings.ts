@@ -18,24 +18,38 @@ interface AtomicSettings {
   reasoningEffort?: Record<string, string>; // agentType -> effort level
 }
 
+const CLAUDE_CANONICAL_MODELS = ["opus", "sonnet", "haiku"] as const;
+
+function extractClaudeModelId(modelId: string): string {
+  const trimmed = modelId.trim();
+  if (!trimmed) return trimmed;
+  if (!trimmed.includes("/")) return trimmed;
+  const parts = trimmed.split("/");
+  return parts.length >= 2 ? parts.slice(1).join("/") : trimmed;
+}
+
+function normalizeClaudeModelPreference(modelId: string): string {
+  const normalized = extractClaudeModelId(modelId).trim().toLowerCase();
+  if (!normalized || normalized === "default") {
+    return "opus";
+  }
+
+  const canonical = CLAUDE_CANONICAL_MODELS.find((name) =>
+    normalized === name || normalized.includes(name)
+  );
+  if (canonical) {
+    return canonical;
+  }
+
+  return extractClaudeModelId(modelId).trim();
+}
+
 function normalizeModelPreference(agentType: string, modelId: string): string {
   if (agentType !== "claude") {
     return modelId;
   }
 
-  const trimmed = modelId.trim();
-  if (trimmed.toLowerCase() === "default") {
-    return "opus";
-  }
-
-  if (trimmed.includes("/")) {
-    const parts = trimmed.split("/");
-    if (parts.length === 2 && parts[1]?.toLowerCase() === "default") {
-      return `${parts[0]}/opus`;
-    }
-  }
-
-  return trimmed;
+  return normalizeClaudeModelPreference(modelId);
 }
 
 /** Global settings path: ~/.atomic/settings.json */

@@ -875,6 +875,60 @@ export class CopilotClient implements CodingAgentClient {
   }
 
   /**
+   * Switch model for the active Copilot session while preserving history.
+   * Rebinds the same session ID with updated model config.
+   */
+  async setActiveSessionModel(
+    model: string,
+    options?: { reasoningEffort?: string }
+  ): Promise<void> {
+    if (!this.isRunning || !this.sdkClient) {
+      throw new Error("Client not started. Call start() first.");
+    }
+
+    const activeStates = Array.from(this.sessions.values()).filter((state) => !state.isClosed);
+    const activeState = activeStates[activeStates.length - 1];
+    if (!activeState) {
+      return;
+    }
+
+    const resolvedModel = stripProviderPrefix(model).trim();
+    if (!resolvedModel) {
+      throw new Error("Model ID cannot be empty.");
+    }
+
+    const defaultOptions = initCopilotSessionOptions();
+    const permissionHandler =
+      this.permissionHandler
+      ?? defaultOptions.OnPermissionRequest
+      ?? this.createHITLPermissionHandler(activeState.sessionId);
+
+    const resumeConfig: SdkResumeSessionConfig = {
+      model: resolvedModel,
+      ...(options?.reasoningEffort ? { reasoningEffort: options.reasoningEffort as SdkSessionConfig["reasoningEffort"] } : {}),
+      streaming: true,
+      tools: this.registeredTools.map((t) => this.convertTool(t)),
+      onPermissionRequest: permissionHandler,
+      onUserInputRequest: this.createUserInputHandler(activeState.sessionId),
+    };
+
+    const resumedSession = await this.sdkClient.resumeSession(activeState.sessionId, resumeConfig);
+
+    activeState.unsubscribe();
+    activeState.sdkSession = resumedSession;
+    activeState.config = {
+      ...activeState.config,
+      model: resolvedModel,
+      ...(options?.reasoningEffort !== undefined
+        ? { reasoningEffort: options.reasoningEffort }
+        : {}),
+    };
+    activeState.unsubscribe = resumedSession.on((event: SdkSessionEvent) => {
+      this.handleSdkEvent(activeState.sessionId, event);
+    });
+  }
+
+  /**
    * Register an event handler
    */
   on<T extends EventType>(eventType: T, handler: EventHandler<T>): () => void {

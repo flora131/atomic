@@ -22,7 +22,7 @@ import { STATUS, CONNECTOR, ARROW, PROMPT, SPINNER_FRAMES, SPINNER_COMPLETE, CHE
 
 import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplete.tsx";
 import { ToolResult } from "./components/tool-result.tsx";
-import { SkillLoadIndicator } from "./components/skill-load-indicator.tsx";
+import { SkillLoadIndicator, shouldShowSkillLoad } from "./components/skill-load-indicator.tsx";
 import { McpServerListIndicator } from "./components/mcp-server-list.tsx";
 import { ContextInfoDisplay } from "./components/context-info-display.tsx";
 
@@ -798,8 +798,6 @@ export interface MessageBubbleProps {
   hideAskUserQuestion?: boolean;
   /** Whether to hide loading indicator (when question dialog is active) */
   hideLoading?: boolean;
-  /** Parallel agents to display inline (only for streaming assistant message) */
-  parallelAgents?: ParallelAgent[];
   /** Todo items to show inline during streaming */
   todoItems?: Array<{content: string; status: "pending" | "in_progress" | "completed" | "error"}>;
   /** Whether task items are expanded (no truncation) */
@@ -1282,7 +1280,7 @@ interface ContentSegment {
  * Tool calls are inserted at their recorded content offsets.
  * Agents and tasks are also inserted at their chronological offsets.
  */
-function buildContentSegments(
+export function buildContentSegments(
   content: string,
   toolCalls: MessageToolCall[],
   agents?: ParallelAgent[] | null,
@@ -1300,7 +1298,9 @@ function buildContentSegments(
     name === "AskUserQuestion" || name === "question" || name === "ask_user";
   const isSubAgentTool = (name: string) =>
     name === "Task" || name === "task";
-  const visibleToolCalls = toolCalls.filter(tc => !isHitlTool(tc.toolName) && !isSubAgentTool(tc.toolName));
+  const isSkillTool = (name: string) =>
+    name === "Skill" || name === "skill";
+  const visibleToolCalls = toolCalls.filter(tc => !isHitlTool(tc.toolName) && !isSubAgentTool(tc.toolName) && !isSkillTool(tc.toolName));
   const completedHitlCalls = toolCalls.filter(tc => isHitlTool(tc.toolName) && tc.status === "completed");
 
   // Build unified list of insertion points
@@ -1364,8 +1364,8 @@ function buildContentSegments(
     }
   }
 
-  // Add task list insertion (if tasks exist and offset is defined)
-  if (taskItems && taskItems.length > 0 && tasksOffset !== undefined) {
+  // Add task list insertion (if tasks exist, offset is defined, and panel is expanded)
+  if (taskItems && taskItems.length > 0 && tasksOffset !== undefined && tasksExpanded !== false) {
     insertions.push({
       offset: tasksOffset,
       segment: { type: "tasks", taskItems, tasksExpanded, key: "task-list" },
@@ -1413,7 +1413,7 @@ function buildContentSegments(
 
   // Add remaining text after the last insertion
   if (lastOffset < content.length) {
-    const remainingContent = content.slice(lastOffset).trimStart();
+    const remainingContent = content.slice(lastOffset);
     if (remainingContent) {
       segments.push({
         type: "text",
@@ -1425,23 +1425,36 @@ function buildContentSegments(
 
   // When there are non-text insertions (tools, agents, tasks), split text
   // segments at paragraph boundaries (\n\n) so each paragraph renders as
-  // its own block with proper bullet indicators and spacing
+  // its own block with proper bullet indicators and spacing.
+  // Only split text that is truly interleaved between non-text segments;
+  // skip splitting inside fenced code blocks (``` ... ```).
   if (hasNonTextInsertions) {
     const splitSegments: ContentSegment[] = [];
-    for (const seg of segments) {
+    for (let si = 0; si < segments.length; si++) {
+      const seg = segments[si]!;
       if (seg.type === "text" && seg.content) {
-        const paragraphs = seg.content.split(/\n\n+/).filter(p => p.trim());
-        if (paragraphs.length > 1) {
-          paragraphs.forEach((p, i) => {
-            splitSegments.push({
-              type: "text",
-              content: p.trim(),
-              key: `${seg.key}-p${i}`,
+        // Only split when the text sits between two non-text segments
+        const hasPrev = si > 0 && segments[si - 1]?.type !== "text";
+        const hasNext = si < segments.length - 1 && segments[si + 1]?.type !== "text";
+        const isInterleaved = hasPrev && hasNext;
+
+        // Don't split text that contains fenced code blocks
+        const hasFencedBlock = /^```/m.test(seg.content);
+
+        if (isInterleaved && !hasFencedBlock) {
+          const paragraphs = seg.content.split(/\n\n+/).filter(p => p.trim());
+          if (paragraphs.length > 1) {
+            paragraphs.forEach((p, i) => {
+              splitSegments.push({
+                type: "text",
+                content: p.trim(),
+                key: `${seg.key}-p${i}`,
+              });
             });
-          });
-        } else {
-          splitSegments.push(seg);
+            continue;
+          }
         }
+        splitSegments.push(seg);
       } else {
         splitSegments.push(seg);
       }
@@ -1469,7 +1482,7 @@ function preprocessTaskListCheckboxes(content: string): string {
     .replace(/^(\s*[-*+]\s+)\[ \]/gm, `$1${CHECKBOX.unchecked}`)
     .replace(/^(\s*[-*+]\s+)\[[xX]\]/gm, `$1${CHECKBOX.checked}`);
 }
-export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, parallelAgents, todoItems, tasksExpanded = false, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
   // Hide the entire message when question dialog is active and there's no content yet
@@ -1565,17 +1578,13 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
 
   // Assistant message: bullet point prefix, with tool calls interleaved at correct positions
   if (message.role === "assistant") {
-    // Determine which agents and tasks to show (live during streaming, baked when completed)
-    const agentsToShow = parallelAgents?.length ? parallelAgents
-      : message.parallelAgents?.length ? message.parallelAgents
-      : null;
     const taskItemsToShow = message.streaming ? todoItems : message.taskItems;
 
     // Build interleaved content segments (now includes agents and tasks)
     const segments = buildContentSegments(
       message.content,
       message.toolCalls || [],
-      agentsToShow,
+      message.parallelAgents,
       message.agentsContentOffset,
       taskItemsToShow,
       message.tasksContentOffset,
@@ -1688,28 +1697,9 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
           return null;
         })}
 
-        {/* Fallback: Render agents/tasks at bottom if not in segments (for legacy messages) */}
-        {(() => {
-          const agentsInSegments = segments.some(s => s.type === "agents");
-          
-          return (
-            <>
-              {!agentsInSegments && agentsToShow && (
-                <ParallelAgentsTree
-                  agents={agentsToShow}
-                  compact={true}
-                  maxVisible={5}
-                  noTopMargin={segments.length === 0}
-                />
-              )}
-              {/* Tasks rendered by TodoWrite tool result + persistent panel */}
-            </>
-          );
-        })()}
-
         {/* Loading spinner — always at bottom of streamed content */}
         {message.streaming && !hideLoading && (
-          <box flexDirection="row" alignItems="flex-start" marginTop={segments.length > 0 || agentsToShow ? 1 : 0}>
+          <box flexDirection="row" alignItems="flex-start" marginTop={segments.length > 0 ? 1 : 0}>
             <text>
               <LoadingIndicator speed={120} elapsedMs={elapsedMs} outputTokens={streamingMeta?.outputTokens} thinkingMs={streamingMeta?.thinkingMs} />
             </text>
@@ -2625,6 +2615,21 @@ export function ChatApp({
       });
     }
   }, [registerParallelAgentHandler]);
+
+  // Keep live sub-agent updates anchored to the active streaming message so
+  // they render in-order inside chat scrollback instead of as a last-row overlay.
+  useEffect(() => {
+    const messageId = streamingMessageIdRef.current;
+    if (!messageId || parallelAgents.length === 0) return;
+
+    setMessagesWindowed((prev: ChatMessage[]) =>
+      prev.map((msg: ChatMessage) =>
+        msg.id === messageId && msg.streaming
+          ? { ...msg, parallelAgents }
+          : msg
+      )
+    );
+  }, [parallelAgents, setMessagesWindowed]);
 
   // When all sub-agents/tools finish and a dequeue was deferred, trigger it.
   // This fires whenever parallelAgents changes (from SDK events OR interrupt handler)
@@ -3574,7 +3579,7 @@ export function ChatApp({
 
       // Track skill load in message for UI indicator (only on first successful load per session;
       // errors are always shown so the user sees the failure)
-      if (result.skillLoaded && (result.skillLoadError || !loadedSkillsRef.current.has(result.skillLoaded))) {
+      if (result.skillLoaded && shouldShowSkillLoad(result.skillLoaded, result.skillLoadError, loadedSkillsRef.current)) {
         if (!result.skillLoadError) {
           loadedSkillsRef.current.add(result.skillLoaded);
         }
@@ -5227,7 +5232,6 @@ export function ChatApp({
           syntaxStyle={markdownSyntaxStyle}
           hideAskUserQuestion={activeQuestion !== null}
           hideLoading={activeQuestion !== null}
-          parallelAgents={index === renderMessages.length - 1 ? parallelAgents : undefined}
           todoItems={msg.streaming ? todoItems : undefined}
           elapsedMs={msg.streaming ? streamingElapsedMs : undefined}
           streamingMeta={msg.streaming ? streamingMeta : null}

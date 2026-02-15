@@ -10,7 +10,7 @@
  */
 
 import { existsSync, watch } from "fs";
-import { readFile } from "fs/promises";
+import { readFile, rename, unlink } from "fs/promises";
 import { join } from "path";
 import type {
   CommandDefinition,
@@ -30,11 +30,14 @@ import {
 } from "../utils/task-status.ts";
 import {
   initWorkflowSession,
-  saveWorkflowSession,
   getWorkflowSessionDir,
   type WorkflowSession,
 } from "../../workflows/session.ts";
-import { buildSpecToTasksPrompt, buildTaskListPreamble } from "../../graph/nodes/ralph.ts";
+import { buildSpecToTasksPrompt, buildWorkerAssignment } from "../../graph/nodes/ralph.ts";
+import { getReadyTasks, detectDeadlock } from "../components/task-order.ts";
+import type { TaskItem } from "../components/task-list-indicator.tsx";
+import { getSubagentBridge, type SubagentResult } from "../../graph/subagent-bridge.ts";
+import { normalizeInterruptedTasks } from "../utils/ralph-task-state.ts";
 
 // ============================================================================
 // RALPH COMMAND PARSING
@@ -132,6 +135,38 @@ export function completeSession(sessionId: string): void {
 }
 
 /**
+ * Atomically write a file using a temp file and rename in the same directory.
+ * This ensures that readers never see a partially written file.
+ *
+ * @param targetPath - The final file path to write to
+ * @param content - The content to write (string or buffer)
+ * @throws Error if write or rename fails
+ *
+ * @internal
+ */
+async function atomicWrite(targetPath: string, content: string | Buffer): Promise<void> {
+  // Create temp file in same directory as target for atomic rename
+  const dir = targetPath.substring(0, targetPath.lastIndexOf("/"));
+  const tempPath = join(dir, `.tasks-${crypto.randomUUID()}.tmp`);
+  
+  try {
+    // Write to temp file
+    await Bun.write(tempPath, content);
+    
+    // Atomically replace target with temp file
+    await rename(tempPath, targetPath);
+  } catch (error) {
+    // Clean up temp file if it exists
+    try {
+      await unlink(tempPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+    throw error;
+  }
+}
+
+/**
  * Save tasks to a workflow session directory as tasks.json.
  * Used to persist the task list between context clears.
  *
@@ -156,7 +191,8 @@ export async function saveTasksToActiveSession(
   }
   const tasksPath = join(sessionDir, "tasks.json");
   try {
-    await Bun.write(tasksPath, JSON.stringify(tasks.map((task) => normalizeTodoItem(task)), null, 2));
+    const content = JSON.stringify(tasks.map((task) => normalizeTodoItem(task)), null, 2);
+    await atomicWrite(tasksPath, content);
   } catch (error) {
     console.error("[ralph] Failed to write tasks.json:", error);
   }
@@ -172,6 +208,202 @@ async function readTasksFromDisk(
     return normalizeTodoItems(JSON.parse(content));
   } catch {
     return [];
+  }
+}
+
+/**
+ * Core DAG orchestrator control loop.
+ * 
+ * Implements the core scheduling logic for parallel task execution:
+ * 1. Reads tasks from disk each iteration
+ * 2. Exits when all tasks are completed
+ * 3. Computes ready tasks from pending + completed dependencies
+ * 4. Detects deadlock and emits a system message via context.addMessage with diagnostics
+ * 5. Marks selected ready task(s) in_progress and persists EXPLICITLY BEFORE dispatch
+ * 6. Dispatches worker(s) using SubagentGraphBridge with progress logging
+ * 7. Re-reads tasks after worker result and reconciles status (completed/error/retry)
+ * 8. Persists updates atomically through saveTasksToActiveSession
+ * 9. Logs dispatch waves, completions, retries, and terminal errors for observability
+ * 
+ * @param context - Command context for sub-agent dispatch and messaging
+ * @param sessionId - The workflow session ID
+ * @returns Promise that resolves when all tasks are completed or deadlock occurs
+ * 
+ * @internal
+ */
+async function runDAGOrchestrator(
+  context: CommandContext,
+  sessionId: string,
+): Promise<void> {
+  const sessionDir = getWorkflowSessionDir(sessionId);
+  if (!sessionDir) {
+    throw new Error(`Session directory not found for session ${sessionId}`);
+  }
+
+  // Resolve bridge at runtime (once, outside loop)
+  const bridge = getSubagentBridge();
+  if (!bridge) {
+    throw new Error(
+      "SubagentGraphBridge not initialized. " +
+      "Call setSubagentBridge() before running DAG orchestrator."
+    );
+  }
+
+  // Track in-flight workers: Map<taskId, {promise, agentId}>
+  const inFlight = new Map<string, { promise: Promise<{ taskId: string; result: SubagentResult }>; agentId: string }>();
+
+  // Track retry attempts: Map<taskId, attemptCount> (in-memory for current orchestrator run)
+  const retryAttempts = new Map<string, number>();
+  const MAX_ATTEMPTS = 3;
+
+  while (true) {
+    // Step 1: Read tasks from disk
+    const tasks = await readTasksFromDisk(sessionDir);
+    
+    // Step 2: Exit when all tasks are completed and no in-flight workers remain
+    const pending = tasks.filter(t => t.status === "pending" || t.status === "in_progress");
+    if (pending.length === 0 && inFlight.size === 0) {
+      // All tasks completed
+      context.addMessage("system", "DAG orchestration complete: all tasks finished.");
+      break;
+    }
+
+    // Step 3: Reload tasks and compute ready set to incorporate DAG mutations
+    const freshTasks = await readTasksFromDisk(sessionDir);
+    const freshTasksAsTaskItems: TaskItem[] = freshTasks;
+    const dispatchTasks = getReadyTasks(freshTasksAsTaskItems).filter(
+      (readyTask): readyTask is TaskItem & { id: string } =>
+        typeof readyTask.id === "string" &&
+        readyTask.id.length > 0 &&
+        !inFlight.has(readyTask.id),
+    );
+
+    // Step 4: Dispatch all currently-ready tasks immediately
+    if (dispatchTasks.length > 0) {
+      // Log dispatch wave with task count and IDs
+      const dispatchIds = dispatchTasks.map((task) => task.id);
+      context.addMessage(
+        "system",
+        `Dispatching ${dispatchTasks.length} ready task(s): ${dispatchIds.join(", ")}. In-flight: ${inFlight.size}`
+      );
+      
+      // Mark tasks as in_progress and persist BEFORE dispatch (explicit status persistence)
+      const dispatchIdSet = new Set(dispatchIds);
+      const updatedTasks = freshTasks.map((task) =>
+        task.id && dispatchIdSet.has(task.id) && task.status === "pending"
+          ? { ...task, status: "in_progress" as const }
+          : task
+      );
+      
+      // Persist in_progress status atomically BEFORE spawning workers
+      await saveTasksToActiveSession(updatedTasks, sessionId);
+      
+      // Reload tasks again after in_progress write to ensure prompt-building uses latest task list
+      const latestTasks = await readTasksFromDisk(sessionDir);
+
+      for (const readyTask of dispatchTasks) {
+        const taskId = readyTask.id;
+        const fullTask = latestTasks.find((task) => task.id === taskId);
+        if (!fullTask) {
+          continue;
+        }
+
+        const agentId = crypto.randomUUID();
+        const workerPrompt = buildWorkerAssignment(fullTask, latestTasks);
+        const workerPromise = bridge.spawn({
+          agentId,
+          agentName: "worker",
+          task: workerPrompt,
+        }).then((result) => ({ taskId, result }));
+
+        inFlight.set(taskId, { promise: workerPromise, agentId });
+      }
+    }
+
+    // Step 5: If no in-flight workers, check for deadlock
+    if (inFlight.size === 0) {
+      const deadlockTasks = await readTasksFromDisk(sessionDir);
+      const deadlock = detectDeadlock(deadlockTasks as TaskItem[]);
+      
+      if (deadlock.type !== "none") {
+        let deadlockMessage: string;
+        
+        if (deadlock.type === "cycle") {
+          // Enhanced cycle diagnostic with clear explanation
+          deadlockMessage = 
+            `Deadlock detected: Circular dependency cycle prevents progress.\n` +
+            `Cycle: ${deadlock.cycle.join(" -> ")}\n` +
+            `Resolution: Remove or break the circular dependency between these tasks.`;
+        } else {
+          // Enhanced error dependency diagnostic with clear explanation
+          deadlockMessage = 
+            `Deadlock detected: Task ${deadlock.taskId} cannot proceed due to failed dependencies.\n` +
+            `Failed dependencies: ${deadlock.errorDependencies.join(", ")}\n` +
+            `Resolution: Fix the errored tasks or remove them from blockedBy dependencies.`;
+        }
+        
+        context.addMessage("system", deadlockMessage);
+        break;
+      }
+      
+      // No ready tasks, no in-flight workers, no deadlock -> shouldn't happen
+      context.addMessage("system", "DAG orchestration stalled: no ready tasks, no in-flight workers, no deadlock detected.");
+      break;
+    }
+
+    // Step 6: Wait for any completion via Promise.race
+    const completedWorker = await Promise.race(
+      Array.from(inFlight.values()).map(w => w.promise)
+    );
+
+    // Remove from in-flight
+    inFlight.delete(completedWorker.taskId);
+
+    // Step 7: Re-read tasks and reconcile status for the completed task
+    const currentTasks = await readTasksFromDisk(sessionDir);
+    
+    const reconciledTasks = currentTasks.map(t => {
+      if (t.id === completedWorker.taskId) {
+        if (completedWorker.result.success) {
+          // Success: mark as completed and clear retry count
+          retryAttempts.delete(completedWorker.taskId);
+          return { ...t, status: "completed" as const };
+        } else {
+          // Failure: implement retry logic
+          const currentAttempt = (retryAttempts.get(completedWorker.taskId) || 0) + 1;
+          retryAttempts.set(completedWorker.taskId, currentAttempt);
+          
+          if (currentAttempt < MAX_ATTEMPTS) {
+            // Retry: set back to pending for attempts 1-2
+            return { ...t, status: "pending" as const };
+          } else {
+            // Terminal error: max attempts reached
+            return { ...t, status: "error" as const };
+          }
+        }
+      }
+      return t;
+    });
+
+    // Log completion status
+    const completedTask = reconciledTasks.find(t => t.id === completedWorker.taskId);
+    if (completedTask) {
+      if (completedWorker.result.success) {
+        context.addMessage("system", `Task ${completedWorker.taskId} completed successfully. Remaining in-flight: ${inFlight.size}`);
+      } else {
+        const currentAttempt = retryAttempts.get(completedWorker.taskId) || 0;
+        if (currentAttempt < MAX_ATTEMPTS) {
+          context.addMessage("system", `Task ${completedWorker.taskId} failed (attempt ${currentAttempt}/${MAX_ATTEMPTS}), retrying...`);
+        } else {
+          context.addMessage("system", `Task ${completedWorker.taskId} failed after ${MAX_ATTEMPTS} attempts, marked as error.`);
+        }
+      }
+    }
+
+    // Step 8: Persist updates atomically
+    await saveTasksToActiveSession(reconciledTasks, sessionId);
+    
+    // Continue loop to dispatch newly ready tasks or wait for more completions
   }
 }
 
@@ -717,13 +949,10 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
 
         context.addMessage("system", `Resuming session ${parsed.sessionId}`);
 
-        // Load tasks from disk and reset interrupted statuses to pending so
-        // resume always starts from unchecked/retryable work.
-        const currentTasks = (await readTasksFromDisk(sessionDir)).map((task) =>
-          task.status === "in_progress" || task.status === "error"
-            ? { ...task, status: "pending" as const }
-            : task
-        );
+        // Load tasks from disk and reset interrupted in_progress tasks to pending
+        // before subsequent worker execution.
+        const diskTasks = await readTasksFromDisk(sessionDir);
+        const currentTasks = normalizeInterruptedTasks(diskTasks);
         await saveTasksToActiveSession(currentTasks, parsed.sessionId);
 
         // Update TodoPanel summary with loaded tasks (BUG-6 fix)
@@ -742,19 +971,8 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
           },
         });
 
-        const additionalPrompt = parsed.prompt ? `\n\nAdditional instructions: ${parsed.prompt}` : "";
-
-        // Worker loop: spawn worker sub-agent per iteration until all tasks are done (BUG-2/4 fix)
-        const maxIterations = currentTasks.length * 2;
-        for (let i = 0; i < maxIterations; i++) {
-          const tasks = await readTasksFromDisk(sessionDir);
-          const pending = tasks.filter(t => t.status !== "completed");
-          if (pending.length === 0) break;
-
-          const message = buildTaskListPreamble(tasks) + additionalPrompt;
-          const result = await context.spawnSubagent({ name: "worker", message });
-          if (!result.success) break;
-        }
+        // Run DAG orchestrator for resumed session
+        await runDAGOrchestrator(context, parsed.sessionId);
 
         return { success: true };
       }
@@ -793,18 +1011,8 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
       context.setRalphSessionDir(sessionDir);
       context.setRalphSessionId(sessionId);
 
-      // Worker loop: spawn worker sub-agent per iteration until all tasks are done
-      const maxIterations = tasks.length * 2; // safety limit
-      for (let i = 0; i < maxIterations; i++) {
-        // Read current task state from disk
-        const currentTasks = await readTasksFromDisk(sessionDir);
-        const pending = currentTasks.filter(t => t.status !== "completed");
-        if (pending.length === 0) break;
-
-        const message = buildTaskListPreamble(currentTasks);
-        const result = await context.spawnSubagent({ name: "worker", message });
-        if (!result.success) break;
-      }
+      // Run DAG orchestrator for fresh session
+      await runDAGOrchestrator(context, sessionId);
 
       return { success: true };
     },

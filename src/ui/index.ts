@@ -1638,9 +1638,7 @@ export {
   // Workflow commands
   registerWorkflowCommands,
   type WorkflowMetadata,
-  WORKFLOW_DEFINITIONS,
   getWorkflowMetadata,
-  createWorkflowByName,
 
   // Skill commands
   registerSkillCommands,

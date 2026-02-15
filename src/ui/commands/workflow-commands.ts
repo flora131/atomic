@@ -19,9 +19,6 @@ import type {
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
 
-import type { CompiledGraph, BaseState, NodeDefinition } from "../../graph/types.ts";
-import type { AtomicWorkflowState } from "../../graph/annotation.ts";
-import { setWorkflowResolver, type CompiledSubgraph } from "../../graph/nodes.ts";
 import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 import {
   normalizeTodoItem,
@@ -90,15 +87,13 @@ export function isValidUUID(uuid: string): boolean {
 /**
  * Metadata for a workflow command definition.
  */
-export interface WorkflowMetadata<TState extends BaseState = AtomicWorkflowState> {
+export interface WorkflowMetadata {
   /** Command name (without leading slash) */
   name: string;
   /** Human-readable description */
   description: string;
   /** Alternative names for the command */
   aliases?: string[];
-  /** Function to create the workflow graph */
-  createWorkflow: (config?: Record<string, unknown>) => CompiledGraph<TState>;
   /** Optional default configuration */
   defaultConfig?: Record<string, unknown>;
   /** Source: built-in, global (~/.atomic/workflows), or local (.atomic/workflows) */
@@ -290,39 +285,28 @@ export function discoverWorkflowFiles(): { path: string; source: "local" | "glob
  * Dynamically loaded workflows from disk.
  * Populated by loadWorkflowsFromDisk().
  */
-let loadedWorkflows: WorkflowMetadata<BaseState>[] = [];
+let loadedWorkflows: WorkflowMetadata[] = [];
 
 /**
  * Load workflow definitions from .ts files on disk.
  *
  * Workflows are expected to export:
- * - `default`: A function that creates a CompiledGraph (required)
  * - `name`: Workflow name (optional, defaults to filename)
  * - `description`: Human-readable description (optional)
  * - `aliases`: Alternative names (optional)
  *
  * Example workflow file (.atomic/workflows/my-workflow.ts):
  * ```typescript
- * import { graph, agentNode } from "@bastani/atomic/graph";
- *
  * export const name = "my-workflow";
  * export const description = "My custom workflow";
  * export const aliases = ["mw"];
- *
- * export default function createWorkflow(config?: Record<string, unknown>) {
- *   return graph<MyState>()
- *     .start(researchNode)
- *     .then(implementNode)
- *     .end()
- *     .compile();
- * }
  * ```
  *
  * @returns Array of loaded workflow metadata (local workflows override global)
  */
-export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata<BaseState>[]> {
+export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata[]> {
   const discovered = discoverWorkflowFiles();
-  const loaded: WorkflowMetadata<BaseState>[] = [];
+  const loaded: WorkflowMetadata[] = [];
   const loadedNames = new Set<string>();
 
   for (const { path, source } of discovered) {
@@ -339,17 +323,10 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata<BaseStat
         continue;
       }
 
-      // Validate that default export is a function
-      if (typeof module.default !== "function") {
-        console.warn(`Workflow file ${path} does not export a default function, skipping`);
-        continue;
-      }
-
-      const metadata: WorkflowMetadata<BaseState> = {
+      const metadata: WorkflowMetadata = {
         name,
         description: module.description ?? `Custom workflow: ${name}`,
         aliases: module.aliases,
-        createWorkflow: module.default,
         defaultConfig: module.defaultConfig,
         source,
       };
@@ -376,8 +353,8 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata<BaseStat
  * Get all workflows including built-in and dynamically loaded.
  * Local workflows override global, both override built-in.
  */
-export function getAllWorkflows(): WorkflowMetadata<BaseState>[] {
-  const allWorkflows: WorkflowMetadata<BaseState>[] = [];
+export function getAllWorkflows(): WorkflowMetadata[] {
+  const allWorkflows: WorkflowMetadata[] = [];
   const seenNames = new Set<string>();
 
   // First, add dynamically loaded workflows (local > global)
@@ -408,154 +385,6 @@ export function getAllWorkflows(): WorkflowMetadata<BaseState>[] {
 }
 
 // ============================================================================
-// WORKFLOW REGISTRY AND RESOLUTION
-// ============================================================================
-
-/**
- * Registry for workflow lookup by name.
- * Maps workflow name (lowercase) to WorkflowMetadata.
- * Built-in workflows are included automatically.
- * Populated during loadWorkflowsFromDisk() or on first access.
- */
-let workflowRegistry: Map<string, WorkflowMetadata<BaseState>> = new Map();
-
-/**
- * Flag to track if registry has been initialized.
- */
-let registryInitialized = false;
-
-/**
- * Stack to track current workflow resolution chain for circular dependency detection.
- * Used during resolveWorkflowRef() calls.
- */
-const resolutionStack: Set<string> = new Set();
-
-/**
- * Initialize the workflow registry from all available workflows.
- * Populates the registry with built-in and dynamically loaded workflows.
- */
-function initializeRegistry(): void {
-  if (registryInitialized) {
-    return;
-  }
-
-  workflowRegistry.clear();
-  const workflows = getAllWorkflows();
-
-  for (const workflow of workflows) {
-    const lowerName = workflow.name.toLowerCase();
-    if (!workflowRegistry.has(lowerName)) {
-      workflowRegistry.set(lowerName, workflow);
-    }
-
-    // Also register aliases
-    if (workflow.aliases) {
-      for (const alias of workflow.aliases) {
-        const lowerAlias = alias.toLowerCase();
-        if (!workflowRegistry.has(lowerAlias)) {
-          workflowRegistry.set(lowerAlias, workflow);
-        }
-      }
-    }
-  }
-
-  registryInitialized = true;
-}
-
-/**
- * Get a workflow from the registry by name or alias.
- *
- * @param name - Workflow name or alias (case-insensitive)
- * @returns WorkflowMetadata if found, undefined otherwise
- */
-export function getWorkflowFromRegistry(name: string): WorkflowMetadata<BaseState> | undefined {
-  initializeRegistry();
-  return workflowRegistry.get(name.toLowerCase());
-}
-
-/**
- * Resolve a workflow reference by name and create a compiled graph.
- * Used for subgraph composition where workflows reference other workflows by name.
- *
- * Includes circular dependency detection to prevent infinite recursion.
- *
- * @param name - Workflow name or alias to resolve
- * @returns Compiled workflow graph, or null if not found
- * @throws Error if circular dependency is detected
- *
- * @example
- * ```typescript
- * // Create subgraph that references another workflow by name
- * const subgraph = resolveWorkflowRef("research-codebase");
- * if (subgraph) {
- *   // Use subgraph in workflow composition
- * }
- * ```
- */
-export function resolveWorkflowRef(name: string): CompiledSubgraph<BaseState> | null {
-  const lowerName = name.toLowerCase();
-
-  // Check for circular dependency
-  if (resolutionStack.has(lowerName)) {
-    const chain = [...resolutionStack, lowerName].join(" -> ");
-    throw new Error(`Circular workflow dependency detected: ${chain}`);
-  }
-
-  // Add to resolution stack
-  resolutionStack.add(lowerName);
-
-  try {
-    // Look up workflow in registry
-    const metadata = getWorkflowFromRegistry(lowerName);
-    if (!metadata) {
-      return null;
-    }
-
-    // Create workflow with default config
-    const config = metadata.defaultConfig ?? {};
-    return metadata.createWorkflow(config) as unknown as CompiledSubgraph<BaseState>;
-  } finally {
-    // Always remove from stack, even if error
-    resolutionStack.delete(lowerName);
-  }
-}
-
-/**
- * Check if a workflow exists in the registry.
- *
- * @param name - Workflow name or alias to check
- * @returns True if workflow exists, false otherwise
- */
-export function hasWorkflow(name: string): boolean {
-  initializeRegistry();
-  return workflowRegistry.has(name.toLowerCase());
-}
-
-/**
- * Get all workflow names from the registry.
- *
- * @returns Array of workflow names (primary names, not aliases)
- */
-export function getWorkflowNames(): string[] {
-  initializeRegistry();
-  const names = new Set<string>();
-  for (const workflow of workflowRegistry.values()) {
-    names.add(workflow.name);
-  }
-  return Array.from(names);
-}
-
-/**
- * Clear and reinitialize the workflow registry.
- * Useful after loading new workflows from disk.
- */
-export function refreshWorkflowRegistry(): void {
-  registryInitialized = false;
-  workflowRegistry.clear();
-  initializeRegistry();
-}
-
-// ============================================================================
 // WORKFLOW DEFINITIONS
 // ============================================================================
 
@@ -563,53 +392,19 @@ export function refreshWorkflowRegistry(): void {
  * Built-in workflow definitions.
  * These can be overridden by local or global workflows with the same name.
  *
- * The ralph workflow is a two-step sequential graph:
+ * The ralph workflow is a two-step workflow:
  *   1. decompose — Task list decomposition from user prompt
- *   2. implement — Feature implementation via worker sub-agent
- *
- * The graph definition describes the structure; actual execution is handled
- * by createRalphCommand() which sends prompts via sendSilentMessage + initialPrompt.
+ *   2. implement — Main agent manually dispatches worker sub-agents
  */
-const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata<BaseState>[] = [
+const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata[] = [
   {
     name: "ralph",
     description: "Start autonomous implementation workflow",
     aliases: ["loop"],
     argumentHint: '"<prompt-or-spec-path>" [--resume UUID ["<prompt>"]]',
-    createWorkflow: () => {
-      const decomposeNode: NodeDefinition<BaseState> = {
-        id: "decompose",
-        type: "agent",
-        name: "Task Decomposition",
-        description: "Decompose user prompt into an ordered task list",
-        execute: async () => ({ stateUpdate: {} }),
-      };
-      const implementNode: NodeDefinition<BaseState> = {
-        id: "implement",
-        type: "agent",
-        name: "Feature Implementation",
-        description: "Implement features from the task list",
-        execute: async () => ({ stateUpdate: {} }),
-      };
-      const nodes = new Map<string, NodeDefinition<BaseState>>();
-      nodes.set("decompose", decomposeNode);
-      nodes.set("implement", implementNode);
-      return {
-        nodes,
-        edges: [{ from: "decompose", to: "implement" }],
-        startNode: "decompose",
-        endNodes: new Set(["implement"]),
-      } as unknown as CompiledGraph<BaseState>;
-    },
     source: "builtin",
   },
 ];
-
-/**
- * Exported for backwards compatibility.
- * Use getAllWorkflows() to get all workflows including dynamically loaded ones.
- */
-export const WORKFLOW_DEFINITIONS = BUILTIN_WORKFLOW_DEFINITIONS;
 
 // ============================================================================
 // COMMAND FACTORY
@@ -621,7 +416,7 @@ export const WORKFLOW_DEFINITIONS = BUILTIN_WORKFLOW_DEFINITIONS;
  * @param metadata - Workflow metadata
  * @returns Command definition for the workflow
  */
-function createWorkflowCommand(metadata: WorkflowMetadata<BaseState>): CommandDefinition {
+function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
   // Use specialized handler for ralph workflow
   if (metadata.name === "ralph") {
     return createRalphCommand(metadata);
@@ -699,7 +494,7 @@ function parseTasks(content: string): NormalizedTodoItem[] {
   return normalizeTodoItems(parsed);
 }
 
-function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefinition {
+function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
   return {
     name: metadata.name,
     description: metadata.description,
@@ -860,32 +655,8 @@ export const workflowCommands: CommandDefinition[] = BUILTIN_WORKFLOW_DEFINITION
 );
 
 /**
- * Initialize the workflow resolver for subgraph nodes.
- * This enables subgraphNode() to accept workflow names as strings
- * that are resolved at runtime via the workflow registry.
- *
- * Call this function during application initialization, after
- * loadWorkflowsFromDisk() has been called.
- *
- * @example
- * ```typescript
- * import { loadWorkflowsFromDisk, initializeWorkflowResolver } from "./workflow-commands";
- *
- * // In app initialization
- * await loadWorkflowsFromDisk();
- * initializeWorkflowResolver();
- * ```
- */
-export function initializeWorkflowResolver(): void {
-  setWorkflowResolver(resolveWorkflowRef);
-}
-
-/**
  * Register all workflow commands with the global registry.
  * Includes both built-in and dynamically loaded workflows.
- *
- * Also initializes the workflow resolver for subgraph nodes,
- * enabling subgraphNode() to accept workflow names as strings.
  *
  * Call this function during application initialization.
  * For best results, call loadWorkflowsFromDisk() first to discover custom workflows.
@@ -900,9 +671,6 @@ export function initializeWorkflowResolver(): void {
  * ```
  */
 export function registerWorkflowCommands(): void {
-  // Initialize the workflow resolver so subgraphNode can use string workflow names
-  initializeWorkflowResolver();
-
   const commands = getWorkflowCommands();
   for (const command of commands) {
     // Skip if already registered (idempotent)
@@ -919,29 +687,11 @@ export function registerWorkflowCommands(): void {
  * @param name - Workflow name
  * @returns WorkflowMetadata if found, undefined otherwise
  */
-export function getWorkflowMetadata(name: string): WorkflowMetadata<BaseState> | undefined {
+export function getWorkflowMetadata(name: string): WorkflowMetadata | undefined {
   const lowerName = name.toLowerCase();
   return getAllWorkflows().find(
     (w) =>
       w.name.toLowerCase() === lowerName ||
       w.aliases?.some((a) => a.toLowerCase() === lowerName)
   );
-}
-
-/**
- * Create a workflow instance by name.
- *
- * @param name - Workflow name (or alias)
- * @param config - Optional workflow configuration
- * @returns Compiled workflow graph, or undefined if not found
- */
-export function createWorkflowByName(
-  name: string,
-  config?: Record<string, unknown>
-): CompiledGraph<BaseState> | undefined {
-  const metadata = getWorkflowMetadata(name);
-  if (!metadata) {
-    return undefined;
-  }
-  return metadata.createWorkflow({ ...metadata.defaultConfig, ...config });
 }

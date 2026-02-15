@@ -9,6 +9,10 @@
 
 import type { SyntaxStyle } from "@opentui/core";
 import { STATUS, CHECKBOX } from "../constants/icons.ts";
+import {
+  MAIN_CHAT_TOOL_PREVIEW_LIMITS,
+  truncateToolText,
+} from "../utils/tool-preview-truncation.ts";
 
 // ============================================================================
 // TYPES
@@ -680,6 +684,8 @@ export const taskToolRenderer: ToolRenderer = {
 
   render(props: ToolRenderProps): ToolRenderResult {
     const content: string[] = [];
+    const TASK_OUTPUT_PREVIEW_LINES = 8;
+    const TASK_FIELD_MAX_CHARS = 160;
     const desc = (props.input.description as string) || "";
     const prompt = (props.input.prompt as string) || "";
     const agentType = (props.input.agent_type as string) || "";
@@ -689,12 +695,11 @@ export const taskToolRenderer: ToolRenderer = {
     if (agentType) content.push(`Agent: ${agentType}`);
     if (model) content.push(`Model: ${model}`);
     if (mode) content.push(`Mode: ${mode}`);
-    if (desc) content.push(`Task: ${desc}`);
+    if (desc) content.push(`Task: ${truncateToolText(desc, TASK_FIELD_MAX_CHARS)}`);
 
     // Show prompt (truncated if long)
     if (prompt) {
-      const truncated = prompt.length > 200 ? prompt.slice(0, 197) + "…" : prompt;
-      content.push(`Prompt: ${truncated}`);
+      content.push(`Prompt: ${truncateToolText(prompt, TASK_FIELD_MAX_CHARS)}`);
     }
 
     // Show clean result text (not raw JSON)
@@ -703,10 +708,12 @@ export const taskToolRenderer: ToolRenderer = {
       if (parsed.text) {
         content.push("");
         const lines = parsed.text.split("\n");
-        const preview = lines.slice(0, 15);
+        const preview = lines
+          .slice(0, TASK_OUTPUT_PREVIEW_LINES)
+          .map((line) => truncateToolText(line, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLineChars));
         content.push(...preview);
-        if (lines.length > 15) {
-          content.push(`… ${lines.length - 15} more lines`);
+        if (lines.length > TASK_OUTPUT_PREVIEW_LINES) {
+          content.push(`… ${lines.length - TASK_OUTPUT_PREVIEW_LINES} more lines`);
         }
       }
     }
@@ -734,6 +741,34 @@ export const todoWriteToolRenderer: ToolRenderer = {
       return prefix + t.content;
     });
     return { title, content, expandable: false };
+  },
+};
+
+// ============================================================================
+// SKILL TOOL RENDERER
+// ============================================================================
+
+/**
+ * Renderer for the Skill tool.
+ * This is a minimal renderer — the actual Skill tool UI is handled
+ * directly in ToolResult using SkillLoadIndicator, bypassing the
+ * standard tool result layout entirely.
+ */
+export const skillToolRenderer: ToolRenderer = {
+  icon: STATUS.active,
+
+  getTitle(props: ToolRenderProps): string {
+    const skillName = (props.input.skill as string) || "unknown";
+    return `Skill(${skillName})`;
+  },
+
+  render(props: ToolRenderProps): ToolRenderResult {
+    const skillName = (props.input.skill as string) || "unknown";
+    return {
+      title: `Skill(${skillName})`,
+      content: ["Successfully loaded skill"],
+      expandable: false,
+    };
   },
 };
 
@@ -767,6 +802,9 @@ export const TOOL_RENDERERS: Record<string, ToolRenderer> = {
   // Claude MultiEdit
   MultiEdit: editToolRenderer,
   multiedit: editToolRenderer,
+  // Skill tool
+  Skill: skillToolRenderer,
+  skill: skillToolRenderer,
 };
 
 // ============================================================================

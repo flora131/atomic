@@ -91,6 +91,11 @@ export interface ModelOperations {
   getPendingModel?(): string | undefined;
 }
 
+type SdkSetModelFn = (
+  model: string,
+  options?: { reasoningEffort?: string }
+) => Promise<void>;
+
 /**
  * Unified implementation of model operations using SDKs as the source of truth
  *
@@ -121,7 +126,7 @@ export class UnifiedModelOperations implements ModelOperations {
    */
   constructor(
     private agentType: AgentType,
-    private sdkSetModel?: (model: string) => Promise<void>,
+    private sdkSetModel?: SdkSetModelFn,
     private sdkListModels?: () => Promise<Array<{ value: string; displayName: string; description: string }>>,
     initialModel?: string,
   ) {
@@ -324,16 +329,23 @@ export class UnifiedModelOperations implements ModelOperations {
       await this.validateModelExists(resolvedModel);
     }
 
-    // Copilot limitation: model changes require a new session
+    // Prefer runtime SDK model switching when available.
+    if (this.sdkSetModel) {
+      await this.sdkSetModel(
+        resolvedModel,
+        this.agentType === "copilot"
+          ? { reasoningEffort: this.pendingReasoningEffort }
+          : undefined
+      );
+      this.pendingModel = undefined;
+      this.currentModel = resolvedModel;
+      return { success: true };
+    }
+
+    // Fallback for SDKs that cannot switch the active session model.
     if (this.agentType === 'copilot') {
       this.pendingModel = resolvedModel;
       return { success: true, requiresNewSession: true };
-    }
-
-    // For other agents, call SDK if available
-    // SDK handles actual model validation and will throw with clear error if invalid
-    if (this.sdkSetModel) {
-      await this.sdkSetModel(resolvedModel);
     }
 
     this.currentModel = resolvedModel;

@@ -23,9 +23,7 @@
     "src",
     ".claude",
     ".opencode",
-    ".github/skills",
-    "CLAUDE.md",
-    "AGENTS.md"
+    ".github/skills"
   ],
   "scripts": {
     "dev": "bun run src/cli.ts",

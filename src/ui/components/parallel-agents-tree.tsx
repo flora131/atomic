@@ -411,16 +411,6 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
               </text>
             </box>
           )}
-          {/* Result summary for completed agents */}
-          {isCompleted && agent.result && (
-            <box flexDirection="row">
-              <text style={{ fg: themeColors.muted }}>
-                {continuationPrefix}{SUB_STATUS_PAD}</text>
-              <text style={{ fg: themeColors.success }}>
-                {CONNECTOR.subStatus}  {truncateText(agent.result, 60)}
-              </text>
-            </box>
-          )}
         </box>
       );
     }
@@ -456,16 +446,6 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
           <box flexDirection="row">
             <text style={{ fg: themeColors.muted }}>
               {continuationPrefix}{SUB_STATUS_PAD}+{agent.toolUses} more tool use{agent.toolUses !== 1 ? "s" : ""}
-            </text>
-          </box>
-        )}
-        {/* Result summary for completed agents */}
-        {isCompleted && agent.result && (
-          <box flexDirection="row">
-            <text style={{ fg: themeColors.muted }}>
-              {continuationPrefix}{SUB_STATUS_PAD}</text>
-            <text style={{ fg: themeColors.success }}>
-              {CONNECTOR.subStatus}  {truncateText(agent.result, 60)}
             </text>
           </box>
         )}

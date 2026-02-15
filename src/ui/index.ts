@@ -508,6 +508,26 @@ export async function startChatUI(
           const input = data.toolInput as Record<string, unknown>;
           const prompt = (input.prompt as string) ?? (input.description as string) ?? "";
           pendingTaskEntries.push({ toolId, prompt: prompt || undefined });
+
+          // Eagerly create a ParallelAgent so the tree appears immediately
+          // instead of waiting for the SDK's subagent.start event (which may
+          // arrive late or not at all). When subagent.start fires later, the
+          // entry is updated in-place with the real subagentId.
+          if (state.parallelAgentHandler) {
+            const agentType = (input.subagent_type as string) ?? (input.agent_type as string) ?? "agent";
+            const taskDesc = (input.description as string) ?? prompt ?? "Sub-agent task";
+            const newAgent: ParallelAgent = {
+              id: toolId,
+              name: agentType,
+              task: taskDesc,
+              status: "running",
+              startedAt: new Date().toISOString(),
+              currentTool: `Starting ${agentType}…`,
+            };
+            state.parallelAgents = [...state.parallelAgents, newAgent];
+            state.parallelAgentHandler(state.parallelAgents);
+            toolCallToAgentMap.set(toolId, toolId);
+          }
         }
 
         // Reset post-task text suppression when the model invokes a new tool —
@@ -625,21 +645,44 @@ export async function startChatUI(
             || toolCallToAgentMap.get(toolId);
 
           if (agentId) {
+            // Set result AND finalize status — if subagent.complete never
+            // fired (eager agent path), this ensures the agent transitions
+            // from "running" → "completed" when the Task tool returns.
             state.parallelAgents = state.parallelAgents.map((a) =>
-              a.id === agentId ? { ...a, result: resultStr } : a
+              a.id === agentId
+                ? {
+                    ...a,
+                    result: resultStr,
+                    status: a.status === "running" || a.status === "pending"
+                      ? "completed" as const
+                      : a.status,
+                    currentTool: a.status === "running" || a.status === "pending"
+                      ? undefined
+                      : a.currentTool,
+                    durationMs: a.durationMs ?? (Date.now() - new Date(a.startedAt).getTime()),
+                  }
+                : a
             );
             state.parallelAgentHandler(state.parallelAgents);
             // Clean up consumed mappings
             if (sdkCorrelationId) toolCallToAgentMap.delete(sdkCorrelationId);
             toolCallToAgentMap.delete(toolId);
           } else {
-            // Fallback: find the last completed agent without a result
+            // Fallback: find the last completed-or-running agent without a result
             const agentToUpdate = [...state.parallelAgents]
               .reverse()
-              .find((a) => a.status === "completed" && !a.result);
+              .find((a) => (a.status === "completed" || a.status === "running") && !a.result);
             if (agentToUpdate) {
               state.parallelAgents = state.parallelAgents.map((a) =>
-                a.id === agentToUpdate.id ? { ...a, result: resultStr } : a
+                a.id === agentToUpdate.id
+                  ? {
+                      ...a,
+                      result: resultStr,
+                      status: "completed" as const,
+                      currentTool: undefined,
+                      durationMs: a.durationMs ?? (Date.now() - new Date(a.startedAt).getTime()),
+                    }
+                  : a
               );
               state.parallelAgentHandler(state.parallelAgents);
             }
@@ -650,6 +693,28 @@ export async function startChatUI(
           // streaming text — we suppress text that matches the result but
           // allow the model's real follow-up response through.
           state.suppressPostTaskResult = resultStr;
+        } else if (
+          isTaskTool &&
+          state.parallelAgentHandler &&
+          state.parallelAgents.length > 0
+        ) {
+          // Task tool completed without a result — still finalize any
+          // eagerly-created agent that hasn't been marked completed yet.
+          const agentId = toolCallToAgentMap.get(toolId);
+          if (agentId) {
+            state.parallelAgents = state.parallelAgents.map((a) =>
+              a.id === agentId && (a.status === "running" || a.status === "pending")
+                ? {
+                    ...a,
+                    status: "completed" as const,
+                    currentTool: undefined,
+                    durationMs: a.durationMs ?? (Date.now() - new Date(a.startedAt).getTime()),
+                  }
+                : a
+            );
+            state.parallelAgentHandler(state.parallelAgents);
+            toolCallToAgentMap.delete(toolId);
+          }
         }
 
         // Clean up tracking
@@ -733,29 +798,54 @@ export async function startChatUI(
           || data.subagentType
           || "Sub-agent";
         const agentTypeName = data.subagentType ?? "agent";
-        const newAgent: ParallelAgent = {
-          id: data.subagentId,
-          name: agentTypeName,
-          task,
-          status: "running",
-          startedAt: event.timestamp ?? new Date().toISOString(),
-          // Set initial currentTool so the agent shows activity immediately
-          // instead of just "Initializing..." until tool events arrive
-          currentTool: `Running ${agentTypeName}…`,
-        };
-        state.parallelAgents = [...state.parallelAgents, newAgent];
+
+        // Check if an eager agent was already created from tool.start.
+        // If so, update it in-place with the real subagentId instead of
+        // creating a duplicate entry.
+        const eagerToolId = pendingTaskEntry?.toolId;
+        const hasEagerAgent = eagerToolId
+          ? state.parallelAgents.some(a => a.id === eagerToolId)
+          : false;
+
+        if (hasEagerAgent && eagerToolId) {
+          // Merge: update existing eager agent with real subagentId
+          state.parallelAgents = state.parallelAgents.map(a =>
+            a.id === eagerToolId
+              ? {
+                  ...a,
+                  id: data.subagentId!,
+                  name: agentTypeName,
+                  task: data.task || a.task,
+                  currentTool: `Running ${agentTypeName}…`,
+                }
+              : a
+          );
+          // Re-point correlation: toolId now maps to the real subagentId
+          toolCallToAgentMap.set(eagerToolId, data.subagentId!);
+        } else {
+          // No eager agent — create fresh (backward compat for non-Task subagents)
+          const newAgent: ParallelAgent = {
+            id: data.subagentId,
+            name: agentTypeName,
+            task,
+            status: "running",
+            startedAt: event.timestamp ?? new Date().toISOString(),
+            currentTool: `Running ${agentTypeName}…`,
+          };
+          state.parallelAgents = [...state.parallelAgents, newAgent];
+        }
         state.parallelAgentHandler(state.parallelAgents);
 
         // Build correlation mapping: SDK-level ID → agentId
         // This allows tool.complete to attribute results to the correct agent.
         const sdkCorrelationId = data.toolUseID ?? data.toolCallId;
         if (sdkCorrelationId) {
-          toolCallToAgentMap.set(sdkCorrelationId, data.subagentId);
+          toolCallToAgentMap.set(sdkCorrelationId, data.subagentId!);
         }
         // FIFO fallback: consume pending Task toolId and map it to this agent
         const fifoToolId = pendingTaskEntry?.toolId;
         if (fifoToolId) {
-          toolCallToAgentMap.set(fifoToolId, data.subagentId);
+          toolCallToAgentMap.set(fifoToolId, data.subagentId!);
         }
       }
     });
@@ -900,6 +990,13 @@ export async function startChatUI(
       // Reset the suppress state at the start of each stream
       state.suppressPostTaskResult = null;
 
+      // Prefix-based accumulator for post-task text suppression.
+      // Tracks accumulated text so we can check if the model is echoing the
+      // sub-agent result (text arrives sequentially matching from the start)
+      // vs. generating genuine follow-up content.
+      let suppressAccumulator = "";
+      let suppressTarget: string | null = null;
+
       for await (const message of abortableStream) {
         // Handle text content
         if (message.type === "text" && typeof message.content === "string") {
@@ -911,24 +1008,43 @@ export async function startChatUI(
 
           // After a Task tool completes, the SDK model may echo back the raw
           // tool_response as streaming text. Suppress only text that looks
-          // like the echoed result (starts with JSON delimiters or is a
-          // substring of the stored result). Once non-echo text arrives,
-          // clear the suppression so the model's real response flows through.
+          // like the echoed result (starts with JSON delimiters or sequentially
+          // matches the stored result from the beginning). Once non-echo text
+          // arrives, clear the suppression so the model's real response flows.
           const cachedResult = state.suppressPostTaskResult;
+          // Reset accumulator when suppression target changes
+          if (cachedResult !== suppressTarget) {
+            suppressAccumulator = "";
+            suppressTarget = cachedResult;
+          }
           if (cachedResult !== null) {
             const trimmed = message.content.trim();
             if (trimmed.length === 0) {
-              // Skip empty/whitespace chunks while suppression is active
+              // Accumulate whitespace while suppression is active
+              suppressAccumulator += message.content;
               continue;
             }
             const isJsonEcho = trimmed.startsWith("{") || trimmed.startsWith("[");
-            const isResultSubstring = (cachedResult as string).indexOf(trimmed) !== -1;
-            if (isJsonEcho || isResultSubstring) {
+            if (isJsonEcho) {
               continue;
             }
-            // Non-echo text arrived — model is generating real output.
-            // Clear suppression and let this chunk (and all future) through.
+            // Check if accumulated text + current chunk is a prefix of the
+            // cached result. When the model echoes a result, text arrives
+            // sequentially matching from the start of the result string.
+            // The old substring check (`cachedResult.indexOf(trimmed) !== -1`)
+            // was too aggressive — small streaming chunks (single words) are
+            // almost always found as substrings of long result strings, which
+            // incorrectly suppressed the model's genuine follow-up text.
+            const candidate = (suppressAccumulator + message.content).trimStart();
+            if ((cachedResult as string).startsWith(candidate)) {
+              suppressAccumulator += message.content;
+              continue;
+            }
+            // Not an echo — clear suppression, let this chunk through.
+            // Accumulated text was part of the echo prefix and stays suppressed.
             state.suppressPostTaskResult = null;
+            suppressTarget = null;
+            suppressAccumulator = "";
           }
 
           if (message.content.length > 0) {

@@ -167,7 +167,6 @@ export async function copyDir(
         copyPromises.push(copyFile(srcPath, destPath));
       } else if (entry.isSymbolicLink()) {
         // Dereference symlinks: resolve target and copy as regular file
-        // This handles cases like AGENTS.md -> CLAUDE.md on Windows
         copyPromises.push(copySymlinkAsFile(srcPath, destPath));
       }
       // Skip other special files (block devices, etc.)

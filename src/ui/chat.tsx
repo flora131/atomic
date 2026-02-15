@@ -39,6 +39,10 @@ import {
   clearHistoryBuffer,
 } from "./utils/conversation-history-buffer.ts";
 import {
+  computeMessageWindow as computeMessageWindowInternal,
+  applyMessageWindow,
+} from "./utils/message-window.ts";
+import {
   SubagentGraphBridge,
   setSubagentBridge,
   type CreateSessionFn,
@@ -82,6 +86,14 @@ import {
   normalizeHitlAnswer,
   type HitlResponseRecord,
 } from "./utils/hitl-response.ts";
+import {
+  normalizeTodoItems,
+  type NormalizedTodoItem,
+} from "./utils/task-status.ts";
+import {
+  normalizeInterruptedTasks,
+  snapshotTaskItems,
+} from "./utils/ralph-task-state.ts";
 
 // ============================================================================
 // @ MENTION HELPERS
@@ -854,12 +866,7 @@ export function computeMessageWindow(
   trimmedMessageCount: number,
   maxVisible = MAX_VISIBLE_MESSAGES
 ): { visibleMessages: ChatMessage[]; hiddenMessageCount: number } {
-  const inMemoryOverflow = Math.max(0, messages.length - maxVisible);
-  const visibleMessages = inMemoryOverflow > 0 ? messages.slice(-maxVisible) : messages;
-  return {
-    visibleMessages,
-    hiddenMessageCount: trimmedMessageCount + inMemoryOverflow,
-  };
+  return computeMessageWindowInternal(messages, trimmedMessageCount, maxVisible);
 }
 
 // ============================================================================
@@ -1339,8 +1346,13 @@ function buildContentSegments(
   // Build segments by slicing content at insertion offsets
   const segments: ContentSegment[] = [];
   let lastOffset = 0;
+  let hasNonTextInsertions = false;
 
   for (const ins of insertions) {
+    if (ins.segment.type !== "text") {
+      hasNonTextInsertions = true;
+    }
+
     // Add text segment before this insertion (if any)
     if (ins.offset > lastOffset) {
       const textContent = content.slice(lastOffset, ins.offset).trimEnd();
@@ -1356,11 +1368,9 @@ function buildContentSegments(
     // Add the insertion segment
     segments.push(ins.segment);
 
-    // Only advance lastOffset for tool calls (which consume text)
-    // For agents/tasks, keep lastOffset where it is so text continues after them
-    if (ins.consumesText) {
-      lastOffset = ins.offset;
-    }
+    // Always advance lastOffset past the insertion point to prevent
+    // text duplication and ensure proper splitting around agents/tasks
+    lastOffset = Math.max(lastOffset, ins.offset);
   }
 
   // Add remaining text after the last insertion
@@ -1373,6 +1383,32 @@ function buildContentSegments(
         key: `text-${lastOffset}`,
       });
     }
+  }
+
+  // When there are non-text insertions (tools, agents, tasks), split text
+  // segments at paragraph boundaries (\n\n) so each paragraph renders as
+  // its own block with proper bullet indicators and spacing
+  if (hasNonTextInsertions) {
+    const splitSegments: ContentSegment[] = [];
+    for (const seg of segments) {
+      if (seg.type === "text" && seg.content) {
+        const paragraphs = seg.content.split(/\n\n+/).filter(p => p.trim());
+        if (paragraphs.length > 1) {
+          paragraphs.forEach((p, i) => {
+            splitSegments.push({
+              type: "text",
+              content: p.trim(),
+              key: `${seg.key}-p${i}`,
+            });
+          });
+        } else {
+          splitSegments.push(seg);
+        }
+      } else {
+        splitSegments.push(seg);
+      }
+    }
+    return splitSegments;
   }
 
   return segments;
@@ -1507,13 +1543,6 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
       message.tasksContentOffset,
       tasksExpanded,
     );
-    const _hasContent = segments.length > 0;
-
-    // Check if first segment is text (for bullet point prefix)
-    const firstTextSegment = segments.find(s => s.type === "text" && s.content?.trim());
-    const firstSegment = segments[0];
-    const _hasLeadingText = segments.length > 0 && firstSegment?.type === "text";
-
     // Render interleaved segments (loading spinner is at the bottom, after all content)
     return (
       <box
@@ -1546,21 +1575,23 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
         {!hideEntireMessage && segments.map((segment, index) => {
           if (segment.type === "text" && segment.content?.trim()) {
             // Text segment - add bullet prefix to first text segment
-            const isFirst = segment === firstTextSegment;
+            // or to text that follows a non-text segment (agents, tools, hitl)
+            const prevSegment = index > 0 ? segments[index - 1] : null;
+            const isNewBlock = !prevSegment || prevSegment.type !== "text";
             // Show animated blinking ● while streaming, static colored ● when done
             const isActivelyStreaming = message.streaming && index === segments.length - 1;
             // ● color: always foreground (white) for regular text — only sub-agents/tools change color
             const bulletColor = themeColors.foreground;
             // Inline bullet prefix as <span> to avoid flex layout issues
-            const bulletSpan = isFirst
+            const bulletSpan = isNewBlock
               ? (isActivelyStreaming ? <StreamingBullet speed={500} /> : <span style={{ fg: bulletColor }}>{STATUS.active} </span>)
               : "  ";
-            const trimmedContent = syntaxStyle 
+            const trimmedContent = syntaxStyle
               ? segment.content.replace(/^\n+/, "")
               : segment.content.trimStart();
             return syntaxStyle ? (
               <box key={segment.key} flexDirection="row" alignItems="flex-start" marginBottom={index < segments.length - 1 ? 1 : 0}>
-                <box flexShrink={0}>{isFirst
+                <box flexShrink={0}>{isNewBlock
                   ? (isActivelyStreaming ? <text><StreamingBullet speed={500} /></text> : <text style={{ fg: bulletColor }}>{STATUS.active} </text>)
                   : <text>  </text>}</box>
                 <box flexGrow={1} flexShrink={1} minWidth={0}>
@@ -1597,14 +1628,20 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
             );
           } else if (segment.type === "agents" && segment.agents) {
             // Parallel agents tree segment (chronologically positioned)
+            const nextSegment = segments[index + 1];
+            const addBottomGap =
+              nextSegment?.type === "text" && Boolean(nextSegment.content?.trim());
+            const prevSegment = index > 0 ? segments[index - 1] : undefined;
+            const prevIsToolOrHitl = prevSegment?.type === "tool" || prevSegment?.type === "hitl";
             return (
-              <ParallelAgentsTree
-                key={segment.key}
-                agents={segment.agents}
-                compact={true}
-                maxVisible={5}
-                noTopMargin={index === 0}
-              />
+              <box key={segment.key} marginBottom={addBottomGap ? 1 : 0}>
+                <ParallelAgentsTree
+                  agents={segment.agents}
+                  compact={true}
+                  maxVisible={5}
+                  noTopMargin={index === 0 || prevIsToolOrHitl}
+                />
+              </box>
             );
           } else if (segment.type === "tasks" && segment.taskItems) {
             // Tasks already rendered by TodoWrite tool result + persistent panel at top
@@ -1852,8 +1889,8 @@ export function ChatApp({
   const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
   const [showCompactionHistory, setShowCompactionHistory] = useState(false);
   // TodoWrite persistent state
-  const [todoItems, setTodoItems] = useState<Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>>([]);
-  const todoItemsRef = useRef<Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>>([]);
+  const [todoItems, setTodoItems] = useState<NormalizedTodoItem[]>([]);
+  const todoItemsRef = useRef<NormalizedTodoItem[]>([]);
   // Accumulates the raw text content from the current streaming response (for parsing step 1 output)
   const lastStreamingContentRef = useRef<string>("");
   // Resolver for streamAndWait: when set, handleComplete resolves the Promise instead of processing the queue
@@ -1915,11 +1952,37 @@ export function ChatApp({
   const hasRunningToolRef = useRef(false);
   // Counter to trigger effect when tools complete (used for deferred completion logic)
   const [toolCompletionVersion, setToolCompletionVersion] = useState(0);
+  // Incremented when message-window overflow eviction happens.
+  // Used to remount the scrollbox and prevent stale renderables in long sessions.
+  const [messageWindowEpoch, setMessageWindowEpoch] = useState(0);
   // Ref for scrollbox to enable programmatic scrolling
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
 
   // Create macOS-style scroll acceleration for smooth mouse wheel scrolling
   const scrollAcceleration = useMemo(() => new MacOSScrollAccel(), []);
+
+  /**
+   * Update chat messages and enforce the in-memory window cap atomically.
+   * Any overflow is persisted to transcript history and reflected in the
+   * hidden-message indicator count.
+   */
+  const setMessagesWindowed = useCallback((next: React.SetStateAction<ChatMessage[]>) => {
+    setMessages((prev) => {
+      const nextMessages = typeof next === "function"
+        ? (next as (prevState: ChatMessage[]) => ChatMessage[])(prev)
+        : next;
+      const { inMemoryMessages, evictedMessages, evictedCount } = applyMessageWindow(
+        nextMessages,
+        MAX_VISIBLE_MESSAGES
+      );
+      if (evictedCount > 0) {
+        appendToHistoryBuffer(evictedMessages);
+        setTrimmedMessageCount((count) => count + evictedCount);
+        setMessageWindowEpoch((epoch) => epoch + 1);
+      }
+      return inMemoryMessages;
+    });
+  }, []);
 
   // Live elapsed time counter for streaming indicator
   useEffect(() => {
@@ -1941,19 +2004,6 @@ export function ChatApp({
     todoItemsRef.current = todoItems;
   }, [todoItems]);
 
-  // Keep only the most recent MAX_VISIBLE_MESSAGES in memory for TUI performance.
-  // Evicted messages are persisted to the temp-file transcript buffer for Ctrl+O.
-  useEffect(() => {
-    if (messages.length <= MAX_VISIBLE_MESSAGES) return;
-    const overflowCount = messages.length - MAX_VISIBLE_MESSAGES;
-    const evicted = messages.slice(0, overflowCount);
-    const appendedCount = appendToHistoryBuffer(evicted);
-    if (appendedCount > 0) {
-      setTrimmedMessageCount((prev) => prev + appendedCount);
-    }
-    setMessages(messages.slice(overflowCount));
-  }, [messages]);
-
   // Keep ralph session refs in sync with state
   useEffect(() => {
     ralphSessionDirRef.current = ralphSessionDir;
@@ -1963,16 +2013,14 @@ export function ChatApp({
   }, [ralphSessionId]);
 
   /**
-   * Finalize task items on interrupt: mark in_progress → error, update state/ref,
+   * Finalize task items on interrupt: mark in_progress -> pending (unchecked), update state/ref,
    * persist to tasks.json if Ralph is active, and return taskItems for baking into message.
    */
   const finalizeTaskItemsOnInterrupt = useCallback((): TaskItem[] | undefined => {
     const current = todoItemsRef.current;
     if (current.length === 0) return undefined;
 
-    const updated = current.map(t =>
-      t.status === "in_progress" ? { ...t, status: "error" as const } : t
-    );
+    const updated = normalizeInterruptedTasks(current);
     todoItemsRef.current = updated;
     setTodoItems(updated);
 
@@ -1981,7 +2029,7 @@ export function ChatApp({
       void saveTasksToActiveSession(updated, ralphSessionIdRef.current);
     }
 
-    return updated.map(t => ({ id: t.id, content: t.content, status: t.status, blockedBy: t.blockedBy }));
+    return snapshotTaskItems(updated) as TaskItem[] | undefined;
   }, []);
 
   // Dynamic placeholder based on queue state
@@ -2036,7 +2084,7 @@ export function ChatApp({
     // populated one for the same logical tool call).
     const messageId = streamingMessageIdRef.current;
     if (messageId) {
-      setMessages((prev) =>
+      setMessagesWindowed((prev) =>
         prev.map((msg) => {
           if (msg.id === messageId) {
             const existing = msg.toolCalls?.find(tc => tc.id === toolId);
@@ -2085,7 +2133,7 @@ export function ChatApp({
 
     // Update persistent todo panel when TodoWrite is called
     if (toolName === "TodoWrite" && input.todos && Array.isArray(input.todos)) {
-      const todos = input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>;
+      const todos = normalizeTodoItems(input.todos);
       todoItemsRef.current = todos;
       setTodoItems(todos);
 
@@ -2096,7 +2144,7 @@ export function ChatApp({
       
       // Capture tasks offset on first TodoWrite call
       if (messageId) {
-        setMessages((prev) =>
+        setMessagesWindowed((prev) =>
           prev.map((msg) =>
             msg.id === messageId && msg.tasksContentOffset === undefined
               ? { ...msg, tasksContentOffset: msg.content.length }
@@ -2129,7 +2177,7 @@ export function ChatApp({
     // Update tool call in current streaming message
     const messageId = streamingMessageIdRef.current;
     if (messageId) {
-      setMessages((prev) => {
+      setMessagesWindowed((prev) => {
         const updated = prev.map((msg) => {
           if (msg.id === messageId && msg.toolCalls) {
             return {
@@ -2193,9 +2241,15 @@ export function ChatApp({
 
     // Update persistent todo panel when TodoWrite completes (handles late input)
     if (input && input.todos && Array.isArray(input.todos)) {
-      const todos = input.todos as Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; activeForm: string; blockedBy?: string[]}>;
+      const todos = normalizeTodoItems(input.todos);
       todoItemsRef.current = todos;
       setTodoItems(todos);
+
+      // Persist to tasks.json when ralph workflow is active (handles SDKs
+      // that only provide TodoWrite input at tool.complete time)
+      if (ralphSessionIdRef.current) {
+        void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
+      }
     }
   }, [streamingState]);
 
@@ -2212,7 +2266,7 @@ export function ChatApp({
       status: "loaded",
     };
     const messageId = streamingMessageIdRef.current;
-    setMessages((prev) => {
+    setMessagesWindowed((prev) => {
       if (messageId) {
         return prev.map((msg) =>
           msg.id === messageId
@@ -2304,7 +2358,7 @@ export function ChatApp({
             (chunk) => {
               // Drop chunks from stale streams (round-robin replaced this stream)
               if (streamGenerationRef.current !== currentGeneration) return;
-              setMessages((prev) => {
+              setMessagesWindowed((prev) => {
                 const lastMsg = prev[prev.length - 1];
                 if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
                   return [
@@ -2339,12 +2393,12 @@ export function ChatApp({
                       : a
                   );
                   // Bake finalized agents into the message
-                  setMessages((prev) => {
+                  setMessagesWindowed((prev) => {
                     const lastMsg = prev[prev.length - 1];
                     if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
                       return [
                         ...prev.slice(0, -1),
-                        { ...lastMsg, streaming: false, completedAt: new Date(), parallelAgents: finalizedAgents, taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined },
+                        { ...lastMsg, streaming: false, completedAt: new Date(), parallelAgents: finalizedAgents, taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined },
                       ];
                     }
                     return prev;
@@ -2353,12 +2407,12 @@ export function ChatApp({
                   return [];
                 }
                 // No agents — just finalize the message normally
-                setMessages((prev) => {
+                setMessagesWindowed((prev) => {
                   const lastMsg = prev[prev.length - 1];
                   if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
                     return [
                       ...prev.slice(0, -1),
-                      { ...lastMsg, streaming: false, completedAt: new Date(), taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined },
+                      { ...lastMsg, streaming: false, completedAt: new Date(), taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined },
                     ];
                   }
                   return prev;
@@ -2575,7 +2629,7 @@ export function ChatApp({
         .map((a) => a.result!.trim());
       const agentOutput = agentOutputParts.join("\n\n");
 
-      setMessages((prev: ChatMessage[]) =>
+      setMessagesWindowed((prev: ChatMessage[]) =>
         prev.map((msg: ChatMessage) =>
           msg.id === messageId
             ? {
@@ -2585,7 +2639,7 @@ export function ChatApp({
               completedAt: new Date(),
               durationMs,
               parallelAgents: finalizedAgents,
-              taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined,
+              taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
             }
             : msg
         )
@@ -2687,7 +2741,7 @@ export function ChatApp({
       activeHitlToolCallIdRef.current = null;
       answerStoredOnToolCall = true;
 
-      setMessages((prev) =>
+      setMessagesWindowed((prev) =>
         prev.map((msg) => {
           if (!msg.toolCalls?.some(tc => tc.id === hitlToolId)) return msg;
           return {
@@ -2722,7 +2776,7 @@ export function ChatApp({
         : Array.isArray(answer.selected)
           ? answer.selected.join(", ")
           : answer.selected;
-      setMessages((prev) => {
+      setMessagesWindowed((prev) => {
         const streamingIdx = prev.findIndex(m => m.streaming);
         const answerMsg = createMessage("user", answerText);
         if (streamingIdx >= 0) {
@@ -2808,7 +2862,7 @@ export function ChatApp({
     if (atMentions.length > 0 && executeCommandRef.current) {
       if (!queuedMessage.skipUserMessage) {
         const visibleContent = queuedMessage.displayContent ?? queuedMessage.content;
-        setMessages((prev: ChatMessage[]) => [...prev, createMessage("user", visibleContent)]);
+        setMessagesWindowed((prev: ChatMessage[]) => [...prev, createMessage("user", visibleContent)]);
       }
 
       const assistantMsg = createMessage("assistant", "", true);
@@ -2821,7 +2875,7 @@ export function ChatApp({
       setStreamingMeta(null);
       todoItemsRef.current = [];
       setTodoItems([]);
-      setMessages((prev: ChatMessage[]) => [...prev, assistantMsg]);
+      setMessagesWindowed((prev: ChatMessage[]) => [...prev, assistantMsg]);
 
       for (const mention of atMentions) {
         void executeCommandRef.current(mention.agentName, mention.args, "mention");
@@ -2982,7 +3036,7 @@ export function ChatApp({
    */
   const addMessage = useCallback((role: "user" | "assistant" | "system", content: string) => {
     const msg = createMessage(role, content);
-    setMessages((prev) => [...prev, msg]);
+    setMessagesWindowed((prev) => [...prev, msg]);
   }, []);
 
   /**
@@ -3113,7 +3167,7 @@ export function ChatApp({
           const assistantMessage = createMessage("assistant", "", true);
           streamingMessageIdRef.current = assistantMessage.id;
           isAgentOnlyStreamRef.current = false;
-          setMessages((prev: ChatMessage[]) => [...prev, assistantMessage]);
+          setMessagesWindowed((prev: ChatMessage[]) => [...prev, assistantMessage]);
 
           const handleChunk = (chunk: string) => {
             if (!isStreamingRef.current) return;
@@ -3125,7 +3179,7 @@ export function ChatApp({
             if (hideStreamContentRef.current) return;
             const messageId = streamingMessageIdRef.current;
             if (messageId) {
-              setMessages((prev: ChatMessage[]) =>
+              setMessagesWindowed((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
                   msg.id === messageId
                     ? { ...msg, content: msg.content + chunk }
@@ -3150,7 +3204,7 @@ export function ChatApp({
               wasInterruptedRef.current = false;
               // Just ensure streaming flags are cleared and message is finalized
               if (messageId) {
-                setMessages((prev: ChatMessage[]) =>
+                setMessagesWindowed((prev: ChatMessage[]) =>
                   prev.map((msg: ChatMessage) =>
                     msg.id === messageId
                       ? { ...msg, streaming: false, durationMs, modelId: currentModelRef.current, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs, thinkingText: finalMeta?.thinkingText || undefined }
@@ -3173,7 +3227,7 @@ export function ChatApp({
                 streamCompletionResolverRef.current = null;
                 // Remove the empty placeholder message when content was hidden
                 if (hideStreamContentRef.current && messageId) {
-                  setMessages((prev: ChatMessage[]) => prev.filter((msg: ChatMessage) => msg.id !== messageId));
+                  setMessagesWindowed((prev: ChatMessage[]) => prev.filter((msg: ChatMessage) => msg.id !== messageId));
                 }
                 hideStreamContentRef.current = false;
                 resolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
@@ -3210,7 +3264,7 @@ export function ChatApp({
                 : undefined;
 
               if (messageId) {
-                setMessages((prev: ChatMessage[]) =>
+                setMessagesWindowed((prev: ChatMessage[]) =>
                   prev.map((msg: ChatMessage) =>
                     msg.id === messageId
                       ? {
@@ -3225,7 +3279,7 @@ export function ChatApp({
                           tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                         ),
                         parallelAgents: finalizedAgents,
-                        taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined,
+                        taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
                       }
                       : msg
                   )
@@ -3250,7 +3304,7 @@ export function ChatApp({
               streamCompletionResolverRef.current = null;
               // Remove the empty placeholder message when content was hidden
               if (hideStreamContentRef.current && messageId) {
-                setMessages((prev: ChatMessage[]) => prev.filter((msg: ChatMessage) => msg.id !== messageId));
+                setMessagesWindowed((prev: ChatMessage[]) => prev.filter((msg: ChatMessage) => msg.id !== messageId));
               }
               hideStreamContentRef.current = false;
               resolver({ content: lastStreamingContentRef.current, wasInterrupted: false });
@@ -3301,7 +3355,7 @@ export function ChatApp({
         if (onResetSession) {
           await onResetSession();
         }
-        setMessages((prev) => {
+        setMessagesWindowed((prev) => {
           appendToHistoryBuffer(prev);
           return [];
         });
@@ -3368,7 +3422,7 @@ export function ChatApp({
         commandSpinnerMsgId = msg.id;
         flushSync(() => {
           setIsStreaming(true);
-          setMessages((prev) => [...prev, msg]);
+          setMessagesWindowed((prev) => [...prev, msg]);
         });
       }
     }, 250);
@@ -3404,7 +3458,7 @@ export function ChatApp({
         } else {
           appendToHistoryBuffer(messages);
         }
-        setMessages([]);
+        setMessagesWindowed([]);
         setTrimmedMessageCount(0);
       }
 
@@ -3457,7 +3511,7 @@ export function ChatApp({
           status: result.skillLoadError ? "error" : "loaded",
           errorMessage: result.skillLoadError,
         };
-        setMessages((prev) => {
+        setMessagesWindowed((prev) => {
           const lastMsg = prev[prev.length - 1];
           if (lastMsg && lastMsg.role === "assistant") {
             return [
@@ -3475,7 +3529,7 @@ export function ChatApp({
       // Track MCP snapshot in message for UI indicator
       if (result.mcpSnapshot) {
         const mcpSnapshot = result.mcpSnapshot;
-        setMessages((prev) => {
+        setMessagesWindowed((prev) => {
           const lastMsg = prev[prev.length - 1];
           if (lastMsg && lastMsg.role === "assistant") {
             return [
@@ -3493,7 +3547,7 @@ export function ChatApp({
       // Track context info in message for UI display
       if (result.contextInfo) {
         const contextInfo = result.contextInfo;
-        setMessages((prev) => {
+        setMessagesWindowed((prev) => {
           const lastMsg = prev[prev.length - 1];
           if (lastMsg && lastMsg.role === "assistant") {
             return [
@@ -3543,7 +3597,7 @@ export function ChatApp({
         );
         if ((result.message || hasStructuredPayload) && !result.clearMessages) {
           // Preserve the spinner placeholder when command data is attached to it.
-          setMessages((prev) =>
+          setMessagesWindowed((prev) =>
             prev.map((msg) =>
               msg.id === msgId
                 ? { ...msg, content: result.message ?? msg.content, streaming: false }
@@ -3552,7 +3606,7 @@ export function ChatApp({
           );
         } else {
           // Remove spinner message (either no result or messages will be cleared)
-          setMessages((prev) => prev.filter((msg) => msg.id !== msgId));
+          setMessagesWindowed((prev) => prev.filter((msg) => msg.id !== msgId));
         }
         isStreamingRef.current = false;
         setIsStreaming(false);
@@ -3573,7 +3627,7 @@ export function ChatApp({
       clearTimeout(commandSpinnerTimer);
       if (commandSpinnerShown && commandSpinnerMsgId) {
         const msgId = commandSpinnerMsgId;
-        setMessages((prev) => prev.filter((msg) => msg.id !== msgId));
+        setMessagesWindowed((prev) => prev.filter((msg) => msg.id !== msgId));
         isStreamingRef.current = false;
         setIsStreaming(false);
         streamingStartRef.current = null;
@@ -3805,13 +3859,13 @@ export function ChatApp({
             parallelAgentsRef.current = [];
             setParallelAgents([]);
 
-            // Finalize in_progress task items → error and bake into message
+            // Finalize in_progress task items -> pending and bake into message
             const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
 
             // Bake interrupted agents into message and stop streaming
             const interruptedId = streamingMessageIdRef.current;
             if (interruptedId) {
-              setMessages((prev: ChatMessage[]) =>
+              setMessagesWindowed((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
                   msg.id === interruptedId
                     ? {
@@ -3879,12 +3933,12 @@ export function ChatApp({
                   ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
                   : a
               );
-              // Finalize in_progress task items → error and bake into message
+              // Finalize in_progress task items -> pending and bake into message
               const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
 
               const interruptedId = streamingMessageIdRef.current;
               if (interruptedId) {
-                setMessages((prev: ChatMessage[]) =>
+                setMessagesWindowed((prev: ChatMessage[]) =>
                   prev.map((msg: ChatMessage) =>
                     msg.id === interruptedId
                       ? {
@@ -4049,13 +4103,13 @@ export function ChatApp({
             parallelAgentsRef.current = [];
             setParallelAgents([]);
 
-            // Finalize in_progress task items → error and bake into message
+            // Finalize in_progress task items -> pending and bake into message
             const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
 
             // Bake interrupted agents into message and stop streaming
             const interruptedId = streamingMessageIdRef.current;
             if (interruptedId) {
-              setMessages((prev: ChatMessage[]) =>
+              setMessagesWindowed((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
                   msg.id === interruptedId
                     ? {
@@ -4117,12 +4171,12 @@ export function ChatApp({
                   ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
                   : a
               );
-              // Finalize in_progress task items → error and bake into message
+              // Finalize in_progress task items -> pending and bake into message
               const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
 
               const interruptedId = streamingMessageIdRef.current;
               if (interruptedId) {
-                setMessages((prev: ChatMessage[]) =>
+                setMessagesWindowed((prev: ChatMessage[]) =>
                   prev.map((msg: ChatMessage) =>
                     msg.id === interruptedId
                       ? {
@@ -4558,7 +4612,7 @@ export function ChatApp({
       // Add user message (unless caller already added it)
       if (!options?.skipUserMessage) {
         const userMessage = createMessage("user", content);
-        setMessages((prev: ChatMessage[]) => [...prev, userMessage]);
+        setMessagesWindowed((prev: ChatMessage[]) => [...prev, userMessage]);
       }
 
       // Call send handler (fire and forget for sync callback signature)
@@ -4588,7 +4642,7 @@ export function ChatApp({
         const assistantMessage = createMessage("assistant", "", true);
         streamingMessageIdRef.current = assistantMessage.id;
         isAgentOnlyStreamRef.current = false;
-        setMessages((prev: ChatMessage[]) => [...prev, assistantMessage]);
+        setMessagesWindowed((prev: ChatMessage[]) => [...prev, assistantMessage]);
 
         // Handle stream chunks — guarded by ref to drop post-interrupt chunks
         const handleChunk = (chunk: string) => {
@@ -4597,7 +4651,7 @@ export function ChatApp({
           if (streamGenerationRef.current !== currentGeneration) return;
           const messageId = streamingMessageIdRef.current;
           if (messageId) {
-            setMessages((prev: ChatMessage[]) =>
+            setMessagesWindowed((prev: ChatMessage[]) =>
               prev.map((msg: ChatMessage) =>
                 msg.id === messageId
                   ? { ...msg, content: msg.content + chunk }
@@ -4624,7 +4678,7 @@ export function ChatApp({
           if (wasInterruptedRef.current) {
             wasInterruptedRef.current = false;
             if (messageId) {
-              setMessages((prev: ChatMessage[]) =>
+              setMessagesWindowed((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
                   msg.id === messageId
                     ? { ...msg, streaming: false, durationMs, modelId: currentModelRef.current, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs, thinkingText: finalMeta?.thinkingText || undefined }
@@ -4671,7 +4725,7 @@ export function ChatApp({
               : undefined;
 
             if (messageId) {
-              setMessages((prev: ChatMessage[]) =>
+              setMessagesWindowed((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
                   msg.id === messageId
                     ? {
@@ -4686,7 +4740,7 @@ export function ChatApp({
                         tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
                       ),
                       parallelAgents: finalizedAgents,
-                      taskItems: todoItemsRef.current.length > 0 ? todoItemsRef.current.map(t => ({ id: t.id, content: t.content, status: t.status === "in_progress" || t.status === "pending" ? "completed" as const : t.status, blockedBy: t.blockedBy })) : undefined,
+                      taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
                     }
                     : msg
                 )
@@ -4901,7 +4955,7 @@ export function ChatApp({
           setStreamingMeta(null);
           todoItemsRef.current = [];
           setTodoItems([]);
-          setMessages((prev) => [...prev, assistantMsg]);
+          setMessagesWindowed((prev) => [...prev, assistantMsg]);
 
           for (const mention of atMentions) {
             void executeCommand(mention.agentName, mention.args, "mention");
@@ -4918,7 +4972,7 @@ export function ChatApp({
         // Add user message with filesRead metadata so the UI renders it inline
         const msg = createMessage("user", trimmedValue);
         msg.filesRead = filesRead;
-        setMessages((prev) => [...prev, msg]);
+        setMessagesWindowed((prev) => [...prev, msg]);
 
         // Send processed message without re-adding the user message
         if (isStreamingRef.current) {
@@ -4945,7 +4999,7 @@ export function ChatApp({
           if (interruptedId) {
             const durationMs = streamingStartRef.current ? Date.now() - streamingStartRef.current : undefined;
             const finalMeta = streamingMetaRef.current;
-            setMessages((prev) =>
+            setMessagesWindowed((prev) =>
               prev.map((msg2) =>
                 msg2.id === interruptedId
                   ? {
@@ -5015,7 +5069,7 @@ export function ChatApp({
         if (interruptedId) {
           const durationMs = streamingStartRef.current ? Date.now() - streamingStartRef.current : undefined;
           const finalMeta = streamingMetaRef.current;
-          setMessages((prev: ChatMessage[]) =>
+          setMessagesWindowed((prev: ChatMessage[]) =>
             prev.map((msg: ChatMessage) =>
               msg.id === interruptedId
                 ? {
@@ -5073,9 +5127,10 @@ export function ChatApp({
     messages,
     trimmedMessageCount
   );
+  const renderMessages = visibleMessages;
 
   // Render message list (no empty state text)
-  const messageContent = messages.length > 0 ? (
+  const messageContent = renderMessages.length > 0 || hiddenMessageCount > 0 ? (
     <>
       {/* Truncation indicator - shows how many messages are hidden */}
       {hiddenMessageCount > 0 && (
@@ -5085,22 +5140,22 @@ export function ChatApp({
           </text>
         </box>
       )}
-      {conversationCollapsed && messages.length > 0 && (
+      {conversationCollapsed && renderMessages.length > 0 && (
         <box paddingLeft={1} marginBottom={1}>
           <text style={{ fg: themeColors.dim }}>
-            {"─".repeat(3)} {messages.length} message{messages.length !== 1 ? "s" : ""} collapsed {"─".repeat(3)}
+            {"─".repeat(3)} {renderMessages.length} message{renderMessages.length !== 1 ? "s" : ""} collapsed {"─".repeat(3)}
           </text>
         </box>
       )}
-      {visibleMessages.map((msg, index) => (
+      {renderMessages.map((msg, index) => (
         <MessageBubble
           key={msg.id}
           message={msg}
-          isLast={index === visibleMessages.length - 1}
+          isLast={index === renderMessages.length - 1}
           syntaxStyle={markdownSyntaxStyle}
           hideAskUserQuestion={activeQuestion !== null}
           hideLoading={activeQuestion !== null}
-          parallelAgents={index === visibleMessages.length - 1 ? parallelAgents : undefined}
+          parallelAgents={index === renderMessages.length - 1 ? parallelAgents : undefined}
           todoItems={msg.streaming ? todoItems : undefined}
           elapsedMs={msg.streaming ? streamingElapsedMs : undefined}
           streamingMeta={msg.streaming ? streamingMeta : null}
@@ -5162,6 +5217,7 @@ export function ChatApp({
       {/* Message display area - scrollable chat history */}
       {/* Text can be selected with mouse and copied with Ctrl+C */}
       <scrollbox
+        key={`chat-window-${messageWindowEpoch}`}
         ref={scrollboxRef}
         flexGrow={1}
         stickyScroll={true}

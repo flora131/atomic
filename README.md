@@ -108,6 +108,7 @@ atomic run claude "/research-codebase Research implementing GraphRAG using \
 - [Telemetry](#telemetry)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
+- [Contributing Guide](#contributing-guide)
 - [License](#license)
 - [Credits](#credits)
 
@@ -727,6 +728,12 @@ This keeps your main workspace free for other work while Ralph runs autonomously
 - Want explicit human-in-the-loop checkpoints
 - Need debugging workflows when implementations fail
 - Want autonomous overnight execution (Ralph) for coding agents
+
+---
+
+## Contributing Guide
+
+See [DEV_SETUP.md](DEV_SETUP.md) for development setup, testing guidelines, and contribution workflow.
 
 ---
 

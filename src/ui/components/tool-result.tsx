@@ -15,7 +15,15 @@ import {
   type ToolRenderProps,
   type ToolRenderResult,
 } from "../tools/registry.ts";
+import { SkillLoadIndicator, type SkillLoadStatus } from "./skill-load-indicator.tsx";
 import type { ToolExecutionStatus } from "../hooks/use-streaming-state.ts";
+import {
+  MAIN_CHAT_TOOL_PREVIEW_LIMITS,
+  getMainChatToolMaxLines,
+  truncateToolHeader,
+  truncateToolLines,
+  truncateToolText,
+} from "../utils/tool-preview-truncation.ts";
 
 // ============================================================================
 // TYPES
@@ -238,6 +246,24 @@ export function ToolResult({
   initialExpanded = false,
   maxCollapsedLines = 5,
 }: ToolResultProps): React.ReactNode {
+  // Skill tool: render SkillLoadIndicator directly, bypassing standard tool result layout
+  const normalizedToolName = toolName.toLowerCase();
+  if (normalizedToolName === "skill") {
+    const skillName = (input.skill as string) || "unknown";
+    const skillStatus: SkillLoadStatus =
+      status === "completed" ? "loaded" : status === "error" ? "error" : "loading";
+    const errorMessage = status === "error" && typeof output === "string" ? output : undefined;
+    return (
+      <box marginBottom={1}>
+        <SkillLoadIndicator
+          skillName={skillName}
+          status={skillStatus}
+          errorMessage={errorMessage}
+        />
+      </box>
+    );
+  }
+
   const { theme } = useTheme();
   const colors = theme.colors;
   const [expanded] = useState(initialExpanded);
@@ -245,6 +271,7 @@ export function ToolResult({
   const renderer = useMemo(() => getToolRenderer(toolName), [toolName]);
   const mcpParsed = useMemo(() => parseMcpToolName(toolName), [toolName]);
   const displayLabel = mcpParsed ? `${mcpParsed.server} / ${mcpParsed.tool}` : toolName;
+  const maxToolPreviewLines = useMemo(() => getMainChatToolMaxLines(toolName), [toolName]);
   const renderProps: ToolRenderProps = useMemo(() => ({ input, output }), [input, output]);
   const renderResult: ToolRenderResult = useMemo(() => renderer.render(renderProps), [renderer, renderProps]);
   const title = useMemo(() => renderer.getTitle(renderProps), [renderer, renderProps]);
@@ -253,15 +280,40 @@ export function ToolResult({
     [toolName, input, output, renderResult.content.length]
   );
 
-  const linkifiedTitle = title;
+  const linkifiedTitle = useMemo(
+    () => truncateToolHeader(title, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxTitleChars),
+    [title]
+  );
+  const truncatedDisplayLabel = useMemo(
+    () => truncateToolHeader(displayLabel, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLabelChars),
+    [displayLabel]
+  );
+  const truncatedSummaryText = useMemo(
+    () => truncateToolText(summary.text, MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxSummaryChars),
+    [summary.text]
+  );
+  const truncatedRenderContent = useMemo(
+    () => truncateToolLines(renderResult.content, {
+      maxLines: maxToolPreviewLines,
+      maxLineChars: MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLineChars,
+    }),
+    [renderResult.content, maxToolPreviewLines]
+  );
+  const hasError = status === "error";
+  const truncatedErrorLines = useMemo(() => {
+    if (!(hasError && typeof output === "string")) return [];
+    return truncateToolLines(output.split("\n"), {
+      maxLines: maxToolPreviewLines,
+      maxLineChars: MAIN_CHAT_TOOL_PREVIEW_LIMITS.maxLineChars,
+    }).lines;
+  }, [hasError, output, maxToolPreviewLines]);
 
   const isCollapsed = useMemo(
-    () => shouldCollapse(renderResult.content.length, maxCollapsedLines, initialExpanded),
-    [renderResult.content.length, maxCollapsedLines, initialExpanded]
+    () => shouldCollapse(truncatedRenderContent.lines.length, maxCollapsedLines, initialExpanded),
+    [truncatedRenderContent.lines.length, maxCollapsedLines, initialExpanded]
   );
 
   const isExpanded = expanded;
-  const hasError = status === "error";
 
   // Determine icon color based on status
   const iconColor = hasError ? colors.error : colors.accent;
@@ -281,24 +333,24 @@ export function ToolResult({
         {/* Tool name + title + summary — wraps as a single inline block */}
         <text>
           <span style={{ fg: colors.accent }}>
-            {displayLabel}
+            {truncatedDisplayLabel}
           </span>
           <span style={{ fg: colors.muted }}>
             {" "}{linkifiedTitle}
           </span>
           {status === "completed" && !isExpanded && (
             <span style={{ fg: colors.muted }}>
-              {" "}— {summary.text} (ctrl+o to expand)
+              {" "}— {truncatedSummaryText} (ctrl+o to expand)
             </span>
           )}
         </text>
       </box>
 
       {/* Content - only when not pending */}
-      {status !== "pending" && renderResult.content.length > 0 && (
+      {status !== "pending" && truncatedRenderContent.lines.length > 0 && (
         <box marginTop={0} marginLeft={1}>
           <CollapsibleContent
-            content={renderResult.content}
+            content={truncatedRenderContent.lines}
             expanded={isExpanded || !isCollapsed}
             maxCollapsedLines={maxCollapsedLines}
             hasError={hasError}
@@ -311,9 +363,11 @@ export function ToolResult({
       {/* Error message - separate display */}
       {hasError && typeof output === "string" && !renderResult.content.includes(output) && (
         <box marginTop={0} marginLeft={1}>
-          <text style={{ fg: colors.error }}>
-            {output}
-          </text>
+          {truncatedErrorLines.map((line, index) => (
+            <text key={index} style={{ fg: colors.error }}>
+              {line || " "}
+            </text>
+          ))}
         </box>
       )}
     </box>

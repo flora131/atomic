@@ -18,14 +18,36 @@ interface AtomicSettings {
   reasoningEffort?: Record<string, string>; // agentType -> effort level
 }
 
-/** Global settings path: ~/.atomic/settings.json */
-function globalSettingsPath(): string {
-  return join(homedir(), ".atomic", "settings.json");
+function normalizeModelPreference(agentType: string, modelId: string): string {
+  if (agentType !== "claude") {
+    return modelId;
+  }
+
+  const trimmed = modelId.trim();
+  if (trimmed.toLowerCase() === "default") {
+    return "opus";
+  }
+
+  if (trimmed.includes("/")) {
+    const parts = trimmed.split("/");
+    if (parts.length === 2 && parts[1]?.toLowerCase() === "default") {
+      return `${parts[0]}/opus`;
+    }
+  }
+
+  return trimmed;
 }
 
-/** Local settings path: {cwd}/.atomic/settings.json */
+/** Global settings path: ~/.atomic/settings.json */
+function globalSettingsPath(): string {
+  const home = process.env.ATOMIC_SETTINGS_HOME ?? homedir();
+  return join(home, ".atomic", "settings.json");
+}
+
+/** Local settings path: {cwd}/.atomic/settings.json (CWD-scoped by design) */
 function localSettingsPath(): string {
-  return join(process.cwd(), ".atomic", "settings.json");
+  const cwd = process.env.ATOMIC_SETTINGS_CWD ?? process.cwd();
+  return join(cwd, ".atomic", "settings.json");
 }
 
 function loadSettingsFile(path: string): AtomicSettings {
@@ -45,12 +67,15 @@ function loadSettingsFile(path: string): AtomicSettings {
  */
 export function getModelPreference(agentType: string): string | undefined {
   // Local overrides global
-  const local = loadSettingsFile(localSettingsPath());
-  if (local.model?.[agentType]) {
-    return local.model[agentType];
+  const localModel = loadSettingsFile(localSettingsPath()).model?.[agentType];
+  if (localModel) {
+    return normalizeModelPreference(agentType, localModel);
   }
-  const global = loadSettingsFile(globalSettingsPath());
-  return global.model?.[agentType];
+  const globalModel = loadSettingsFile(globalSettingsPath()).model?.[agentType];
+  if (globalModel) {
+    return normalizeModelPreference(agentType, globalModel);
+  }
+  return undefined;
 }
 
 /**
@@ -61,7 +86,7 @@ export function saveModelPreference(agentType: string, modelId: string): void {
     const path = globalSettingsPath();
     const settings = loadSettingsFile(path);
     settings.model = settings.model ?? {};
-    settings.model[agentType] = modelId;
+    settings.model[agentType] = normalizeModelPreference(agentType, modelId);
     const dir = dirname(path);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
     writeFileSync(path, JSON.stringify(settings, null, 2), "utf-8");

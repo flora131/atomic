@@ -179,6 +179,29 @@ function mapAuthStatusFromMcpServerStatus(status: McpServerStatus["status"]): Mc
   return undefined;
 }
 
+function normalizeClaudeModelLabel(model: string): string {
+  const stripped = stripProviderPrefix(model);
+  const lower = stripped.toLowerCase();
+
+  if (
+    lower === "default" ||
+    lower === "opus" ||
+    /(^|[-_])opus([-_]|$)/.test(lower)
+  ) {
+    return "opus";
+  }
+
+  if (lower === "sonnet" || /(^|[-_])sonnet([-_]|$)/.test(lower)) {
+    return "sonnet";
+  }
+
+  if (lower === "haiku" || /(^|[-_])haiku([-_]|$)/.test(lower)) {
+    return "haiku";
+  }
+
+  return stripped;
+}
+
 /**
  * ClaudeAgentClient implements CodingAgentClient for the Claude Agent SDK.
  *
@@ -1179,10 +1202,17 @@ export class ClaudeAgentClient implements CodingAgentClient {
     const raw = (modelHint ? stripProviderPrefix(modelHint) : null)
       ?? this.detectedModel;
     const modelKey = raw ?? "Claude";
+    const displayModel = normalizeClaudeModelLabel(modelKey);
+    const contextWindow =
+      this.capturedModelContextWindows.get(modelKey)
+      ?? this.capturedModelContextWindows.get(displayModel)
+      ?? this.probeContextWindow
+      ?? undefined;
+
     return {
-      model: modelKey,
+      model: displayModel,
       tier: "Claude Code",
-      contextWindow: this.capturedModelContextWindows.get(modelKey) ?? this.probeContextWindow ?? undefined,
+      contextWindow,
     };
   }
 

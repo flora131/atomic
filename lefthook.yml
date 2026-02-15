@@ -1,0 +1,15 @@
+pre-commit:
+  parallel: true
+  commands:
+    typecheck:
+      run: bun run typecheck
+    lint:
+      glob: "*.{ts,tsx}"
+      run: bun run lint
+    test:
+      run: bun test --bail
+
+pre-push:
+  commands:
+    test-coverage:
+      run: bun test --coverage

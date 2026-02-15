@@ -174,11 +174,17 @@ atomic init
 
 Select your agent. The CLI configures your project automatically.
 
-Then start a chat session:
+Then start a chat session and run `/init` to generate `CLAUDE.md` and `AGENTS.md`:
 
 ```bash
 atomic chat -a claude
 ```
+
+```
+/init
+```
+
+The `/init` command explores your codebase using sub-agents and generates populated `CLAUDE.md` and `AGENTS.md` files tailored to your project. These files give coding agents the context they need to work effectively in your repository.
 
 ### Source Control Selection
 
@@ -335,12 +341,13 @@ Follow the debugging report above to resolve the issue.
 
 User-invocable slash commands that orchestrate workflows.
 
-| Command              | Arguments                                 | Description                            |
-| -------------------- | ----------------------------------------- | -------------------------------------- |
-| `/research-codebase` | `[question]`                              | Analyze codebase and document findings |
-| `/create-spec`       | `[research-path]`                         | Generate technical specification       |
-| `/explain-code`      | `[path]`                                  | Explain code section in detail         |
-| `/ralph`             | `"<prompt>" [--resume UUID ["<prompt>"]]` | Run autonomous implementation workflow |
+| Command              | Arguments                                 | Description                                        |
+| -------------------- | ----------------------------------------- | -------------------------------------------------- |
+| `/init`              |                                            | Generate `CLAUDE.md` and `AGENTS.md` by exploring the codebase |
+| `/research-codebase` | `[question]`                              | Analyze codebase and document findings             |
+| `/create-spec`       | `[research-path]`                         | Generate technical specification                   |
+| `/explain-code`      | `[path]`                                  | Explain code section in detail                     |
+| `/ralph`             | `"<prompt>" [--resume UUID ["<prompt>"]]` | Run autonomous implementation workflow             |
 
 ### Agents
 
@@ -685,7 +692,7 @@ git config --global user.email "you@example.com"
 
 **Windows Command Resolution:** If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic uses `Bun.which()` to resolve command paths, which handles Windows `.cmd`, `.exe`, and `.bat` extensions automatically.
 
-**File Preservation:** When re-running `atomic init`, your custom `CLAUDE.md` and `AGENTS.md` files are preserved by default. Use `--force` to overwrite all files including `CLAUDE.md`/`AGENTS.md`.
+**Generating CLAUDE.md/AGENTS.md:** `atomic init` does not create `CLAUDE.md` or `AGENTS.md`. Run `/init` inside a chat session to generate these files. The command explores your codebase and produces project-specific documentation for coding agents.
 
 **Ralph Continues After Stopping Session:** If you stop a Ralph session (e.g., Ctrl+C or esc) and open a new session, Ralph may automatically resume. This is expected behavior—Ralph is designed to run autonomously until an exit condition is met (completion promise / max iterations / all features passing) or it's explicitly cancelled. You can still interrupt and give it instructions during execution.
 

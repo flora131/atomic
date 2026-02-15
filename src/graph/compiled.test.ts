@@ -735,9 +735,9 @@ describe("GraphExecutor - Context Access", () => {
     await executeGraph(workflow);
 
     expect(receivedContext).not.toBeNull();
-    expect(receivedContext?.state).toBeDefined();
-    expect(receivedContext?.config).toBeDefined();
-    expect(receivedContext?.errors).toBeInstanceOf(Array);
+    expect(receivedContext!.state).toBeDefined();
+    expect(receivedContext!.config).toBeDefined();
+    expect(receivedContext!.errors).toBeInstanceOf(Array);
   });
 
   test("getNodeOutput returns output from previous nodes", async () => {

@@ -19,6 +19,27 @@ export const CLAUDE_ALIASES: Record<string, string> = {
   haiku: 'haiku',
 };
 
+const CLAUDE_CANONICAL_MODELS = ["opus", "sonnet", "haiku"] as const;
+type ClaudeCanonicalModel = (typeof CLAUDE_CANONICAL_MODELS)[number];
+
+function normalizeClaudeModelInput(model: string): string {
+  const trimmed = model.trim();
+  if (trimmed.toLowerCase() === "default") {
+    return "opus";
+  }
+  if (trimmed.includes('/')) {
+    const parts = trimmed.split('/');
+    if (parts.length === 2 && parts[1]?.toLowerCase() === "default") {
+      return `${parts[0]}/opus`;
+    }
+  }
+  return trimmed;
+}
+
+function isClaudeCanonicalModel(model: string): model is ClaudeCanonicalModel {
+  return (CLAUDE_CANONICAL_MODELS as readonly string[]).includes(model);
+}
+
 /**
  * Supported agent types for model operations
  */
@@ -104,7 +125,9 @@ export class UnifiedModelOperations implements ModelOperations {
     private sdkListModels?: () => Promise<Array<{ value: string; displayName: string; description: string }>>,
     initialModel?: string,
   ) {
-    this.currentModel = initialModel;
+    this.currentModel = this.agentType === "claude" && initialModel
+      ? normalizeClaudeModelInput(initialModel)
+      : initialModel;
   }
 
   /**
@@ -143,8 +166,55 @@ export class UnifiedModelOperations implements ModelOperations {
       throw new Error('Claude model listing requires an active session (sdkListModels callback not provided)');
     }
     const modelInfos = await this.sdkListModels();
+
+    const canonicalInfo = new Map<ClaudeCanonicalModel, { value: string; displayName: string; description: string }>(
+      CLAUDE_CANONICAL_MODELS.map((model) => [
+        model,
+        {
+          value: model,
+          displayName: model.charAt(0).toUpperCase() + model.slice(1),
+          description: `Claude ${model} model alias`,
+        },
+      ])
+    );
+    const extraModels = new Map<string, { value: string; displayName: string; description: string }>();
+
+    for (const info of modelInfos) {
+      const value = info.value.trim();
+      if (!value) continue;
+      const key = value.toLowerCase();
+      if (key === "default") {
+        continue;
+      }
+
+      if (isClaudeCanonicalModel(key)) {
+        const existing = canonicalInfo.get(key)!;
+        canonicalInfo.set(key, {
+          value: key,
+          displayName: info.displayName || existing.displayName,
+          description: info.description || existing.description,
+        });
+        continue;
+      }
+
+      if (!extraModels.has(key)) {
+        extraModels.set(key, {
+          value,
+          displayName: info.displayName || value,
+          description: info.description || "",
+        });
+      }
+    }
+
+    const orderedModelInfos = [
+      ...CLAUDE_CANONICAL_MODELS.map((model) => canonicalInfo.get(model)!),
+      ...Array.from(extraModels.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([, info]) => info),
+    ];
+
     // Default context window: SDK ModelInfo lacks this field pre-query
-    return modelInfos.map(info => fromClaudeModelInfo(info, 200000));
+    return orderedModelInfos.map(info => fromClaudeModelInfo(info, 200000));
   }
 
   /**
@@ -237,6 +307,10 @@ export class UnifiedModelOperations implements ModelOperations {
       }
     }
 
+    if (this.agentType === "claude" && modelId.toLowerCase() === "default") {
+      throw new Error("Model 'default' is not supported for Claude. Use one of: opus, sonnet, haiku.");
+    }
+
     // Resolve alias if possible, otherwise use the original model
     let resolvedModel: string;
     try {
@@ -288,6 +362,9 @@ export class UnifiedModelOperations implements ModelOperations {
   }
 
   async getCurrentModel(): Promise<string | undefined> {
+    if (this.agentType === "claude" && this.currentModel) {
+      return normalizeClaudeModelInput(this.currentModel);
+    }
     return this.currentModel;
   }
 

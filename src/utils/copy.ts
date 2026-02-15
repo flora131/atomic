@@ -77,7 +77,7 @@ async function copySymlinkAsFile(src: string, dest: string): Promise<void> {
  * Uses normalized paths (forward slashes) to ensure consistent matching
  * on both Windows and Unix systems.
  */
-function shouldExclude(
+export function shouldExclude(
   relativePath: string,
   name: string,
   exclude: string[]

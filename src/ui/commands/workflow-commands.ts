@@ -24,6 +24,11 @@ import type { AtomicWorkflowState } from "../../graph/annotation.ts";
 import { setWorkflowResolver, type CompiledSubgraph } from "../../graph/nodes.ts";
 import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 import {
+  normalizeTodoItem,
+  normalizeTodoItems,
+  type NormalizedTodoItem,
+} from "../utils/task-status.ts";
+import {
   initWorkflowSession,
   saveWorkflowSession,
   getWorkflowSessionDir,
@@ -151,7 +156,7 @@ export async function saveTasksToActiveSession(
   }
   const tasksPath = join(sessionDir, "tasks.json");
   try {
-    await Bun.write(tasksPath, JSON.stringify(tasks, null, 2));
+    await Bun.write(tasksPath, JSON.stringify(tasks.map((task) => normalizeTodoItem(task)), null, 2));
   } catch (error) {
     console.error("[ralph] Failed to write tasks.json:", error);
   }
@@ -160,11 +165,11 @@ export async function saveTasksToActiveSession(
 /** Read current task state from tasks.json on disk */
 async function readTasksFromDisk(
   sessionDir: string,
-): Promise<Array<{ id?: string; content: string; status: string; activeForm: string; blockedBy?: string[] }>> {
+): Promise<NormalizedTodoItem[]> {
   const tasksPath = join(sessionDir, "tasks.json");
   try {
     const content = await readFile(tasksPath, "utf-8");
-    return JSON.parse(content) as Array<{ id?: string; content: string; status: string; activeForm: string; blockedBy?: string[] }>;
+    return normalizeTodoItems(JSON.parse(content));
   } catch {
     return [];
   }
@@ -642,9 +647,9 @@ function createWorkflowCommand(metadata: WorkflowMetadata<BaseState>): CommandDe
  * Parse a JSON task list from streaming content.
  * Handles both raw JSON arrays and content with markdown fences or extra text.
  */
-function parseTasks(content: string): TodoItem[] {
+function parseTasks(content: string): NormalizedTodoItem[] {
   const trimmed = content.trim();
-  let parsed = null;
+  let parsed: unknown = null;
   try {
     parsed = JSON.parse(trimmed);
   } catch {
@@ -658,13 +663,7 @@ function parseTasks(content: string): TodoItem[] {
     }
   }
   if (!Array.isArray(parsed) || parsed.length === 0) return [];
-  return parsed.map((t: Record<string, unknown>) => ({
-    id: String(t.id ?? ""),
-    content: String(t.content ?? ""),
-    status: String(t.status ?? "pending") as TodoItem["status"],
-    activeForm: String(t.activeForm ?? ""),
-    blockedBy: Array.isArray(t.blockedBy) ? t.blockedBy.map(String) : [],
-  }));
+  return normalizeTodoItems(parsed);
 }
 
 function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefinition {
@@ -718,11 +717,13 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
 
         context.addMessage("system", `Resuming session ${parsed.sessionId}`);
 
-        // Load tasks from disk and reset in_progress → pending (BUG-3 fix)
-        const currentTasks = await readTasksFromDisk(sessionDir);
-        for (const t of currentTasks) {
-          if (t.status === "in_progress") t.status = "pending";
-        }
+        // Load tasks from disk and reset interrupted statuses to pending so
+        // resume always starts from unchecked/retryable work.
+        const currentTasks = (await readTasksFromDisk(sessionDir)).map((task) =>
+          task.status === "in_progress" || task.status === "error"
+            ? { ...task, status: "pending" as const }
+            : task
+        );
         await saveTasksToActiveSession(currentTasks, parsed.sessionId);
 
         // Update TodoPanel summary with loaded tasks (BUG-6 fix)
@@ -816,7 +817,7 @@ function createRalphCommand(metadata: WorkflowMetadata<BaseState>): CommandDefin
 
 export function watchTasksJson(
   sessionDir: string,
-  onUpdate: (items: TodoItem[]) => void,
+  onUpdate: (items: NormalizedTodoItem[]) => void,
 ): () => void {
   const tasksPath = join(sessionDir, "tasks.json");
 
@@ -826,7 +827,7 @@ export function watchTasksJson(
     if (filename !== "tasks.json") return;
     try {
       const content = await readFile(tasksPath, "utf-8");
-      const tasks = JSON.parse(content) as TodoItem[];
+      const tasks = normalizeTodoItems(JSON.parse(content));
       onUpdate(tasks);
     } catch {
       // File may not exist yet or be mid-write; ignore

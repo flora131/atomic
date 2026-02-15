@@ -120,3 +120,54 @@ export function sortTasksTopologically(tasks: TaskItem[]): TaskItem[] {
 
   return [...sortedTasks, ...unresolvedTail];
 }
+
+/**
+ * Filter tasks to get only those that are ready to execute.
+ *
+ * A task is "ready" if:
+ * - Its status is "pending"
+ * - All of its blockedBy dependencies have status "completed"
+ *
+ * Returns tasks in their original order. Use sortTasksTopologically first
+ * if you need them in dependency order.
+ */
+export function getReadyTasks(tasks: TaskItem[]): TaskItem[] {
+  // Build a map from normalized task IDs to their status
+  const statusByNormalizedId = new Map<string, TaskItem["status"]>();
+  
+  for (const task of tasks) {
+    const normalizedId = normalizeTaskId(task.id);
+    if (normalizedId) {
+      statusByNormalizedId.set(normalizedId, task.status);
+    }
+  }
+
+  // Filter tasks to find ready ones
+  const readyTasks: TaskItem[] = [];
+
+  for (const task of tasks) {
+    // Must be pending
+    if (task.status !== "pending") {
+      continue;
+    }
+
+    // Get normalized blockers
+    const blockedBy = Array.isArray(task.blockedBy) ? task.blockedBy : [];
+    const normalizedBlockers = blockedBy
+      .map((blockerId) => normalizeTaskId(blockerId))
+      .filter((id): id is string => id !== null);
+
+    // Check if all blockers are completed
+    const allBlockersCompleted = normalizedBlockers.every((blockerId) => {
+      const status = statusByNormalizedId.get(blockerId);
+      return status === "completed";
+    });
+
+    // If there are no blockers or all blockers are completed, task is ready
+    if (normalizedBlockers.length === 0 || allBlockersCompleted) {
+      readyTasks.push(task);
+    }
+  }
+
+  return readyTasks;
+}

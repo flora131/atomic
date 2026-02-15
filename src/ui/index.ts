@@ -289,11 +289,15 @@ export async function startChatUI(
   const sdkListModels = agentType === 'claude' && 'listSupportedModels' in client
     ? () => (client as import('../sdk/claude-client.ts').ClaudeAgentClient).listSupportedModels()
     : undefined;
-  const sdkSetModel = agentType === 'opencode' && 'setActivePromptModel' in client
-    ? async (model: string) => {
-        await (client as import('../sdk/opencode-client.ts').OpenCodeClient).setActivePromptModel(model);
+  const sdkSetModel = agentType === "opencode" && "setActivePromptModel" in client
+    ? async (selectedModel: string) => {
+        await (client as import("../sdk/opencode-client.ts").OpenCodeClient).setActivePromptModel(selectedModel);
       }
-    : undefined;
+    : agentType && "setActiveSessionModel" in client
+      ? async (selectedModel: string, options?: { reasoningEffort?: string }) => {
+          await client.setActiveSessionModel?.(selectedModel, options);
+        }
+      : undefined;
   const modelOps = agentType ? new UnifiedModelOperations(agentType, sdkSetModel, sdkListModels, sessionConfig?.model) : undefined;
 
   // Initialize state

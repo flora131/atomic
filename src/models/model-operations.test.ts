@@ -182,6 +182,37 @@ describe("UnifiedModelOperations - setModel", () => {
     expect(ops.getPendingModel()).toBe("gpt-4o");
   });
 
+  test("switches Copilot model immediately when SDK model setter is available", async () => {
+    let capturedModel: string | undefined;
+    let capturedReasoningEffort: string | undefined;
+    const mockSetModel = async (
+      model: string,
+      options?: { reasoningEffort?: string }
+    ) => {
+      capturedModel = model;
+      capturedReasoningEffort = options?.reasoningEffort;
+    };
+    const ops = new UnifiedModelOperations("copilot", mockSetModel);
+    const mockModels = [
+      createMockModel({
+        id: "github-copilot/gpt-4o",
+        providerID: "github-copilot",
+        modelID: "gpt-4o",
+      }),
+    ];
+    spyOn(ops, "listAvailableModels").mockResolvedValue(mockModels);
+    ops.setPendingReasoningEffort("high");
+
+    const result = await ops.setModel("gpt-4o");
+
+    expect(result.success).toBe(true);
+    expect(result.requiresNewSession).toBeUndefined();
+    expect(capturedModel).toBe("gpt-4o");
+    expect(capturedReasoningEffort).toBe("high");
+    expect(await ops.getCurrentModel()).toBe("gpt-4o");
+    expect(ops.getPendingModel()).toBeUndefined();
+  });
+
   test("validates model exists for Copilot before setting", async () => {
     const ops = new UnifiedModelOperations("copilot");
     // Populate the cache through the public API by mocking listAvailableModels

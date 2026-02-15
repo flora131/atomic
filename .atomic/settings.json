@@ -1,6 +1,0 @@
-{
-  "model": {
-    "claude": "opus",
-    "copilot": "github-copilot/claude-opus-4.6-fast"
-  }
-}

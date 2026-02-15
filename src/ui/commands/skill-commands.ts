@@ -11,9 +11,9 @@
  */
 
 import type {
-  CommandDefinition,
-  CommandContext,
-  CommandResult,
+    CommandDefinition,
+    CommandContext,
+    CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -29,12 +29,12 @@ import { parseMarkdownFrontmatter } from "../../utils/markdown.ts";
  * Metadata for a skill command definition.
  */
 export interface SkillMetadata {
-  /** Skill name (without leading slash) - used as command name */
-  name: string;
-  /** Human-readable description */
-  description: string;
-  /** Alternative names for the skill */
-  aliases?: string[];
+    /** Skill name (without leading slash) - used as command name */
+    name: string;
+    /** Human-readable description */
+    description: string;
+    /** Alternative names for the skill */
+    aliases?: string[];
 }
 
 /**
@@ -45,18 +45,18 @@ export interface SkillMetadata {
  * and not dependent on external files.
  */
 export interface BuiltinSkill {
-  /** Skill name (without leading slash) - used as command name */
-  name: string;
-  /** Human-readable description of what the skill does */
-  description: string;
-  /** Alternative command names for the skill */
-  aliases?: string[];
-  /** Full prompt content (supports $ARGUMENTS placeholder) */
-  prompt: string;
-  /** Hint text showing expected arguments (e.g., "[message] [--amend]") */
-  argumentHint?: string;
-  /** List of required argument names. Command returns an error when any are missing. */
-  requiredArguments?: string[];
+    /** Skill name (without leading slash) - used as command name */
+    name: string;
+    /** Human-readable description of what the skill does */
+    description: string;
+    /** Alternative command names for the skill */
+    aliases?: string[];
+    /** Full prompt content (supports $ARGUMENTS placeholder) */
+    prompt: string;
+    /** Hint text showing expected arguments (e.g., "[message] [--amend]") */
+    argumentHint?: string;
+    /** List of required argument names. Command returns an error when any are missing. */
+    requiredArguments?: string[];
 }
 
 // ============================================================================
@@ -70,13 +70,14 @@ export interface BuiltinSkill {
  * They take priority over disk-based skill definitions.
  */
 export const BUILTIN_SKILLS: BuiltinSkill[] = [
-  {
-    name: "research-codebase",
-    description: "Document codebase as-is with research directory for historical context",
-    aliases: ["research"],
-    argumentHint: "<research-question>",
-    requiredArguments: ["research-question"],
-    prompt: `# Research Codebase
+    {
+        name: "research-codebase",
+        description:
+            "Document codebase as-is with research directory for historical context",
+        aliases: ["research"],
+        argumentHint: "<research-question>",
+        requiredArguments: ["research-question"],
+        prompt: `# Research Codebase
 
 You are tasked with conducting comprehensive research across the codebase to answer user questions by spawning parallel sub-agents and synthesizing their findings.
 
@@ -276,14 +277,15 @@ research/
 
 - A collection of research files with comprehensive research findings, properly formatted and linked, ready for consumption to create detailed specifications or design documents.
 - IMPORTANT: DO NOT generate any other artifacts or files OUTSIDE of the \`research/\` directory.`,
-  },
-  {
-    name: "create-spec",
-    description: "Create a detailed execution plan for implementing features or refactors in a codebase by leveraging existing research in the specified `research` directory.",
-    aliases: ["spec"],
-    argumentHint: "<research-path>",
-    requiredArguments: ["research-path"],
-    prompt: `You are tasked with creating a spec for implementing a new feature or system change in the codebase by leveraging existing research in the **$ARGUMENTS** path. If no research path is specified, use the entire \`research/\` directory. IMPORTANT: Research documents are located in the \`research/\` directory — do NOT look in the \`specs/\` directory for research. Follow the template below to produce a comprehensive specification as output in the \`specs/\` folder using the findings from RELEVANT research documents found in \`research/\`. Tip: It's good practice to use the \`codebase-research-locator\` and \`codebase-research-analyzer\` agents to help you find and analyze the research documents in the \`research/\` directory. It is also HIGHLY recommended to cite relevant research throughout the spec for additional context.
+    },
+    {
+        name: "create-spec",
+        description:
+            "Create a detailed execution plan for implementing features or refactors in a codebase by leveraging existing research in the specified `research` directory.",
+        aliases: ["spec"],
+        argumentHint: "<research-path>",
+        requiredArguments: ["research-path"],
+        prompt: `You are tasked with creating a spec for implementing a new feature or system change in the codebase by leveraging existing research in the **$ARGUMENTS** path. If no research path is specified, use the entire \`research/\` directory. IMPORTANT: Research documents are located in the \`research/\` directory — do NOT look in the \`specs/\` directory for research. Follow the template below to produce a comprehensive specification as output in the \`specs/\` folder using the findings from RELEVANT research documents found in \`research/\`. Tip: It's good practice to use the \`codebase-research-locator\` and \`codebase-research-analyzer\` agents to help you find and analyze the research documents in the \`research/\` directory. It is also HIGHLY recommended to cite relevant research throughout the spec for additional context.
 
 <EXTREMELY_IMPORTANT>
 Please DO NOT implement anything in this stage, just create the comprehensive spec as described below.
@@ -505,7 +507,7 @@ flowchart TB
 
 ### 8.3 Test Plan
 
-- **Unit Tests:** 
+- **Unit Tests:**
 - **Integration Tests:**
 - **End-to-End Tests:**
 
@@ -515,14 +517,14 @@ flowchart TB
 
 - [ ] Will the Legal team approve the 3rd party library for PDF generation?
 - [ ] Does the current VPC peering allow connection to the legacy mainframe?`,
-  },
-  {
-    name: "explain-code",
-    description: "Explain code functionality in detail.",
-    aliases: ["explain"],
-    argumentHint: "<code-path>",
-    requiredArguments: ["code-path"],
-    prompt: `# Analyze and Explain Code Functionality
+    },
+    {
+        name: "explain-code",
+        description: "Explain code functionality in detail.",
+        aliases: ["explain"],
+        argumentHint: "<code-path>",
+        requiredArguments: ["code-path"],
+        prompt: `# Analyze and Explain Code Functionality
 
 ## Available Tools
 
@@ -723,14 +725,15 @@ Remember to:
 - Include visual diagrams or flowcharts when helpful
 - Tailor the explanation level to the intended audience
 - Use DeepWiki to look up external library documentation when encountering unfamiliar dependencies`,
-  },
-  {
-    name: "prompt-engineer",
-    description: "Skill: Create, improve, or optimize prompts for Claude using best practices",
-    aliases: ["prompt"],
-    argumentHint: "<prompt-description>",
-    requiredArguments: ["prompt-description"],
-    prompt: `# Prompt Engineering Skill
+    },
+    {
+        name: "prompt-engineer",
+        description:
+            "Skill: Create, improve, or optimize prompts for Claude using best practices",
+        aliases: ["prompt"],
+        argumentHint: "<prompt-description>",
+        requiredArguments: ["prompt-description"],
+        prompt: `# Prompt Engineering Skill
 
 This skill provides comprehensive guidance for creating effective prompts for Claude based on Anthropic's official best practices. Use this skill whenever working on prompt design, optimization, or troubleshooting.
 
@@ -900,12 +903,13 @@ Always validate critical outputs, especially for high-stakes applications. No pr
 
 **Experimentation**
 Prompt engineering is iterative. Small changes can have significant impacts. Test variations and measure results.`,
-  },
-  {
-    name: "testing-anti-patterns",
-    description: "Skill: Identify and prevent testing anti-patterns when writing tests",
-    aliases: ["test-patterns"],
-    prompt: `# Testing Anti-Patterns
+    },
+    {
+        name: "testing-anti-patterns",
+        description:
+            "Skill: Identify and prevent testing anti-patterns when writing tests",
+        aliases: ["test-patterns"],
+        prompt: `# Testing Anti-Patterns
 
 ## Overview
 
@@ -1097,13 +1101,113 @@ TDD cycle:
 
 If TDD reveals you're testing mock behavior, you've gone wrong.
 Fix: Test real behavior or question why you're mocking at all.`,
-  },
-  {
-    name: "frontend-design",
-    description: "Create distinctive, production-grade frontend interfaces with high design quality",
-    aliases: ["fd", "design"],
-    argumentHint: "<requirements>",
-    prompt: `This skill guides creation of distinctive, production-grade frontend interfaces that avoid generic "AI slop" aesthetics. Implement real working code with exceptional attention to aesthetic details and creative choices.
+    },
+    {
+        name: "init",
+        description:
+            "Generate CLAUDE.md and AGENTS.md by exploring the codebase",
+        prompt: `# Generate CLAUDE.md and AGENTS.md
+
+You are tasked with exploring the current codebase with the codebase-analyzer, codebase-locator, codebase-pattern-finder sub-agents and generating populated \`CLAUDE.md\` and \`AGENTS.md\` files at the project root. These files provide coding agents with the context they need to work effectively in this repository.
+
+## Steps
+
+1. **Explore the codebase to discover project metadata:**
+   - Read \`package.json\`, \`Cargo.toml\`, \`go.mod\`, \`pyproject.toml\`, \`Gemfile\`, \`pom.xml\`, or similar manifest files
+   - Scan the top-level directory structure (\`src/\`, \`lib/\`, \`app/\`, \`tests/\`, \`docs/\`, etc.)
+   - Check for existing config files: \`.eslintrc\`, \`tsconfig.json\`, \`biome.json\`, \`oxlint.json\`, \`.prettierrc\`, CI configs (\`.github/workflows/\`, \`.gitlab-ci.yml\`), etc.
+   - Read \`README.md\` if it exists for project description and setup instructions
+   - Check for \`.env.example\`, \`.env.local\`, or similar environment files
+   - Identify the package manager (bun, npm, yarn, pnpm, cargo, go, pip, etc.)
+
+2. **Identify key project attributes:**
+   - **Project name**: From manifest file or directory name
+   - **Project purpose**: 1-2 sentence description from README or manifest
+   - **Project structure**: Key directories and their purposes
+   - **Tech stack**: Language, framework, runtime
+   - **Commands**: dev, build, test, lint, typecheck, format (from scripts in manifest)
+   - **Environment setup**: Required env vars, env example files
+   - **Verification command**: The command to run before commits (usually lint + typecheck + test)
+   - **Existing documentation**: Links to docs within the repo
+
+3. **Populate the template below** with discovered values. Replace every \`{{placeholder}}\` with actual values from the repo. Delete sections that don't apply (e.g., Environment if there are no env files). Remove the "How to Fill This Template" meta-section entirely.
+
+4. **Write the populated content** to both \`CLAUDE.md\` and \`AGENTS.md\` at the project root with identical content.
+
+## Template
+
+\`\`\`markdown
+# {{PROJECT_NAME}}
+
+## Overview
+
+{{1-2 sentences describing the project purpose}}
+
+## Project Structure
+
+| Path       | Type     | Purpose     |
+| ---------- | -------- | ----------- |
+| \\\`{{path}}\\\` | {{type}} | {{purpose}} |
+
+## Quick Reference
+
+### Commands
+
+\\\`\\\`\\\`bash
+{{dev_command}}              # Start dev server / all services
+{{build_command}}            # Build the project
+{{test_command}}             # Run tests
+{{lint_command}}             # Lint & format check
+{{typecheck_command}}        # Type-check (if applicable)
+\\\`\\\`\\\`
+
+### Environment
+
+- Copy \\\`{{env_example_file}}\\\` → \\\`{{env_local_file}}\\\` for local development
+- Required vars: {{comma-separated list of required env vars}}
+
+## Progressive Disclosure
+
+Read relevant docs before starting:
+| Topic | Location |
+| ----- | -------- |
+| {{topic}} | \\\`{{path_to_doc}}\\\` |
+
+## Universal Rules
+
+1. Run \\\`{{verify_command}}\\\` before commits
+2. Keep PRs focused on a single concern
+3. {{Add any project-specific universal rules}}
+
+## Code Quality
+
+Formatting and linting are handled by automated tools:
+
+- \\\`{{lint_command}}\\\` — {{linter/formatter names}}
+- \\\`{{format_command}}\\\` — Auto-fix formatting (if separate from lint)
+
+Run before committing. Don't manually check style—let tools do it.
+\`\`\`
+
+## Important Notes
+
+- **Keep it under 100 lines** (ideally under 60) after populating
+- **Every instruction must be universally applicable** to all tasks in the repo
+- **No code style rules** — delegate to linters/formatters
+- **No task-specific instructions** — use the progressive disclosure table
+- **No code snippets** — use \`file:line\` pointers instead
+- **Include verification commands** the agent can run to validate work
+- Delete any section from the template that doesn't apply to this project
+- Do NOT include the "How to Fill This Template" section in the output
+- Write identical content to both \`CLAUDE.md\` and \`AGENTS.md\` at the project root`,
+    },
+    {
+        name: "frontend-design",
+        description:
+            "Create distinctive, production-grade frontend interfaces with high design quality",
+        aliases: ["fd", "design"],
+        argumentHint: "<requirements>",
+        prompt: `This skill guides creation of distinctive, production-grade frontend interfaces that avoid generic "AI slop" aesthetics. Implement real working code with exceptional attention to aesthetic details and creative choices.
 
 The user provides frontend requirements: $ARGUMENTS
 
@@ -1139,7 +1243,7 @@ Interpret creatively and make unexpected choices that feel genuinely designed fo
 **IMPORTANT**: Match implementation complexity to the aesthetic vision. Maximalist designs need elaborate code with extensive animations and effects. Minimalist or refined designs need restraint, precision, and careful attention to spacing, typography, and subtle details. Elegance comes from executing the vision well.
 
 Remember: Claude is capable of extraordinary creative work. Don't hold back, show what can truly be created when thinking outside the box and committing fully to a distinctive vision.`,
-  },
+    },
 ];
 
 // ============================================================================
@@ -1153,27 +1257,29 @@ Remember: Claude is capable of extraordinary creative work. Don't hold back, sho
  * These are loaded from disk and are used as fallback when no built-in skill exists.
  */
 export const SKILL_DEFINITIONS: SkillMetadata[] = [
-  // Core skills
-  {
-    name: "research-codebase",
-    description: "Document codebase as-is with research directory for historical context",
-    aliases: ["research"],
-  },
-  {
-    name: "create-spec",
-    description: "Create a detailed execution plan for implementing features or refactors in a codebase by leveraging existing research in the specified `research` directory.",
-    aliases: ["spec"],
-  },
-  {
-    name: "explain-code",
-    description: "Explain code functionality in detail.",
-    aliases: ["explain"],
-  },
+    // Core skills
+    {
+        name: "research-codebase",
+        description:
+            "Document codebase as-is with research directory for historical context",
+        aliases: ["research"],
+    },
+    {
+        name: "create-spec",
+        description:
+            "Create a detailed execution plan for implementing features or refactors in a codebase by leveraging existing research in the specified `research` directory.",
+        aliases: ["spec"],
+    },
+    {
+        name: "explain-code",
+        description: "Explain code functionality in detail.",
+        aliases: ["explain"],
+    },
 
-  // Note: ralph:ralph-loop, ralph:cancel-ralph, and ralph:ralph-help replaced by SDK-native /ralph workflow
-  // Help for Ralph is now integrated into /help command, and /ralph description provides usage info
+    // Note: ralph:ralph-loop, ralph:cancel-ralph, and ralph:ralph-help replaced by SDK-native /ralph workflow
+    // Help for Ralph is now integrated into /help command, and /ralph description provides usage info
 
-  // Note: prompt-engineer and testing-anti-patterns moved to BUILTIN_SKILLS
+    // Note: prompt-engineer and testing-anti-patterns moved to BUILTIN_SKILLS
 ];
 
 // ============================================================================
@@ -1184,7 +1290,7 @@ export const SKILL_DEFINITIONS: SkillMetadata[] = [
  * Expand $ARGUMENTS placeholder in skill prompt with user arguments.
  */
 function expandArguments(prompt: string, args: string): string {
-  return prompt.replace(/\$ARGUMENTS/g, args || "[no arguments provided]");
+    return prompt.replace(/\$ARGUMENTS/g, args || "[no arguments provided]");
 }
 
 /**
@@ -1194,12 +1300,12 @@ function expandArguments(prompt: string, args: string): string {
  * @returns BuiltinSkill if found, undefined otherwise
  */
 export function getBuiltinSkill(name: string): BuiltinSkill | undefined {
-  const lowerName = name.toLowerCase();
-  return BUILTIN_SKILLS.find(
-    (s) =>
-      s.name.toLowerCase() === lowerName ||
-      s.aliases?.some((a) => a.toLowerCase() === lowerName)
-  );
+    const lowerName = name.toLowerCase();
+    return BUILTIN_SKILLS.find(
+        (s) =>
+            s.name.toLowerCase() === lowerName ||
+            s.aliases?.some((a) => a.toLowerCase() === lowerName),
+    );
 }
 
 // ============================================================================
@@ -1213,48 +1319,53 @@ export function getBuiltinSkill(name: string): BuiltinSkill | undefined {
  * @returns Command definition for the skill
  */
 function createSkillCommand(metadata: SkillMetadata): CommandDefinition {
-  return {
-    name: metadata.name,
-    description: metadata.description,
-    category: "skill",
-    aliases: metadata.aliases,
-    execute: (args: string, context: CommandContext): CommandResult => {
-      const skillArgs = args.trim();
+    return {
+        name: metadata.name,
+        description: metadata.description,
+        category: "skill",
+        aliases: metadata.aliases,
+        execute: (args: string, context: CommandContext): CommandResult => {
+            const skillArgs = args.trim();
 
-      // Check for builtin skill with embedded prompt
-      const builtinSkill = getBuiltinSkill(metadata.name);
-      if (builtinSkill) {
-        // Validate required arguments for builtin skills
-        if (builtinSkill.requiredArguments?.length && !skillArgs) {
-          const argList = builtinSkill.requiredArguments.map((a) => `<${a}>`).join(" ");
-          return {
-            success: false,
-            message: `Missing required argument.\nUsage: /${builtinSkill.name} ${argList}`,
-          };
-        }
+            // Check for builtin skill with embedded prompt
+            const builtinSkill = getBuiltinSkill(metadata.name);
+            if (builtinSkill) {
+                // Validate required arguments for builtin skills
+                if (builtinSkill.requiredArguments?.length && !skillArgs) {
+                    const argList = builtinSkill.requiredArguments
+                        .map((a) => `<${a}>`)
+                        .join(" ");
+                    return {
+                        success: false,
+                        message: `Missing required argument.\nUsage: /${builtinSkill.name} ${argList}`,
+                    };
+                }
 
-        // Use the embedded prompt directly
-        const expandedPrompt = expandArguments(builtinSkill.prompt, skillArgs);
-        context.sendSilentMessage(expandedPrompt);
-        return {
-          success: true,
-        };
-      }
+                // Use the embedded prompt directly
+                const expandedPrompt = expandArguments(
+                    builtinSkill.prompt,
+                    skillArgs,
+                );
+                context.sendSilentMessage(expandedPrompt);
+                return {
+                    success: true,
+                };
+            }
 
-      // Fallback: send slash command to agent's native skill system
-      // This handles skills that aren't in BUILTIN_SKILLS (e.g., ralph:* skills)
-      // The agent SDK may process it internally.
-      const invocationMessage = skillArgs
-        ? `/${metadata.name} ${skillArgs}`
-        : `/${metadata.name}`;
-      context.sendSilentMessage(invocationMessage);
+            // Fallback: send slash command to agent's native skill system
+            // This handles skills that aren't in BUILTIN_SKILLS (e.g., ralph:* skills)
+            // The agent SDK may process it internally.
+            const invocationMessage = skillArgs
+                ? `/${metadata.name} ${skillArgs}`
+                : `/${metadata.name}`;
+            context.sendSilentMessage(invocationMessage);
 
-      return {
-        success: true,
-        // No message displayed - the agent will handle displaying the skill output
-      };
-    },
-  };
+            return {
+                success: true,
+                // No message displayed - the agent will handle displaying the skill output
+            };
+        },
+    };
 }
 
 // ============================================================================
@@ -1268,32 +1379,34 @@ function createSkillCommand(metadata: SkillMetadata): CommandDefinition {
  * @returns Command definition for the skill
  */
 function createBuiltinSkillCommand(skill: BuiltinSkill): CommandDefinition {
-  return {
-    name: skill.name,
-    description: skill.description,
-    category: "skill",
-    aliases: skill.aliases,
-    argumentHint: skill.argumentHint,
-    execute: (args: string, context: CommandContext): CommandResult => {
-      const skillArgs = args.trim();
+    return {
+        name: skill.name,
+        description: skill.description,
+        category: "skill",
+        aliases: skill.aliases,
+        argumentHint: skill.argumentHint,
+        execute: (args: string, context: CommandContext): CommandResult => {
+            const skillArgs = args.trim();
 
-      // Validate required arguments
-      if (skill.requiredArguments?.length && !skillArgs) {
-        const argList = skill.requiredArguments.map((a) => `<${a}>`).join(" ");
-        return {
-          success: false,
-          message: `Missing required argument.\nUsage: /${skill.name} ${argList}`,
-        };
-      }
+            // Validate required arguments
+            if (skill.requiredArguments?.length && !skillArgs) {
+                const argList = skill.requiredArguments
+                    .map((a) => `<${a}>`)
+                    .join(" ");
+                return {
+                    success: false,
+                    message: `Missing required argument.\nUsage: /${skill.name} ${argList}`,
+                };
+            }
 
-      // Use the embedded prompt directly and expand $ARGUMENTS
-      const expandedPrompt = expandArguments(skill.prompt, skillArgs);
-      context.sendSilentMessage(expandedPrompt);
-      return {
-        success: true,
-      };
-    },
-  };
+            // Use the embedded prompt directly and expand $ARGUMENTS
+            const expandedPrompt = expandArguments(skill.prompt, skillArgs);
+            context.sendSilentMessage(expandedPrompt);
+            return {
+                success: true,
+            };
+        },
+    };
 }
 
 // ============================================================================
@@ -1303,15 +1416,14 @@ function createBuiltinSkillCommand(skill: BuiltinSkill): CommandDefinition {
 /**
  * Skill commands created from definitions (legacy disk-based fallback).
  */
-export const skillCommands: CommandDefinition[] = SKILL_DEFINITIONS.map(
-  createSkillCommand
-);
+export const skillCommands: CommandDefinition[] =
+    SKILL_DEFINITIONS.map(createSkillCommand);
 
 /**
  * Builtin skill commands created from BUILTIN_SKILLS array.
  */
 export const builtinSkillCommands: CommandDefinition[] = BUILTIN_SKILLS.map(
-  createBuiltinSkillCommand
+    createBuiltinSkillCommand,
 );
 
 /**
@@ -1329,12 +1441,12 @@ export const builtinSkillCommands: CommandDefinition[] = BUILTIN_SKILLS.map(
  * ```
  */
 export function registerBuiltinSkills(): void {
-  for (const command of builtinSkillCommands) {
-    // Skip if already registered (idempotent)
-    if (!globalRegistry.has(command.name)) {
-      globalRegistry.register(command);
+    for (const command of builtinSkillCommands) {
+        // Skip if already registered (idempotent)
+        if (!globalRegistry.has(command.name)) {
+            globalRegistry.register(command);
+        }
     }
-  }
 }
 
 /**
@@ -1352,16 +1464,16 @@ export function registerBuiltinSkills(): void {
  * ```
  */
 export function registerSkillCommands(): void {
-  // First register builtin skills (they take priority)
-  registerBuiltinSkills();
+    // First register builtin skills (they take priority)
+    registerBuiltinSkills();
 
-  // Then register legacy skill definitions (for skills not in BUILTIN_SKILLS)
-  for (const command of skillCommands) {
-    // Skip if already registered (builtin skills take priority)
-    if (!globalRegistry.has(command.name)) {
-      globalRegistry.register(command);
+    // Then register legacy skill definitions (for skills not in BUILTIN_SKILLS)
+    for (const command of skillCommands) {
+        // Skip if already registered (builtin skills take priority)
+        if (!globalRegistry.has(command.name)) {
+            globalRegistry.register(command);
+        }
     }
-  }
 }
 
 // ============================================================================
@@ -1371,255 +1483,285 @@ export function registerSkillCommands(): void {
 const HOME = homedir();
 
 export const SKILL_DISCOVERY_PATHS = [
-  join(".claude", "skills"),
-  join(".opencode", "skills"),
-  join(".github", "skills"),
+    join(".claude", "skills"),
+    join(".opencode", "skills"),
+    join(".github", "skills"),
 ] as const;
 
 export const GLOBAL_SKILL_PATHS = [
-  join(HOME, ".claude", "skills"),
-  join(HOME, ".opencode", "skills"),
-  join(HOME, ".copilot", "skills"),
+    join(HOME, ".claude", "skills"),
+    join(HOME, ".opencode", "skills"),
+    join(HOME, ".copilot", "skills"),
 ] as const;
 
 export type SkillSource = "project" | "user" | "builtin";
 
 export const PINNED_BUILTIN_SKILLS = new Set([
-  "prompt-engineer",
-  "testing-anti-patterns",
+    "prompt-engineer",
+    "testing-anti-patterns",
 ]);
 
 export interface DiscoveredSkillFile {
-  path: string;
-  dirName: string;
-  source: SkillSource;
+    path: string;
+    dirName: string;
+    source: SkillSource;
 }
 
 export interface DiskSkillDefinition {
-  name: string;
-  description: string;
-  skillFilePath: string;
-  source: SkillSource;
-  aliases?: string[];
-  argumentHint?: string;
+    name: string;
+    description: string;
+    skillFilePath: string;
+    source: SkillSource;
+    aliases?: string[];
+    argumentHint?: string;
 }
 
 export function shouldSkillOverride(
-  newSource: SkillSource,
-  existingSource: SkillSource,
-  existingName: string
+    newSource: SkillSource,
+    existingSource: SkillSource,
+    existingName: string,
 ): boolean {
-  if (existingSource === "builtin" && PINNED_BUILTIN_SKILLS.has(existingName)) {
-    return false;
-  }
-  const priority: Record<SkillSource, number> = {
-    project: 3,
-    user: 2,
-    builtin: 1,
-  };
-  return priority[newSource] > priority[existingSource];
+    if (
+        existingSource === "builtin" &&
+        PINNED_BUILTIN_SKILLS.has(existingName)
+    ) {
+        return false;
+    }
+    const priority: Record<SkillSource, number> = {
+        project: 3,
+        user: 2,
+        builtin: 1,
+    };
+    return priority[newSource] > priority[existingSource];
 }
 
 export function discoverSkillFiles(): DiscoveredSkillFile[] {
-  const files: DiscoveredSkillFile[] = [];
-  const cwd = process.cwd();
+    const files: DiscoveredSkillFile[] = [];
+    const cwd = process.cwd();
 
-  for (const discoveryPath of SKILL_DISCOVERY_PATHS) {
-    const fullPath = join(cwd, discoveryPath);
-    if (!existsSync(fullPath)) continue;
+    for (const discoveryPath of SKILL_DISCOVERY_PATHS) {
+        const fullPath = join(cwd, discoveryPath);
+        if (!existsSync(fullPath)) continue;
 
-    try {
-      const entries = readdirSync(fullPath, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const skillFile = join(fullPath, entry.name, "SKILL.md");
-        if (existsSync(skillFile)) {
-          files.push({ path: skillFile, dirName: entry.name, source: "project" });
+        try {
+            const entries = readdirSync(fullPath, { withFileTypes: true });
+            for (const entry of entries) {
+                if (!entry.isDirectory()) continue;
+                const skillFile = join(fullPath, entry.name, "SKILL.md");
+                if (existsSync(skillFile)) {
+                    files.push({
+                        path: skillFile,
+                        dirName: entry.name,
+                        source: "project",
+                    });
+                }
+            }
+        } catch {
+            // Skip inaccessible directories
         }
-      }
-    } catch {
-      // Skip inaccessible directories
     }
-  }
 
-  for (const globalPath of GLOBAL_SKILL_PATHS) {
-    if (!existsSync(globalPath)) continue;
+    for (const globalPath of GLOBAL_SKILL_PATHS) {
+        if (!existsSync(globalPath)) continue;
 
-    try {
-      const entries = readdirSync(globalPath, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const skillFile = join(globalPath, entry.name, "SKILL.md");
-        if (existsSync(skillFile)) {
-          files.push({ path: skillFile, dirName: entry.name, source: "user" });
+        try {
+            const entries = readdirSync(globalPath, { withFileTypes: true });
+            for (const entry of entries) {
+                if (!entry.isDirectory()) continue;
+                const skillFile = join(globalPath, entry.name, "SKILL.md");
+                if (existsSync(skillFile)) {
+                    files.push({
+                        path: skillFile,
+                        dirName: entry.name,
+                        source: "user",
+                    });
+                }
+            }
+        } catch {
+            // Skip inaccessible directories
         }
-      }
-    } catch {
-      // Skip inaccessible directories
     }
-  }
 
-  return files;
+    return files;
 }
 
-export function parseSkillFile(file: DiscoveredSkillFile): DiskSkillDefinition | null {
-  try {
-    const content = readFileSync(file.path, "utf-8");
-    const parsed = parseMarkdownFrontmatter(content);
+export function parseSkillFile(
+    file: DiscoveredSkillFile,
+): DiskSkillDefinition | null {
+    try {
+        const content = readFileSync(file.path, "utf-8");
+        const parsed = parseMarkdownFrontmatter(content);
 
-    if (!parsed) {
-      return {
-        name: file.dirName,
-        description: `Skill: ${file.dirName}`,
-        skillFilePath: file.path,
-        source: file.source,
-      };
+        if (!parsed) {
+            return {
+                name: file.dirName,
+                description: `Skill: ${file.dirName}`,
+                skillFilePath: file.path,
+                source: file.source,
+            };
+        }
+
+        const fm = parsed.frontmatter;
+        const name = typeof fm.name === "string" ? fm.name : file.dirName;
+        const description =
+            typeof fm.description === "string"
+                ? fm.description
+                : `Skill: ${name}`;
+
+        let aliases: string[] | undefined;
+        if (Array.isArray(fm.aliases)) {
+            aliases = fm.aliases.filter(
+                (a): a is string => typeof a === "string",
+            );
+        }
+
+        const argumentHint =
+            typeof fm["argument-hint"] === "string"
+                ? fm["argument-hint"]
+                : undefined;
+
+        return {
+            name,
+            description,
+            skillFilePath: file.path,
+            source: file.source,
+            aliases,
+            argumentHint,
+        };
+    } catch {
+        return null;
     }
-
-    const fm = parsed.frontmatter;
-    const name = typeof fm.name === "string" ? fm.name : file.dirName;
-    const description =
-      typeof fm.description === "string" ? fm.description : `Skill: ${name}`;
-
-    let aliases: string[] | undefined;
-    if (Array.isArray(fm.aliases)) {
-      aliases = fm.aliases.filter((a): a is string => typeof a === "string");
-    }
-
-    const argumentHint =
-      typeof fm["argument-hint"] === "string" ? fm["argument-hint"] : undefined;
-
-    return {
-      name,
-      description,
-      skillFilePath: file.path,
-      source: file.source,
-      aliases,
-      argumentHint,
-    };
-  } catch {
-    return null;
-  }
 }
 
 export function loadSkillContent(skillFilePath: string): string | null {
-  try {
-    const content = readFileSync(skillFilePath, "utf-8");
-    const parsed = parseMarkdownFrontmatter(content);
-    if (parsed) {
-      return parsed.body;
+    try {
+        const content = readFileSync(skillFilePath, "utf-8");
+        const parsed = parseMarkdownFrontmatter(content);
+        if (parsed) {
+            return parsed.body;
+        }
+        // No frontmatter — return entire content as body
+        return content;
+    } catch {
+        return null;
     }
-    // No frontmatter — return entire content as body
-    return content;
-  } catch {
-    return null;
-  }
 }
 
 function createDiskSkillCommand(skill: DiskSkillDefinition): CommandDefinition {
-  return {
-    name: skill.name,
-    description: skill.description,
-    category: "skill",
-    aliases: skill.aliases,
-    argumentHint: skill.argumentHint,
-    execute: (args: string, context: CommandContext): CommandResult => {
-      const skillArgs = args.trim();
+    return {
+        name: skill.name,
+        description: skill.description,
+        category: "skill",
+        aliases: skill.aliases,
+        argumentHint: skill.argumentHint,
+        execute: (args: string, context: CommandContext): CommandResult => {
+            const skillArgs = args.trim();
 
-      // Inherit requiredArguments validation from matching builtin skill
-      const builtinSkill = getBuiltinSkill(skill.name);
-      if (builtinSkill?.requiredArguments?.length && !skillArgs) {
-        const argList = builtinSkill.requiredArguments.map((a) => `<${a}>`).join(" ");
-        return {
-          success: false,
-          message: `Missing required argument.\nUsage: /${skill.name} ${argList}`,
-        };
-      }
+            // Inherit requiredArguments validation from matching builtin skill
+            const builtinSkill = getBuiltinSkill(skill.name);
+            if (builtinSkill?.requiredArguments?.length && !skillArgs) {
+                const argList = builtinSkill.requiredArguments
+                    .map((a) => `<${a}>`)
+                    .join(" ");
+                return {
+                    success: false,
+                    message: `Missing required argument.\nUsage: /${skill.name} ${argList}`,
+                };
+            }
 
-      const body = loadSkillContent(skill.skillFilePath);
-      if (!body) {
-        // Fallback to builtin prompt if disk file is empty/unreadable
-        if (builtinSkill) {
-          const expandedPrompt = expandArguments(builtinSkill.prompt, skillArgs);
-          context.sendSilentMessage(expandedPrompt);
-          return { success: true, skillLoaded: skill.name };
-        }
-        // Delegate to the agent's native skill system (e.g. Copilot CLI
-        // loads skills itself via skillDirectories passed at session creation)
-        const invocationMessage = skillArgs
-          ? `/${skill.name} ${skillArgs}`
-          : `/${skill.name}`;
-        context.sendSilentMessage(invocationMessage);
-        return { success: true, skillLoaded: skill.name };
-      }
-      const expandedPrompt = expandArguments(body, skillArgs);
-      context.sendSilentMessage(expandedPrompt);
-      return { success: true, skillLoaded: skill.name };
-    },
-  };
+            const body = loadSkillContent(skill.skillFilePath);
+            if (!body) {
+                // Fallback to builtin prompt if disk file is empty/unreadable
+                if (builtinSkill) {
+                    const expandedPrompt = expandArguments(
+                        builtinSkill.prompt,
+                        skillArgs,
+                    );
+                    context.sendSilentMessage(expandedPrompt);
+                    return { success: true, skillLoaded: skill.name };
+                }
+                // Delegate to the agent's native skill system (e.g. Copilot CLI
+                // loads skills itself via skillDirectories passed at session creation)
+                const invocationMessage = skillArgs
+                    ? `/${skill.name} ${skillArgs}`
+                    : `/${skill.name}`;
+                context.sendSilentMessage(invocationMessage);
+                return { success: true, skillLoaded: skill.name };
+            }
+            const expandedPrompt = expandArguments(body, skillArgs);
+            context.sendSilentMessage(expandedPrompt);
+            return { success: true, skillLoaded: skill.name };
+        },
+    };
 }
 
 let discoveredSkillDirectories: string[] = [];
 
 export function getDiscoveredSkillDirectories(): string[] {
-  return discoveredSkillDirectories;
+    return discoveredSkillDirectories;
 }
 
 export async function discoverAndRegisterDiskSkills(): Promise<void> {
-  const files = discoverSkillFiles();
+    const files = discoverSkillFiles();
 
-  // Collect unique parent directories for SDK passthrough
-  const dirSet = new Set<string>();
-  for (const file of files) {
-    const parentDir = join(file.path, "..", "..");
-    dirSet.add(parentDir);
-  }
-  discoveredSkillDirectories = [...dirSet];
-
-  // Build map with priority resolution
-  const resolved = new Map<string, DiskSkillDefinition>();
-  for (const file of files) {
-    const skill = parseSkillFile(file);
-    if (!skill) continue;
-
-    const existing = resolved.get(skill.name);
-    if (!existing || shouldSkillOverride(skill.source, existing.source, existing.name)) {
-      resolved.set(skill.name, skill);
+    // Collect unique parent directories for SDK passthrough
+    const dirSet = new Set<string>();
+    for (const file of files) {
+        const parentDir = join(file.path, "..", "..");
+        dirSet.add(parentDir);
     }
-  }
+    discoveredSkillDirectories = [...dirSet];
 
-  // Register resolved skills
-  for (const skill of resolved.values()) {
-    if (PINNED_BUILTIN_SKILLS.has(skill.name) && globalRegistry.has(skill.name)) {
-      continue;
+    // Build map with priority resolution
+    const resolved = new Map<string, DiskSkillDefinition>();
+    for (const file of files) {
+        const skill = parseSkillFile(file);
+        if (!skill) continue;
+
+        const existing = resolved.get(skill.name);
+        if (
+            !existing ||
+            shouldSkillOverride(skill.source, existing.source, existing.name)
+        ) {
+            resolved.set(skill.name, skill);
+        }
     }
 
-    // Inherit aliases from existing builtin if disk skill doesn't define its own
-    if (!skill.aliases && globalRegistry.has(skill.name)) {
-      const existing = globalRegistry.get(skill.name);
-      if (existing?.aliases) {
-        skill.aliases = existing.aliases;
-      }
-    }
+    // Register resolved skills
+    for (const skill of resolved.values()) {
+        if (
+            PINNED_BUILTIN_SKILLS.has(skill.name) &&
+            globalRegistry.has(skill.name)
+        ) {
+            continue;
+        }
 
-    // Inherit argumentHint from existing builtin if disk skill doesn't define its own
-    if (!skill.argumentHint && globalRegistry.has(skill.name)) {
-      const existing = globalRegistry.get(skill.name);
-      if (existing?.argumentHint) {
-        skill.argumentHint = existing.argumentHint;
-      }
-    }
+        // Inherit aliases from existing builtin if disk skill doesn't define its own
+        if (!skill.aliases && globalRegistry.has(skill.name)) {
+            const existing = globalRegistry.get(skill.name);
+            if (existing?.aliases) {
+                skill.aliases = existing.aliases;
+            }
+        }
 
-    const command = createDiskSkillCommand(skill);
-    if (globalRegistry.has(skill.name)) {
-      if (shouldSkillOverride(skill.source, "builtin", skill.name)) {
-        globalRegistry.unregister(skill.name);
-        globalRegistry.register(command);
-      }
-    } else {
-      globalRegistry.register(command);
+        // Inherit argumentHint from existing builtin if disk skill doesn't define its own
+        if (!skill.argumentHint && globalRegistry.has(skill.name)) {
+            const existing = globalRegistry.get(skill.name);
+            if (existing?.argumentHint) {
+                skill.argumentHint = existing.argumentHint;
+            }
+        }
+
+        const command = createDiskSkillCommand(skill);
+        if (globalRegistry.has(skill.name)) {
+            if (shouldSkillOverride(skill.source, "builtin", skill.name)) {
+                globalRegistry.unregister(skill.name);
+                globalRegistry.register(command);
+            }
+        } else {
+            globalRegistry.register(command);
+        }
     }
-  }
 }
 
 /**
@@ -1629,12 +1771,12 @@ export async function discoverAndRegisterDiskSkills(): Promise<void> {
  * @returns SkillMetadata if found, undefined otherwise
  */
 export function getSkillMetadata(name: string): SkillMetadata | undefined {
-  const lowerName = name.toLowerCase();
-  return SKILL_DEFINITIONS.find(
-    (s) =>
-      s.name.toLowerCase() === lowerName ||
-      s.aliases?.some((a) => a.toLowerCase() === lowerName)
-  );
+    const lowerName = name.toLowerCase();
+    return SKILL_DEFINITIONS.find(
+        (s) =>
+            s.name.toLowerCase() === lowerName ||
+            s.aliases?.some((a) => a.toLowerCase() === lowerName),
+    );
 }
 
 /**
@@ -1644,7 +1786,7 @@ export function getSkillMetadata(name: string): SkillMetadata | undefined {
  * @returns True if this is a Ralph skill
  */
 export function isRalphSkill(name: string): boolean {
-  return name.toLowerCase().startsWith("ralph:");
+    return name.toLowerCase().startsWith("ralph:");
 }
 
 /**
@@ -1653,7 +1795,7 @@ export function isRalphSkill(name: string): boolean {
  * @returns Array of Ralph skill metadata
  */
 export function getRalphSkills(): SkillMetadata[] {
-  return SKILL_DEFINITIONS.filter((s) => isRalphSkill(s.name));
+    return SKILL_DEFINITIONS.filter((s) => isRalphSkill(s.name));
 }
 
 /**
@@ -1662,7 +1804,7 @@ export function getRalphSkills(): SkillMetadata[] {
  * @returns Array of core skill metadata
  */
 export function getCoreSkills(): SkillMetadata[] {
-  return SKILL_DEFINITIONS.filter((s) => !isRalphSkill(s.name));
+    return SKILL_DEFINITIONS.filter((s) => !isRalphSkill(s.name));
 }
 
 // Export helper functions for testing and external use

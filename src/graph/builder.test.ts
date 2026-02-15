@@ -252,7 +252,7 @@ describe("GraphBuilder - parallel execution", () => {
     
     // Parallel node should be the start node
     const parallelNode = Array.from(compiled.nodes.values()).find(n => n.type === "parallel");
-    expect(compiled.startNode).toBe(parallelNode?.id);
+    expect(compiled.startNode).toBe(parallelNode!.id);
   });
 });
 
@@ -342,7 +342,7 @@ describe("GraphBuilder - loop constructs", () => {
     
     // Loop start node should be the graph start
     const loopStartNode = Array.from(compiled.nodes.keys()).find(id => id.startsWith("loop_start_"));
-    expect(compiled.startNode).toBe(loopStartNode);
+    expect(compiled.startNode).toBe(loopStartNode!);
   });
 });
 
@@ -535,8 +535,8 @@ describe("createWaitNode helper", () => {
 
     expect(result.signals).toBeDefined();
     expect(result.signals?.length).toBe(1);
-    expect(result.signals?.[0].type).toBe("human_input_required");
-    expect(result.signals?.[0].message).toBe("Enter your name");
+    expect(result.signals?.[0]?.type).toBe("human_input_required");
+    expect(result.signals?.[0]?.message).toBe("Enter your name");
   });
 });
 

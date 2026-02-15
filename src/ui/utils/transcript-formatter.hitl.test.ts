@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatTranscript } from "./transcript-formatter.ts";
+import { formatTranscript, type TranscriptLine } from "./transcript-formatter.ts";
 import type { ChatMessage } from "../chat.tsx";
 
 describe("formatTranscript HITL rendering", () => {
@@ -30,25 +30,33 @@ describe("formatTranscript HITL rendering", () => {
       isStreaming: false,
     });
 
-    // Find the HITL tool lines
-    const toolHeaderLine = lines.find((line) => line.type === "tool-header");
-    const toolContentLines = lines.filter((line) => line.type === "tool-content");
+    // Structurally filter lines by type
+    const toolHeaderLines = lines.filter((line: TranscriptLine) => line.type === "tool-header");
+    const toolContentLines = lines.filter((line: TranscriptLine) => line.type === "tool-content");
 
-    // Assert tool header exists and contains tool name
-    expect(toolHeaderLine).toBeDefined();
-    expect(toolHeaderLine?.content).toContain("question");
+    // Assert tool header exists with correct type and contains tool name
+    expect(toolHeaderLines.length).toBe(1);
+    expect(toolHeaderLines[0]!.type).toBe("tool-header");
+    expect(toolHeaderLines[0]!.content).toContain("question");
 
-    // Assert tool content includes the question text
-    const questionLine = toolContentLines.find((line) => line.content.includes("Pick one"));
-    expect(questionLine).toBeDefined();
+    // Assert tool content lines exist with correct type
+    expect(toolContentLines.length).toBeGreaterThanOrEqual(2);
 
-    // Assert tool content includes the canonical HITL response (not raw JSON)
-    const responseLine = toolContentLines.find((line) => line.content.includes('User answered: ""'));
-    expect(responseLine).toBeDefined();
-    expect(responseLine?.indent).toBe(1); // Should be indented
+    // First content line should contain the question text
+    const questionLine = toolContentLines[0]!;
+    expect(questionLine.type).toBe("tool-content");
+    expect(questionLine.content).toContain("Pick one");
 
-    // Assert raw JSON is NOT present in any line
-    const hasRawJson = lines.some((line) => line.content.includes('{"answer"'));
-    expect(hasRawJson).toBe(false);
+    // Second content line should contain the canonical HITL display text
+    const responseLine = toolContentLines[1]!;
+    expect(responseLine.type).toBe("tool-content");
+    expect(responseLine.indent).toBe(1);
+    expect(responseLine.content).toContain('User answered: ""');
+
+    // Assert no line of type tool-content contains raw JSON structure
+    const rawJsonLines = toolContentLines.filter(
+      (line: TranscriptLine) => line.content.includes('{"answer"') || line.content.includes('"cancelled"')
+    );
+    expect(rawJsonLines.length).toBe(0);
   });
 });

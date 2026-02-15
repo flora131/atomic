@@ -222,7 +222,7 @@ describe("loadCopilotAgents", () => {
       );
 
       // Mock fs operations to use our test directories
-      const mockFsOps: FsOps = {
+      const mockFsOps = {
         readdir: async (dir: string) => {
           const fs = await import("node:fs/promises");
           // Remap home directory paths to our test root
@@ -234,7 +234,7 @@ describe("loadCopilotAgents", () => {
           const remappedFile = file.replace(process.env.HOME || "", root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
-      };
+      } as unknown as FsOps;
 
       const agents = await loadCopilotAgents(root, mockFsOps);
 
@@ -276,7 +276,7 @@ describe("loadCopilotAgents", () => {
         "utf-8"
       );
 
-      const mockFsOps: FsOps = {
+      const mockFsOps = {
         readdir: async (dir: string) => {
           const fs = await import("node:fs/promises");
           const remappedDir = dir.replace(process.env.HOME || "", root);
@@ -287,7 +287,7 @@ describe("loadCopilotAgents", () => {
           const remappedFile = file.replace(process.env.HOME || "", root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
-      };
+      } as unknown as FsOps;
 
       const agents = await loadCopilotAgents(root, mockFsOps);
 
@@ -304,7 +304,7 @@ describe("loadCopilotAgents", () => {
 
     try {
       // Don't create any agent directories
-      const mockFsOps: FsOps = {
+      const mockFsOps = {
         readdir: async (dir: string) => {
           const fs = await import("node:fs/promises");
           const remappedDir = dir.replace(process.env.HOME || "", root);
@@ -315,7 +315,7 @@ describe("loadCopilotAgents", () => {
           const remappedFile = file.replace(process.env.HOME || "", root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
-      };
+      } as unknown as FsOps;
 
       const agents = await loadCopilotAgents(root, mockFsOps);
       expect(agents).toEqual([]);
@@ -334,14 +334,14 @@ describe("loadCopilotInstructions", () => {
       await mkdir(join(root, ".github"), { recursive: true });
       await writeFile(localInstructionsPath, "Local project instructions", "utf-8");
 
-      const mockFsOps: FsOps = {
+      const mockFsOps = {
         readdir: async () => [],
         readFile: async (file: string, encoding?: string) => {
           const fs = await import("node:fs/promises");
           const remappedFile = file.replace(process.env.HOME || "", root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
-      };
+      } as unknown as FsOps;
 
       const instructions = await loadCopilotInstructions(root, mockFsOps);
       expect(instructions).toBe("Local project instructions");
@@ -358,14 +358,14 @@ describe("loadCopilotInstructions", () => {
       await mkdir(join(root, ".copilot"), { recursive: true });
       await writeFile(globalInstructionsPath, "Global user instructions", "utf-8");
 
-      const mockFsOps: FsOps = {
+      const mockFsOps = {
         readdir: async () => [],
         readFile: async (file: string, encoding?: string) => {
           const fs = await import("node:fs/promises");
           const remappedFile = file.replace(process.env.HOME || "", root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
-      };
+      } as unknown as FsOps;
 
       const instructions = await loadCopilotInstructions(root, mockFsOps);
       expect(instructions).toBe("Global user instructions");
@@ -393,14 +393,14 @@ describe("loadCopilotInstructions", () => {
         "utf-8"
       );
 
-      const mockFsOps: FsOps = {
+      const mockFsOps = {
         readdir: async () => [],
         readFile: async (file: string, encoding?: string) => {
           const fs = await import("node:fs/promises");
           const remappedFile = file.replace(process.env.HOME || "", root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
-      };
+      } as unknown as FsOps;
 
       const instructions = await loadCopilotInstructions(root, mockFsOps);
       expect(instructions).toBe("Local instructions"); // Local should win
@@ -413,14 +413,14 @@ describe("loadCopilotInstructions", () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
     try {
-      const mockFsOps: FsOps = {
+      const mockFsOps = {
         readdir: async () => [],
         readFile: async (file: string, encoding?: string) => {
           const fs = await import("node:fs/promises");
           const remappedFile = file.replace(process.env.HOME || "", root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
-      };
+      } as unknown as FsOps;
 
       const instructions = await loadCopilotInstructions(root, mockFsOps);
       expect(instructions).toBeNull();

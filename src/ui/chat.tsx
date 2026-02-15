@@ -1950,6 +1950,10 @@ export function ChatApp({
   // Store current input when entering history mode
   const savedInputRef = useRef<string>("");
 
+  // Track skills that have already shown the "loaded" UI indicator this session.
+  // Once a skill is loaded, subsequent invocations should not show the indicator again.
+  const loadedSkillsRef = useRef<Set<string>>(new Set());
+
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
   // Ref to track when streaming started for duration calculation
@@ -2290,6 +2294,10 @@ export function ChatApp({
     skillName: string,
     _skillPath?: string
   ) => {
+    // Only show "loaded" indicator on the first invocation per session
+    if (loadedSkillsRef.current.has(skillName)) return;
+    loadedSkillsRef.current.add(skillName);
+
     const skillLoad: MessageSkillLoad = {
       skillName,
       status: "loaded",
@@ -3495,6 +3503,7 @@ export function ChatApp({
         setTranscriptMode(false);
         clearHistoryBuffer();
         setTrimmedMessageCount(0);
+        loadedSkillsRef.current.clear();
       }
 
       // Handle clearMessages flag — persist history before clearing
@@ -3554,8 +3563,12 @@ export function ChatApp({
         addMessage("assistant", result.message);
       }
 
-      // Track skill load in message for UI indicator
-      if (result.skillLoaded) {
+      // Track skill load in message for UI indicator (only on first successful load per session;
+      // errors are always shown so the user sees the failure)
+      if (result.skillLoaded && (result.skillLoadError || !loadedSkillsRef.current.has(result.skillLoaded))) {
+        if (!result.skillLoadError) {
+          loadedSkillsRef.current.add(result.skillLoaded);
+        }
         const skillLoad: MessageSkillLoad = {
           skillName: result.skillLoaded,
           status: result.skillLoadError ? "error" : "loaded",

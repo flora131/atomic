@@ -1689,7 +1689,15 @@ function createDiskSkillCommand(skill: DiskSkillDefinition): CommandDefinition {
                 return { success: true, skillLoaded: skill.name };
             }
             const expandedPrompt = expandArguments(body, skillArgs);
-            context.sendSilentMessage(expandedPrompt);
+            // Prepend a directive so the model acts on the already-expanded
+            // skill content rather than re-loading the raw skill via the SDK's
+            // built-in "skill" tool (which would lose the $ARGUMENTS expansion).
+            const directive =
+                `<skill-loaded name="${skill.name}">\n` +
+                `The "${skill.name}" skill has already been loaded with the user's arguments below. ` +
+                `Do NOT invoke the Skill tool for "${skill.name}" — follow the instructions directly.\n` +
+                `</skill-loaded>\n\n`;
+            context.sendSilentMessage(directive + expandedPrompt);
             return { success: true, skillLoaded: skill.name };
         },
     };

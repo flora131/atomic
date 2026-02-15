@@ -249,7 +249,7 @@ export function ToolResult({
   // Skill tool: render SkillLoadIndicator directly, bypassing standard tool result layout
   const normalizedToolName = toolName.toLowerCase();
   if (normalizedToolName === "skill") {
-    const skillName = (input.skill as string) || "unknown";
+    const skillName = (input.skill as string) || (input.name as string) || "unknown";
     const skillStatus: SkillLoadStatus =
       status === "completed" ? "loaded" : status === "error" ? "error" : "loading";
     const errorMessage = status === "error" && typeof output === "string" ? output : undefined;

@@ -349,6 +349,27 @@ describe("Built-in Commands", () => {
       expect(result.stateUpdate).toHaveProperty("model", "claude-sonnet-4");
     });
 
+    test("uses effective model from modelOps for state update", async () => {
+      const context = createMockContext({
+        state: {
+          isStreaming: false,
+          messageCount: 1,
+        },
+        agentType: "claude" as any,
+        modelOps: {
+          resolveAlias: (_model: string) => undefined,
+          setModel: async () => ({ requiresNewSession: false }),
+          getCurrentModel: async () => "opus",
+        } as any,
+      });
+
+      const result = await modelCommand.execute("anthropic/opus", context);
+
+      expect(result.success).toBe(true);
+      expect(result.stateUpdate).toBeDefined();
+      expect(result.stateUpdate).toHaveProperty("model", "opus");
+    });
+
     test("handles model switch requiring new session", async () => {
       const context = createMockContext({
         state: {

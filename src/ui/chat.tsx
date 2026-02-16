@@ -481,7 +481,9 @@ export interface ChatMessage {
   id: string;
   /** Who sent the message */
   role: MessageRole;
-  /** Message content (may be partial during streaming) */
+  /** Message content (may be partial during streaming)
+   * @deprecated Use parts[] array and getMessageText() instead. Will be removed with feature flag.
+   */
   content: string;
   /** ISO timestamp of when message was created */
   timestamp: string;

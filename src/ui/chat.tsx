@@ -95,6 +95,8 @@ import {
 } from "./utils/ralph-task-state.ts";
 import type { Part, AgentPart, ToolPart, TextPart, ToolState } from "./parts/index.ts";
 import { createPartId, upsertPart, findLastPartIndex, handleTextDelta, shouldFinalizeOnToolComplete } from "./parts/index.ts";
+import { usePartsRendering } from "./hooks/use-parts-rendering.ts";
+import { MessageBubbleParts } from "./components/parts/message-bubble-parts.tsx";
 
 // ============================================================================
 // @ MENTION HELPERS
@@ -1505,6 +1507,7 @@ function preprocessTaskListCheckboxes(content: string): string {
 }
 export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
+  const partsRendering = usePartsRendering();
 
   // Hide the entire message when question dialog is active and there's no content yet
   // This prevents showing a stray "●" bullet before the dialog
@@ -1599,6 +1602,21 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
 
   // Assistant message: bullet point prefix, with tool calls interleaved at correct positions
   if (message.role === "assistant") {
+    // Use new parts-based rendering if feature flag is enabled and message has parts
+    if (partsRendering && message.parts && message.parts.length > 0) {
+      return (
+        <box
+          flexDirection="column"
+          marginBottom={isLast ? 0 : 1}
+          paddingLeft={1}
+          paddingRight={1}
+        >
+          <MessageBubbleParts message={message} />
+        </box>
+      );
+    }
+
+    // Legacy rendering: build content segments
     const shouldRenderInlineTasks = inlineTasksEnabled && !message.tasksPinned;
     const taskItemsToShow = shouldRenderInlineTasks
       ? (message.streaming ? todoItems : message.taskItems)
@@ -2522,11 +2540,13 @@ export function ChatApp({
               // Finalize any still-running parallel agents and bake into message
               setParallelAgents((currentAgents) => {
                 if (currentAgents.length > 0) {
-                  const finalizedAgents = currentAgents.map((a) =>
-                    a.status === "running" || a.status === "pending"
+                  const finalizedAgents = currentAgents.map((a) => {
+                    // Skip background agents — they must not be finalized on stream completion
+                    if (a.background) return a;
+                    return a.status === "running" || a.status === "pending"
                       ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                      : a
-                  );
+                      : a;
+                  });
                   // Bake finalized agents into the message
                   setMessagesWindowed((prev) => {
                     const lastMsg = prev[prev.length - 1];
@@ -3543,7 +3563,11 @@ export function ChatApp({
             const hasActiveAgents = parallelAgentsRef.current.some(
               (a) => a.status === "running" || a.status === "pending"
             );
-            if (hasActiveAgents || hasRunningToolRef.current) {
+            // Check if any background agents are still running
+            const hasRunningBackgroundAgents = parallelAgentsRef.current.some(
+              (agent) => !shouldFinalizeOnToolComplete(agent)
+            );
+            if (hasActiveAgents || hasRunningBackgroundAgents || hasRunningToolRef.current) {
               pendingCompleteRef.current = handleComplete;
               return;
             }
@@ -4991,7 +5015,11 @@ export function ChatApp({
           const hasActiveAgents = parallelAgentsRef.current.some(
             (a) => a.status === "running" || a.status === "pending"
           );
-          if (hasActiveAgents) {
+          // Check if any background agents are still running
+          const hasRunningBackgroundAgents = parallelAgentsRef.current.some(
+            (agent) => !shouldFinalizeOnToolComplete(agent)
+          );
+          if (hasActiveAgents || hasRunningBackgroundAgents) {
             pendingCompleteRef.current = handleComplete;
             return;
           }
@@ -5264,8 +5292,9 @@ export function ChatApp({
         // Send processed message without re-adding the user message
         if (isStreamingRef.current) {
           // Defer interrupt if sub-agents are active — will fire when they finish
+          // Background agents are excluded — they must not block interrupt.
           const hasActiveSubagents = parallelAgentsRef.current.some(
-            (a) => a.status === "running" || a.status === "pending"
+            (a) => (a.status === "running" || a.status === "pending") && shouldFinalizeOnToolComplete(a)
           );
           if (hasActiveSubagents) {
             emitMessageSubmitTelemetry({
@@ -5336,8 +5365,9 @@ export function ChatApp({
       // If streaming, interrupt: inject immediately unless sub-agents are active
       if (isStreamingRef.current) {
         // Defer interrupt if sub-agents are actively working — fires when they finish
+        // Background agents are excluded — they must not block interrupt.
         const hasActiveSubagents = parallelAgentsRef.current.some(
-          (a) => a.status === "running" || a.status === "pending"
+          (a) => (a.status === "running" || a.status === "pending") && shouldFinalizeOnToolComplete(a)
         );
         if (hasActiveSubagents) {
           emitMessageSubmitTelemetry({

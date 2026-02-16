@@ -435,8 +435,8 @@ export async function startChatUI(
     const toolNameToIds = new Map<string, string[]>();
 
     // FIFO queue of pending Task tool calls consumed by subagent.start.
-    // Keeps prompt + internal toolId together to avoid queue skew.
-    const pendingTaskEntries: Array<{ toolId: string; prompt?: string }> = [];
+    // Keeps prompt + internal toolId + mode together to avoid queue skew.
+    const pendingTaskEntries: Array<{ toolId: string; prompt?: string; isBackground?: boolean }> = [];
 
     // Maps SDK-level correlation IDs to agent IDs for ID-based result attribution.
     // Populated by subagent.start, consumed by tool.complete for Task tools.
@@ -518,7 +518,9 @@ export async function startChatUI(
         if ((data.toolName === "Task" || data.toolName === "task") && data.toolInput && !isUpdate) {
           const input = data.toolInput as Record<string, unknown>;
           const prompt = (input.prompt as string) ?? (input.description as string) ?? "";
-          pendingTaskEntries.push({ toolId, prompt: prompt || undefined });
+          const mode = (input.mode as string) ?? "sync";
+          const isBackground = mode === "background" || mode === "async";
+          pendingTaskEntries.push({ toolId, prompt: prompt || undefined, isBackground });
 
           // Eagerly create a ParallelAgent so the tree appears immediately
           // instead of waiting for the SDK's subagent.start event (which may
@@ -527,8 +529,6 @@ export async function startChatUI(
           if (state.parallelAgentHandler) {
             const agentType = (input.subagent_type as string) ?? (input.agent_type as string) ?? "agent";
             const taskDesc = (input.description as string) ?? prompt ?? "Sub-agent task";
-            const mode = (input.mode as string) ?? "sync";
-            const isBackground = mode === "background" || mode === "async";
             const newAgent: ParallelAgent = {
               id: toolId,
               taskToolCallId: toolId,
@@ -809,7 +809,7 @@ export async function startChatUI(
       if (state.parallelAgentHandler && data.subagentId) {
         const sdkCorrelationId = data.toolUseID ?? data.toolCallId;
         const correlatedToolId = sdkCorrelationId ? sdkToolIdMap.get(sdkCorrelationId) : undefined;
-        let pendingTaskEntry: { toolId: string; prompt?: string } | undefined;
+        let pendingTaskEntry: { toolId: string; prompt?: string; isBackground?: boolean } | undefined;
         if (correlatedToolId) {
           const entryIdx = pendingTaskEntries.findIndex((entry) => entry.toolId === correlatedToolId);
           if (entryIdx !== -1) {
@@ -826,6 +826,7 @@ export async function startChatUI(
           || data.subagentType
           || "Sub-agent";
         const agentTypeName = data.subagentType ?? "agent";
+        const isBackground = pendingTaskEntry?.isBackground ?? false;
 
         // Check if an eager agent was already created from tool.start.
         // If so, update it in-place with the real subagentId instead of
@@ -836,7 +837,8 @@ export async function startChatUI(
           : false;
 
         if (hasEagerAgent && eagerToolId) {
-          // Merge: update existing eager agent with real subagentId
+          // Merge: update existing eager agent with real subagentId.
+          // Preserve background status and other fields from the eager agent.
           state.parallelAgents = state.parallelAgents.map(a =>
             a.id === eagerToolId
               ? {
@@ -853,14 +855,18 @@ export async function startChatUI(
           toolCallToAgentMap.set(eagerToolId, data.subagentId!);
         } else {
           // No eager agent — create fresh (backward compat for non-Task subagents)
+          // Use stored background status from pendingTaskEntry
           const newAgent: ParallelAgent = {
             id: data.subagentId,
             taskToolCallId: pendingTaskEntry?.toolId,
             name: agentTypeName,
             task,
-            status: "running",
+            status: isBackground ? "background" : "running",
+            background: isBackground || undefined,
             startedAt: event.timestamp ?? new Date().toISOString(),
-            currentTool: `Running ${agentTypeName}…`,
+            currentTool: isBackground
+              ? `Running ${agentTypeName} in background…`
+              : `Running ${agentTypeName}…`,
           };
           state.parallelAgents = [...state.parallelAgents, newAgent];
         }

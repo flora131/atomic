@@ -16,3 +16,4 @@ export { AgentPartDisplay, type AgentPartDisplayProps } from "./agent-part-displ
 export { TaskListPartDisplay, type TaskListPartDisplayProps } from "./task-list-part-display.tsx";
 export { UserQuestionInline, type UserQuestionInlineProps, type PendingQuestion } from "./user-question-inline.tsx";
 export { PART_REGISTRY, type PartRenderer } from "./registry.tsx";
+export { MessageBubbleParts, type MessageBubblePartsProps } from "./message-bubble-parts.tsx";

@@ -93,7 +93,7 @@ import {
   normalizeInterruptedTasks,
   snapshotTaskItems,
 } from "./utils/ralph-task-state.ts";
-import type { Part, AgentPart, ToolPart, TextPart } from "./parts/index.ts";
+import type { Part, AgentPart, ToolPart, TextPart, ToolState } from "./parts/index.ts";
 import { createPartId, upsertPart, findLastPartIndex, handleTextDelta } from "./parts/index.ts";
 
 // ============================================================================
@@ -2283,7 +2283,7 @@ export function ChatApp({
       setMessagesWindowed((prev) => {
         const updated = prev.map((msg) => {
           if (msg.id === messageId && msg.toolCalls) {
-            return {
+            const updatedMsg = {
               ...msg,
               toolCalls: msg.toolCalls.map((tc) => {
                 if (tc.id === toolId) {
@@ -2322,6 +2322,45 @@ export function ChatApp({
                 return tc;
               }),
             };
+
+            // *** DUAL POPULATION: Update ToolPart state ***
+            // Find matching ToolPart by toolCallId
+            const parts = [...(msg.parts ?? [])];
+            const toolPartIdx = parts.findIndex(
+              p => p.type === "tool" && (p as ToolPart).toolCallId === toolId
+            );
+
+            if (toolPartIdx >= 0) {
+              const toolPart = parts[toolPartIdx] as ToolPart;
+              
+              // Compute durationMs from startedAt if available
+              let durationMs = 0;
+              if (toolPart.state.status === "running") {
+                durationMs = Date.now() - new Date(toolPart.state.startedAt).getTime();
+              }
+
+              // Merge input if provided (handles late input from OpenCode)
+              const updatedInput = (input && Object.keys(toolPart.input).length === 0)
+                ? input
+                : toolPart.input;
+
+              // Create new state based on success/error
+              const newState: ToolState = success
+                ? { status: "completed", output, durationMs }
+                : { status: "error", error: error || "Unknown error", output };
+
+              // Update the ToolPart
+              parts[toolPartIdx] = {
+                ...toolPart,
+                input: updatedInput,
+                output,
+                state: newState,
+              };
+
+              updatedMsg.parts = parts;
+            }
+
+            return updatedMsg;
           }
           return msg;
         });

@@ -93,8 +93,8 @@ import {
   normalizeInterruptedTasks,
   snapshotTaskItems,
 } from "./utils/ralph-task-state.ts";
-import type { Part, AgentPart } from "./parts/index.ts";
-import { createPartId, upsertPart } from "./parts/index.ts";
+import type { Part, AgentPart, ToolPart, TextPart } from "./parts/index.ts";
+import { createPartId, upsertPart, findLastPartIndex } from "./parts/index.ts";
 
 // ============================================================================
 // @ MENTION HELPERS
@@ -2200,6 +2200,27 @@ export function ChatApp({
             if (isSubAgentTool(toolName) && msg.agentsContentOffset === undefined) {
               updatedMsg.agentsContentOffset = msg.content.length;
             }
+
+            // *** DUAL POPULATION: Create ToolPart and finalize TextPart ***
+            // Finalize any streaming TextPart
+            const parts = [...(msg.parts ?? [])];
+            const lastTextIdx = findLastPartIndex(parts, p => p.type === "text" && (p as TextPart).isStreaming);
+            if (lastTextIdx >= 0) {
+              parts[lastTextIdx] = { ...parts[lastTextIdx], isStreaming: false } as TextPart;
+            }
+
+            // Create ToolPart
+            const toolPart: ToolPart = {
+              id: createPartId(),
+              type: "tool",
+              toolCallId: toolId,
+              toolName: toolName,
+              input: input,
+              state: { status: "running", startedAt: new Date().toISOString() },
+              createdAt: new Date().toISOString(),
+            };
+
+            updatedMsg.parts = upsertPart(parts, toolPart);
             
             return updatedMsg;
           }

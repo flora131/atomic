@@ -1,11 +1,12 @@
 /**
- * TaskListPanel Component
+ * TaskListPanel & TaskListBox Components
  *
- * Persistent, file-driven task list panel pinned below the scrollbox
- * during /ralph workflow execution. Reads from tasks.json via file watcher.
+ * TaskListBox: Reusable presentational component for rendering a task list
+ * with an industrial-dashboard aesthetic — bordered container, progress header,
+ * visual progress bar, numbered task rows, and status-aware styling.
  *
- * Features an industrial-dashboard aesthetic with a visual progress bar,
- * numbered task rows, and status-aware styling.
+ * TaskListPanel: Persistent, file-driven wrapper that reads from tasks.json
+ * via file watcher during /ralph workflow execution, feeding data to TaskListBox.
  *
  * Reference: specs/ralph-task-list-ui.md
  */
@@ -27,11 +28,20 @@ import { SPACING } from "../constants/spacing.ts";
 // TYPES
 // ============================================================================
 
+export interface TaskListBoxProps {
+  /** Task items to display */
+  items: TaskItem[];
+  /** Whether to show full task content without truncation */
+  expanded?: boolean;
+  /** Header label override (default: "Task Progress") */
+  headerTitle?: string;
+  /** Max width of the bordered container in columns (default: 100) */
+  maxWidth?: number;
+}
+
 export interface TaskListPanelProps {
   /** Workflow session directory path */
   sessionDir: string;
-  /** Workflow session ID (displayed for resume capability) */
-  sessionId?: string | null;
   /** Whether to show full task content without truncation */
   expanded?: boolean;
 }
@@ -59,19 +69,91 @@ function buildProgressSegments(
 }
 
 // ============================================================================
-// MAIN COMPONENT
+// TASK LIST BOX (Shared presentational component)
+// ============================================================================
+
+export function TaskListBox({
+  items,
+  expanded = false,
+  headerTitle = "Task Progress",
+  maxWidth = 100,
+}: TaskListBoxProps): React.ReactNode {
+  const themeColors = useThemeColors();
+  const { isDark } = useTheme();
+  const palette = getCatppuccinPalette(isDark);
+  const { width: terminalWidth } = useTerminalDimensions();
+
+  if (items.length === 0) return null;
+
+  const completed = items.filter(t => t.status === "completed").length;
+  const inProgress = items.filter(t => t.status === "in_progress").length;
+  const errored = items.filter(t => t.status === "error").length;
+  const total = items.length;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  // Cap effective terminal width so the bordered box doesn't exceed maxWidth.
+  // The box sits inside a parent wrapper with INDENT padding on each side.
+  const cappedWidth = Math.min(terminalWidth, maxWidth + SPACING.INDENT * 2);
+
+  // Calculate max content length for task descriptions based on container width.
+  // Overhead: paddingLeft(2) + paddingRight(2) + borderLeft(1) + borderRight(1)
+  //         + innerPaddingLeft(1) + innerPaddingRight(1) + rail(1) + space(1) + icon(1) + space(1) + idx(2) + space(1)
+  // Total: ~15 chars
+  const maxContentLength = Math.max(20, cappedWidth - 15);
+
+  // Progress bar width: inner container width minus label overhead
+  // Container: cappedWidth - paddingLeft(2) - paddingRight(2) - border(2) - innerPadding(2) = cw - 8
+  const innerWidth = Math.max(20, cappedWidth - 8);
+  const headerLabel = `${TASK_ICONS.active} ${headerTitle} ${MISC.separator} ${completed}/${total} ${MISC.separator} ${pct}%`;
+  const barWidth = Math.max(10, innerWidth - 2);
+
+  const { filled, empty } = buildProgressSegments(completed, total, barWidth);
+
+  // Status summary line (only shown when there are active/error items)
+  const summaryParts: string[] = [];
+  if (inProgress > 0) summaryParts.push(`${inProgress} running`);
+  if (errored > 0) summaryParts.push(`${errored} failed`);
+  const pending = total - completed - inProgress - errored;
+  if (pending > 0) summaryParts.push(`${pending} pending`);
+  const summaryLine = summaryParts.join(` ${MISC.separator} `);
+
+  return (
+    <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.dim} paddingLeft={SPACING.CONTAINER_PAD} paddingRight={SPACING.CONTAINER_PAD} maxWidth={maxWidth}>
+      {/* Header */}
+      <text wrapMode="none" attributes={1}>
+        <span style={{ fg: palette.teal }}>{headerLabel}</span>
+      </text>
+
+      {/* Progress bar */}
+      <text wrapMode="none">
+        <span style={{ fg: themeColors.success }}>{filled}</span>
+        <span style={{ fg: themeColors.dim }}>{empty}</span>
+      </text>
+
+      {/* Status summary */}
+      {summaryLine.length > 0 && (
+        <text wrapMode="none">
+          <span style={{ fg: themeColors.muted }}>{summaryLine}</span>
+        </text>
+      )}
+
+      {/* Task list */}
+      <scrollbox maxHeight={15}>
+        <TaskListIndicator items={items} expanded={expanded} maxVisible={Infinity} showConnector={false} maxContentLength={maxContentLength} />
+      </scrollbox>
+    </box>
+  );
+}
+
+// ============================================================================
+// TASK LIST PANEL (File-driven wrapper for /ralph workflow)
 // ============================================================================
 
 export function TaskListPanel({
   sessionDir,
-  sessionId,
   expanded = false,
 }: TaskListPanelProps): React.ReactNode {
-  const themeColors = useThemeColors();
-  const { isDark } = useTheme();
-  const palette = getCatppuccinPalette(isDark);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
-  const { width: terminalWidth } = useTerminalDimensions();
 
   useEffect(() => {
     // Initial load: read tasks.json synchronously on mount to avoid flash
@@ -93,68 +175,9 @@ export function TaskListPanel({
 
   if (tasks.length === 0) return null;
 
-  const completed = tasks.filter(t => t.status === "completed").length;
-  const inProgress = tasks.filter(t => t.status === "in_progress").length;
-  const errored = tasks.filter(t => t.status === "error").length;
-  const total = tasks.length;
-  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-  // Calculate max content length for task descriptions based on container width.
-  // Overhead: paddingLeft(2) + paddingRight(2) + borderLeft(1) + borderRight(1)
-  //         + innerPaddingLeft(1) + innerPaddingRight(1) + rail(1) + space(1) + icon(1) + space(1) + idx(2) + space(1)
-  // Total: ~15 chars
-  const maxContentLength = Math.max(20, terminalWidth - 15);
-
-  // Progress bar width: inner container width minus label overhead
-  // Container: terminalWidth - paddingLeft(2) - paddingRight(2) - border(2) - innerPadding(2) = tw - 8
-  const innerWidth = Math.max(20, terminalWidth - 8);
-  // Header label: "▸ Task Progress · 3/4 · 75% " ≈ 30 chars
-  const headerLabel = `${TASK_ICONS.active} Task Progress ${MISC.separator} ${completed}/${total} ${MISC.separator} ${pct}%`;
-  const barWidth = Math.max(10, innerWidth - 2);
-
-  const { filled, empty } = buildProgressSegments(completed, total, barWidth);
-
-  // Status summary line (only shown when there are active/error items)
-  const summaryParts: string[] = [];
-  if (inProgress > 0) summaryParts.push(`${inProgress} running`);
-  if (errored > 0) summaryParts.push(`${errored} failed`);
-  const pending = total - completed - inProgress - errored;
-  if (pending > 0) summaryParts.push(`${pending} pending`);
-  const summaryLine = summaryParts.join(` ${MISC.separator} `);
-
   return (
     <box flexDirection="column" paddingLeft={SPACING.INDENT} paddingRight={SPACING.INDENT} marginTop={SPACING.ELEMENT} flexShrink={0}>
-      <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.dim} paddingLeft={SPACING.CONTAINER_PAD} paddingRight={SPACING.CONTAINER_PAD}>
-        {/* Header */}
-        <text wrapMode="none" attributes={1}>
-          <span style={{ fg: palette.teal }}>{headerLabel}</span>
-        </text>
-
-        {/* Progress bar */}
-        <text wrapMode="none">
-          <span style={{ fg: themeColors.success }}>{filled}</span>
-          <span style={{ fg: themeColors.dim }}>{empty}</span>
-        </text>
-
-        {/* Status summary */}
-        {summaryLine.length > 0 && (
-          <text wrapMode="none">
-            <span style={{ fg: themeColors.muted }}>{summaryLine}</span>
-          </text>
-        )}
-
-        {/* Session ID */}
-        {sessionId && (
-          <text wrapMode="none">
-            <span style={{ fg: themeColors.dim }}>{`session ${sessionId}`}</span>
-          </text>
-        )}
-
-        {/* Task list */}
-        <scrollbox maxHeight={15}>
-          <TaskListIndicator items={tasks} expanded={expanded} maxVisible={Infinity} showConnector={false} maxContentLength={maxContentLength} />
-        </scrollbox>
-      </box>
+      <TaskListBox items={tasks} expanded={expanded} />
     </box>
   );
 }

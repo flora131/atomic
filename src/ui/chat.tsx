@@ -1275,6 +1275,10 @@ function CompletedQuestionDisplay({ toolCall }: { toolCall: MessageToolCall }): 
  * Represents a segment of content to render (either text or tool call).
  * Used for interleaving text content with tool calls at the correct positions.
  */
+/**
+ * @deprecated Use parts-based rendering via MessageBubbleParts instead.
+ * This type will be removed when usePartsRendering feature flag is removed.
+ */
 interface ContentSegment {
   type: "text" | "tool" | "hitl" | "agents" | "tasks";
   content?: string;
@@ -1289,6 +1293,9 @@ interface ContentSegment {
  * Build interleaved content segments from message content and tool calls.
  * Tool calls are inserted at their recorded content offsets.
  * Agents and tasks are also inserted at their chronological offsets.
+ * 
+ * @deprecated Use parts-based rendering via MessageBubbleParts instead.
+ * This function will be removed when usePartsRendering feature flag is removed.
  */
 export function buildContentSegments(
   content: string,

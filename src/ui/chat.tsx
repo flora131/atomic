@@ -2603,14 +2603,16 @@ export function ChatApp({
   /**
    * Handle permission/HITL request from SDK.
    * Converts the SDK event to a UserQuestion and shows the dialog.
+   * Also sets pendingQuestion on the matching ToolPart for inline rendering.
    */
   const handlePermissionRequest = useCallback((
-    _requestId: string,
+    requestId: string,
     toolName: string,
     question: string,
     options: Array<{ label: string; value: string; description?: string }>,
     respond: (answer: string | string[]) => void,
-    header?: string
+    header?: string,
+    toolCallId?: string
   ) => {
     // During Ralph autonomous execution, auto-approve permission requests
     if (workflowState.workflowActive) {
@@ -2635,7 +2637,41 @@ export function ChatApp({
       multiSelect: false,
     };
 
-    // Show the question dialog
+    // If we have a toolCallId, set pendingQuestion on the matching ToolPart
+    // Use toolCallId from event if provided, otherwise fallback to activeHitlToolCallIdRef
+    const effectiveToolCallId = toolCallId ?? activeHitlToolCallIdRef.current;
+    if (effectiveToolCallId) {
+      setMessagesWindowed((prev) =>
+        prev.map((msg) => {
+          if (!msg.parts || msg.parts.length === 0) return msg;
+          
+          // Find the matching ToolPart by toolCallId
+          const parts = [...msg.parts];
+          const toolPartIdx = parts.findIndex(
+            p => p.type === "tool" && (p as ToolPart).toolCallId === effectiveToolCallId
+          );
+
+          if (toolPartIdx >= 0) {
+            const toolPart = parts[toolPartIdx] as ToolPart;
+            parts[toolPartIdx] = {
+              ...toolPart,
+              pendingQuestion: {
+                requestId,
+                header: header || toolName,
+                question,
+                options,
+                multiSelect: false,
+                respond,
+              },
+            };
+            return { ...msg, parts };
+          }
+          return msg;
+        })
+      );
+    }
+
+    // Show the question dialog (overlay - continues to work during dual-population)
     handleHumanInputRequired(userQuestion);
   }, [handleHumanInputRequired, workflowState.workflowActive]);
 

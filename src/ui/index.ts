@@ -141,7 +141,8 @@ export type OnPermissionRequest = (
   question: string,
   options: Array<{ label: string; value: string; description?: string }>,
   respond: (answer: string | string[]) => void,
-  header?: string
+  header?: string,
+  toolCallId?: string
 ) => void;
 
 /**
@@ -656,24 +657,26 @@ export async function startChatUI(
             // Set result AND finalize status — if subagent.complete never
             // fired (eager agent path), this ensures the agent transitions
             // from "running" → "completed" when the Task tool returns.
+            // Use shouldFinalizeOnToolComplete guard to prevent premature
+            // finalization of background agents.
             state.parallelAgents = state.parallelAgents.map((a) =>
               a.id === agentId
                 ? {
                     ...a,
                     result: resultStr,
-                    status: a.background
-                      ? a.status
-                      : (a.status === "running" || a.status === "pending"
+                    status: shouldFinalizeOnToolComplete(a)
+                      ? (a.status === "running" || a.status === "pending"
                           ? "completed" as const
-                          : a.status),
-                    currentTool: a.background
-                      ? a.currentTool
-                      : (a.status === "running" || a.status === "pending"
+                          : a.status)
+                      : a.status,
+                    currentTool: shouldFinalizeOnToolComplete(a)
+                      ? (a.status === "running" || a.status === "pending"
                           ? undefined
-                          : a.currentTool),
-                    durationMs: a.background
-                      ? a.durationMs
-                      : (a.durationMs ?? (Date.now() - new Date(a.startedAt).getTime())),
+                          : a.currentTool)
+                      : a.currentTool,
+                    durationMs: shouldFinalizeOnToolComplete(a)
+                      ? (a.durationMs ?? (Date.now() - new Date(a.startedAt).getTime()))
+                      : a.durationMs,
                   }
                 : a
             );
@@ -683,9 +686,11 @@ export async function startChatUI(
             toolCallToAgentMap.delete(toolId);
           } else {
             // Fallback: find the last completed-or-running agent without a result
+            // Use shouldFinalizeOnToolComplete guard to prevent premature
+            // finalization of background agents.
             const agentToUpdate = [...state.parallelAgents]
               .reverse()
-              .find((a) => (a.status === "completed" || a.status === "running") && !a.result);
+              .find((a) => (a.status === "completed" || a.status === "running") && !a.result && shouldFinalizeOnToolComplete(a));
             if (agentToUpdate) {
               state.parallelAgents = state.parallelAgents.map((a) =>
                 a.id === agentToUpdate.id
@@ -714,10 +719,12 @@ export async function startChatUI(
         ) {
           // Task tool completed without a result — still finalize any
           // eagerly-created agent that hasn't been marked completed yet.
+          // Use shouldFinalizeOnToolComplete guard to prevent premature
+          // finalization of background agents.
           const agentId = toolCallToAgentMap.get(toolId);
           if (agentId) {
             state.parallelAgents = state.parallelAgents.map((a) =>
-              a.id === agentId && (a.status === "running" || a.status === "pending")
+              a.id === agentId && (a.status === "running" || a.status === "pending") && shouldFinalizeOnToolComplete(a)
                 ? {
                     ...a,
                     status: "completed" as const,
@@ -757,6 +764,7 @@ export async function startChatUI(
         header?: string;
         options?: Array<{ label: string; value: string; description?: string }>;
         respond?: (answer: string | string[]) => void;
+        toolCallId?: string;
       };
 
       if (state.permissionRequestHandler && data.question && data.respond) {
@@ -766,7 +774,8 @@ export async function startChatUI(
           data.question,
           data.options ?? [],
           data.respond,
-          data.header
+          data.header,
+          data.toolCallId
         );
       }
     });

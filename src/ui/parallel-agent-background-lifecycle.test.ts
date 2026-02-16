@@ -6,11 +6,12 @@
  * logic for agent state transitions.
  *
  * Changes tested:
- * 1. Agent creation: mode="background"|"async" → status="background", background=true
+ * 1. Agent creation: run_in_background=true → status="background", background=true
  * 2. tool.complete: background agents skip finalization (status unchanged)
- * 3. subagent.complete: background agents transition to "completed" or "error"
- * 4. Stream finalization: hasActive checks include background agents
- * 5. Cleanup: hasActiveAgents includes background status
+ * 3. tool.complete: isAsync fallback retroactively marks agents as background
+ * 4. subagent.complete: background agents transition to "completed" or "error"
+ * 5. Stream finalization: hasActive checks include background agents
+ * 6. Cleanup: hasActiveAgents includes background status
  */
 
 import { describe, expect, test } from "bun:test";
@@ -21,16 +22,16 @@ import type { ParallelAgent, AgentStatus } from "./components/parallel-agents-tr
 // ============================================================================
 
 /**
- * Creates a new agent with the appropriate status and flags based on mode.
- * Extracted from: src/ui/index.ts tool.start handler (lines 530-542)
+ * Creates a new agent with the appropriate status and flags based on run_in_background.
+ * Extracted from: src/ui/index.ts tool.start handler
  */
 function createAgent(
-  mode: "sync" | "async" | "background" | undefined,
+  runInBackground: boolean,
   agentType: string,
   taskDesc: string,
   toolId: string
 ): ParallelAgent {
-  const isBackground = mode === "background" || mode === "async";
+  const isBackground = runInBackground === true;
   return {
     id: toolId,
     taskToolCallId: toolId,
@@ -152,8 +153,8 @@ function applyInterruptTransform(agent: ParallelAgent): ParallelAgent {
 // ============================================================================
 
 describe("Background agent state transitions", () => {
-  test("creates background agent with correct status and flag for mode=background", () => {
-    const agent = createAgent("background", "task", "Test task", "tool_1");
+  test("creates background agent with correct status and flag for run_in_background=true", () => {
+    const agent = createAgent(true, "task", "Test task", "tool_1");
 
     expect(agent.status).toBe("background");
     expect(agent.background).toBe(true);
@@ -161,26 +162,12 @@ describe("Background agent state transitions", () => {
     expect(agent.durationMs).toBeUndefined();
   });
 
-  test("creates background agent for mode=async", () => {
-    const agent = createAgent("async", "explore", "Async exploration", "tool_2");
-
-    expect(agent.status).toBe("background");
-    expect(agent.background).toBe(true);
-    expect(agent.currentTool).toBe("Running explore in background…");
-    expect(agent.durationMs).toBeUndefined();
-  });
-
-  test("creates sync agent with status=running and no background flag", () => {
-    const syncAgent = createAgent("sync", "task", "Sync task", "tool_3");
-    const undefinedAgent = createAgent(undefined, "task", "Default task", "tool_4");
+  test("creates sync agent with status=running and no background flag for run_in_background=false", () => {
+    const syncAgent = createAgent(false, "task", "Sync task", "tool_3");
 
     expect(syncAgent.status).toBe("running");
     expect(syncAgent.background).toBeUndefined();
     expect(syncAgent.currentTool).toBe("Starting task…");
-
-    expect(undefinedAgent.status).toBe("running");
-    expect(undefinedAgent.background).toBeUndefined();
-    expect(undefinedAgent.currentTool).toBe("Starting task…");
   });
 
   test("tool.complete skips finalization for background agents", () => {
@@ -323,7 +310,7 @@ describe("Background agent state transitions", () => {
 describe("Background agent lifecycle integration", () => {
   test("full background lifecycle: spawn → grey → tool.complete stays grey → subagent.complete → green", () => {
     // Step 1: Spawn background agent (with a past timestamp to ensure duration > 0)
-    let agent = createAgent("background", "task", "Full lifecycle test", "tool_full");
+    let agent = createAgent(true, "task", "Full lifecycle test", "tool_full");
     // Override startedAt to be in the past
     agent = { ...agent, startedAt: new Date(Date.now() - 1000).toISOString() };
     expect(agent.status).toBe("background");
@@ -615,5 +602,44 @@ describe("Background agent lifecycle integration", () => {
     expect(transformed.durationMs).toBeLessThan(6000);
     expect(transformed.result).toBe("Sync result");
     expect(transformed.model).toBe("claude-sonnet-4.5");
+  });
+
+  test("isAsync fallback retroactively marks non-background agent as background", () => {
+    // Simulate an agent that was NOT detected as background at tool.start
+    // (e.g. run_in_background was not in the input)
+    const agent: ParallelAgent = {
+      id: "agent_missed_bg",
+      taskToolCallId: "tool_missed_bg",
+      name: "task",
+      task: "Missed background detection",
+      status: "running",
+      startedAt: new Date(Date.now() - 3000).toISOString(),
+      currentTool: "Starting task…",
+    };
+
+    // Step 1: isAsync fallback retroactively sets background flag
+    const retroAgent: ParallelAgent = !agent.background
+      ? { ...agent, background: true, status: "background" as const }
+      : agent;
+
+    expect(retroAgent.background).toBe(true);
+    expect(retroAgent.status).toBe("background");
+
+    // Step 2: tool.complete should now skip finalization
+    const afterToolComplete = applyToolCompleteTransform(retroAgent, "Async result");
+    expect(afterToolComplete.status).toBe("background");
+    expect(afterToolComplete.currentTool).toBe("Starting task…"); // preserved from retro
+    expect(afterToolComplete.durationMs).toBeUndefined();
+    expect(afterToolComplete.result).toBe("Async result");
+
+    // Step 3: subagent.complete transitions to completed
+    const afterSubagentComplete = applySubagentCompleteTransform(
+      afterToolComplete,
+      "agent_missed_bg",
+      true,
+      "Final result"
+    );
+    expect(afterSubagentComplete.status).toBe("completed");
+    expect(afterSubagentComplete.durationMs).toBeGreaterThan(0);
   });
 });

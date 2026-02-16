@@ -524,8 +524,7 @@ export async function startChatUI(
         if ((data.toolName === "Task" || data.toolName === "task") && data.toolInput && !isUpdate) {
           const input = data.toolInput as Record<string, unknown>;
           const prompt = (input.prompt as string) ?? (input.description as string) ?? "";
-          const mode = (input.mode as string) ?? "sync";
-          const isBackground = mode === "background" || mode === "async";
+          const isBackground = input.run_in_background === true;
           pendingTaskEntries.push({ toolId, prompt: prompt || undefined, isBackground });
 
           // Eagerly create a ParallelAgent so the tree appears immediately
@@ -674,6 +673,16 @@ export async function startChatUI(
             || toolCallToAgentMap.get(toolId);
 
           if (agentId) {
+            // Fallback: if the tool result indicates async (e.g. { isAsync: true }),
+            // retroactively mark the agent as background so finalization is skipped.
+            if (parsed.isAsync) {
+              state.parallelAgents = state.parallelAgents.map((a) =>
+                a.id === agentId && !a.background
+                  ? { ...a, background: true, status: "background" as const }
+                  : a
+              );
+            }
+
             // Set result AND finalize status — if subagent.complete never
             // fired (eager agent path), this ensures the agent transitions
             // from "running" → "completed" when the Task tool returns.

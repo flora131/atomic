@@ -17,7 +17,6 @@ import type { HitlResponseRecord } from "../../utils/hitl-response.ts";
 
 export interface ToolPartDisplayProps {
   part: ToolPart;
-  isLast: boolean;
 }
 
 /**
@@ -47,7 +46,7 @@ function CompletedHitlDisplay({ hitlResponse }: { hitlResponse: HitlResponseReco
  * Main ToolPartDisplay component.
  * Renders tool output with inline HITL overlay support.
  */
-export function ToolPartDisplay({ part, isLast }: ToolPartDisplayProps): React.ReactNode {
+export function ToolPartDisplay({ part }: ToolPartDisplayProps): React.ReactNode {
   return (
     <box flexDirection="column">
       {/* Tool output using existing ToolResult component */}

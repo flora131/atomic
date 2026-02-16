@@ -7,8 +7,9 @@ description: Submit commits as Phabricator diffs for code review using Sapling.
 Submit commits to Phabricator for code review using `jf submit` (Meta) or `arc diff` (open-source).
 
 <EXTREMELY_IMPORTANT>
+
 > **Windows Note:** Use the full path to `sl.exe` to avoid conflicts with PowerShell's built-in `sl` alias for `Set-Location`.
-</EXTREMELY_IMPORTANT>
+> </EXTREMELY_IMPORTANT>
 
 ## What This Skill Does
 
@@ -45,6 +46,7 @@ Submit commits to Phabricator for code review using `jf submit` (Meta) or `arc d
 ## Stacked Diffs
 
 Sapling naturally supports stacked commits. When submitting:
+
 - Each commit gets its own Phabricator diff (D12345, D12346, D12347)
 - Diffs are linked with proper dependency relationships
 - Reviewers can review each diff independently

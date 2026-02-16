@@ -10,6 +10,7 @@ argument-hint: [code-path]
 Commit changes using the `git commit` command, push all changes, and submit a pull request.
 
 ## Behavior
+
 - Creates logical commits for unstaged changes
 - Pushes branch to remote
 - Creates pull request with proper name and description of the changes in the PR body

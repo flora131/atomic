@@ -8,8 +8,9 @@ description: Create well-formatted commits with conventional commit format using
 Create well-formatted commits following the Conventional Commits specification using Sapling SCM.
 
 <EXTREMELY_IMPORTANT>
+
 > **Windows Note:** Use the full path to `sl.exe` to avoid conflicts with PowerShell's built-in `sl` alias for `Set-Location`.
-</EXTREMELY_IMPORTANT>
+> </EXTREMELY_IMPORTANT>
 
 ## What This Skill Does
 
@@ -58,6 +59,7 @@ Create well-formatted commits following the Conventional Commits specification u
 ```
 
 **Types:**
+
 - `feat:` - New feature (MINOR version bump)
 - `fix:` - Bug fix (PATCH version bump)
 - `docs:` - Documentation changes

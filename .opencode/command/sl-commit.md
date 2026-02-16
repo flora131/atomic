@@ -8,8 +8,9 @@ agent: build
 Create well-formatted commit: $ARGUMENTS
 
 <EXTREMELY_IMPORTANT>
+
 > **Windows Note:** Use the full path to `sl.exe` to avoid conflicts with PowerShell's built-in `sl` alias for `Set-Location`.
-</EXTREMELY_IMPORTANT>
+> </EXTREMELY_IMPORTANT>
 
 ## Current Repository State
 
@@ -78,16 +79,19 @@ The commit message should be structured as follows:
 ## Examples
 
 ### Simple commit
+
 ```
 docs: correct spelling of CHANGELOG
 ```
 
 ### Commit with scope
+
 ```
 feat(lang): add Polish language
 ```
 
 ### Breaking change
+
 ```
 feat!: send an email to the customer when a product is shipped
 

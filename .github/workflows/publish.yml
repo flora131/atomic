@@ -1,172 +1,172 @@
 name: Publish
 
 on:
-  push:
-    branches:
-      - "release/**"
-  release:
-    types: [published]
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: "Tag to release (e.g., v0.1.0)"
-        required: true
-        type: string
+    push:
+        branches:
+            - "release/**"
+    release:
+        types: [published]
+    workflow_dispatch:
+        inputs:
+            tag:
+                description: "Tag to release (e.g., v0.1.0)"
+                required: true
+                type: string
 
 permissions:
-  contents: write
-  id-token: write
+    contents: write
+    id-token: write
 
 jobs:
-  build:
-    name: Build Binaries
-    runs-on: ubuntu-latest
+    build:
+        name: Build Binaries
+        runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          version: latest
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+              with:
+                  version: latest
 
-      - name: Install dependencies
-        run: bun ci
+            - name: Install dependencies
+              run: bun ci
 
-      - name: Install all platform-specific opentui native bindings
-        run: |
-          # Platform packages have os/cpu fields that block install on foreign platforms.
-          # Download and extract tarballs directly to bypass platform checks.
-          OPENTUI_VERSION="0.1.79"
-          for platform in darwin-x64 darwin-arm64 linux-arm64 win32-x64 win32-arm64; do
-            pkg="@opentui/core-${platform}"
-            dest="node_modules/@opentui/core-${platform}"
-            if [ ! -d "$dest" ]; then
-              mkdir -p "$dest"
-              npm pack "${pkg}@${OPENTUI_VERSION}" --pack-destination /tmp 2>/dev/null
-              tar -xzf "/tmp/opentui-core-${platform}-${OPENTUI_VERSION}.tgz" -C "$dest" --strip-components=1
-            fi
-          done
+            - name: Install all platform-specific opentui native bindings
+              run: |
+                  # Platform packages have os/cpu fields that block install on foreign platforms.
+                  # Download and extract tarballs directly to bypass platform checks.
+                  OPENTUI_VERSION="0.1.79"
+                  for platform in darwin-x64 darwin-arm64 linux-arm64 win32-x64 win32-arm64; do
+                    pkg="@opentui/core-${platform}"
+                    dest="node_modules/@opentui/core-${platform}"
+                    if [ ! -d "$dest" ]; then
+                      mkdir -p "$dest"
+                      npm pack "${pkg}@${OPENTUI_VERSION}" --pack-destination /tmp 2>/dev/null
+                      tar -xzf "/tmp/opentui-core-${platform}-${OPENTUI_VERSION}.tgz" -C "$dest" --strip-components=1
+                    fi
+                  done
 
-      - name: Run tests
-        run: bun test
+            - name: Run tests
+              run: bun test
 
-      - name: Run typecheck
-        run: bun run typecheck
+            - name: Run typecheck
+              run: bun run typecheck
 
-      - name: Build binaries for all platforms
-        run: |
-          mkdir -p dist
+            - name: Build binaries for all platforms
+              run: |
+                  mkdir -p dist
 
-          # Linux x64
-          bun build src/cli.ts --compile --minify --target=bun-linux-x64 --outfile dist/atomic-linux-x64
+                  # Linux x64
+                  bun build src/cli.ts --compile --minify --target=bun-linux-x64 --outfile dist/atomic-linux-x64
 
-          # Linux arm64
-          bun build src/cli.ts --compile --minify --target=bun-linux-arm64 --outfile dist/atomic-linux-arm64
+                  # Linux arm64
+                  bun build src/cli.ts --compile --minify --target=bun-linux-arm64 --outfile dist/atomic-linux-arm64
 
-          # macOS x64
-          bun build src/cli.ts --compile --minify --target=bun-darwin-x64 --outfile dist/atomic-darwin-x64
+                  # macOS x64
+                  bun build src/cli.ts --compile --minify --target=bun-darwin-x64 --outfile dist/atomic-darwin-x64
 
-          # macOS arm64 (Apple Silicon)
-          bun build src/cli.ts --compile --minify --target=bun-darwin-arm64 --outfile dist/atomic-darwin-arm64
+                  # macOS arm64 (Apple Silicon)
+                  bun build src/cli.ts --compile --minify --target=bun-darwin-arm64 --outfile dist/atomic-darwin-arm64
 
-          # Windows x64
-          bun build src/cli.ts --compile --minify --target=bun-windows-x64 --outfile dist/atomic-windows-x64.exe
+                  # Windows x64
+                  bun build src/cli.ts --compile --minify --target=bun-windows-x64 --outfile dist/atomic-windows-x64.exe
 
-      - name: Create config archives
-        run: |
-          # Create a staging directory for config files
-          mkdir -p config-staging
+            - name: Create config archives
+              run: |
+                  # Create a staging directory for config files
+                  mkdir -p config-staging
 
-          # Copy config directories (same as package.json "files" for binary distribution)
-          cp -r .claude config-staging/
-          cp -r .opencode config-staging/
-          mkdir -p config-staging/.github
-          cp -r .github/skills config-staging/.github/
+                  # Copy config directories (same as package.json "files" for binary distribution)
+                  cp -r .claude config-staging/
+                  cp -r .opencode config-staging/
+                  mkdir -p config-staging/.github
+                  cp -r .github/skills config-staging/.github/
 
-          # Remove node_modules from .opencode if present
-          rm -rf config-staging/.opencode/node_modules
+                  # Remove node_modules from .opencode if present
+                  rm -rf config-staging/.opencode/node_modules
 
-          # Create tarball for Unix systems (preserves permissions)
-          tar -czvf dist/atomic-config.tar.gz -C config-staging .
+                  # Create tarball for Unix systems (preserves permissions)
+                  tar -czvf dist/atomic-config.tar.gz -C config-staging .
 
-          # Create zip for Windows
-          cd config-staging && zip -r ../dist/atomic-config.zip . && cd ..
+                  # Create zip for Windows
+                  cd config-staging && zip -r ../dist/atomic-config.zip . && cd ..
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v6
-        with:
-          name: binaries
-          path: dist/
+            - name: Upload artifacts
+              uses: actions/upload-artifact@v6
+              with:
+                  name: binaries
+                  path: dist/
 
-  release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    needs: build
+    release:
+        name: Create Release
+        runs-on: ubuntu-latest
+        needs: build
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
 
-      - name: Download artifacts
-        uses: actions/download-artifact@v7
-        with:
-          name: binaries
-          path: dist/
+            - name: Download artifacts
+              uses: actions/download-artifact@v7
+              with:
+                  name: binaries
+                  path: dist/
 
-      - name: Get version from package.json
-        id: version
-        run: echo "version=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
+            - name: Get version from package.json
+              id: version
+              run: echo "version=$(jq -r .version package.json)" >> $GITHUB_OUTPUT
 
-      - name: Create checksums
-        run: |
-          cd dist
-          sha256sum * > checksums.txt
+            - name: Create checksums
+              run: |
+                  cd dist
+                  sha256sum * > checksums.txt
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-          files: |
-            dist/atomic-linux-x64
-            dist/atomic-linux-arm64
-            dist/atomic-darwin-x64
-            dist/atomic-darwin-arm64
-            dist/atomic-windows-x64.exe
-            dist/atomic-config.tar.gz
-            dist/atomic-config.zip
-            dist/checksums.txt
+            - name: Create GitHub Release
+              uses: softprops/action-gh-release@v2
+              with:
+                  tag_name: v${{ steps.version.outputs.version }}
+                  name: v${{ steps.version.outputs.version }}
+                  draft: false
+                  prerelease: false
+                  generate_release_notes: true
+                  files: |
+                      dist/atomic-linux-x64
+                      dist/atomic-linux-arm64
+                      dist/atomic-darwin-x64
+                      dist/atomic-darwin-arm64
+                      dist/atomic-windows-x64.exe
+                      dist/atomic-config.tar.gz
+                      dist/atomic-config.zip
+                      dist/checksums.txt
 
-  publish-npm:
-    name: Publish to npm
-    runs-on: ubuntu-latest
-    needs: build
-    permissions:
-      contents: read
-      id-token: write # Required for OIDC provenance
+    publish-npm:
+        name: Publish to npm
+        runs-on: ubuntu-latest
+        needs: build
+        permissions:
+            contents: read
+            id-token: write # Required for OIDC provenance
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          version: latest
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+              with:
+                  version: latest
 
-      - name: Install dependencies
-        run: bun ci
+            - name: Install dependencies
+              run: bun ci
 
-      - name: Setup Node.js for npm publish
-        uses: actions/setup-node@v6
-        with:
-          node-version: "lts/*"
-          registry-url: "https://registry.npmjs.org"
+            - name: Setup Node.js for npm publish
+              uses: actions/setup-node@v6
+              with:
+                  node-version: "lts/*"
+                  registry-url: "https://registry.npmjs.org"
 
-      - name: Publish to npm with provenance
-        run: npm publish --provenance --access public
+            - name: Publish to npm with provenance
+              run: npm publish --provenance --access public

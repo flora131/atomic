@@ -10,8 +10,9 @@ argument-hint: [--update "message"]
 Submit commits to Phabricator for code review using `jf submit` (Meta) or `arc diff` (open-source Phabricator).
 
 <EXTREMELY_IMPORTANT>
+
 > **Windows Note:** Use the full path to `sl.exe` to avoid conflicts with PowerShell's built-in `sl` alias for `Set-Location`.
-</EXTREMELY_IMPORTANT>
+> </EXTREMELY_IMPORTANT>
 
 ## Current Repository State
 
@@ -32,6 +33,7 @@ Submit commits to Phabricator for code review using `jf submit` (Meta) or `arc d
 The `jf submit` command (Meta's internal tool) submits commits to Phabricator for code review. For open-source Phabricator deployments, `arc diff` serves the same purpose. Note: there is no top-level `sl submit` CLI command in Sapling — submission is handled by these external tools or the ISL web UI.
 
 The submission process:
+
 - Creates a new diff if none exists for the commit
 - Updates existing diff if one is already linked (via `Differential Revision:` in commit message)
 - Handles stacked diffs with proper dependency relationships
@@ -51,6 +53,7 @@ The submission process:
 ### Diff Status Values
 
 The `{phabstatus}` template keyword shows:
+
 - `Needs Review` - Awaiting reviewer feedback
 - `Accepted` - Ready to land
 - `Needs Revision` - Reviewer requested changes
@@ -65,6 +68,7 @@ The `{phabstatus}` template keyword shows:
 ## Stacked Diffs
 
 Sapling naturally supports stacked commits. When submitting:
+
 - Each commit in the stack gets its own Phabricator diff (D12345, D12346, D12347)
 - Diffs are linked with proper dependency relationships
 - Reviewers can review each diff independently
@@ -98,6 +102,7 @@ sl log -T '{phabstatus}\n' -r .  # Should not error
 ## After Diff is Approved
 
 Once a diff is accepted in Phabricator:
+
 1. The diff can be "landed" (merged to main branch)
 2. Sapling automatically marks landed commits as hidden
 3. Use `sl ssl` to verify the diff shows as `Committed`

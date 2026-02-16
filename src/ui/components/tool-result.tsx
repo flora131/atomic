@@ -255,7 +255,7 @@ export function ToolResult({
       status === "completed" ? "loaded" : status === "error" ? "error" : "loading";
     const errorMessage = status === "error" && typeof output === "string" ? output : undefined;
     return (
-      <box marginBottom={SPACING.ELEMENT}>
+      <box>
         <SkillLoadIndicator
           skillName={skillName}
           status={skillStatus}
@@ -320,7 +320,7 @@ export function ToolResult({
   const iconColor = hasError ? colors.error : colors.accent;
 
   return (
-    <box flexDirection="column" marginBottom={SPACING.ELEMENT}>
+    <box flexDirection="column">
       {/* Header line */}
       <box flexDirection="row" gap={SPACING.ELEMENT}>
         {/* Status indicator + icon — fixed-width prefix so they stay on line 1 */}

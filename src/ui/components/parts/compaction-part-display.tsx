@@ -19,7 +19,7 @@ export function CompactionPartDisplay({ part }: CompactionPartDisplayProps): Rea
   const colors = useThemeColors();
 
   return (
-    <box flexDirection="column" marginTop={SPACING.SECTION} marginBottom={SPACING.SECTION}>
+    <box flexDirection="column">
       <text style={{ fg: colors.muted }}>
         {`${MISC.separator} Conversation compacted ${MISC.separator}`}
       </text>

@@ -8,7 +8,6 @@
 import React from "react";
 import type { AgentPart } from "../../parts/types.ts";
 import { ParallelAgentsTree } from "../parallel-agents-tree.tsx";
-import { SPACING } from "../../constants/spacing.ts";
 
 export interface AgentPartDisplayProps {
   part: AgentPart;
@@ -21,7 +20,7 @@ export function AgentPartDisplay({ part }: AgentPartDisplayProps): React.ReactNo
   );
 
   return (
-    <box flexDirection="column" marginBottom={SPACING.ELEMENT}>
+    <box flexDirection="column">
       <ParallelAgentsTree
         agents={part.agents}
         compact={!hasActiveAgents}

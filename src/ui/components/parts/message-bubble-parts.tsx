@@ -17,6 +17,11 @@ export interface MessageBubblePartsProps {
 /**
  * Renders a message from its parts array using the PART_REGISTRY.
  * Returns null if the message has no parts.
+ *
+ * Spacing principle: the parent container owns all inter-part spacing
+ * via `gap`. Child part components must NOT add their own marginBottom
+ * to avoid double-spacing. Parts that need extra section-level
+ * separation can add marginTop internally.
  */
 export function MessageBubbleParts({ message }: MessageBubblePartsProps): React.ReactNode {
   const parts = message.parts ?? [];
@@ -26,20 +31,16 @@ export function MessageBubbleParts({ message }: MessageBubblePartsProps): React.
   }
 
   return (
-    <box flexDirection="column">
+    <box flexDirection="column" gap={SPACING.ELEMENT}>
       {parts.map((part, index) => {
         const Renderer = PART_REGISTRY[part.type];
         if (!Renderer) return null;
-        // Add spacing between consecutive parts of different types
-        const prevPart = index > 0 ? parts[index - 1] : undefined;
-        const needsSpacing = prevPart != null && prevPart.type !== part.type;
         return (
-          <box key={part.id} marginTop={needsSpacing ? SPACING.ELEMENT : SPACING.NONE}>
-            <Renderer
-              part={part}
-              isLast={index === parts.length - 1}
-            />
-          </box>
+          <Renderer
+            key={part.id}
+            part={part}
+            isLast={index === parts.length - 1}
+          />
         );
       })}
     </box>

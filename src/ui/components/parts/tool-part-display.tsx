@@ -11,7 +11,6 @@ import { ToolResult } from "../tool-result.tsx";
 import { UserQuestionInline } from "./user-question-inline.tsx";
 import { useThemeColors } from "../../theme.tsx";
 import { PROMPT, STATUS } from "../../constants/icons.ts";
-import { SPACING } from "../../constants/spacing.ts";
 import type { ToolPart, ToolState } from "../../parts/types.ts";
 import type { ToolExecutionStatus } from "../../hooks/use-streaming-state.ts";
 import type { HitlResponseRecord } from "../../utils/hitl-response.ts";
@@ -45,7 +44,7 @@ function CompletedHitlDisplay({ hitlResponse, questionText }: {
   const statusColor = isDeclined ? colors.warning : colors.success;
 
   return (
-    <box flexDirection="column" marginBottom={SPACING.ELEMENT}>
+    <box flexDirection="column">
       {/* Header: status icon + question text */}
       <text wrapMode="word">
         <span style={{ fg: statusColor }}>{statusIcon}</span>

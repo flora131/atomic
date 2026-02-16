@@ -37,6 +37,7 @@ import {
   createTuiTelemetrySessionTracker,
   type TuiTelemetrySessionTracker,
 } from "../telemetry/index.ts";
+import { shouldFinalizeOnToolComplete } from "./parts/index.ts";
 
 /**
  * Build a system prompt section describing all registered capabilities.
@@ -1183,8 +1184,9 @@ export async function startChatUI(
       state.streamAbortController = null;
       // Keep isStreaming true if sub-agents are still running so
       // subagent.complete events continue to be processed.
+      // Use guard to prevent premature finalization of background agents.
       const hasActiveAgents = state.parallelAgents.some(
-        (a) => a.status === "running" || a.status === "pending"
+        (a) => a.status === "running" || a.status === "pending" || !shouldFinalizeOnToolComplete(a)
       );
       if (!hasActiveAgents) {
         state.isStreaming = false;

@@ -1618,6 +1618,8 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
   // Assistant message: bullet point prefix, with tool calls interleaved at correct positions
   if (message.role === "assistant") {
     // Use new parts-based rendering if feature flag is enabled and message has parts
+    // TODO: Remove this conditional when usePartsRendering flag is removed.
+    // Parts-based rendering should become the only rendering path.
     if (partsRendering && message.parts && message.parts.length > 0) {
       return (
         <box

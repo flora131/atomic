@@ -450,7 +450,9 @@ export interface MessageToolCall {
   output?: unknown;
   /** Current execution status */
   status: ToolExecutionStatus;
-  /** Content offset at the time tool call started (for inline rendering) */
+  /** Content offset at the time tool call started (for inline rendering) 
+   * @deprecated Use parts[] array instead. Will be removed with feature flag.
+   */
   contentOffsetAtStart?: number;
   /** Structured HITL response data preserved across late tool.complete events */
   hitlResponse?: HitlResponseRecord;
@@ -505,9 +507,13 @@ export interface ChatMessage {
   taskItems?: Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; blockedBy?: string[]}>;
   /** Whether task updates for this message should remain pinned-only (Ralph exception) */
   tasksPinned?: boolean;
-  /** Content offset when parallel agents first appeared (for chronological positioning) */
+  /** Content offset when parallel agents first appeared (for chronological positioning) 
+   * @deprecated Use parts[] array instead. Will be removed with feature flag.
+   */
   agentsContentOffset?: number;
-  /** Content offset when task list first appeared (for chronological positioning) */
+  /** Content offset when task list first appeared (for chronological positioning) 
+   * @deprecated Use parts[] array instead. Will be removed with feature flag.
+   */
   tasksContentOffset?: number;
   /** MCP snapshot for rendering Codex-style /mcp output */
   mcpSnapshot?: McpSnapshotView;

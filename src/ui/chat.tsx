@@ -1702,14 +1702,21 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
               </box>
             );
           } else if (segment.type === "tasks" && segment.taskItems) {
+            const completedCount = segment.taskItems.filter(t => t.status === "completed").length;
+            const totalCount = segment.taskItems.length;
             return (
-              <box key={segment.key}>
-                <TaskListIndicator
-                  items={segment.taskItems}
-                  expanded={segment.tasksExpanded ?? false}
-                  maxVisible={10}
-                  showConnector={true}
-                />
+              <box key={segment.key} flexDirection="column" marginTop={1}>
+                <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.muted} paddingLeft={1} paddingRight={1}>
+                  <text style={{ fg: themeColors.accent }} attributes={1}>
+                    {`Task Progress ${MISC.separator} ${completedCount}/${totalCount} tasks`}
+                  </text>
+                  <TaskListIndicator
+                    items={segment.taskItems}
+                    expanded={segment.tasksExpanded ?? false}
+                    maxVisible={10}
+                    showConnector={false}
+                  />
+                </box>
               </box>
             );
           }
@@ -1970,6 +1977,8 @@ export function ChatApp({
 
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
+  // Ref to track message ID for background agent updates after stream ends
+  const backgroundAgentMessageIdRef = useRef<string | null>(null);
   // Ref to track when streaming started for duration calculation
   const streamingStartRef = useRef<number | null>(null);
   // Ref to track streaming state synchronously (for immediate check in handleSubmit)
@@ -2002,6 +2011,9 @@ export function ChatApp({
   // Incremented when message-window overflow eviction happens.
   // Used to remount the scrollbox and prevent stale renderables in long sessions.
   const [messageWindowEpoch, setMessageWindowEpoch] = useState(0);
+  // Accumulates eviction data from the pure state updater so the useEffect
+  // below can perform side-effects (file I/O, counter bump) outside the updater.
+  const pendingEvictionsRef = useRef<Array<{ messages: ChatMessage[], count: number }>>([]);
   // Ref for scrollbox to enable programmatic scrolling
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
 
@@ -2010,8 +2022,8 @@ export function ChatApp({
 
   /**
    * Update chat messages and enforce the in-memory window cap atomically.
-   * Any overflow is persisted to transcript history and reflected in the
-   * hidden-message indicator count.
+   * The state updater is kept pure — side-effects (history buffer writes,
+   * trimmed-count and epoch bumps) are deferred to the useEffect below.
    */
   const setMessagesWindowed = useCallback((next: React.SetStateAction<ChatMessage[]>) => {
     setMessages((prev) => {
@@ -2023,13 +2035,27 @@ export function ChatApp({
         MAX_VISIBLE_MESSAGES
       );
       if (evictedCount > 0) {
-        appendToHistoryBuffer(evictedMessages);
-        setTrimmedMessageCount((count) => count + evictedCount);
-        setMessageWindowEpoch((epoch) => epoch + 1);
+        pendingEvictionsRef.current.push({ messages: evictedMessages, count: evictedCount });
       }
       return inMemoryMessages;
     });
   }, []);
+
+  // Process pending evictions after state commits — keeps the state updater pure.
+  useEffect(() => {
+    if (pendingEvictionsRef.current.length === 0) return;
+    const evictions = pendingEvictionsRef.current;
+    pendingEvictionsRef.current = [];
+    let totalEvicted = 0;
+    for (const { messages: evicted, count } of evictions) {
+      appendToHistoryBuffer(evicted);
+      totalEvicted += count;
+    }
+    if (totalEvicted > 0) {
+      setTrimmedMessageCount((c) => c + totalEvicted);
+      setMessageWindowEpoch((e) => e + 1);
+    }
+  }, [messages]);
 
   // Live elapsed time counter for streaming indicator
   useEffect(() => {
@@ -2625,17 +2651,41 @@ export function ChatApp({
 
   // Keep live sub-agent updates anchored to the active streaming message so
   // they render in-order inside chat scrollback instead of as a last-row overlay.
+  // Also handles background agent completion updates after stream ends.
   useEffect(() => {
-    const messageId = streamingMessageIdRef.current;
-    if (!messageId || parallelAgents.length === 0) return;
+    if (parallelAgents.length === 0) return;
 
-    setMessagesWindowed((prev: ChatMessage[]) =>
-      prev.map((msg: ChatMessage) =>
-        msg.id === messageId && msg.streaming
-          ? { ...msg, parallelAgents }
-          : msg
-      )
-    );
+    // During streaming: bake into the active streaming message
+    const messageId = streamingMessageIdRef.current;
+    if (messageId) {
+      setMessagesWindowed((prev: ChatMessage[]) =>
+        prev.map((msg: ChatMessage) =>
+          msg.id === messageId && msg.streaming
+            ? { ...msg, parallelAgents }
+            : msg
+        )
+      );
+      return;
+    }
+
+    // After stream ends: update baked message for background agent completions
+    const bgMsgId = backgroundAgentMessageIdRef.current;
+    if (bgMsgId) {
+      setMessagesWindowed((prev: ChatMessage[]) =>
+        prev.map((msg: ChatMessage) =>
+          msg.id === bgMsgId
+            ? { ...msg, parallelAgents }
+            : msg
+        )
+      );
+      // Clear ref once all background agents have reached terminal state
+      const hasActiveBg = parallelAgents.some(
+        (a) => a.background && a.status === "background"
+      );
+      if (!hasActiveBg) {
+        backgroundAgentMessageIdRef.current = null;
+      }
+    }
   }, [parallelAgents, setMessagesWindowed]);
 
   // When all sub-agents/tools finish and a dequeue was deferred, trigger it.
@@ -2643,7 +2693,7 @@ export function ChatApp({
   // or when tools complete (via toolCompletionVersion).
   useEffect(() => {
     const hasActive = parallelAgents.some(
-      (a) => a.status === "running" || a.status === "pending" || a.status === "background"
+      (a) => a.status === "running" || a.status === "pending"
     );
     // Also check if tools are still running
     if (hasActive || hasRunningToolRef.current) return;
@@ -2710,8 +2760,16 @@ export function ChatApp({
       isAgentOnlyStreamRef.current = false;
       setIsStreaming(false);
       setStreamingMeta(null);
-      setParallelAgents([]);
-      parallelAgentsRef.current = [];
+      // Keep background agents in live state for post-stream completion tracking
+      const remainingBg = parallelAgents.filter((a) => a.background && a.status === "background");
+      if (remainingBg.length > 0 && messageId) {
+        backgroundAgentMessageIdRef.current = messageId;
+        setParallelAgents(remainingBg);
+        parallelAgentsRef.current = remainingBg;
+      } else {
+        setParallelAgents([]);
+        parallelAgentsRef.current = [];
+      }
 
       // Drain the message queue — the agent-only path doesn't go through
       // the SDK handleComplete callback, so we must dequeue here.
@@ -3325,8 +3383,9 @@ export function ChatApp({
 
             // If sub-agents or tools are still running, defer finalization and queue
             // processing until they complete (preserves correct state).
+            // Background agents are excluded — they must not block completion.
             const hasActiveAgents = parallelAgentsRef.current.some(
-              (a) => a.status === "running" || a.status === "pending" || a.status === "background"
+              (a) => a.status === "running" || a.status === "pending"
             );
             if (hasActiveAgents || hasRunningToolRef.current) {
               pendingCompleteRef.current = handleComplete;
@@ -3366,8 +3425,12 @@ export function ChatApp({
                   )
                 );
               }
-              // Clear live agents
-              return [];
+              // Keep background agents in live state for post-stream completion tracking
+              const remaining = currentAgents.filter((a) => a.background && a.status === "background");
+              if (remaining.length > 0 && messageId) {
+                backgroundAgentMessageIdRef.current = messageId;
+              }
+              return remaining;
             });
 
             streamingMessageIdRef.current = null;
@@ -4765,8 +4828,9 @@ export function ChatApp({
 
           // If sub-agents are still running, defer finalization and queue
           // processing until they complete (preserves correct state).
+          // Background agents are excluded — they must not block completion.
           const hasActiveAgents = parallelAgentsRef.current.some(
-            (a) => a.status === "running" || a.status === "pending" || a.status === "background"
+            (a) => a.status === "running" || a.status === "pending"
           );
           if (hasActiveAgents) {
             pendingCompleteRef.current = handleComplete;
@@ -4806,8 +4870,12 @@ export function ChatApp({
                 )
               );
             }
-            // Clear live agents
-            return [];
+            // Keep background agents in live state for post-stream completion tracking
+            const remaining = currentAgents.filter((a) => a.background && a.status === "background");
+            if (remaining.length > 0 && messageId) {
+              backgroundAgentMessageIdRef.current = messageId;
+            }
+            return remaining;
           });
 
           streamingMessageIdRef.current = null;
@@ -5183,9 +5251,12 @@ export function ChatApp({
   );
 
   // Get the visible messages and hidden transcript count for UI rendering.
+  // Include pending (not yet flushed) eviction count so the indicator is
+  // accurate even before the eviction useEffect commits.
+  const pendingEvictionCount = pendingEvictionsRef.current.reduce((sum, e) => sum + e.count, 0);
   const { visibleMessages, hiddenMessageCount } = computeMessageWindow(
     messages,
-    trimmedMessageCount
+    trimmedMessageCount + pendingEvictionCount
   );
   const renderMessages = visibleMessages;
 
@@ -5253,16 +5324,6 @@ export function ChatApp({
         />
       ) : (
       <box flexDirection="column" flexGrow={1}>
-      {/* Compaction History - shows expanded compaction summary */}
-      {showCompactionHistory && compactionSummary && parallelAgents.length === 0 && (
-        <box flexDirection="column" paddingLeft={2} paddingRight={2} marginTop={1} marginBottom={1}>
-          <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.muted} paddingLeft={1} paddingRight={1}>
-            <text style={{ fg: themeColors.muted }} attributes={1}>Compaction Summary</text>
-            <text style={{ fg: themeColors.foreground }} wrapMode="char" selectable>{compactionSummary}</text>
-          </box>
-        </box>
-      )}
-
       {/* Message display area - scrollable chat history */}
       {/* Text can be selected with mouse and copied with Ctrl+C */}
       <scrollbox
@@ -5280,6 +5341,16 @@ export function ChatApp({
         horizontalScrollbarOptions={{ visible: false }}
         scrollAcceleration={scrollAcceleration}
       >
+        {/* Compaction History - inline within scrollbox */}
+        {showCompactionHistory && compactionSummary && parallelAgents.length === 0 && (
+          <box flexDirection="column" paddingLeft={1} paddingRight={1} marginTop={1} marginBottom={1}>
+            <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.muted} paddingLeft={1} paddingRight={1}>
+              <text style={{ fg: themeColors.muted }} attributes={1}>Compaction Summary</text>
+              <text style={{ fg: themeColors.foreground }} wrapMode="char" selectable>{compactionSummary}</text>
+            </box>
+          </box>
+        )}
+
         {/* Messages */}
         {messageContent}
 

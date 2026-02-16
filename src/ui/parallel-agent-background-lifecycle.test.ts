@@ -123,7 +123,8 @@ function applyStreamFinalizationTransform(agent: ParallelAgent): ParallelAgent {
 /**
  * Checks if there are any active agents (running, pending, or background).
  * Extracted from: src/ui/index.ts tryFinalizeParallelTracking (lines 468-470)
- * and src/ui/chat.tsx hasActive checks (lines 2645-2646, 3328-3329, etc.)
+ * Note: chat.tsx hasActive checks intentionally EXCLUDE "background" so
+ * background agents don't block stream completion.
  */
 function hasActiveAgents(agents: ParallelAgent[]): boolean {
   return agents.some(
@@ -556,8 +557,8 @@ describe("Background agent lifecycle integration", () => {
       applySubagentCompleteTransform(a, "agent_1", true)
     );
 
-    expect(updated[0].status).toBe("completed");
-    expect(updated[1].status).toBe("background"); // Unchanged
+    expect(updated[0]!.status).toBe("completed");
+    expect(updated[1]!.status).toBe("background"); // Unchanged
   });
 
   test("tool.complete preserves all fields except updated ones for background agents", () => {

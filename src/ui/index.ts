@@ -886,8 +886,13 @@ export async function startChatUI(
         result?: unknown;
       };
 
-      // Skip if stream already ended and no agents are pending
-      if (!state.isStreaming) return;
+      // Skip if stream already ended, unless a background agent is completing
+      if (!state.isStreaming) {
+        const targetAgent = data.subagentId
+          ? state.parallelAgents.find((a) => a.id === data.subagentId)
+          : undefined;
+        if (!targetAgent?.background) return;
+      }
 
       if (state.parallelAgentHandler && data.subagentId) {
         const status = data.success !== false ? "completed" : "error";

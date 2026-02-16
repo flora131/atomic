@@ -115,7 +115,7 @@ export function TaskListIndicator({
             )}
             <span style={{ fg: color }}>{" "}{expanded ? item.content : truncateText(item.content, maxContentLength ?? MAX_CONTENT_LENGTH)}</span>
             {item.blockedBy && item.blockedBy.length > 0 && (
-              <span style={{ fg: themeColors.muted }}>{` › blocked by ${item.blockedBy.map(id => id.startsWith("#") ? id : `#${id}`).join(", ")}`}</span>
+              <span style={{ fg: themeColors.muted }}>{` › blocked by ${truncateText(item.blockedBy.map(id => id.startsWith("#") ? id : `#${id}`).join(", "), 40)}`}</span>
             )}
           </text>
         );

@@ -16,7 +16,7 @@ import type {
     CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { parseMarkdownFrontmatter } from "../../utils/markdown.ts";
@@ -1484,6 +1484,59 @@ export function registerSkillCommands(): void {
         if (!globalRegistry.has(command.name)) {
             globalRegistry.register(command);
         }
+    }
+}
+
+// ============================================================================
+// SDK SKILL MATERIALIZATION
+// ============================================================================
+
+/**
+ * Materialize builtin skills as SKILL.md files on disk so that each SDK's
+ * native skill discovery mechanism can find them.
+ *
+ * - Claude SDK: built-in Skill tool scans .claude/skills/<name>/SKILL.md
+ * - Copilot SDK: skillDirectories includes .claude/skills/
+ * - OpenCode SDK: server scans .claude/skills/
+ *
+ * Files are written to .claude/skills/<name>/SKILL.md in the project root.
+ * Skips writing when the file already exists with identical content.
+ */
+export function materializeBuiltinSkillsForSdk(): void {
+    const cwd = process.cwd();
+    const skillsRoot = join(cwd, ".claude", "skills");
+
+    for (const skill of BUILTIN_SKILLS) {
+        const skillDir = join(skillsRoot, skill.name);
+        const skillFile = join(skillDir, "SKILL.md");
+
+        // Build YAML frontmatter
+        const fmLines: string[] = ["---"];
+        fmLines.push(`name: ${skill.name}`);
+        fmLines.push(`description: ${skill.description}`);
+        if (skill.aliases?.length) {
+            fmLines.push(`aliases: [${skill.aliases.join(", ")}]`);
+        }
+        if (skill.argumentHint) {
+            fmLines.push(`argument-hint: "${skill.argumentHint}"`);
+        }
+        fmLines.push("---");
+        fmLines.push("");
+
+        const content = fmLines.join("\n") + skill.prompt;
+
+        // Skip if file already exists with identical content
+        if (existsSync(skillFile)) {
+            try {
+                const existing = readFileSync(skillFile, "utf-8");
+                if (existing === content) continue;
+            } catch {
+                // Fall through to overwrite
+            }
+        }
+
+        mkdirSync(skillDir, { recursive: true });
+        writeFileSync(skillFile, content, "utf-8");
     }
 }
 

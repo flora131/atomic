@@ -179,3 +179,6 @@ tmux-screenshots/
 
 docs/opentui
 docs/opencode
+
+# Auto-generated SDK skill discovery files (materialized from BUILTIN_SKILLS at runtime)
+.claude/skills/

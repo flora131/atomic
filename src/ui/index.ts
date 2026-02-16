@@ -65,7 +65,11 @@ function buildCapabilitiesSystemPrompt(): string {
       const hint = c.argumentHint ? ` ${c.argumentHint}` : "";
       return `  /${c.name}${hint} - ${c.description}`;
     });
-    sections.push(`Skills (invoke with /skill-name):\n${lines.join("\n")}`);
+    sections.push(
+      `Skills (invoke with /skill-name):\n${lines.join("\n")}\n\n` +
+        `Note: Skills listed above are user-invocable via slash commands. ` +
+        `To load a skill yourself, use the Skill tool instead of outputting a slash command.`,
+    );
   }
 
   const agents = allCommands.filter((c) => c.category === "agent");

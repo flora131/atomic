@@ -1401,7 +1401,15 @@ function createBuiltinSkillCommand(skill: BuiltinSkill): CommandDefinition {
 
             // Use the embedded prompt directly and expand $ARGUMENTS
             const expandedPrompt = expandArguments(skill.prompt, skillArgs);
-            context.sendSilentMessage(expandedPrompt);
+            // Prepend a directive so the model acts on the already-expanded
+            // skill content rather than re-loading the raw skill via the SDK's
+            // built-in "Skill" tool (which would lose the $ARGUMENTS expansion).
+            const directive =
+                `<skill-loaded name="${skill.name}">\n` +
+                `The "${skill.name}" skill has already been loaded with the user's arguments below. ` +
+                `Do NOT invoke the Skill tool for "${skill.name}" — follow the instructions directly.\n` +
+                `</skill-loaded>\n\n`;
+            context.sendSilentMessage(directive + expandedPrompt);
             return {
                 success: true,
                 ...(BUILTIN_SKILLS_WITH_LOAD_UI.has(skill.name)

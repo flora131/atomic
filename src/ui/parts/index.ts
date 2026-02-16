@@ -20,3 +20,4 @@ export {
   type CompactionPart,
   type Part,
 } from "./types.ts";
+export { shouldFinalizeOnToolComplete } from "./guards.ts";

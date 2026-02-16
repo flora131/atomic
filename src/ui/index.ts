@@ -450,6 +450,11 @@ export async function startChatUI(
     // internal ID and update the existing UI entry instead of creating a duplicate.
     const sdkToolIdMap = new Map<string, string>();
 
+    // Tool IDs belonging to running sub-agents. These tools are tracked in
+    // the parallel agents tree but filtered out of the main chat UI and
+    // ctrl+o transcript to avoid duplicate display.
+    const subagentToolIds = new Set<string>();
+
     const detachToolIdFromNameStack = (toolName: string, toolId: string): void => {
       const ids = toolNameToIds.get(toolName);
       if (!ids || ids.length === 0) return;
@@ -558,11 +563,14 @@ export async function startChatUI(
         // tool-use updates, so we bridge that gap here by attributing each tool.start
         // to the most recently started running subagent.
         const isTaskTool = data.toolName === "Task" || data.toolName === "task";
+        let isSubagentTool = false;
         if (!isTaskTool && state.isStreaming && state.parallelAgentHandler && state.parallelAgents.length > 0) {
           const runningAgent = [...state.parallelAgents]
             .reverse()
             .find((a) => a.status === "running");
           if (runningAgent) {
+            isSubagentTool = true;
+            subagentToolIds.add(toolId);
             const updatedToolUses = (runningAgent.toolUses ?? 0) + 1;
             state.parallelAgents = state.parallelAgents.map((a) =>
               a.id === runningAgent.id
@@ -573,11 +581,16 @@ export async function startChatUI(
           }
         }
 
-        state.toolStartHandler(
-          toolId,
-          data.toolName,
-          (data.toolInput as Record<string, unknown>) ?? {}
-        );
+        // Only dispatch to the main chat UI for non-subagent tools.
+        // Sub-agent tool calls are tracked in the parallel agents tree
+        // and filtered out of the main UI / ctrl+o transcript.
+        if (!isSubagentTool) {
+          state.toolStartHandler(
+            toolId,
+            data.toolName,
+            (data.toolInput as Record<string, unknown>) ?? {}
+          );
+        }
       }
     });
 
@@ -612,13 +625,20 @@ export async function startChatUI(
           toolId = `tool_${state.toolIdCounter}`;
         }
 
-        state.toolCompleteHandler(
-          toolId,
-          data.toolResult,
-          data.success ?? true,
-          data.error,
-          data.toolInput // Pass input to update if it wasn't available at start
-        );
+        // Skip dispatching to main chat UI for sub-agent tools.
+        // They were never registered via toolStartHandler, so there's
+        // nothing to complete in the message parts or tool calls arrays.
+        const isSubagentTool = subagentToolIds.has(toolId);
+        if (!isSubagentTool) {
+          state.toolCompleteHandler(
+            toolId,
+            data.toolResult,
+            data.success ?? true,
+            data.error,
+            data.toolInput // Pass input to update if it wasn't available at start
+          );
+        }
+        subagentToolIds.delete(toolId);
 
         const isTaskTool = data.toolName === "Task" || data.toolName === "task";
         if (isTaskTool) {

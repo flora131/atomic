@@ -94,7 +94,7 @@ import {
   snapshotTaskItems,
 } from "./utils/ralph-task-state.ts";
 import type { Part, AgentPart, ToolPart, TextPart } from "./parts/index.ts";
-import { createPartId, upsertPart, findLastPartIndex } from "./parts/index.ts";
+import { createPartId, upsertPart, findLastPartIndex, handleTextDelta } from "./parts/index.ts";
 
 // ============================================================================
 // @ MENTION HELPERS
@@ -2455,9 +2455,11 @@ export function ChatApp({
               setMessagesWindowed((prev) => {
                 const lastMsg = prev[prev.length - 1];
                 if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
+                  // Dual population: update both legacy content and parts array
+                  const withParts = handleTextDelta(lastMsg, chunk);
                   return [
                     ...prev.slice(0, -1),
-                    { ...lastMsg, content: lastMsg.content + chunk },
+                    { ...lastMsg, content: lastMsg.content + chunk, parts: withParts.parts },
                   ];
                 }
                 // Create new streaming message
@@ -3361,11 +3363,14 @@ export function ChatApp({
             const messageId = streamingMessageIdRef.current;
             if (messageId) {
               setMessagesWindowed((prev: ChatMessage[]) =>
-                prev.map((msg: ChatMessage) =>
-                  msg.id === messageId
-                    ? { ...msg, content: msg.content + chunk }
-                    : msg
-                )
+                prev.map((msg: ChatMessage) => {
+                  if (msg.id === messageId) {
+                    // Dual population: update both legacy content and parts array
+                    const withParts = handleTextDelta(msg, chunk);
+                    return { ...msg, content: msg.content + chunk, parts: withParts.parts };
+                  }
+                  return msg;
+                })
               );
             }
           };
@@ -4817,11 +4822,14 @@ export function ChatApp({
           const messageId = streamingMessageIdRef.current;
           if (messageId) {
             setMessagesWindowed((prev: ChatMessage[]) =>
-              prev.map((msg: ChatMessage) =>
-                msg.id === messageId
-                  ? { ...msg, content: msg.content + chunk }
-                  : msg
-              )
+              prev.map((msg: ChatMessage) => {
+                if (msg.id === messageId) {
+                  // Dual population: update both legacy content and parts array
+                  const withParts = handleTextDelta(msg, chunk);
+                  return { ...msg, content: msg.content + chunk, parts: withParts.parts };
+                }
+                return msg;
+              })
             );
           }
         };

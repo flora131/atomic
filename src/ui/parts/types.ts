@@ -7,6 +7,13 @@
  */
 
 import type { PartId } from "./id.ts";
+import type { HitlResponseRecord } from "../utils/hitl-response.ts";
+import type { PermissionOption } from "../../sdk/types.ts";
+import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
+import type { TaskItem } from "../components/task-list-indicator.tsx";
+import type { MessageSkillLoad } from "../chat.tsx";
+import type { McpSnapshotView } from "../utils/mcp-output.ts";
+import type { ContextDisplayInfo } from "../commands/registry.ts";
 
 /**
  * Common base for all part types.
@@ -35,3 +42,91 @@ export type ToolState =
   | { status: "completed"; output: unknown; durationMs: number }
   | { status: "error"; error: string; output?: unknown }
   | { status: "interrupted"; partialOutput?: unknown };
+
+// ============================================================================
+// CONCRETE PART TYPES
+// ============================================================================
+
+export interface TextPart extends BasePart {
+  type: "text";
+  /** Accumulated text (appended via deltas) */
+  content: string;
+  /** True while receiving deltas */
+  isStreaming: boolean;
+}
+
+export interface ReasoningPart extends BasePart {
+  type: "reasoning";
+  content: string;
+  durationMs: number;
+  isStreaming: boolean;
+}
+
+export interface ToolPart extends BasePart {
+  type: "tool";
+  /** SDK-native ID for correlation */
+  toolCallId: string;
+  toolName: string;
+  input: Record<string, unknown>;
+  output?: unknown;
+  state: ToolState;
+  hitlResponse?: HitlResponseRecord;
+
+  /** HITL overlay fields (set when permission.requested fires) */
+  pendingQuestion?: {
+    requestId: string;
+    header: string;
+    question: string;
+    options: PermissionOption[];
+    multiSelect: boolean;
+    respond: (answer: string | string[]) => void;
+  };
+}
+
+export interface AgentPart extends BasePart {
+  type: "agent";
+  agents: ParallelAgent[];
+  parentToolPartId?: PartId;
+}
+
+export interface TaskListPart extends BasePart {
+  type: "task-list";
+  items: TaskItem[];
+  expanded: boolean;
+}
+
+export interface SkillLoadPart extends BasePart {
+  type: "skill-load";
+  skills: MessageSkillLoad[];
+}
+
+export interface McpSnapshotPart extends BasePart {
+  type: "mcp-snapshot";
+  snapshot: McpSnapshotView;
+}
+
+export interface ContextInfoPart extends BasePart {
+  type: "context-info";
+  info: ContextDisplayInfo;
+}
+
+export interface CompactionPart extends BasePart {
+  type: "compaction";
+  summary: string;
+}
+
+// ============================================================================
+// PART UNION
+// ============================================================================
+
+/** Discriminated union of all message part types. */
+export type Part =
+  | TextPart
+  | ReasoningPart
+  | ToolPart
+  | AgentPart
+  | TaskListPart
+  | SkillLoadPart
+  | McpSnapshotPart
+  | ContextInfoPart
+  | CompactionPart;

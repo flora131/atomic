@@ -151,6 +151,8 @@ export interface SessionConfig {
   agentMode?: OpenCodeAgentMode;
   /** Reasoning effort level for models that support it (Copilot SDK) */
   reasoningEffort?: string;
+  /** Maximum thinking tokens for the model (Claude Agent SDK). Defaults to 16000. */
+  maxThinkingTokens?: number;
 }
 
 /**

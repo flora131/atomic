@@ -7,6 +7,7 @@
 
 export { ReasoningPartDisplay, type ReasoningPartDisplayProps } from "./reasoning-part-display.tsx";
 export { TextPartDisplay, type TextPartDisplayProps } from "./text-part-display.tsx";
+export { ToolPartDisplay, type ToolPartDisplayProps } from "./tool-part-display.tsx";
 export { SkillLoadPartDisplay, type SkillLoadPartDisplayProps } from "./skill-load-part-display.tsx";
 export { McpSnapshotPartDisplay, type McpSnapshotPartDisplayProps } from "./mcp-snapshot-part-display.tsx";
 export { ContextInfoPartDisplay, type ContextInfoPartDisplayProps } from "./context-info-part-display.tsx";

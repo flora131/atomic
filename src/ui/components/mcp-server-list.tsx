@@ -7,6 +7,7 @@
 import React from "react";
 import { useTheme } from "../theme.tsx";
 import type { McpSnapshotView } from "../utils/mcp-output.ts";
+import { SPACING } from "../constants/spacing.ts";
 
 // ============================================================================
 // TYPES
@@ -54,7 +55,7 @@ export function McpServerListIndicator({
       {snapshot.servers.map((server) => {
         if (!server.enabled) {
           return (
-            <box key={server.name} flexDirection="column" marginBottom={1}>
+            <box key={server.name} flexDirection="column" marginBottom={SPACING.ELEMENT}>
               <box flexDirection="row">
                 <text style={{ fg: colors.foreground }}>{`  • ${server.name} `}</text>
                 <text style={{ fg: colors.error }}>(disabled)</text>
@@ -67,7 +68,7 @@ export function McpServerListIndicator({
         }
 
         return (
-          <box key={server.name} flexDirection="column" marginBottom={1}>
+          <box key={server.name} flexDirection="column" marginBottom={SPACING.ELEMENT}>
             <text style={{ fg: colors.foreground }}>{`  • ${server.name}`}</text>
             <box flexDirection="row">
               <text style={{ fg: colors.foreground }}>{`    • Status: `}</text>

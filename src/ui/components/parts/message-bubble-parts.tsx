@@ -8,6 +8,7 @@
 import React from "react";
 import type { ChatMessage } from "../../chat.tsx";
 import { PART_REGISTRY } from "./registry.tsx";
+import { SPACING } from "../../constants/spacing.ts";
 
 export interface MessageBubblePartsProps {
   message: ChatMessage;
@@ -29,12 +30,16 @@ export function MessageBubbleParts({ message }: MessageBubblePartsProps): React.
       {parts.map((part, index) => {
         const Renderer = PART_REGISTRY[part.type];
         if (!Renderer) return null;
+        // Add spacing between consecutive parts of different types
+        const prevPart = index > 0 ? parts[index - 1] : undefined;
+        const needsSpacing = prevPart != null && prevPart.type !== part.type;
         return (
-          <Renderer
-            key={part.id}
-            part={part}
-            isLast={index === parts.length - 1}
-          />
+          <box key={part.id} marginTop={needsSpacing ? SPACING.ELEMENT : SPACING.NONE}>
+            <Renderer
+              part={part}
+              isLast={index === parts.length - 1}
+            />
+          </box>
         );
       })}
     </box>

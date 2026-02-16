@@ -8,6 +8,7 @@
 import React from "react";
 import type { ReasoningPart } from "../../parts/types.ts";
 import { useThemeColors } from "../../theme.tsx";
+import { SPACING } from "../../constants/spacing.ts";
 
 export interface ReasoningPartDisplayProps {
   part: ReasoningPart;
@@ -26,7 +27,7 @@ export function ReasoningPartDisplay({ part }: ReasoningPartDisplayProps): React
         {part.isStreaming ? "💭 Thinking..." : `💭 Thought${durationLabel ? ` (${durationLabel})` : ""}`}
       </text>
       {part.content && (
-        <box marginLeft={2}>
+        <box marginLeft={SPACING.INDENT}>
           <text style={{ fg: colors.muted }}>{part.content}</text>
         </box>
       )}

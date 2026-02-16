@@ -13,6 +13,7 @@ import { useKeyboard } from "@opentui/react";
 import type { KeyEvent } from "@opentui/core";
 import { useThemeColors } from "../../theme.tsx";
 import { STATUS, PROMPT } from "../../constants/icons.ts";
+import { SPACING } from "../../constants/spacing.ts";
 import type { PermissionOption } from "../../../sdk/types.ts";
 
 export interface PendingQuestion {
@@ -54,14 +55,14 @@ export function UserQuestionInline({ question, onAnswer }: UserQuestionInlinePro
   });
 
   return (
-    <box flexDirection="column" marginTop={1} paddingLeft={2}>
+    <box flexDirection="column" marginTop={SPACING.SECTION} paddingLeft={SPACING.INDENT}>
       {question.header && (
         <text style={{ fg: colors.accent, attributes: 1 }}>{`${PROMPT.cursor} ${question.header}`}</text>
       )}
       <text style={{ fg: colors.foreground }}>{question.question}</text>
 
       {question.options.length > 0 && (
-        <box flexDirection="column" marginTop={1}>
+        <box flexDirection="column" marginTop={SPACING.ELEMENT}>
           {question.options.map((opt, idx) => {
             const isSelected = idx === selectedIndex;
             const icon = isSelected ? STATUS.active : STATUS.pending;

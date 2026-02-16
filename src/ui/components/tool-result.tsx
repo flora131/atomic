@@ -9,6 +9,7 @@ import React, { useState, useMemo } from "react";
 import { useTheme } from "../theme.tsx";
 import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
 import { STATUS, MISC } from "../constants/icons.ts";
+import { SPACING } from "../constants/spacing.ts";
 import {
   getToolRenderer,
   parseMcpToolName,
@@ -128,8 +129,8 @@ function CollapsibleContent({
         flexDirection="column"
         borderStyle="rounded"
         borderColor={borderColor}
-        paddingLeft={1}
-        paddingRight={1}
+        paddingLeft={SPACING.CONTAINER_PAD}
+        paddingRight={SPACING.CONTAINER_PAD}
       >
         {displayLines.map((line, index) => {
           // Apply diff coloring
@@ -154,7 +155,7 @@ function CollapsibleContent({
 
       {/* Collapse indicator */}
       {isCollapsible && !expanded && (
-        <box marginLeft={1}>
+        <box marginLeft={SPACING.CONTAINER_PAD}>
           <text style={{ fg: colors.muted }}>
             {MISC.collapsed} {hiddenCount} more lines
           </text>
@@ -254,7 +255,7 @@ export function ToolResult({
       status === "completed" ? "loaded" : status === "error" ? "error" : "loading";
     const errorMessage = status === "error" && typeof output === "string" ? output : undefined;
     return (
-      <box marginBottom={1}>
+      <box marginBottom={SPACING.ELEMENT}>
         <SkillLoadIndicator
           skillName={skillName}
           status={skillStatus}
@@ -319,11 +320,11 @@ export function ToolResult({
   const iconColor = hasError ? colors.error : colors.accent;
 
   return (
-    <box flexDirection="column" marginBottom={1}>
+    <box flexDirection="column" marginBottom={SPACING.ELEMENT}>
       {/* Header line */}
-      <box flexDirection="row" gap={1}>
+      <box flexDirection="row" gap={SPACING.ELEMENT}>
         {/* Status indicator + icon — fixed-width prefix so they stay on line 1 */}
-        <box flexDirection="row" gap={1} flexShrink={0} width={3}>
+        <box flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0} width={3}>
           <StatusIndicator status={status} theme={theme} />
           <text style={{ fg: iconColor }}>
             {renderer.icon}
@@ -348,7 +349,7 @@ export function ToolResult({
 
       {/* Content - only when not pending */}
       {status !== "pending" && truncatedRenderContent.lines.length > 0 && (
-        <box marginTop={0} marginLeft={1}>
+        <box marginTop={SPACING.NONE} marginLeft={SPACING.CONTAINER_PAD}>
           <CollapsibleContent
             content={truncatedRenderContent.lines}
             expanded={isExpanded || !isCollapsed}
@@ -362,7 +363,7 @@ export function ToolResult({
 
       {/* Error message - separate display */}
       {hasError && typeof output === "string" && !renderResult.content.includes(output) && (
-        <box marginTop={0} marginLeft={1}>
+        <box marginTop={SPACING.NONE} marginLeft={SPACING.CONTAINER_PAD}>
           {truncatedErrorLines.map((line, index) => (
             <text key={index} style={{ fg: colors.error }}>
               {line || " "}

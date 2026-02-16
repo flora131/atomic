@@ -68,12 +68,3 @@ export {
   useThrottledValue,
   default as useThrottledValueDefault,
 } from "./use-throttled-value.ts";
-
-// ============================================================================
-// USE PARTS RENDERING
-// ============================================================================
-
-export {
-  // Hook
-  usePartsRendering,
-} from "./use-parts-rendering.ts";

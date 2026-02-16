@@ -13,6 +13,7 @@ import { useTheme } from "../theme.tsx";
 import { globalRegistry, type CommandDefinition } from "../commands/index.ts";
 import type { KeyEvent, ScrollBoxRenderable } from "@opentui/core";
 import { navigateUp, navigateDown } from "../utils/navigation.ts";
+import { SPACING } from "../constants/spacing.ts";
 
 // ============================================================================
 // TYPES
@@ -121,8 +122,8 @@ function SuggestionRow({
       flexDirection="row"
       width="100%"
       height={1}
-      paddingLeft={2}
-      paddingRight={2}
+      paddingLeft={SPACING.INDENT}
+      paddingRight={SPACING.INDENT}
     >
       {/* Command name column */}
       <box width={hasDescription ? cmdColWidth : undefined} flexGrow={hasDescription ? undefined : 1} height={1}>
@@ -239,8 +240,8 @@ export function Autocomplete({
       flexDirection="column"
       width="100%"
       height={displayHeight}
-      marginTop={0}
-      marginBottom={0}
+      marginTop={SPACING.NONE}
+      marginBottom={SPACING.NONE}
     >
       <scrollbox
         ref={scrollRef}

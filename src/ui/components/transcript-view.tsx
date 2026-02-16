@@ -10,6 +10,7 @@ import { useTheme } from "../theme.tsx";
 import { formatTranscript, type TranscriptLine, type TranscriptLineType } from "../utils/transcript-formatter.ts";
 import type { ChatMessage, StreamingMeta } from "../chat.tsx";
 import type { ParallelAgent } from "./parallel-agents-tree.tsx";
+import { SPACING } from "../constants/spacing.ts";
 
 // ============================================================================
 // TYPES
@@ -97,8 +98,8 @@ export function TranscriptView({
       scrollY={true}
       scrollX={false}
       viewportCulling={false}
-      paddingLeft={1}
-      paddingRight={1}
+      paddingLeft={SPACING.CONTAINER_PAD}
+      paddingRight={SPACING.CONTAINER_PAD}
       verticalScrollbarOptions={{ visible: false }}
       horizontalScrollbarOptions={{ visible: false }}
     >
@@ -121,7 +122,7 @@ export function TranscriptView({
         // Special rendering for timestamp — right-aligned feel
         if (tl.type === "timestamp") {
           return (
-            <box key={idx} flexDirection="row" justifyContent="flex-end" paddingRight={1}>
+            <box key={idx} flexDirection="row" justifyContent="flex-end" paddingRight={SPACING.CONTAINER_PAD}>
               <text selectable style={{ fg: color }}>{tl.content}</text>
             </box>
           );

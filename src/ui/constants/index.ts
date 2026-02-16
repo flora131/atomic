@@ -26,4 +26,7 @@ export {
   SCROLLBAR,
   SEPARATOR,
   MISC,
+  TASK,
 } from "./icons.ts";
+
+export { SPACING } from "./spacing.ts";

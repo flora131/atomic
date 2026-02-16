@@ -7,6 +7,7 @@
 import React from "react";
 import type { TaskListPart } from "../../parts/types.ts";
 import { TaskListIndicator } from "../task-list-indicator.tsx";
+import { SPACING } from "../../constants/spacing.ts";
 
 export interface TaskListPartDisplayProps {
   part: TaskListPart;
@@ -15,7 +16,7 @@ export interface TaskListPartDisplayProps {
 
 export function TaskListPartDisplay({ part }: TaskListPartDisplayProps): React.ReactNode {
   return (
-    <box flexDirection="column" marginTop={1}>
+    <box flexDirection="column" marginTop={SPACING.SECTION}>
       <TaskListIndicator
         items={part.items}
         expanded={part.expanded}

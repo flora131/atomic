@@ -9,6 +9,7 @@
 import React, { useState, useCallback } from "react";
 import { useKeyboard } from "@opentui/react";
 import { getCatppuccinPalette, type CatppuccinPalette } from "../theme.tsx";
+import { SPACING } from "../constants/spacing.ts";
 
 // ============================================================================
 // ERROR SCREEN (FUNCTIONAL - supports hooks for keyboard handling)
@@ -48,10 +49,10 @@ function ErrorScreen({ error, onExit, isDark = true }: ErrorScreenProps): React.
         border
         borderStyle="rounded"
         borderColor={palette.red}
-        paddingLeft={2}
-        paddingRight={2}
-        paddingTop={1}
-        paddingBottom={1}
+        paddingLeft={SPACING.INDENT}
+        paddingRight={SPACING.INDENT}
+        paddingTop={SPACING.CONTAINER_PAD}
+        paddingBottom={SPACING.CONTAINER_PAD}
         minWidth={60}
         maxWidth={100}
       >

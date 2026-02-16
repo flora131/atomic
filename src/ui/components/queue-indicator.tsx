@@ -13,6 +13,7 @@ import { useTheme } from "../theme.tsx";
 import type { QueuedMessage } from "../hooks/use-message-queue.ts";
 import { truncateText } from "../utils/format.ts";
 import { PROMPT, MISC } from "../constants/icons.ts";
+import { SPACING } from "../constants/spacing.ts";
 
 // ============================================================================
 // TYPES
@@ -118,15 +119,15 @@ export function QueueIndicator({
     const preview = previewText ? truncateContent(previewText, queueMaxLength) : "";
 
     return (
-      <box flexDirection="column" gap={0}>
-        <box flexDirection="row" gap={1}>
+      <box flexDirection="column" gap={SPACING.NONE}>
+        <box flexDirection="row" gap={SPACING.ELEMENT}>
           <box width={1} flexShrink={0}>
             <text style={{ fg: theme.colors.accent }}>{icon}</text>
           </box>
           <text style={{ fg: theme.colors.muted }}>{countText}</text>
         </box>
         {firstMessage && (
-          <box paddingLeft={1}>
+          <box paddingLeft={SPACING.CONTAINER_PAD}>
             <text style={{ fg: theme.colors.foreground }}>
               {PROMPT.cursor} {preview}
             </text>
@@ -165,8 +166,8 @@ export function QueueIndicator({
 
   // Non-compact mode: show preview of queued messages
   return (
-    <box flexDirection="column" gap={0}>
-      <box flexDirection="row" gap={1}>
+    <box flexDirection="column" gap={SPACING.NONE}>
+      <box flexDirection="row" gap={SPACING.ELEMENT}>
         <box width={1} flexShrink={0}>
           <text style={{ fg: theme.colors.accent }}>{icon}</text>
         </box>
@@ -175,7 +176,7 @@ export function QueueIndicator({
         </text>
       </box>
       {queue && queue.length > 0 && (
-        <box flexDirection="column" paddingLeft={1}>
+        <box flexDirection="column" paddingLeft={SPACING.CONTAINER_PAD}>
         {queue.slice(0, 3).map((msg, index) => renderMessage(msg, index))}
           {queue.length > 3 && (
             <text style={{ fg: theme.colors.muted }}>

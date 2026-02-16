@@ -10,8 +10,8 @@
 import React from "react";
 import { useTheme, getCatppuccinPalette } from "../theme.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "../utils/format.ts";
-import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
 import { STATUS, TREE, CONNECTOR } from "../constants/icons.ts";
+import { SPACING } from "../constants/spacing.ts";
 
 // Re-export for backward compatibility
 export { truncateText };
@@ -57,8 +57,6 @@ export interface ParallelAgent {
   tokens?: number;
   /** Current tool operation (e.g., "Bash: Find files...") */
   currentTool?: string;
-  /** Content offset where this agent first appeared in the parent response */
-  contentOffsetAtStart?: number;
 }
 
 /**
@@ -270,14 +268,10 @@ function SingleAgentView({ agent, compact, themeColors }: SingleAgentViewProps):
   const headerText = `${agent.name}(${truncateText(agent.task, 60)})`;
 
   return (
-    <box flexDirection="column" paddingLeft={1} marginTop={1}>
+    <box flexDirection="column" paddingLeft={SPACING.CONTAINER_PAD} marginTop={SPACING.ELEMENT}>
       {/* Header: ● AgentType(task) */}
       <box flexDirection="row">
-        {isRunning ? (
-          <text><AnimatedBlinkIndicator color={indicatorColor} /></text>
-        ) : (
-          <text style={{ fg: indicatorColor }}>●</text>
-        )}
+        <text style={{ fg: indicatorColor }}>●</text>
         <text style={{ fg: themeColors.foreground }}> {headerText}</text>
       </box>
 
@@ -392,11 +386,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
           <box flexDirection="row">
             <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
             <box flexShrink={0}>
-              {isRunning ? (
-                <text><AnimatedBlinkIndicator color={rowIndicatorColor} /></text>
-              ) : (
-                <text style={{ fg: rowIndicatorColor }}>●</text>
-              )}
+              <text style={{ fg: rowIndicatorColor }}>●</text>
             </box>
             <text style={{ fg: themeColors.foreground }}> {agent.name} </text>
             <text style={{ fg: themeColors.muted }}>
@@ -419,11 +409,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
         <box flexDirection="row">
           <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
           <box flexShrink={0}>
-            {isRunning ? (
-              <text><AnimatedBlinkIndicator color={rowIndicatorColor} /></text>
-            ) : (
-              <text style={{ fg: rowIndicatorColor }}>●</text>
-            )}
+            <text style={{ fg: rowIndicatorColor }}>●</text>
           </box>
           <text style={{ fg: themeColors.foreground }}>
             {" "}{truncateText(agent.task, 40)}
@@ -474,11 +460,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
         <box flexDirection="row">
           <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
           <box flexShrink={0}>
-            {isRunningFull ? (
-              <text><AnimatedBlinkIndicator color={fullRowIndicatorColor} /></text>
-            ) : (
-              <text style={{ fg: fullRowIndicatorColor }}>●</text>
-            )}
+            <text style={{ fg: fullRowIndicatorColor }}>●</text>
           </box>
           <text style={{ fg: themeColors.foreground }}> {agent.name} </text>
           <text style={{ fg: themeColors.muted }}>
@@ -494,11 +476,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
       <box flexDirection="row">
         <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
         <box flexShrink={0}>
-          {isRunningFull ? (
-            <text><AnimatedBlinkIndicator color={fullRowIndicatorColor} /></text>
-          ) : (
-            <text style={{ fg: fullRowIndicatorColor }}>●</text>
-          )}
+          <text style={{ fg: fullRowIndicatorColor }}>●</text>
         </box>
         <text style={{ fg: themeColors.foreground, attributes: 1 }}>
           {" "}{agent.task}
@@ -653,16 +631,12 @@ export function ParallelAgentsTree({
   return (
     <box
       flexDirection="column"
-      paddingLeft={1}
-      marginTop={noTopMargin ? 0 : 1}
+      paddingLeft={SPACING.CONTAINER_PAD}
+      marginTop={noTopMargin ? SPACING.NONE : SPACING.ELEMENT}
     >
-      {/* Header - Claude Code style with animated ● when running */}
+      {/* Header */}
       <box flexDirection="row">
-        {runningCount > 0 ? (
-          <text><AnimatedBlinkIndicator color={headerColor} /></text>
-        ) : (
-          <text style={{ fg: headerColor }}>{headerIcon}</text>
-        )}
+        <text style={{ fg: headerColor }}>{headerIcon}</text>
         <text style={{ fg: headerColor }}> {headerText}</text>
         {runningCount === 0 && (
           <text style={{ fg: themeColors.muted }}> (ctrl+o to expand)</text>

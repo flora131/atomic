@@ -10,7 +10,7 @@ import React from "react";
 import { ToolResult } from "../tool-result.tsx";
 import { UserQuestionInline } from "./user-question-inline.tsx";
 import { useThemeColors } from "../../theme.tsx";
-import { PROMPT, STATUS, CONNECTOR } from "../../constants/icons.ts";
+import { PROMPT, STATUS } from "../../constants/icons.ts";
 import { SPACING } from "../../constants/spacing.ts";
 import type { ToolPart, ToolState } from "../../parts/types.ts";
 import type { ToolExecutionStatus } from "../../hooks/use-streaming-state.ts";
@@ -31,34 +31,33 @@ function toolStateToStatus(state: ToolState): ToolExecutionStatus {
 }
 
 /**
- * Displays a completed HITL response inline with a transparent/dimmed style.
- * Shows the original question and the user's answer as a compact record.
+ * Displays a completed HITL response inline with a compact, elegant style
+ * matching the ToolResult header pattern: [status] [label] [question] / [answer].
  */
-function CompletedHitlDisplay({ hitlResponse, questionText, toolName }: {
+function CompletedHitlDisplay({ hitlResponse, questionText }: {
   hitlResponse: HitlResponseRecord;
   questionText: string;
   toolName: string;
 }): React.ReactNode {
   const colors = useThemeColors();
+  const isDeclined = hitlResponse.cancelled || hitlResponse.responseMode === "declined";
+  const statusIcon = isDeclined ? STATUS.error : STATUS.success;
+  const statusColor = isDeclined ? colors.warning : colors.success;
+
   return (
     <box flexDirection="column" marginBottom={SPACING.ELEMENT}>
-      {/* Header badge — dimmed to indicate completed state */}
-      <box marginBottom={SPACING.NONE}>
-        <text>
-          <span style={{ fg: colors.dim }}>{CONNECTOR.roundedTopLeft}{CONNECTOR.horizontal}</span>
-          <span style={{ fg: colors.dim }}> {STATUS.success} {toolName} </span>
-          <span style={{ fg: colors.dim }}>{CONNECTOR.horizontal}{CONNECTOR.roundedTopRight}</span>
-        </text>
-      </box>
+      {/* Header: status icon + question text */}
+      <text wrapMode="word">
+        <span style={{ fg: statusColor }}>{statusIcon}</span>
+        <span style={{ fg: colors.dim }}> ask_user</span>
+        {questionText.length > 0 && (
+          <span style={{ fg: colors.muted }}> {questionText}</span>
+        )}
+      </text>
 
-      {/* Question text — dimmed */}
-      {questionText.length > 0 && (
-        <text style={{ fg: colors.muted }} wrapMode="word">{questionText}</text>
-      )}
-
-      {/* User's response */}
-      <text style={{ fg: hitlResponse.cancelled ? colors.muted : colors.dim }}>
-        {PROMPT.cursor} {hitlResponse.displayText}
+      {/* Response line — indented under the header */}
+      <text style={{ fg: isDeclined ? colors.muted : colors.dim }}>
+        {"  "}{PROMPT.cursor} {hitlResponse.displayText}
       </text>
     </box>
   );

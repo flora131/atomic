@@ -94,7 +94,7 @@ import {
   snapshotTaskItems,
 } from "./utils/ralph-task-state.ts";
 import type { Part, AgentPart, ToolPart, TextPart, ToolState } from "./parts/index.ts";
-import { createPartId, upsertPart, findLastPartIndex, handleTextDelta } from "./parts/index.ts";
+import { createPartId, upsertPart, findLastPartIndex, handleTextDelta, shouldFinalizeOnToolComplete } from "./parts/index.ts";
 
 // ============================================================================
 // @ MENTION HELPERS
@@ -2815,8 +2815,12 @@ export function ChatApp({
     const hasActive = parallelAgents.some(
       (a) => a.status === "running" || a.status === "pending"
     );
+    // Check if any background agents are still running
+    const hasRunningBackgroundAgents = parallelAgents.some(
+      (agent) => !shouldFinalizeOnToolComplete(agent)
+    );
     // Also check if tools are still running
-    if (hasActive || hasRunningToolRef.current) return;
+    if (hasActive || hasRunningBackgroundAgents || hasRunningToolRef.current) return;
 
     if (pendingCompleteRef.current) {
       const complete = pendingCompleteRef.current;

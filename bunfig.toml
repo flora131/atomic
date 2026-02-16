@@ -1,4 +1,7 @@
 [test]
+# Limit test discovery to src/ so vendored docs are not scanned
+root = "src"
+
 # Coverage
 coverage = true
 coverageThreshold = 0

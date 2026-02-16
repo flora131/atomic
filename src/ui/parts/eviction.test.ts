@@ -33,7 +33,8 @@ describe("Message eviction with parts model", () => {
 
     // Verify parts are accessible on copy
     expect(copy.parts).toHaveLength(1);
-    expect(copy.parts[0].type).toBe("text");
+    expect(copy.parts[0]).toBeDefined();
+    expect(copy.parts[0]!.type).toBe("text");
     expect((copy.parts[0] as TextPart).content).toBe("hello");
   });
 
@@ -65,9 +66,11 @@ describe("Message eviction with parts model", () => {
 
     // Verify structure is preserved
     expect(deserialized).toHaveLength(2);
-    expect(deserialized[0].type).toBe("text");
+    expect(deserialized[0]).toBeDefined();
+    expect(deserialized[0]!.type).toBe("text");
     expect((deserialized[0] as TextPart).content).toBe("hello world");
-    expect(deserialized[1].type).toBe("tool");
+    expect(deserialized[1]).toBeDefined();
+    expect(deserialized[1]!.type).toBe("tool");
     expect((deserialized[1] as ToolPart).toolName).toBe("bash");
     expect((deserialized[1] as ToolPart).state.status).toBe("completed");
   });

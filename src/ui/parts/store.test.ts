@@ -34,7 +34,7 @@ describe("binarySearchById", () => {
       makeTextPart("third"),
     ];
     
-    const idx = binarySearchById(parts, parts[0].id);
+    const idx = binarySearchById(parts, parts[0]!.id);
     expect(idx).toBe(0);
   });
   
@@ -45,7 +45,7 @@ describe("binarySearchById", () => {
       makeTextPart("third"),
     ];
     
-    const idx = binarySearchById(parts, parts[1].id);
+    const idx = binarySearchById(parts, parts[1]!.id);
     expect(idx).toBe(1);
   });
   
@@ -56,7 +56,7 @@ describe("binarySearchById", () => {
       makeTextPart("third"),
     ];
     
-    const idx = binarySearchById(parts, parts[2].id);
+    const idx = binarySearchById(parts, parts[2]!.id);
     expect(idx).toBe(2);
   });
   
@@ -126,9 +126,9 @@ describe("binarySearchById", () => {
     );
     
     // Search for existing elements
-    expect(binarySearchById(parts, parts[0].id)).toBe(0);
-    expect(binarySearchById(parts, parts[500].id)).toBe(500);
-    expect(binarySearchById(parts, parts[999].id)).toBe(999);
+    expect(binarySearchById(parts, parts[0]!.id)).toBe(0);
+    expect(binarySearchById(parts, parts[500]!.id)).toBe(500);
+    expect(binarySearchById(parts, parts[999]!.id)).toBe(999);
     
     // Search for non-existing element
     const nonExistentId = "part_999999999999_0000";
@@ -164,9 +164,9 @@ describe("upsertPart", () => {
     const result = upsertPart(parts, updatedPart);
     
     expect(result.length).toBe(3);
-    expect(result[1].content).toBe("UPDATED");
-    expect(result[1].id).toBe(id2);
-    expect(parts[1].content).toBe("second"); // Original unchanged
+    expect((result[1] as TextPart)!.content).toBe("UPDATED");
+    expect(result[1]!.id).toBe(id2);
+    expect((parts[1] as TextPart)!.content).toBe("second"); // Original unchanged
   });
   
   test("maintains sorted order on insert at start", () => {
@@ -179,9 +179,9 @@ describe("upsertPart", () => {
     const result = upsertPart(parts, newPart);
     
     expect(result.length).toBe(3);
-    expect(result[0].content).toBe("first");
-    expect(result[1].content).toBe("second");
-    expect(result[2].content).toBe("third");
+    expect((result[0] as TextPart)!.content).toBe("first");
+    expect((result[1] as TextPart)!.content).toBe("second");
+    expect((result[2] as TextPart)!.content).toBe("third");
   });
   
   test("maintains sorted order on insert in middle", () => {
@@ -194,9 +194,9 @@ describe("upsertPart", () => {
     const result = upsertPart(parts, newPart);
     
     expect(result.length).toBe(3);
-    expect(result[0].content).toBe("first");
-    expect(result[1].content).toBe("second");
-    expect(result[2].content).toBe("third");
+    expect((result[0] as TextPart)!.content).toBe("first");
+    expect((result[1] as TextPart)!.content).toBe("second");
+    expect((result[2] as TextPart)!.content).toBe("third");
   });
   
   test("maintains sorted order on insert at end", () => {
@@ -209,9 +209,9 @@ describe("upsertPart", () => {
     const result = upsertPart(parts, newPart);
     
     expect(result.length).toBe(3);
-    expect(result[0].content).toBe("first");
-    expect(result[1].content).toBe("second");
-    expect(result[2].content).toBe("third");
+    expect((result[0] as TextPart)!.content).toBe("first");
+    expect((result[1] as TextPart)!.content).toBe("second");
+    expect((result[2] as TextPart)!.content).toBe("third");
   });
   
   test("returns new array reference", () => {
@@ -231,8 +231,8 @@ describe("upsertPart", () => {
     const result = upsertPart(parts, reasoningPart);
     
     expect(result.length).toBe(2);
-    expect(result[0].type).toBe("text");
-    expect(result[1].type).toBe("reasoning");
+    expect(result[0]!.type).toBe("text");
+    expect(result[1]!.type).toBe("reasoning");
   });
   
   test("handles multiple sequential upserts", () => {
@@ -247,9 +247,9 @@ describe("upsertPart", () => {
     parts = upsertPart(parts, part3);
     
     expect(parts.length).toBe(3);
-    expect(parts[0].content).toBe("first");
-    expect(parts[1].content).toBe("second");
-    expect(parts[2].content).toBe("third");
+    expect((parts[0] as TextPart)!.content).toBe("first");
+    expect((parts[1] as TextPart)!.content).toBe("second");
+    expect((parts[2] as TextPart)!.content).toBe("third");
   });
   
   test("handles update then insert", () => {
@@ -259,13 +259,13 @@ describe("upsertPart", () => {
     // Update existing
     const updated = makeTextPart("UPDATED", id1);
     let result = upsertPart(parts, updated);
-    expect(result[0].content).toBe("UPDATED");
+    expect((result[0] as TextPart)!.content).toBe("UPDATED");
     
     // Insert new
     const newPart = makeTextPart("second", "part_000000000002_0000");
     result = upsertPart(result, newPart);
     expect(result.length).toBe(2);
-    expect(result[1].content).toBe("second");
+    expect((result[1] as TextPart)!.content).toBe("second");
   });
 });
 
@@ -286,7 +286,7 @@ describe("findLastPartIndex", () => {
     
     const idx = findLastPartIndex(parts, (p) => p.type === "text");
     expect(idx).toBe(3);
-    expect(parts[idx].content).toBe("third");
+    expect((parts[idx] as TextPart)!.content).toBe("third");
   });
   
   test("returns first index when only one match", () => {

@@ -79,7 +79,9 @@ test("large counter values are padded correctly", () => {
   });
   
   // Last ID should have counter = 255 (0x00ff)
-  const lastCounter = parseInt(ids[255].slice(-4), 16);
+  const lastId = ids[255];
+  expect(lastId).toBeDefined();
+  const lastCounter = parseInt(lastId!.slice(-4), 16);
   expect(lastCounter).toBe(255);
 });
 

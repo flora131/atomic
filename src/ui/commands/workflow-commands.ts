@@ -30,7 +30,7 @@ import {
   getWorkflowSessionDir,
   type WorkflowSession,
 } from "../../workflows/session.ts";
-import { buildSpecToTasksPrompt } from "../../graph/nodes/ralph.ts";
+import { buildSpecToTasksPrompt, buildBootstrappedTaskContext } from "../../graph/nodes/ralph.ts";
 import { normalizeInterruptedTasks } from "../utils/ralph-task-state.ts";
 
 // ============================================================================
@@ -567,6 +567,11 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
           },
         });
 
+        // Bootstrap task context into the main agent's conversation for manual dispatch
+        if (currentTasks.length > 0) {
+          context.sendSilentMessage(buildBootstrappedTaskContext(currentTasks, parsed.sessionId));
+        }
+
         return { success: true };
       }
 
@@ -603,6 +608,13 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
       // Track Ralph session metadata AFTER tasks.json exists on disk
       context.setRalphSessionDir(sessionDir);
       context.setRalphSessionId(sessionId);
+
+      // Step 2: Bootstrap task context into the main agent's conversation.
+      // The agent's context is blank after Step 1 (hideContent suppressed the JSON),
+      // so inject the task list and instructions for manual worker dispatch.
+      if (tasks.length > 0) {
+        context.sendSilentMessage(buildBootstrappedTaskContext(tasks, sessionId));
+      }
 
       return { success: true };
     },

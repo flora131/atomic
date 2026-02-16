@@ -34,6 +34,26 @@ describe("buildContentSegments adversarial formatting cases", () => {
     expect(segments[0]?.content).toBe(content);
   });
 
+  test("inserts tasks inline when tasks are enabled", () => {
+    const content = "alpha beta gamma";
+    const tasksOffset = content.indexOf(" gamma");
+    const segments = buildContentSegments(
+      content,
+      [],
+      null,
+      undefined,
+      [{ content: "task", status: "pending" }] as any,
+      tasksOffset,
+      undefined,
+    );
+
+    expect(segments.map((segment) => segment.type)).toEqual([
+      "text",
+      "tasks",
+      "text",
+    ]);
+  });
+
   test("preserves boundary whitespace around tool insertion", () => {
     const content = "directory. I now have all the context needed.";
     const offset = content.indexOf(" I now");

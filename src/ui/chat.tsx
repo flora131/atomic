@@ -22,7 +22,6 @@ import { STATUS, CONNECTOR, ARROW, PROMPT, SPINNER_FRAMES, SPINNER_COMPLETE, CHE
 
 import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplete.tsx";
 import { ToolResult } from "./components/tool-result.tsx";
-import { SkillLoadIndicator, shouldShowSkillLoad } from "./components/skill-load-indicator.tsx";
 import { McpServerListIndicator } from "./components/mcp-server-list.tsx";
 import { ContextInfoDisplay } from "./components/context-info-display.tsx";
 
@@ -56,7 +55,7 @@ import {
   ModelSelectorDialog,
 } from "./components/model-selector-dialog.tsx";
 import type { Model } from "../models/model-transform.ts";
-import { type TaskItem } from "./components/task-list-indicator.tsx";
+import { TaskListIndicator, type TaskItem } from "./components/task-list-indicator.tsx";
 import { TaskListPanel } from "./components/task-list-panel.tsx";
 import { saveTasksToActiveSession } from "./commands/workflow-commands.ts";
 import {
@@ -497,6 +496,8 @@ export interface ChatMessage {
   skillLoads?: MessageSkillLoad[];
   /** Snapshot of task items active during this message (baked on completion) */
   taskItems?: Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; blockedBy?: string[]}>;
+  /** Whether task updates for this message should remain pinned-only (Ralph exception) */
+  tasksPinned?: boolean;
   /** Content offset when parallel agents first appeared (for chronological positioning) */
   agentsContentOffset?: number;
   /** Content offset when task list first appeared (for chronological positioning) */
@@ -802,6 +803,8 @@ export interface MessageBubbleProps {
   todoItems?: Array<{content: string; status: "pending" | "in_progress" | "completed" | "error"}>;
   /** Whether task items are expanded (no truncation) */
   tasksExpanded?: boolean;
+  /** Whether task updates should be rendered inline for this message */
+  inlineTasksEnabled?: boolean;
   /** Elapsed streaming time in milliseconds */
   elapsedMs?: number;
   /** Whether the conversation is collapsed (shows compact single-line summaries) */
@@ -1289,52 +1292,62 @@ export function buildContentSegments(
   tasksOffset?: number,
   tasksExpanded?: boolean,
 ): ContentSegment[] {
-  // Separate HITL tools and sub-agent Task tools from regular tools:
+  // Separate HITL tools from regular tools:
   // - Running/pending HITL tools are hidden (the dialog handles display)
   // - Completed HITL tools are shown as compact inline question records
-  // - Task tools are hidden — sub-agents are shown via ParallelAgentsTree;
-  //   individual tool traces are available in the ctrl+o detail view only.
   const isHitlTool = (name: string) =>
     name === "AskUserQuestion" || name === "question" || name === "ask_user";
-  const isSubAgentTool = (name: string) =>
-    name === "Task" || name === "task";
-  const isSkillTool = (name: string) =>
-    name === "Skill" || name === "skill";
-  const visibleToolCalls = toolCalls.filter(tc => !isHitlTool(tc.toolName) && !isSubAgentTool(tc.toolName) && !isSkillTool(tc.toolName));
+  const visibleToolCalls = toolCalls.filter(tc => !isHitlTool(tc.toolName));
   const completedHitlCalls = toolCalls.filter(tc => isHitlTool(tc.toolName) && tc.status === "completed");
 
   // Build unified list of insertion points
   interface InsertionPoint {
     offset: number;
     segment: ContentSegment;
-    consumesText: boolean; // Only tool calls consume text at their offset
+    priority: number;
+    sequence: number;
   }
 
   const insertions: InsertionPoint[] = [];
+  let insertionSequence = 0;
+  const typePriority: Record<ContentSegment["type"], number> = {
+    text: 0,
+    tool: 0,
+    hitl: 1,
+    agents: 2,
+    tasks: 3,
+  };
+  const pushInsertion = (offset: number, segment: ContentSegment): void => {
+    insertions.push({
+      offset,
+      segment,
+      priority: typePriority[segment.type],
+      sequence: insertionSequence++,
+    });
+  };
 
   // Add tool call insertions
   for (const tc of visibleToolCalls) {
-    insertions.push({
-      offset: tc.contentOffsetAtStart ?? 0,
-      segment: { type: "tool", toolCall: tc, key: `tool-${tc.id}` },
-      consumesText: true,
-    });
+    pushInsertion(
+      tc.contentOffsetAtStart ?? 0,
+      { type: "tool", toolCall: tc, key: `tool-${tc.id}` },
+    );
   }
 
   // Add completed HITL question insertions (rendered as compact inline records)
   for (const tc of completedHitlCalls) {
-    insertions.push({
-      offset: tc.contentOffsetAtStart ?? 0,
-      segment: { type: "hitl", toolCall: tc, key: `hitl-${tc.id}` },
-      consumesText: true,
-    });
+    pushInsertion(
+      tc.contentOffsetAtStart ?? 0,
+      { type: "hitl", toolCall: tc, key: `hitl-${tc.id}` },
+    );
   }
 
   // Add agents tree insertion(s). When sub-agents are spawned sequentially
   // (with text between invocations), each group of concurrent agents is
   // rendered as a separate tree at its chronological content offset.
   if (agents && agents.length > 0) {
-    // Build a map from agent ID → content offset using the Task tool calls
+    // Build a map from agent ID → content offset using Task tool calls.
+    // If not available, fall back to each agent's own captured offset.
     const taskToolOffsets = new Map<string, number>();
     for (const tc of toolCalls) {
       if (tc.toolName === "Task" || tc.toolName === "task") {
@@ -1345,7 +1358,8 @@ export function buildContentSegments(
     // Group agents by their content offset
     const groups = new Map<number, ParallelAgent[]>();
     for (const agent of agents) {
-      const offset = taskToolOffsets.get(agent.id) ?? agentsOffset ?? 0;
+      const taskToolCallId = agent.taskToolCallId ?? agent.id;
+      const offset = taskToolOffsets.get(taskToolCallId) ?? agent.contentOffsetAtStart ?? agentsOffset ?? 0;
       const group = groups.get(offset);
       if (group) {
         group.push(agent);
@@ -1356,25 +1370,27 @@ export function buildContentSegments(
 
     // Create a tree insertion for each group
     for (const [offset, groupAgents] of groups) {
-      insertions.push({
+      pushInsertion(
         offset,
-        segment: { type: "agents", agents: groupAgents, key: `agents-tree-${offset}` },
-        consumesText: false,
-      });
+        { type: "agents", agents: groupAgents, key: `agents-tree-${offset}` },
+      );
     }
   }
 
   // Add task list insertion (if tasks exist, offset is defined, and panel is expanded)
   if (taskItems && taskItems.length > 0 && tasksOffset !== undefined && tasksExpanded !== false) {
-    insertions.push({
-      offset: tasksOffset,
-      segment: { type: "tasks", taskItems, tasksExpanded, key: "task-list" },
-      consumesText: false,
-    });
+    pushInsertion(
+      tasksOffset,
+      { type: "tasks", taskItems, tasksExpanded, key: "task-list" },
+    );
   }
 
-  // Sort all insertions by offset ascending
-  insertions.sort((a, b) => a.offset - b.offset);
+  // Sort by offset, then by segment type priority, then by insertion order.
+  insertions.sort((a, b) =>
+    a.offset - b.offset
+    || a.priority - b.priority
+    || a.sequence - b.sequence
+  );
 
   // If no insertions, return text-only segment
   if (insertions.length === 0) {
@@ -1482,7 +1498,7 @@ function preprocessTaskListCheckboxes(content: string): string {
     .replace(/^(\s*[-*+]\s+)\[ \]/gm, `$1${CHECKBOX.unchecked}`)
     .replace(/^(\s*[-*+]\s+)\[[xX]\]/gm, `$1${CHECKBOX.checked}`);
 }
-export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
   // Hide the entire message when question dialog is active and there's no content yet
@@ -1578,7 +1594,11 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
 
   // Assistant message: bullet point prefix, with tool calls interleaved at correct positions
   if (message.role === "assistant") {
-    const taskItemsToShow = message.streaming ? todoItems : message.taskItems;
+    const shouldRenderInlineTasks = inlineTasksEnabled && !message.tasksPinned;
+    const taskItemsToShow = shouldRenderInlineTasks
+      ? (message.streaming ? todoItems : message.taskItems)
+      : undefined;
+    const inlineTaskExpansion = shouldRenderInlineTasks ? (tasksExpanded || undefined) : false;
 
     // Build interleaved content segments (now includes agents and tasks)
     const segments = buildContentSegments(
@@ -1588,7 +1608,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
       message.agentsContentOffset,
       taskItemsToShow,
       message.tasksContentOffset,
-      tasksExpanded,
+      inlineTaskExpansion,
     );
     // Render interleaved segments (loading spinner is at the bottom, after all content)
     return (
@@ -1598,16 +1618,6 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
         paddingLeft={1}
         paddingRight={1}
       >
-        {/* Skill load indicators */}
-        {message.skillLoads?.map((sl, i) => (
-          <box key={`skill-${i}`} marginBottom={1}>
-            <SkillLoadIndicator
-              skillName={sl.skillName}
-              status={sl.status}
-              errorMessage={sl.errorMessage}
-            />
-          </box>
-        ))}
         {/* MCP snapshot indicator */}
         {message.mcpSnapshot && (
           <box key="mcp-servers" marginBottom={1}>
@@ -1691,8 +1701,16 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
               </box>
             );
           } else if (segment.type === "tasks" && segment.taskItems) {
-            // Tasks already rendered by TodoWrite tool result + persistent panel at top
-            return null;
+            return (
+              <box key={segment.key}>
+                <TaskListIndicator
+                  items={segment.taskItems}
+                  expanded={segment.tasksExpanded ?? false}
+                  maxVisible={10}
+                  showConnector={true}
+                />
+              </box>
+            );
           }
           return null;
         })}
@@ -1949,10 +1967,6 @@ export function ChatApp({
   // Store current input when entering history mode
   const savedInputRef = useRef<string>("");
 
-  // Track skills that have already shown the "loaded" UI indicator this session.
-  // Once a skill is loaded, subsequent invocations should not show the indicator again.
-  const loadedSkillsRef = useRef<Set<string>>(new Set());
-
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
   // Ref to track when streaming started for duration calculation
@@ -2168,6 +2182,7 @@ export function ChatApp({
       const todos = normalizeTodoItems(input.todos);
       todoItemsRef.current = todos;
       setTodoItems(todos);
+      const taskStreamPinned = Boolean(ralphSessionIdRef.current);
 
       // Persist to tasks.json when ralph workflow is active (drives TaskListPanel via file watcher)
       if (ralphSessionIdRef.current) {
@@ -2178,8 +2193,12 @@ export function ChatApp({
       if (messageId) {
         setMessagesWindowed((prev) =>
           prev.map((msg) =>
-            msg.id === messageId && msg.tasksContentOffset === undefined
-              ? { ...msg, tasksContentOffset: msg.content.length }
+            msg.id === messageId
+              ? {
+                  ...msg,
+                  tasksContentOffset: msg.tasksContentOffset ?? msg.content.length,
+                  tasksPinned: msg.tasksPinned ?? taskStreamPinned,
+                }
               : msg
           )
         );
@@ -2276,52 +2295,39 @@ export function ChatApp({
       const todos = normalizeTodoItems(input.todos);
       todoItemsRef.current = todos;
       setTodoItems(todos);
+      const taskStreamPinned = Boolean(ralphSessionIdRef.current);
 
       // Persist to tasks.json when ralph workflow is active (handles SDKs
       // that only provide TodoWrite input at tool.complete time)
       if (ralphSessionIdRef.current) {
         void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
       }
+
+      if (messageId) {
+        setMessagesWindowed((prev) =>
+          prev.map((msg) =>
+            msg.id === messageId
+              ? {
+                  ...msg,
+                  tasksContentOffset: msg.tasksContentOffset ?? msg.content.length,
+                  tasksPinned: msg.tasksPinned ?? taskStreamPinned,
+                }
+              : msg
+          )
+        );
+      }
     }
   }, [streamingState]);
 
   /**
    * Handle skill invoked event from SDK.
-   * Adds a SkillLoadIndicator entry to the current streaming message.
+   * Skill events are represented via normal tool.start/tool.complete rendering.
    */
   const handleSkillInvoked = useCallback((
-    skillName: string,
+    _skillName: string,
     _skillPath?: string
   ) => {
-    // Only show "loaded" indicator on the first invocation per session
-    if (loadedSkillsRef.current.has(skillName)) return;
-    loadedSkillsRef.current.add(skillName);
-
-    const skillLoad: MessageSkillLoad = {
-      skillName,
-      status: "loaded",
-    };
-    const messageId = streamingMessageIdRef.current;
-    setMessagesWindowed((prev) => {
-      if (messageId) {
-        return prev.map((msg) =>
-          msg.id === messageId
-            ? { ...msg, skillLoads: [...(msg.skillLoads || []), skillLoad] }
-            : msg
-        );
-      }
-      // No streaming message — attach to last assistant message or create one
-      const lastMsg = prev[prev.length - 1];
-      if (lastMsg && lastMsg.role === "assistant") {
-        return [
-          ...prev.slice(0, -1),
-          { ...lastMsg, skillLoads: [...(lastMsg.skillLoads || []), skillLoad] },
-        ];
-      }
-      const msg = createMessage("assistant", "");
-      msg.skillLoads = [skillLoad];
-      return [...prev, msg];
-    });
+    // No-op: skill.invoked is intentionally not rendered as a separate indicator.
   }, []);
 
   // Register tool event handlers with parent component
@@ -3517,7 +3523,6 @@ export function ChatApp({
         setTranscriptMode(false);
         clearHistoryBuffer();
         setTrimmedMessageCount(0);
-        loadedSkillsRef.current.clear();
       }
 
       // Handle clearMessages flag — persist history before clearing
@@ -3575,32 +3580,6 @@ export function ChatApp({
       // Skip if the delayed spinner already placed the message (and messages weren't cleared)
       if (result.message && (!commandSpinnerShown || result.clearMessages)) {
         addMessage("assistant", result.message);
-      }
-
-      // Track skill load in message for UI indicator (only on first successful load per session;
-      // errors are always shown so the user sees the failure)
-      if (result.skillLoaded && shouldShowSkillLoad(result.skillLoaded, result.skillLoadError, loadedSkillsRef.current)) {
-        if (!result.skillLoadError) {
-          loadedSkillsRef.current.add(result.skillLoaded);
-        }
-        const skillLoad: MessageSkillLoad = {
-          skillName: result.skillLoaded,
-          status: result.skillLoadError ? "error" : "loaded",
-          errorMessage: result.skillLoadError,
-        };
-        setMessagesWindowed((prev) => {
-          const lastMsg = prev[prev.length - 1];
-          if (lastMsg && lastMsg.role === "assistant") {
-            return [
-              ...prev.slice(0, -1),
-              { ...lastMsg, skillLoads: [...(lastMsg.skillLoads || []), skillLoad] },
-            ];
-          }
-          // No assistant message yet — create one with skill load
-          const msg = createMessage("assistant", "");
-          msg.skillLoads = [skillLoad];
-          return [...prev, msg];
-        });
       }
 
       // Track MCP snapshot in message for UI indicator
@@ -5237,6 +5216,7 @@ export function ChatApp({
           streamingMeta={msg.streaming ? streamingMeta : null}
           collapsed={conversationCollapsed}
           tasksExpanded={tasksExpanded}
+          inlineTasksEnabled={!ralphSessionDir}
         />
       ))}
     </>
@@ -5276,17 +5256,6 @@ export function ChatApp({
             <text style={{ fg: themeColors.muted }} attributes={1}>Compaction Summary</text>
             <text style={{ fg: themeColors.foreground }} wrapMode="char" selectable>{compactionSummary}</text>
           </box>
-        </box>
-      )}
-
-      {/* Todo Panel - shows persistent summary from TodoWrite (Ctrl+T to toggle) */}
-      {/* Hidden during streaming — the inline TaskListIndicator under the spinner handles it */}
-      {/* Shows only summary line after streaming to avoid render artifacts with bordered boxes */}
-      {showTodoPanel && !isStreaming && todoItems.length > 0 && (
-        <box flexDirection="column" paddingLeft={2} paddingRight={2} marginBottom={1}>
-          <text style={{ fg: themeColors.muted }}>
-            {`${CHECKBOX.checked} ${todoItems.length} tasks (${todoItems.filter(t => t.status === "completed").length} done, ${todoItems.filter(t => t.status !== "completed").length} open) ${MISC.separator} ctrl+t to hide`}
-          </text>
         </box>
       )}
 

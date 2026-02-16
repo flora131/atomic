@@ -442,15 +442,25 @@ export async function startChatUI(
     // Keys: toolUseID (Claude), toolCallId (Copilot), internal toolId (FIFO fallback)
     const toolCallToAgentMap = new Map<string, string>();
 
-    // Tool IDs attributed to running subagents — their tool.complete events
-    // should also be suppressed from the main conversation UI
-    const subagentToolIds = new Set<string>();
-
     // Map SDK tool use IDs to internal tool IDs for deduplication.
     // SDKs like OpenCode emit tool.start for both "pending" and "running"
     // statuses of the same tool call — this map ensures we reuse the same
     // internal ID and update the existing UI entry instead of creating a duplicate.
     const sdkToolIdMap = new Map<string, string>();
+
+    const detachToolIdFromNameStack = (toolName: string, toolId: string): void => {
+      const ids = toolNameToIds.get(toolName);
+      if (!ids || ids.length === 0) return;
+      const idx = ids.indexOf(toolId);
+      if (idx === -1) return;
+      ids.splice(idx, 1);
+      if (ids.length === 0) {
+        toolNameToIds.delete(toolName);
+        toolNameToId.delete(toolName);
+      } else {
+        toolNameToId.set(toolName, ids[0] as string);
+      }
+    };
 
     // Internal cleanup gate for correlation tracking.
     // Keep completed agents around until late Task tool.complete events are consumed.
@@ -518,6 +528,7 @@ export async function startChatUI(
             const taskDesc = (input.description as string) ?? prompt ?? "Sub-agent task";
             const newAgent: ParallelAgent = {
               id: toolId,
+              taskToolCallId: toolId,
               name: agentType,
               task: taskDesc,
               status: "running",
@@ -539,9 +550,6 @@ export async function startChatUI(
         // SDK events (subagent.start / subagent.complete) don't carry intermediate
         // tool-use updates, so we bridge that gap here by attributing each tool.start
         // to the most recently started running subagent.
-        // When a tool is attributed to a subagent, skip the main tool UI to avoid
-        // showing subagent-internal tools as top-level conversation entries.
-        let attributedToSubagent = false;
         const isTaskTool = data.toolName === "Task" || data.toolName === "task";
         if (!isTaskTool && state.isStreaming && state.parallelAgentHandler && state.parallelAgents.length > 0) {
           const runningAgent = [...state.parallelAgents]
@@ -555,14 +563,7 @@ export async function startChatUI(
                 : a
             );
             state.parallelAgentHandler(state.parallelAgents);
-            attributedToSubagent = true;
           }
-        }
-
-        // Only show in main conversation if not attributed to a subagent
-        if (attributedToSubagent) {
-          subagentToolIds.add(toolId);
-          return;
         }
 
         state.toolStartHandler(
@@ -580,9 +581,18 @@ export async function startChatUI(
         state.telemetryTracker?.trackToolComplete(data.toolName, data.success ?? true);
       }
       if (state.toolCompleteHandler) {
-        // Find the matching tool ID from the stack (FIFO order)
+        // Resolve internal tool ID:
+        // 1) Prefer SDK correlation IDs for deterministic attribution
+        // 2) Fallback to tool-name FIFO for SDKs without stable IDs
+        const sdkCorrelationId = data.toolUseID ?? data.toolCallId ?? data.toolUseId;
         let toolId: string;
-        if (data.toolName) {
+        if (sdkCorrelationId && sdkToolIdMap.has(sdkCorrelationId)) {
+          toolId = sdkToolIdMap.get(sdkCorrelationId)!;
+          if (data.toolName) {
+            detachToolIdFromNameStack(data.toolName, toolId);
+          }
+        } else if (data.toolName) {
+          // Find the matching tool ID from the stack (FIFO order)
           const ids = toolNameToIds.get(data.toolName);
           toolId = ids?.shift() ?? toolNameToId.get(data.toolName) ?? `tool_${state.toolIdCounter}`;
           if (ids && ids.length === 0) {
@@ -593,14 +603,6 @@ export async function startChatUI(
           }
         } else {
           toolId = `tool_${state.toolIdCounter}`;
-        }
-
-        // Skip tool.complete for tools already attributed to a subagent
-        if (subagentToolIds.has(toolId)) {
-          subagentToolIds.delete(toolId);
-          state.activeToolIds.delete(toolId);
-          tryFinalizeParallelTracking();
-          return;
         }
 
         state.toolCompleteHandler(
@@ -640,8 +642,8 @@ export async function startChatUI(
             : JSON.stringify(data.toolResult));
 
           // Try ID-based correlation: SDK-level IDs first, then internal toolId
-          const sdkCorrelationId = data.toolUseID ?? data.toolCallId ?? data.toolUseId;
-          const agentId = (sdkCorrelationId && toolCallToAgentMap.get(sdkCorrelationId))
+          const taskSdkCorrelationId = data.toolUseID ?? data.toolCallId ?? data.toolUseId;
+          const agentId = (taskSdkCorrelationId && toolCallToAgentMap.get(taskSdkCorrelationId))
             || toolCallToAgentMap.get(toolId);
 
           if (agentId) {
@@ -665,7 +667,7 @@ export async function startChatUI(
             );
             state.parallelAgentHandler(state.parallelAgents);
             // Clean up consumed mappings
-            if (sdkCorrelationId) toolCallToAgentMap.delete(sdkCorrelationId);
+            if (taskSdkCorrelationId) toolCallToAgentMap.delete(taskSdkCorrelationId);
             toolCallToAgentMap.delete(toolId);
           } else {
             // Fallback: find the last completed-or-running agent without a result
@@ -718,6 +720,9 @@ export async function startChatUI(
         }
 
         // Clean up tracking
+        if (sdkCorrelationId) {
+          sdkToolIdMap.delete(sdkCorrelationId);
+        }
         state.activeToolIds.delete(toolId);
         tryFinalizeParallelTracking();
       }
@@ -790,7 +795,18 @@ export async function startChatUI(
       if (!state.isStreaming) return;
 
       if (state.parallelAgentHandler && data.subagentId) {
-        const pendingTaskEntry = pendingTaskEntries.shift();
+        const sdkCorrelationId = data.toolUseID ?? data.toolCallId;
+        const correlatedToolId = sdkCorrelationId ? sdkToolIdMap.get(sdkCorrelationId) : undefined;
+        let pendingTaskEntry: { toolId: string; prompt?: string } | undefined;
+        if (correlatedToolId) {
+          const entryIdx = pendingTaskEntries.findIndex((entry) => entry.toolId === correlatedToolId);
+          if (entryIdx !== -1) {
+            pendingTaskEntry = pendingTaskEntries.splice(entryIdx, 1)[0];
+          }
+        }
+        if (!pendingTaskEntry) {
+          pendingTaskEntry = pendingTaskEntries.shift();
+        }
 
         // Use task from event data, or dequeue a pending Task tool prompt
         const task = data.task
@@ -814,6 +830,7 @@ export async function startChatUI(
               ? {
                   ...a,
                   id: data.subagentId!,
+                  taskToolCallId: a.taskToolCallId ?? eagerToolId,
                   name: agentTypeName,
                   task: data.task || a.task,
                   currentTool: `Running ${agentTypeName}…`,
@@ -826,6 +843,7 @@ export async function startChatUI(
           // No eager agent — create fresh (backward compat for non-Task subagents)
           const newAgent: ParallelAgent = {
             id: data.subagentId,
+            taskToolCallId: pendingTaskEntry?.toolId,
             name: agentTypeName,
             task,
             status: "running",
@@ -838,7 +856,6 @@ export async function startChatUI(
 
         // Build correlation mapping: SDK-level ID → agentId
         // This allows tool.complete to attribute results to the correct agent.
-        const sdkCorrelationId = data.toolUseID ?? data.toolCallId;
         if (sdkCorrelationId) {
           toolCallToAgentMap.set(sdkCorrelationId, data.subagentId!);
         }

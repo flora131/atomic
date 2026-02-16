@@ -3,13 +3,26 @@
  *
  * Provides the prompts used by the /ralph two-step workflow:
  *   Step 1: Task decomposition (buildSpecToTasksPrompt)
- *   Step 2: Worker sub-agent dispatch (buildTaskListPreamble)
+ *   Step 2: Worker sub-agent dispatch (buildBootstrappedTaskContext / buildWorkerAssignment)
  *
  * The worker agent prompt lives in .claude/agents/worker.md (and equivalent
  * paths for OpenCode / Copilot). It is registered by each SDK at session
  * start — the workflow only needs to spawn the "worker" sub-agent with
  * the task list as context.
  */
+
+export interface TaskItem {
+  id?: string;
+  content: string;
+  status: string;
+  activeForm: string;
+  blockedBy?: string[];
+}
+
+function isCompletedStatus(status: string): boolean {
+  const normalized = status.trim().toLowerCase();
+  return normalized === "completed" || normalized === "complete" || normalized === "done";
+}
 
 // ============================================================================
 // STEP 1: TASK DECOMPOSITION
@@ -63,7 +76,7 @@ Produce a JSON array where each element follows this exact schema:
 // ============================================================================
 
 /** Build a preamble that includes the task list JSON for step 2 after context clearing */
-export function buildTaskListPreamble(tasks: Array<{ id?: string; content: string; status: string; activeForm: string; blockedBy?: string[] }>): string {
+export function buildTaskListPreamble(tasks: TaskItem[]): string {
   const taskListJson = JSON.stringify(tasks, null, 2);
   return `# Task List from Planning Phase
 
@@ -78,4 +91,71 @@ After calling TodoWrite with the above tasks, proceed with the implementation in
 ---
 
 `;
+}
+
+/** Build a prompt for assigning a single task to a worker sub-agent. */
+export function buildWorkerAssignment(task: TaskItem, allTasks: TaskItem[]): string {
+  const taskId = task.id ?? "unknown";
+
+  const dependencies = (task.blockedBy ?? []).map((dependencyId) => {
+    const dependency = allTasks.find((candidate) => candidate.id === dependencyId);
+    if (!dependency) {
+      return `- ${dependencyId}: (not found)`;
+    }
+    return `- ${dependencyId}: ${dependency.content}`;
+  });
+
+  const completedTasks = allTasks
+    .filter((candidate) => isCompletedStatus(candidate.status))
+    .map((candidate) => `- ${candidate.id ?? "?"}: ${candidate.content}`);
+
+  const dependencySection = dependencies.length > 0
+    ? `# Dependencies
+
+${dependencies.join("\n")}
+
+`
+    : "";
+
+  const completedSection = completedTasks.length > 0
+    ? `# Completed Tasks
+
+${completedTasks.join("\n")}
+
+`
+    : "";
+
+  return `# Task Assignment
+
+**Task ID:** ${taskId}
+**Task:** ${task.content}
+
+${dependencySection}${completedSection}# Instructions
+
+Focus solely on this task.
+Implement it until complete and tested.
+Do not modify unrelated task statuses.
+If blocked, record the issue and set the task status to "error".
+Begin implementation.`;
+}
+
+/** Build a bootstrap context for the main agent after the planning phase. */
+export function buildBootstrappedTaskContext(tasks: TaskItem[], sessionId: string): string {
+  const taskListJson = JSON.stringify(tasks, null, 2);
+  return `# Ralph Session Bootstrap
+
+Session ID: ${sessionId}
+
+The planning phase produced the task list below:
+
+\`\`\`json
+${taskListJson}
+\`\`\`
+
+# Instructions
+
+- Process tasks in dependency order.
+- Respect each task's blockedBy list before starting work.
+- Dispatch workers with explicit task assignments and update TodoWrite as progress changes.
+- Continue until all tasks are completed or an error/deadlock is surfaced.`;
 }

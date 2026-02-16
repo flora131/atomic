@@ -55,8 +55,10 @@ export function detectDeadlock(tasks: TaskItem[]): DeadlockDiagnostic {
     if (!valid[i]) continue;
     const id = normalizedIds[i];
     if (!id) continue;
+    const task = tasks[i];
+    if (!task) continue;
     idToIndex.set(id, i);
-    statusByNormalizedId.set(id, tasks[i].status);
+    statusByNormalizedId.set(id, task.status);
   }
 
   // Build adjacency list for valid tasks only

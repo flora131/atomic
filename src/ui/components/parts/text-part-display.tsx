@@ -12,10 +12,9 @@ import { useThemeColors } from "../../theme.tsx";
 
 export interface TextPartDisplayProps {
   part: TextPart;
-  isLast: boolean;
 }
 
-export function TextPartDisplay({ part, isLast }: TextPartDisplayProps): JSX.Element {
+export function TextPartDisplay({ part }: TextPartDisplayProps) {
   const colors = useThemeColors();
   const displayContent = useThrottledValue(part.content, part.isStreaming ? 100 : 0);
 
@@ -25,7 +24,7 @@ export function TextPartDisplay({ part, isLast }: TextPartDisplayProps): JSX.Ele
 
   return (
     <box flexDirection="column">
-      <text color={colors.foreground}>{displayContent}</text>
+      <text style={{ fg: colors.foreground }}>{displayContent}</text>
     </box>
   );
 }

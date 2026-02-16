@@ -22,10 +22,10 @@ function createMockMessage(): ChatMessage {
     id: "test-msg",
     role: "assistant",
     content: "",
+    timestamp: new Date().toISOString(),
     parts: [],
     streaming: true,
-    createdAt: new Date(),
-  } as ChatMessage;
+  };
 }
 
 beforeEach(() => _resetPartCounter());
@@ -200,10 +200,10 @@ describe("Dual-population integration tests", () => {
       {
         id: "agent_1",
         name: "explorer",
-        description: "Finding files",
+        task: "Finding files",
         status: "running" as const,
-        result: null,
-        type: "agent",
+        result: undefined,
+        startedAt: new Date().toISOString(),
       },
     ];
     
@@ -319,7 +319,7 @@ describe("Dual-population integration tests", () => {
         answerText: "yes",
         displayText: "Yes",
         cancelled: false,
-        responseMode: "user",
+        responseMode: "option",
       },
     };
     
@@ -440,10 +440,10 @@ describe("Dual-population integration tests", () => {
     const agent1 = {
       id: "agent_1",
       name: "explorer",
-      description: "Finding files",
+      task: "Finding files",
       status: "running" as const,
-      result: null,
-      type: "agent",
+      result: undefined,
+      startedAt: new Date().toISOString(),
     };
     
     let agentPart: AgentPart = {
@@ -460,10 +460,10 @@ describe("Dual-population integration tests", () => {
     const agent2 = {
       id: "agent_2",
       name: "codebase-analyzer",
-      description: "Analyzing code",
+      task: "Analyzing code",
       status: "running" as const,
-      result: null,
-      type: "agent",
+      result: undefined,
+      startedAt: new Date().toISOString(),
     };
     
     const existingAgentPartIdx = msg.parts!.findIndex(p => p.type === "agent");

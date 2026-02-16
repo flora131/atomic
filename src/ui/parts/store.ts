@@ -22,7 +22,9 @@ export function binarySearchById(parts: ReadonlyArray<Part>, targetId: PartId): 
   let hi = parts.length - 1;
   while (lo <= hi) {
     const mid = (lo + hi) >>> 1;
-    const cmp = parts[mid].id.localeCompare(targetId);
+    const part = parts[mid];
+    if (!part) break; // Should never happen due to bounds check
+    const cmp = part.id.localeCompare(targetId);
     if (cmp === 0) return mid;
     if (cmp < 0) lo = mid + 1;
     else hi = mid - 1;
@@ -56,7 +58,8 @@ export function upsertPart(parts: ReadonlyArray<Part>, newPart: Part): Part[] {
  */
 export function findLastPartIndex(parts: ReadonlyArray<Part>, predicate: (part: Part) => boolean): number {
   for (let i = parts.length - 1; i >= 0; i--) {
-    if (predicate(parts[i])) return i;
+    const part = parts[i];
+    if (part && predicate(part)) return i;
   }
   return -1;
 }

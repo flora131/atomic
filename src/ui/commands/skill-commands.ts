@@ -1404,6 +1404,9 @@ function createBuiltinSkillCommand(skill: BuiltinSkill): CommandDefinition {
             context.sendSilentMessage(expandedPrompt);
             return {
                 success: true,
+                ...(BUILTIN_SKILLS_WITH_LOAD_UI.has(skill.name)
+                    ? { skillLoaded: skill.name }
+                    : {}),
             };
         },
     };
@@ -1498,6 +1501,16 @@ export type SkillSource = "project" | "user" | "builtin";
 
 export const PINNED_BUILTIN_SKILLS = new Set([
     "prompt-engineer",
+    "testing-anti-patterns",
+]);
+
+/**
+ * Builtin skills that show the skill load indicator UI.
+ * Core commands (research-codebase, create-spec, explain-code, init) don't show it.
+ */
+export const BUILTIN_SKILLS_WITH_LOAD_UI = new Set([
+    "prompt-engineer",
+    "frontend-design",
     "testing-anti-patterns",
 ]);
 

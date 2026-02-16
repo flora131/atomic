@@ -81,6 +81,7 @@ export {
   SKILL_DISCOVERY_PATHS,
   GLOBAL_SKILL_PATHS,
   PINNED_BUILTIN_SKILLS,
+  BUILTIN_SKILLS_WITH_LOAD_UI,
   type SkillMetadata,
   type SkillSource,
   type DiscoveredSkillFile,

@@ -96,6 +96,7 @@ import type {
   TextPart,
   ToolState,
   TaskListPart,
+  SkillLoadPart,
   McpSnapshotPart,
   ContextInfoPart,
 } from "./parts/index.ts";
@@ -1366,6 +1367,29 @@ function getRenderableAssistantParts(
     }
   }
 
+  if (message.skillLoads && message.skillLoads.length > 0) {
+    const existingSkillIdx = parts.findIndex((p) => p.type === "skill-load");
+    const skillPart: SkillLoadPart = {
+      id: existingSkillIdx >= 0 ? parts[existingSkillIdx]!.id : `skill-load-${message.id}`,
+      type: "skill-load",
+      skills: message.skillLoads,
+      createdAt: existingSkillIdx >= 0 ? parts[existingSkillIdx]!.createdAt : message.timestamp,
+    };
+    if (existingSkillIdx >= 0) {
+      parts[existingSkillIdx] = skillPart;
+    } else {
+      // Insert before text/tool parts but after mcp-snapshot and context-info
+      const insertIndex = parts.findIndex(
+        (p) => p.type !== "mcp-snapshot" && p.type !== "context-info"
+      );
+      if (insertIndex === -1) {
+        parts.push(skillPart);
+      } else {
+        parts.splice(insertIndex, 0, skillPart);
+      }
+    }
+  }
+
   const hasTextPart = parts.some((p) => p.type === "text");
   if (!hasTextPart && message.content.trim()) {
     const textPart: TextPart = {
@@ -1770,6 +1794,8 @@ export function ChatApp({
   // Accumulates eviction data from the pure state updater so the useEffect
   // below can perform side-effects (file I/O, counter bump) outside the updater.
   const pendingEvictionsRef = useRef<Array<{ messages: ChatMessage[], count: number }>>([]);
+  // Tracks which skills have been loaded in the current session to avoid duplicate indicators.
+  const loadedSkillsRef = useRef<Set<string>>(new Set());
   // Ref for scrollbox to enable programmatic scrolling
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
 
@@ -3459,6 +3485,7 @@ export function ChatApp({
         setTranscriptMode(false);
         clearHistoryBuffer();
         setTrimmedMessageCount(0);
+        loadedSkillsRef.current.clear();
       }
 
       // Handle clearMessages flag — persist history before clearing
@@ -3549,6 +3576,28 @@ export function ChatApp({
           }
           const msg = createMessage("assistant", "");
           msg.contextInfo = contextInfo;
+          return [...prev, msg];
+        });
+      }
+
+      // Track skill load in message for UI indicator (with session-level deduplication)
+      if (result.skillLoaded && !loadedSkillsRef.current.has(result.skillLoaded)) {
+        loadedSkillsRef.current.add(result.skillLoaded);
+        const skillLoad: MessageSkillLoad = {
+          skillName: result.skillLoaded,
+          status: result.skillLoadError ? "error" : "loaded",
+          errorMessage: result.skillLoadError,
+        };
+        setMessagesWindowed((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg && lastMsg.role === "assistant") {
+            return [
+              ...prev.slice(0, -1),
+              { ...lastMsg, skillLoads: [...(lastMsg.skillLoads || []), skillLoad] },
+            ];
+          }
+          const msg = createMessage("assistant", "");
+          msg.skillLoads = [skillLoad];
           return [...prev, msg];
         });
       }
@@ -5295,7 +5344,6 @@ export function ChatApp({
       {ralphSessionDir && showTodoPanel && (
         <TaskListPanel
           sessionDir={ralphSessionDir}
-          sessionId={ralphSessionId}
           expanded={tasksExpanded}
         />
       )}

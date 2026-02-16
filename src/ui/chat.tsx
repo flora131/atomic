@@ -2980,28 +2980,57 @@ export function ChatApp({
 
       setMessagesWindowed((prev) =>
         prev.map((msg) => {
-          if (!msg.toolCalls?.some(tc => tc.id === hitlToolId)) return msg;
-          return {
-            ...msg,
-            toolCalls: msg.toolCalls!.map((tc) =>
-              tc.id === hitlToolId
-                ? {
-                    ...tc,
-                    output: {
-                      ...(tc.output && typeof tc.output === "object"
-                        ? tc.output as Record<string, unknown>
-                        : {}),
-                      answer: normalizedHitl.answerText,
-                      cancelled: normalizedHitl.cancelled,
-                      responseMode: normalizedHitl.responseMode,
-                      displayText: normalizedHitl.displayText,
-                    },
-                    hitlResponse: normalizedHitl,
-                    contentOffsetAtStart: msg.content.length,
-                  }
-                : tc
-            ),
-          };
+          // Update legacy toolCalls array
+          const hasMatchingToolCall = msg.toolCalls?.some(tc => tc.id === hitlToolId);
+          const updatedToolCalls = hasMatchingToolCall
+            ? msg.toolCalls!.map((tc) =>
+                tc.id === hitlToolId
+                  ? {
+                      ...tc,
+                      output: {
+                        ...(tc.output && typeof tc.output === "object"
+                          ? tc.output as Record<string, unknown>
+                          : {}),
+                        answer: normalizedHitl.answerText,
+                        cancelled: normalizedHitl.cancelled,
+                        responseMode: normalizedHitl.responseMode,
+                        displayText: normalizedHitl.displayText,
+                      },
+                      hitlResponse: normalizedHitl,
+                      contentOffsetAtStart: msg.content.length,
+                    }
+                  : tc
+              )
+            : msg.toolCalls;
+
+          // Update parts array: clear pendingQuestion and set hitlResponse on matching ToolPart
+          let updatedParts = msg.parts;
+          if (msg.parts && msg.parts.length > 0) {
+            const parts = [...msg.parts];
+            const toolPartIdx = parts.findIndex(
+              p => p.type === "tool" && (p as ToolPart).toolCallId === hitlToolId
+            );
+
+            if (toolPartIdx >= 0) {
+              const toolPart = parts[toolPartIdx] as ToolPart;
+              parts[toolPartIdx] = {
+                ...toolPart,
+                pendingQuestion: undefined, // Clear the pending question
+                hitlResponse: normalizedHitl, // Set the response
+              };
+              updatedParts = parts;
+            }
+          }
+
+          // Return updated message if anything changed
+          if (updatedToolCalls !== msg.toolCalls || updatedParts !== msg.parts) {
+            return {
+              ...msg,
+              toolCalls: updatedToolCalls,
+              parts: updatedParts,
+            };
+          }
+          return msg;
         })
       );
     }

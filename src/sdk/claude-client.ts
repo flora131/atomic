@@ -394,6 +394,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
       "Glob",
       "Grep",
       "Task",
+      "Skill",
+      "MultiEdit",
       "TodoRead",
       "TodoWrite",
       "WebFetch",

@@ -93,7 +93,8 @@ import {
   normalizeInterruptedTasks,
   snapshotTaskItems,
 } from "./utils/ralph-task-state.ts";
-import type { Part } from "./parts/index.ts";
+import type { Part, AgentPart } from "./parts/index.ts";
+import { createPartId, upsertPart } from "./parts/index.ts";
 
 // ============================================================================
 // @ MENTION HELPERS
@@ -2662,11 +2663,20 @@ export function ChatApp({
     const messageId = streamingMessageIdRef.current;
     if (messageId) {
       setMessagesWindowed((prev: ChatMessage[]) =>
-        prev.map((msg: ChatMessage) =>
-          msg.id === messageId && msg.streaming
-            ? { ...msg, parallelAgents }
-            : msg
-        )
+        prev.map((msg: ChatMessage) => {
+          if (msg.id === messageId && msg.streaming) {
+            // DUAL POPULATION: Update legacy parallelAgents field AND parts[] array
+            // Find existing AgentPart or create new one
+            const existingAgentPartIdx = (msg.parts ?? []).findIndex(p => p.type === "agent");
+            const agentPart: AgentPart = existingAgentPartIdx >= 0
+              ? { ...(msg.parts![existingAgentPartIdx] as AgentPart), agents: parallelAgents }
+              : { id: createPartId(), type: "agent", agents: parallelAgents, createdAt: new Date().toISOString() };
+            const updatedParts = upsertPart(msg.parts ?? [], agentPart);
+            
+            return { ...msg, parallelAgents, parts: updatedParts };
+          }
+          return msg;
+        })
       );
       return;
     }
@@ -2675,11 +2685,20 @@ export function ChatApp({
     const bgMsgId = backgroundAgentMessageIdRef.current;
     if (bgMsgId) {
       setMessagesWindowed((prev: ChatMessage[]) =>
-        prev.map((msg: ChatMessage) =>
-          msg.id === bgMsgId
-            ? { ...msg, parallelAgents }
-            : msg
-        )
+        prev.map((msg: ChatMessage) => {
+          if (msg.id === bgMsgId) {
+            // DUAL POPULATION: Update legacy parallelAgents field AND parts[] array
+            // Find existing AgentPart or create new one
+            const existingAgentPartIdx = (msg.parts ?? []).findIndex(p => p.type === "agent");
+            const agentPart: AgentPart = existingAgentPartIdx >= 0
+              ? { ...(msg.parts![existingAgentPartIdx] as AgentPart), agents: parallelAgents }
+              : { id: createPartId(), type: "agent", agents: parallelAgents, createdAt: new Date().toISOString() };
+            const updatedParts = upsertPart(msg.parts ?? [], agentPart);
+            
+            return { ...msg, parallelAgents, parts: updatedParts };
+          }
+          return msg;
+        })
       );
       // Clear ref once all background agents have reached terminal state
       const hasActiveBg = parallelAgents.some(

@@ -466,7 +466,7 @@ export async function startChatUI(
     // Keep completed agents around until late Task tool.complete events are consumed.
     const tryFinalizeParallelTracking = (): void => {
       const hasActiveAgents = state.parallelAgents.some(
-        (a) => a.status === "running" || a.status === "pending"
+        (a) => a.status === "running" || a.status === "pending" || a.status === "background"
       );
       const hasPendingCorrelations =
         pendingTaskEntries.length > 0 || toolCallToAgentMap.size > 0;
@@ -526,14 +526,19 @@ export async function startChatUI(
           if (state.parallelAgentHandler) {
             const agentType = (input.subagent_type as string) ?? (input.agent_type as string) ?? "agent";
             const taskDesc = (input.description as string) ?? prompt ?? "Sub-agent task";
+            const mode = (input.mode as string) ?? "sync";
+            const isBackground = mode === "background" || mode === "async";
             const newAgent: ParallelAgent = {
               id: toolId,
               taskToolCallId: toolId,
               name: agentType,
               task: taskDesc,
-              status: "running",
+              status: isBackground ? "background" : "running",
+              background: isBackground || undefined,
               startedAt: new Date().toISOString(),
-              currentTool: `Starting ${agentType}…`,
+              currentTool: isBackground
+                ? `Running ${agentType} in background…`
+                : `Starting ${agentType}…`,
             };
             state.parallelAgents = [...state.parallelAgents, newAgent];
             state.parallelAgentHandler(state.parallelAgents);
@@ -655,13 +660,19 @@ export async function startChatUI(
                 ? {
                     ...a,
                     result: resultStr,
-                    status: a.status === "running" || a.status === "pending"
-                      ? "completed" as const
-                      : a.status,
-                    currentTool: a.status === "running" || a.status === "pending"
-                      ? undefined
-                      : a.currentTool,
-                    durationMs: a.durationMs ?? (Date.now() - new Date(a.startedAt).getTime()),
+                    status: a.background
+                      ? a.status
+                      : (a.status === "running" || a.status === "pending"
+                          ? "completed" as const
+                          : a.status),
+                    currentTool: a.background
+                      ? a.currentTool
+                      : (a.status === "running" || a.status === "pending"
+                          ? undefined
+                          : a.currentTool),
+                    durationMs: a.background
+                      ? a.durationMs
+                      : (a.durationMs ?? (Date.now() - new Date(a.startedAt).getTime())),
                   }
                 : a
             );

@@ -142,7 +142,7 @@ function parseAtMentions(message: string): ParsedAtMention[] {
  * Agent names are searched from the command registry (category "agent").
  * File paths are searched when input contains path characters (/ or .).
  */
-function getMentionSuggestions(input: string): CommandDefinition[] {
+export function getMentionSuggestions(input: string): CommandDefinition[] {
   const suggestions: CommandDefinition[] = [];
 
   // Agent suggestions first so they're visible at the top of the dropdown.
@@ -163,35 +163,36 @@ function getMentionSuggestions(input: string): CommandDefinition[] {
   });
   suggestions.push(...agentMatches);
 
-  // File/directory suggestions after agents — depth 2 with fuzzy matching
+  // File/directory suggestions after agents — recursive traversal
   try {
     const cwd = process.cwd();
     const allEntries: Array<{ relPath: string; isDir: boolean }> = [];
 
-    // Depth 1: read cwd
-    const rootEntries = readdirSync(cwd, { withFileTypes: true });
-    for (const entry of rootEntries) {
-      if (entry.name.startsWith(".")) continue;
-      const isDir = entry.isDirectory();
-      allEntries.push({ relPath: isDir ? `${entry.name}/` : entry.name, isDir });
+    // Recursively read directory entries (skip hidden paths and node_modules)
+    const scanDirectory = (dirPath: string, relativeBase: string) => {
+      try {
+        const entries = readdirSync(dirPath, { withFileTypes: true });
+        for (const entry of entries) {
+          // Skip hidden files and common ignore patterns
+          if (entry.name.startsWith(".")) continue;
+          if (entry.name === "node_modules") continue;
 
-      // Depth 2: read subdirectories
-      if (isDir) {
-        try {
-          const subEntries = readdirSync(join(cwd, entry.name), { withFileTypes: true });
-          for (const sub of subEntries) {
-            if (sub.name.startsWith(".")) continue;
-            const subIsDir = sub.isDirectory();
-            allEntries.push({
-              relPath: subIsDir ? `${entry.name}/${sub.name}/` : `${entry.name}/${sub.name}`,
-              isDir: subIsDir,
-            });
+          const relPath = relativeBase ? `${relativeBase}/${entry.name}` : entry.name;
+          const isDir = entry.isDirectory();
+          allEntries.push({ relPath: isDir ? `${relPath}/` : relPath, isDir });
+
+          // Recursively scan subdirectories
+          if (isDir) {
+            scanDirectory(join(dirPath, entry.name), relPath);
           }
-        } catch {
-          // Skip unreadable directories
         }
+      } catch {
+        // Skip unreadable directories
       }
-    }
+    };
+
+    // Start scanning from the current working directory
+    scanDirectory(cwd, "");
 
     // Fuzzy (substring) match on the full relative path
     const filtered = searchKey
@@ -2642,7 +2643,7 @@ export function ChatApp({
   // or when tools complete (via toolCompletionVersion).
   useEffect(() => {
     const hasActive = parallelAgents.some(
-      (a) => a.status === "running" || a.status === "pending"
+      (a) => a.status === "running" || a.status === "pending" || a.status === "background"
     );
     // Also check if tools are still running
     if (hasActive || hasRunningToolRef.current) return;
@@ -2668,16 +2669,17 @@ export function ChatApp({
       const durationMs = streamingStartRef.current
         ? Date.now() - streamingStartRef.current
         : undefined;
-      const finalizedAgents = parallelAgents.map((a) =>
-        a.status === "running" || a.status === "pending"
+      const finalizedAgents = parallelAgents.map((a) => {
+        if (a.background) return a;
+        return a.status === "running" || a.status === "pending"
           ? {
             ...a,
             status: "completed" as const,
             currentTool: undefined,
             durationMs: Date.now() - new Date(a.startedAt).getTime(),
           }
-          : a
-      );
+          : a;
+      });
 
       // Collect sub-agent result text into the message content so it
       // renders in the main conversation (like Claude Code's Task tool).
@@ -3324,7 +3326,7 @@ export function ChatApp({
             // If sub-agents or tools are still running, defer finalization and queue
             // processing until they complete (preserves correct state).
             const hasActiveAgents = parallelAgentsRef.current.some(
-              (a) => a.status === "running" || a.status === "pending"
+              (a) => a.status === "running" || a.status === "pending" || a.status === "background"
             );
             if (hasActiveAgents || hasRunningToolRef.current) {
               pendingCompleteRef.current = handleComplete;
@@ -3334,11 +3336,12 @@ export function ChatApp({
             // Finalize running parallel agents and bake into message
             setParallelAgents((currentAgents) => {
               const finalizedAgents = currentAgents.length > 0
-                ? currentAgents.map((a) =>
-                  a.status === "running" || a.status === "pending"
+                ? currentAgents.map((a) => {
+                  if (a.background) return a;
+                  return a.status === "running" || a.status === "pending"
                     ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                    : a
-                )
+                    : a;
+                })
                 : undefined;
 
               if (messageId) {
@@ -4763,7 +4766,7 @@ export function ChatApp({
           // If sub-agents are still running, defer finalization and queue
           // processing until they complete (preserves correct state).
           const hasActiveAgents = parallelAgentsRef.current.some(
-            (a) => a.status === "running" || a.status === "pending"
+            (a) => a.status === "running" || a.status === "pending" || a.status === "background"
           );
           if (hasActiveAgents) {
             pendingCompleteRef.current = handleComplete;
@@ -4773,11 +4776,12 @@ export function ChatApp({
           // Finalize running parallel agents and bake into message
           setParallelAgents((currentAgents) => {
             const finalizedAgents = currentAgents.length > 0
-              ? currentAgents.map((a) =>
-                a.status === "running" || a.status === "pending"
+              ? currentAgents.map((a) => {
+                if (a.background) return a;
+                return a.status === "running" || a.status === "pending"
                   ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                  : a
-              )
+                  : a;
+              })
               : undefined;
 
             if (messageId) {

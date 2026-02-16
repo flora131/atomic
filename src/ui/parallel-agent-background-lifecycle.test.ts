@@ -447,18 +447,18 @@ describe("Background agent lifecycle integration", () => {
     const finalized = agents.map(applyStreamFinalizationTransform);
 
     // Running agent should be completed
-    expect(finalized[0].status).toBe("completed");
-    expect(finalized[0].currentTool).toBeUndefined();
-    expect(finalized[0].durationMs).toBeGreaterThan(2900);
+    expect(finalized[0]!.status).toBe("completed");
+    expect(finalized[0]!.currentTool).toBeUndefined();
+    expect(finalized[0]!.durationMs).toBeGreaterThan(2900);
 
     // Background agent should remain unchanged
-    expect(finalized[1].status).toBe("background");
-    expect(finalized[1].currentTool).toBe("Running task in background…");
-    expect(finalized[1].durationMs).toBeUndefined();
+    expect(finalized[1]!.status).toBe("background");
+    expect(finalized[1]!.currentTool).toBe("Running task in background…");
+    expect(finalized[1]!.durationMs).toBeUndefined();
 
     // Already completed agent should remain unchanged
-    expect(finalized[2].status).toBe("completed");
-    expect(finalized[2].durationMs).toBe(2000);
+    expect(finalized[2]!.status).toBe("completed");
+    expect(finalized[2]!.durationMs).toBe(2000);
   });
 
   test("hasActiveAgents returns true for running agents", () => {

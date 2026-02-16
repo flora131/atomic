@@ -35,8 +35,6 @@ export interface TaskListBoxProps {
   expanded?: boolean;
   /** Header label override (default: "Task Progress") */
   headerTitle?: string;
-  /** Max width of the bordered container in columns (default: 100) */
-  maxWidth?: number;
 }
 
 export interface TaskListPanelProps {
@@ -76,7 +74,6 @@ export function TaskListBox({
   items,
   expanded = false,
   headerTitle = "Task Progress",
-  maxWidth = 100,
 }: TaskListBoxProps): React.ReactNode {
   const themeColors = useThemeColors();
   const { isDark } = useTheme();
@@ -91,19 +88,17 @@ export function TaskListBox({
   const total = items.length;
   const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
 
-  // Cap effective terminal width so the bordered box doesn't exceed maxWidth.
-  // The box sits inside a parent wrapper with INDENT padding on each side.
-  const cappedWidth = Math.min(terminalWidth, maxWidth + SPACING.INDENT * 2);
+  // Effective width accounts for the parent INDENT padding on each side.
+  const effectiveWidth = terminalWidth;
 
   // Calculate max content length for task descriptions based on container width.
-  // Overhead: paddingLeft(2) + paddingRight(2) + borderLeft(1) + borderRight(1)
-  //         + innerPaddingLeft(1) + innerPaddingRight(1) + rail(1) + space(1) + icon(1) + space(1) + idx(2) + space(1)
-  // Total: ~15 chars
-  const maxContentLength = Math.max(20, cappedWidth - 15);
+  // Overhead: parentPad(4) + border(2) + innerPad(2) + rail(1) + space(1) + icon(1) + space(1)
+  // Total: ~12 chars
+  const maxContentLength = Math.max(20, effectiveWidth - 12);
 
-  // Progress bar width: inner container width minus label overhead
-  // Container: cappedWidth - paddingLeft(2) - paddingRight(2) - border(2) - innerPadding(2) = cw - 8
-  const innerWidth = Math.max(20, cappedWidth - 8);
+  // Progress bar width: effective width minus box overhead
+  // parentPad(4) + border(2) + innerPad(2) = 8
+  const innerWidth = Math.max(20, effectiveWidth - 8);
   const headerLabel = `${TASK_ICONS.active} ${headerTitle} ${MISC.separator} ${completed}/${total} ${MISC.separator} ${pct}%`;
   const barWidth = Math.max(10, innerWidth - 2);
 
@@ -117,8 +112,15 @@ export function TaskListBox({
   if (pending > 0) summaryParts.push(`${pending} pending`);
   const summaryLine = summaryParts.join(` ${MISC.separator} `);
 
+  // Max visible items before scrolling kicks in
+  const scrollThreshold = 15;
+
+  const taskList = (
+    <TaskListIndicator items={items} expanded={expanded} maxVisible={Infinity} showConnector={false} maxContentLength={maxContentLength} />
+  );
+
   return (
-    <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.dim} paddingLeft={SPACING.CONTAINER_PAD} paddingRight={SPACING.CONTAINER_PAD} maxWidth={maxWidth}>
+    <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.dim} paddingLeft={SPACING.CONTAINER_PAD} paddingRight={SPACING.CONTAINER_PAD}>
       {/* Header */}
       <text wrapMode="none" attributes={1}>
         <span style={{ fg: palette.teal }}>{headerLabel}</span>
@@ -137,10 +139,14 @@ export function TaskListBox({
         </text>
       )}
 
-      {/* Task list */}
-      <scrollbox maxHeight={15}>
-        <TaskListIndicator items={items} expanded={expanded} maxVisible={Infinity} showConnector={false} maxContentLength={maxContentLength} />
-      </scrollbox>
+      {/* Task list: use scrollbox only when items exceed threshold */}
+      {items.length > scrollThreshold ? (
+        <scrollbox maxHeight={scrollThreshold}>
+          {taskList}
+        </scrollbox>
+      ) : (
+        taskList
+      )}
     </box>
   );
 }

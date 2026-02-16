@@ -78,16 +78,9 @@ export function getRenderableTaskStatus(status: unknown): TaskItem["status"] {
   return normalizeTaskStatus(status);
 }
 
-/** Format a 1-based index as a zero-padded two-digit number. */
-function padIndex(i: number, total: number): string {
-  const digits = total >= 100 ? 3 : 2;
-  return String(i + 1).padStart(digits, "0");
-}
-
-/** Short status label for active/error tasks. */
+/** Short status label for error tasks. */
 function getStatusLabel(status: TaskItem["status"]): string | null {
   switch (status) {
-    case "in_progress": return "RUNNING";
     case "error": return "FAILED";
     default: return null;
   }
@@ -114,7 +107,6 @@ export function TaskListIndicator({
 
   const visibleItems = items.slice(0, maxVisible);
   const overflowCount = items.length - maxVisible;
-  const total = items.length;
 
   return (
     <box flexDirection="column">
@@ -136,9 +128,8 @@ export function TaskListIndicator({
         const contentColor = isCompleted ? themeColors.dim : themeColors.foreground;
         const statusLabel = getStatusLabel(status);
 
-        // Content truncation accounting for prefix overhead:
-        // rail(1) + space(1) + icon(1) + space(1) + idx(2) + space(1) + sep(1) + space(1) = 9
-        const labelOverhead = statusLabel ? statusLabel.length + 3 : 0; // " [LABEL]"
+        // Content truncation accounting for suffix overhead (e.g. " [FAILED]")
+        const labelOverhead = statusLabel ? statusLabel.length + 3 : 0;
         const effectiveMax = (maxContentLength ?? MAX_CONTENT_LENGTH) - labelOverhead;
         const displayContent = expanded ? item.content : truncateText(item.content, effectiveMax);
 
@@ -152,10 +143,8 @@ export function TaskListIndicator({
             ) : (
               <span style={{ fg: textColor }}>{icon}</span>
             )}
-            {/* Task number */}
-            <span style={{ fg: themeColors.dim }}>{` ${padIndex(i, total)} `}</span>
             {/* Content */}
-            <span style={{ fg: contentColor }}>{displayContent}</span>
+            <span style={{ fg: contentColor }}>{` ${displayContent}`}</span>
             {/* Status label for active/error */}
             {statusLabel && (
               <span style={{ fg: textColor, }}>{` [${statusLabel}]`}</span>

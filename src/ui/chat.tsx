@@ -93,6 +93,7 @@ import {
   normalizeInterruptedTasks,
   snapshotTaskItems,
 } from "./utils/ralph-task-state.ts";
+import type { Part } from "./parts/index.ts";
 
 // ============================================================================
 // @ MENTION HELPERS
@@ -481,6 +482,8 @@ export interface ChatMessage {
   timestamp: string;
   /** Whether message is currently streaming */
   streaming?: boolean;
+  /** Ordered parts array for parts-based rendering (ascending by part ID = chronological) */
+  parts?: Part[];
   /** Tool calls within this message (for assistant messages) */
   toolCalls?: MessageToolCall[];
   /** Duration in milliseconds for assistant message generation */

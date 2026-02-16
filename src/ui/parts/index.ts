@@ -20,4 +20,5 @@ export {
   type CompactionPart,
   type Part,
 } from "./types.ts";
+export { binarySearchById, upsertPart, findLastPartIndex } from "./store.ts";
 export { shouldFinalizeOnToolComplete } from "./guards.ts";

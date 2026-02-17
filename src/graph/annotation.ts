@@ -11,6 +11,9 @@
  * Reference: Feature 10 - Create src/graph/annotation.ts with state annotation system
  */
 
+import { join } from "path";
+import { homedir } from "os";
+
 import type { ContextWindowUsage, DebugReport, NodeId } from "./types.ts";
 
 // ============================================================================
@@ -451,7 +454,7 @@ export function isAtomicWorkflowState(value: unknown): value is AtomicWorkflowSt
  *   prUrl: null,
  *   debugReports: [],
  *   ralphSessionId: "abc123-def456",
- *   ralphSessionDir: ".ralph/sessions/abc123-def456/",
+ *   ralphSessionDir: "~/.atomic/workflows/sessions/abc123-def456",
  *   yolo: false,
  *   yoloPrompt: null,
  *   yoloComplete: false,
@@ -507,7 +510,7 @@ export interface RalphWorkflowState {
   /** Ralph session unique identifier (UUID v4) */
   ralphSessionId: string;
 
-  /** Path to the Ralph session directory (e.g., ".ralph/sessions/{uuid}/") */
+  /** Path to the Ralph session directory (e.g., "~/.atomic/workflows/sessions/{uuid}") */
   ralphSessionDir: string;
 
   /**
@@ -620,7 +623,7 @@ export function createRalphState(
     executionId: executionId ?? crypto.randomUUID(),
     lastUpdated: new Date().toISOString(),
     ralphSessionId,
-    ralphSessionDir: options?.ralphSessionDir ?? `.ralph/sessions/${ralphSessionId}/`,
+    ralphSessionDir: options?.ralphSessionDir ?? `${join(homedir(), ".atomic", "workflows", "sessions", ralphSessionId)}`,
     yolo: options?.yolo ?? false,
     yoloPrompt: options?.yoloPrompt ?? null,
     yoloComplete: options?.yoloComplete ?? false,

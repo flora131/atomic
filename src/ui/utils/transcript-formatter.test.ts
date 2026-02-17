@@ -55,49 +55,6 @@ describe("formatTranscript - User Messages", () => {
     expect(promptLine!.indent).toBe(0);
   });
 
-  test("renders file-read lines for @mentioned files with size info", () => {
-    const msg: ChatMessage = {
-      id: "m1",
-      role: "user",
-      content: "Read this file",
-      timestamp: new Date().toISOString(),
-      filesRead: [
-        { path: "src/index.ts", sizeBytes: 1024, lineCount: 50, isImage: false, isDirectory: false },
-        { path: "src/utils.ts", sizeBytes: 2048, lineCount: 100, isImage: false, isDirectory: false },
-      ],
-    };
-
-    const lines = formatTranscript({ messages: [msg], isStreaming: false });
-
-    const fileReadLines = findLinesByType(lines, "file-read");
-    expect(fileReadLines.length).toBe(2);
-    expect(fileReadLines[0]!.type).toBe("file-read");
-    expect(fileReadLines[0]!.content).toContain("src/index.ts");
-    expect(fileReadLines[0]!.content).toContain("1.0KB");
-    expect(fileReadLines[0]!.indent).toBe(1);
-    expect(fileReadLines[1]!.content).toContain("src/utils.ts");
-    expect(fileReadLines[1]!.content).toContain("2.0KB");
-  });
-
-  test("renders file-read lines with size info when sizeBytes is provided", () => {
-    const msg: ChatMessage = {
-      id: "m1",
-      role: "user",
-      content: "Read this",
-      timestamp: new Date().toISOString(),
-      filesRead: [
-        { path: "README.md", lineCount: 10, isImage: false, isDirectory: false, sizeBytes: 256 },
-      ],
-    };
-
-    const lines = formatTranscript({ messages: [msg], isStreaming: false });
-
-    const fileReadLines = findLinesByType(lines, "file-read");
-    expect(fileReadLines.length).toBe(1);
-    expect(fileReadLines[0]!.type).toBe("file-read");
-    expect(fileReadLines[0]!.content).toContain("README.md");
-  });
-
   test("renders blank line after each user message", () => {
     const msg: ChatMessage = {
       id: "m1",

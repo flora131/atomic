@@ -1,44 +1,44 @@
 name: CI
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - "package.json"
-      - "bun.lock"
-      - "tsconfig.json"
-      - "**/*.ts"
-      - "**/*.tsx"
-      - "**/*.js"
-      - "**/*.jsx"
+    pull_request:
+        branches: [main]
+        paths:
+            - "package.json"
+            - "bun.lock"
+            - "tsconfig.json"
+            - "**/*.ts"
+            - "**/*.tsx"
+            - "**/*.js"
+            - "**/*.jsx"
 
 jobs:
-  typescript-tests:
-    name: TypeScript Tests
-    runs-on: ubuntu-latest
+    typescript-tests:
+        name: TypeScript Tests
+        runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+        steps:
+            - name: Checkout code
+              uses: actions/checkout@v6
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          version: latest
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+              with:
+                  version: latest
 
-      - name: Install dependencies
-        run: bun ci
+            - name: Install dependencies
+              run: bun ci
 
-      - name: Run type checking
-        run: bun run typecheck
+            - name: Run type checking
+              run: bun run typecheck
 
-      - name: Run linting
-        run: bun run lint
+            - name: Run linting
+              run: bun run lint
 
-      - name: Run tests with coverage
-        run: bun test --coverage --coverage-reporter=lcov
+            - name: Run tests with coverage
+              run: bun test --coverage --coverage-reporter=lcov
 
-      - name: Upload coverage
-        uses: codecov/codecov-action@v3
-        with:
-          file: ./coverage/lcov.info
+            - name: Upload coverage
+              uses: codecov/codecov-action@v3
+              with:
+                  file: ./coverage/lcov.info

@@ -1,10 +1,10 @@
 {
-  "env": {
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
-  },
-  "includeCoAuthoredBy": false,
-  "permissions": {
-    "defaultMode": "bypassPermissions"
-  },
-  "enableAllProjectMcpServers": true
+    "env": {
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
+    },
+    "includeCoAuthoredBy": false,
+    "permissions": {
+        "defaultMode": "bypassPermissions"
+    },
+    "enableAllProjectMcpServers": true
 }

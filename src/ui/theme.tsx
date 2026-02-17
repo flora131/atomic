@@ -8,7 +8,7 @@
  */
 
 import React, { createContext, useContext, useState, useCallback } from "react";
-import { SyntaxStyle, RGBA } from "@opentui/core";
+import { SyntaxStyle, RGBA, type StyleDefinition } from "@opentui/core";
 
 // ============================================================================
 // TYPES
@@ -480,8 +480,8 @@ export function createMarkdownSyntaxStyle(colors: ThemeColors, isDark: boolean):
     punct:    "#9399b2", // Mocha Overlay 2
     property: "#89b4fa", // Mocha Blue
     link:     "#89b4fa", // Mocha Blue
-    list:     "#45475a", // Mocha Surface 1
-    raw:      "#6c7086", // Mocha Overlay 0
+    list:     "#a6adc8", // Mocha Subtext 0 — visible list markers
+    raw:      "#f2cdcd", // Mocha Flamingo — distinct inline code
     bool:     "#fab387", // Mocha Peach
     constant: "#fab387", // Mocha Peach
   } : {
@@ -497,8 +497,8 @@ export function createMarkdownSyntaxStyle(colors: ThemeColors, isDark: boolean):
     punct:    "#7c7f93", // Latte Overlay 2
     property: "#1e66f5", // Latte Blue
     link:     "#1e66f5", // Latte Blue
-    list:     "#ccd0da", // Latte Surface 0
-    raw:      "#8c8fa1", // Latte Overlay 1
+    list:     "#6c6f85", // Latte Subtext 0 — visible list markers
+    raw:      "#dd7878", // Latte Flamingo — distinct inline code
     bool:     "#fe640b", // Latte Peach
     constant: "#fe640b", // Latte Peach
   };
@@ -532,6 +532,41 @@ export function createMarkdownSyntaxStyle(colors: ThemeColors, isDark: boolean):
     boolean: { fg: RGBA.fromHex(s.bool) },
     default: { fg: RGBA.fromHex(s.variable) },
   });
+}
+
+/**
+ * Create a dimmed variant of a SyntaxStyle by reducing the alpha channel
+ * of all foreground colors. Used for reasoning/thinking content display.
+ *
+ * Iterates over all registered styles in the base SyntaxStyle, creates new
+ * RGBA instances with reduced alpha for each `fg` color, and rebuilds via
+ * SyntaxStyle.fromStyles().
+ *
+ * @param baseStyle - The SyntaxStyle to dim
+ * @param opacity - Alpha multiplier (0.0 to 1.0), default 0.6
+ * @returns A new SyntaxStyle with reduced-opacity foreground colors
+ */
+export function createDimmedSyntaxStyle(
+  baseStyle: SyntaxStyle,
+  opacity: number = 0.6,
+): SyntaxStyle {
+  const allStyles = baseStyle.getAllStyles();
+  const dimmedRecord: Record<string, StyleDefinition> = {};
+
+  for (const [name, def] of allStyles) {
+    const dimmedDef: StyleDefinition = { ...def };
+    if (dimmedDef.fg) {
+      dimmedDef.fg = RGBA.fromValues(
+        dimmedDef.fg.r,
+        dimmedDef.fg.g,
+        dimmedDef.fg.b,
+        dimmedDef.fg.a * opacity,
+      );
+    }
+    dimmedRecord[name] = dimmedDef;
+  }
+
+  return SyntaxStyle.fromStyles(dimmedRecord);
 }
 
 export default {

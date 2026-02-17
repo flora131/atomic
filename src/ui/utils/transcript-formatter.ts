@@ -85,14 +85,6 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
       // User prompt line
       lines.push(line("user-prompt", `${PROMPT.cursor} ${msg.content}`));
 
-      // Files read via @mention
-      if (msg.filesRead && msg.filesRead.length > 0) {
-        for (const file of msg.filesRead) {
-          const sizeKb = file.sizeBytes ? `(${(file.sizeBytes / 1024).toFixed(1)}KB)` : "";
-          lines.push(line("file-read", `${CONNECTOR.subStatus}  Read ${file.path} ${sizeKb}`, 1));
-        }
-      }
-
       lines.push(line("blank", ""));
     } else if (msg.role === "assistant") {
       // Thinking trace (baked from completed message or live)

@@ -1,7 +1,8 @@
 ---
 description: Implement a SINGLE task from a task list.
+allowed-tools: Bash, Task, Edit, Glob, Grep, NotebookEdit, NotebookRead, Read, Write, Skill
 model: opus
-allowed-tools: Bash, Task, Edit, Glob, Grep, NotebookEdit, NotebookRead, Read, Write, SlashCommand
+memory: project
 ---
 
 You are tasked with implementing a SINGLE task from the task list.
@@ -104,7 +105,7 @@ Do NOT ignore bugs. Do NOT deprioritize them. Bugs always go to the TOP of the t
 
 - AFTER implementing the feature AND verifying its functionality by creating tests, mark the feature as complete in the task list
 - It is unacceptable to remove or edit tests because this could lead to missing or buggy functionality
-- Commit progress to git with descriptive commit messages by running the `/commit` command using the `SlashCommand` tool
+- Commit progress to git with descriptive commit messages by running the `/commit` command using the `Skill` tool (e.g. invoke skill `gh-commit`)
 - Write summaries of your progress in `~/.atomic/workflows/{session_id}/progress.txt`
     - Tip: this can be useful to revert bad code changes and recover working states of the codebase
 - Note: you are competing with another coding agent that also implements features. The one who does a better job implementing features will be promoted. Focus on quality, correctness, and thorough testing. The agent who breaks the rules for implementation will be fired.

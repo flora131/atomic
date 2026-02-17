@@ -1,7 +1,6 @@
 ---
 description: Debugging specialist for errors, test failures, and unexpected behavior. Use when encountering issues, analyzing stack traces, or investigating system problems.
 mode: subagent
-model: anthropic/claude-opus-4-5-high
 tools:
     write: true
     edit: true

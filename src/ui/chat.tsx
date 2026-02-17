@@ -100,7 +100,7 @@ import type {
   TaskListPart,
   SkillLoadPart,
   McpSnapshotPart,
-  ContextInfoPart,
+  PartId,
 } from "./parts/index.ts";
 import { createPartId, upsertPart, findLastPartIndex, handleTextDelta, shouldFinalizeOnToolComplete } from "./parts/index.ts";
 import { MessageBubbleParts } from "./components/parts/message-bubble-parts.tsx";
@@ -502,7 +502,6 @@ export interface ChatMessage {
   tasksPinned?: boolean;
   /** MCP snapshot for rendering Codex-style /mcp output */
   mcpSnapshot?: McpSnapshotView;
-  contextInfo?: import("./commands/registry.ts").ContextDisplayInfo;
   /** Output tokens used in this message (baked on completion) */
   outputTokens?: number;
   /** Thinking/reasoning duration in milliseconds (baked on completion) */
@@ -696,10 +695,8 @@ export interface ChatAppProps {
   onModelChange?: (model: string) => void;
   /** Callback to update MCP servers used by the next SDK session */
   onSessionMcpServersChange?: (servers: McpServerConfig[]) => void;
-  /** Raw model ID from session config, used to seed currentModelRef for accurate /context display */
+  /** Raw model ID from session config, used to seed currentModelRef */
   initialModelId?: string;
-  /** Get system tools tokens from the client (pre-session fallback) */
-  getClientSystemToolsTokens?: () => number | null;
   /** Callback for slash command telemetry events */
   onCommandExecutionTelemetry?: (event: CommandExecutionTelemetry) => void;
   /** Callback for user message submission telemetry events */
@@ -1267,19 +1264,47 @@ function getRenderableAssistantParts(
   }
 
   if (message.parallelAgents && message.parallelAgents.length > 0) {
-    const existingAgentIdx = parts.findIndex((p) => p.type === "agent");
-    if (existingAgentIdx >= 0) {
-      parts[existingAgentIdx] = {
-        ...(parts[existingAgentIdx] as AgentPart),
-        agents: message.parallelAgents,
-      };
-    } else {
-      parts.push({
-        id: `agent-${message.id}`,
-        type: "agent",
-        agents: message.parallelAgents,
-        createdAt: message.timestamp,
-      } satisfies AgentPart);
+    // Group agents by their parent tool call to create separate AgentParts per tool
+    const agentsByToolCall = new Map<string | undefined, ParallelAgent[]>();
+    for (const agent of message.parallelAgents) {
+      const toolCallId = agent.taskToolCallId;
+      if (!agentsByToolCall.has(toolCallId)) {
+        agentsByToolCall.set(toolCallId, []);
+      }
+      agentsByToolCall.get(toolCallId)!.push(agent);
+    }
+
+    // Create/update an AgentPart for each tool call
+    for (const [toolCallId, agents] of agentsByToolCall) {
+      // Find the ToolPart ID for this tool call
+      let parentToolPartId: PartId | undefined = undefined;
+      if (toolCallId) {
+        const toolPart = parts.find(
+          (p) => p.type === "tool" && (p as ToolPart).toolCallId === toolCallId
+        ) as ToolPart | undefined;
+        parentToolPartId = toolPart?.id;
+      }
+
+      // Find existing AgentPart for this tool call or create new one
+      const existingAgentIdx = parts.findIndex(
+        (p) => p.type === "agent" && (p as AgentPart).parentToolPartId === parentToolPartId
+      );
+      
+      if (existingAgentIdx >= 0) {
+        parts[existingAgentIdx] = {
+          ...(parts[existingAgentIdx] as AgentPart),
+          agents,
+          parentToolPartId,
+        };
+      } else {
+        parts.push({
+          id: `agent-${message.id}${toolCallId ? `-${toolCallId}` : ""}`,
+          type: "agent",
+          agents,
+          parentToolPartId,
+          createdAt: message.timestamp,
+        } satisfies AgentPart);
+      }
     }
   }
 
@@ -1317,26 +1342,6 @@ function getRenderableAssistantParts(
     }
   }
 
-  if (message.contextInfo) {
-    const existingContextIdx = parts.findIndex((p) => p.type === "context-info");
-    const contextPart: ContextInfoPart = {
-      id: existingContextIdx >= 0 ? parts[existingContextIdx]!.id : `context-${message.id}`,
-      type: "context-info",
-      info: message.contextInfo,
-      createdAt: existingContextIdx >= 0 ? parts[existingContextIdx]!.createdAt : message.timestamp,
-    };
-    if (existingContextIdx >= 0) {
-      parts[existingContextIdx] = contextPart;
-    } else {
-      const insertIndex = parts.findIndex((p) => p.type !== "mcp-snapshot");
-      if (insertIndex === -1) {
-        parts.push(contextPart);
-      } else {
-        parts.splice(insertIndex, 0, contextPart);
-      }
-    }
-  }
-
   if (message.skillLoads && message.skillLoads.length > 0) {
     const existingSkillIdx = parts.findIndex((p) => p.type === "skill-load");
     const skillPart: SkillLoadPart = {
@@ -1348,9 +1353,9 @@ function getRenderableAssistantParts(
     if (existingSkillIdx >= 0) {
       parts[existingSkillIdx] = skillPart;
     } else {
-      // Insert before text/tool parts but after mcp-snapshot and context-info
+      // Insert before text/tool parts but after mcp-snapshot
       const insertIndex = parts.findIndex(
-        (p) => p.type !== "mcp-snapshot" && p.type !== "context-info"
+        (p) => p.type !== "mcp-snapshot"
       );
       if (insertIndex === -1) {
         parts.push(skillPart);
@@ -1370,7 +1375,7 @@ function getRenderableAssistantParts(
       createdAt: message.timestamp,
     };
     const insertIndex = parts.findIndex(
-      (p) => p.type !== "mcp-snapshot" && p.type !== "context-info"
+      (p) => p.type !== "mcp-snapshot"
     );
     if (insertIndex === -1) {
       parts.push(textPart);
@@ -1560,7 +1565,6 @@ export function ChatApp({
   onModelChange,
   onSessionMcpServersChange,
   initialModelId,
-  getClientSystemToolsTokens,
   onCommandExecutionTelemetry,
   onMessageSubmitTelemetry,
 }: ChatAppProps): React.ReactNode {
@@ -2502,12 +2506,40 @@ export function ChatApp({
         prev.map((msg: ChatMessage) => {
           if (msg.id === messageId && msg.streaming) {
             // DUAL POPULATION: Update legacy parallelAgents field AND parts[] array
-            // Find existing AgentPart or create new one
-            const existingAgentPartIdx = (msg.parts ?? []).findIndex(p => p.type === "agent");
-            const agentPart: AgentPart = existingAgentPartIdx >= 0
-              ? { ...(msg.parts![existingAgentPartIdx] as AgentPart), agents: parallelAgents }
-              : { id: createPartId(), type: "agent", agents: parallelAgents, createdAt: new Date().toISOString() };
-            const updatedParts = upsertPart(msg.parts ?? [], agentPart);
+            // Group agents by their parent tool call to create separate AgentParts per tool
+            const agentsByToolCall = new Map<string | undefined, ParallelAgent[]>();
+            for (const agent of parallelAgents) {
+              const toolCallId = agent.taskToolCallId;
+              if (!agentsByToolCall.has(toolCallId)) {
+                agentsByToolCall.set(toolCallId, []);
+              }
+              agentsByToolCall.get(toolCallId)!.push(agent);
+            }
+
+            let updatedParts = msg.parts ?? [];
+            
+            // Create/update an AgentPart for each tool call
+            for (const [toolCallId, agents] of agentsByToolCall) {
+              // Find the ToolPart ID for this tool call
+              let parentToolPartId: PartId | undefined = undefined;
+              if (toolCallId) {
+                const toolPart = updatedParts.find(
+                  (p) => p.type === "tool" && (p as ToolPart).toolCallId === toolCallId
+                ) as ToolPart | undefined;
+                parentToolPartId = toolPart?.id;
+              }
+
+              // Find existing AgentPart for this tool call or create new one
+              const existingAgentPart = updatedParts.find(
+                (p) => p.type === "agent" && (p as AgentPart).parentToolPartId === parentToolPartId
+              ) as AgentPart | undefined;
+              
+              const agentPart: AgentPart = existingAgentPart
+                ? { ...existingAgentPart, agents, parentToolPartId }
+                : { id: createPartId(), type: "agent", agents, parentToolPartId, createdAt: new Date().toISOString() };
+              
+              updatedParts = upsertPart(updatedParts, agentPart);
+            }
             
             return { ...msg, parallelAgents, parts: updatedParts };
           }
@@ -2524,12 +2556,40 @@ export function ChatApp({
         prev.map((msg: ChatMessage) => {
           if (msg.id === bgMsgId) {
             // DUAL POPULATION: Update legacy parallelAgents field AND parts[] array
-            // Find existing AgentPart or create new one
-            const existingAgentPartIdx = (msg.parts ?? []).findIndex(p => p.type === "agent");
-            const agentPart: AgentPart = existingAgentPartIdx >= 0
-              ? { ...(msg.parts![existingAgentPartIdx] as AgentPart), agents: parallelAgents }
-              : { id: createPartId(), type: "agent", agents: parallelAgents, createdAt: new Date().toISOString() };
-            const updatedParts = upsertPart(msg.parts ?? [], agentPart);
+            // Group agents by their parent tool call to create separate AgentParts per tool
+            const agentsByToolCall = new Map<string | undefined, ParallelAgent[]>();
+            for (const agent of parallelAgents) {
+              const toolCallId = agent.taskToolCallId;
+              if (!agentsByToolCall.has(toolCallId)) {
+                agentsByToolCall.set(toolCallId, []);
+              }
+              agentsByToolCall.get(toolCallId)!.push(agent);
+            }
+
+            let updatedParts = msg.parts ?? [];
+            
+            // Create/update an AgentPart for each tool call
+            for (const [toolCallId, agents] of agentsByToolCall) {
+              // Find the ToolPart ID for this tool call
+              let parentToolPartId: PartId | undefined = undefined;
+              if (toolCallId) {
+                const toolPart = updatedParts.find(
+                  (p) => p.type === "tool" && (p as ToolPart).toolCallId === toolCallId
+                ) as ToolPart | undefined;
+                parentToolPartId = toolPart?.id;
+              }
+
+              // Find existing AgentPart for this tool call or create new one
+              const existingAgentPart = updatedParts.find(
+                (p) => p.type === "agent" && (p as AgentPart).parentToolPartId === parentToolPartId
+              ) as AgentPart | undefined;
+              
+              const agentPart: AgentPart = existingAgentPart
+                ? { ...existingAgentPart, agents, parentToolPartId }
+                : { id: createPartId(), type: "agent", agents, parentToolPartId, createdAt: new Date().toISOString() };
+              
+              updatedParts = upsertPart(updatedParts, agentPart);
+            }
             
             return { ...msg, parallelAgents, parts: updatedParts };
           }
@@ -3437,7 +3497,6 @@ export function ChatApp({
           return getModelDisplayInfo(currentModel);
         }
         : undefined,
-      getClientSystemToolsTokens,
       getMcpServerToggles: () => mcpServerToggles,
       setMcpServerEnabled: (name: string, enabled: boolean) => {
         setMcpServerToggles((previous) => ({
@@ -3573,23 +3632,6 @@ export function ChatApp({
         });
       }
 
-      // Track context info in message for UI display
-      if (result.contextInfo) {
-        const contextInfo = result.contextInfo;
-        setMessagesWindowed((prev) => {
-          const lastMsg = prev[prev.length - 1];
-          if (lastMsg && lastMsg.role === "assistant") {
-            return [
-              ...prev.slice(0, -1),
-              { ...lastMsg, contextInfo },
-            ];
-          }
-          const msg = createMessage("assistant", "");
-          msg.contextInfo = contextInfo;
-          return [...prev, msg];
-        });
-      }
-
       // Track skill load in message for UI indicator (with session-level deduplication)
       if (result.skillLoaded && !loadedSkillsRef.current.has(result.skillLoaded)) {
         loadedSkillsRef.current.add(result.skillLoaded);
@@ -3644,7 +3686,7 @@ export function ChatApp({
       if (commandSpinnerShown && commandSpinnerMsgId) {
         const msgId = commandSpinnerMsgId;
         const hasStructuredPayload = Boolean(
-          result.mcpSnapshot || result.contextInfo || result.skillLoaded
+          result.mcpSnapshot || result.skillLoaded
         );
         if ((result.message || hasStructuredPayload) && !result.clearMessages) {
           // Preserve the spinner placeholder when command data is attached to it.

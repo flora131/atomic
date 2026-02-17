@@ -1490,7 +1490,6 @@ export async function startChatUI(
                 modelOps,
                 initialModelId: sessionConfig?.model,
                 getModelDisplayInfo: (hint?: string) => client.getModelDisplayInfo(hint),
-                getClientSystemToolsTokens: () => client.getSystemToolsTokens(),
                 onSendMessage: handleSendMessage,
                 onStreamMessage: handleStreamMessage,
                 onExit: handleExit,

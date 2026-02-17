@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import {
   type CopilotAgent,
@@ -222,16 +222,17 @@ describe("loadCopilotAgents", () => {
       );
 
       // Mock fs operations to use our test directories
+      const home = homedir();
       const mockFsOps = {
         readdir: async (dir: string) => {
           const fs = await import("node:fs/promises");
           // Remap home directory paths to our test root
-          const remappedDir = dir.replace(process.env.HOME || "", root);
+          const remappedDir = dir.replace(home, root);
           return fs.readdir(remappedDir);
         },
         readFile: async (file: string, encoding?: string) => {
           const fs = await import("node:fs/promises");
-          const remappedFile = file.replace(process.env.HOME || "", root);
+          const remappedFile = file.replace(home, root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
       } as unknown as FsOps;
@@ -279,12 +280,12 @@ describe("loadCopilotAgents", () => {
       const mockFsOps = {
         readdir: async (dir: string) => {
           const fs = await import("node:fs/promises");
-          const remappedDir = dir.replace(process.env.HOME || "", root);
+          const remappedDir = dir.replace(homedir(), root);
           return fs.readdir(remappedDir);
         },
         readFile: async (file: string, encoding?: string) => {
           const fs = await import("node:fs/promises");
-          const remappedFile = file.replace(process.env.HOME || "", root);
+          const remappedFile = file.replace(homedir(), root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
       } as unknown as FsOps;
@@ -307,12 +308,12 @@ describe("loadCopilotAgents", () => {
       const mockFsOps = {
         readdir: async (dir: string) => {
           const fs = await import("node:fs/promises");
-          const remappedDir = dir.replace(process.env.HOME || "", root);
+          const remappedDir = dir.replace(homedir(), root);
           return fs.readdir(remappedDir);
         },
         readFile: async (file: string, encoding?: string) => {
           const fs = await import("node:fs/promises");
-          const remappedFile = file.replace(process.env.HOME || "", root);
+          const remappedFile = file.replace(homedir(), root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
       } as unknown as FsOps;
@@ -338,7 +339,7 @@ describe("loadCopilotInstructions", () => {
         readdir: async () => [],
         readFile: async (file: string, encoding?: string) => {
           const fs = await import("node:fs/promises");
-          const remappedFile = file.replace(process.env.HOME || "", root);
+          const remappedFile = file.replace(homedir(), root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
       } as unknown as FsOps;
@@ -362,7 +363,7 @@ describe("loadCopilotInstructions", () => {
         readdir: async () => [],
         readFile: async (file: string, encoding?: string) => {
           const fs = await import("node:fs/promises");
-          const remappedFile = file.replace(process.env.HOME || "", root);
+          const remappedFile = file.replace(homedir(), root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
       } as unknown as FsOps;
@@ -397,7 +398,7 @@ describe("loadCopilotInstructions", () => {
         readdir: async () => [],
         readFile: async (file: string, encoding?: string) => {
           const fs = await import("node:fs/promises");
-          const remappedFile = file.replace(process.env.HOME || "", root);
+          const remappedFile = file.replace(homedir(), root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
       } as unknown as FsOps;
@@ -417,7 +418,7 @@ describe("loadCopilotInstructions", () => {
         readdir: async () => [],
         readFile: async (file: string, encoding?: string) => {
           const fs = await import("node:fs/promises");
-          const remappedFile = file.replace(process.env.HOME || "", root);
+          const remappedFile = file.replace(homedir(), root);
           return fs.readFile(remappedFile, encoding as BufferEncoding);
         },
       } as unknown as FsOps;

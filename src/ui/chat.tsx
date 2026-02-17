@@ -879,6 +879,13 @@ export function formatTimestamp(isoString: string): string {
 export const MAX_VISIBLE_MESSAGES = 50;
 
 /**
+ * Number of most-recent messages to keep fully expanded in the chat view.
+ * Older messages are auto-collapsed to single-line summaries.
+ * Default: 4 (approximately two user-assistant exchanges).
+ */
+export const EXPANDED_MESSAGE_COUNT = 4;
+
+/**
  * Compute the visible in-memory message window and hidden transcript count.
  * Hidden count includes both already-trimmed messages and any transient overflow.
  */
@@ -1646,10 +1653,6 @@ export function ChatApp({
 
   // Transcript mode: full-screen detailed transcript view (ctrl+o toggle)
   const [transcriptMode, setTranscriptMode] = useState(false);
-
-  // Conversation collapsed state for collapsing/expanding entire conversation
-  const [conversationCollapsed, setConversationCollapsed] = useState(false);
-
 
 
   // State for showing user question dialog
@@ -5106,6 +5109,9 @@ export function ChatApp({
   );
   const renderMessages = visibleMessages;
 
+  // Auto-collapse boundary: messages before this index render as single-line summaries
+  const collapseBoundaryIndex = Math.max(0, renderMessages.length - EXPANDED_MESSAGE_COUNT);
+
   // Render message list (no empty state text)
   const messageContent = renderMessages.length > 0 || hiddenMessageCount > 0 ? (
     <>
@@ -5117,14 +5123,8 @@ export function ChatApp({
           </text>
         </box>
       )}
-      {conversationCollapsed && renderMessages.length > 0 && (
-        <box paddingLeft={SPACING.CONTAINER_PAD} marginBottom={SPACING.ELEMENT}>
-          <text style={{ fg: themeColors.dim }}>
-            {"─".repeat(3)} {renderMessages.length} message{renderMessages.length !== 1 ? "s" : ""} collapsed {"─".repeat(3)}
-          </text>
-        </box>
-      )}
-      {renderMessages.map((msg, index) => {
+      {/* Collapsed messages (older, auto-collapsed to single-line summaries) */}
+      {renderMessages.slice(0, collapseBoundaryIndex).map((msg) => {
         const msgHasActiveBg = (msg.parallelAgents ?? []).some(
           (a) => a.background && a.status === "background"
         );
@@ -5133,14 +5133,45 @@ export function ChatApp({
         <MessageBubble
           key={msg.id}
           message={msg}
-          isLast={index === renderMessages.length - 1}
+          isLast={false}
           syntaxStyle={markdownSyntaxStyle}
           hideAskUserQuestion={activeQuestion !== null}
           hideLoading={activeQuestion !== null}
           todoItems={msg.streaming ? todoItems : undefined}
           elapsedMs={showLive ? streamingElapsedMs : undefined}
           streamingMeta={msg.streaming ? streamingMeta : null}
-          collapsed={conversationCollapsed}
+          collapsed={!showLive}
+          tasksExpanded={tasksExpanded}
+          inlineTasksEnabled={!ralphSessionDir}
+        />
+        );
+      })}
+      {/* Separator between collapsed and expanded sections */}
+      {collapseBoundaryIndex > 0 && (
+        <box paddingLeft={SPACING.CONTAINER_PAD} marginBottom={SPACING.ELEMENT}>
+          <text style={{ fg: themeColors.dim }}>
+            {"─".repeat(3)} {collapseBoundaryIndex} earlier {"─".repeat(3)}
+          </text>
+        </box>
+      )}
+      {/* Expanded messages (recent, full rendering) */}
+      {renderMessages.slice(collapseBoundaryIndex).map((msg, index) => {
+        const msgHasActiveBg = (msg.parallelAgents ?? []).some(
+          (a) => a.background && a.status === "background"
+        );
+        const showLive = msg.streaming || msgHasActiveBg;
+        return (
+        <MessageBubble
+          key={msg.id}
+          message={msg}
+          isLast={collapseBoundaryIndex + index === renderMessages.length - 1}
+          syntaxStyle={markdownSyntaxStyle}
+          hideAskUserQuestion={activeQuestion !== null}
+          hideLoading={activeQuestion !== null}
+          todoItems={msg.streaming ? todoItems : undefined}
+          elapsedMs={showLive ? streamingElapsedMs : undefined}
+          streamingMeta={msg.streaming ? streamingMeta : null}
+          collapsed={false}
           tasksExpanded={tasksExpanded}
           inlineTasksEnabled={!ralphSessionDir}
         />

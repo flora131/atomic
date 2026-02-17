@@ -6,7 +6,8 @@
  * them with SDK clients via CodingAgentClient.registerTool().
  *
  * Follows the same Filesystem Discovery + Dynamic Import pattern as
- * workflows (workflow-commands.ts:219-344) and skills (skill-commands.ts:1663-1906).
+ * workflows (loadWorkflowsFromDisk in workflow-commands.ts) and skills
+ * (discoverAndRegisterDiskSkills in skill-commands.ts).
  */
 
 import { existsSync, readdirSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "fs";

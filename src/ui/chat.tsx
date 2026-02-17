@@ -18,17 +18,13 @@ import type {
 } from "@opentui/core";
 import { MacOSScrollAccel, SyntaxStyle, RGBA } from "@opentui/core";
 import { useTheme, useThemeColors, darkTheme, lightTheme, createMarkdownSyntaxStyle } from "./theme.tsx";
-import { STATUS, CONNECTOR, ARROW, PROMPT, SPINNER_FRAMES, SPINNER_COMPLETE, CHECKBOX, SCROLLBAR, MISC } from "./constants/icons.ts";
+import { STATUS, CONNECTOR, ARROW, PROMPT, SPINNER_FRAMES, SPINNER_COMPLETE, SCROLLBAR, MISC } from "./constants/icons.ts";
+import { SPACING } from "./constants/spacing.ts";
 
 import { Autocomplete, navigateUp, navigateDown } from "./components/autocomplete.tsx";
-import { ToolResult } from "./components/tool-result.tsx";
-import { SkillLoadIndicator } from "./components/skill-load-indicator.tsx";
-import { McpServerListIndicator } from "./components/mcp-server-list.tsx";
-import { ContextInfoDisplay } from "./components/context-info-display.tsx";
 
 import { QueueIndicator } from "./components/queue-indicator.tsx";
 import {
-  ParallelAgentsTree,
   type ParallelAgent,
 } from "./components/parallel-agents-tree.tsx";
 import { TranscriptView } from "./components/transcript-view.tsx";
@@ -56,7 +52,7 @@ import {
   ModelSelectorDialog,
 } from "./components/model-selector-dialog.tsx";
 import type { Model } from "../models/model-transform.ts";
-import { type TaskItem } from "./components/task-list-indicator.tsx";
+import type { TaskItem } from "./components/task-list-indicator.tsx";
 import { TaskListPanel } from "./components/task-list-panel.tsx";
 import { saveTasksToActiveSession } from "./commands/workflow-commands.ts";
 import {
@@ -73,7 +69,7 @@ import {
   type CommandCategory,
 } from "./commands/index.ts";
 import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, dirname, basename } from "node:path";
+import { join } from "node:path";
 import type { AskUserQuestionEventData } from "../graph/index.ts";
 import type { AgentType, ModelOperations } from "../models";
 import type { McpServerConfig } from "../sdk/types.ts";
@@ -82,18 +78,31 @@ import { formatDuration } from "./utils/format.ts";
 import { getRandomVerb, getRandomCompletionVerb } from "./constants/index.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "./utils/mcp-output.ts";
 import {
-  getHitlResponseRecord,
   normalizeHitlAnswer,
   type HitlResponseRecord,
 } from "./utils/hitl-response.ts";
 import {
   normalizeTodoItems,
+  mergeBlockedBy,
   type NormalizedTodoItem,
 } from "./utils/task-status.ts";
 import {
   normalizeInterruptedTasks,
   snapshotTaskItems,
 } from "./utils/ralph-task-state.ts";
+import type {
+  Part,
+  AgentPart,
+  ToolPart,
+  TextPart,
+  ToolState,
+  TaskListPart,
+  SkillLoadPart,
+  McpSnapshotPart,
+  ContextInfoPart,
+} from "./parts/index.ts";
+import { createPartId, upsertPart, findLastPartIndex, handleTextDelta, shouldFinalizeOnToolComplete } from "./parts/index.ts";
+import { MessageBubbleParts } from "./components/parts/message-bubble-parts.tsx";
 
 // ============================================================================
 // @ MENTION HELPERS
@@ -143,7 +152,7 @@ function parseAtMentions(message: string): ParsedAtMention[] {
  * Agent names are searched from the command registry (category "agent").
  * File paths are searched when input contains path characters (/ or .).
  */
-function getMentionSuggestions(input: string): CommandDefinition[] {
+export function getMentionSuggestions(input: string): CommandDefinition[] {
   const suggestions: CommandDefinition[] = [];
 
   // Agent suggestions first so they're visible at the top of the dropdown.
@@ -164,52 +173,62 @@ function getMentionSuggestions(input: string): CommandDefinition[] {
   });
   suggestions.push(...agentMatches);
 
-  // File/directory suggestions after agents
+  // File/directory suggestions after agents — recursive traversal
   try {
     const cwd = process.cwd();
-    let searchDir: string;
-    let filterPrefix: string;
-    let pathPrefix: string;
+    const allEntries: Array<{ relPath: string; isDir: boolean }> = [];
 
-    if (input.endsWith("/")) {
-      // Browsing a directory - show its contents
-      searchDir = join(cwd, input);
-      filterPrefix = "";
-      pathPrefix = input;
-    } else if (input.includes("/")) {
-      // Typing a name within a directory
-      searchDir = join(cwd, dirname(input));
-      filterPrefix = basename(input);
-      pathPrefix = dirname(input) + "/";
-    } else {
-      // Top-level - search cwd
-      searchDir = cwd;
-      filterPrefix = input;
-      pathPrefix = "";
-    }
+    // Recursively read directory entries (skip hidden paths and node_modules)
+    const scanDirectory = (dirPath: string, relativeBase: string) => {
+      try {
+        const entries = readdirSync(dirPath, { withFileTypes: true });
+        for (const entry of entries) {
+          // Skip hidden files and common ignore patterns
+          if (entry.name.startsWith(".")) continue;
+          if (entry.name === "node_modules") continue;
 
-    const entries = readdirSync(searchDir, { withFileTypes: true });
-    const filtered = entries
-      .filter(e => e.name.toLowerCase().startsWith(filterPrefix.toLowerCase()) && !e.name.startsWith("."))
-      .sort((a, b) => {
-        // Directories first, then alphabetical
-        if (a.isDirectory() && !b.isDirectory()) return -1;
-        if (!a.isDirectory() && b.isDirectory()) return 1;
-        return a.name.localeCompare(b.name);
-      });
-    // Ensure both directories and files are represented in results
-    const dirs = filtered.filter(e => e.isDirectory());
-    const files = filtered.filter(e => !e.isDirectory());
+          const relPath = relativeBase ? `${relativeBase}/${entry.name}` : entry.name;
+          const isDir = entry.isDirectory();
+          allEntries.push({ relPath: isDir ? `${relPath}/` : relPath, isDir });
+
+          // Recursively scan subdirectories
+          if (isDir) {
+            scanDirectory(join(dirPath, entry.name), relPath);
+          }
+        }
+      } catch {
+        // Skip unreadable directories
+      }
+    };
+
+    // Start scanning from the current working directory
+    scanDirectory(cwd, "");
+
+    // Fuzzy (substring) match on the full relative path
+    const filtered = searchKey
+      ? allEntries.filter(e => e.relPath.toLowerCase().includes(searchKey))
+      : allEntries;
+
+    // Sort: directories first, then alphabetical
+    filtered.sort((a, b) => {
+      if (a.isDir && !b.isDir) return -1;
+      if (!a.isDir && b.isDir) return 1;
+      return a.relPath.localeCompare(b.relPath);
+    });
+
+    // Cap results to keep the dropdown manageable
+    const dirs = filtered.filter(e => e.isDir);
+    const files = filtered.filter(e => !e.isDir);
     const maxDirs = Math.min(dirs.length, 7);
     const maxFiles = Math.min(files.length, 15 - maxDirs);
     const mixed = [...dirs.slice(0, maxDirs), ...files.slice(0, maxFiles)];
-    const fileMatches = mixed
-      .map(e => ({
-        name: `${pathPrefix}${e.name}${e.isDirectory() ? "/" : ""}`,
-        description: "",
-        category: "custom" as CommandCategory,
-        execute: () => ({ success: true as const }),
-      }));
+
+    const fileMatches = mixed.map(e => ({
+      name: e.relPath,
+      description: "",
+      category: (e.isDir ? "folder" : "file") as CommandCategory,
+      execute: () => ({ success: true as const }),
+    }));
 
     suggestions.push(...fileMatches);
   } catch {
@@ -233,12 +252,11 @@ interface ProcessedMention {
 }
 
 /**
- * Process file @mentions in a message. Replaces @filepath with file content context.
- * Returns the message with file content prepended and metadata about files read.
+ * Process file @mentions in a message. Resolves @filepath references and collects
+ * metadata about mentioned files without loading their content into the context window.
  */
 function processFileMentions(message: string): ProcessedMention {
   const mentionRegex = /@([\w./_-]+)/g;
-  const fileContents: string[] = [];
   const filesRead: FileReadInfo[] = [];
   const cleanedMessage = message.replace(mentionRegex, (match, filePath: string) => {
     const cmd = globalRegistry.get(filePath);
@@ -250,9 +268,6 @@ function processFileMentions(message: string): ProcessedMention {
 
       if (stats.isDirectory()) {
         const entries = readdirSync(fullPath, { withFileTypes: true });
-        const listing = entries
-          .map((e) => (e.isDirectory() ? `${e.name}/` : e.name))
-          .join("\n");
 
         filesRead.push({
           path: filePath.endsWith("/") ? filePath : `${filePath}/`,
@@ -262,7 +277,6 @@ function processFileMentions(message: string): ProcessedMention {
           isDirectory: true,
         });
 
-        fileContents.push(`<directory path="${filePath}">\n${listing}\n</directory>`);
         return filePath;
       }
 
@@ -278,18 +292,13 @@ function processFileMentions(message: string): ProcessedMention {
         isDirectory: false,
       });
 
-      fileContents.push(`<file path="${filePath}">\n${content}\n</file>`);
       return filePath;
     } catch {
       return match;
     }
   });
 
-  const processed = fileContents.length > 0
-    ? `${fileContents.join("\n\n")}\n\n${cleanedMessage}`
-    : cleanedMessage;
-
-  return { message: processed, filesRead };
+  return { message: cleanedMessage, filesRead };
 }
 
 // ============================================================================
@@ -437,8 +446,6 @@ export interface MessageToolCall {
   output?: unknown;
   /** Current execution status */
   status: ToolExecutionStatus;
-  /** Content offset at the time tool call started (for inline rendering) */
-  contentOffsetAtStart?: number;
   /** Structured HITL response data preserved across late tool.complete events */
   hitlResponse?: HitlResponseRecord;
 }
@@ -472,6 +479,8 @@ export interface ChatMessage {
   timestamp: string;
   /** Whether message is currently streaming */
   streaming?: boolean;
+  /** Ordered parts array for parts-based rendering (ascending by part ID = chronological) */
+  parts?: Part[];
   /** Tool calls within this message (for assistant messages) */
   toolCalls?: MessageToolCall[];
   /** Duration in milliseconds for assistant message generation */
@@ -488,10 +497,8 @@ export interface ChatMessage {
   skillLoads?: MessageSkillLoad[];
   /** Snapshot of task items active during this message (baked on completion) */
   taskItems?: Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; blockedBy?: string[]}>;
-  /** Content offset when parallel agents first appeared (for chronological positioning) */
-  agentsContentOffset?: number;
-  /** Content offset when task list first appeared (for chronological positioning) */
-  tasksContentOffset?: number;
+  /** Whether task updates for this message should remain pinned-only (Ralph exception) */
+  tasksPinned?: boolean;
   /** MCP snapshot for rendering Codex-style /mcp output */
   mcpSnapshot?: McpSnapshotView;
   contextInfo?: import("./commands/registry.ts").ContextDisplayInfo;
@@ -743,7 +750,6 @@ export interface WorkflowChatState {
   /** Ralph-specific workflow configuration (session ID, user prompt, etc.) */
   ralphConfig?: {
     userPrompt: string | null;
-    resumeSessionId?: string;
     sessionId?: string;
   };
 }
@@ -789,12 +795,12 @@ export interface MessageBubbleProps {
   hideAskUserQuestion?: boolean;
   /** Whether to hide loading indicator (when question dialog is active) */
   hideLoading?: boolean;
-  /** Parallel agents to display inline (only for streaming assistant message) */
-  parallelAgents?: ParallelAgent[];
   /** Todo items to show inline during streaming */
   todoItems?: Array<{content: string; status: "pending" | "in_progress" | "completed" | "error"}>;
   /** Whether task items are expanded (no truncation) */
   tasksExpanded?: boolean;
+  /** Whether task updates should be rendered inline for this message */
+  inlineTasksEnabled?: boolean;
   /** Elapsed streaming time in milliseconds */
   elapsedMs?: number;
   /** Whether the conversation is collapsed (shows compact single-line summaries) */
@@ -822,12 +828,27 @@ export function createMessage(
   content: string,
   streaming?: boolean
 ): ChatMessage {
+  const parts: Part[] | undefined = role === "assistant"
+    ? (
+      content
+        ? [{
+          id: createPartId(),
+          type: "text" as const,
+          content,
+          isStreaming: Boolean(streaming),
+          createdAt: new Date().toISOString(),
+        }]
+        : []
+    )
+    : undefined;
+
   return {
     id: generateMessageId(),
     role,
     content,
     timestamp: new Date().toISOString(),
     streaming,
+    parts,
   };
 }
 
@@ -856,6 +877,13 @@ export function formatTimestamp(isoString: string): string {
  * the temp-file transcript buffer for Ctrl+O.
  */
 export const MAX_VISIBLE_MESSAGES = 50;
+
+/**
+ * Number of most-recent messages to keep fully expanded in the chat view.
+ * Older messages are auto-collapsed to single-line summaries.
+ * Default: 4 (approximately two user-assistant exchanges).
+ */
+export const EXPANDED_MESSAGE_COUNT = 4;
 
 /**
  * Compute the visible in-memory message window and hidden transcript count.
@@ -1163,10 +1191,10 @@ export function AtomicHeader({
   const showBlockLogo = terminalWidth >= 70;
 
   return (
-    <box flexDirection="row" alignItems="flex-start" marginBottom={1} marginLeft={1} flexShrink={0}>
+    <box flexDirection="row" alignItems="flex-start" marginBottom={SPACING.ELEMENT} marginLeft={SPACING.CONTAINER_PAD} flexShrink={0}>
       {/* Block letter logo with gradient - hidden on narrow terminals */}
       {showBlockLogo && (
-        <box flexDirection="column" marginRight={3}>
+        <box flexDirection="column" marginRight={SPACING.GUTTER}>
           {ATOMIC_BLOCK_LOGO.map((line, i) => (
             <GradientText key={i} text={line} gradient={gradient} />
           ))}
@@ -1174,7 +1202,7 @@ export function AtomicHeader({
       )}
 
       {/* App info */}
-      <box flexDirection="column" paddingTop={0}>
+      <box flexDirection="column" paddingTop={SPACING.NONE}>
         {/* Version line */}
         <text>
           <span style={{ fg: theme.colors.foreground }}>v{version}</span>
@@ -1193,279 +1221,205 @@ export function AtomicHeader({
 }
 
 // ============================================================================
-// COMPLETED QUESTION DISPLAY (HITL history record)
-// ============================================================================
-
-/**
- * Compact inline display for a completed AskUserQuestion tool call.
- * Renders in the chat history as a resolved question badge so the
- * conversation record shows what was asked.
- */
-function CompletedQuestionDisplay({ toolCall }: { toolCall: MessageToolCall }): React.ReactNode {
-  const themeColors = useThemeColors();
-
-  // Extract question data from the tool input
-  const questions = toolCall.input.questions as Array<{
-    header?: string;
-    question?: string;
-  }> | undefined;
-
-  const header = (toolCall.input.header as string)
-    || questions?.[0]?.header
-    || "Question";
-  const questionText = (toolCall.input.question as string)
-    || questions?.[0]?.question
-    || "";
-
-  const hitlResponse = getHitlResponseRecord(toolCall);
-
-  return (
-    <box flexDirection="column" marginBottom={1}>
-      {/* Header badge — echoes dialog header style in completed state */}
-      <box>
-        <text>
-          <span style={{ fg: themeColors.border }}>{CONNECTOR.roundedTopLeft}{CONNECTOR.horizontal}</span>
-          <span style={{ fg: themeColors.muted }}> {STATUS.pending} {header} </span>
-          <span style={{ fg: themeColors.border }}>{CONNECTOR.horizontal}{CONNECTOR.roundedTopRight}</span>
-        </text>
-      </box>
-
-      {/* Question text */}
-      {questionText ? (
-        <text style={{ fg: themeColors.foreground, attributes: 1 }} wrapMode="word">
-          {questionText}
-        </text>
-      ) : null}
-
-      {/* User's answer */}
-      {hitlResponse ? (
-        <text
-          style={{ fg: hitlResponse.cancelled ? themeColors.muted : themeColors.accent }}
-          wrapMode="word"
-        >
-          {PROMPT.cursor} {hitlResponse.displayText}
-        </text>
-      ) : null}
-    </box>
-  );
-}
-
-// ============================================================================
 // MESSAGE BUBBLE COMPONENT
 // ============================================================================
-
-/**
- * Represents a segment of content to render (either text or tool call).
- * Used for interleaving text content with tool calls at the correct positions.
- */
-interface ContentSegment {
-  type: "text" | "tool" | "hitl" | "agents" | "tasks";
-  content?: string;
-  toolCall?: MessageToolCall;
-  agents?: ParallelAgent[];
-  taskItems?: TaskItem[];
-  tasksExpanded?: boolean;
-  key: string;
-}
-
-/**
- * Build interleaved content segments from message content and tool calls.
- * Tool calls are inserted at their recorded content offsets.
- * Agents and tasks are also inserted at their chronological offsets.
- */
-function buildContentSegments(
-  content: string,
-  toolCalls: MessageToolCall[],
-  agents?: ParallelAgent[] | null,
-  agentsOffset?: number,
-  taskItems?: TaskItem[] | null,
-  tasksOffset?: number,
-  tasksExpanded?: boolean,
-): ContentSegment[] {
-  // Separate HITL tools and sub-agent Task tools from regular tools:
-  // - Running/pending HITL tools are hidden (the dialog handles display)
-  // - Completed HITL tools are shown as compact inline question records
-  // - Task tools are hidden — sub-agents are shown via ParallelAgentsTree;
-  //   individual tool traces are available in the ctrl+o detail view only.
-  const isHitlTool = (name: string) =>
-    name === "AskUserQuestion" || name === "question" || name === "ask_user";
-  const isSubAgentTool = (name: string) =>
-    name === "Task" || name === "task";
-  const visibleToolCalls = toolCalls.filter(tc => !isHitlTool(tc.toolName) && !isSubAgentTool(tc.toolName));
-  const completedHitlCalls = toolCalls.filter(tc => isHitlTool(tc.toolName) && tc.status === "completed");
-
-  // Build unified list of insertion points
-  interface InsertionPoint {
-    offset: number;
-    segment: ContentSegment;
-    consumesText: boolean; // Only tool calls consume text at their offset
-  }
-
-  const insertions: InsertionPoint[] = [];
-
-  // Add tool call insertions
-  for (const tc of visibleToolCalls) {
-    insertions.push({
-      offset: tc.contentOffsetAtStart ?? 0,
-      segment: { type: "tool", toolCall: tc, key: `tool-${tc.id}` },
-      consumesText: true,
-    });
-  }
-
-  // Add completed HITL question insertions (rendered as compact inline records)
-  for (const tc of completedHitlCalls) {
-    insertions.push({
-      offset: tc.contentOffsetAtStart ?? 0,
-      segment: { type: "hitl", toolCall: tc, key: `hitl-${tc.id}` },
-      consumesText: true,
-    });
-  }
-
-  // Add agents tree insertion(s). When sub-agents are spawned sequentially
-  // (with text between invocations), each group of concurrent agents is
-  // rendered as a separate tree at its chronological content offset.
-  if (agents && agents.length > 0) {
-    // Build a map from agent ID → content offset using the Task tool calls
-    const taskToolOffsets = new Map<string, number>();
-    for (const tc of toolCalls) {
-      if (tc.toolName === "Task" || tc.toolName === "task") {
-        taskToolOffsets.set(tc.id, tc.contentOffsetAtStart ?? agentsOffset ?? 0);
-      }
-    }
-
-    // Group agents by their content offset
-    const groups = new Map<number, ParallelAgent[]>();
-    for (const agent of agents) {
-      const offset = taskToolOffsets.get(agent.id) ?? agentsOffset ?? 0;
-      const group = groups.get(offset);
-      if (group) {
-        group.push(agent);
-      } else {
-        groups.set(offset, [agent]);
-      }
-    }
-
-    // Create a tree insertion for each group
-    for (const [offset, groupAgents] of groups) {
-      insertions.push({
-        offset,
-        segment: { type: "agents", agents: groupAgents, key: `agents-tree-${offset}` },
-        consumesText: false,
-      });
-    }
-  }
-
-  // Add task list insertion (if tasks exist and offset is defined)
-  if (taskItems && taskItems.length > 0 && tasksOffset !== undefined) {
-    insertions.push({
-      offset: tasksOffset,
-      segment: { type: "tasks", taskItems, tasksExpanded, key: "task-list" },
-      consumesText: false,
-    });
-  }
-
-  // Sort all insertions by offset ascending
-  insertions.sort((a, b) => a.offset - b.offset);
-
-  // If no insertions, return text-only segment
-  if (insertions.length === 0) {
-    return content ? [{ type: "text", content, key: "text-0" }] : [];
-  }
-
-  // Build segments by slicing content at insertion offsets
-  const segments: ContentSegment[] = [];
-  let lastOffset = 0;
-  let hasNonTextInsertions = false;
-
-  for (const ins of insertions) {
-    if (ins.segment.type !== "text") {
-      hasNonTextInsertions = true;
-    }
-
-    // Add text segment before this insertion (if any)
-    if (ins.offset > lastOffset) {
-      const textContent = content.slice(lastOffset, ins.offset).trimEnd();
-      if (textContent) {
-        segments.push({
-          type: "text",
-          content: textContent,
-          key: `text-${lastOffset}`,
-        });
-      }
-    }
-
-    // Add the insertion segment
-    segments.push(ins.segment);
-
-    // Always advance lastOffset past the insertion point to prevent
-    // text duplication and ensure proper splitting around agents/tasks
-    lastOffset = Math.max(lastOffset, ins.offset);
-  }
-
-  // Add remaining text after the last insertion
-  if (lastOffset < content.length) {
-    const remainingContent = content.slice(lastOffset).trimStart();
-    if (remainingContent) {
-      segments.push({
-        type: "text",
-        content: remainingContent,
-        key: `text-${lastOffset}`,
-      });
-    }
-  }
-
-  // When there are non-text insertions (tools, agents, tasks), split text
-  // segments at paragraph boundaries (\n\n) so each paragraph renders as
-  // its own block with proper bullet indicators and spacing
-  if (hasNonTextInsertions) {
-    const splitSegments: ContentSegment[] = [];
-    for (const seg of segments) {
-      if (seg.type === "text" && seg.content) {
-        const paragraphs = seg.content.split(/\n\n+/).filter(p => p.trim());
-        if (paragraphs.length > 1) {
-          paragraphs.forEach((p, i) => {
-            splitSegments.push({
-              type: "text",
-              content: p.trim(),
-              key: `${seg.key}-p${i}`,
-            });
-          });
-        } else {
-          splitSegments.push(seg);
-        }
-      } else {
-        splitSegments.push(seg);
-      }
-    }
-    return splitSegments;
-  }
-
-  return segments;
-}
 
 /**
  * Renders a single chat message with role-based styling.
  * Clean, minimal design matching the reference UI:
  * - User messages: highlighted inline box with just the text
- * - Assistant messages: bullet point (●) prefix, no header
- * Tool calls are rendered inline at their correct chronological positions.
+ * - Assistant messages: parts-based content rendering
  */
-
-/**
- * Convert GFM task list checkboxes to unicode characters.
- * OpenTUI's MarkdownRenderable doesn't handle checkbox syntax natively.
- */
-function preprocessTaskListCheckboxes(content: string): string {
-  return content
-    .replace(/^(\s*[-*+]\s+)\[ \]/gm, `$1${CHECKBOX.unchecked}`)
-    .replace(/^(\s*[-*+]\s+)\[[xX]\]/gm, `$1${CHECKBOX.checked}`);
+function toToolState(
+  status: ToolExecutionStatus,
+  output: unknown,
+  fallbackStartedAt: string,
+  existingState?: ToolState,
+): ToolState {
+  switch (status) {
+    case "pending":
+      return { status: "pending" };
+    case "running":
+      return {
+        status: "running",
+        startedAt: existingState?.status === "running" ? existingState.startedAt : fallbackStartedAt,
+      };
+    case "completed":
+      return {
+        status: "completed",
+        output,
+        durationMs: existingState?.status === "completed" ? existingState.durationMs : 0,
+      };
+    case "error":
+      return {
+        status: "error",
+        error: existingState?.status === "error"
+          ? existingState.error
+          : (typeof output === "string" && output.trim() ? output : "Tool execution failed"),
+        output,
+      };
+    case "interrupted":
+      return { status: "interrupted", partialOutput: output };
+  }
 }
-export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, parallelAgents, todoItems, tasksExpanded = false, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
-  const themeColors = useThemeColors();
 
-  // Hide the entire message when question dialog is active and there's no content yet
-  // This prevents showing a stray "●" bullet before the dialog
-  const hideEntireMessage = hideLoading && message.streaming && !message.content.trim();
+function getRenderableAssistantParts(
+  message: ChatMessage,
+  taskItemsToShow: TaskItem[] | undefined,
+  inlineTaskExpansion: boolean | undefined,
+): Part[] {
+  const parts = [...(message.parts ?? [])];
+
+  // Keep ToolPart state synchronized with the source toolCalls array.
+  const toolCalls = message.toolCalls ?? [];
+  for (const tc of toolCalls) {
+    const existingIdx = parts.findIndex(
+      (p) => p.type === "tool" && (p as ToolPart).toolCallId === tc.id
+    );
+
+    if (existingIdx >= 0) {
+      const existing = parts[existingIdx] as ToolPart;
+      parts[existingIdx] = {
+        ...existing,
+        toolName: tc.toolName,
+        input: tc.input,
+        output: tc.output,
+        hitlResponse: tc.hitlResponse,
+        state: toToolState(tc.status, tc.output, message.timestamp, existing.state),
+      };
+      continue;
+    }
+
+    parts.push({
+      id: `tool-${message.id}-${tc.id}`,
+      type: "tool",
+      toolCallId: tc.id,
+      toolName: tc.toolName,
+      input: tc.input,
+      output: tc.output,
+      hitlResponse: tc.hitlResponse,
+      state: toToolState(tc.status, tc.output, message.timestamp),
+      createdAt: message.timestamp,
+    } satisfies ToolPart);
+  }
+
+  if (message.parallelAgents && message.parallelAgents.length > 0) {
+    const existingAgentIdx = parts.findIndex((p) => p.type === "agent");
+    if (existingAgentIdx >= 0) {
+      parts[existingAgentIdx] = {
+        ...(parts[existingAgentIdx] as AgentPart),
+        agents: message.parallelAgents,
+      };
+    } else {
+      parts.push({
+        id: `agent-${message.id}`,
+        type: "agent",
+        agents: message.parallelAgents,
+        createdAt: message.timestamp,
+      } satisfies AgentPart);
+    }
+  }
+
+  const shouldRenderInlineTasks = taskItemsToShow && taskItemsToShow.length > 0 && inlineTaskExpansion !== false;
+  const existingTaskIdx = parts.findIndex((p) => p.type === "task-list");
+  if (shouldRenderInlineTasks) {
+    const taskPart: TaskListPart = {
+      id: existingTaskIdx >= 0 ? parts[existingTaskIdx]!.id : `task-list-${message.id}`,
+      type: "task-list",
+      items: taskItemsToShow!,
+      expanded: inlineTaskExpansion ?? false,
+      createdAt: existingTaskIdx >= 0 ? parts[existingTaskIdx]!.createdAt : message.timestamp,
+    };
+    if (existingTaskIdx >= 0) {
+      parts[existingTaskIdx] = taskPart;
+    } else {
+      parts.push(taskPart);
+    }
+  } else if (existingTaskIdx >= 0) {
+    parts.splice(existingTaskIdx, 1);
+  }
+
+  if (message.mcpSnapshot) {
+    const existingMcpIdx = parts.findIndex((p) => p.type === "mcp-snapshot");
+    const mcpPart: McpSnapshotPart = {
+      id: existingMcpIdx >= 0 ? parts[existingMcpIdx]!.id : `mcp-${message.id}`,
+      type: "mcp-snapshot",
+      snapshot: message.mcpSnapshot,
+      createdAt: existingMcpIdx >= 0 ? parts[existingMcpIdx]!.createdAt : message.timestamp,
+    };
+    if (existingMcpIdx >= 0) {
+      parts[existingMcpIdx] = mcpPart;
+    } else {
+      parts.unshift(mcpPart);
+    }
+  }
+
+  if (message.contextInfo) {
+    const existingContextIdx = parts.findIndex((p) => p.type === "context-info");
+    const contextPart: ContextInfoPart = {
+      id: existingContextIdx >= 0 ? parts[existingContextIdx]!.id : `context-${message.id}`,
+      type: "context-info",
+      info: message.contextInfo,
+      createdAt: existingContextIdx >= 0 ? parts[existingContextIdx]!.createdAt : message.timestamp,
+    };
+    if (existingContextIdx >= 0) {
+      parts[existingContextIdx] = contextPart;
+    } else {
+      const insertIndex = parts.findIndex((p) => p.type !== "mcp-snapshot");
+      if (insertIndex === -1) {
+        parts.push(contextPart);
+      } else {
+        parts.splice(insertIndex, 0, contextPart);
+      }
+    }
+  }
+
+  if (message.skillLoads && message.skillLoads.length > 0) {
+    const existingSkillIdx = parts.findIndex((p) => p.type === "skill-load");
+    const skillPart: SkillLoadPart = {
+      id: existingSkillIdx >= 0 ? parts[existingSkillIdx]!.id : `skill-load-${message.id}`,
+      type: "skill-load",
+      skills: message.skillLoads,
+      createdAt: existingSkillIdx >= 0 ? parts[existingSkillIdx]!.createdAt : message.timestamp,
+    };
+    if (existingSkillIdx >= 0) {
+      parts[existingSkillIdx] = skillPart;
+    } else {
+      // Insert before text/tool parts but after mcp-snapshot and context-info
+      const insertIndex = parts.findIndex(
+        (p) => p.type !== "mcp-snapshot" && p.type !== "context-info"
+      );
+      if (insertIndex === -1) {
+        parts.push(skillPart);
+      } else {
+        parts.splice(insertIndex, 0, skillPart);
+      }
+    }
+  }
+
+  const hasTextPart = parts.some((p) => p.type === "text");
+  if (!hasTextPart && message.content.trim()) {
+    const textPart: TextPart = {
+      id: `text-${message.id}`,
+      type: "text",
+      content: message.content,
+      isStreaming: Boolean(message.streaming),
+      createdAt: message.timestamp,
+    };
+    const insertIndex = parts.findIndex(
+      (p) => p.type !== "mcp-snapshot" && p.type !== "context-info"
+    );
+    if (insertIndex === -1) {
+      parts.push(textPart);
+    } else {
+      parts.splice(insertIndex, 0, textPart);
+    }
+  }
+
+  return parts;
+}
+export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
+  const themeColors = useThemeColors();
 
   // Collapsed mode: show compact single-line summary for each message
   // Spacing: user messages sit tight above their reply; assistant messages
@@ -1478,7 +1432,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
 
     if (message.role === "user") {
       return (
-        <box paddingLeft={1} paddingRight={1} marginBottom={0}>
+        <box paddingLeft={SPACING.CONTAINER_PAD} paddingRight={SPACING.CONTAINER_PAD} marginBottom={SPACING.NONE}>
           <text wrapMode="char" selectable>
             <span style={{ fg: themeColors.dim }}>{PROMPT.cursor} </span>
             <span style={{ fg: themeColors.muted }}>{truncate(message.content, 78)}</span>
@@ -1493,7 +1447,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
         ? ` ${MISC.separator} ${toolCount} tool${toolCount !== 1 ? "s" : ""}`
         : "";
       return (
-        <box paddingLeft={1} paddingRight={1} marginBottom={isLast ? 0 : 1}>
+        <box paddingLeft={SPACING.CONTAINER_PAD} paddingRight={SPACING.CONTAINER_PAD} marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}>
           <text wrapMode="char">
             <span style={{ fg: themeColors.dim }}>  {CONNECTOR.subStatus} </span>
             <span style={{ fg: themeColors.muted }}>{truncate(message.content, 74)}</span>
@@ -1505,7 +1459,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
 
     // System message collapsed
     return (
-      <box paddingLeft={1} paddingRight={1} marginBottom={isLast ? 0 : 1}>
+      <box paddingLeft={SPACING.CONTAINER_PAD} paddingRight={SPACING.CONTAINER_PAD} marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}>
         <text wrapMode="char" style={{ fg: themeColors.error }}>{truncate(message.content, 80)}</text>
       </box>
     );
@@ -1516,9 +1470,9 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
     return (
       <box
         flexDirection="column"
-        marginBottom={isLast ? 0 : 1}
-        paddingLeft={1}
-        paddingRight={1}
+        marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}
+        paddingLeft={SPACING.CONTAINER_PAD}
+        paddingRight={SPACING.CONTAINER_PAD}
       >
         <box flexGrow={1} flexShrink={1} minWidth={0}>
           <text wrapMode="char">
@@ -1526,190 +1480,48 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
             <span style={{ bg: themeColors.userBubbleBg, fg: themeColors.userBubbleFg }}> {message.content} </span>
           </text>
         </box>
-        {message.filesRead && message.filesRead.length > 0 && (
-          <box flexDirection="column">
-            {message.filesRead.map((f, i) => {
-              const basename = f.path.split("/").pop() ?? "";
-              const isConfigFile = /^(CLAUDE|AGENTS)\.md$/i.test(basename);
-              const verb = f.isDirectory
-                ? "Listed directory"
-                : isConfigFile
-                  ? "Loaded"
-                  : "Read";
-              return (
-                <text key={i} wrapMode="char" style={{ fg: themeColors.muted }}>
-                  {` ${CONNECTOR.subStatus}  ${verb} `}
-                  {f.path}
-                  {f.isDirectory
-                    ? ""
-                    : f.isImage
-                      ? ` (${f.sizeBytes >= 1024 ? `${(f.sizeBytes / 1024).toFixed(1)}KB` : `${f.sizeBytes}B`})`
-                      : ` (${f.lineCount} lines)`}
-                </text>
-              );
-            })}
-          </box>
-        )}
       </box>
     );
   }
 
-  // Assistant message: bullet point prefix, with tool calls interleaved at correct positions
+  // Assistant message: parts-based rendering only
   if (message.role === "assistant") {
-    // Determine which agents and tasks to show (live during streaming, baked when completed)
-    const agentsToShow = parallelAgents?.length ? parallelAgents
-      : message.parallelAgents?.length ? message.parallelAgents
-      : null;
-    const taskItemsToShow = message.streaming ? todoItems : message.taskItems;
+    const shouldRenderInlineTasks = inlineTasksEnabled && !message.tasksPinned;
+    const taskItemsToShow = shouldRenderInlineTasks
+      ? (message.streaming ? todoItems : message.taskItems)
+      : undefined;
+    const inlineTaskExpansion = shouldRenderInlineTasks ? (tasksExpanded || undefined) : false;
+    const renderableMessage = {
+      ...message,
+      parts: getRenderableAssistantParts(message, taskItemsToShow, inlineTaskExpansion),
+    };
 
-    // Build interleaved content segments (now includes agents and tasks)
-    const segments = buildContentSegments(
-      message.content,
-      message.toolCalls || [],
-      agentsToShow,
-      message.agentsContentOffset,
-      taskItemsToShow,
-      message.tasksContentOffset,
-      tasksExpanded,
+    // Detect active background agents on this message
+    const hasActiveBackgroundAgents = (message.parallelAgents ?? []).some(
+      (a) => a.background && a.status === "background"
     );
-    // Render interleaved segments (loading spinner is at the bottom, after all content)
+
     return (
       <box
         flexDirection="column"
-        marginBottom={isLast ? 0 : 1}
-        paddingLeft={1}
-        paddingRight={1}
+        marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}
+        paddingLeft={SPACING.CONTAINER_PAD}
+        paddingRight={SPACING.CONTAINER_PAD}
       >
-        {/* Skill load indicators */}
-        {message.skillLoads?.map((sl, i) => (
-          <box key={`skill-${i}`} marginBottom={1}>
-            <SkillLoadIndicator
-              skillName={sl.skillName}
-              status={sl.status}
-              errorMessage={sl.errorMessage}
-            />
-          </box>
-        ))}
-        {/* MCP snapshot indicator */}
-        {message.mcpSnapshot && (
-          <box key="mcp-servers" marginBottom={1}>
-            <McpServerListIndicator snapshot={message.mcpSnapshot} />
-          </box>
-        )}
-        {message.contextInfo && (
-          <box key="context-info" marginBottom={1}>
-            <ContextInfoDisplay contextInfo={message.contextInfo} />
-          </box>
-        )}
-        {!hideEntireMessage && segments.map((segment, index) => {
-          if (segment.type === "text" && segment.content?.trim()) {
-            // Text segment - add bullet prefix to first text segment
-            // or to text that follows a non-text segment (agents, tools, hitl)
-            const prevSegment = index > 0 ? segments[index - 1] : null;
-            const isNewBlock = !prevSegment || prevSegment.type !== "text";
-            // Show animated blinking ● while streaming, static colored ● when done
-            const isActivelyStreaming = message.streaming && index === segments.length - 1;
-            // ● color: always foreground (white) for regular text — only sub-agents/tools change color
-            const bulletColor = themeColors.foreground;
-            // Inline bullet prefix as <span> to avoid flex layout issues
-            const bulletSpan = isNewBlock
-              ? (isActivelyStreaming ? <StreamingBullet speed={500} /> : <span style={{ fg: bulletColor }}>{STATUS.active} </span>)
-              : "  ";
-            const trimmedContent = syntaxStyle
-              ? segment.content.replace(/^\n+/, "")
-              : segment.content.trimStart();
-            return syntaxStyle ? (
-              <box key={segment.key} flexDirection="row" alignItems="flex-start" marginBottom={index < segments.length - 1 ? 1 : 0}>
-                <box flexShrink={0}>{isNewBlock
-                  ? (isActivelyStreaming ? <text><StreamingBullet speed={500} /></text> : <text style={{ fg: bulletColor }}>{STATUS.active} </text>)
-                  : <text>  </text>}</box>
-                <box flexGrow={1} flexShrink={1} minWidth={0}>
-                  <markdown
-                    content={preprocessTaskListCheckboxes(trimmedContent)}
-                    syntaxStyle={syntaxStyle}
-                    streaming={isActivelyStreaming}
-                  />
-                </box>
-              </box>
-            ) : (
-              <box key={segment.key} marginBottom={index < segments.length - 1 ? 1 : 0}>
-                <text wrapMode="char" selectable>{bulletSpan}{trimmedContent}</text>
-              </box>
-            );
-          } else if (segment.type === "tool" && segment.toolCall) {
-            // Tool call segment
-            return (
-              <box key={segment.key}>
-                <ToolResult
-                  toolName={segment.toolCall.toolName}
-                  input={segment.toolCall.input}
-                  output={segment.toolCall.output}
-                  status={segment.toolCall.status}
-                />
-              </box>
-            );
-          } else if (segment.type === "hitl" && segment.toolCall) {
-            // Completed HITL question — compact inline record in chat history
-            return (
-              <box key={segment.key}>
-                <CompletedQuestionDisplay toolCall={segment.toolCall} />
-              </box>
-            );
-          } else if (segment.type === "agents" && segment.agents) {
-            // Parallel agents tree segment (chronologically positioned)
-            const nextSegment = segments[index + 1];
-            const addBottomGap =
-              nextSegment?.type === "text" && Boolean(nextSegment.content?.trim());
-            const prevSegment = index > 0 ? segments[index - 1] : undefined;
-            const prevIsToolOrHitl = prevSegment?.type === "tool" || prevSegment?.type === "hitl";
-            return (
-              <box key={segment.key} marginBottom={addBottomGap ? 1 : 0}>
-                <ParallelAgentsTree
-                  agents={segment.agents}
-                  compact={true}
-                  maxVisible={5}
-                  noTopMargin={index === 0 || prevIsToolOrHitl}
-                />
-              </box>
-            );
-          } else if (segment.type === "tasks" && segment.taskItems) {
-            // Tasks already rendered by TodoWrite tool result + persistent panel at top
-            return null;
-          }
-          return null;
-        })}
+        <MessageBubbleParts message={renderableMessage} syntaxStyle={syntaxStyle} />
 
-        {/* Fallback: Render agents/tasks at bottom if not in segments (for legacy messages) */}
-        {(() => {
-          const agentsInSegments = segments.some(s => s.type === "agents");
-          
-          return (
-            <>
-              {!agentsInSegments && agentsToShow && (
-                <ParallelAgentsTree
-                  agents={agentsToShow}
-                  compact={true}
-                  maxVisible={5}
-                  noTopMargin={segments.length === 0}
-                />
-              )}
-              {/* Tasks rendered by TodoWrite tool result + persistent panel */}
-            </>
-          );
-        })()}
-
-        {/* Loading spinner — always at bottom of streamed content */}
-        {message.streaming && !hideLoading && (
-          <box flexDirection="row" alignItems="flex-start" marginTop={segments.length > 0 || agentsToShow ? 1 : 0}>
+        {/* Loading spinner — shown during streaming OR while background agents are still running */}
+        {(message.streaming || hasActiveBackgroundAgents) && !hideLoading && (
+          <box flexDirection="row" alignItems="flex-start" marginTop={renderableMessage.parts.length > 0 ? SPACING.ELEMENT : SPACING.NONE}>
             <text>
               <LoadingIndicator speed={120} elapsedMs={elapsedMs} outputTokens={streamingMeta?.outputTokens} thinkingMs={streamingMeta?.thinkingMs} />
             </text>
           </box>
         )}
 
-        {/* Completion summary: shown only when response took longer than 60s */}
-        {!message.streaming && message.durationMs != null && message.durationMs > 60_000 && (
-          <box marginTop={1}>
+        {/* Completion summary: shown only when response took longer than 60s and all work is done */}
+        {!message.streaming && !hasActiveBackgroundAgents && message.durationMs != null && message.durationMs > 60_000 && (
+          <box marginTop={SPACING.ELEMENT}>
             <CompletionSummary durationMs={message.durationMs} outputTokens={message.outputTokens} thinkingMs={message.thinkingMs} />
           </box>
         )}
@@ -1722,9 +1534,9 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
   return (
     <box
       flexDirection="column"
-      marginBottom={isLast ? 0 : 1}
-      paddingLeft={1}
-      paddingRight={1}
+      marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}
+      paddingLeft={SPACING.CONTAINER_PAD}
+      paddingRight={SPACING.CONTAINER_PAD}
     >
       <text wrapMode="char" style={{ fg: themeColors.error }}>{message.content}</text>
     </box>
@@ -1761,7 +1573,7 @@ export function ChatApp({
   onInterrupt,
   placeholder: _placeholder = "Type a message...",
   title: _title,
-  syntaxStyle,
+  syntaxStyle: _syntaxStyle,
   version = "0.1.0",
   model = "",
   tier = "",
@@ -1841,10 +1653,6 @@ export function ChatApp({
 
   // Transcript mode: full-screen detailed transcript view (ctrl+o toggle)
   const [transcriptMode, setTranscriptMode] = useState(false);
-
-  // Conversation collapsed state for collapsing/expanding entire conversation
-  const [conversationCollapsed, setConversationCollapsed] = useState(false);
-
 
 
   // State for showing user question dialog
@@ -1934,8 +1742,10 @@ export function ChatApp({
   const ralphSessionDirRef = useRef<string | null>(null);
   const [ralphSessionId, setRalphSessionId] = useState<string | null>(null);
   const ralphSessionIdRef = useRef<string | null>(null);
-  // Greyed-out resume suggestion shown in chatbox after ralph is interrupted with remaining tasks
-  const [resumeSuggestion, setResumeSuggestion] = useState<string | null>(null);
+  // Known ralph task IDs from the planning phase.
+  // Used to guard TodoWrite persistence: only updates whose items match
+  // these IDs are written to tasks.json, preventing sub-agent overwrites.
+  const ralphTaskIdsRef = useRef<Set<string>>(new Set());
   // State for input textarea scrollbar (shown only when input overflows)
   const [inputScrollbar, setInputScrollbar] = useState<InputScrollbarState>({
     visible: false,
@@ -1950,12 +1760,10 @@ export function ChatApp({
   // Store current input when entering history mode
   const savedInputRef = useRef<string>("");
 
-  // Track skills that have already shown the "loaded" UI indicator this session.
-  // Once a skill is loaded, subsequent invocations should not show the indicator again.
-  const loadedSkillsRef = useRef<Set<string>>(new Set());
-
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
+  // Ref to track message ID for background agent updates after stream ends
+  const backgroundAgentMessageIdRef = useRef<string | null>(null);
   // Ref to track when streaming started for duration calculation
   const streamingStartRef = useRef<number | null>(null);
   // Ref to track streaming state synchronously (for immediate check in handleSubmit)
@@ -1988,6 +1796,11 @@ export function ChatApp({
   // Incremented when message-window overflow eviction happens.
   // Used to remount the scrollbox and prevent stale renderables in long sessions.
   const [messageWindowEpoch, setMessageWindowEpoch] = useState(0);
+  // Accumulates eviction data from the pure state updater so the useEffect
+  // below can perform side-effects (file I/O, counter bump) outside the updater.
+  const pendingEvictionsRef = useRef<Array<{ messages: ChatMessage[], count: number }>>([]);
+  // Tracks which skills have been loaded in the current session to avoid duplicate indicators.
+  const loadedSkillsRef = useRef<Set<string>>(new Set());
   // Ref for scrollbox to enable programmatic scrolling
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
 
@@ -1996,8 +1809,8 @@ export function ChatApp({
 
   /**
    * Update chat messages and enforce the in-memory window cap atomically.
-   * Any overflow is persisted to transcript history and reflected in the
-   * hidden-message indicator count.
+   * The state updater is kept pure — side-effects (history buffer writes,
+   * trimmed-count and epoch bumps) are deferred to the useEffect below.
    */
   const setMessagesWindowed = useCallback((next: React.SetStateAction<ChatMessage[]>) => {
     setMessages((prev) => {
@@ -2009,17 +1822,39 @@ export function ChatApp({
         MAX_VISIBLE_MESSAGES
       );
       if (evictedCount > 0) {
-        appendToHistoryBuffer(evictedMessages);
-        setTrimmedMessageCount((count) => count + evictedCount);
-        setMessageWindowEpoch((epoch) => epoch + 1);
+        pendingEvictionsRef.current.push({ messages: evictedMessages, count: evictedCount });
       }
       return inMemoryMessages;
     });
   }, []);
 
-  // Live elapsed time counter for streaming indicator
+  // Process pending evictions after state commits — keeps the state updater pure.
   useEffect(() => {
-    if (!isStreaming || !streamingStartRef.current) {
+    if (pendingEvictionsRef.current.length === 0) return;
+    const evictions = pendingEvictionsRef.current;
+    pendingEvictionsRef.current = [];
+    // Accumulate all evicted messages into a single batch to minimize disk I/O.
+    const allEvicted: ChatMessage[] = [];
+    let totalEvicted = 0;
+    for (const { messages: evicted, count } of evictions) {
+      allEvicted.push(...evicted);
+      totalEvicted += count;
+    }
+    if (totalEvicted > 0) {
+      appendToHistoryBuffer(allEvicted);
+      setTrimmedMessageCount((c) => c + totalEvicted);
+      setMessageWindowEpoch((e) => e + 1);
+      console.debug(`[eviction] flushed ${totalEvicted} messages in ${evictions.length} batch(es), epoch incremented`);
+    }
+  }, [messages]);
+
+  // Live elapsed time counter for streaming indicator
+  // Also keeps running while background agents are active (stream ended but work continues)
+  const hasActiveBackgroundAgentsGlobal = parallelAgents.some(
+    (a) => a.background && a.status === "background"
+  );
+  useEffect(() => {
+    if ((!isStreaming && !hasActiveBackgroundAgentsGlobal) || !streamingStartRef.current) {
       setStreamingElapsedMs(0);
       return;
     }
@@ -2030,7 +1865,7 @@ export function ChatApp({
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [isStreaming]);
+  }, [isStreaming, hasActiveBackgroundAgentsGlobal]);
 
   // Keep todoItemsRef in sync with state for use in completion callbacks
   useEffect(() => {
@@ -2046,6 +1881,18 @@ export function ChatApp({
   }, [ralphSessionId]);
 
   /**
+   * Check whether a TodoWrite payload is a ralph task update (shares IDs
+   * with the known ralph planning-phase tasks). Returns false when the
+   * incoming items are from a sub-agent's independent todo list, which
+   * should NOT overwrite ralph's tasks.json.
+   */
+  const isRalphTaskUpdate = useCallback((todos: NormalizedTodoItem[]): boolean => {
+    const ralphIds = ralphTaskIdsRef.current;
+    if (ralphIds.size === 0) return false;
+    return todos.some(t => t.id && ralphIds.has(t.id));
+  }, []);
+
+  /**
    * Finalize task items on interrupt: mark in_progress -> pending (unchecked), update state/ref,
    * persist to tasks.json if Ralph is active, and return taskItems for baking into message.
    */
@@ -2057,13 +1904,13 @@ export function ChatApp({
     todoItemsRef.current = updated;
     setTodoItems(updated);
 
-    // Persist to tasks.json if ralph workflow is active
-    if (ralphSessionIdRef.current) {
+    // Persist to tasks.json only if the current items are ralph tasks
+    if (ralphSessionIdRef.current && isRalphTaskUpdate(updated)) {
       void saveTasksToActiveSession(updated, ralphSessionIdRef.current);
     }
 
     return snapshotTaskItems(updated) as TaskItem[] | undefined;
-  }, []);
+  }, [isRalphTaskUpdate]);
 
   // Dynamic placeholder based on queue state
   const dynamicPlaceholder = useMemo(() => {
@@ -2089,17 +1936,8 @@ export function ChatApp({
   }, [onMessageSubmitTelemetry]);
 
   /**
-   * Check if a tool spawns sub-agents (for offset capture).
-   */
-  function isSubAgentTool(toolName: string): boolean {
-    const subAgentTools = ["Task", "task"];
-    return subAgentTools.includes(toolName);
-  }
-
-  /**
    * Handle tool execution start event.
    * Updates streaming state and adds tool call to current message.
-   * Captures content offset for inline rendering.
    */
   const handleToolStart = useCallback((
     toolId: string,
@@ -2111,7 +1949,7 @@ export function ChatApp({
     // Track that a tool is running (synchronous ref for keyboard handler)
     hasRunningToolRef.current = true;
 
-    // Add tool call to current streaming message, capturing content offset.
+    // Add tool call to current streaming message.
     // If a tool call with the same ID already exists, update its input
     // (SDKs may send an initial event with empty input followed by a
     // populated one for the same logical tool call).
@@ -2131,14 +1969,11 @@ export function ChatApp({
               };
             }
 
-            // Capture current content length as offset for inline rendering
-            const contentOffsetAtStart = msg.content.length;
             const newToolCall: MessageToolCall = {
               id: toolId,
               toolName,
               input,
               status: "running",
-              contentOffsetAtStart,
             };
             
             // Track active HITL tool call for answer storage
@@ -2152,10 +1987,26 @@ export function ChatApp({
               toolCalls: [...(msg.toolCalls || []), newToolCall],
             };
 
-            // Capture agents offset on first sub-agent-spawning tool
-            if (isSubAgentTool(toolName) && msg.agentsContentOffset === undefined) {
-              updatedMsg.agentsContentOffset = msg.content.length;
+            // *** DUAL POPULATION: Create ToolPart and finalize TextPart ***
+            // Finalize any streaming TextPart
+            const parts = [...(msg.parts ?? [])];
+            const lastTextIdx = findLastPartIndex(parts, p => p.type === "text" && (p as TextPart).isStreaming);
+            if (lastTextIdx >= 0) {
+              parts[lastTextIdx] = { ...parts[lastTextIdx], isStreaming: false } as TextPart;
             }
+
+            // Create ToolPart
+            const toolPart: ToolPart = {
+              id: createPartId(),
+              type: "tool",
+              toolCallId: toolId,
+              toolName: toolName,
+              input: input,
+              state: { status: "running", startedAt: new Date().toISOString() },
+              createdAt: new Date().toISOString(),
+            };
+
+            updatedMsg.parts = upsertPart(parts, toolPart);
             
             return updatedMsg;
           }
@@ -2166,27 +2017,32 @@ export function ChatApp({
 
     // Update persistent todo panel when TodoWrite is called
     if (toolName === "TodoWrite" && input.todos && Array.isArray(input.todos)) {
-      const todos = normalizeTodoItems(input.todos);
+      const todos = mergeBlockedBy(normalizeTodoItems(input.todos), todoItemsRef.current);
       todoItemsRef.current = todos;
       setTodoItems(todos);
+      const taskStreamPinned = Boolean(ralphSessionIdRef.current);
 
-      // Persist to tasks.json when ralph workflow is active (drives TaskListPanel via file watcher)
-      if (ralphSessionIdRef.current) {
+      // Persist to tasks.json only when the items are ralph task updates
+      // (share IDs with the planning-phase tasks). Sub-agent or independent
+      // TodoWrite lists must NOT overwrite ralph's persistent task state.
+      if (ralphSessionIdRef.current && isRalphTaskUpdate(todos)) {
         void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
       }
-      
-      // Capture tasks offset on first TodoWrite call
+
       if (messageId) {
         setMessagesWindowed((prev) =>
           prev.map((msg) =>
-            msg.id === messageId && msg.tasksContentOffset === undefined
-              ? { ...msg, tasksContentOffset: msg.content.length }
+            msg.id === messageId
+              ? {
+                  ...msg,
+                  tasksPinned: msg.tasksPinned ?? taskStreamPinned,
+                }
               : msg
           )
         );
       }
     }
-  }, [streamingState]);
+  }, [streamingState, isRalphTaskUpdate]);
 
   /**
    * Handle tool execution complete event.
@@ -2213,7 +2069,7 @@ export function ChatApp({
       setMessagesWindowed((prev) => {
         const updated = prev.map((msg) => {
           if (msg.id === messageId && msg.toolCalls) {
-            return {
+            const updatedMsg = {
               ...msg,
               toolCalls: msg.toolCalls.map((tc) => {
                 if (tc.id === toolId) {
@@ -2252,6 +2108,45 @@ export function ChatApp({
                 return tc;
               }),
             };
+
+            // *** DUAL POPULATION: Update ToolPart state ***
+            // Find matching ToolPart by toolCallId
+            const parts = [...(msg.parts ?? [])];
+            const toolPartIdx = parts.findIndex(
+              p => p.type === "tool" && (p as ToolPart).toolCallId === toolId
+            );
+
+            if (toolPartIdx >= 0) {
+              const toolPart = parts[toolPartIdx] as ToolPart;
+              
+              // Compute durationMs from startedAt if available
+              let durationMs = 0;
+              if (toolPart.state.status === "running") {
+                durationMs = Date.now() - new Date(toolPart.state.startedAt).getTime();
+              }
+
+              // Merge input if provided (handles late input from OpenCode)
+              const updatedInput = (input && Object.keys(toolPart.input).length === 0)
+                ? input
+                : toolPart.input;
+
+              // Create new state based on success/error
+              const newState: ToolState = success
+                ? { status: "completed", output, durationMs }
+                : { status: "error", error: error || "Unknown error", output };
+
+              // Update the ToolPart
+              parts[toolPartIdx] = {
+                ...toolPart,
+                input: updatedInput,
+                output,
+                state: newState,
+              };
+
+              updatedMsg.parts = parts;
+            }
+
+            return updatedMsg;
           }
           return msg;
         });
@@ -2274,55 +2169,40 @@ export function ChatApp({
 
     // Update persistent todo panel when TodoWrite completes (handles late input)
     if (input && input.todos && Array.isArray(input.todos)) {
-      const todos = normalizeTodoItems(input.todos);
+      const todos = mergeBlockedBy(normalizeTodoItems(input.todos), todoItemsRef.current);
       todoItemsRef.current = todos;
       setTodoItems(todos);
+      const taskStreamPinned = Boolean(ralphSessionIdRef.current);
 
-      // Persist to tasks.json when ralph workflow is active (handles SDKs
-      // that only provide TodoWrite input at tool.complete time)
-      if (ralphSessionIdRef.current) {
+      // Persist to tasks.json only when the items are ralph task updates
+      if (ralphSessionIdRef.current && isRalphTaskUpdate(todos)) {
         void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
       }
+
+      if (messageId) {
+        setMessagesWindowed((prev) =>
+          prev.map((msg) =>
+            msg.id === messageId
+              ? {
+                  ...msg,
+                  tasksPinned: msg.tasksPinned ?? taskStreamPinned,
+                }
+              : msg
+          )
+        );
+      }
     }
-  }, [streamingState]);
+  }, [streamingState, isRalphTaskUpdate]);
 
   /**
    * Handle skill invoked event from SDK.
-   * Adds a SkillLoadIndicator entry to the current streaming message.
+   * Skill events are represented via normal tool.start/tool.complete rendering.
    */
   const handleSkillInvoked = useCallback((
-    skillName: string,
+    _skillName: string,
     _skillPath?: string
   ) => {
-    // Only show "loaded" indicator on the first invocation per session
-    if (loadedSkillsRef.current.has(skillName)) return;
-    loadedSkillsRef.current.add(skillName);
-
-    const skillLoad: MessageSkillLoad = {
-      skillName,
-      status: "loaded",
-    };
-    const messageId = streamingMessageIdRef.current;
-    setMessagesWindowed((prev) => {
-      if (messageId) {
-        return prev.map((msg) =>
-          msg.id === messageId
-            ? { ...msg, skillLoads: [...(msg.skillLoads || []), skillLoad] }
-            : msg
-        );
-      }
-      // No streaming message — attach to last assistant message or create one
-      const lastMsg = prev[prev.length - 1];
-      if (lastMsg && lastMsg.role === "assistant") {
-        return [
-          ...prev.slice(0, -1),
-          { ...lastMsg, skillLoads: [...(lastMsg.skillLoads || []), skillLoad] },
-        ];
-      }
-      const msg = createMessage("assistant", "");
-      msg.skillLoads = [skillLoad];
-      return [...prev, msg];
-    });
+    // No-op: skill.invoked is intentionally not rendered as a separate indicator.
   }, []);
 
   // Register tool event handlers with parent component
@@ -2398,9 +2278,11 @@ export function ChatApp({
               setMessagesWindowed((prev) => {
                 const lastMsg = prev[prev.length - 1];
                 if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
+                  // Dual population: update both legacy content and parts array
+                  const withParts = handleTextDelta(lastMsg, chunk);
                   return [
                     ...prev.slice(0, -1),
-                    { ...lastMsg, content: lastMsg.content + chunk },
+                    { ...lastMsg, content: lastMsg.content + chunk, parts: withParts.parts },
                   ];
                 }
                 // Create new streaming message
@@ -2424,11 +2306,13 @@ export function ChatApp({
               // Finalize any still-running parallel agents and bake into message
               setParallelAgents((currentAgents) => {
                 if (currentAgents.length > 0) {
-                  const finalizedAgents = currentAgents.map((a) =>
-                    a.status === "running" || a.status === "pending"
+                  const finalizedAgents = currentAgents.map((a) => {
+                    // Skip background agents — they must not be finalized on stream completion
+                    if (a.background) return a;
+                    return a.status === "running" || a.status === "pending"
                       ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                      : a
-                  );
+                      : a;
+                  });
                   // Bake finalized agents into the message
                   setMessagesWindowed((prev) => {
                     const lastMsg = prev[prev.length - 1];
@@ -2457,7 +2341,12 @@ export function ChatApp({
                 return currentAgents;
               });
               streamingMessageIdRef.current = null;
+              streamingStartRef.current = null;
+              streamingMetaRef.current = null;
+              isStreamingRef.current = false;
               setIsStreaming(false);
+              setStreamingMeta(null);
+              hasRunningToolRef.current = false;
             },
             // onMeta: update streaming metadata
             (meta: StreamingMeta) => {
@@ -2468,7 +2357,10 @@ export function ChatApp({
           } catch (error) {
             // Prevent unhandled errors from crashing the TUI
             console.error("[workflow auto-start] Error during context clear or streaming:", error);
+            isStreamingRef.current = false;
             setIsStreaming(false);
+            setStreamingMeta(null);
+            hasRunningToolRef.current = false;
           }
         })();
       }, 100);
@@ -2505,14 +2397,16 @@ export function ChatApp({
   /**
    * Handle permission/HITL request from SDK.
    * Converts the SDK event to a UserQuestion and shows the dialog.
+   * Also sets pendingQuestion on the matching ToolPart for inline rendering.
    */
   const handlePermissionRequest = useCallback((
-    _requestId: string,
+    requestId: string,
     toolName: string,
     question: string,
     options: Array<{ label: string; value: string; description?: string }>,
     respond: (answer: string | string[]) => void,
-    header?: string
+    header?: string,
+    toolCallId?: string
   ) => {
     // During Ralph autonomous execution, auto-approve permission requests
     if (workflowState.workflowActive) {
@@ -2537,7 +2431,7 @@ export function ChatApp({
       multiSelect: false,
     };
 
-    // Show the question dialog
+    // Show the question dialog (custom UI overlay)
     handleHumanInputRequired(userQuestion);
   }, [handleHumanInputRequired, workflowState.workflowActive]);
 
@@ -2617,6 +2511,64 @@ export function ChatApp({
     }
   }, [registerParallelAgentHandler]);
 
+  // Keep live sub-agent updates anchored to the active streaming message so
+  // they render in-order inside chat scrollback instead of as a last-row overlay.
+  // Also handles background agent completion updates after stream ends.
+  useEffect(() => {
+    if (parallelAgents.length === 0) return;
+
+    // During streaming: bake into the active streaming message
+    const messageId = streamingMessageIdRef.current;
+    if (messageId) {
+      setMessagesWindowed((prev: ChatMessage[]) =>
+        prev.map((msg: ChatMessage) => {
+          if (msg.id === messageId && msg.streaming) {
+            // DUAL POPULATION: Update legacy parallelAgents field AND parts[] array
+            // Find existing AgentPart or create new one
+            const existingAgentPartIdx = (msg.parts ?? []).findIndex(p => p.type === "agent");
+            const agentPart: AgentPart = existingAgentPartIdx >= 0
+              ? { ...(msg.parts![existingAgentPartIdx] as AgentPart), agents: parallelAgents }
+              : { id: createPartId(), type: "agent", agents: parallelAgents, createdAt: new Date().toISOString() };
+            const updatedParts = upsertPart(msg.parts ?? [], agentPart);
+            
+            return { ...msg, parallelAgents, parts: updatedParts };
+          }
+          return msg;
+        })
+      );
+      return;
+    }
+
+    // After stream ends: update baked message for background agent completions
+    const bgMsgId = backgroundAgentMessageIdRef.current;
+    if (bgMsgId) {
+      setMessagesWindowed((prev: ChatMessage[]) =>
+        prev.map((msg: ChatMessage) => {
+          if (msg.id === bgMsgId) {
+            // DUAL POPULATION: Update legacy parallelAgents field AND parts[] array
+            // Find existing AgentPart or create new one
+            const existingAgentPartIdx = (msg.parts ?? []).findIndex(p => p.type === "agent");
+            const agentPart: AgentPart = existingAgentPartIdx >= 0
+              ? { ...(msg.parts![existingAgentPartIdx] as AgentPart), agents: parallelAgents }
+              : { id: createPartId(), type: "agent", agents: parallelAgents, createdAt: new Date().toISOString() };
+            const updatedParts = upsertPart(msg.parts ?? [], agentPart);
+            
+            return { ...msg, parallelAgents, parts: updatedParts };
+          }
+          return msg;
+        })
+      );
+      // Clear refs once all background agents have reached terminal state
+      const hasActiveBg = parallelAgents.some(
+        (a) => a.background && a.status === "background"
+      );
+      if (!hasActiveBg) {
+        backgroundAgentMessageIdRef.current = null;
+        streamingStartRef.current = null;
+      }
+    }
+  }, [parallelAgents, setMessagesWindowed]);
+
   // When all sub-agents/tools finish and a dequeue was deferred, trigger it.
   // This fires whenever parallelAgents changes (from SDK events OR interrupt handler)
   // or when tools complete (via toolCompletionVersion).
@@ -2624,7 +2576,10 @@ export function ChatApp({
     const hasActive = parallelAgents.some(
       (a) => a.status === "running" || a.status === "pending"
     );
-    // Also check if tools are still running
+    // Also check if tools are still running.
+    // Background agents are excluded — they must not block spinner
+    // termination. They continue running after the main stream ends
+    // and their progress is tracked separately via hasActiveBackgroundAgents.
     if (hasActive || hasRunningToolRef.current) return;
 
     if (pendingCompleteRef.current) {
@@ -2648,16 +2603,17 @@ export function ChatApp({
       const durationMs = streamingStartRef.current
         ? Date.now() - streamingStartRef.current
         : undefined;
-      const finalizedAgents = parallelAgents.map((a) =>
-        a.status === "running" || a.status === "pending"
+      const finalizedAgents = parallelAgents.map((a) => {
+        if (a.background) return a;
+        return a.status === "running" || a.status === "pending"
           ? {
             ...a,
             status: "completed" as const,
             currentTool: undefined,
             durationMs: Date.now() - new Date(a.startedAt).getTime(),
           }
-          : a
-      );
+          : a;
+      });
 
       // Collect sub-agent result text into the message content so it
       // renders in the main conversation (like Claude Code's Task tool).
@@ -2682,14 +2638,23 @@ export function ChatApp({
         )
       );
       streamingMessageIdRef.current = null;
-      streamingStartRef.current = null;
       streamingMetaRef.current = null;
       isStreamingRef.current = false;
       isAgentOnlyStreamRef.current = false;
       setIsStreaming(false);
       setStreamingMeta(null);
-      setParallelAgents([]);
-      parallelAgentsRef.current = [];
+      hasRunningToolRef.current = false;
+      // Keep background agents in live state for post-stream completion tracking
+      const remainingBg = parallelAgents.filter((a) => a.background && a.status === "background");
+      if (remainingBg.length > 0 && messageId) {
+        backgroundAgentMessageIdRef.current = messageId;
+        setParallelAgents(remainingBg);
+        parallelAgentsRef.current = remainingBg;
+      } else {
+        streamingStartRef.current = null;
+        setParallelAgents([]);
+        parallelAgentsRef.current = [];
+      }
 
       // Drain the message queue — the agent-only path doesn't go through
       // the SDK handleComplete callback, so we must dequeue here.
@@ -2770,8 +2735,7 @@ export function ChatApp({
       }
     }
 
-    // Store the user's answer on the HITL tool call so it renders inline
-    // in the chat history via CompletedQuestionDisplay.
+    // Store the user's answer on the HITL tool call so it renders inline.
     let answerStoredOnToolCall = false;
     if (activeHitlToolCallIdRef.current) {
       const hitlToolId = activeHitlToolCallIdRef.current;
@@ -2780,28 +2744,56 @@ export function ChatApp({
 
       setMessagesWindowed((prev) =>
         prev.map((msg) => {
-          if (!msg.toolCalls?.some(tc => tc.id === hitlToolId)) return msg;
-          return {
-            ...msg,
-            toolCalls: msg.toolCalls!.map((tc) =>
-              tc.id === hitlToolId
-                ? {
-                    ...tc,
-                    output: {
-                      ...(tc.output && typeof tc.output === "object"
-                        ? tc.output as Record<string, unknown>
-                        : {}),
-                      answer: normalizedHitl.answerText,
-                      cancelled: normalizedHitl.cancelled,
-                      responseMode: normalizedHitl.responseMode,
-                      displayText: normalizedHitl.displayText,
-                    },
-                    hitlResponse: normalizedHitl,
-                    contentOffsetAtStart: msg.content.length,
-                  }
-                : tc
-            ),
-          };
+          // Update legacy toolCalls array
+          const hasMatchingToolCall = msg.toolCalls?.some(tc => tc.id === hitlToolId);
+          const updatedToolCalls = hasMatchingToolCall
+            ? msg.toolCalls!.map((tc) =>
+                tc.id === hitlToolId
+                  ? {
+                      ...tc,
+                      output: {
+                        ...(tc.output && typeof tc.output === "object"
+                          ? tc.output as Record<string, unknown>
+                          : {}),
+                        answer: normalizedHitl.answerText,
+                        cancelled: normalizedHitl.cancelled,
+                        responseMode: normalizedHitl.responseMode,
+                        displayText: normalizedHitl.displayText,
+                      },
+                      hitlResponse: normalizedHitl,
+                    }
+                  : tc
+              )
+            : msg.toolCalls;
+
+          // Update parts array: clear pendingQuestion and set hitlResponse on matching ToolPart
+          let updatedParts = msg.parts;
+          if (msg.parts && msg.parts.length > 0) {
+            const parts = [...msg.parts];
+            const toolPartIdx = parts.findIndex(
+              p => p.type === "tool" && (p as ToolPart).toolCallId === hitlToolId
+            );
+
+            if (toolPartIdx >= 0) {
+              const toolPart = parts[toolPartIdx] as ToolPart;
+              parts[toolPartIdx] = {
+                ...toolPart,
+                pendingQuestion: undefined, // Clear the pending question
+                hitlResponse: normalizedHitl, // Set the response
+              };
+              updatedParts = parts;
+            }
+          }
+
+          // Return updated message if anything changed
+          if (updatedToolCalls !== msg.toolCalls || updatedParts !== msg.parts) {
+            return {
+              ...msg,
+              toolCalls: updatedToolCalls,
+              parts: updatedParts,
+            };
+          }
+          return msg;
         })
       );
     }
@@ -3040,11 +3032,6 @@ export function ChatApp({
     handleInputChange(value, cursorOffset);
     syncInputScrollbar();
 
-    // Clear resume suggestion when user starts typing
-    if (value.length > 0) {
-      setResumeSuggestion(null);
-    }
-
     // Apply slash command highlighting
     if (textarea) {
       textarea.removeHighlightsByRef(HLREF_COMMAND);
@@ -3238,11 +3225,14 @@ export function ChatApp({
             const messageId = streamingMessageIdRef.current;
             if (messageId) {
               setMessagesWindowed((prev: ChatMessage[]) =>
-                prev.map((msg: ChatMessage) =>
-                  msg.id === messageId
-                    ? { ...msg, content: msg.content + chunk }
-                    : msg
-                )
+                prev.map((msg: ChatMessage) => {
+                  if (msg.id === messageId) {
+                    // Dual population: update both legacy content and parts array
+                    const withParts = handleTextDelta(msg, chunk);
+                    return { ...msg, content: msg.content + chunk, parts: withParts.parts };
+                  }
+                  return msg;
+                })
               );
             }
           };
@@ -3301,10 +3291,13 @@ export function ChatApp({
               return;
             }
 
-            // If sub-agents or tools are still running, defer finalization and queue
-            // processing until they complete (preserves correct state).
+            // If foreground sub-agents or tools are still running, defer
+            // finalization until they complete (preserves correct state).
+            // Background agents are excluded — they must not block completion;
+            // they continue running after the main stream ends and are tracked
+            // separately via hasActiveBackgroundAgents.
             const hasActiveAgents = parallelAgentsRef.current.some(
-              (a) => a.status === "running" || a.status === "pending"
+              (a) => (a.status === "running" || a.status === "pending") && shouldFinalizeOnToolComplete(a)
             );
             if (hasActiveAgents || hasRunningToolRef.current) {
               pendingCompleteRef.current = handleComplete;
@@ -3314,11 +3307,12 @@ export function ChatApp({
             // Finalize running parallel agents and bake into message
             setParallelAgents((currentAgents) => {
               const finalizedAgents = currentAgents.length > 0
-                ? currentAgents.map((a) =>
-                  a.status === "running" || a.status === "pending"
+                ? currentAgents.map((a) => {
+                  if (a.background) return a;
+                  return a.status === "running" || a.status === "pending"
                     ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                    : a
-                )
+                    : a;
+                })
                 : undefined;
 
               if (messageId) {
@@ -3343,12 +3337,23 @@ export function ChatApp({
                   )
                 );
               }
-              // Clear live agents
-              return [];
+              // Keep background agents in live state for post-stream completion tracking
+              const remaining = currentAgents.filter((a) => a.background && a.status === "background");
+              if (remaining.length > 0 && messageId) {
+                backgroundAgentMessageIdRef.current = messageId;
+              }
+              return remaining;
             });
 
             streamingMessageIdRef.current = null;
-            streamingStartRef.current = null;
+            // Preserve streamingStartRef when background agents are still running
+            // so the elapsed timer continues tracking total work duration
+            const hasRemainingBg = parallelAgentsRef.current.some(
+              (a) => a.background && a.status === "background"
+            );
+            if (!hasRemainingBg) {
+              streamingStartRef.current = null;
+            }
             streamingMetaRef.current = null;
             isStreamingRef.current = false;
             setIsStreaming(false);
@@ -3440,6 +3445,9 @@ export function ChatApp({
         ralphSessionIdRef.current = id;
         setRalphSessionId(id);
       },
+      setRalphTaskIds: (ids: Set<string>) => {
+        ralphTaskIdsRef.current = ids;
+      },
       updateWorkflowState: (update) => {
         updateWorkflowState(update);
       },
@@ -3504,6 +3512,9 @@ export function ChatApp({
         clearHistoryBuffer();
         setTrimmedMessageCount(0);
         loadedSkillsRef.current.clear();
+        // /clear postcondition contract: messages=[], trimmedMessageCount=0,
+        // transcriptMode=false, historyBuffer=[], compactionSummary=null
+        console.debug("[lifecycle] /clear postconditions: messages=[], trimmedMessageCount=0, transcriptMode=false, historyBuffer=[], compactionSummary=null");
       }
 
       // Handle clearMessages flag — persist history before clearing
@@ -3525,6 +3536,9 @@ export function ChatApp({
       if (result.compactionSummary) {
         setCompactionSummary(result.compactionSummary);
         setShowCompactionHistory(false);
+        // /compact postcondition contract: messages=[], trimmedMessageCount=0,
+        // historyBuffer=[summary marker only], compactionSummary=<summary text>
+        console.debug(`[lifecycle] /compact postconditions: messages=[], trimmedMessageCount=0, historyBuffer=[summary], compactionSummary=${result.compactionSummary?.slice(0, 50)}...`);
       }
 
       // Apply state updates if present
@@ -3563,32 +3577,6 @@ export function ChatApp({
         addMessage("assistant", result.message);
       }
 
-      // Track skill load in message for UI indicator (only on first successful load per session;
-      // errors are always shown so the user sees the failure)
-      if (result.skillLoaded && (result.skillLoadError || !loadedSkillsRef.current.has(result.skillLoaded))) {
-        if (!result.skillLoadError) {
-          loadedSkillsRef.current.add(result.skillLoaded);
-        }
-        const skillLoad: MessageSkillLoad = {
-          skillName: result.skillLoaded,
-          status: result.skillLoadError ? "error" : "loaded",
-          errorMessage: result.skillLoadError,
-        };
-        setMessagesWindowed((prev) => {
-          const lastMsg = prev[prev.length - 1];
-          if (lastMsg && lastMsg.role === "assistant") {
-            return [
-              ...prev.slice(0, -1),
-              { ...lastMsg, skillLoads: [...(lastMsg.skillLoads || []), skillLoad] },
-            ];
-          }
-          // No assistant message yet — create one with skill load
-          const msg = createMessage("assistant", "");
-          msg.skillLoads = [skillLoad];
-          return [...prev, msg];
-        });
-      }
-
       // Track MCP snapshot in message for UI indicator
       if (result.mcpSnapshot) {
         const mcpSnapshot = result.mcpSnapshot;
@@ -3620,6 +3608,28 @@ export function ChatApp({
           }
           const msg = createMessage("assistant", "");
           msg.contextInfo = contextInfo;
+          return [...prev, msg];
+        });
+      }
+
+      // Track skill load in message for UI indicator (with session-level deduplication)
+      if (result.skillLoaded && !loadedSkillsRef.current.has(result.skillLoaded)) {
+        loadedSkillsRef.current.add(result.skillLoaded);
+        const skillLoad: MessageSkillLoad = {
+          skillName: result.skillLoaded,
+          status: result.skillLoadError ? "error" : "loaded",
+          errorMessage: result.skillLoadError,
+        };
+        setMessagesWindowed((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg && lastMsg.role === "assistant") {
+            return [
+              ...prev.slice(0, -1),
+              { ...lastMsg, skillLoads: [...(lastMsg.skillLoads || []), skillLoad] },
+            ];
+          }
+          const msg = createMessage("assistant", "");
+          msg.skillLoads = [skillLoad];
           return [...prev, msg];
         });
       }
@@ -3674,6 +3684,7 @@ export function ChatApp({
         isStreamingRef.current = false;
         setIsStreaming(false);
         streamingStartRef.current = null;
+        hasRunningToolRef.current = false;
       }
 
       onCommandExecutionTelemetry?.({
@@ -3693,6 +3704,7 @@ export function ChatApp({
         setMessagesWindowed((prev) => prev.filter((msg) => msg.id !== msgId));
         isStreamingRef.current = false;
         setIsStreaming(false);
+        hasRunningToolRef.current = false;
         streamingStartRef.current = null;
       }
       // Handle execution error (as assistant message, not system)
@@ -3949,6 +3961,7 @@ export function ChatApp({
             // Stop streaming state immediately so UI reflects interrupted state
             isStreamingRef.current = false;
             setIsStreaming(false);
+            hasRunningToolRef.current = false;
 
             // Sub-agent cancellation handled by SDK session interrupt
 
@@ -3964,14 +3977,6 @@ export function ChatApp({
                 workflowType: null,
                 initialPrompt: null,
               });
-            }
-
-            // If ralph has remaining tasks, suggest resume command in chatbox
-            if (ralphSessionIdRef.current) {
-              const remaining = todoItemsRef.current.filter(t => t.status !== "completed");
-              if (remaining.length > 0) {
-                setResumeSuggestion(`/ralph --resume ${ralphSessionIdRef.current}`);
-              }
             }
 
             setInterruptCount(0);
@@ -4211,13 +4216,6 @@ export function ChatApp({
               });
             }
 
-            // If ralph has remaining tasks, suggest resume command in chatbox
-            if (ralphSessionIdRef.current) {
-              const remaining = todoItemsRef.current.filter(t => t.status !== "completed");
-              if (remaining.length > 0) {
-                setResumeSuggestion(`/ralph --resume ${ralphSessionIdRef.current}`);
-              }
-            }
             return;
           }
 
@@ -4467,21 +4465,6 @@ export function ChatApp({
           return;
         }
 
-        // Tab: auto-complete resume suggestion when input is empty
-        if (event.name === "tab" && resumeSuggestion && !workflowState.showAutocomplete) {
-          const textarea = textareaRef.current;
-          const inputValue = textarea?.plainText ?? "";
-          if (inputValue.trim() === "" && textarea) {
-            textarea.gotoBufferHome();
-            textarea.gotoBufferEnd({ select: true });
-            textarea.deleteChar();
-            textarea.insertText(resumeSuggestion);
-            setResumeSuggestion(null);
-            event.stopPropagation();
-            return;
-          }
-        }
-
         // Autocomplete: Tab - complete the selected command
         if (event.name === "tab" && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
           const selectedCommand = autocompleteSuggestions[workflowState.selectedSuggestionIndex];
@@ -4643,7 +4626,7 @@ export function ChatApp({
           syncInputScrollbar();
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer, resumeSuggestion, emitMessageSubmitTelemetry]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer, emitMessageSubmitTelemetry]
     )
   );
 
@@ -4715,11 +4698,14 @@ export function ChatApp({
           const messageId = streamingMessageIdRef.current;
           if (messageId) {
             setMessagesWindowed((prev: ChatMessage[]) =>
-              prev.map((msg: ChatMessage) =>
-                msg.id === messageId
-                  ? { ...msg, content: msg.content + chunk }
-                  : msg
-              )
+              prev.map((msg: ChatMessage) => {
+                if (msg.id === messageId) {
+                  // Dual population: update both legacy content and parts array
+                  const withParts = handleTextDelta(msg, chunk);
+                  return { ...msg, content: msg.content + chunk, parts: withParts.parts };
+                }
+                return msg;
+              })
             );
           }
         };
@@ -4767,12 +4753,15 @@ export function ChatApp({
             return;
           }
 
-          // If sub-agents are still running, defer finalization and queue
-          // processing until they complete (preserves correct state).
+          // If foreground sub-agents or tools are still running, defer
+          // finalization until they complete (preserves correct state).
+          // Background agents are excluded — they must not block completion;
+          // they continue running after the main stream ends and are tracked
+          // separately via hasActiveBackgroundAgents.
           const hasActiveAgents = parallelAgentsRef.current.some(
-            (a) => a.status === "running" || a.status === "pending"
+            (a) => (a.status === "running" || a.status === "pending") && shouldFinalizeOnToolComplete(a)
           );
-          if (hasActiveAgents) {
+          if (hasActiveAgents || hasRunningToolRef.current) {
             pendingCompleteRef.current = handleComplete;
             return;
           }
@@ -4780,11 +4769,12 @@ export function ChatApp({
           // Finalize running parallel agents and bake into message
           setParallelAgents((currentAgents) => {
             const finalizedAgents = currentAgents.length > 0
-              ? currentAgents.map((a) =>
-                a.status === "running" || a.status === "pending"
+              ? currentAgents.map((a) => {
+                if (a.background) return a;
+                return a.status === "running" || a.status === "pending"
                   ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                  : a
-              )
+                  : a;
+              })
               : undefined;
 
             if (messageId) {
@@ -4809,8 +4799,12 @@ export function ChatApp({
                 )
               );
             }
-            // Clear live agents
-            return [];
+            // Keep background agents in live state for post-stream completion tracking
+            const remaining = currentAgents.filter((a) => a.background && a.status === "background");
+            if (remaining.length > 0 && messageId) {
+              backgroundAgentMessageIdRef.current = messageId;
+            }
+            return remaining;
           });
 
           streamingMessageIdRef.current = null;
@@ -4910,11 +4904,6 @@ export function ChatApp({
         return;
       }
 
-      // Clear resume suggestion on submit
-      if (resumeSuggestion) {
-        setResumeSuggestion(null);
-      }
-
       // Line continuation: trailing \ before Enter inserts a newline instead of submitting.
       // This serves as a universal fallback for terminals where Shift+Enter
       // sends "\" followed by Enter (e.g., VSCode integrated terminal).
@@ -4971,6 +4960,7 @@ export function ChatApp({
         setRalphSessionId(null);
         ralphSessionDirRef.current = null;
         ralphSessionIdRef.current = null;
+        ralphTaskIdsRef.current = new Set();
         todoItemsRef.current = [];
         setTodoItems([]);
       }
@@ -5027,100 +5017,23 @@ export function ChatApp({
         }
       }
 
-      // Process file @mentions (e.g., @src/file.ts) - prepend file content as context
+      // Process file @mentions (e.g., @src/file.ts) - clean @tokens from message
       const { message: processedValue, filesRead } = processFileMentions(trimmedValue);
-
-      // Display file read confirmations attached to user message (GH issue #162)
-      if (filesRead.length > 0) {
-        // Add user message with filesRead metadata so the UI renders it inline
-        const msg = createMessage("user", trimmedValue);
-        msg.filesRead = filesRead;
-        setMessagesWindowed((prev) => [...prev, msg]);
-
-        // Send processed message without re-adding the user message
-        if (isStreamingRef.current) {
-          // Defer interrupt if sub-agents are active — will fire when they finish
-          const hasActiveSubagents = parallelAgentsRef.current.some(
-            (a) => a.status === "running" || a.status === "pending"
-          );
-          if (hasActiveSubagents) {
-            emitMessageSubmitTelemetry({
-              messageLength: trimmedValue.length,
-              queued: true,
-              fromInitialPrompt: false,
-              hasFileMentions: true,
-              hasAgentMentions: false,
-            });
-            messageQueue.enqueue(processedValue, {
-              skipUserMessage: true,
-              displayContent: trimmedValue,
-            });
-            return;
-          }
-          // No sub-agents — interrupt and inject immediately
-          const interruptedId = streamingMessageIdRef.current;
-          if (interruptedId) {
-            const durationMs = streamingStartRef.current ? Date.now() - streamingStartRef.current : undefined;
-            const finalMeta = streamingMetaRef.current;
-            setMessagesWindowed((prev) =>
-              prev.map((msg2) =>
-                msg2.id === interruptedId
-                  ? {
-                    ...msg2,
-                    streaming: false,
-                    durationMs,
-                    modelId: currentModelRef.current,
-                    outputTokens: finalMeta?.outputTokens,
-                    thinkingMs: finalMeta?.thinkingMs,
-                    thinkingText: finalMeta?.thinkingText || undefined,
-                    toolCalls: msg2.toolCalls?.map((tc) =>
-                      tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                    ),
-                  }
-                  : msg2
-              )
-            );
-          }
-          streamingMessageIdRef.current = null;
-          streamingStartRef.current = null;
-          streamingMetaRef.current = null;
-          isStreamingRef.current = false;
-          setIsStreaming(false);
-          setStreamingMeta(null);
-          onInterrupt?.();
-          emitMessageSubmitTelemetry({
-            messageLength: trimmedValue.length,
-            queued: false,
-            fromInitialPrompt: false,
-            hasFileMentions: true,
-            hasAgentMentions: false,
-          });
-          sendMessage(processedValue, { skipUserMessage: true });
-          return;
-        }
-        emitMessageSubmitTelemetry({
-          messageLength: trimmedValue.length,
-          queued: false,
-          fromInitialPrompt: false,
-          hasFileMentions: true,
-          hasAgentMentions: false,
-        });
-        sendMessage(processedValue, { skipUserMessage: true });
-        return;
-      }
+      const hasFileMentions = filesRead.length > 0;
 
       // If streaming, interrupt: inject immediately unless sub-agents are active
       if (isStreamingRef.current) {
         // Defer interrupt if sub-agents are actively working — fires when they finish
+        // Background agents are excluded — they must not block interrupt.
         const hasActiveSubagents = parallelAgentsRef.current.some(
-          (a) => a.status === "running" || a.status === "pending"
+          (a) => (a.status === "running" || a.status === "pending") && shouldFinalizeOnToolComplete(a)
         );
         if (hasActiveSubagents) {
           emitMessageSubmitTelemetry({
             messageLength: trimmedValue.length,
             queued: true,
             fromInitialPrompt: false,
-            hasFileMentions: false,
+            hasFileMentions,
             hasAgentMentions: false,
           });
           messageQueue.enqueue(processedValue);
@@ -5158,6 +5071,7 @@ export function ChatApp({
         isStreamingRef.current = false;
         setIsStreaming(false);
         setStreamingMeta(null);
+        hasRunningToolRef.current = false;
         // Abort the SDK stream (stale handleComplete is a no-op via generation guard)
         onInterrupt?.();
         // Send immediately — starts a new stream generation
@@ -5165,19 +5079,19 @@ export function ChatApp({
           messageLength: trimmedValue.length,
           queued: false,
           fromInitialPrompt: false,
-          hasFileMentions: false,
+          hasFileMentions,
           hasAgentMentions: false,
         });
         sendMessage(processedValue);
         return;
       }
 
-      // Send the message (no file mentions - normal flow)
+      // Send the message - normal flow
       emitMessageSubmitTelemetry({
         messageLength: trimmedValue.length,
         queued: false,
         fromInitialPrompt: false,
-        hasFileMentions: false,
+        hasFileMentions,
         hasAgentMentions: false,
       });
       sendMessage(processedValue);
@@ -5186,46 +5100,83 @@ export function ChatApp({
   );
 
   // Get the visible messages and hidden transcript count for UI rendering.
+  // Include pending (not yet flushed) eviction count so the indicator is
+  // accurate even before the eviction useEffect commits.
+  const pendingEvictionCount = pendingEvictionsRef.current.reduce((sum, e) => sum + e.count, 0);
   const { visibleMessages, hiddenMessageCount } = computeMessageWindow(
     messages,
-    trimmedMessageCount
+    trimmedMessageCount + pendingEvictionCount
   );
   const renderMessages = visibleMessages;
+
+  // Auto-collapse boundary: messages before this index render as single-line summaries
+  const collapseBoundaryIndex = Math.max(0, renderMessages.length - EXPANDED_MESSAGE_COUNT);
 
   // Render message list (no empty state text)
   const messageContent = renderMessages.length > 0 || hiddenMessageCount > 0 ? (
     <>
       {/* Truncation indicator - shows how many messages are hidden */}
       {hiddenMessageCount > 0 && (
-        <box marginBottom={1} paddingLeft={1}>
+        <box marginBottom={SPACING.ELEMENT} paddingLeft={SPACING.CONTAINER_PAD}>
           <text style={{ fg: themeColors.muted }}>
             ↑ {hiddenMessageCount} earlier message{hiddenMessageCount !== 1 ? "s" : ""} in transcript (ctrl+o)
           </text>
         </box>
       )}
-      {conversationCollapsed && renderMessages.length > 0 && (
-        <box paddingLeft={1} marginBottom={1}>
-          <text style={{ fg: themeColors.dim }}>
-            {"─".repeat(3)} {renderMessages.length} message{renderMessages.length !== 1 ? "s" : ""} collapsed {"─".repeat(3)}
-          </text>
-        </box>
-      )}
-      {renderMessages.map((msg, index) => (
+      {/* Collapsed messages (older, auto-collapsed to single-line summaries) */}
+      {renderMessages.slice(0, collapseBoundaryIndex).map((msg) => {
+        const msgHasActiveBg = (msg.parallelAgents ?? []).some(
+          (a) => a.background && a.status === "background"
+        );
+        const showLive = msg.streaming || msgHasActiveBg;
+        return (
         <MessageBubble
           key={msg.id}
           message={msg}
-          isLast={index === renderMessages.length - 1}
+          isLast={false}
           syntaxStyle={markdownSyntaxStyle}
           hideAskUserQuestion={activeQuestion !== null}
           hideLoading={activeQuestion !== null}
-          parallelAgents={index === renderMessages.length - 1 ? parallelAgents : undefined}
           todoItems={msg.streaming ? todoItems : undefined}
-          elapsedMs={msg.streaming ? streamingElapsedMs : undefined}
+          elapsedMs={showLive ? streamingElapsedMs : undefined}
           streamingMeta={msg.streaming ? streamingMeta : null}
-          collapsed={conversationCollapsed}
+          collapsed={!showLive}
           tasksExpanded={tasksExpanded}
+          inlineTasksEnabled={!ralphSessionDir}
         />
-      ))}
+        );
+      })}
+      {/* Separator between collapsed and expanded sections */}
+      {collapseBoundaryIndex > 0 && (
+        <box paddingLeft={SPACING.CONTAINER_PAD} marginBottom={SPACING.ELEMENT}>
+          <text style={{ fg: themeColors.dim }}>
+            {"─".repeat(3)} {collapseBoundaryIndex} earlier {"─".repeat(3)}
+          </text>
+        </box>
+      )}
+      {/* Expanded messages (recent, full rendering) */}
+      {renderMessages.slice(collapseBoundaryIndex).map((msg, index) => {
+        const msgHasActiveBg = (msg.parallelAgents ?? []).some(
+          (a) => a.background && a.status === "background"
+        );
+        const showLive = msg.streaming || msgHasActiveBg;
+        return (
+        <MessageBubble
+          key={msg.id}
+          message={msg}
+          isLast={collapseBoundaryIndex + index === renderMessages.length - 1}
+          syntaxStyle={markdownSyntaxStyle}
+          hideAskUserQuestion={activeQuestion !== null}
+          hideLoading={activeQuestion !== null}
+          todoItems={msg.streaming ? todoItems : undefined}
+          elapsedMs={showLive ? streamingElapsedMs : undefined}
+          streamingMeta={msg.streaming ? streamingMeta : null}
+          collapsed={false}
+          tasksExpanded={tasksExpanded}
+          inlineTasksEnabled={!ralphSessionDir}
+        />
+        );
+      })}
     </>
   ) : null;
 
@@ -5256,27 +5207,6 @@ export function ChatApp({
         />
       ) : (
       <box flexDirection="column" flexGrow={1}>
-      {/* Compaction History - shows expanded compaction summary */}
-      {showCompactionHistory && compactionSummary && parallelAgents.length === 0 && (
-        <box flexDirection="column" paddingLeft={2} paddingRight={2} marginTop={1} marginBottom={1}>
-          <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.muted} paddingLeft={1} paddingRight={1}>
-            <text style={{ fg: themeColors.muted }} attributes={1}>Compaction Summary</text>
-            <text style={{ fg: themeColors.foreground }} wrapMode="char" selectable>{compactionSummary}</text>
-          </box>
-        </box>
-      )}
-
-      {/* Todo Panel - shows persistent summary from TodoWrite (Ctrl+T to toggle) */}
-      {/* Hidden during streaming — the inline TaskListIndicator under the spinner handles it */}
-      {/* Shows only summary line after streaming to avoid render artifacts with bordered boxes */}
-      {showTodoPanel && !isStreaming && todoItems.length > 0 && (
-        <box flexDirection="column" paddingLeft={2} paddingRight={2} marginBottom={1}>
-          <text style={{ fg: themeColors.muted }}>
-            {`${CHECKBOX.checked} ${todoItems.length} tasks (${todoItems.filter(t => t.status === "completed").length} done, ${todoItems.filter(t => t.status !== "completed").length} open) ${MISC.separator} ctrl+t to hide`}
-          </text>
-        </box>
-      )}
-
       {/* Message display area - scrollable chat history */}
       {/* Text can be selected with mouse and copied with Ctrl+C */}
       <scrollbox
@@ -5288,12 +5218,22 @@ export function ChatApp({
         scrollY={true}
         scrollX={false}
         viewportCulling={false}
-        paddingLeft={1}
-        paddingRight={1}
+        paddingLeft={SPACING.CONTAINER_PAD}
+        paddingRight={SPACING.CONTAINER_PAD}
         verticalScrollbarOptions={{ visible: false }}
         horizontalScrollbarOptions={{ visible: false }}
         scrollAcceleration={scrollAcceleration}
       >
+        {/* Compaction History - inline within scrollbox */}
+        {showCompactionHistory && compactionSummary && parallelAgents.length === 0 && (
+          <box flexDirection="column" paddingLeft={SPACING.CONTAINER_PAD} paddingRight={SPACING.CONTAINER_PAD} marginTop={SPACING.ELEMENT} marginBottom={SPACING.ELEMENT}>
+            <box flexDirection="column" border borderStyle="rounded" borderColor={themeColors.muted} paddingLeft={SPACING.CONTAINER_PAD} paddingRight={SPACING.CONTAINER_PAD}>
+              <text style={{ fg: themeColors.muted }} attributes={1}>Compaction Summary</text>
+              <text style={{ fg: themeColors.foreground }} wrapMode="char" selectable>{compactionSummary}</text>
+            </box>
+          </box>
+        )}
+
         {/* Messages */}
         {messageContent}
 
@@ -5319,7 +5259,7 @@ export function ChatApp({
 
         {/* Queue Indicator - shows pending queued messages */}
         {messageQueue.count > 0 && (
-          <box marginTop={1}>
+          <box marginTop={SPACING.ELEMENT}>
             <QueueIndicator
               count={messageQueue.count}
               queue={messageQueue.queue}
@@ -5341,11 +5281,9 @@ export function ChatApp({
               border
               borderStyle="rounded"
               borderColor={themeColors.inputFocus}
-              paddingLeft={1}
-              paddingRight={1}
-              marginLeft={1}
-              marginRight={1}
-              marginTop={messages.length > 0 ? 1 : 0}
+              paddingLeft={SPACING.CONTAINER_PAD}
+              paddingRight={SPACING.CONTAINER_PAD}
+              marginTop={messages.length > 0 ? SPACING.ELEMENT : SPACING.NONE}
               flexDirection="row"
               alignItems="flex-start"
               flexShrink={0}
@@ -5353,7 +5291,7 @@ export function ChatApp({
               <text flexShrink={0} style={{ fg: themeColors.accent }}>{PROMPT.cursor}{" "}</text>
               <textarea
                 ref={textareaRef}
-                placeholder={resumeSuggestion ? `${resumeSuggestion}  (tab to complete)` : (messages.length === 0 ? dynamicPlaceholder : "")}
+                placeholder={messages.length === 0 ? dynamicPlaceholder : ""}
                 focused={inputFocused}
                 keyBindings={textareaKeyBindings}
                 syntaxStyle={inputSyntaxStyle}
@@ -5374,7 +5312,7 @@ export function ChatApp({
               )}
               {workflowState.argumentHint && <box flexGrow={1} />}
               {inputScrollbar.visible && (
-                <box flexDirection="column" marginLeft={1}>
+                <box flexDirection="column" marginLeft={SPACING.ELEMENT}>
                   {Array.from({ length: inputScrollbar.viewportHeight }).map((_, i) => {
                     const inThumb = i >= inputScrollbar.thumbTop
                       && i < inputScrollbar.thumbTop + inputScrollbar.thumbSize;
@@ -5392,7 +5330,7 @@ export function ChatApp({
             </box>
             {/* Streaming hints - shows "esc to interrupt" and "ctrl+d enqueue" during streaming */}
             {isStreaming ? (
-              <box paddingLeft={2} flexDirection="row" gap={1} flexShrink={0}>
+              <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
                 <text style={{ fg: themeColors.muted }}>
                   esc to interrupt
                 </text>
@@ -5407,7 +5345,7 @@ export function ChatApp({
 
         {/* Autocomplete dropdown for slash commands and @ mentions */}
         {workflowState.showAutocomplete && (
-          <box marginTop={0} marginBottom={0} marginLeft={1} marginRight={1}>
+          <box marginTop={SPACING.NONE} marginBottom={SPACING.NONE}>
             <Autocomplete
               input={workflowState.autocompleteInput}
               visible={workflowState.showAutocomplete}
@@ -5422,7 +5360,7 @@ export function ChatApp({
 
         {/* Ctrl+C warning message */}
         {ctrlCPressed && (
-          <box paddingLeft={2} flexShrink={0}>
+          <box paddingLeft={1} flexShrink={0}>
             <text style={{ fg: themeColors.muted }}>
               Press Ctrl-C again to exit
             </text>
@@ -5434,7 +5372,6 @@ export function ChatApp({
       {ralphSessionDir && showTodoPanel && (
         <TaskListPanel
           sessionDir={ralphSessionDir}
-          sessionId={ralphSessionId}
           expanded={tasksExpanded}
         />
       )}

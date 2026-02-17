@@ -22,31 +22,31 @@ test("reconcileScmVariants keeps Sapling variants and removes managed GitHub var
   try {
     const configRoot = join(root, "config");
     const targetDir = join(root, "target");
-    const sourceDir = join(configRoot, ".claude", "commands");
-    const targetCommandsDir = join(targetDir, ".claude", "commands");
+    const sourceDir = join(configRoot, ".claude", "skills");
+    const targetSkillsDir = join(targetDir, ".claude", "skills");
 
-    for (const file of ["gh-commit.md", "gh-create-pr.md", "sl-commit.md", "sl-submit-diff.md"]) {
-      await makeFile(join(sourceDir, file));
-      await makeFile(join(targetCommandsDir, file));
+    for (const skill of ["gh-commit", "gh-create-pr", "sl-commit", "sl-submit-diff"]) {
+      await makeSkillDir(sourceDir, skill);
+      await makeSkillDir(targetSkillsDir, skill);
     }
 
-    await makeFile(join(targetCommandsDir, "custom-command.md"));
-    await makeFile(join(targetCommandsDir, "gh-user-custom.md"));
+    await makeSkillDir(targetSkillsDir, "custom-command");
+    await makeSkillDir(targetSkillsDir, "gh-user-custom");
 
     await reconcileScmVariants({
       scmType: "sapling-phabricator",
       agentFolder: ".claude",
-      commandsSubfolder: "commands",
+      skillsSubfolder: "skills",
       targetDir,
       configRoot,
     });
 
-    expect(existsSync(join(targetCommandsDir, "sl-commit.md"))).toBe(true);
-    expect(existsSync(join(targetCommandsDir, "sl-submit-diff.md"))).toBe(true);
-    expect(existsSync(join(targetCommandsDir, "gh-commit.md"))).toBe(false);
-    expect(existsSync(join(targetCommandsDir, "gh-create-pr.md"))).toBe(false);
-    expect(existsSync(join(targetCommandsDir, "custom-command.md"))).toBe(true);
-    expect(existsSync(join(targetCommandsDir, "gh-user-custom.md"))).toBe(true);
+    expect(existsSync(join(targetSkillsDir, "sl-commit"))).toBe(true);
+    expect(existsSync(join(targetSkillsDir, "sl-submit-diff"))).toBe(true);
+    expect(existsSync(join(targetSkillsDir, "gh-commit"))).toBe(false);
+    expect(existsSync(join(targetSkillsDir, "gh-create-pr"))).toBe(false);
+    expect(existsSync(join(targetSkillsDir, "custom-command"))).toBe(true);
+    expect(existsSync(join(targetSkillsDir, "gh-user-custom"))).toBe(true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -72,7 +72,7 @@ test("reconcileScmVariants handles directory-based Copilot skills", async () => 
     await reconcileScmVariants({
       scmType: "github",
       agentFolder: ".github",
-      commandsSubfolder: "skills",
+      skillsSubfolder: "skills",
       targetDir,
       configRoot,
     });
@@ -99,7 +99,7 @@ test("reconcileScmVariants is a no-op when source or target directory is missing
       reconcileScmVariants({
         scmType: "github",
         agentFolder: ".opencode",
-        commandsSubfolder: "command",
+        skillsSubfolder: "skills",
         targetDir,
         configRoot,
       })

@@ -16,7 +16,13 @@ import type {
     CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import {
+    existsSync,
+    mkdirSync,
+    readdirSync,
+    readFileSync,
+    writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { parseMarkdownFrontmatter } from "../../utils/markdown.ts";
@@ -24,18 +30,6 @@ import { parseMarkdownFrontmatter } from "../../utils/markdown.ts";
 // ============================================================================
 // TYPES
 // ============================================================================
-
-/**
- * Metadata for a skill command definition.
- */
-export interface SkillMetadata {
-    /** Skill name (without leading slash) - used as command name */
-    name: string;
-    /** Human-readable description */
-    description: string;
-    /** Alternative names for the skill */
-    aliases?: string[];
-}
 
 /**
  * Built-in skill definition with embedded prompt content.
@@ -85,7 +79,10 @@ The user's research question/request is: **$ARGUMENTS**
 
 ## Steps to follow after receiving the research query:
 
-IMPORTANT: OPTIMIZE the user's research question request using your prompt-engineer skill and confirm that the your refined question captures the user's intent BEFORE proceeding using the \`AskUserQuestion\` tool.
+<EXTREMELY_IMPORTANT>
+- OPTIMIZE the user's research question request using your prompt-engineer skill and confirm that the your refined question captures the user's intent BEFORE proceeding using the \`AskUserQuestion\` tool.
+- After research is complete and the research artifact(s) are generated, provide an executive summary of the research and path to the research document(s) to the user, and ask if they have any follow-up questions or need clarification.
+</EXTREMELY_IMPORTANT>
 
 1. **Read any directly mentioned files first:**
    - If the user mentions specific files (tickets, docs, or other notes), read them FULLY first
@@ -288,7 +285,11 @@ research/
         prompt: `You are tasked with creating a spec for implementing a new feature or system change in the codebase by leveraging existing research in the **$ARGUMENTS** path. If no research path is specified, use the entire \`research/\` directory. IMPORTANT: Research documents are located in the \`research/\` directory — do NOT look in the \`specs/\` directory for research. Follow the template below to produce a comprehensive specification as output in the \`specs/\` folder using the findings from RELEVANT research documents found in \`research/\`. Tip: It's good practice to use the \`codebase-research-locator\` and \`codebase-research-analyzer\` agents to help you find and analyze the research documents in the \`research/\` directory. It is also HIGHLY recommended to cite relevant research throughout the spec for additional context.
 
 <EXTREMELY_IMPORTANT>
-Please DO NOT implement anything in this stage, just create the comprehensive spec as described below.
+- Please DO NOT implement anything in this stage, just create the comprehensive spec as described below.
+- When writing the spec, DO NOT include information about concrete dates/timelines (e.g. # minutes, hours, days, weeks, etc.) and favor explicit phases (e.g. Phase 1, Phase 2, etc.).
+- Once the spec is generated, refer to the section, "## 9. Open Questions / Unresolved Issues", go through each question one by one, and ask the user for clarification with your ask question tool while providing them with suggested options. Update the spec with the user's answers as you walk through the questions.
+- Finally, once the spec is generated and after open questions are answered, provide an executive summary of the spec to the user including provide the path to the generated spec document in the \`specs/\` directory.
+  - Encourage the user to review the spec for best results and provide feedback or ask any follow-up questions they may have.
 </EXTREMELY_IMPORTANT>
 
 # [Project Name] Technical Design Document / RFC
@@ -1247,42 +1248,6 @@ Remember: Claude is capable of extraordinary creative work. Don't hold back, sho
 ];
 
 // ============================================================================
-// SKILL DEFINITIONS (legacy disk-based)
-// ============================================================================
-
-/**
- * Available skill definitions from the system-reminder skill list.
- *
- * Each entry defines a skill command that invokes a specific skill via session.
- * These are loaded from disk and are used as fallback when no built-in skill exists.
- */
-export const SKILL_DEFINITIONS: SkillMetadata[] = [
-    // Core skills
-    {
-        name: "research-codebase",
-        description:
-            "Document codebase as-is with research directory for historical context",
-        aliases: ["research"],
-    },
-    {
-        name: "create-spec",
-        description:
-            "Create a detailed execution plan for implementing features or refactors in a codebase by leveraging existing research in the specified `research` directory.",
-        aliases: ["spec"],
-    },
-    {
-        name: "explain-code",
-        description: "Explain code functionality in detail.",
-        aliases: ["explain"],
-    },
-
-    // Note: ralph:ralph-loop, ralph:cancel-ralph, and ralph:ralph-help replaced by SDK-native /ralph workflow
-    // Help for Ralph is now integrated into /help command, and /ralph description provides usage info
-
-    // Note: prompt-engineer and testing-anti-patterns moved to BUILTIN_SKILLS
-];
-
-// ============================================================================
 // SKILL PROMPT EXPANSION
 // ============================================================================
 
@@ -1306,66 +1271,6 @@ export function getBuiltinSkill(name: string): BuiltinSkill | undefined {
             s.name.toLowerCase() === lowerName ||
             s.aliases?.some((a) => a.toLowerCase() === lowerName),
     );
-}
-
-// ============================================================================
-// COMMAND FACTORY
-// ============================================================================
-
-/**
- * Create a command definition for a skill.
- *
- * @param metadata - Skill metadata
- * @returns Command definition for the skill
- */
-function createSkillCommand(metadata: SkillMetadata): CommandDefinition {
-    return {
-        name: metadata.name,
-        description: metadata.description,
-        category: "skill",
-        aliases: metadata.aliases,
-        execute: (args: string, context: CommandContext): CommandResult => {
-            const skillArgs = args.trim();
-
-            // Check for builtin skill with embedded prompt
-            const builtinSkill = getBuiltinSkill(metadata.name);
-            if (builtinSkill) {
-                // Validate required arguments for builtin skills
-                if (builtinSkill.requiredArguments?.length && !skillArgs) {
-                    const argList = builtinSkill.requiredArguments
-                        .map((a) => `<${a}>`)
-                        .join(" ");
-                    return {
-                        success: false,
-                        message: `Missing required argument.\nUsage: /${builtinSkill.name} ${argList}`,
-                    };
-                }
-
-                // Use the embedded prompt directly
-                const expandedPrompt = expandArguments(
-                    builtinSkill.prompt,
-                    skillArgs,
-                );
-                context.sendSilentMessage(expandedPrompt);
-                return {
-                    success: true,
-                };
-            }
-
-            // Fallback: send slash command to agent's native skill system
-            // This handles skills that aren't in BUILTIN_SKILLS (e.g., ralph:* skills)
-            // The agent SDK may process it internally.
-            const invocationMessage = skillArgs
-                ? `/${metadata.name} ${skillArgs}`
-                : `/${metadata.name}`;
-            context.sendSilentMessage(invocationMessage);
-
-            return {
-                success: true,
-                // No message displayed - the agent will handle displaying the skill output
-            };
-        },
-    };
 }
 
 // ============================================================================
@@ -1401,9 +1306,20 @@ function createBuiltinSkillCommand(skill: BuiltinSkill): CommandDefinition {
 
             // Use the embedded prompt directly and expand $ARGUMENTS
             const expandedPrompt = expandArguments(skill.prompt, skillArgs);
-            context.sendSilentMessage(expandedPrompt);
+            // Prepend a directive so the model acts on the already-expanded
+            // skill content rather than re-loading the raw skill via the SDK's
+            // built-in "Skill" tool (which would lose the $ARGUMENTS expansion).
+            const directive =
+                `<skill-loaded name="${skill.name}">\n` +
+                `The "${skill.name}" skill has already been loaded with the user's arguments below. ` +
+                `Do NOT invoke the Skill tool for "${skill.name}" — follow the instructions directly.\n` +
+                `</skill-loaded>\n\n`;
+            context.sendSilentMessage(directive + expandedPrompt);
             return {
                 success: true,
+                ...(BUILTIN_SKILLS_WITH_LOAD_UI.has(skill.name)
+                    ? { skillLoaded: skill.name }
+                    : {}),
             };
         },
     };
@@ -1414,15 +1330,9 @@ function createBuiltinSkillCommand(skill: BuiltinSkill): CommandDefinition {
 // ============================================================================
 
 /**
- * Skill commands created from definitions (legacy disk-based fallback).
- */
-export const skillCommands: CommandDefinition[] =
-    SKILL_DEFINITIONS.map(createSkillCommand);
-
-/**
  * Builtin skill commands created from BUILTIN_SKILLS array.
  */
-export const builtinSkillCommands: CommandDefinition[] = BUILTIN_SKILLS.map(
+const builtinSkillCommands: CommandDefinition[] = BUILTIN_SKILLS.map(
     createBuiltinSkillCommand,
 );
 
@@ -1431,16 +1341,8 @@ export const builtinSkillCommands: CommandDefinition[] = BUILTIN_SKILLS.map(
  *
  * This function registers skills from BUILTIN_SKILLS array directly,
  * using their embedded prompts. Call this during application initialization.
- *
- * @example
- * ```typescript
- * import { registerBuiltinSkills } from "./skill-commands";
- *
- * // In app initialization
- * registerBuiltinSkills();
- * ```
  */
-export function registerBuiltinSkills(): void {
+function registerBuiltinSkills(): void {
     for (const command of builtinSkillCommands) {
         // Skip if already registered (idempotent)
         if (!globalRegistry.has(command.name)) {
@@ -1453,25 +1355,135 @@ export function registerBuiltinSkills(): void {
  * Register all skill commands with the global registry.
  *
  * Call this function during application initialization.
- * This registers both builtin skills and legacy disk-based skills.
- *
- * @example
- * ```typescript
- * import { registerSkillCommands } from "./skill-commands";
- *
- * // In app initialization
- * registerSkillCommands();
- * ```
+ * Registers builtin skills with embedded prompts. Disk-based skills
+ * are registered separately via discoverAndRegisterDiskSkills().
  */
 export function registerSkillCommands(): void {
-    // First register builtin skills (they take priority)
     registerBuiltinSkills();
+}
 
-    // Then register legacy skill definitions (for skills not in BUILTIN_SKILLS)
-    for (const command of skillCommands) {
-        // Skip if already registered (builtin skills take priority)
-        if (!globalRegistry.has(command.name)) {
-            globalRegistry.register(command);
+// ============================================================================
+// SDK SKILL MATERIALIZATION
+// ============================================================================
+
+/**
+ * All SDK skill directory prefixes.
+ * Each SDK folder is copied independently per agent, so every skill must
+ * exist in ALL directories to be discoverable regardless of which SDK is active.
+ */
+const SDK_SKILL_DIRS = [
+    join(".claude", "skills"),
+    join(".opencode", "skills"),
+    join(".github", "skills"),
+] as const;
+
+/**
+ * Write a SKILL.md file to disk if it doesn't already exist with identical content.
+ */
+function writeSkillIfChanged(
+    skillDir: string,
+    content: string,
+): void {
+    const skillFile = join(skillDir, "SKILL.md");
+
+    if (existsSync(skillFile)) {
+        try {
+            const existing = readFileSync(skillFile, "utf-8");
+            if (existing === content) return;
+        } catch {
+            // Fall through to overwrite
+        }
+    }
+
+    mkdirSync(skillDir, { recursive: true });
+    writeFileSync(skillFile, content, "utf-8");
+}
+
+/**
+ * Materialize builtin skills as SKILL.md files on disk so that each SDK's
+ * native skill discovery mechanism can find them.
+ *
+ * Each SDK folder is copied independently per agent, so skills are written
+ * to ALL three SDK skill directories:
+ *   - .claude/skills/<name>/SKILL.md
+ *   - .opencode/skills/<name>/SKILL.md
+ *   - .github/skills/<name>/SKILL.md
+ *
+ * After writing builtin skills, cross-syncs any non-builtin skill files
+ * (e.g., gh-commit from .github/skills/) to the other SDK directories
+ * so every agent has access to the full skill catalog.
+ *
+ * Skips writing when the file already exists with identical content.
+ */
+export function materializeBuiltinSkillsForSdk(): void {
+    const cwd = process.cwd();
+
+    // Phase 1: Write builtin skills to all SDK dirs
+    for (const skill of BUILTIN_SKILLS) {
+        // Build YAML frontmatter
+        const fmLines: string[] = ["---"];
+        fmLines.push(`name: ${skill.name}`);
+        fmLines.push(`description: ${skill.description}`);
+        if (skill.aliases?.length) {
+            fmLines.push(`aliases: [${skill.aliases.join(", ")}]`);
+        }
+        if (skill.argumentHint) {
+            fmLines.push(`argument-hint: "${skill.argumentHint}"`);
+        }
+        if (skill.requiredArguments?.length) {
+            fmLines.push(
+                `required-arguments: [${skill.requiredArguments.join(", ")}]`,
+            );
+        }
+        fmLines.push("---");
+        fmLines.push("");
+
+        const content = fmLines.join("\n") + skill.prompt;
+
+        for (const sdkDir of SDK_SKILL_DIRS) {
+            const skillDir = join(cwd, sdkDir, skill.name);
+            writeSkillIfChanged(skillDir, content);
+        }
+    }
+
+    // Phase 2: Cross-sync non-builtin skills found in any SDK dir to all others.
+    // This ensures skills like gh-commit (originally in .github/skills/)
+    // are available when only .claude/ or .opencode/ is copied.
+    const builtinNames = new Set(BUILTIN_SKILLS.map((s) => s.name));
+    const discoveredContent = new Map<string, string>();
+
+    // Collect non-builtin skills from all SDK dirs
+    for (const sdkDir of SDK_SKILL_DIRS) {
+        const fullDir = join(cwd, sdkDir);
+        if (!existsSync(fullDir)) continue;
+
+        try {
+            const entries = readdirSync(fullDir, { withFileTypes: true });
+            for (const entry of entries) {
+                if (!entry.isDirectory()) continue;
+                if (builtinNames.has(entry.name)) continue;
+                if (discoveredContent.has(entry.name)) continue;
+
+                const skillFile = join(fullDir, entry.name, "SKILL.md");
+                if (existsSync(skillFile)) {
+                    try {
+                        const content = readFileSync(skillFile, "utf-8");
+                        discoveredContent.set(entry.name, content);
+                    } catch {
+                        // Skip unreadable files
+                    }
+                }
+            }
+        } catch {
+            // Skip inaccessible dirs
+        }
+    }
+
+    // Write cross-synced skills to all SDK dirs
+    for (const [skillName, content] of discoveredContent) {
+        for (const sdkDir of SDK_SKILL_DIRS) {
+            const skillDir = join(cwd, sdkDir, skillName);
+            writeSkillIfChanged(skillDir, content);
         }
     }
 }
@@ -1482,13 +1494,13 @@ export function registerSkillCommands(): void {
 
 const HOME = homedir();
 
-export const SKILL_DISCOVERY_PATHS = [
+const SKILL_DISCOVERY_PATHS = [
     join(".claude", "skills"),
     join(".opencode", "skills"),
     join(".github", "skills"),
 ] as const;
 
-export const GLOBAL_SKILL_PATHS = [
+const GLOBAL_SKILL_PATHS = [
     join(HOME, ".claude", "skills"),
     join(HOME, ".opencode", "skills"),
     join(HOME, ".copilot", "skills"),
@@ -1496,8 +1508,18 @@ export const GLOBAL_SKILL_PATHS = [
 
 export type SkillSource = "project" | "user" | "builtin";
 
-export const PINNED_BUILTIN_SKILLS = new Set([
+const PINNED_BUILTIN_SKILLS = new Set([
     "prompt-engineer",
+    "testing-anti-patterns",
+]);
+
+/**
+ * Builtin skills that show the skill load indicator UI.
+ * Core commands (research-codebase, create-spec, explain-code, init) don't show it.
+ */
+const BUILTIN_SKILLS_WITH_LOAD_UI = new Set([
+    "prompt-engineer",
+    "frontend-design",
     "testing-anti-patterns",
 ]);
 
@@ -1514,9 +1536,10 @@ export interface DiskSkillDefinition {
     source: SkillSource;
     aliases?: string[];
     argumentHint?: string;
+    requiredArguments?: string[];
 }
 
-export function shouldSkillOverride(
+function shouldSkillOverride(
     newSource: SkillSource,
     existingSource: SkillSource,
     existingName: string,
@@ -1535,7 +1558,7 @@ export function shouldSkillOverride(
     return priority[newSource] > priority[existingSource];
 }
 
-export function discoverSkillFiles(): DiscoveredSkillFile[] {
+function discoverSkillFiles(): DiscoveredSkillFile[] {
     const files: DiscoveredSkillFile[] = [];
     const cwd = process.cwd();
 
@@ -1585,7 +1608,7 @@ export function discoverSkillFiles(): DiscoveredSkillFile[] {
     return files;
 }
 
-export function parseSkillFile(
+function parseSkillFile(
     file: DiscoveredSkillFile,
 ): DiskSkillDefinition | null {
     try {
@@ -1620,6 +1643,13 @@ export function parseSkillFile(
                 ? fm["argument-hint"]
                 : undefined;
 
+        let requiredArguments: string[] | undefined;
+        if (Array.isArray(fm["required-arguments"])) {
+            requiredArguments = fm["required-arguments"].filter(
+                (a): a is string => typeof a === "string",
+            );
+        }
+
         return {
             name,
             description,
@@ -1627,13 +1657,14 @@ export function parseSkillFile(
             source: file.source,
             aliases,
             argumentHint,
+            requiredArguments,
         };
     } catch {
         return null;
     }
 }
 
-export function loadSkillContent(skillFilePath: string): string | null {
+function loadSkillContent(skillFilePath: string): string | null {
     try {
         const content = readFileSync(skillFilePath, "utf-8");
         const parsed = parseMarkdownFrontmatter(content);
@@ -1657,12 +1688,12 @@ function createDiskSkillCommand(skill: DiskSkillDefinition): CommandDefinition {
         execute: (args: string, context: CommandContext): CommandResult => {
             const skillArgs = args.trim();
 
-            // Inherit requiredArguments validation from matching builtin skill
-            const builtinSkill = getBuiltinSkill(skill.name);
-            if (builtinSkill?.requiredArguments?.length && !skillArgs) {
-                const argList = builtinSkill.requiredArguments
-                    .map((a) => `<${a}>`)
-                    .join(" ");
+            // Validate required arguments from frontmatter or builtin fallback
+            const reqArgs =
+                skill.requiredArguments ??
+                getBuiltinSkill(skill.name)?.requiredArguments;
+            if (reqArgs?.length && !skillArgs) {
+                const argList = reqArgs.map((a) => `<${a}>`).join(" ");
                 return {
                     success: false,
                     message: `Missing required argument.\nUsage: /${skill.name} ${argList}`,
@@ -1672,6 +1703,7 @@ function createDiskSkillCommand(skill: DiskSkillDefinition): CommandDefinition {
             const body = loadSkillContent(skill.skillFilePath);
             if (!body) {
                 // Fallback to builtin prompt if disk file is empty/unreadable
+                const builtinSkill = getBuiltinSkill(skill.name);
                 if (builtinSkill) {
                     const expandedPrompt = expandArguments(
                         builtinSkill.prompt,
@@ -1703,22 +1735,8 @@ function createDiskSkillCommand(skill: DiskSkillDefinition): CommandDefinition {
     };
 }
 
-let discoveredSkillDirectories: string[] = [];
-
-export function getDiscoveredSkillDirectories(): string[] {
-    return discoveredSkillDirectories;
-}
-
 export async function discoverAndRegisterDiskSkills(): Promise<void> {
     const files = discoverSkillFiles();
-
-    // Collect unique parent directories for SDK passthrough
-    const dirSet = new Set<string>();
-    for (const file of files) {
-        const parentDir = join(file.path, "..", "..");
-        dirSet.add(parentDir);
-    }
-    discoveredSkillDirectories = [...dirSet];
 
     // Build map with priority resolution
     const resolved = new Map<string, DiskSkillDefinition>();
@@ -1772,48 +1790,3 @@ export async function discoverAndRegisterDiskSkills(): Promise<void> {
     }
 }
 
-/**
- * Get a skill by name.
- *
- * @param name - Skill name (or alias)
- * @returns SkillMetadata if found, undefined otherwise
- */
-export function getSkillMetadata(name: string): SkillMetadata | undefined {
-    const lowerName = name.toLowerCase();
-    return SKILL_DEFINITIONS.find(
-        (s) =>
-            s.name.toLowerCase() === lowerName ||
-            s.aliases?.some((a) => a.toLowerCase() === lowerName),
-    );
-}
-
-/**
- * Check if a skill name is a Ralph skill.
- *
- * @param name - Skill name to check
- * @returns True if this is a Ralph skill
- */
-export function isRalphSkill(name: string): boolean {
-    return name.toLowerCase().startsWith("ralph:");
-}
-
-/**
- * Get all Ralph skills.
- *
- * @returns Array of Ralph skill metadata
- */
-export function getRalphSkills(): SkillMetadata[] {
-    return SKILL_DEFINITIONS.filter((s) => isRalphSkill(s.name));
-}
-
-/**
- * Get all non-Ralph skills.
- *
- * @returns Array of core skill metadata
- */
-export function getCoreSkills(): SkillMetadata[] {
-    return SKILL_DEFINITIONS.filter((s) => !isRalphSkill(s.name));
-}
-
-// Export helper functions for testing and external use
-export { expandArguments };

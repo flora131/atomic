@@ -131,3 +131,40 @@ export function normalizeTodoItems(input: unknown): NormalizedTodoItem[] {
 
   return input.map((item) => normalizeTodoItem(item));
 }
+
+/**
+ * Merge blockedBy from previous task state into newly normalized tasks.
+ *
+ * When an agent calls TodoWrite to update task progress it often omits the
+ * optional `blockedBy` field, causing dependency info to be lost. This
+ * function restores `blockedBy` from `previous` for any task whose new
+ * entry has `blockedBy === undefined` (i.e. the agent didn't provide it).
+ *
+ * Tasks are matched by normalized ID (case-insensitive, `#`-prefixed).
+ */
+export function mergeBlockedBy<T extends NormalizedTaskItem>(
+  updated: T[],
+  previous: readonly NormalizedTaskItem[],
+): T[] {
+  if (previous.length === 0) return updated;
+
+  // Build a lookup from normalized ID → blockedBy from the previous state
+  const prevBlockedById = new Map<string, string[]>();
+  for (const task of previous) {
+    const id = task.id?.trim().toLowerCase();
+    if (id && task.blockedBy) {
+      prevBlockedById.set(id, task.blockedBy);
+    }
+  }
+
+  if (prevBlockedById.size === 0) return updated;
+
+  return updated.map((task) => {
+    if (task.blockedBy !== undefined) return task; // already provided
+    const id = task.id?.trim().toLowerCase();
+    if (!id) return task;
+    const prev = prevBlockedById.get(id);
+    if (!prev) return task;
+    return { ...task, blockedBy: prev };
+  });
+}

@@ -39,6 +39,6 @@ jobs:
               run: bun test --coverage --coverage-reporter=lcov
 
             - name: Upload coverage
-              uses: codecov/codecov-action@v3
+              uses: codecov/codecov-action@v5
               with:
                   file: ./coverage/lcov.info

@@ -10,7 +10,7 @@
  * Follows the existing setClientProvider() / setWorkflowResolver() global setter pattern.
  */
 
-import type { Session, SessionConfig, AgentMessage } from "../sdk/types.ts";
+import type { Session, SessionConfig } from "../sdk/types.ts";
 import { saveSubagentOutput } from "../workflows/session.ts";
 
 // ============================================================================

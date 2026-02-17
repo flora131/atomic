@@ -1073,44 +1073,6 @@ export function StreamingBullet({ speed = 500 }: { speed?: number }): React.Reac
 const HLREF_COMMAND = 1;
 const HLREF_MENTION = 2;
 
-/**
- * Find all @mention ranges in the text for highlighting.
- * Matches @token patterns where token is [\w./_-]+ (same as processFileMentions regex).
- * Excludes mentions inside backticks or not at a word boundary.
- * Returns array of [start, end] character offset pairs.
- */
-function findMentionRanges(text: string): [number, number][] {
-  const ranges: [number, number][] = [];
-  const regex = /@([\w./_-]+)/g;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(text)) !== null) {
-    const start = match.index;
-    const end = start + match[0].length;
-    const mentionName = match[1];
-    if (!mentionName) continue;
-    // Check word boundary before @
-    if (start > 0) {
-      const charBefore = text[start - 1];
-      if (charBefore !== " " && charBefore !== "\n" && charBefore !== "\t") continue;
-    }
-    // Check not inside backticks
-    if (start > 0 && text[start - 1] === "`") continue;
-    if (end < text.length && text[end] === "`") continue;
-    // Only highlight if mention resolves to a registered command, file, or folder
-    const cmd = globalRegistry.get(mentionName);
-    if (cmd) {
-      ranges.push([start, end]);
-      continue;
-    }
-    try {
-      statSync(join(process.cwd(), mentionName));
-      ranges.push([start, end]);
-    } catch {
-      // Not a valid agent, file, or folder — skip highlighting
-    }
-  }
-  return ranges;
-}
 
 /** Convert a JS string index to a highlight offset by subtracting newline characters,
  *  since addHighlightByCharRange expects display-width offsets excluding newlines. */
@@ -2406,7 +2368,7 @@ export function ChatApp({
     options: Array<{ label: string; value: string; description?: string }>,
     respond: (answer: string | string[]) => void,
     header?: string,
-    toolCallId?: string
+    _toolCallId?: string
   ) => {
     // During Ralph autonomous execution, auto-approve permission requests
     if (workflowState.workflowActive) {

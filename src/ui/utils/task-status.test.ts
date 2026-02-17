@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
   isTaskStatus,
+  mergeBlockedBy,
   normalizeTaskItem,
   normalizeTaskStatus,
   normalizeTodoItem,
   normalizeTodoItems,
+  type NormalizedTaskItem,
 } from "./task-status.ts";
 
 describe("normalizeTaskStatus", () => {
@@ -88,5 +90,74 @@ describe("task item normalization", () => {
       "in_progress",
       "pending",
     ]);
+  });
+});
+
+describe("mergeBlockedBy", () => {
+  test("restores blockedBy from previous state when omitted in update", () => {
+    const previous = [
+      { id: "#1", content: "Setup", status: "completed" as const },
+      { id: "#2", content: "Implement", status: "pending" as const, blockedBy: ["#1"] },
+      { id: "#3", content: "Test", status: "pending" as const, blockedBy: ["#1", "#2"] },
+    ];
+
+    const updated: NormalizedTaskItem[] = [
+      { id: "#1", content: "Setup", status: "completed" },
+      { id: "#2", content: "Implement", status: "in_progress" },
+      { id: "#3", content: "Test", status: "pending" },
+    ];
+
+    const merged = mergeBlockedBy(updated, previous);
+    expect(merged[0]!.blockedBy).toBeUndefined();
+    expect(merged[1]!.blockedBy).toEqual(["#1"]);
+    expect(merged[2]!.blockedBy).toEqual(["#1", "#2"]);
+  });
+
+  test("preserves explicitly provided blockedBy in update", () => {
+    const previous = [
+      { id: "#1", content: "A", status: "pending" as const, blockedBy: ["#2"] },
+    ];
+
+    const updated = [
+      { id: "#1", content: "A", status: "pending" as const, blockedBy: ["#3"] },
+    ];
+
+    const merged = mergeBlockedBy(updated, previous);
+    expect(merged[0]!.blockedBy).toEqual(["#3"]);
+  });
+
+  test("returns updated as-is when previous is empty", () => {
+    const updated = [
+      { id: "#1", content: "A", status: "pending" as const },
+    ];
+
+    const merged = mergeBlockedBy(updated, []);
+    expect(merged).toEqual(updated);
+  });
+
+  test("handles tasks without IDs gracefully", () => {
+    const previous: NormalizedTaskItem[] = [
+      { content: "No ID", status: "pending", blockedBy: ["#1"] },
+    ];
+
+    const updated: NormalizedTaskItem[] = [
+      { content: "No ID", status: "pending" },
+    ];
+
+    const merged = mergeBlockedBy(updated, previous);
+    expect(merged[0]!.blockedBy).toBeUndefined();
+  });
+
+  test("matches IDs case-insensitively", () => {
+    const previous: NormalizedTaskItem[] = [
+      { id: "#1", content: "A", status: "pending", blockedBy: ["#2"] },
+    ];
+
+    const updated: NormalizedTaskItem[] = [
+      { id: "#1", content: "A", status: "pending" },
+    ];
+
+    const merged = mergeBlockedBy(updated, previous);
+    expect(merged[0]!.blockedBy).toEqual(["#2"]);
   });
 });

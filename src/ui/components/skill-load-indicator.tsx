@@ -24,6 +24,37 @@ export interface SkillLoadIndicatorProps {
   errorMessage?: string;
 }
 
+export type SkillStatusColorKey = "accent" | "success" | "error";
+
+export function getSkillStatusColorKey(status: SkillLoadStatus): SkillStatusColorKey {
+  if (status === "loading") return "accent";
+  if (status === "loaded") return "success";
+  return "error";
+}
+
+export function getSkillStatusIcon(status: SkillLoadStatus): string {
+  return status === "error" ? STATUS.error : STATUS.active;
+}
+
+export function getSkillStatusMessage(
+  status: SkillLoadStatus,
+  errorMessage?: string,
+): string {
+  if (status === "loading") return "Loading skill...";
+  if (status === "loaded") return "Successfully loaded skill";
+  return `Failed to load skill: ${errorMessage ?? "unknown error"}`;
+}
+
+export function shouldShowSkillLoad(
+  skillName: string | undefined,
+  errorMessage: string | undefined,
+  loadedSkills: Set<string>,
+): boolean {
+  if (!skillName) return false;
+  if (errorMessage) return true;
+  return !loadedSkills.has(skillName);
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -36,20 +67,9 @@ export function SkillLoadIndicator({
   const { theme } = useTheme();
   const colors = theme.colors;
 
-  const statusColor =
-    status === "loading"
-      ? colors.accent
-      : status === "loaded"
-        ? colors.success
-        : colors.error;
-
-  const icon = status === "error" ? STATUS.error : STATUS.active;
-  const message =
-    status === "loading"
-      ? "Loading skill..."
-      : status === "loaded"
-        ? "Successfully loaded skill"
-        : `Failed to load skill: ${errorMessage ?? "unknown error"}`;
+  const statusColor = colors[getSkillStatusColorKey(status)];
+  const icon = getSkillStatusIcon(status);
+  const message = getSkillStatusMessage(status, errorMessage);
 
   return (
     <box flexDirection="column">

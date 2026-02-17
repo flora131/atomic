@@ -25,7 +25,7 @@ describe("normalizeHitlAnswer", () => {
       responseMode: "declined",
     });
 
-    expect(result.displayText).toBe("User declined to answer question.");
+    expect(result.displayText).toBe("User declined to answer question");
     expect(result.cancelled).toBe(true);
     expect(result.responseMode).toBe("declined");
   });
@@ -37,7 +37,7 @@ describe("normalizeHitlAnswer", () => {
       responseMode: "chat_about_this",
     });
 
-    expect(result.displayText).toBe('User decided to chat more about options: "Could we compare options first?"');
+    expect(result.displayText).toBe("User requested to chat about the question");
   });
 });
 

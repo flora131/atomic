@@ -79,6 +79,19 @@ export const SCROLLBAR = {
   track: "│", // U+2502 Box Drawings Light Vertical
 } as const;
 
+// ── Task List ──────────────────────────────────────────────────
+export const TASK = {
+  completed: "✓", // U+2713 Check Mark
+  active: "▸", // U+25B8 Right-pointing small triangle
+  pending: "○", // U+25CB White Circle
+  error: "✗", // U+2717 Ballot X
+  track: "│", // U+2502 Vertical line (left rail)
+  trackEnd: "╰", // U+2570 Rounded bottom-left
+  trackDot: "├", // U+251C Tee right
+  barFilled: "━", // U+2501 Heavy horizontal
+  barEmpty: "╌", // U+254C Light double dash horizontal
+} as const;
+
 // ── Separator ──────────────────────────────────────────────────
 export const SEPARATOR = {
   line: "────", // 4x U+2500

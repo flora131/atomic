@@ -474,10 +474,10 @@ Atomic stores project-level configuration in `.atomic.json` at the root of your 
 
 Each agent has its own configuration folder:
 
-| Agent          | Folder       | Commands             | Context File |
+| Agent          | Folder       | Skills               | Context File |
 | -------------- | ------------ | -------------------- | ------------ |
-| Claude Code    | `.claude/`   | `.claude/commands/`  | `CLAUDE.md`  |
-| OpenCode       | `.opencode/` | `.opencode/command/` | `AGENTS.md`  |
+| Claude Code    | `.claude/`   | `.claude/skills/`    | `CLAUDE.md`  |
+| OpenCode       | `.opencode/` | `.opencode/skills/`  | `AGENTS.md`  |
 | GitHub Copilot | `.github/`   | `.github/skills/`    | `AGENTS.md`  |
 
 ---

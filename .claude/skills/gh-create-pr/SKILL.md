@@ -1,6 +1,6 @@
 ---
+name: gh-create-pr
 description: Commit unstaged changes, push changes, submit a pull request.
-agent: build
 ---
 
 # Create Pull Request Command

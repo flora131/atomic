@@ -1,8 +1,6 @@
 ---
+name: gh-create-pr
 description: Commit unstaged changes, push changes, submit a pull request.
-model: opus
-allowed-tools: Bash(git:*), Bash(gh:*), Glob, Grep, NotebookRead, Read, SlashCommand
-argument-hint: [code-path]
 ---
 
 # Create Pull Request Command

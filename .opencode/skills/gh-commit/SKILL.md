@@ -1,6 +1,6 @@
 ---
+name: gh-commit
 description: Create well-formatted commits with conventional commit format.
-agent: build
 ---
 
 # Smart Git Commit

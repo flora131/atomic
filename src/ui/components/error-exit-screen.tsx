@@ -6,7 +6,7 @@
  * Follows Catppuccin theming for consistent visual style.
  */
 
-import React, { useState, useCallback } from "react";
+import React from "react";
 import { useKeyboard } from "@opentui/react";
 import { getCatppuccinPalette, type CatppuccinPalette } from "../theme.tsx";
 import { SPACING } from "../constants/spacing.ts";

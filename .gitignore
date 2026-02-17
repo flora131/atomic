@@ -176,6 +176,3 @@ atomic.exe
 
 # TUI test screenshots
 tmux-screenshots/
-
-docs/opentui
-docs/opencode

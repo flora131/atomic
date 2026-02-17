@@ -34,13 +34,11 @@ export function formatHitlDisplayText(response: {
   answerText: string;
 }): string {
   if (response.cancelled || response.responseMode === "declined") {
-    return "User declined to answer question.";
+    return "User declined to answer question";
   }
 
   if (response.responseMode === "chat_about_this") {
-    return response.answerText.length > 0
-      ? `User decided to chat more about options: "${response.answerText}"`
-      : "User decided to chat more about options.";
+    return "User requested to chat about the question";
   }
 
   return `User answered: "${response.answerText}"`;

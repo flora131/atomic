@@ -609,6 +609,7 @@ export function parseTaskToolResult(output: unknown): {
   durationMs?: number;
   toolUses?: number;
   tokens?: number;
+  isAsync?: boolean;
 } {
   if (output === undefined || output === null) {
     return { text: undefined };
@@ -631,6 +632,9 @@ export function parseTaskToolResult(output: unknown): {
 
   const obj = output as Record<string, unknown>;
 
+  // Detect async/background agent results (e.g. { isAsync: true, status: "async_launched" })
+  const isAsync = obj.isAsync === true || undefined;
+
   // Format 1: Actual SDK response with content array
   if (Array.isArray(obj.content)) {
     const textBlock = (obj.content as Array<Record<string, unknown>>).find(
@@ -642,6 +646,7 @@ export function parseTaskToolResult(output: unknown): {
       durationMs: typeof obj.totalDurationMs === "number" ? obj.totalDurationMs : undefined,
       toolUses: typeof obj.totalToolUseCount === "number" ? obj.totalToolUseCount : undefined,
       tokens: typeof obj.totalTokens === "number" ? obj.totalTokens : undefined,
+      isAsync,
     };
   }
 
@@ -650,15 +655,16 @@ export function parseTaskToolResult(output: unknown): {
     return {
       text: obj.result,
       durationMs: typeof obj.duration_ms === "number" ? obj.duration_ms : undefined,
+      isAsync,
     };
   }
 
   // Fallback: try common text fields
-  if (typeof obj.text === "string") return { text: obj.text };
-  if (typeof obj.output === "string") return { text: obj.output };
+  if (typeof obj.text === "string") return { text: obj.text, isAsync };
+  if (typeof obj.output === "string") return { text: obj.output, isAsync };
 
   // Last resort: stringify
-  return { text: JSON.stringify(output, null, 2) };
+  return { text: JSON.stringify(output, null, 2), isAsync };
 }
 
 // ============================================================================

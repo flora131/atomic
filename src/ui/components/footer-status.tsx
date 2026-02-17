@@ -14,6 +14,7 @@
 import React from "react";
 import { useTheme } from "../theme.tsx";
 import type { FooterState, FooterStatusProps } from "../types.ts";
+import { SPACING } from "../constants/spacing.ts";
 
 // ============================================================================
 // TYPES
@@ -157,10 +158,10 @@ export function FooterStatus({
   return (
     <box
       flexDirection="row"
-      paddingLeft={1}
-      paddingRight={1}
-      paddingTop={0}
-      paddingBottom={0}
+      paddingLeft={SPACING.CONTAINER_PAD}
+      paddingRight={SPACING.CONTAINER_PAD}
+      paddingTop={SPACING.NONE}
+      paddingBottom={SPACING.NONE}
       flexShrink={0}
     >
       <text style={{ fg: colors.muted }}>

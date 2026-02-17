@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { applyMessageWindow, computeMessageWindow } from "./message-window.ts";
+import { applyMessageWindow, computeMessageWindow, shouldCollapseMessage } from "./message-window.ts";
 
 function makeMessages(count: number): Array<{ id: string }> {
   return Array.from({ length: count }, (_, i) => ({ id: `m${i + 1}` }));
@@ -54,5 +54,159 @@ describe("message-window", () => {
     expect(inMemory[49]?.id).toBe("m200");
     expect(computed.visibleMessages).toHaveLength(50);
     expect(computed.hiddenMessageCount).toBe(150);
+  });
+
+  // --- Edge-case tests for computeMessageWindow ---
+
+  test("computeMessageWindow with 0 messages and 0 trimmed returns empty", () => {
+    const result = computeMessageWindow([], 0, 50);
+
+    expect(result.visibleMessages).toHaveLength(0);
+    expect(result.hiddenMessageCount).toBe(0);
+  });
+
+  test("computeMessageWindow with exactly 50 messages (at limit) returns all visible", () => {
+    const messages = makeMessages(50);
+    const result = computeMessageWindow(messages, 0, 50);
+
+    expect(result.visibleMessages).toHaveLength(50);
+    expect(result.visibleMessages[0]?.id).toBe("m1");
+    expect(result.visibleMessages[49]?.id).toBe("m50");
+    expect(result.hiddenMessageCount).toBe(0);
+  });
+
+  test("computeMessageWindow with 51 messages (1 over limit) hides 1", () => {
+    const messages = makeMessages(51);
+    const result = computeMessageWindow(messages, 0, 50);
+
+    expect(result.visibleMessages).toHaveLength(50);
+    expect(result.visibleMessages[0]?.id).toBe("m2");
+    expect(result.visibleMessages[49]?.id).toBe("m51");
+    expect(result.hiddenMessageCount).toBe(1);
+  });
+
+  test("computeMessageWindow with 0 messages but nonzero trimmedCount reports hidden count", () => {
+    const result = computeMessageWindow([], 25, 50);
+
+    expect(result.visibleMessages).toHaveLength(0);
+    expect(result.hiddenMessageCount).toBe(25);
+  });
+
+  test("computeMessageWindow with maxVisible=1 returns only the last message", () => {
+    const messages = makeMessages(10);
+    const result = computeMessageWindow(messages, 0, 1);
+
+    expect(result.visibleMessages).toHaveLength(1);
+    expect(result.visibleMessages[0]?.id).toBe("m10");
+    expect(result.hiddenMessageCount).toBe(9);
+  });
+
+  // --- Edge-case tests for applyMessageWindow ---
+
+  test("applyMessageWindow with 0 messages returns empty arrays", () => {
+    const result = applyMessageWindow([], 50);
+
+    expect(result.inMemoryMessages).toHaveLength(0);
+    expect(result.evictedMessages).toHaveLength(0);
+    expect(result.evictedCount).toBe(0);
+  });
+
+  test("applyMessageWindow with exactly 50 messages (at limit) evicts nothing", () => {
+    const messages = makeMessages(50);
+    const result = applyMessageWindow(messages, 50);
+
+    expect(result.inMemoryMessages).toHaveLength(50);
+    expect(result.inMemoryMessages[0]?.id).toBe("m1");
+    expect(result.inMemoryMessages[49]?.id).toBe("m50");
+    expect(result.evictedMessages).toHaveLength(0);
+    expect(result.evictedCount).toBe(0);
+  });
+
+  test("applyMessageWindow with 51 messages (1 over) evicts exactly 1", () => {
+    const messages = makeMessages(51);
+    const result = applyMessageWindow(messages, 50);
+
+    expect(result.evictedCount).toBe(1);
+    expect(result.evictedMessages).toHaveLength(1);
+    expect(result.evictedMessages[0]?.id).toBe("m1");
+    expect(result.inMemoryMessages).toHaveLength(50);
+    expect(result.inMemoryMessages[0]?.id).toBe("m2");
+    expect(result.inMemoryMessages[49]?.id).toBe("m51");
+  });
+
+  test("applyMessageWindow with maxVisible=0 evicts all messages", () => {
+    const messages = makeMessages(5);
+    const result = applyMessageWindow(messages, 0);
+
+    expect(result.evictedCount).toBe(5);
+    expect(result.evictedMessages).toHaveLength(5);
+    expect(result.evictedMessages[0]?.id).toBe("m1");
+    expect(result.evictedMessages[4]?.id).toBe("m5");
+    expect(result.inMemoryMessages).toHaveLength(0);
+  });
+
+  test("applyMessageWindow with single message and maxVisible=1 evicts nothing", () => {
+    const messages = makeMessages(1);
+    const result = applyMessageWindow(messages, 1);
+
+    expect(result.inMemoryMessages).toHaveLength(1);
+    expect(result.inMemoryMessages[0]?.id).toBe("m1");
+    expect(result.evictedMessages).toHaveLength(0);
+    expect(result.evictedCount).toBe(0);
+  });
+
+  test("applyMessageWindow with 200 messages and maxVisible=50 evicts 150", () => {
+    const messages = makeMessages(200);
+    const result = applyMessageWindow(messages, 50);
+
+    expect(result.evictedCount).toBe(150);
+    expect(result.evictedMessages).toHaveLength(150);
+    expect(result.evictedMessages[0]?.id).toBe("m1");
+    expect(result.evictedMessages[149]?.id).toBe("m150");
+    expect(result.inMemoryMessages).toHaveLength(50);
+    expect(result.inMemoryMessages[0]?.id).toBe("m151");
+    expect(result.inMemoryMessages[49]?.id).toBe("m200");
+  });
+});
+
+describe("shouldCollapseMessage", () => {
+  test("last N messages are expanded, earlier ones collapsed", () => {
+    // 10 messages, expandedCount=4 → indices 0-5 collapsed, 6-9 expanded
+    expect(shouldCollapseMessage(0, 10, 4, false)).toBe(true);
+    expect(shouldCollapseMessage(5, 10, 4, false)).toBe(true);
+    expect(shouldCollapseMessage(6, 10, 4, false)).toBe(false);
+    expect(shouldCollapseMessage(9, 10, 4, false)).toBe(false);
+  });
+
+  test("fewer messages than expanded count means all expanded", () => {
+    expect(shouldCollapseMessage(0, 3, 4, false)).toBe(false);
+    expect(shouldCollapseMessage(1, 3, 4, false)).toBe(false);
+    expect(shouldCollapseMessage(2, 3, 4, false)).toBe(false);
+  });
+
+  test("exactly equal to expanded count means all expanded", () => {
+    expect(shouldCollapseMessage(0, 4, 4, false)).toBe(false);
+    expect(shouldCollapseMessage(3, 4, 4, false)).toBe(false);
+  });
+
+  test("live messages are never collapsed regardless of position", () => {
+    expect(shouldCollapseMessage(0, 10, 4, true)).toBe(false);
+    expect(shouldCollapseMessage(1, 10, 4, true)).toBe(false);
+  });
+
+  test("zero messages edge case", () => {
+    expect(shouldCollapseMessage(0, 0, 4, false)).toBe(false);
+  });
+
+  test("single message over expanded count is collapsed", () => {
+    // 5 messages, expandedCount=4 → index 0 collapsed, 1-4 expanded
+    expect(shouldCollapseMessage(0, 5, 4, false)).toBe(true);
+    expect(shouldCollapseMessage(1, 5, 4, false)).toBe(false);
+  });
+
+  test("expandedCount=1 collapses all but the last", () => {
+    expect(shouldCollapseMessage(0, 5, 1, false)).toBe(true);
+    expect(shouldCollapseMessage(3, 5, 1, false)).toBe(true);
+    expect(shouldCollapseMessage(4, 5, 1, false)).toBe(false);
   });
 });

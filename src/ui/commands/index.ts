@@ -32,7 +32,7 @@ export {
 import { globalRegistry } from "./registry.ts";
 import { registerBuiltinCommands } from "./builtin-commands.ts";
 import { registerWorkflowCommands, loadWorkflowsFromDisk } from "./workflow-commands.ts";
-import { registerSkillCommands, discoverAndRegisterDiskSkills } from "./skill-commands.ts";
+import { registerSkillCommands, discoverAndRegisterDiskSkills, materializeBuiltinSkillsForSdk } from "./skill-commands.ts";
 import { registerAgentCommands } from "./agent-commands.ts";
 
 // ============================================================================
@@ -52,16 +52,12 @@ export {
 export {
   // Workflow commands
   registerWorkflowCommands,
-  initializeWorkflowResolver,
   workflowCommands,
-  WORKFLOW_DEFINITIONS,
   getWorkflowMetadata,
-  createWorkflowByName,
   loadWorkflowsFromDisk,
   getAllWorkflows,
   discoverWorkflowFiles,
   getWorkflowCommands,
-  resolveWorkflowRef,
   saveTasksToActiveSession,
   type WorkflowMetadata,
 } from "./workflow-commands.ts";
@@ -69,23 +65,10 @@ export {
 export {
   // Skill commands
   registerSkillCommands,
-  skillCommands,
-  SKILL_DEFINITIONS,
-  getSkillMetadata,
-  isRalphSkill,
-  getRalphSkills,
-  getCoreSkills,
+  // SDK skill materialization
+  materializeBuiltinSkillsForSdk,
   // Disk skill discovery
   discoverAndRegisterDiskSkills,
-  getDiscoveredSkillDirectories,
-  discoverSkillFiles,
-  parseSkillFile,
-  shouldSkillOverride,
-  loadSkillContent,
-  SKILL_DISCOVERY_PATHS,
-  GLOBAL_SKILL_PATHS,
-  PINNED_BUILTIN_SKILLS,
-  type SkillMetadata,
   type SkillSource,
   type DiscoveredSkillFile,
   type DiskSkillDefinition,
@@ -94,44 +77,6 @@ export {
 // ============================================================================
 // INITIALIZATION
 // ============================================================================
-
-/**
- * Initialize all commands by registering them with the global registry.
- *
- * This function is idempotent - calling it multiple times is safe.
- * Commands are registered in this order:
- * 1. Built-in commands (help, theme, clear, compact)
- * 2. Workflow commands (ralph + dynamically loaded from disk)
- * 3. Skill commands (commit, research-codebase, etc.)
- *
- * Note: This synchronous version only loads built-in workflows.
- * Use `initializeCommandsAsync()` to also load workflows from disk.
- *
- * @returns The number of commands registered
- *
- * @example
- * ```typescript
- * import { initializeCommands, globalRegistry } from "./commands";
- *
- * // Initialize at app startup
- * const count = initializeCommands();
- * console.log(`Registered ${count} commands`);
- *
- * // Now commands are available
- * const helpCmd = globalRegistry.get("help");
- * ```
- */
-export function initializeCommands(): number {
-  const beforeCount = globalRegistry.size();
-
-  // Register all command types
-  registerBuiltinCommands();
-  registerWorkflowCommands();
-  registerSkillCommands();
-
-  const afterCount = globalRegistry.size();
-  return afterCount - beforeCount;
-}
 
 /**
  * Initialize all commands asynchronously, including dynamic workflow loading.
@@ -155,6 +100,11 @@ export async function initializeCommandsAsync(): Promise<number> {
 
   // Register skill commands
   registerSkillCommands();
+
+  // Materialize builtin skills as SKILL.md files on disk so each SDK's native
+  // skill discovery (Claude Skill tool, Copilot skillDirectories, OpenCode server)
+  // can find them for natural-language invocation.
+  materializeBuiltinSkillsForSdk();
 
   // Discover and register disk-based skills from .claude/skills/, .github/skills/, etc.
   // Disk skills override non-pinned builtins (project > global > builtin priority)

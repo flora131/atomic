@@ -12,6 +12,7 @@ import type { KeyEvent, TextareaRenderable, ScrollBoxRenderable } from "@opentui
 import { useTheme } from "../theme.tsx";
 import { navigateUp, navigateDown } from "../utils/navigation.ts";
 import { PROMPT, STATUS, CONNECTOR } from "../constants/icons.ts";
+import { SPACING } from "../constants/spacing.ts";
 
 // ============================================================================
 // TYPES
@@ -293,10 +294,10 @@ export function UserQuestionDialog({
   return (
     <box
       flexDirection="column"
-      marginTop={1}
+      marginTop={SPACING.SECTION}
     >
       {/* Header badge - Claude Code style: compact inline badge */}
-      <box marginBottom={1}>
+      <box marginBottom={SPACING.SECTION}>
         <text>
           <span style={{ fg: colors.border }}>{CONNECTOR.roundedTopLeft}{CONNECTOR.horizontal}</span>
           <span style={{ fg: colors.foreground }}> {STATUS.pending} {question.header} </span>
@@ -311,13 +312,13 @@ export function UserQuestionDialog({
 
       {/* Custom input / Chat about this mode */}
       {(isEditingCustom || isChatAboutThis) ? (
-        <box flexDirection="column" marginTop={1}>
+        <box flexDirection="column" marginTop={SPACING.ELEMENT}>
           <box
             border
             borderStyle="rounded"
             borderColor={colors.accent}
-            paddingLeft={1}
-            paddingRight={1}
+            paddingLeft={SPACING.CONTAINER_PAD}
+            paddingRight={SPACING.CONTAINER_PAD}
             flexDirection="row"
             alignItems="center"
           >
@@ -344,7 +345,7 @@ export function UserQuestionDialog({
             height={listHeight}
             scrollY={true}
             scrollX={false}
-            marginTop={1}
+            marginTop={SPACING.ELEMENT}
           >
             {allOptions.map((option, index) => {
               const isHighlighted = index === highlightedIndex;
@@ -385,7 +386,7 @@ export function UserQuestionDialog({
               );
             })}
           </scrollbox>
-          <box marginTop={1}>
+          <box marginTop={SPACING.ELEMENT}>
             <text style={{ fg: colors.muted }}>
               Enter to select · ↑/↓ to navigate · Esc to cancel
             </text>

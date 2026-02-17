@@ -16,6 +16,7 @@ import { useTheme } from "../theme.tsx";
 import type { Model } from "../../models/model-transform.ts";
 import { navigateUp, navigateDown } from "../utils/navigation.ts";
 import { PROMPT, CONNECTOR } from "../constants/icons.ts";
+import { SPACING } from "../constants/spacing.ts";
 
 // ============================================================================
 // TYPES
@@ -378,7 +379,7 @@ export function ModelSelectorDialog({
         height={listHeight}
         scrollY={true}
         scrollX={false}
-        paddingLeft={2}
+        paddingLeft={SPACING.INDENT}
       >
         {flatModels.length === 0 ? (
           <box style={{ paddingLeft: 2, paddingTop: 1, paddingBottom: 1 }}>

@@ -1,7 +1,8 @@
 ---
 description: Implement a SINGLE task from a task list.
+allowed-tools: Bash, Task, Edit, Glob, Grep, NotebookEdit, NotebookRead, Read, Write, Skill
 model: opus
-allowed-tools: Bash, Task, Edit, Glob, Grep, NotebookEdit, NotebookRead, Read, Write, SlashCommand
+memory: project
 ---
 
 You are tasked with implementing a SINGLE task from the task list.
@@ -10,11 +11,13 @@ You are tasked with implementing a SINGLE task from the task list.
 </EXTREMELY_IMPORTANT>
 
 # Workflow State Files
+
 - Base folder for workflow state is `~/.atomic/workflows/{session_id}`.
 - Read and update tasks at `~/.atomic/workflows/{session_id}/tasks.json`.
 - Read and append progress notes at `~/.atomic/workflows/{session_id}/progress.txt`.
 
 # Getting up to speed
+
 1. Run `pwd` to see the directory you're working in. Only make edits within the current git repository.
 2. Read the git logs and workflow state files to get up to speed on what was recently worked on.
 3. Choose the highest-priority item from the task list that's not yet done to work on.
@@ -55,24 +58,28 @@ Use your testing-anti-patterns skill to avoid common pitfalls when writing tests
 Software engineering is fundamentally about **managing complexity** to prevent technical debt. When implementing features, prioritize maintainability and testability over cleverness.
 
 **1. Apply Core Principles (The Axioms)**
-* **SOLID:** Adhere strictly to these, specifically **Single Responsibility** (a class should have only one reason to change) and **Dependency Inversion** (depend on abstractions/interfaces, not concrete details).
-* **Pragmatism:** Follow **KISS** (Keep It Simple) and **YAGNI** (You Aren't Gonna Need It). Do not build generic frameworks for hypothetical future requirements.
+
+- **SOLID:** Adhere strictly to these, specifically **Single Responsibility** (a class should have only one reason to change) and **Dependency Inversion** (depend on abstractions/interfaces, not concrete details).
+- **Pragmatism:** Follow **KISS** (Keep It Simple) and **YAGNI** (You Aren't Gonna Need It). Do not build generic frameworks for hypothetical future requirements.
 
 **2. Leverage Design Patterns**
 Use the "Gang of Four" patterns as a shared vocabulary to solve recurring problems:
-* **Creational:** Use *Factory* or *Builder* to abstract and isolate complex object creation.
-* **Structural:** Use *Adapter* or *Facade* to decouple your core logic from messy external APIs or legacy code.
-* **Behavioral:** Use *Strategy* to make algorithms interchangeable or *Observer* for event-driven communication.
+
+- **Creational:** Use _Factory_ or _Builder_ to abstract and isolate complex object creation.
+- **Structural:** Use _Adapter_ or _Facade_ to decouple your core logic from messy external APIs or legacy code.
+- **Behavioral:** Use _Strategy_ to make algorithms interchangeable or _Observer_ for event-driven communication.
 
 **3. Architectural Hygiene**
-* **Separation of Concerns:** Isolate business logic (Domain) from infrastructure (Database, UI).
-* **Avoid Anti-Patterns:** Watch for **God Objects** (classes doing too much) and **Spaghetti Code**. If you see them, refactor using polymorphism.
+
+- **Separation of Concerns:** Isolate business logic (Domain) from infrastructure (Database, UI).
+- **Avoid Anti-Patterns:** Watch for **God Objects** (classes doing too much) and **Spaghetti Code**. If you see them, refactor using polymorphism.
 
 **Goal:** Create "seams" in your software using interfaces. This ensures your code remains flexible, testable, and capable of evolving independently.
 
 ## Important notes:
+
 - ONLY work on the SINGLE highest priority feature at a time then STOP
-  - Only work on the SINGLE highest priority feature at a time.
+    - Only work on the SINGLE highest priority feature at a time.
 - If a completion promise is set, you may ONLY output it when the statement is completely and unequivocally TRUE. Do not output false promises to escape the loop, even if you think you're stuck or should exit for other reasons. The loop is designed to continue until genuine completion.
 - Tip: For refactors or code cleanup tasks prioritize using sub-agents to help you with the work and prevent overloading your context window, especially for a large number of file edits
 
@@ -82,22 +89,23 @@ When you encounter ANY bug — whether introduced by your changes, discovered du
 
 1. **Delegate debugging**: Use the Task tool to spawn a debugger agent. It can navigate the web for best practices.
 2. **Add the bug fix to the TOP of the task list AND update `blockedBy` on affected tasks**: Update `~/.atomic/workflows/{session_id}/tasks.json` with the bug fix as the FIRST item in the array (highest priority). Then, for every task whose work depends on the bug being fixed first, add the bug fix task's ID to that task's `blockedBy` array. This ensures those tasks cannot be started until the fix lands. Example:
-   ```json
-   [
-     {"id": "#0", "content": "Fix: [describe the bug]", "status": "pending", "activeForm": "Fixing [bug]", "blockedBy": []},
-     {"id": "#3", "content": "Implement feature X", "status": "pending", "activeForm": "Implementing feature X", "blockedBy": ["#0"]},
-     ... // other tasks — add "#0" to blockedBy if they depend on the fix
-   ]
-   ```
+    ```json
+    [
+      {"id": "#0", "content": "Fix: [describe the bug]", "status": "pending", "activeForm": "Fixing [bug]", "blockedBy": []},
+      {"id": "#3", "content": "Implement feature X", "status": "pending", "activeForm": "Implementing feature X", "blockedBy": ["#0"]},
+      ... // other tasks — add "#0" to blockedBy if they depend on the fix
+    ]
+    ```
 3. **Log the debug report**: Append the debugger agent's report to `~/.atomic/workflows/{session_id}/progress.txt` for future reference.
 4. **STOP immediately**: Do NOT continue working on the current feature. EXIT so the next iteration picks up the bug fix first.
 
 Do NOT ignore bugs. Do NOT deprioritize them. Bugs always go to the TOP of the task list, and any task that depends on the fix must list it in `blockedBy`.
 
 ## Other Rules
+
 - AFTER implementing the feature AND verifying its functionality by creating tests, mark the feature as complete in the task list
 - It is unacceptable to remove or edit tests because this could lead to missing or buggy functionality
-- Commit progress to git with descriptive commit messages by running the `/commit` command using the `SlashCommand` tool
+- Commit progress to git with descriptive commit messages by running the `/commit` command using the `Skill` tool (e.g. invoke skill `gh-commit`)
 - Write summaries of your progress in `~/.atomic/workflows/{session_id}/progress.txt`
     - Tip: this can be useful to revert bad code changes and recover working states of the codebase
 - Note: you are competing with another coding agent that also implements features. The one who does a better job implementing features will be promoted. Focus on quality, correctness, and thorough testing. The agent who breaks the rules for implementation will be fired.

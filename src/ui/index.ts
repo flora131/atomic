@@ -37,6 +37,7 @@ import {
   createTuiTelemetrySessionTracker,
   type TuiTelemetrySessionTracker,
 } from "../telemetry/index.ts";
+import { shouldFinalizeOnToolComplete } from "./parts/index.ts";
 
 /**
  * Build a system prompt section describing all registered capabilities.
@@ -64,7 +65,11 @@ function buildCapabilitiesSystemPrompt(): string {
       const hint = c.argumentHint ? ` ${c.argumentHint}` : "";
       return `  /${c.name}${hint} - ${c.description}`;
     });
-    sections.push(`Skills (invoke with /skill-name):\n${lines.join("\n")}`);
+    sections.push(
+      `Skills (invoke with /skill-name):\n${lines.join("\n")}\n\n` +
+        `Note: Skills listed above are user-invocable via slash commands. ` +
+        `To load a skill yourself, use the Skill tool instead of outputting a slash command.`,
+    );
   }
 
   const agents = allCommands.filter((c) => c.category === "agent");
@@ -140,7 +145,8 @@ export type OnPermissionRequest = (
   question: string,
   options: Array<{ label: string; value: string; description?: string }>,
   respond: (answer: string | string[]) => void,
-  header?: string
+  header?: string,
+  toolCallId?: string
 ) => void;
 
 /**
@@ -434,17 +440,13 @@ export async function startChatUI(
     const toolNameToIds = new Map<string, string[]>();
 
     // FIFO queue of pending Task tool calls consumed by subagent.start.
-    // Keeps prompt + internal toolId together to avoid queue skew.
-    const pendingTaskEntries: Array<{ toolId: string; prompt?: string }> = [];
+    // Keeps prompt + internal toolId + mode together to avoid queue skew.
+    const pendingTaskEntries: Array<{ toolId: string; prompt?: string; isBackground?: boolean }> = [];
 
     // Maps SDK-level correlation IDs to agent IDs for ID-based result attribution.
     // Populated by subagent.start, consumed by tool.complete for Task tools.
     // Keys: toolUseID (Claude), toolCallId (Copilot), internal toolId (FIFO fallback)
     const toolCallToAgentMap = new Map<string, string>();
-
-    // Tool IDs attributed to running subagents — their tool.complete events
-    // should also be suppressed from the main conversation UI
-    const subagentToolIds = new Set<string>();
 
     // Map SDK tool use IDs to internal tool IDs for deduplication.
     // SDKs like OpenCode emit tool.start for both "pending" and "running"
@@ -452,11 +454,30 @@ export async function startChatUI(
     // internal ID and update the existing UI entry instead of creating a duplicate.
     const sdkToolIdMap = new Map<string, string>();
 
+    // Tool IDs belonging to running sub-agents. These tools are tracked in
+    // the parallel agents tree but filtered out of the main chat UI and
+    // ctrl+o transcript to avoid duplicate display.
+    const subagentToolIds = new Set<string>();
+
+    const detachToolIdFromNameStack = (toolName: string, toolId: string): void => {
+      const ids = toolNameToIds.get(toolName);
+      if (!ids || ids.length === 0) return;
+      const idx = ids.indexOf(toolId);
+      if (idx === -1) return;
+      ids.splice(idx, 1);
+      if (ids.length === 0) {
+        toolNameToIds.delete(toolName);
+        toolNameToId.delete(toolName);
+      } else {
+        toolNameToId.set(toolName, ids[0] as string);
+      }
+    };
+
     // Internal cleanup gate for correlation tracking.
     // Keep completed agents around until late Task tool.complete events are consumed.
     const tryFinalizeParallelTracking = (): void => {
       const hasActiveAgents = state.parallelAgents.some(
-        (a) => a.status === "running" || a.status === "pending"
+        (a) => a.status === "running" || a.status === "pending" || a.status === "background"
       );
       const hasPendingCorrelations =
         pendingTaskEntries.length > 0 || toolCallToAgentMap.size > 0;
@@ -507,7 +528,8 @@ export async function startChatUI(
         if ((data.toolName === "Task" || data.toolName === "task") && data.toolInput && !isUpdate) {
           const input = data.toolInput as Record<string, unknown>;
           const prompt = (input.prompt as string) ?? (input.description as string) ?? "";
-          pendingTaskEntries.push({ toolId, prompt: prompt || undefined });
+          const isBackground = input.run_in_background === true;
+          pendingTaskEntries.push({ toolId, prompt: prompt || undefined, isBackground });
 
           // Eagerly create a ParallelAgent so the tree appears immediately
           // instead of waiting for the SDK's subagent.start event (which may
@@ -518,11 +540,15 @@ export async function startChatUI(
             const taskDesc = (input.description as string) ?? prompt ?? "Sub-agent task";
             const newAgent: ParallelAgent = {
               id: toolId,
+              taskToolCallId: toolId,
               name: agentType,
               task: taskDesc,
-              status: "running",
+              status: isBackground ? "background" : "running",
+              background: isBackground || undefined,
               startedAt: new Date().toISOString(),
-              currentTool: `Starting ${agentType}…`,
+              currentTool: isBackground
+                ? `Running ${agentType} in background…`
+                : `Starting ${agentType}…`,
             };
             state.parallelAgents = [...state.parallelAgents, newAgent];
             state.parallelAgentHandler(state.parallelAgents);
@@ -539,15 +565,15 @@ export async function startChatUI(
         // SDK events (subagent.start / subagent.complete) don't carry intermediate
         // tool-use updates, so we bridge that gap here by attributing each tool.start
         // to the most recently started running subagent.
-        // When a tool is attributed to a subagent, skip the main tool UI to avoid
-        // showing subagent-internal tools as top-level conversation entries.
-        let attributedToSubagent = false;
         const isTaskTool = data.toolName === "Task" || data.toolName === "task";
+        let isSubagentTool = false;
         if (!isTaskTool && state.isStreaming && state.parallelAgentHandler && state.parallelAgents.length > 0) {
           const runningAgent = [...state.parallelAgents]
             .reverse()
             .find((a) => a.status === "running");
           if (runningAgent) {
+            isSubagentTool = true;
+            subagentToolIds.add(toolId);
             const updatedToolUses = (runningAgent.toolUses ?? 0) + 1;
             state.parallelAgents = state.parallelAgents.map((a) =>
               a.id === runningAgent.id
@@ -555,21 +581,19 @@ export async function startChatUI(
                 : a
             );
             state.parallelAgentHandler(state.parallelAgents);
-            attributedToSubagent = true;
           }
         }
 
-        // Only show in main conversation if not attributed to a subagent
-        if (attributedToSubagent) {
-          subagentToolIds.add(toolId);
-          return;
+        // Only dispatch to the main chat UI for non-subagent tools.
+        // Sub-agent tool calls are tracked in the parallel agents tree
+        // and filtered out of the main UI / ctrl+o transcript.
+        if (!isSubagentTool) {
+          state.toolStartHandler(
+            toolId,
+            data.toolName,
+            (data.toolInput as Record<string, unknown>) ?? {}
+          );
         }
-
-        state.toolStartHandler(
-          toolId,
-          data.toolName,
-          (data.toolInput as Record<string, unknown>) ?? {}
-        );
       }
     });
 
@@ -580,9 +604,18 @@ export async function startChatUI(
         state.telemetryTracker?.trackToolComplete(data.toolName, data.success ?? true);
       }
       if (state.toolCompleteHandler) {
-        // Find the matching tool ID from the stack (FIFO order)
+        // Resolve internal tool ID:
+        // 1) Prefer SDK correlation IDs for deterministic attribution
+        // 2) Fallback to tool-name FIFO for SDKs without stable IDs
+        const sdkCorrelationId = data.toolUseID ?? data.toolCallId ?? data.toolUseId;
         let toolId: string;
-        if (data.toolName) {
+        if (sdkCorrelationId && sdkToolIdMap.has(sdkCorrelationId)) {
+          toolId = sdkToolIdMap.get(sdkCorrelationId)!;
+          if (data.toolName) {
+            detachToolIdFromNameStack(data.toolName, toolId);
+          }
+        } else if (data.toolName) {
+          // Find the matching tool ID from the stack (FIFO order)
           const ids = toolNameToIds.get(data.toolName);
           toolId = ids?.shift() ?? toolNameToId.get(data.toolName) ?? `tool_${state.toolIdCounter}`;
           if (ids && ids.length === 0) {
@@ -595,21 +628,20 @@ export async function startChatUI(
           toolId = `tool_${state.toolIdCounter}`;
         }
 
-        // Skip tool.complete for tools already attributed to a subagent
-        if (subagentToolIds.has(toolId)) {
-          subagentToolIds.delete(toolId);
-          state.activeToolIds.delete(toolId);
-          tryFinalizeParallelTracking();
-          return;
+        // Skip dispatching to main chat UI for sub-agent tools.
+        // They were never registered via toolStartHandler, so there's
+        // nothing to complete in the message parts or tool calls arrays.
+        const isSubagentTool = subagentToolIds.has(toolId);
+        if (!isSubagentTool) {
+          state.toolCompleteHandler(
+            toolId,
+            data.toolResult,
+            data.success ?? true,
+            data.error,
+            data.toolInput // Pass input to update if it wasn't available at start
+          );
         }
-
-        state.toolCompleteHandler(
-          toolId,
-          data.toolResult,
-          data.success ?? true,
-          data.error,
-          data.toolInput // Pass input to update if it wasn't available at start
-        );
+        subagentToolIds.delete(toolId);
 
         const isTaskTool = data.toolName === "Task" || data.toolName === "task";
         if (isTaskTool) {
@@ -640,38 +672,58 @@ export async function startChatUI(
             : JSON.stringify(data.toolResult));
 
           // Try ID-based correlation: SDK-level IDs first, then internal toolId
-          const sdkCorrelationId = data.toolUseID ?? data.toolCallId ?? data.toolUseId;
-          const agentId = (sdkCorrelationId && toolCallToAgentMap.get(sdkCorrelationId))
+          const taskSdkCorrelationId = data.toolUseID ?? data.toolCallId ?? data.toolUseId;
+          const agentId = (taskSdkCorrelationId && toolCallToAgentMap.get(taskSdkCorrelationId))
             || toolCallToAgentMap.get(toolId);
 
           if (agentId) {
+            // Fallback: if the tool result indicates async (e.g. { isAsync: true }),
+            // retroactively mark the agent as background so finalization is skipped.
+            if (parsed.isAsync) {
+              state.parallelAgents = state.parallelAgents.map((a) =>
+                a.id === agentId && !a.background
+                  ? { ...a, background: true, status: "background" as const }
+                  : a
+              );
+            }
+
             // Set result AND finalize status — if subagent.complete never
             // fired (eager agent path), this ensures the agent transitions
             // from "running" → "completed" when the Task tool returns.
+            // Use shouldFinalizeOnToolComplete guard to prevent premature
+            // finalization of background agents.
             state.parallelAgents = state.parallelAgents.map((a) =>
               a.id === agentId
                 ? {
                     ...a,
                     result: resultStr,
-                    status: a.status === "running" || a.status === "pending"
-                      ? "completed" as const
+                    status: shouldFinalizeOnToolComplete(a)
+                      ? (a.status === "running" || a.status === "pending"
+                          ? "completed" as const
+                          : a.status)
                       : a.status,
-                    currentTool: a.status === "running" || a.status === "pending"
-                      ? undefined
+                    currentTool: shouldFinalizeOnToolComplete(a)
+                      ? (a.status === "running" || a.status === "pending"
+                          ? undefined
+                          : a.currentTool)
                       : a.currentTool,
-                    durationMs: a.durationMs ?? (Date.now() - new Date(a.startedAt).getTime()),
+                    durationMs: shouldFinalizeOnToolComplete(a)
+                      ? (a.durationMs ?? (Date.now() - new Date(a.startedAt).getTime()))
+                      : a.durationMs,
                   }
                 : a
             );
             state.parallelAgentHandler(state.parallelAgents);
             // Clean up consumed mappings
-            if (sdkCorrelationId) toolCallToAgentMap.delete(sdkCorrelationId);
+            if (taskSdkCorrelationId) toolCallToAgentMap.delete(taskSdkCorrelationId);
             toolCallToAgentMap.delete(toolId);
           } else {
             // Fallback: find the last completed-or-running agent without a result
+            // Use shouldFinalizeOnToolComplete guard to prevent premature
+            // finalization of background agents.
             const agentToUpdate = [...state.parallelAgents]
               .reverse()
-              .find((a) => (a.status === "completed" || a.status === "running") && !a.result);
+              .find((a) => (a.status === "completed" || a.status === "running") && !a.result && shouldFinalizeOnToolComplete(a));
             if (agentToUpdate) {
               state.parallelAgents = state.parallelAgents.map((a) =>
                 a.id === agentToUpdate.id
@@ -700,10 +752,12 @@ export async function startChatUI(
         ) {
           // Task tool completed without a result — still finalize any
           // eagerly-created agent that hasn't been marked completed yet.
+          // Use shouldFinalizeOnToolComplete guard to prevent premature
+          // finalization of background agents.
           const agentId = toolCallToAgentMap.get(toolId);
           if (agentId) {
             state.parallelAgents = state.parallelAgents.map((a) =>
-              a.id === agentId && (a.status === "running" || a.status === "pending")
+              a.id === agentId && (a.status === "running" || a.status === "pending") && shouldFinalizeOnToolComplete(a)
                 ? {
                     ...a,
                     status: "completed" as const,
@@ -718,6 +772,9 @@ export async function startChatUI(
         }
 
         // Clean up tracking
+        if (sdkCorrelationId) {
+          sdkToolIdMap.delete(sdkCorrelationId);
+        }
         state.activeToolIds.delete(toolId);
         tryFinalizeParallelTracking();
       }
@@ -740,6 +797,7 @@ export async function startChatUI(
         header?: string;
         options?: Array<{ label: string; value: string; description?: string }>;
         respond?: (answer: string | string[]) => void;
+        toolCallId?: string;
       };
 
       if (state.permissionRequestHandler && data.question && data.respond) {
@@ -749,7 +807,8 @@ export async function startChatUI(
           data.question,
           data.options ?? [],
           data.respond,
-          data.header
+          data.header,
+          data.toolCallId
         );
       }
     });
@@ -790,7 +849,18 @@ export async function startChatUI(
       if (!state.isStreaming) return;
 
       if (state.parallelAgentHandler && data.subagentId) {
-        const pendingTaskEntry = pendingTaskEntries.shift();
+        const sdkCorrelationId = data.toolUseID ?? data.toolCallId;
+        const correlatedToolId = sdkCorrelationId ? sdkToolIdMap.get(sdkCorrelationId) : undefined;
+        let pendingTaskEntry: { toolId: string; prompt?: string; isBackground?: boolean } | undefined;
+        if (correlatedToolId) {
+          const entryIdx = pendingTaskEntries.findIndex((entry) => entry.toolId === correlatedToolId);
+          if (entryIdx !== -1) {
+            pendingTaskEntry = pendingTaskEntries.splice(entryIdx, 1)[0];
+          }
+        }
+        if (!pendingTaskEntry) {
+          pendingTaskEntry = pendingTaskEntries.shift();
+        }
 
         // Use task from event data, or dequeue a pending Task tool prompt
         const task = data.task
@@ -798,6 +868,7 @@ export async function startChatUI(
           || data.subagentType
           || "Sub-agent";
         const agentTypeName = data.subagentType ?? "agent";
+        const isBackground = pendingTaskEntry?.isBackground ?? false;
 
         // Check if an eager agent was already created from tool.start.
         // If so, update it in-place with the real subagentId instead of
@@ -808,12 +879,14 @@ export async function startChatUI(
           : false;
 
         if (hasEagerAgent && eagerToolId) {
-          // Merge: update existing eager agent with real subagentId
+          // Merge: update existing eager agent with real subagentId.
+          // Preserve background status and other fields from the eager agent.
           state.parallelAgents = state.parallelAgents.map(a =>
             a.id === eagerToolId
               ? {
                   ...a,
                   id: data.subagentId!,
+                  taskToolCallId: a.taskToolCallId ?? eagerToolId,
                   name: agentTypeName,
                   task: data.task || a.task,
                   currentTool: `Running ${agentTypeName}…`,
@@ -824,13 +897,18 @@ export async function startChatUI(
           toolCallToAgentMap.set(eagerToolId, data.subagentId!);
         } else {
           // No eager agent — create fresh (backward compat for non-Task subagents)
+          // Use stored background status from pendingTaskEntry
           const newAgent: ParallelAgent = {
             id: data.subagentId,
+            taskToolCallId: pendingTaskEntry?.toolId,
             name: agentTypeName,
             task,
-            status: "running",
+            status: isBackground ? "background" : "running",
+            background: isBackground || undefined,
             startedAt: event.timestamp ?? new Date().toISOString(),
-            currentTool: `Running ${agentTypeName}…`,
+            currentTool: isBackground
+              ? `Running ${agentTypeName} in background…`
+              : `Running ${agentTypeName}…`,
           };
           state.parallelAgents = [...state.parallelAgents, newAgent];
         }
@@ -838,7 +916,6 @@ export async function startChatUI(
 
         // Build correlation mapping: SDK-level ID → agentId
         // This allows tool.complete to attribute results to the correct agent.
-        const sdkCorrelationId = data.toolUseID ?? data.toolCallId;
         if (sdkCorrelationId) {
           toolCallToAgentMap.set(sdkCorrelationId, data.subagentId!);
         }
@@ -858,8 +935,13 @@ export async function startChatUI(
         result?: unknown;
       };
 
-      // Skip if stream already ended and no agents are pending
-      if (!state.isStreaming) return;
+      // Skip if stream already ended, unless a background agent is completing
+      if (!state.isStreaming) {
+        const targetAgent = data.subagentId
+          ? state.parallelAgents.find((a) => a.id === data.subagentId)
+          : undefined;
+        if (!targetAgent?.background) return;
+      }
 
       if (state.parallelAgentHandler && data.subagentId) {
         const status = data.success !== false ? "completed" : "error";
@@ -1148,10 +1230,12 @@ export async function startChatUI(
     } finally {
       // Clear streaming state
       state.streamAbortController = null;
-      // Keep isStreaming true if sub-agents are still running so
+      // Keep isStreaming true if sub-agents are still actively running so
       // subagent.complete events continue to be processed.
+      // Only match agents that are actually active (running/pending/background),
+      // not completed background agents that happen to have background=true.
       const hasActiveAgents = state.parallelAgents.some(
-        (a) => a.status === "running" || a.status === "pending"
+        (a) => a.status === "running" || a.status === "pending" || a.status === "background"
       );
       if (!hasActiveAgents) {
         state.isStreaming = false;
@@ -1638,21 +1722,12 @@ export {
   // Workflow commands
   registerWorkflowCommands,
   type WorkflowMetadata,
-  WORKFLOW_DEFINITIONS,
   getWorkflowMetadata,
-  createWorkflowByName,
 
   // Skill commands
   registerSkillCommands,
-  type SkillMetadata,
-  SKILL_DEFINITIONS,
-  getSkillMetadata,
-  isRalphSkill,
-  getRalphSkills,
-  getCoreSkills,
 
   // Initialization and helpers
-  initializeCommands,
   initializeCommandsAsync,
   parseSlashCommand,
   isSlashCommand,

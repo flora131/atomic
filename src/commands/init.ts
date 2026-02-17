@@ -55,27 +55,6 @@ function getScmPrefix(scmType: SourceControlType): "gh-" | "sl-" {
   return SCM_PREFIX_BY_TYPE[scmType];
 }
 
-/**
- * Get the commands subfolder name for a given agent type.
- *
- * Different agents use different folder names for commands:
- * - Claude: .claude/commands/
- * - OpenCode: .opencode/command/ (singular)
- * - Copilot: .github/skills/
- */
-function getCommandsSubfolder(agentKey: AgentKey): string {
-  switch (agentKey) {
-    case "claude":
-      return "commands";
-    case "opencode":
-      return "command";
-    case "copilot":
-      return "skills";
-    default:
-      return "commands";
-  }
-}
-
 function isManagedScmEntry(name: string): boolean {
   return name.startsWith("gh-") || name.startsWith("sl-");
 }
@@ -83,7 +62,7 @@ function isManagedScmEntry(name: string): boolean {
 interface ReconcileScmVariantsOptions {
   scmType: SourceControlType;
   agentFolder: string;
-  commandsSubfolder: string;
+  skillsSubfolder: string;
   targetDir: string;
   configRoot: string;
 }
@@ -94,10 +73,10 @@ interface ReconcileScmVariantsOptions {
  * User-defined or unmanaged entries are preserved.
  */
 export async function reconcileScmVariants(options: ReconcileScmVariantsOptions): Promise<void> {
-  const { scmType, agentFolder, commandsSubfolder, targetDir, configRoot } = options;
+  const { scmType, agentFolder, skillsSubfolder, targetDir, configRoot } = options;
   const selectedPrefix = getScmPrefix(scmType);
-  const srcDir = join(configRoot, agentFolder, commandsSubfolder);
-  const destDir = join(targetDir, agentFolder, commandsSubfolder);
+  const srcDir = join(configRoot, agentFolder, skillsSubfolder);
+  const destDir = join(targetDir, agentFolder, skillsSubfolder);
 
   if (!(await pathExists(srcDir))) {
     if (process.env.DEBUG === "1") {
@@ -363,7 +342,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
     await reconcileScmVariants({
       scmType,
       agentFolder: agent.folder,
-      commandsSubfolder: getCommandsSubfolder(agentKey),
+      skillsSubfolder: "skills",
       targetDir,
       configRoot,
     });

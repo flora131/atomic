@@ -37,6 +37,7 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
     setTodoItems: () => {},
     setRalphSessionDir: () => {},
     setRalphSessionId: () => {},
+    setRalphTaskIds: () => {},
     updateWorkflowState: () => {},
     ...overrides,
   };

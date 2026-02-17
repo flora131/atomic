@@ -45,6 +45,7 @@ Works on macOS, Linux, and Windows.
 ### Deep Codebase Research & Root Cause Analysis
 
 You know the pain:
+
 - **Hours lost** hunting through unfamiliar code manually
 - **Agents missing key files** even when you know they're relevant
 - **Repeating yourself** — mentioning the same file over and over, only for the agent to ignore it
@@ -124,9 +125,9 @@ atomic run claude "/research-codebase Research implementing GraphRAG using \
 - **Hardware**: Minimal requirements
 - **Network**: Internet connection required for installation
 - **Coding agent installed** (at least one):
-  - [Claude Code](https://code.claude.com/docs/en/quickstart)
-  - [OpenCode](https://opencode.ai)
-  - [GitHub Copilot CLI](https://github.com/features/copilot/cli)
+    - [Claude Code](https://code.claude.com/docs/en/quickstart)
+    - [OpenCode](https://opencode.ai)
+    - [GitHub Copilot CLI](https://github.com/features/copilot/cli)
 
 #### Additional dependencies
 
@@ -190,10 +191,10 @@ The `/init` command explores your codebase using sub-agents and generates popula
 
 During `atomic init`, you'll be prompted to select your source control system:
 
-| SCM Type             | CLI Tool | Code Review      | Use Case                    |
-| -------------------- | -------- | ---------------- | --------------------------- |
-| GitHub / Git         | `git`    | Pull Requests    | Most open-source projects   |
-| Sapling + Phabricator| `sl`     | Phabricator Diffs| Meta-style stacked workflows|
+| SCM Type              | CLI Tool | Code Review       | Use Case                     |
+| --------------------- | -------- | ----------------- | ---------------------------- |
+| GitHub / Git          | `git`    | Pull Requests     | Most open-source projects    |
+| Sapling + Phabricator | `sl`     | Phabricator Diffs | Meta-style stacked workflows |
 
 **Pre-select via CLI flag:**
 
@@ -341,13 +342,13 @@ Follow the debugging report above to resolve the issue.
 
 User-invocable slash commands that orchestrate workflows.
 
-| Command              | Arguments                                 | Description                                        |
-| -------------------- | ----------------------------------------- | -------------------------------------------------- |
-| `/init`              |                                            | Generate `CLAUDE.md` and `AGENTS.md` by exploring the codebase |
-| `/research-codebase` | `[question]`                              | Analyze codebase and document findings             |
-| `/create-spec`       | `[research-path]`                         | Generate technical specification                   |
-| `/explain-code`      | `[path]`                                  | Explain code section in detail                     |
-| `/ralph`             | `"<prompt>" [--resume UUID ["<prompt>"]]` | Run autonomous implementation workflow             |
+| Command              | Arguments                                 | Description                                                    |
+| -------------------- | ----------------------------------------- | -------------------------------------------------------------- |
+| `/init`              |                                           | Generate `CLAUDE.md` and `AGENTS.md` by exploring the codebase |
+| `/research-codebase` | `[question]`                              | Analyze codebase and document findings                         |
+| `/create-spec`       | `[research-path]`                         | Generate technical specification                               |
+| `/explain-code`      | `[path]`                                  | Explain code section in detail                                 |
+| `/ralph`             | `"<prompt>" [--resume UUID ["<prompt>"]]` | Run autonomous implementation workflow                         |
 
 ### Agents
 
@@ -451,21 +452,21 @@ Atomic stores project-level configuration in `.atomic.json` at the root of your 
 
 ```json
 {
-  "version": 1,
-  "agent": "claude",
-  "scm": "github",
-  "lastUpdated": "2026-02-12T12:00:00.000Z"
+    "version": 1,
+    "agent": "claude",
+    "scm": "github",
+    "lastUpdated": "2026-02-12T12:00:00.000Z"
 }
 ```
 
 **Fields:**
 
-| Field         | Type   | Description                                              |
-| ------------- | ------ | -------------------------------------------------------- |
-| `version`     | number | Config schema version (currently `1`)                    |
-| `agent`       | string | Selected coding agent (`claude`, `opencode`, `copilot`)  |
-| `scm`         | string | Source control type (`github`, `sapling-phabricator`)    |
-| `lastUpdated` | string | ISO 8601 timestamp of last configuration update          |
+| Field         | Type   | Description                                             |
+| ------------- | ------ | ------------------------------------------------------- |
+| `version`     | number | Config schema version (currently `1`)                   |
+| `agent`       | string | Selected coding agent (`claude`, `opencode`, `copilot`) |
+| `scm`         | string | Source control type (`github`, `sapling-phabricator`)   |
+| `lastUpdated` | string | ISO 8601 timestamp of last configuration update         |
 
 **Note:** You generally don't need to edit this file manually. Use `atomic init` to reconfigure your project.
 
@@ -473,11 +474,11 @@ Atomic stores project-level configuration in `.atomic.json` at the root of your 
 
 Each agent has its own configuration folder:
 
-| Agent         | Folder       | Commands                    | Context File |
-| ------------- | ------------ | --------------------------- | ------------ |
-| Claude Code   | `.claude/`   | `.claude/commands/`         | `CLAUDE.md`  |
-| OpenCode      | `.opencode/` | `.opencode/command/`        | `AGENTS.md`  |
-| GitHub Copilot| `.github/`   | `.github/skills/`           | `AGENTS.md`  |
+| Agent          | Folder       | Skills               | Context File |
+| -------------- | ------------ | -------------------- | ------------ |
+| Claude Code    | `.claude/`   | `.claude/skills/`    | `CLAUDE.md`  |
+| OpenCode       | `.opencode/` | `.opencode/skills/`  | `AGENTS.md`  |
+| GitHub Copilot | `.github/`   | `.github/skills/`    | `AGENTS.md`  |
 
 ---
 
@@ -670,12 +671,12 @@ import { loadTelemetryConfig, isTelemetryEnabled } from "@bastani/atomic";
 
 // Check if telemetry is enabled
 if (isTelemetryEnabled()) {
-  // Telemetry will be collected
+    // Telemetry will be collected
 }
 
 // Load full configuration
 const config = loadTelemetryConfig();
-console.log(config.enabled);      // boolean
+console.log(config.enabled); // boolean
 console.log(config.localLogPath); // platform-specific path
 ```
 

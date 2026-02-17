@@ -244,6 +244,32 @@ describe("parseTaskToolResult", () => {
     expect(result.text).toContain("unrecognized");
     expect(result.text).toContain("field");
   });
+
+  test("detects isAsync from async_launched result", () => {
+    const output = {
+      isAsync: true,
+      status: "async_launched",
+      output_file: "/tmp/agent-output.txt",
+    };
+    const result = parseTaskToolResult(output);
+    expect(result.isAsync).toBe(true);
+  });
+
+  test("does not set isAsync for non-async results", () => {
+    const output = { result: "Normal result" };
+    const result = parseTaskToolResult(output);
+    expect(result.isAsync).toBeUndefined();
+  });
+
+  test("detects isAsync alongside recognized formats", () => {
+    const output = {
+      result: "Async task started",
+      isAsync: true,
+    };
+    const result = parseTaskToolResult(output);
+    expect(result.text).toBe("Async task started");
+    expect(result.isAsync).toBe(true);
+  });
 });
 
 describe("Tool renderer icon and title generation", () => {

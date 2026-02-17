@@ -85,12 +85,9 @@ export interface AgentInfo {
 }
 
 // ============================================================================
-// FRONTMATTER PARSING (shared utility — re-exported for backward compatibility)
+// FRONTMATTER PARSING
 // ============================================================================
 
-// Re-export for backward compatibility
-export { parseMarkdownFrontmatter } from "../../utils/markdown.ts";
-// Import for local use
 import { parseMarkdownFrontmatter } from "../../utils/markdown.ts";
 
 // ============================================================================

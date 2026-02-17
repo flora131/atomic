@@ -43,10 +43,8 @@ afterEach(() => {
  * Extracted decision logic from chat.tsx up-arrow handler.
  * Returns true if history navigation should occur (rather than text navigation).
  *
- * See src/ui/chat.tsx — the up arrow handler checks these conditions:
- *   event.name === "up" && !showAutocomplete && !isEditingQueue &&
- *   !isStreaming && messageQueue.count === 0 && promptHistory.length > 0
- *   && textarea.cursorOffset === 0
+ * Up-arrow navigates history only when the cursor is at index 0 (start of text)
+ * and prompt history exists.
  */
 function shouldNavigateHistoryUp(params: {
   cursorOffset: number;
@@ -69,9 +67,13 @@ function shouldNavigateHistoryUp(params: {
 /**
  * Extracted decision logic from chat.tsx down-arrow handler.
  * Returns true if forward history navigation should occur.
+ *
+ * Down-arrow navigates history only when the cursor is at the last index
+ * (end of text) and we are already in history mode (historyIndex >= 0).
  */
 function shouldNavigateHistoryDown(params: {
   cursorOffset: number;
+  textLength: number;
   showAutocomplete: boolean;
   isEditingQueue: boolean;
   isStreaming: boolean;
@@ -84,7 +86,7 @@ function shouldNavigateHistoryDown(params: {
     !params.isStreaming &&
     params.messageQueueCount === 0 &&
     params.historyIndex >= 0 &&
-    params.cursorOffset === 0
+    params.cursorOffset === params.textLength
   );
 }
 
@@ -98,7 +100,8 @@ const defaultUpParams = {
 };
 
 const defaultDownParams = {
-  cursorOffset: 0,
+  cursorOffset: 20,
+  textLength: 20,
   showAutocomplete: false,
   isEditingQueue: false,
   isStreaming: false,
@@ -132,11 +135,11 @@ describe("chat command history integration", () => {
   });
 
   describe("cursor-offset gate for down arrow", () => {
-    test("allows forward navigation when cursorOffset === 0 and historyIndex >= 0", () => {
+    test("allows forward navigation when cursorOffset === textLength and historyIndex >= 0", () => {
       expect(shouldNavigateHistoryDown(defaultDownParams)).toBe(true);
     });
 
-    test("blocks forward navigation when cursorOffset > 0", () => {
+    test("blocks forward navigation when cursorOffset < textLength", () => {
       expect(
         shouldNavigateHistoryDown({ ...defaultDownParams, cursorOffset: 10 }),
       ).toBe(false);

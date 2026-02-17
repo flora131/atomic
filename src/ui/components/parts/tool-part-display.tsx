@@ -10,7 +10,7 @@ import React from "react";
 import { ToolResult } from "../tool-result.tsx";
 import { UserQuestionInline } from "./user-question-inline.tsx";
 import { useThemeColors } from "../../theme.tsx";
-import { PROMPT, STATUS } from "../../constants/icons.ts";
+import { CONNECTOR, STATUS, TREE } from "../../constants/icons.ts";
 import type { ToolPart, ToolState } from "../../parts/types.ts";
 import type { ToolExecutionStatus } from "../../hooks/use-streaming-state.ts";
 import type { HitlResponseRecord } from "../../utils/hitl-response.ts";
@@ -30,8 +30,11 @@ function toolStateToStatus(state: ToolState): ToolExecutionStatus {
 }
 
 /**
- * Displays a completed HITL response inline with a compact, elegant style
- * matching the ToolResult header pattern: [status] [label] [question] / [answer].
+ * Displays a completed HITL response inline showing both the original
+ * question and the user's answer in a clear tree hierarchy:
+ *   ✓ ask_user
+ *   ├ Question text here...
+ *   └ User answered: "answer text"
  */
 function CompletedHitlDisplay({ hitlResponse, questionText }: {
   hitlResponse: HitlResponseRecord;
@@ -42,21 +45,31 @@ function CompletedHitlDisplay({ hitlResponse, questionText }: {
   const isDeclined = hitlResponse.cancelled || hitlResponse.responseMode === "declined";
   const statusIcon = isDeclined ? STATUS.error : STATUS.success;
   const statusColor = isDeclined ? colors.warning : colors.success;
+  const responseColor = isDeclined ? colors.muted : colors.foreground;
+  const hasQuestion = questionText.length > 0;
 
   return (
     <box flexDirection="column">
-      {/* Header: status icon + question text */}
+      {/* Header: status icon + tool label */}
       <text wrapMode="word">
         <span style={{ fg: statusColor }}>{statusIcon}</span>
-        <span style={{ fg: colors.dim }}> ask_user</span>
-        {questionText.length > 0 && (
-          <span style={{ fg: colors.muted }}> {questionText}</span>
-        )}
+        <span style={{ fg: colors.accent }}> ask_user</span>
       </text>
 
-      {/* Response line — indented under the header */}
-      <text style={{ fg: isDeclined ? colors.muted : colors.dim }}>
-        {"  "}{PROMPT.cursor} {hitlResponse.displayText}
+      {/* Question line — show the full original question */}
+      {hasQuestion && (
+        <text wrapMode="word">
+          <span style={{ fg: colors.border }}>  {TREE.branch} </span>
+          <span style={{ fg: colors.foreground }}>{questionText}</span>
+        </text>
+      )}
+
+      {/* Response line — tree connector for visual hierarchy */}
+      <text wrapMode="word">
+        <span style={{ fg: colors.border }}>  {CONNECTOR.subStatus} </span>
+        <span style={{ fg: responseColor }}>
+          {isDeclined ? "Declined" : `User answered: "${hitlResponse.answerText}"`}
+        </span>
       </text>
     </box>
   );
@@ -64,10 +77,26 @@ function CompletedHitlDisplay({ hitlResponse, questionText }: {
 
 /**
  * Extracts the question text from a HITL tool's input parameters.
+ * Handles both single-question format ({question: "..."}) and
+ * multi-question array format ({questions: [{question: "..."}]}).
  */
 function extractQuestionText(input: Record<string, unknown>): string {
-  const question = input.question ?? input.text ?? input.message ?? "";
-  return String(question);
+  // Direct question field
+  if (typeof input.question === "string" && input.question.length > 0) {
+    return input.question;
+  }
+
+  // questions[] array format (AskUserQuestion from Claude SDK)
+  if (Array.isArray(input.questions) && input.questions.length > 0) {
+    const first = input.questions[0] as Record<string, unknown> | undefined;
+    if (first && typeof first.question === "string") {
+      return first.question;
+    }
+  }
+
+  // Fallback fields
+  const fallback = input.text ?? input.message ?? "";
+  return String(fallback);
 }
 
 /**

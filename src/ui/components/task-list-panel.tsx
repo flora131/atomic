@@ -35,15 +35,11 @@ export interface TaskListBoxProps {
   expanded?: boolean;
   /** Header label override (default: "Task Progress") */
   headerTitle?: string;
-  /** Optional session ID to display */
-  sessionId?: string;
 }
 
 export interface TaskListPanelProps {
   /** Workflow session directory path */
   sessionDir: string;
-  /** Optional session ID to display in the panel */
-  sessionId?: string;
   /** Whether to show full task content without truncation */
   expanded?: boolean;
 }
@@ -78,7 +74,6 @@ export function TaskListBox({
   items,
   expanded = false,
   headerTitle = "Task Progress",
-  sessionId,
 }: TaskListBoxProps): React.ReactNode {
   const themeColors = useThemeColors();
   const { isDark } = useTheme();
@@ -131,13 +126,6 @@ export function TaskListBox({
         <span style={{ fg: palette.teal }}>{headerLabel}</span>
       </text>
 
-      {/* Session ID */}
-      {sessionId && (
-        <text wrapMode="none">
-          <span style={{ fg: themeColors.muted }}>Session: {sessionId}</span>
-        </text>
-      )}
-
       {/* Progress bar */}
       <text wrapMode="none">
         <span style={{ fg: themeColors.success }}>{filled}</span>
@@ -169,7 +157,6 @@ export function TaskListBox({
 
 export function TaskListPanel({
   sessionDir,
-  sessionId,
   expanded = false,
 }: TaskListPanelProps): React.ReactNode {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
@@ -196,7 +183,7 @@ export function TaskListPanel({
 
   return (
     <box flexDirection="column" paddingLeft={SPACING.INDENT} paddingRight={SPACING.INDENT} marginTop={SPACING.ELEMENT} flexShrink={0}>
-      <TaskListBox items={tasks} expanded={expanded} sessionId={sessionId} />
+      <TaskListBox items={tasks} expanded={expanded} />
     </box>
   );
 }

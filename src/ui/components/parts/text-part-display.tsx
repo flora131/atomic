@@ -22,8 +22,10 @@ export function TextPartDisplay({ part, syntaxStyle }: TextPartDisplayProps) {
   const colors = useThemeColors();
   const displayContent = useThrottledValue(part.content, part.isStreaming ? 100 : 0);
 
-  // Strip leading newlines so the circle indicator always has text beside it
-  const trimmedContent = displayContent?.replace(/^\n+/, "");
+  // Strip leading/trailing whitespace so the circle indicator always has text
+  // beside it and trailing blank lines don't create excessive spacing before
+  // the next part in the message.
+  const trimmedContent = displayContent?.replace(/^\n+/, "").replace(/\n+$/, "");
 
   if (!trimmedContent) {
     return null;

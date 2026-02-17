@@ -12,7 +12,7 @@ import React, { useState, useCallback } from "react";
 import { useKeyboard } from "@opentui/react";
 import type { KeyEvent } from "@opentui/core";
 import { useThemeColors } from "../../theme.tsx";
-import { STATUS, PROMPT } from "../../constants/icons.ts";
+import { STATUS, PROMPT, CONNECTOR } from "../../constants/icons.ts";
 import { SPACING } from "../../constants/spacing.ts";
 import type { PermissionOption } from "../../../sdk/types.ts";
 
@@ -55,27 +55,57 @@ export function UserQuestionInline({ question, onAnswer }: UserQuestionInlinePro
   });
 
   return (
-    <box flexDirection="column" marginTop={SPACING.SECTION} paddingLeft={SPACING.INDENT}>
+    <box flexDirection="column" marginTop={SPACING.SECTION}>
+      {/* Header badge — matches UserQuestionDialog style */}
       {question.header && (
-        <text style={{ fg: colors.accent, attributes: 1 }}>{`${PROMPT.cursor} ${question.header}`}</text>
+        <box marginBottom={SPACING.SECTION}>
+          <text>
+            <span style={{ fg: colors.border }}>{CONNECTOR.roundedTopLeft}{CONNECTOR.horizontal}</span>
+            <span style={{ fg: colors.accent, attributes: 1 }}> {STATUS.pending} {question.header} </span>
+            <span style={{ fg: colors.border }}>{CONNECTOR.horizontal}{CONNECTOR.roundedTopRight}</span>
+          </text>
+        </box>
       )}
-      <text style={{ fg: colors.foreground }}>{question.question}</text>
 
+      {/* Question text — bold for visibility */}
+      <text style={{ fg: colors.foreground, attributes: 1 }} wrapMode="word">
+        {question.question}
+      </text>
+
+      {/* Options list — numbered for discoverability, accent for selected */}
       {question.options.length > 0 && (
         <box flexDirection="column" marginTop={SPACING.ELEMENT}>
           {question.options.map((opt, idx) => {
             const isSelected = idx === selectedIndex;
-            const icon = isSelected ? STATUS.active : STATUS.pending;
-            const color = isSelected ? colors.accent : colors.muted;
+            const labelColor = isSelected ? colors.accent : colors.foreground;
+            const descColor = isSelected ? colors.accent : colors.muted;
             return (
-              <text key={opt.value} style={{ fg: color }}>
-                {`  ${icon} ${opt.label}`}
-                {opt.description ? ` — ${opt.description}` : ""}
-              </text>
+              <React.Fragment key={opt.value}>
+                <text>
+                  <span style={{ fg: isSelected ? colors.accent : colors.muted }}>
+                    {isSelected ? `${PROMPT.cursor} ` : "  "}
+                  </span>
+                  <span style={{ fg: labelColor, attributes: isSelected ? 1 : undefined }}>
+                    {idx + 1}. {opt.label}
+                  </span>
+                </text>
+                {opt.description && (
+                  <text style={{ fg: descColor }}>
+                    {"     "}{opt.description}
+                  </text>
+                )}
+              </React.Fragment>
             );
           })}
         </box>
       )}
+
+      {/* Footer hint */}
+      <box marginTop={SPACING.ELEMENT}>
+        <text style={{ fg: colors.muted }}>
+          Enter to select · ↑/↓ to navigate
+        </text>
+      </box>
     </box>
   );
 }

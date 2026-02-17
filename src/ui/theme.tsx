@@ -480,8 +480,8 @@ export function createMarkdownSyntaxStyle(colors: ThemeColors, isDark: boolean):
     punct:    "#9399b2", // Mocha Overlay 2
     property: "#89b4fa", // Mocha Blue
     link:     "#89b4fa", // Mocha Blue
-    list:     "#45475a", // Mocha Surface 1
-    raw:      "#6c7086", // Mocha Overlay 0
+    list:     "#a6adc8", // Mocha Subtext 0 — visible list markers
+    raw:      "#f2cdcd", // Mocha Flamingo — distinct inline code
     bool:     "#fab387", // Mocha Peach
     constant: "#fab387", // Mocha Peach
   } : {
@@ -497,8 +497,8 @@ export function createMarkdownSyntaxStyle(colors: ThemeColors, isDark: boolean):
     punct:    "#7c7f93", // Latte Overlay 2
     property: "#1e66f5", // Latte Blue
     link:     "#1e66f5", // Latte Blue
-    list:     "#ccd0da", // Latte Surface 0
-    raw:      "#8c8fa1", // Latte Overlay 1
+    list:     "#6c6f85", // Latte Subtext 0 — visible list markers
+    raw:      "#dd7878", // Latte Flamingo — distinct inline code
     bool:     "#fe640b", // Latte Peach
     constant: "#fe640b", // Latte Peach
   };

@@ -97,7 +97,7 @@ export function TranscriptView({
       stickyStart="bottom"
       scrollY={true}
       scrollX={false}
-      viewportCulling={false}
+      viewportCulling={true}
       paddingLeft={SPACING.CONTAINER_PAD}
       paddingRight={SPACING.CONTAINER_PAD}
       verticalScrollbarOptions={{ visible: false }}

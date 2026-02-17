@@ -87,7 +87,7 @@ atomic run claude "/research-codebase Research implementing GraphRAG using \
 
 **What happens:** Each agent spawns `codebase-online-researcher` sub-agents that query DeepWiki for the specified repos, pull external documentation, and cross-reference with your existing codebase patterns. You get three research documents.
 
-**From there:** Run `/create-spec` and `/create-feature-list` on each research doc in parallel terminals. Then spin up three git worktrees and run `/ralph:ralph-loop` in each. Wake up to three complete implementations on separate branches — review, benchmark, and choose the winner.
+**From there:** Run `/create-spec` and `/create-feature-list` on each research doc in parallel terminals. Then spin up three git worktrees and run `/ralph` in each. Wake up to three complete implementations on separate branches — review, benchmark, and choose the winner.
 
 > **Note:** This workflow works identically with `atomic run opencode` and `atomic run copilot` — just substitute the CLI command.
 
@@ -342,13 +342,13 @@ Follow the debugging report above to resolve the issue.
 
 User-invocable slash commands that orchestrate workflows.
 
-| Command              | Arguments                                 | Description                                                    |
-| -------------------- | ----------------------------------------- | -------------------------------------------------------------- |
-| `/init`              |                                           | Generate `CLAUDE.md` and `AGENTS.md` by exploring the codebase |
-| `/research-codebase` | `[question]`                              | Analyze codebase and document findings                         |
-| `/create-spec`       | `[research-path]`                         | Generate technical specification                               |
-| `/explain-code`      | `[path]`                                  | Explain code section in detail                                 |
-| `/ralph`             | `"<prompt>" [--resume UUID ["<prompt>"]]` | Run autonomous implementation workflow                         |
+| Command              | Arguments         | Description                                                    |
+| -------------------- | ----------------- | -------------------------------------------------------------- |
+| `/init`              |                   | Generate `CLAUDE.md` and `AGENTS.md` by exploring the codebase |
+| `/research-codebase` | `[question]`      | Analyze codebase and document findings                         |
+| `/create-spec`       | `[research-path]` | Generate technical specification                               |
+| `/explain-code`      | `[path]`          | Explain code section in detail                                 |
+| `/ralph`             | `"<prompt>"`      | Run autonomous implementation workflow                         |
 
 ### Agents
 
@@ -403,14 +403,11 @@ The [Ralph Wiggum Method](https://ghuntley.com/ralph/) enables multi-hour autono
 
 ```
 /ralph "<prompt-or-spec-path>"
-/ralph --resume <uuid>
-/ralph --resume <uuid> "<prompt>"
 ```
 
-| Argument          | Description                                           |
-| ----------------- | ----------------------------------------------------- |
-| `"<prompt>"`      | Prompt or path to a spec file (required for new runs) |
-| `--resume <uuid>` | Resume a previous session by its UUID                 |
+| Argument     | Description                                           |
+| ------------ | ----------------------------------------------------- |
+| `"<prompt>"` | Prompt or path to a spec file (required for new runs) |
 
 ### Chat Interface
 
@@ -432,12 +429,6 @@ atomic chat -a opencode --theme <light/dark>
 
 # Start from a spec file
 /ralph "specs/my-feature.md"
-
-# Resume a previous session
-/ralph --resume a1b2c3d4-...
-
-# Resume with an additional prompt
-/ralph --resume a1b2c3d4-... "Continue with the auth module"
 ```
 
 ---
@@ -474,11 +465,11 @@ Atomic stores project-level configuration in `.atomic.json` at the root of your 
 
 Each agent has its own configuration folder:
 
-| Agent          | Folder       | Skills               | Context File |
-| -------------- | ------------ | -------------------- | ------------ |
-| Claude Code    | `.claude/`   | `.claude/skills/`    | `CLAUDE.md`  |
-| OpenCode       | `.opencode/` | `.opencode/skills/`  | `AGENTS.md`  |
-| GitHub Copilot | `.github/`   | `.github/skills/`    | `AGENTS.md`  |
+| Agent          | Folder       | Skills              | Context File |
+| -------------- | ------------ | ------------------- | ------------ |
+| Claude Code    | `.claude/`   | `.claude/skills/`   | `CLAUDE.md`  |
+| OpenCode       | `.opencode/` | `.opencode/skills/` | `AGENTS.md`  |
+| GitHub Copilot | `.github/`   | `.github/skills/`   | `AGENTS.md`  |
 
 ---
 
@@ -694,8 +685,6 @@ git config --global user.email "you@example.com"
 **Windows Command Resolution:** If agents fail to spawn on Windows, ensure the agent CLI is in your PATH. Atomic uses `Bun.which()` to resolve command paths, which handles Windows `.cmd`, `.exe`, and `.bat` extensions automatically.
 
 **Generating CLAUDE.md/AGENTS.md:** `atomic init` does not create `CLAUDE.md` or `AGENTS.md`. Run `/init` inside a chat session to generate these files. The command explores your codebase and produces project-specific documentation for coding agents.
-
-**Ralph Continues After Stopping Session:** If you stop a Ralph session (e.g., Ctrl+C or esc) and open a new session, Ralph may automatically resume. This is expected behavior—Ralph is designed to run autonomously until an exit condition is met (completion promise / max iterations / all features passing) or it's explicitly cancelled. You can still interrupt and give it instructions during execution.
 
 **Best Practice:** Run Ralph in a separate [git worktree](https://git-scm.com/docs/git-worktree) to isolate autonomous execution from your main development session:
 

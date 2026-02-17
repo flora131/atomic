@@ -1199,7 +1199,7 @@ export function createDenyAllPermissionHandler(): CopilotPermissionHandler {
 export function resolveNodePath(): string | undefined {
   try {
     const cmd = process.platform === "win32" ? "where node" : "which node";
-    const nodePath = execSync(cmd, { encoding: "utf-8" }).trim().split("\n")[0];
+    const nodePath = execSync(cmd, { encoding: "utf-8" }).trim().split(/\r?\n/)[0];
     return nodePath || undefined;
   } catch {
     return undefined;

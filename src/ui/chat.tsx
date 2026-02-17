@@ -4394,68 +4394,107 @@ export function ChatApp({
           return;
         }
 
-        // Prompt history navigation: Up arrow cycles through previous prompts
-        if (event.name === "up" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0 && promptHistoryRef.current.length > 0) {
+        // Prompt history & cursor navigation: Up arrow
+        // Rule 1: first line + not index 0 → move cursor to index 0
+        // Rule 3: index 0 → navigate older history; down just moves in chatbox
+        // Rule 4: at last index, up just moves up in chatbox (no history)
+        if (event.name === "up" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0) {
           const textarea = textareaRef.current;
           if (textarea) {
-            const hIdx = historyIndexRef.current;
-            const history = promptHistoryRef.current;
-            const currentInput = textarea.plainText ?? "";
-            historyNavigatingRef.current = true;
-            if (hIdx === -1) {
-              // Entering history mode - save current input
-              savedInputRef.current = currentInput;
-              const newIndex = history.length - 1;
-              historyIndexRef.current = newIndex;
-              setHistoryIndex(newIndex);
-              textarea.gotoBufferHome();
-              textarea.gotoBufferEnd({ select: true });
-              textarea.deleteChar();
-              textarea.insertText(history[newIndex]!);
-            } else if (hIdx > 0) {
-              // Navigate to earlier prompt
-              const newIndex = hIdx - 1;
-              historyIndexRef.current = newIndex;
-              setHistoryIndex(newIndex);
-              textarea.gotoBufferHome();
-              textarea.gotoBufferEnd({ select: true });
-              textarea.deleteChar();
-              textarea.insertText(history[newIndex]!);
+            const cursorOffset = textarea.cursorOffset;
+            if (cursorOffset === 0) {
+              // At index 0: navigate to older history (Rule 3)
+              if (promptHistoryRef.current.length > 0) {
+                const hIdx = historyIndexRef.current;
+                const history = promptHistoryRef.current;
+                historyNavigatingRef.current = true;
+                if (hIdx === -1) {
+                  savedInputRef.current = textarea.plainText ?? "";
+                  const newIndex = history.length - 1;
+                  historyIndexRef.current = newIndex;
+                  setHistoryIndex(newIndex);
+                  textarea.gotoBufferHome();
+                  textarea.gotoBufferEnd({ select: true });
+                  textarea.deleteChar();
+                  textarea.insertText(history[newIndex]!);
+                  textarea.gotoBufferHome();
+                } else if (hIdx > 0) {
+                  const newIndex = hIdx - 1;
+                  historyIndexRef.current = newIndex;
+                  setHistoryIndex(newIndex);
+                  textarea.gotoBufferHome();
+                  textarea.gotoBufferEnd({ select: true });
+                  textarea.deleteChar();
+                  textarea.insertText(history[newIndex]!);
+                  textarea.gotoBufferHome();
+                }
+                historyNavigatingRef.current = false;
+                event.stopPropagation();
+                return;
+              }
+              // No history and already at index 0 — fall through to scrollbox handler
+            } else {
+              // Not at index 0: check if on first visual line (Rule 1)
+              const absoluteVisualRow = Math.floor(textarea.scrollY) + textarea.visualCursor.visualRow;
+              if (absoluteVisualRow === 0) {
+                textarea.gotoBufferHome();
+                event.stopPropagation();
+                return;
+              }
+              // Not on first line — let textarea handle cursor-up naturally (Rule 4)
             }
-            historyNavigatingRef.current = false;
-            return;
           }
         }
 
-        // Prompt history navigation: Down arrow cycles forward through history
-        if (event.name === "down" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0 && historyIndexRef.current >= 0) {
+        // Prompt history & cursor navigation: Down arrow
+        // Rule 2: last line + not last index → move cursor to last index
+        // Rule 3: at index 0, down just moves down in chatbox (no history)
+        // Rule 4: at last index → navigate newer history
+        if (event.name === "down" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0) {
           const textarea = textareaRef.current;
           if (textarea) {
-            const hIdx = historyIndexRef.current;
-            const history = promptHistoryRef.current;
-            historyNavigatingRef.current = true;
-            if (hIdx < history.length - 1) {
-              // Navigate to more recent prompt
-              const newIndex = hIdx + 1;
-              historyIndexRef.current = newIndex;
-              setHistoryIndex(newIndex);
-              textarea.gotoBufferHome();
-              textarea.gotoBufferEnd({ select: true });
-              textarea.deleteChar();
-              textarea.insertText(history[newIndex]!);
-            } else {
-              // Exiting history mode - restore saved input
-              historyIndexRef.current = -1;
-              setHistoryIndex(-1);
-              textarea.gotoBufferHome();
-              textarea.gotoBufferEnd({ select: true });
-              textarea.deleteChar();
-              if (savedInputRef.current) {
-                textarea.insertText(savedInputRef.current);
+            const cursorOffset = textarea.cursorOffset;
+            const textLength = (textarea.plainText ?? "").length;
+            if (cursorOffset === textLength) {
+              // At last index: navigate to newer history (Rule 4)
+              if (historyIndexRef.current >= 0) {
+                const hIdx = historyIndexRef.current;
+                const history = promptHistoryRef.current;
+                historyNavigatingRef.current = true;
+                if (hIdx < history.length - 1) {
+                  const newIndex = hIdx + 1;
+                  historyIndexRef.current = newIndex;
+                  setHistoryIndex(newIndex);
+                  textarea.gotoBufferHome();
+                  textarea.gotoBufferEnd({ select: true });
+                  textarea.deleteChar();
+                  textarea.insertText(history[newIndex]!);
+                } else {
+                  historyIndexRef.current = -1;
+                  setHistoryIndex(-1);
+                  textarea.gotoBufferHome();
+                  textarea.gotoBufferEnd({ select: true });
+                  textarea.deleteChar();
+                  if (savedInputRef.current) {
+                    textarea.insertText(savedInputRef.current);
+                  }
+                }
+                historyNavigatingRef.current = false;
+                event.stopPropagation();
+                return;
               }
+              // Not in history mode and already at last index — fall through to scrollbox handler
+            } else {
+              // Not at last index: check if on last visual line (Rule 2)
+              const absoluteVisualRow = Math.floor(textarea.scrollY) + textarea.visualCursor.visualRow;
+              const totalVirtualLines = textarea.editorView.getTotalVirtualLineCount();
+              if (absoluteVisualRow >= totalVirtualLines - 1) {
+                textarea.gotoBufferEnd();
+                event.stopPropagation();
+                return;
+              }
+              // Not on last line — let textarea handle cursor-down naturally (Rule 3)
             }
-            historyNavigatingRef.current = false;
-            return;
           }
         }
 

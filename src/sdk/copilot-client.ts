@@ -167,6 +167,7 @@ export class CopilotClient implements CodingAgentClient {
   private permissionHandler: CopilotPermissionHandler | null = null;
   private isRunning = false;
   private probeSystemToolsBaseline: number | null = null;
+  private probePromise: Promise<void> | null = null;
 
   /**
    * Create a new CopilotClient
@@ -992,33 +993,35 @@ export class CopilotClient implements CodingAgentClient {
     await this.sdkClient.start();
     this.isRunning = true;
 
-    // Probe for system tools baseline by creating a temporary session
-    // and waiting for the session.usage_info event which reports currentTokens
-    // (the pre-message baseline: system prompt + tool definitions)
-    try {
-      const probeSession = await this.sdkClient.createSession({});
-      const baseline = await new Promise<number | null>((resolve) => {
-        let unsub: (() => void) | null = null;
-        const timeout = setTimeout(() => {
-          unsub?.();
-          resolve(null);
-        }, 3000);
-        unsub = probeSession.on("session.usage_info", (event) => {
-          const data = event.data as Record<string, unknown>;
-          const currentTokens = data.currentTokens;
-          if (typeof currentTokens !== "number" || currentTokens <= 0) {
-            return;
-          }
-          unsub?.();
-          clearTimeout(timeout);
-          resolve(currentTokens);
+    // Probe for system tools baseline in the background (non-blocking).
+    // The baseline is only needed for the /context command, so there's no
+    // reason to block startup on it.
+    this.probePromise = (async () => {
+      try {
+        const probeSession = await this.sdkClient!.createSession({});
+        const baseline = await new Promise<number | null>((resolve) => {
+          let unsub: (() => void) | null = null;
+          const timeout = setTimeout(() => {
+            unsub?.();
+            resolve(null);
+          }, 3000);
+          unsub = probeSession.on("session.usage_info", (event) => {
+            const data = event.data as Record<string, unknown>;
+            const currentTokens = data.currentTokens;
+            if (typeof currentTokens !== "number" || currentTokens <= 0) {
+              return;
+            }
+            unsub?.();
+            clearTimeout(timeout);
+            resolve(currentTokens);
+          });
         });
-      });
-      this.probeSystemToolsBaseline = baseline;
-      await probeSession.destroy();
-    } catch {
-      // Probe failed - baseline will be populated on first message
-    }
+        this.probeSystemToolsBaseline = baseline;
+        await probeSession.destroy();
+      } catch {
+        // Probe failed - baseline will be populated on first message
+      }
+    })();
   }
 
   /**
@@ -1027,6 +1030,12 @@ export class CopilotClient implements CodingAgentClient {
   async stop(): Promise<void> {
     if (!this.isRunning) {
       return;
+    }
+
+    // Wait for background probe to finish before tearing down
+    if (this.probePromise) {
+      await this.probePromise;
+      this.probePromise = null;
     }
 
     // Close all active sessions

@@ -2,15 +2,16 @@
  * Workflow Commands for Chat UI
  *
  * Registers workflow commands as slash commands invocable from the TUI.
- * The /ralph command implements a looping workflow:
+ * The /ralph command implements a 3-step looping workflow:
  *   Step 1: Task list decomposition from user prompt
  *   Step 2: Agent dispatches worker sub-agents in a loop until all tasks complete
+ *   Step 3: Review & Fix - code review and optional re-invocation with fix-spec
  *
  * Session state is persisted to tasks.json in the workflow session directory.
  */
 
 import { existsSync, watch } from "fs";
-import { readFile, rename, unlink } from "fs/promises";
+import { readFile, rename, unlink, writeFile } from "fs/promises";
 import { join } from "path";
 import type {
   CommandDefinition,
@@ -29,7 +30,14 @@ import {
   getWorkflowSessionDir,
   type WorkflowSession,
 } from "../../workflows/session.ts";
-import { buildSpecToTasksPrompt, buildBootstrappedTaskContext, buildContinuePrompt } from "../../graph/nodes/ralph.ts";
+import { buildSpecToTasksPrompt, buildBootstrappedTaskContext, buildContinuePrompt, buildReviewPrompt, parseReviewResult, buildFixSpecFromReview } from "../../graph/nodes/ralph.ts";
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+/** Maximum number of review-fix cycles to prevent infinite loops */
+const MAX_REVIEW_ITERATIONS = 1;
 
 // ============================================================================
 // RALPH COMMAND PARSING
@@ -565,6 +573,90 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
           if (!hasActionable) break;
 
           currentTasks = diskTasks;
+        }
+
+        // Step 3: Review & Fix phase
+        // Re-read tasks from disk to confirm final state
+        const finalTasks = await readTasksFromDisk(sessionDir);
+        const allTasksCompleted = finalTasks.length > 0 && finalTasks.every((t) => t.status === "completed");
+
+        if (allTasksCompleted) {
+          for (let reviewIteration = 0; reviewIteration < MAX_REVIEW_ITERATIONS; reviewIteration++) {
+            // Clear context before review to provide clean slate
+            await context.clearContext();
+
+            // Get current task state for review
+            const reviewTasks = await readTasksFromDisk(sessionDir);
+            const reviewPrompt = buildReviewPrompt(reviewTasks, parsed.prompt);
+
+            // Spawn reviewer sub-agent
+            const reviewResult = await context.spawnSubagent({
+              name: "reviewer",
+              message: reviewPrompt,
+            });
+
+            if (!reviewResult.success || !reviewResult.output) break;
+
+            // Parse review findings from reviewer output
+            const review = parseReviewResult(reviewResult.output);
+            if (!review) break;
+
+            // Persist review artifacts to session directory
+            const reviewArtifactPath = join(sessionDir, `review-${reviewIteration}.json`);
+            await writeFile(reviewArtifactPath, JSON.stringify(review, null, 2));
+
+            // Build fix specification from review findings
+            const fixSpec = buildFixSpecFromReview(review, reviewTasks, parsed.prompt);
+
+            // If no actionable findings, we're done
+            if (!fixSpec) break;
+
+            // Persist fix spec to session directory
+            const fixSpecPath = join(sessionDir, `fix-spec-${reviewIteration}.md`);
+            await writeFile(fixSpecPath, fixSpec);
+
+            // Re-invoke ralph: decompose fix-spec into tasks (Step 1 again)
+            await context.clearContext();
+            const fixStep1 = await context.streamAndWait(buildSpecToTasksPrompt(fixSpec), { hideContent: true });
+            if (fixStep1.wasInterrupted) break;
+
+            const fixTasks = parseTasks(fixStep1.content);
+            if (fixTasks.length === 0) break;
+
+            // Save fix tasks and update tracking
+            await saveTasksToActiveSession(fixTasks, sessionId);
+            const fixTaskIds = new Set(fixTasks.map(t => t.id).filter((id): id is string => id != null && id.length > 0));
+            context.setRalphTaskIds(fixTaskIds);
+
+            // Re-run implementation loop for fix tasks (Step 2 again)
+            let fixIteration = 0;
+            let currentFixTasks: NormalizedTodoItem[] = fixTasks;
+
+            while (fixIteration < MAX_ITERATIONS) {
+              fixIteration++;
+              const prompt = fixIteration === 1
+                ? buildBootstrappedTaskContext(currentFixTasks, sessionId)
+                : buildContinuePrompt(currentFixTasks, sessionId);
+
+              const result = await context.streamAndWait(prompt);
+              if (result.wasInterrupted) break;
+
+              // Read latest task state from disk after agent response
+              const diskTasks = await readTasksFromDisk(sessionDir);
+              if (diskTasks.length === 0) break;
+
+              // Check if all fix tasks are completed
+              const allFixCompleted = diskTasks.every((t) => t.status === "completed");
+              if (allFixCompleted) break;
+
+              // Check if remaining tasks are all stuck
+              const remaining = diskTasks.filter((t) => t.status !== "completed");
+              const hasActionable = remaining.some((t) => t.status === "pending" || t.status === "in_progress");
+              if (!hasActionable) break;
+
+              currentFixTasks = diskTasks;
+            }
+          }
         }
       }
 

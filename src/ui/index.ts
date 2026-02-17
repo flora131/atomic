@@ -1726,15 +1726,8 @@ export {
 
   // Skill commands
   registerSkillCommands,
-  type SkillMetadata,
-  SKILL_DEFINITIONS,
-  getSkillMetadata,
-  isRalphSkill,
-  getRalphSkills,
-  getCoreSkills,
 
   // Initialization and helpers
-  initializeCommands,
   initializeCommandsAsync,
   parseSlashCommand,
   isSlashCommand,

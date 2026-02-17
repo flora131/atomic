@@ -528,6 +528,11 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
       context.setRalphSessionDir(sessionDir);
       context.setRalphSessionId(sessionId);
 
+      // Register the planning-phase task IDs so the TodoWrite persistence
+      // guard can distinguish ralph task updates from sub-agent todo lists.
+      const taskIds = new Set(tasks.map(t => t.id).filter((id): id is string => id != null && id.length > 0));
+      context.setRalphTaskIds(taskIds);
+
       // Step 2: Execute tasks in a loop until all are completed.
       // The agent's context is blank after Step 1 (hideContent suppressed the JSON),
       // so inject the task list and instructions for worker dispatch, then loop

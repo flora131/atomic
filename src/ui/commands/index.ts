@@ -65,26 +65,10 @@ export {
 export {
   // Skill commands
   registerSkillCommands,
-  skillCommands,
-  SKILL_DEFINITIONS,
-  getSkillMetadata,
-  isRalphSkill,
-  getRalphSkills,
-  getCoreSkills,
   // SDK skill materialization
   materializeBuiltinSkillsForSdk,
   // Disk skill discovery
   discoverAndRegisterDiskSkills,
-  getDiscoveredSkillDirectories,
-  discoverSkillFiles,
-  parseSkillFile,
-  shouldSkillOverride,
-  loadSkillContent,
-  SKILL_DISCOVERY_PATHS,
-  GLOBAL_SKILL_PATHS,
-  PINNED_BUILTIN_SKILLS,
-  BUILTIN_SKILLS_WITH_LOAD_UI,
-  type SkillMetadata,
   type SkillSource,
   type DiscoveredSkillFile,
   type DiskSkillDefinition,
@@ -93,44 +77,6 @@ export {
 // ============================================================================
 // INITIALIZATION
 // ============================================================================
-
-/**
- * Initialize all commands by registering them with the global registry.
- *
- * This function is idempotent - calling it multiple times is safe.
- * Commands are registered in this order:
- * 1. Built-in commands (help, theme, clear, compact)
- * 2. Workflow commands (ralph + dynamically loaded from disk)
- * 3. Skill commands (commit, research-codebase, etc.)
- *
- * Note: This synchronous version only loads built-in workflows.
- * Use `initializeCommandsAsync()` to also load workflows from disk.
- *
- * @returns The number of commands registered
- *
- * @example
- * ```typescript
- * import { initializeCommands, globalRegistry } from "./commands";
- *
- * // Initialize at app startup
- * const count = initializeCommands();
- * console.log(`Registered ${count} commands`);
- *
- * // Now commands are available
- * const helpCmd = globalRegistry.get("help");
- * ```
- */
-export function initializeCommands(): number {
-  const beforeCount = globalRegistry.size();
-
-  // Register all command types
-  registerBuiltinCommands();
-  registerWorkflowCommands();
-  registerSkillCommands();
-
-  const afterCount = globalRegistry.size();
-  return afterCount - beforeCount;
-}
 
 /**
  * Initialize all commands asynchronously, including dynamic workflow loading.

@@ -34,7 +34,7 @@ test("reconcileScmVariants keeps Sapling variants and removes managed GitHub var
     await makeSkillDir(targetSkillsDir, "gh-user-custom");
 
     await reconcileScmVariants({
-      scmType: "sapling-phabricator",
+      scmType: "sapling",
       agentFolder: ".claude",
       skillsSubfolder: "skills",
       targetDir,

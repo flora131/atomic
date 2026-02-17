@@ -7,6 +7,10 @@
             "enabled": true
         }
     },
+    "tools": {
+        "deepwiki_*": false,
+        "deepwiki_ask_question": true
+    },
     "permission": {
         "edit": "allow",
         "bash": "allow",

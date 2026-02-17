@@ -10,7 +10,6 @@ import {
   exitCommand,
   modelCommand,
   mcpCommand,
-  contextCommand,
   groupByProvider,
   formatGroupedModels,
   builtinCommands,
@@ -457,59 +456,6 @@ describe("Built-in Commands", () => {
     });
   });
 
-  describe("contextCommand", () => {
-    test("displays context usage with session", async () => {
-      const mockSession = {
-        getContextUsage: async () => ({
-          maxTokens: 200000,
-          inputTokens: 5000,
-          outputTokens: 3000,
-        }),
-        getSystemToolsTokens: () => 1000,
-      };
-
-      const context = createMockContext({
-        session: mockSession as any,
-        getModelDisplayInfo: async () => ({
-          model: "claude-sonnet-4",
-          tier: "standard",
-          contextWindow: 200000,
-        }),
-      });
-
-      const result = await contextCommand.execute("", context);
-
-      expect(result.success).toBe(true);
-      expect(result.contextInfo).toBeDefined();
-      expect(result.contextInfo?.model).toBe("claude-sonnet-4");
-      expect(result.contextInfo?.maxTokens).toBe(200000);
-    });
-
-    test("handles missing model info gracefully", async () => {
-      const context = createMockContext({
-        session: null,
-      });
-
-      const result = await contextCommand.execute("", context);
-
-      expect(result.success).toBe(true);
-      expect(result.contextInfo).toBeDefined();
-      expect(result.contextInfo?.model).toBe("Unknown");
-    });
-
-    test("falls back to client system tools tokens", async () => {
-      const context = createMockContext({
-        session: null,
-        getClientSystemToolsTokens: () => 1500,
-      });
-
-      const result = await contextCommand.execute("", context);
-
-      expect(result.success).toBe(true);
-      expect(result.contextInfo).toBeDefined();
-    });
-  });
-
   describe("groupByProvider", () => {
     test("groups models by provider ID", async () => {
       const models = [
@@ -601,7 +547,6 @@ describe("Built-in Commands", () => {
       expect(commandNames).toContain("exit");
       expect(commandNames).toContain("model");
       expect(commandNames).toContain("mcp");
-      expect(commandNames).toContain("context");
     });
   });
 
@@ -623,7 +568,6 @@ describe("Built-in Commands", () => {
       expect(registry.has("exit")).toBe(true);
       expect(registry.has("model")).toBe(true);
       expect(registry.has("mcp")).toBe(true);
-      expect(registry.has("context")).toBe(true);
     });
 
     test("is idempotent - allows multiple registrations", async () => {

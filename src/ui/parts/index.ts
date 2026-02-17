@@ -16,7 +16,6 @@ export {
   type TaskListPart,
   type SkillLoadPart,
   type McpSnapshotPart,
-  type ContextInfoPart,
   type CompactionPart,
   type Part,
 } from "./types.ts";

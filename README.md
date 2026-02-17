@@ -203,7 +203,7 @@ During `atomic init`, you'll be prompted to select your source control system:
 atomic init --scm github
 
 # Use Sapling + Phabricator
-atomic init --scm sapling-phabricator
+atomic init --scm sapling
 ```
 
 The selection is saved to `.atomic.json` in your project root and configures the appropriate commit and code review commands for your workflow.
@@ -465,7 +465,7 @@ Atomic stores project-level configuration in `.atomic.json` at the root of your 
 | ------------- | ------ | ------------------------------------------------------- |
 | `version`     | number | Config schema version (currently `1`)                   |
 | `agent`       | string | Selected coding agent (`claude`, `opencode`, `copilot`) |
-| `scm`         | string | Source control type (`github`, `sapling-phabricator`)   |
+| `scm`         | string | Source control type (`github`, `sapling`)               |
 | `lastUpdated` | string | ISO 8601 timestamp of last configuration update         |
 
 **Note:** You generally don't need to edit this file manually. Use `atomic init` to reconfigure your project.

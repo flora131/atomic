@@ -34,7 +34,9 @@
  */
 
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { execSync } from "node:child_process";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 import {
@@ -182,12 +184,34 @@ export class CopilotClient implements CodingAgentClient {
   }
 
   /**
-   * Build SDK client options from our client options
+   * Build SDK client options from our client options.
+   *
+   * The Copilot SDK spawns its CLI subprocess using process.execPath when
+   * cliPath ends in ".js". Under Bun, this fails because @github/copilot
+   * depends on node:sqlite which Bun does not support. Work around this by
+   * setting cliPath to the Node.js binary and prepending the copilot CLI
+   * index.js path to cliArgs so the SDK spawns Node (not Bun) as the
+   * subprocess host.
    */
   private buildSdkOptions(): SdkClientOptions {
+    let cliPath = this.clientOptions.cliPath;
+    const cliArgs = [...(this.clientOptions.cliArgs ?? [])];
+
+    // When no explicit cliPath is provided, resolve the Node.js binary and
+    // the bundled Copilot CLI index.js so the subprocess runs under Node
+    // (required for node:sqlite support). --no-warnings suppresses the
+    // ExperimentalWarning about SQLite.
+    if (!cliPath) {
+      const nodePath = resolveNodePath();
+      if (nodePath) {
+        cliPath = nodePath;
+        cliArgs.unshift("--no-warnings", getBundledCopilotCliPath());
+      }
+    }
+
     const opts: SdkClientOptions = {
-      cliPath: this.clientOptions.cliPath,
-      cliArgs: this.clientOptions.cliArgs,
+      cliPath,
+      cliArgs,
       cwd: this.clientOptions.cwd,
       logLevel: this.clientOptions.logLevel,
       autoStart: this.clientOptions.autoStart ?? true,
@@ -1157,6 +1181,29 @@ export function createAutoApprovePermissionHandler(): CopilotPermissionHandler {
  */
 export function createDenyAllPermissionHandler(): CopilotPermissionHandler {
   return async () => ({ kind: "denied-interactively-by-user" });
+}
+
+/**
+ * Resolve the path to the system Node.js binary.
+ * Returns undefined if Node.js is not found.
+ */
+export function resolveNodePath(): string | undefined {
+  try {
+    const cmd = process.platform === "win32" ? "where node" : "which node";
+    const nodePath = execSync(cmd, { encoding: "utf-8" }).trim().split("\n")[0];
+    return nodePath || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Get the path to the bundled Copilot CLI index.js shipped with @github/copilot.
+ */
+export function getBundledCopilotCliPath(): string {
+  const sdkUrl = import.meta.resolve("@github/copilot/sdk");
+  const sdkPath = fileURLToPath(sdkUrl);
+  return join(dirname(dirname(sdkPath)), "index.js");
 }
 
 /**

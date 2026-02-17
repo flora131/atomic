@@ -75,6 +75,7 @@ import type { AgentType, ModelOperations } from "../models";
 import type { McpServerConfig } from "../sdk/types.ts";
 import { saveModelPreference, saveReasoningEffortPreference, clearReasoningEffortPreference } from "../utils/settings.ts";
 import { formatDuration } from "./utils/format.ts";
+import { loadCommandHistory, appendCommandHistory } from "./utils/command-history.ts";
 import { getRandomVerb, getRandomCompletionVerb } from "./constants/index.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "./utils/mcp-output.ts";
 import {
@@ -1717,10 +1718,25 @@ export function ChatApp({
   });
 
   // Prompt history for up/down arrow navigation
-  const [promptHistory, setPromptHistory] = useState<string[]>([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
+  const [_promptHistory, setPromptHistory] = useState<string[]>([]);
+  const promptHistoryRef = useRef<string[]>([]);
+  const [_historyIndex, setHistoryIndex] = useState(-1);
+  // Synchronous mirror — multiple key events may arrive in a single stdin
+  // read (OpenTUI dispatches in a tight loop), so React state can be stale.
+  const historyIndexRef = useRef(-1);
   // Store current input when entering history mode
   const savedInputRef = useRef<string>("");
+  // Suppress handleInputChange from resetting historyIndex during programmatic navigation
+  const historyNavigatingRef = useRef(false);
+
+  // Load persisted command history on mount
+  useEffect(() => {
+    const persisted = loadCommandHistory();
+    if (persisted.length > 0) {
+      promptHistoryRef.current = persisted;
+      setPromptHistory(persisted);
+    }
+  }, []);
 
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
@@ -4337,46 +4353,57 @@ export function ChatApp({
         }
 
         // Prompt history navigation: Up arrow cycles through previous prompts
-        if (event.name === "up" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0 && promptHistory.length > 0) {
+        if (event.name === "up" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0 && promptHistoryRef.current.length > 0) {
           const textarea = textareaRef.current;
           if (textarea) {
+            const hIdx = historyIndexRef.current;
+            const history = promptHistoryRef.current;
             const currentInput = textarea.plainText ?? "";
-            if (historyIndex === -1) {
+            historyNavigatingRef.current = true;
+            if (hIdx === -1) {
               // Entering history mode - save current input
               savedInputRef.current = currentInput;
-              const newIndex = promptHistory.length - 1;
+              const newIndex = history.length - 1;
+              historyIndexRef.current = newIndex;
               setHistoryIndex(newIndex);
               textarea.gotoBufferHome();
               textarea.gotoBufferEnd({ select: true });
               textarea.deleteChar();
-              textarea.insertText(promptHistory[newIndex]!);
-            } else if (historyIndex > 0) {
+              textarea.insertText(history[newIndex]!);
+            } else if (hIdx > 0) {
               // Navigate to earlier prompt
-              const newIndex = historyIndex - 1;
+              const newIndex = hIdx - 1;
+              historyIndexRef.current = newIndex;
               setHistoryIndex(newIndex);
               textarea.gotoBufferHome();
               textarea.gotoBufferEnd({ select: true });
               textarea.deleteChar();
-              textarea.insertText(promptHistory[newIndex]!);
+              textarea.insertText(history[newIndex]!);
             }
+            historyNavigatingRef.current = false;
             return;
           }
         }
 
         // Prompt history navigation: Down arrow cycles forward through history
-        if (event.name === "down" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0 && historyIndex >= 0) {
+        if (event.name === "down" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0 && historyIndexRef.current >= 0) {
           const textarea = textareaRef.current;
           if (textarea) {
-            if (historyIndex < promptHistory.length - 1) {
+            const hIdx = historyIndexRef.current;
+            const history = promptHistoryRef.current;
+            historyNavigatingRef.current = true;
+            if (hIdx < history.length - 1) {
               // Navigate to more recent prompt
-              const newIndex = historyIndex + 1;
+              const newIndex = hIdx + 1;
+              historyIndexRef.current = newIndex;
               setHistoryIndex(newIndex);
               textarea.gotoBufferHome();
               textarea.gotoBufferEnd({ select: true });
               textarea.deleteChar();
-              textarea.insertText(promptHistory[newIndex]!);
+              textarea.insertText(history[newIndex]!);
             } else {
               // Exiting history mode - restore saved input
+              historyIndexRef.current = -1;
               setHistoryIndex(-1);
               textarea.gotoBufferHome();
               textarea.gotoBufferEnd({ select: true });
@@ -4385,6 +4412,7 @@ export function ChatApp({
                 textarea.insertText(savedInputRef.current);
               }
             }
+            historyNavigatingRef.current = false;
             return;
           }
         }
@@ -4885,9 +4913,13 @@ export function ChatApp({
       // Add to prompt history (avoid duplicates of last entry)
       setPromptHistory(prev => {
         if (prev[prev.length - 1] === trimmedValue) return prev;
-        return [...prev, trimmedValue];
+        const updated = [...prev, trimmedValue];
+        promptHistoryRef.current = updated;
+        return updated;
       });
+      historyIndexRef.current = -1;
       setHistoryIndex(-1);
+      appendCommandHistory(trimmedValue);
 
       // Clear textarea by selecting all and deleting
       if (textareaRef.current) {

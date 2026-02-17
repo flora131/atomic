@@ -2,6 +2,9 @@
  * Tests for state annotation system and reducer functions
  */
 
+import { join } from "path";
+import { homedir } from "os";
+
 import { describe, expect, test } from "bun:test";
 import {
   annotation,
@@ -413,7 +416,7 @@ function createTestRalphState(overrides: Partial<RalphWorkflowState> = {}): Ralp
     contextWindowUsage: null,
     iteration: 1,
     ralphSessionId: "test-session-id",
-    ralphSessionDir: ".ralph/sessions/test-session-id/",
+    ralphSessionDir: join(homedir(), ".atomic", "workflows", "sessions", "test-session-id"),
     yolo: false,
     yoloPrompt: null,
     yoloComplete: false,
@@ -634,7 +637,7 @@ describe("createRalphState", () => {
     
     expect(typeof state.executionId).toBe("string");
     expect(typeof state.ralphSessionId).toBe("string");
-    expect(state.ralphSessionDir).toBe(`.ralph/sessions/${state.ralphSessionId}/`);
+    expect(state.ralphSessionDir).toBe(join(homedir(), ".atomic", "workflows", "sessions", state.ralphSessionId));
     expect(state.yolo).toBe(false);
     expect(state.yoloPrompt).toBeNull();
     expect(state.yoloComplete).toBe(false);
@@ -669,7 +672,7 @@ describe("createRalphState", () => {
     });
     
     expect(state.ralphSessionId).toBe(customSessionId);
-    expect(state.ralphSessionDir).toBe(`.ralph/sessions/${customSessionId}/`);
+    expect(state.ralphSessionDir).toBe(join(homedir(), ".atomic", "workflows", "sessions", customSessionId));
   });
 
   test("uses provided ralphSessionDir", () => {

@@ -119,6 +119,12 @@ export interface CommandContext {
    */
   setRalphSessionId: (id: string | null) => void;
   /**
+   * Set the known ralph task IDs from the planning phase.
+   * Used to guard TodoWrite persistence so that only ralph-originated
+   * updates are written to tasks.json (prevents sub-agent overwrites).
+   */
+  setRalphTaskIds: (ids: Set<string>) => void;
+  /**
    * Update workflow state from a command handler.
    */
   updateWorkflowState: (update: Partial<CommandContextState>) => void;
@@ -241,7 +247,7 @@ export interface ContextDisplayInfo {
 /**
  * Command category for grouping and display.
  */
-export type CommandCategory = "builtin" | "workflow" | "skill" | "agent" | "custom" | "file" | "folder";
+export type CommandCategory = "builtin" | "workflow" | "skill" | "agent" | "file" | "folder";
 
 /**
  * Definition of a slash command.
@@ -461,15 +467,14 @@ export class CommandRegistry {
    * Sort commands by exact match, category priority, then alphabetically.
    */
   private sortCommands(commands: CommandDefinition[], searchKey: string): CommandDefinition[] {
-    // Priority: workflow > skill > builtin > custom (per spec section 5.3)
+    // Priority: workflow > skill > agent > builtin > folder > file
     const categoryPriority: Record<CommandCategory, number> = {
       workflow: 0,
       skill: 1,
       agent: 2,
       builtin: 3,
-      custom: 4,
-      folder: 5,
-      file: 6,
+      folder: 4,
+      file: 5,
     };
 
     return commands.sort((a, b) => {
@@ -509,7 +514,7 @@ export class CommandRegistry {
  * globalRegistry.register({
  *   name: "mycommand",
  *   description: "My custom command",
- *   category: "custom",
+ *   category: "builtin",
  *   execute: () => ({ success: true }),
  * });
  *

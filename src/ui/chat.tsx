@@ -83,6 +83,7 @@ import {
 } from "./utils/hitl-response.ts";
 import {
   normalizeTodoItems,
+  mergeBlockedBy,
   type NormalizedTodoItem,
 } from "./utils/task-status.ts";
 import {
@@ -1738,6 +1739,10 @@ export function ChatApp({
   const ralphSessionDirRef = useRef<string | null>(null);
   const [ralphSessionId, setRalphSessionId] = useState<string | null>(null);
   const ralphSessionIdRef = useRef<string | null>(null);
+  // Known ralph task IDs from the planning phase.
+  // Used to guard TodoWrite persistence: only updates whose items match
+  // these IDs are written to tasks.json, preventing sub-agent overwrites.
+  const ralphTaskIdsRef = useRef<Set<string>>(new Set());
   // State for input textarea scrollbar (shown only when input overflows)
   const [inputScrollbar, setInputScrollbar] = useState<InputScrollbarState>({
     visible: false,
@@ -1825,14 +1830,18 @@ export function ChatApp({
     if (pendingEvictionsRef.current.length === 0) return;
     const evictions = pendingEvictionsRef.current;
     pendingEvictionsRef.current = [];
+    // Accumulate all evicted messages into a single batch to minimize disk I/O.
+    const allEvicted: ChatMessage[] = [];
     let totalEvicted = 0;
     for (const { messages: evicted, count } of evictions) {
-      appendToHistoryBuffer(evicted);
+      allEvicted.push(...evicted);
       totalEvicted += count;
     }
     if (totalEvicted > 0) {
+      appendToHistoryBuffer(allEvicted);
       setTrimmedMessageCount((c) => c + totalEvicted);
       setMessageWindowEpoch((e) => e + 1);
+      console.debug(`[eviction] flushed ${totalEvicted} messages in ${evictions.length} batch(es), epoch incremented`);
     }
   }, [messages]);
 
@@ -1869,6 +1878,18 @@ export function ChatApp({
   }, [ralphSessionId]);
 
   /**
+   * Check whether a TodoWrite payload is a ralph task update (shares IDs
+   * with the known ralph planning-phase tasks). Returns false when the
+   * incoming items are from a sub-agent's independent todo list, which
+   * should NOT overwrite ralph's tasks.json.
+   */
+  const isRalphTaskUpdate = useCallback((todos: NormalizedTodoItem[]): boolean => {
+    const ralphIds = ralphTaskIdsRef.current;
+    if (ralphIds.size === 0) return false;
+    return todos.some(t => t.id && ralphIds.has(t.id));
+  }, []);
+
+  /**
    * Finalize task items on interrupt: mark in_progress -> pending (unchecked), update state/ref,
    * persist to tasks.json if Ralph is active, and return taskItems for baking into message.
    */
@@ -1880,13 +1901,13 @@ export function ChatApp({
     todoItemsRef.current = updated;
     setTodoItems(updated);
 
-    // Persist to tasks.json if ralph workflow is active
-    if (ralphSessionIdRef.current) {
+    // Persist to tasks.json only if the current items are ralph tasks
+    if (ralphSessionIdRef.current && isRalphTaskUpdate(updated)) {
       void saveTasksToActiveSession(updated, ralphSessionIdRef.current);
     }
 
     return snapshotTaskItems(updated) as TaskItem[] | undefined;
-  }, []);
+  }, [isRalphTaskUpdate]);
 
   // Dynamic placeholder based on queue state
   const dynamicPlaceholder = useMemo(() => {
@@ -1993,16 +2014,18 @@ export function ChatApp({
 
     // Update persistent todo panel when TodoWrite is called
     if (toolName === "TodoWrite" && input.todos && Array.isArray(input.todos)) {
-      const todos = normalizeTodoItems(input.todos);
+      const todos = mergeBlockedBy(normalizeTodoItems(input.todos), todoItemsRef.current);
       todoItemsRef.current = todos;
       setTodoItems(todos);
       const taskStreamPinned = Boolean(ralphSessionIdRef.current);
 
-      // Persist to tasks.json when ralph workflow is active (drives TaskListPanel via file watcher)
-      if (ralphSessionIdRef.current) {
+      // Persist to tasks.json only when the items are ralph task updates
+      // (share IDs with the planning-phase tasks). Sub-agent or independent
+      // TodoWrite lists must NOT overwrite ralph's persistent task state.
+      if (ralphSessionIdRef.current && isRalphTaskUpdate(todos)) {
         void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
       }
-      
+
       if (messageId) {
         setMessagesWindowed((prev) =>
           prev.map((msg) =>
@@ -2016,7 +2039,7 @@ export function ChatApp({
         );
       }
     }
-  }, [streamingState]);
+  }, [streamingState, isRalphTaskUpdate]);
 
   /**
    * Handle tool execution complete event.
@@ -2143,14 +2166,13 @@ export function ChatApp({
 
     // Update persistent todo panel when TodoWrite completes (handles late input)
     if (input && input.todos && Array.isArray(input.todos)) {
-      const todos = normalizeTodoItems(input.todos);
+      const todos = mergeBlockedBy(normalizeTodoItems(input.todos), todoItemsRef.current);
       todoItemsRef.current = todos;
       setTodoItems(todos);
       const taskStreamPinned = Boolean(ralphSessionIdRef.current);
 
-      // Persist to tasks.json when ralph workflow is active (handles SDKs
-      // that only provide TodoWrite input at tool.complete time)
-      if (ralphSessionIdRef.current) {
+      // Persist to tasks.json only when the items are ralph task updates
+      if (ralphSessionIdRef.current && isRalphTaskUpdate(todos)) {
         void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
       }
 
@@ -2167,7 +2189,7 @@ export function ChatApp({
         );
       }
     }
-  }, [streamingState]);
+  }, [streamingState, isRalphTaskUpdate]);
 
   /**
    * Handle skill invoked event from SDK.
@@ -3420,6 +3442,9 @@ export function ChatApp({
         ralphSessionIdRef.current = id;
         setRalphSessionId(id);
       },
+      setRalphTaskIds: (ids: Set<string>) => {
+        ralphTaskIdsRef.current = ids;
+      },
       updateWorkflowState: (update) => {
         updateWorkflowState(update);
       },
@@ -3484,6 +3509,9 @@ export function ChatApp({
         clearHistoryBuffer();
         setTrimmedMessageCount(0);
         loadedSkillsRef.current.clear();
+        // /clear postcondition contract: messages=[], trimmedMessageCount=0,
+        // transcriptMode=false, historyBuffer=[], compactionSummary=null
+        console.debug("[lifecycle] /clear postconditions: messages=[], trimmedMessageCount=0, transcriptMode=false, historyBuffer=[], compactionSummary=null");
       }
 
       // Handle clearMessages flag — persist history before clearing
@@ -3505,6 +3533,9 @@ export function ChatApp({
       if (result.compactionSummary) {
         setCompactionSummary(result.compactionSummary);
         setShowCompactionHistory(false);
+        // /compact postcondition contract: messages=[], trimmedMessageCount=0,
+        // historyBuffer=[summary marker only], compactionSummary=<summary text>
+        console.debug(`[lifecycle] /compact postconditions: messages=[], trimmedMessageCount=0, historyBuffer=[summary], compactionSummary=${result.compactionSummary?.slice(0, 50)}...`);
       }
 
       // Apply state updates if present
@@ -4926,6 +4957,7 @@ export function ChatApp({
         setRalphSessionId(null);
         ralphSessionDirRef.current = null;
         ralphSessionIdRef.current = null;
+        ralphTaskIdsRef.current = new Set();
         todoItemsRef.current = [];
         setTodoItems([]);
       }
@@ -5309,7 +5341,6 @@ export function ChatApp({
       {ralphSessionDir && showTodoPanel && (
         <TaskListPanel
           sessionDir={ralphSessionDir}
-          sessionId={ralphSessionId ?? undefined}
           expanded={tasksExpanded}
         />
       )}

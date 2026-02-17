@@ -749,7 +749,6 @@ export interface WorkflowChatState {
   /** Ralph-specific workflow configuration (session ID, user prompt, etc.) */
   ralphConfig?: {
     userPrompt: string | null;
-    resumeSessionId?: string;
     sessionId?: string;
   };
 }
@@ -1411,7 +1410,7 @@ function getRenderableAssistantParts(
 
   return parts;
 }
-export function MessageBubble({ message, isLast, syntaxStyle: _syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
   // Collapsed mode: show compact single-line summary for each message
@@ -1501,7 +1500,7 @@ export function MessageBubble({ message, isLast, syntaxStyle: _syntaxStyle, hide
         paddingLeft={SPACING.CONTAINER_PAD}
         paddingRight={SPACING.CONTAINER_PAD}
       >
-        <MessageBubbleParts message={renderableMessage} />
+        <MessageBubbleParts message={renderableMessage} syntaxStyle={syntaxStyle} />
 
         {/* Loading spinner — shown during streaming OR while background agents are still running */}
         {(message.streaming || hasActiveBackgroundAgents) && !hideLoading && (
@@ -1739,8 +1738,6 @@ export function ChatApp({
   const ralphSessionDirRef = useRef<string | null>(null);
   const [ralphSessionId, setRalphSessionId] = useState<string | null>(null);
   const ralphSessionIdRef = useRef<string | null>(null);
-  // Greyed-out resume suggestion shown in chatbox after ralph is interrupted with remaining tasks
-  const [resumeSuggestion, setResumeSuggestion] = useState<string | null>(null);
   // State for input textarea scrollbar (shown only when input overflows)
   const [inputScrollbar, setInputScrollbar] = useState<InputScrollbarState>({
     visible: false,
@@ -2319,7 +2316,12 @@ export function ChatApp({
                 return currentAgents;
               });
               streamingMessageIdRef.current = null;
+              streamingStartRef.current = null;
+              streamingMetaRef.current = null;
+              isStreamingRef.current = false;
               setIsStreaming(false);
+              setStreamingMeta(null);
+              hasRunningToolRef.current = false;
             },
             // onMeta: update streaming metadata
             (meta: StreamingMeta) => {
@@ -2330,7 +2332,10 @@ export function ChatApp({
           } catch (error) {
             // Prevent unhandled errors from crashing the TUI
             console.error("[workflow auto-start] Error during context clear or streaming:", error);
+            isStreamingRef.current = false;
             setIsStreaming(false);
+            setStreamingMeta(null);
+            hasRunningToolRef.current = false;
           }
         })();
       }, 100);
@@ -2546,12 +2551,11 @@ export function ChatApp({
     const hasActive = parallelAgents.some(
       (a) => a.status === "running" || a.status === "pending"
     );
-    // Check if any background agents are still running
-    const hasRunningBackgroundAgents = parallelAgents.some(
-      (agent) => !shouldFinalizeOnToolComplete(agent)
-    );
-    // Also check if tools are still running
-    if (hasActive || hasRunningBackgroundAgents || hasRunningToolRef.current) return;
+    // Also check if tools are still running.
+    // Background agents are excluded — they must not block spinner
+    // termination. They continue running after the main stream ends
+    // and their progress is tracked separately via hasActiveBackgroundAgents.
+    if (hasActive || hasRunningToolRef.current) return;
 
     if (pendingCompleteRef.current) {
       const complete = pendingCompleteRef.current;
@@ -2614,6 +2618,7 @@ export function ChatApp({
       isAgentOnlyStreamRef.current = false;
       setIsStreaming(false);
       setStreamingMeta(null);
+      hasRunningToolRef.current = false;
       // Keep background agents in live state for post-stream completion tracking
       const remainingBg = parallelAgents.filter((a) => a.background && a.status === "background");
       if (remainingBg.length > 0 && messageId) {
@@ -3002,11 +3007,6 @@ export function ChatApp({
     handleInputChange(value, cursorOffset);
     syncInputScrollbar();
 
-    // Clear resume suggestion when user starts typing
-    if (value.length > 0) {
-      setResumeSuggestion(null);
-    }
-
     // Apply slash command highlighting
     if (textarea) {
       textarea.removeHighlightsByRef(HLREF_COMMAND);
@@ -3266,17 +3266,15 @@ export function ChatApp({
               return;
             }
 
-            // If sub-agents or tools are still running, defer finalization and queue
-            // processing until they complete (preserves correct state).
-            // Background agents are excluded — they must not block completion.
+            // If foreground sub-agents or tools are still running, defer
+            // finalization until they complete (preserves correct state).
+            // Background agents are excluded — they must not block completion;
+            // they continue running after the main stream ends and are tracked
+            // separately via hasActiveBackgroundAgents.
             const hasActiveAgents = parallelAgentsRef.current.some(
-              (a) => a.status === "running" || a.status === "pending"
+              (a) => (a.status === "running" || a.status === "pending") && shouldFinalizeOnToolComplete(a)
             );
-            // Check if any background agents are still running
-            const hasRunningBackgroundAgents = parallelAgentsRef.current.some(
-              (agent) => !shouldFinalizeOnToolComplete(agent)
-            );
-            if (hasActiveAgents || hasRunningBackgroundAgents || hasRunningToolRef.current) {
+            if (hasActiveAgents || hasRunningToolRef.current) {
               pendingCompleteRef.current = handleComplete;
               return;
             }
@@ -3652,6 +3650,7 @@ export function ChatApp({
         isStreamingRef.current = false;
         setIsStreaming(false);
         streamingStartRef.current = null;
+        hasRunningToolRef.current = false;
       }
 
       onCommandExecutionTelemetry?.({
@@ -3671,6 +3670,7 @@ export function ChatApp({
         setMessagesWindowed((prev) => prev.filter((msg) => msg.id !== msgId));
         isStreamingRef.current = false;
         setIsStreaming(false);
+        hasRunningToolRef.current = false;
         streamingStartRef.current = null;
       }
       // Handle execution error (as assistant message, not system)
@@ -3927,6 +3927,7 @@ export function ChatApp({
             // Stop streaming state immediately so UI reflects interrupted state
             isStreamingRef.current = false;
             setIsStreaming(false);
+            hasRunningToolRef.current = false;
 
             // Sub-agent cancellation handled by SDK session interrupt
 
@@ -3942,14 +3943,6 @@ export function ChatApp({
                 workflowType: null,
                 initialPrompt: null,
               });
-            }
-
-            // If ralph has remaining tasks, suggest resume command in chatbox
-            if (ralphSessionIdRef.current) {
-              const remaining = todoItemsRef.current.filter(t => t.status !== "completed");
-              if (remaining.length > 0) {
-                setResumeSuggestion(`/ralph --resume ${ralphSessionIdRef.current}`);
-              }
             }
 
             setInterruptCount(0);
@@ -4189,13 +4182,6 @@ export function ChatApp({
               });
             }
 
-            // If ralph has remaining tasks, suggest resume command in chatbox
-            if (ralphSessionIdRef.current) {
-              const remaining = todoItemsRef.current.filter(t => t.status !== "completed");
-              if (remaining.length > 0) {
-                setResumeSuggestion(`/ralph --resume ${ralphSessionIdRef.current}`);
-              }
-            }
             return;
           }
 
@@ -4445,21 +4431,6 @@ export function ChatApp({
           return;
         }
 
-        // Tab: auto-complete resume suggestion when input is empty
-        if (event.name === "tab" && resumeSuggestion && !workflowState.showAutocomplete) {
-          const textarea = textareaRef.current;
-          const inputValue = textarea?.plainText ?? "";
-          if (inputValue.trim() === "" && textarea) {
-            textarea.gotoBufferHome();
-            textarea.gotoBufferEnd({ select: true });
-            textarea.deleteChar();
-            textarea.insertText(resumeSuggestion);
-            setResumeSuggestion(null);
-            event.stopPropagation();
-            return;
-          }
-        }
-
         // Autocomplete: Tab - complete the selected command
         if (event.name === "tab" && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
           const selectedCommand = autocompleteSuggestions[workflowState.selectedSuggestionIndex];
@@ -4621,7 +4592,7 @@ export function ChatApp({
           syncInputScrollbar();
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer, resumeSuggestion, emitMessageSubmitTelemetry]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer, emitMessageSubmitTelemetry]
     )
   );
 
@@ -4748,17 +4719,15 @@ export function ChatApp({
             return;
           }
 
-          // If sub-agents are still running, defer finalization and queue
-          // processing until they complete (preserves correct state).
-          // Background agents are excluded — they must not block completion.
+          // If foreground sub-agents or tools are still running, defer
+          // finalization until they complete (preserves correct state).
+          // Background agents are excluded — they must not block completion;
+          // they continue running after the main stream ends and are tracked
+          // separately via hasActiveBackgroundAgents.
           const hasActiveAgents = parallelAgentsRef.current.some(
-            (a) => a.status === "running" || a.status === "pending"
+            (a) => (a.status === "running" || a.status === "pending") && shouldFinalizeOnToolComplete(a)
           );
-          // Check if any background agents are still running
-          const hasRunningBackgroundAgents = parallelAgentsRef.current.some(
-            (agent) => !shouldFinalizeOnToolComplete(agent)
-          );
-          if (hasActiveAgents || hasRunningBackgroundAgents) {
+          if (hasActiveAgents || hasRunningToolRef.current) {
             pendingCompleteRef.current = handleComplete;
             return;
           }
@@ -4899,11 +4868,6 @@ export function ChatApp({
       const trimmedValue = value.trim();
       if (!trimmedValue) {
         return;
-      }
-
-      // Clear resume suggestion on submit
-      if (resumeSuggestion) {
-        setResumeSuggestion(null);
       }
 
       // Line continuation: trailing \ before Enter inserts a newline instead of submitting.
@@ -5072,6 +5036,7 @@ export function ChatApp({
         isStreamingRef.current = false;
         setIsStreaming(false);
         setStreamingMeta(null);
+        hasRunningToolRef.current = false;
         // Abort the SDK stream (stale handleComplete is a no-op via generation guard)
         onInterrupt?.();
         // Send immediately — starts a new stream generation
@@ -5263,7 +5228,7 @@ export function ChatApp({
               <text flexShrink={0} style={{ fg: themeColors.accent }}>{PROMPT.cursor}{" "}</text>
               <textarea
                 ref={textareaRef}
-                placeholder={resumeSuggestion ? `${resumeSuggestion}  (tab to complete)` : (messages.length === 0 ? dynamicPlaceholder : "")}
+                placeholder={messages.length === 0 ? dynamicPlaceholder : ""}
                 focused={inputFocused}
                 keyBindings={textareaKeyBindings}
                 syntaxStyle={inputSyntaxStyle}
@@ -5344,6 +5309,7 @@ export function ChatApp({
       {ralphSessionDir && showTodoPanel && (
         <TaskListPanel
           sessionDir={ralphSessionDir}
+          sessionId={ralphSessionId ?? undefined}
           expanded={tasksExpanded}
         />
       )}

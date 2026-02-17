@@ -133,8 +133,11 @@ export function TaskListIndicator({
         const effectiveMax = (maxContentLength ?? MAX_CONTENT_LENGTH) - labelOverhead;
         const displayContent = expanded ? item.content : truncateText(item.content, effectiveMax);
 
+        const hasBlockers = item.blockedBy && item.blockedBy.length > 0;
+
         return (
-          <text key={item.id ?? i} wrapMode="none">
+          <React.Fragment key={item.id ?? i}>
+          <text wrapMode="none">
             {/* Left rail */}
             <span style={{ fg: themeColors.dim }}>{showConnector && i === 0 ? `${CONNECTOR.subStatus} ` : `${rail} `}</span>
             {/* Status icon */}
@@ -149,11 +152,15 @@ export function TaskListIndicator({
             {statusLabel && (
               <span style={{ fg: textColor, }}>{` [${statusLabel}]`}</span>
             )}
-            {/* Blocked-by info */}
-            {item.blockedBy && item.blockedBy.length > 0 && (
-              <span style={{ fg: themeColors.muted }}>{` › blocked by ${truncateText(item.blockedBy.map(id => id.startsWith("#") ? id : `#${id}`).join(", "), 40)}`}</span>
-            )}
           </text>
+          {/* Blocked-by info on separate sub-line for visibility */}
+          {hasBlockers && (
+            <text wrapMode="none">
+              <span style={{ fg: themeColors.dim }}>{"    "}</span>
+              <span style={{ fg: themeColors.muted }}>{`↳ blocked by ${truncateText(item.blockedBy!.map(id => id.startsWith("#") ? id : `#${id}`).join(", "), 50)}`}</span>
+            </text>
+          )}
+          </React.Fragment>
         );
       })}
       {overflowCount > 0 && (

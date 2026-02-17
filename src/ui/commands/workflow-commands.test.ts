@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 import type { CommandContext } from "./registry.ts";
-import { getWorkflowCommands } from "./workflow-commands.ts";
-import { getWorkflowSessionDir } from "../../workflows/session.ts";
+import { getWorkflowCommands, parseRalphArgs } from "./workflow-commands.ts";
 
 function createMockContext(overrides?: Partial<CommandContext>): CommandContext {
   return {
@@ -29,65 +25,49 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
   };
 }
 
-describe("workflow-commands /ralph resume", () => {
-  test("normalizes interrupted states and persists normalized tasks before resuming", async () => {
-    const sessionId = crypto.randomUUID();
-    const sessionDir = getWorkflowSessionDir(sessionId);
-    mkdirSync(sessionDir, { recursive: true });
+describe("parseRalphArgs", () => {
+  test("parses a prompt argument", () => {
+    const result = parseRalphArgs("Build a feature");
+    expect(result).toEqual({ prompt: "Build a feature" });
+  });
 
-    const taskPayload = [
-      { id: "#1", content: "pending", activeForm: "working on pending", status: "pending" },
-      { id: "#2", content: "in-progress", activeForm: "working on in-progress", status: "in_progress" },
-      { id: "#3", content: "done", activeForm: "working on done", status: "completed" },
-      { id: "#4", content: "failed", activeForm: "working on failed", status: "error" },
-    ];
+  test("throws on empty prompt", () => {
+    expect(() => parseRalphArgs("")).toThrow("A prompt argument is required");
+  });
 
-    await Bun.write(join(sessionDir, "tasks.json"), JSON.stringify(taskPayload, null, 2));
+  test("trims whitespace from prompt", () => {
+    const result = parseRalphArgs("  Build a feature  ");
+    expect(result).toEqual({ prompt: "Build a feature" });
+  });
+});
 
-    const todoSnapshots: TodoItem[][] = [];
-    let capturedSessionDir: string | null = null;
-    let capturedSessionId: string | null = null;
-
+describe("workflow-commands /ralph", () => {
+  test("rejects when a workflow is already active", async () => {
     const context = createMockContext({
-      setTodoItems: (items) => {
-        todoSnapshots.push(items);
-      },
-      setRalphSessionDir: (dir) => {
-        capturedSessionDir = dir;
-      },
-      setRalphSessionId: (id) => {
-        capturedSessionId = id;
+      state: {
+        isStreaming: false,
+        messageCount: 0,
+        workflowActive: true,
+        workflowType: "ralph",
       },
     });
 
-    try {
-      const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
-      expect(ralphCommand).toBeDefined();
+    const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
+    expect(ralphCommand).toBeDefined();
 
-      const result = await ralphCommand!.execute(`--resume ${sessionId}`, context);
-      expect(result.success).toBe(true);
+    const result = await ralphCommand!.execute("Build a feature", context);
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("already active");
+  });
 
-      expect(capturedSessionDir as string | null).toEqual(sessionDir);
-      expect(capturedSessionId as string | null).toEqual(sessionId);
-      expect(todoSnapshots.length).toBeGreaterThan(0);
-      // Resume normalizes in_progress -> pending; no auto-orchestration runs
-      expect(todoSnapshots[0]?.map((task) => task.status) as string[]).toEqual([
-        "pending",
-        "pending",
-        "completed",
-        "error", // error tasks remain as error (not reset to pending)
-      ]);
+  test("rejects when no prompt is provided", async () => {
+    const context = createMockContext();
 
-      // Persisted tasks reflect normalized state only (no orchestrator completion)
-      const persisted = JSON.parse(readFileSync(join(sessionDir, "tasks.json"), "utf-8")) as Array<{ status: string }>;
-      expect(persisted.map((task) => task.status)).toEqual([
-        "pending",   // remains pending (no auto-dispatch)
-        "pending",   // normalized from in_progress to pending (no auto-dispatch)
-        "completed",
-        "error",     // error tasks remain as error
-      ]);
-    } finally {
-      rmSync(sessionDir, { recursive: true, force: true });
-    }
+    const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
+    expect(ralphCommand).toBeDefined();
+
+    const result = await ralphCommand!.execute("", context);
+    expect(result.success).toBe(false);
+    expect(result.message).toContain("A prompt argument is required");
   });
 });

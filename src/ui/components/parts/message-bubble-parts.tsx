@@ -6,12 +6,14 @@
  */
 
 import React from "react";
+import type { SyntaxStyle } from "@opentui/core";
 import type { ChatMessage } from "../../chat.tsx";
 import { PART_REGISTRY } from "./registry.tsx";
 import { SPACING } from "../../constants/spacing.ts";
 
 export interface MessageBubblePartsProps {
   message: ChatMessage;
+  syntaxStyle?: SyntaxStyle;
 }
 
 /**
@@ -23,7 +25,7 @@ export interface MessageBubblePartsProps {
  * to avoid double-spacing. Parts that need extra section-level
  * separation can add marginTop internally.
  */
-export function MessageBubbleParts({ message }: MessageBubblePartsProps): React.ReactNode {
+export function MessageBubbleParts({ message, syntaxStyle }: MessageBubblePartsProps): React.ReactNode {
   const parts = message.parts ?? [];
 
   if (parts.length === 0) {
@@ -40,6 +42,7 @@ export function MessageBubbleParts({ message }: MessageBubblePartsProps): React.
             key={part.id}
             part={part}
             isLast={index === parts.length - 1}
+            syntaxStyle={syntaxStyle}
           />
         );
       })}

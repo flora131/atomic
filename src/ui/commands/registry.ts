@@ -181,7 +181,6 @@ export interface CommandContextState {
   /** Ralph-specific workflow configuration */
   ralphConfig?: {
     userPrompt: string | null;
-    resumeSessionId?: string;
     sessionId?: string;
   };
 }

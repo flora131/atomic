@@ -2,11 +2,11 @@
  * Workflow Commands for Chat UI
  *
  * Registers workflow commands as slash commands invocable from the TUI.
- * The /ralph command implements a two-step workflow:
+ * The /ralph command implements a looping workflow:
  *   Step 1: Task list decomposition from user prompt
- *   Step 2: Main agent manually dispatches worker sub-agents
+ *   Step 2: Agent dispatches worker sub-agents in a loop until all tasks complete
  *
- * Session saving/resuming is powered by the workflow SDK session manager.
+ * Session state is persisted to tasks.json in the workflow session directory.
  */
 
 import { existsSync, watch } from "fs";
@@ -19,7 +19,6 @@ import type {
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
 
-import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 import {
   normalizeTodoItem,
   normalizeTodoItems,
@@ -30,8 +29,7 @@ import {
   getWorkflowSessionDir,
   type WorkflowSession,
 } from "../../workflows/session.ts";
-import { buildSpecToTasksPrompt, buildBootstrappedTaskContext } from "../../graph/nodes/ralph.ts";
-import { normalizeInterruptedTasks } from "../utils/ralph-task-state.ts";
+import { buildSpecToTasksPrompt, buildBootstrappedTaskContext, buildContinuePrompt } from "../../graph/nodes/ralph.ts";
 
 // ============================================================================
 // RALPH COMMAND PARSING
@@ -40,44 +38,21 @@ import { normalizeInterruptedTasks } from "../utils/ralph-task-state.ts";
 /**
  * Parsed arguments for the /ralph command.
  */
-export type RalphCommandArgs =
-  | { kind: "run"; prompt: string }
-  | { kind: "resume"; sessionId: string; prompt: string | null };
+export interface RalphCommandArgs {
+  prompt: string;
+}
 
 export function parseRalphArgs(args: string): RalphCommandArgs {
   const trimmed = args.trim();
 
-  // Check for --resume flag
-  const resumeMatch = trimmed.match(/--resume\s+(\S+)/);
-  if (resumeMatch) {
-    const rest = trimmed.replace(resumeMatch[0], "").trim();
-    return { kind: "resume", sessionId: resumeMatch[1]!, prompt: rest || null };
-  }
-
-  // Prompt is required for new sessions
   if (!trimmed) {
     throw new Error(
-      'Usage: /ralph "<prompt-or-spec-path>" or /ralph --resume <uuid> ["<prompt>"]\n' +
+      'Usage: /ralph "<prompt-or-spec-path>"\n' +
       "A prompt argument is required."
     );
   }
 
-  return { kind: "run", prompt: trimmed };
-}
-
-/**
- * Validate if a string is a valid UUID v4 format.
- *
- * @param uuid - The string to validate
- * @returns True if the string is a valid UUID v4 format
- *
- * @example
- * isValidUUID("550e8400-e29b-41d4-a716-446655440000") // true
- * isValidUUID("not-a-uuid") // false
- */
-export function isValidUUID(uuid: string): boolean {
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  return uuidRegex.test(uuid);
+  return { prompt: trimmed };
 }
 
 // ============================================================================
@@ -401,7 +376,7 @@ const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata[] = [
     name: "ralph",
     description: "Start autonomous implementation workflow",
     aliases: ["loop"],
-    argumentHint: '"<prompt-or-spec-path>" [--resume UUID ["<prompt>"]]',
+    argumentHint: '"<prompt-or-spec-path>"',
     source: "builtin",
   },
 ];
@@ -519,62 +494,6 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
         };
       }
 
-      // Handle resume
-      if (parsed.kind === "resume") {
-        if (!parsed.sessionId) {
-          return {
-            success: false,
-            message: `Missing session ID.\nUsage: /ralph --resume <uuid>`,
-          };
-        }
-
-        if (!isValidUUID(parsed.sessionId)) {
-          return {
-            success: false,
-            message: `Invalid session ID format. Expected a UUID.\nUsage: /ralph --resume <uuid>`,
-          };
-        }
-
-        const sessionDir = getWorkflowSessionDir(parsed.sessionId);
-        if (!existsSync(sessionDir)) {
-          return {
-            success: false,
-            message: `Session not found: ${parsed.sessionId}\nDirectory does not exist: ${sessionDir}`,
-          };
-        }
-
-        context.addMessage("assistant", `Resuming session ${parsed.sessionId}`);
-
-        // Load tasks from disk and reset interrupted in_progress tasks to pending
-        // before subsequent worker execution.
-        const diskTasks = await readTasksFromDisk(sessionDir);
-        const currentTasks = normalizeInterruptedTasks(diskTasks);
-        await saveTasksToActiveSession(currentTasks, parsed.sessionId);
-
-        // Update TodoPanel summary with loaded tasks (BUG-6 fix)
-        context.setTodoItems(currentTasks as TodoItem[]);
-
-        // Track Ralph session metadata for persistent task state
-        context.setRalphSessionDir(sessionDir);
-        context.setRalphSessionId(parsed.sessionId);
-
-        context.updateWorkflowState({
-          workflowActive: true,
-          workflowType: metadata.name,
-          ralphConfig: {
-            resumeSessionId: parsed.sessionId,
-            userPrompt: parsed.prompt,
-          },
-        });
-
-        // Bootstrap task context into the main agent's conversation for manual dispatch
-        if (currentTasks.length > 0) {
-          context.sendSilentMessage(buildBootstrappedTaskContext(currentTasks, parsed.sessionId));
-        }
-
-        return { success: true };
-      }
-
       // ── Two-step workflow (async/await) ──────────────────────────────
       // Step 1: Task decomposition via streamAndWait
       // Step 2: Feature implementation via worker sub-agent
@@ -609,11 +528,39 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
       context.setRalphSessionDir(sessionDir);
       context.setRalphSessionId(sessionId);
 
-      // Step 2: Bootstrap task context into the main agent's conversation.
+      // Step 2: Execute tasks in a loop until all are completed.
       // The agent's context is blank after Step 1 (hideContent suppressed the JSON),
-      // so inject the task list and instructions for manual worker dispatch.
+      // so inject the task list and instructions for worker dispatch, then loop
+      // until tasks.json shows all items completed.
       if (tasks.length > 0) {
-        context.sendSilentMessage(buildBootstrappedTaskContext(tasks, sessionId));
+        const MAX_ITERATIONS = 50;
+        let iteration = 0;
+        let currentTasks: NormalizedTodoItem[] = tasks;
+
+        while (iteration < MAX_ITERATIONS) {
+          iteration++;
+          const prompt = iteration === 1
+            ? buildBootstrappedTaskContext(currentTasks, sessionId)
+            : buildContinuePrompt(currentTasks, sessionId);
+
+          const result = await context.streamAndWait(prompt);
+          if (result.wasInterrupted) break;
+
+          // Read latest task state from disk after agent response
+          const diskTasks = await readTasksFromDisk(sessionDir);
+          if (diskTasks.length === 0) break;
+
+          // Check if all tasks are completed
+          const allCompleted = diskTasks.every((t) => t.status === "completed");
+          if (allCompleted) break;
+
+          // Check if remaining tasks are all stuck (errored with no actionable tasks)
+          const remaining = diskTasks.filter((t) => t.status !== "completed");
+          const hasActionable = remaining.some((t) => t.status === "pending" || t.status === "in_progress");
+          if (!hasActionable) break;
+
+          currentTasks = diskTasks;
+        }
       }
 
       return { success: true };

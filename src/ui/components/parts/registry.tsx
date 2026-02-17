@@ -6,6 +6,7 @@
  * narrowed to the specific subtype via the discriminant.
  */
 
+import type { SyntaxStyle } from "@opentui/core";
 import type { Part } from "../../parts/types.ts";
 import { TextPartDisplay } from "./text-part-display.tsx";
 import { ReasoningPartDisplay } from "./reasoning-part-display.tsx";
@@ -17,7 +18,7 @@ import { McpSnapshotPartDisplay } from "./mcp-snapshot-part-display.tsx";
 import { ContextInfoPartDisplay } from "./context-info-part-display.tsx";
 import { CompactionPartDisplay } from "./compaction-part-display.tsx";
 
-export type PartRenderer = (props: { part: any; isLast: boolean }) => React.ReactNode;
+export type PartRenderer = (props: { part: any; isLast: boolean; syntaxStyle?: SyntaxStyle }) => React.ReactNode;
 
 export const PART_REGISTRY: Record<Part["type"], PartRenderer> = {
   "text": TextPartDisplay,

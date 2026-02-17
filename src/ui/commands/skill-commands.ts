@@ -16,7 +16,13 @@ import type {
     CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+    existsSync,
+    mkdirSync,
+    readdirSync,
+    readFileSync,
+    writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { parseMarkdownFrontmatter } from "../../utils/markdown.ts";
@@ -85,7 +91,10 @@ The user's research question/request is: **$ARGUMENTS**
 
 ## Steps to follow after receiving the research query:
 
-IMPORTANT: OPTIMIZE the user's research question request using your prompt-engineer skill and confirm that the your refined question captures the user's intent BEFORE proceeding using the \`AskUserQuestion\` tool.
+<EXTREMELY_IMPORTANT>
+- OPTIMIZE the user's research question request using your prompt-engineer skill and confirm that the your refined question captures the user's intent BEFORE proceeding using the \`AskUserQuestion\` tool.
+- After research is complete and the research artifact(s) are generated, provide an executive summary of the research and path to the research document(s) to the user, and ask if they have any follow-up questions or need clarification.
+</EXTREMELY_IMPORTANT>
 
 1. **Read any directly mentioned files first:**
    - If the user mentions specific files (tickets, docs, or other notes), read them FULLY first
@@ -288,7 +297,11 @@ research/
         prompt: `You are tasked with creating a spec for implementing a new feature or system change in the codebase by leveraging existing research in the **$ARGUMENTS** path. If no research path is specified, use the entire \`research/\` directory. IMPORTANT: Research documents are located in the \`research/\` directory — do NOT look in the \`specs/\` directory for research. Follow the template below to produce a comprehensive specification as output in the \`specs/\` folder using the findings from RELEVANT research documents found in \`research/\`. Tip: It's good practice to use the \`codebase-research-locator\` and \`codebase-research-analyzer\` agents to help you find and analyze the research documents in the \`research/\` directory. It is also HIGHLY recommended to cite relevant research throughout the spec for additional context.
 
 <EXTREMELY_IMPORTANT>
-Please DO NOT implement anything in this stage, just create the comprehensive spec as described below.
+- Please DO NOT implement anything in this stage, just create the comprehensive spec as described below.
+- When writing the spec, DO NOT include information about concrete dates/timelines (e.g. # minutes, hours, days, weeks, etc.) and favor explicit phases (e.g. Phase 1, Phase 2, etc.).
+- Once the spec is generated, refer to the section, "## 9. Open Questions / Unresolved Issues", go through each question one by one, and ask the user for clarification with your ask question tool while providing them with suggested options. Update the spec with the user's answers as you walk through the questions.
+- Finally, once the spec is generated and after open questions are answered, provide an executive summary of the spec to the user including provide the path to the generated spec document in the \`specs/\` directory.
+  - Encourage the user to review the spec for best results and provide feedback or ask any follow-up questions they may have.
 </EXTREMELY_IMPORTANT>
 
 # [Project Name] Technical Design Document / RFC

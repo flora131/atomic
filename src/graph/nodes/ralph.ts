@@ -159,3 +159,22 @@ ${taskListJson}
 - Dispatch workers with explicit task assignments and update TodoWrite as progress changes.
 - Continue until all tasks are completed or an error/deadlock is surfaced.`;
 }
+
+/** Build a prompt to continue processing remaining tasks after a previous iteration. */
+export function buildContinuePrompt(tasks: TaskItem[], sessionId: string): string {
+  const taskListJson = JSON.stringify(tasks, null, 2);
+  const completed = tasks.filter((t) => isCompletedStatus(t.status)).length;
+  const total = tasks.length;
+  return `# Ralph Session Continue
+
+Session ID: ${sessionId}
+Progress: ${completed}/${total} tasks completed
+
+Current task state:
+
+\`\`\`json
+${taskListJson}
+\`\`\`
+
+Some tasks are still incomplete. Continue processing tasks in dependency order. Dispatch workers for ready tasks and update TodoWrite as progress changes. Continue until all tasks are completed or an error/deadlock is surfaced.`;
+}

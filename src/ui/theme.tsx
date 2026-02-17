@@ -8,7 +8,7 @@
  */
 
 import React, { createContext, useContext, useState, useCallback } from "react";
-import { SyntaxStyle, RGBA } from "@opentui/core";
+import { SyntaxStyle, RGBA, type StyleDefinition } from "@opentui/core";
 
 // ============================================================================
 // TYPES
@@ -532,6 +532,41 @@ export function createMarkdownSyntaxStyle(colors: ThemeColors, isDark: boolean):
     boolean: { fg: RGBA.fromHex(s.bool) },
     default: { fg: RGBA.fromHex(s.variable) },
   });
+}
+
+/**
+ * Create a dimmed variant of a SyntaxStyle by reducing the alpha channel
+ * of all foreground colors. Used for reasoning/thinking content display.
+ *
+ * Iterates over all registered styles in the base SyntaxStyle, creates new
+ * RGBA instances with reduced alpha for each `fg` color, and rebuilds via
+ * SyntaxStyle.fromStyles().
+ *
+ * @param baseStyle - The SyntaxStyle to dim
+ * @param opacity - Alpha multiplier (0.0 to 1.0), default 0.6
+ * @returns A new SyntaxStyle with reduced-opacity foreground colors
+ */
+export function createDimmedSyntaxStyle(
+  baseStyle: SyntaxStyle,
+  opacity: number = 0.6,
+): SyntaxStyle {
+  const allStyles = baseStyle.getAllStyles();
+  const dimmedRecord: Record<string, StyleDefinition> = {};
+
+  for (const [name, def] of allStyles) {
+    const dimmedDef: StyleDefinition = { ...def };
+    if (dimmedDef.fg) {
+      dimmedDef.fg = RGBA.fromValues(
+        dimmedDef.fg.r,
+        dimmedDef.fg.g,
+        dimmedDef.fg.b,
+        dimmedDef.fg.a * opacity,
+      );
+    }
+    dimmedRecord[name] = dimmedDef;
+  }
+
+  return SyntaxStyle.fromStyles(dimmedRecord);
 }
 
 export default {

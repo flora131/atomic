@@ -1230,11 +1230,12 @@ export async function startChatUI(
     } finally {
       // Clear streaming state
       state.streamAbortController = null;
-      // Keep isStreaming true if sub-agents are still running so
+      // Keep isStreaming true if sub-agents are still actively running so
       // subagent.complete events continue to be processed.
-      // Use guard to prevent premature finalization of background agents.
+      // Only match agents that are actually active (running/pending/background),
+      // not completed background agents that happen to have background=true.
       const hasActiveAgents = state.parallelAgents.some(
-        (a) => a.status === "running" || a.status === "pending" || !shouldFinalizeOnToolComplete(a)
+        (a) => a.status === "running" || a.status === "pending" || a.status === "background"
       );
       if (!hasActiveAgents) {
         state.isStreaming = false;

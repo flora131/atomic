@@ -91,8 +91,6 @@ export const helpCommand: CommandDefinition = {
     if (grouped["workflow"]?.some((cmd) => cmd.name === "ralph")) {
       lines.push("**Workflow Usage**");
       lines.push("  /ralph <prompt>                 Start new session");
-      lines.push("  /ralph --resume <uuid>          Resume paused session");
-      lines.push("  Ctrl+C or Esc to pause. Resume with /ralph --resume <uuid>");
       lines.push("");
     }
 

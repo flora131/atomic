@@ -88,6 +88,11 @@ import {
   type NormalizedTodoItem,
 } from "./utils/task-status.ts";
 import {
+  dispatchNextQueuedMessage,
+  isCurrentStreamCallback,
+  invalidateActiveStreamGeneration,
+} from "./utils/stream-continuation.ts";
+import {
   hasRalphTaskIdOverlap,
   normalizeInterruptedTasks,
   snapshotTaskItems,
@@ -1884,6 +1889,20 @@ export function ChatApp({
   const loadedSkillsRef = useRef<Set<string>>(new Set());
   // Ref for scrollbox to enable programmatic scrolling
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
+  // Ref for deferred queue dispatch without circular callback deps
+  const dispatchQueuedMessageRef = useRef<(queuedMessage: QueuedMessage) => void>(() => {});
+
+  const continueQueuedConversation = useCallback(() => {
+    dispatchNextQueuedMessage<QueuedMessage>(
+      () => messageQueue.dequeue(),
+      (queuedMessage: QueuedMessage) => {
+        dispatchQueuedMessageRef.current(queuedMessage);
+      },
+      {
+        shouldDispatch: () => !isStreamingRef.current,
+      },
+    );
+  }, [messageQueue]);
 
   // Create macOS-style scroll acceleration for smooth mouse wheel scrolling
   const scrollAcceleration = useMemo(() => new MacOSScrollAccel(), []);
@@ -2030,6 +2049,13 @@ export function ChatApp({
     setIsStreaming(false);
     setStreamingMeta(null);
     hasRunningToolRef.current = false;
+
+    const resolver = streamCompletionResolverRef.current;
+    streamCompletionResolverRef.current = null;
+    hideStreamContentRef.current = false;
+    if (resolver) {
+      resolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
+    }
   }, [setMessagesWindowed]);
 
   // Dynamic placeholder based on queue state
@@ -2037,7 +2063,7 @@ export function ChatApp({
     if (messageQueue.count > 0) {
       return "Press ↑ to edit queued messages...";
     } else if (isStreaming) {
-      return "Type a message (enter to interrupt, ctrl+d to enqueue)...";
+      return "Type a message (enter to interrupt, ctrl+q to enqueue)...";
     } else {
       return "Enter a message...";
     }
@@ -2418,7 +2444,7 @@ export function ChatApp({
             // onChunk: append to current message
             (chunk) => {
               // Drop chunks from stale streams (round-robin replaced this stream)
-              if (streamGenerationRef.current !== currentGeneration) return;
+              if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
               setMessagesWindowed((prev) => {
                 const lastMsg = prev[prev.length - 1];
                 if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
@@ -2446,7 +2472,7 @@ export function ChatApp({
             // onComplete: mark message as complete, finalize parallel agents
             () => {
               // Stale generation guard: if a newer stream started, this callback is a no-op
-              if (streamGenerationRef.current !== currentGeneration) return;
+              if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
               // Finalize any still-running parallel agents and bake into message
               setParallelAgents((currentAgents) => {
                 if (currentAgents.length > 0) {
@@ -2806,14 +2832,9 @@ export function ChatApp({
 
       // Drain the message queue — the agent-only path doesn't go through
       // the SDK handleComplete callback, so we must dequeue here.
-      const nextMessage = messageQueue.dequeue();
-      if (nextMessage) {
-        setTimeout(() => {
-          dispatchQueuedMessageRef.current(nextMessage);
-        }, 50);
-      }
+      continueQueuedConversation();
     }
-  }, [parallelAgents, messageQueue, toolCompletionVersion, messages]);
+  }, [parallelAgents, continueQueuedConversation, toolCompletionVersion, messages]);
 
   // Initialize SubagentGraphBridge when createSubagentSession is available
   useEffect(() => {
@@ -3030,7 +3051,6 @@ export function ChatApp({
 
   // Ref for executeCommand to allow deferred message handling to spawn agents
   const executeCommandRef = useRef<((commandName: string, args: string, trigger?: CommandExecutionTrigger) => Promise<boolean>) | null>(null);
-  const dispatchQueuedMessageRef = useRef<(queuedMessage: QueuedMessage) => void>(() => {});
 
   const dispatchQueuedMessage = useCallback((queuedMessage: QueuedMessage) => {
     const atMentions = parseAtMentions(queuedMessage.content);
@@ -3363,7 +3383,7 @@ export function ChatApp({
           const handleChunk = (chunk: string) => {
             if (!isStreamingRef.current) return;
             // Drop chunks from stale streams (round-robin replaced this stream)
-            if (streamGenerationRef.current !== currentGeneration) return;
+            if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
             // Accumulate content for step 1 → step 2 task parsing
             lastStreamingContentRef.current += chunk;
             // Skip rendering in message when content is hidden (e.g., step 1 JSON output)
@@ -3386,7 +3406,7 @@ export function ChatApp({
           const handleComplete = () => {
             // Stale generation guard — a newer stream has started (round-robin inject),
             // so this callback must not touch any shared refs/state.
-            if (streamGenerationRef.current !== currentGeneration) return;
+            if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
             const messageId = streamingMessageIdRef.current;
             const durationMs = streamingStartRef.current
               ? Date.now() - streamingStartRef.current
@@ -3428,12 +3448,7 @@ export function ChatApp({
                 return;
               }
 
-              const nextMessage = messageQueue.dequeue();
-              if (nextMessage) {
-                setTimeout(() => {
-                  dispatchQueuedMessageRef.current(nextMessage);
-                }, 50);
-              }
+              continueQueuedConversation();
               return;
             }
 
@@ -3520,12 +3535,7 @@ export function ChatApp({
               return;
             }
 
-            const nextMessage = messageQueue.dequeue();
-            if (nextMessage) {
-              setTimeout(() => {
-                dispatchQueuedMessageRef.current(nextMessage);
-              }, 50);
-            }
+            continueQueuedConversation();
           };
 
           const handleMeta = (meta: StreamingMeta) => {
@@ -3546,6 +3556,10 @@ export function ChatApp({
         const task = options.message;
         const instruction = `Use the ${agentName} sub-agent to handle this task: ${task}`;
         const result = await new Promise<import("./commands/registry.ts").StreamResult>((resolve) => {
+          const previousResolver = streamCompletionResolverRef.current;
+          if (previousResolver) {
+            previousResolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
+          }
           streamCompletionResolverRef.current = resolve;
           context.sendSilentMessage(instruction);
         });
@@ -3556,6 +3570,10 @@ export function ChatApp({
       },
       streamAndWait: (prompt: string, options?: { hideContent?: boolean }) => {
         return new Promise<import("./commands/registry.ts").StreamResult>((resolve) => {
+          const previousResolver = streamCompletionResolverRef.current;
+          if (previousResolver) {
+            previousResolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
+          }
           streamCompletionResolverRef.current = resolve;
           hideStreamContentRef.current = options?.hideContent ?? false;
           // Delegate to sendSilentMessage logic
@@ -4043,12 +4061,12 @@ export function ChatApp({
           // Use ref for immediate check — avoids stale closure when React
           // hasn't re-rendered after setIsStreaming(true)
           if (isStreamingRef.current) {
+            // Invalidate current stream callbacks before interrupting the SDK,
+            // so synchronous onComplete callbacks from an interrupt become stale.
+            streamGenerationRef.current = invalidateActiveStreamGeneration(streamGenerationRef.current);
+            pendingCompleteRef.current = null;
             // Abort the stream FIRST so chunks stop arriving immediately
             onInterrupt?.();
-
-            // Signal that interrupt already finalized agents — prevents
-            // handleComplete from overwriting with "completed" status
-            wasInterruptedRef.current = true;
 
             // Read agents synchronously from ref (avoids nested dispatch issues)
             const currentAgents = parallelAgentsRef.current;
@@ -4089,8 +4107,14 @@ export function ChatApp({
             }
 
             // Stop streaming state immediately so UI reflects interrupted state
+            wasInterruptedRef.current = false;
+            streamingMessageIdRef.current = null;
+            streamingStartRef.current = null;
+            streamingMetaRef.current = null;
+            isAgentOnlyStreamRef.current = false;
             isStreamingRef.current = false;
             setIsStreaming(false);
+            setStreamingMeta(null);
             hasRunningToolRef.current = false;
 
             // Sub-agent cancellation handled by SDK session interrupt
@@ -4115,6 +4139,7 @@ export function ChatApp({
               interruptTimeoutRef.current = null;
             }
             setCtrlCPressed(false);
+            continueQueuedConversation();
             return;
           }
 
@@ -4127,7 +4152,6 @@ export function ChatApp({
             if (hasRunningAgents) {
               // Inform parent integration so SDK-side run/correlation state is reset too.
               onInterrupt?.();
-              wasInterruptedRef.current = true;
               const interruptedAgents = currentAgents.map((a) =>
                 a.status === "running" || a.status === "pending"
                   ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
@@ -4155,6 +4179,9 @@ export function ChatApp({
               }
               parallelAgentsRef.current = [];
               setParallelAgents([]);
+              pendingCompleteRef.current = null;
+              wasInterruptedRef.current = false;
+              continueQueuedConversation();
               return;
             }
           }
@@ -4224,8 +4251,8 @@ export function ChatApp({
           return;
         }
 
-        // Ctrl+D - enqueue message (round-robin) during streaming
-        if (event.ctrl && event.name === "d") {
+        // Ctrl+Q - enqueue message (round-robin) during streaming
+        if (event.ctrl && event.name === "q") {
           if (isStreamingRef.current) {
             const textarea = textareaRef.current;
             const value = textarea?.plainText?.trim() ?? "";
@@ -4282,12 +4309,12 @@ export function ChatApp({
           // Use ref for immediate check — avoids stale closure when React
           // hasn't re-rendered after setIsStreaming(true)
           if (isStreamingRef.current) {
+            // Invalidate current stream callbacks before interrupting the SDK,
+            // so synchronous onComplete callbacks from an interrupt become stale.
+            streamGenerationRef.current = invalidateActiveStreamGeneration(streamGenerationRef.current);
+            pendingCompleteRef.current = null;
             // Abort the stream FIRST so chunks stop arriving immediately
             onInterrupt?.();
-
-            // Signal that interrupt already finalized agents — prevents
-            // handleComplete from overwriting with "completed" status
-            wasInterruptedRef.current = true;
 
             // Read agents synchronously from ref (avoids nested dispatch issues)
             const currentAgents = parallelAgentsRef.current;
@@ -4328,8 +4355,14 @@ export function ChatApp({
             }
 
             // Stop streaming state immediately so UI reflects interrupted state
+            wasInterruptedRef.current = false;
+            streamingMessageIdRef.current = null;
+            streamingStartRef.current = null;
+            streamingMetaRef.current = null;
+            isAgentOnlyStreamRef.current = false;
             isStreamingRef.current = false;
             setIsStreaming(false);
+            setStreamingMeta(null);
             hasRunningToolRef.current = false;
 
             // Sub-agent cancellation handled by SDK session interrupt
@@ -4348,6 +4381,7 @@ export function ChatApp({
               });
             }
 
+            continueQueuedConversation();
             return;
           }
 
@@ -4360,7 +4394,6 @@ export function ChatApp({
             if (hasRunningAgents) {
               // Inform parent integration so SDK-side run/correlation state is reset too.
               onInterrupt?.();
-              wasInterruptedRef.current = true;
               const interruptedAgents = currentAgents.map((a) =>
                 a.status === "running" || a.status === "pending"
                   ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
@@ -4388,6 +4421,9 @@ export function ChatApp({
               }
               parallelAgentsRef.current = [];
               setParallelAgents([]);
+              pendingCompleteRef.current = null;
+              wasInterruptedRef.current = false;
+              continueQueuedConversation();
               return;
             }
           }
@@ -4879,7 +4915,7 @@ export function ChatApp({
         const handleChunk = (chunk: string) => {
           if (!isStreamingRef.current) return;
           // Drop chunks from stale streams (round-robin replaced this stream)
-          if (streamGenerationRef.current !== currentGeneration) return;
+          if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
           const messageId = streamingMessageIdRef.current;
           if (messageId) {
             setMessagesWindowed((prev: ChatMessage[]) =>
@@ -4899,7 +4935,7 @@ export function ChatApp({
         const handleComplete = () => {
           // Stale generation guard — a newer stream has started (round-robin inject),
           // so this callback must not touch any shared refs/state.
-          if (streamGenerationRef.current !== currentGeneration) return;
+          if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
           const messageId = streamingMessageIdRef.current;
           // Calculate duration from streaming start
           const durationMs = streamingStartRef.current
@@ -4929,12 +4965,7 @@ export function ChatApp({
             setStreamingMeta(null);
             hasRunningToolRef.current = false;
 
-            const nextMessage = messageQueue.dequeue();
-            if (nextMessage) {
-              setTimeout(() => {
-                dispatchQueuedMessageRef.current(nextMessage);
-              }, 50);
-            }
+            continueQueuedConversation();
             return;
           }
 
@@ -4993,19 +5024,19 @@ export function ChatApp({
           });
 
           streamingMessageIdRef.current = null;
-          streamingStartRef.current = null;
+          const hasRemainingBg = parallelAgentsRef.current.some(
+            (a) => a.background && a.status === "background"
+          );
+          if (!hasRemainingBg) {
+            streamingStartRef.current = null;
+          }
           streamingMetaRef.current = null;
           // Clear ref immediately (synchronous) before state update
           isStreamingRef.current = false;
           setIsStreaming(false);
           setStreamingMeta(null);
           hasRunningToolRef.current = false;
-          const nextMessage = messageQueue.dequeue();
-          if (nextMessage) {
-            setTimeout(() => {
-              dispatchQueuedMessageRef.current(nextMessage);
-            }, 50);
-          }
+          continueQueuedConversation();
         };
 
         // Handle streaming metadata updates (tokens, thinking duration)
@@ -5019,7 +5050,7 @@ export function ChatApp({
         });
       }
     },
-    [onSendMessage, onStreamMessage, messageQueue, handleStreamStartupError]
+    [onSendMessage, onStreamMessage, continueQueuedConversation, handleStreamStartupError]
   );
 
   // Keep the sendMessageRef in sync with sendMessage callback
@@ -5162,7 +5193,7 @@ export function ChatApp({
 
         if (atMentions.length > 0) {
           // @mention invocations queue while streaming so they stay in the
-          // same round-robin queue UI as Ctrl+D inputs.
+          // same round-robin queue UI as Ctrl+Q inputs.
           if (isStreamingRef.current) {
             emitMessageSubmitTelemetry({
               messageLength: trimmedValue.length,
@@ -5255,6 +5286,9 @@ export function ChatApp({
             )
           );
         }
+        // Invalidate callbacks for the interrupted stream before aborting.
+        streamGenerationRef.current = invalidateActiveStreamGeneration(streamGenerationRef.current);
+        pendingCompleteRef.current = null;
         // Clear streaming state before starting new stream
         streamingMessageIdRef.current = null;
         streamingStartRef.current = null;
@@ -5519,7 +5553,7 @@ export function ChatApp({
                 </box>
               )}
             </box>
-            {/* Streaming hints - shows "esc to interrupt" and "ctrl+d enqueue" during streaming */}
+            {/* Streaming hints - shows "esc to interrupt" and "ctrl+q enqueue" during streaming */}
             {isStreaming ? (
               <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
                 <text style={{ fg: themeColors.muted }}>
@@ -5527,7 +5561,7 @@ export function ChatApp({
                 </text>
                 <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
                 <text style={{ fg: themeColors.muted }}>
-                  ctrl+d enqueue
+                  ctrl+q enqueue
                 </text>
               </box>
             ) : null}

@@ -24,11 +24,15 @@
 import {
     query,
     createSdkMcpServer,
+    unstable_v2_createSession,
+    unstable_v2_resumeSession,
     type Query,
     type Options,
     type SDKMessage,
     type SDKAssistantMessage,
     type SDKResultMessage,
+    type SDKSession,
+    type SDKSessionOptions,
     type SDKSystemMessage,
     type HookEvent,
     type HookCallback,
@@ -52,9 +56,29 @@ import type {
     ToolDefinition,
     ToolContext,
     MessageContentType,
-} from "./types.ts";
-import { stripProviderPrefix } from "./types.ts";
-import { initClaudeOptions } from "./init.ts";
+} from "../types.ts";
+import { stripProviderPrefix } from "../types.ts";
+import { initClaudeOptions } from "../init.ts";
+
+type ClaudeRuntimeMode = "v2" | "v1_fallback";
+
+type ClaudeFallbackReason =
+    | "fork_unsupported"
+    | "v2_unavailable"
+    | "v2_execution_error";
+
+interface ClaudeCapabilityMatrix {
+    supportsV2SendStream: boolean;
+    supportsV2Resume: boolean;
+    supportsForkSession: boolean;
+    supportsAdvancedInput: boolean;
+}
+
+interface ClaudeRuntimeDecision {
+    mode: ClaudeRuntimeMode;
+    fallbackReason: ClaudeFallbackReason | null;
+    routeStatus: "supported" | "unsupported" | "error";
+}
 
 /**
  * Configuration for Claude SDK native hooks
@@ -80,6 +104,7 @@ export interface ClaudeHookConfig {
  */
 interface ClaudeSessionState {
     query: Query | null;
+    v2Session: SDKSession | null;
     sessionId: string;
     /** SDK's session ID for resuming conversations (captured from first message) */
     sdkSessionId: string | null;
@@ -91,6 +116,17 @@ interface ClaudeSessionState {
     contextWindow: number | null;
     /** System tools baseline tokens captured from cache tokens */
     systemToolsBaseline: number | null;
+    runtimeMode: ClaudeRuntimeMode;
+    fallbackReason: ClaudeFallbackReason | null;
+    capabilities: ClaudeCapabilityMatrix;
+}
+
+interface StreamIntegrityCounters {
+    missingTerminalEvents: number;
+    unmatchedToolStarts: number;
+    unmatchedToolCompletes: number;
+    unmatchedSubagentStarts: number;
+    unmatchedSubagentCompletes: number;
 }
 
 /**
@@ -210,6 +246,18 @@ function normalizeClaudeModelLabel(model: string): string {
 
 type ReasoningEffort = "low" | "medium" | "high" | "max";
 
+interface AskUserQuestionInput {
+    questions?: Array<{
+        header?: string;
+        question: string;
+        options?: Array<{
+            label: string;
+            description?: string;
+        }>;
+        multiSelect?: boolean;
+    }>;
+}
+
 /**
  * ClaudeAgentClient implements CodingAgentClient for the Claude Agent SDK.
  *
@@ -219,6 +267,23 @@ type ReasoningEffort = "low" | "medium" | "high" | "max";
  */
 export class ClaudeAgentClient implements CodingAgentClient {
     readonly agentType = "claude" as const;
+    private static readonly BUILTIN_ALLOWED_TOOLS = [
+        "Bash",
+        "Read",
+        "Write",
+        "Edit",
+        "Glob",
+        "Grep",
+        "Task",
+        "Skill",
+        "MultiEdit",
+        "TodoRead",
+        "TodoWrite",
+        "WebFetch",
+        "WebSearch",
+        "NotebookEdit",
+        "NotebookRead",
+    ] as const;
     private static readonly SUPPORTED_REASONING_EFFORTS = new Set([
         "low",
         "medium",
@@ -241,6 +306,18 @@ export class ClaudeAgentClient implements CodingAgentClient {
     private probeContextWindow: number | null = null;
     /** System tools baseline captured from the start() probe query */
     private probeSystemToolsBaseline: number | null = null;
+    private readonly supportsV2Runtime =
+        typeof unstable_v2_createSession === "function" &&
+        typeof unstable_v2_resumeSession === "function";
+    private streamIntegrity: StreamIntegrityCounters = {
+        missingTerminalEvents: 0,
+        unmatchedToolStarts: 0,
+        unmatchedToolCompletes: 0,
+        unmatchedSubagentStarts: 0,
+        unmatchedSubagentCompletes: 0,
+    };
+    private pendingToolBySession = new Map<string, number>();
+    private pendingSubagentBySession = new Map<string, number>();
 
     /**
      * Register native SDK hooks for event handling.
@@ -273,6 +350,123 @@ export class ClaudeAgentClient implements CodingAgentClient {
         )
             ? (effort as ReasoningEffort)
             : "high";
+    }
+
+    private async handleAskUserQuestion(
+        sessionId: string,
+        toolInput: Record<string, unknown>,
+    ): Promise<
+        | {
+              behavior: "allow";
+              updatedInput: Record<string, unknown>;
+          }
+        | null
+    > {
+        const input = toolInput as AskUserQuestionInput;
+
+        if (!input.questions || input.questions.length === 0) {
+            return null;
+        }
+
+        const answers: Record<string, string> = {};
+
+        for (const q of input.questions) {
+            const responsePromise = new Promise<string | string[]>((resolve) => {
+                this.emitEvent("permission.requested", sessionId, {
+                    requestId: `ask_${Date.now()}`,
+                    toolName: "AskUserQuestion",
+                    toolInput: q,
+                    question: q.question,
+                    header: q.header,
+                    options:
+                        q.options?.map((opt) => ({
+                            label: opt.label,
+                            value: opt.label,
+                            description: opt.description,
+                        })) ?? [
+                            {
+                                label: "Yes",
+                                value: "yes",
+                                description: "Approve",
+                            },
+                            {
+                                label: "No",
+                                value: "no",
+                                description: "Deny",
+                            },
+                        ],
+                    multiSelect: q.multiSelect ?? false,
+                    respond: resolve,
+                });
+            });
+
+            const response = await responsePromise;
+            answers[q.question] = Array.isArray(response)
+                ? response.join(", ")
+                : response;
+        }
+
+        return {
+            behavior: "allow",
+            updatedInput: { ...input, answers },
+        };
+    }
+
+    private async resolveToolPermission(
+        sessionId: string,
+        toolName: string,
+        toolInput: Record<string, unknown>,
+    ): Promise<{ behavior: "allow"; updatedInput: Record<string, unknown> }> {
+        if (toolName === "AskUserQuestion") {
+            const resolved = await this.handleAskUserQuestion(sessionId, toolInput);
+            if (resolved) {
+                return resolved;
+            }
+        }
+
+        return { behavior: "allow", updatedInput: toolInput };
+    }
+
+    private buildMcpServers(
+        config: SessionConfig,
+    ): NonNullable<Options["mcpServers"]> | undefined {
+        const mcpServers: NonNullable<Options["mcpServers"]> = {};
+        let hasMcpServers = false;
+
+        if (config.mcpServers && config.mcpServers.length > 0) {
+            for (const server of config.mcpServers) {
+                if (server.url && server.type === "sse") {
+                    mcpServers[server.name] = {
+                        type: "sse" as const,
+                        url: server.url,
+                        headers: server.headers,
+                    };
+                    hasMcpServers = true;
+                } else if (server.url) {
+                    mcpServers[server.name] = {
+                        type: "http" as const,
+                        url: server.url,
+                        headers: server.headers,
+                    };
+                    hasMcpServers = true;
+                } else if (server.command) {
+                    mcpServers[server.name] = {
+                        type: "stdio" as const,
+                        command: server.command,
+                        args: server.args,
+                        env: server.env,
+                    };
+                    hasMcpServers = true;
+                }
+            }
+        }
+
+        for (const [name, server] of this.registeredTools) {
+            mcpServers[name] = server;
+            hasMcpServers = true;
+        }
+
+        return hasMcpServers ? mcpServers : undefined;
     }
 
     /**
@@ -314,113 +508,12 @@ export class ClaudeAgentClient implements CodingAgentClient {
             toolInput: Record<string, unknown>,
             _options: { signal: AbortSignal },
         ) => {
-            // Handle AskUserQuestion tool - this is the primary HITL mechanism
-            if (toolName === "AskUserQuestion") {
-                const input = toolInput as {
-                    questions?: Array<{
-                        header?: string;
-                        question: string;
-                        options?: Array<{
-                            label: string;
-                            description?: string;
-                        }>;
-                        multiSelect?: boolean;
-                    }>;
-                };
-
-                if (input.questions && input.questions.length > 0) {
-                    // Process each question and collect answers
-                    const answers: Record<string, string> = {};
-
-                    for (const q of input.questions) {
-                        // Create a promise that will be resolved when user responds
-                        const responsePromise = new Promise<string | string[]>(
-                            (resolve) => {
-                                // Emit permission.requested event with question data
-                                this.emitEvent(
-                                    "permission.requested",
-                                    sessionId ?? "",
-                                    {
-                                        requestId: `ask_${Date.now()}`,
-                                        toolName: "AskUserQuestion",
-                                        toolInput: q,
-                                        question: q.question,
-                                        header: q.header,
-                                        options: q.options?.map((opt) => ({
-                                            label: opt.label,
-                                            value: opt.label,
-                                            description: opt.description,
-                                        })) ?? [
-                                            {
-                                                label: "Yes",
-                                                value: "yes",
-                                                description: "Approve",
-                                            },
-                                            {
-                                                label: "No",
-                                                value: "no",
-                                                description: "Deny",
-                                            },
-                                        ],
-                                        multiSelect: q.multiSelect ?? false,
-                                        respond: resolve,
-                                    },
-                                );
-                            },
-                        );
-
-                        // Wait for user response
-                        const response = await responsePromise;
-                        answers[q.question] = Array.isArray(response)
-                            ? response.join(", ")
-                            : response;
-                    }
-
-                    // Return allow with updated input including answers
-                    return {
-                        behavior: "allow" as const,
-                        updatedInput: { ...input, answers },
-                    };
-                }
-            }
-
-            // For other tools, allow by default (they'll use the SDK's permission system)
-            return { behavior: "allow" as const, updatedInput: toolInput };
+            return this.resolveToolPermission(sessionId ?? "", toolName, toolInput);
         };
 
-        // Add MCP servers if configured
-        if (config.mcpServers && config.mcpServers.length > 0) {
-            options.mcpServers = {};
-            for (const server of config.mcpServers) {
-                if (server.url && server.type === "sse") {
-                    options.mcpServers[server.name] = {
-                        type: "sse" as const,
-                        url: server.url,
-                        headers: server.headers,
-                    };
-                } else if (server.url) {
-                    options.mcpServers[server.name] = {
-                        type: "http" as const,
-                        url: server.url,
-                        headers: server.headers,
-                    };
-                } else if (server.command) {
-                    options.mcpServers[server.name] = {
-                        type: "stdio" as const,
-                        command: server.command,
-                        args: server.args,
-                        env: server.env,
-                    };
-                }
-            }
-        }
-
-        // Add registered tools as SDK MCP servers
-        for (const [name, server] of this.registeredTools) {
-            if (!options.mcpServers) {
-                options.mcpServers = {};
-            }
-            options.mcpServers[name] = server;
+        const mcpServers = this.buildMcpServers(config);
+        if (mcpServers) {
+            options.mcpServers = mcpServers;
         }
 
         // Forward tool restrictions to the SDK so sub-agents only have access
@@ -443,23 +536,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
         // checked BEFORE the permission mode in the SDK's resolution chain,
         // which also prevents the sub-agent auto-deny path
         // (shouldAvoidPermissionPrompts) from rejecting tools.
-        options.allowedTools = [
-            "Bash",
-            "Read",
-            "Write",
-            "Edit",
-            "Glob",
-            "Grep",
-            "Task",
-            "Skill",
-            "MultiEdit",
-            "TodoRead",
-            "TodoWrite",
-            "WebFetch",
-            "WebSearch",
-            "NotebookEdit",
-            "NotebookRead",
-        ];
+        options.allowedTools = [...ClaudeAgentClient.BUILTIN_ALLOWED_TOOLS];
 
         // Resume session if sessionId provided
         if (config.sessionId) {
@@ -469,6 +546,239 @@ export class ClaudeAgentClient implements CodingAgentClient {
         return options;
     }
 
+    private hasForkRequest(config: SessionConfig): boolean {
+        const forkHints = config as SessionConfig & {
+            context?: string;
+            forkSessionId?: string;
+            parentSessionId?: string;
+            forkFromSessionId?: string;
+        };
+
+        return (
+            forkHints.context === "fork" ||
+            typeof forkHints.forkSessionId === "string" ||
+            typeof forkHints.parentSessionId === "string" ||
+            typeof forkHints.forkFromSessionId === "string"
+        );
+    }
+
+    private supportsV2Operation(
+        operation: "create" | "resume" | "send" | "stream" | "summarize",
+    ): boolean {
+        if (!this.supportsV2Runtime) {
+            return false;
+        }
+
+        if (operation === "resume") {
+            return true;
+        }
+
+        return (
+            operation === "create" ||
+            operation === "send" ||
+            operation === "stream" ||
+            operation === "summarize"
+        );
+    }
+
+    private resolveCapabilities(_config: SessionConfig): ClaudeCapabilityMatrix {
+        const supportsV2 = this.supportsV2Runtime;
+
+        return {
+            supportsV2SendStream: supportsV2,
+            supportsV2Resume: supportsV2,
+            supportsForkSession: false,
+            supportsAdvancedInput: true,
+        };
+    }
+
+    private resolveRuntimeDecision(
+        operation: "create" | "resume" | "send" | "stream" | "summarize",
+        config: SessionConfig,
+    ): ClaudeRuntimeDecision {
+        if (this.hasForkRequest(config)) {
+            return {
+                mode: "v1_fallback",
+                fallbackReason: "fork_unsupported",
+                routeStatus: "unsupported",
+            };
+        }
+
+        if (!this.supportsV2Operation(operation)) {
+            return {
+                mode: "v1_fallback",
+                fallbackReason: "v2_unavailable",
+                routeStatus: "error",
+            };
+        }
+
+        return { mode: "v2", fallbackReason: null, routeStatus: "supported" };
+    }
+
+    private buildV2SessionOptions(
+        config: SessionConfig,
+        sessionId: string,
+    ): SDKSessionOptions {
+        type SDKSessionOptionsWithParity = SDKSessionOptions &
+            Partial<
+                Pick<Options, "maxTurns" | "maxBudgetUsd" | "mcpServers" | "tools">
+            >;
+
+        const normalized = normalizeClaudeModelLabel(
+            config.model ?? this.detectedModel ?? "sonnet",
+        );
+
+        const options: SDKSessionOptionsWithParity = {
+            model: normalized,
+            allowedTools:
+                config.tools && config.tools.length > 0
+                    ? [...config.tools]
+                    : [...ClaudeAgentClient.BUILTIN_ALLOWED_TOOLS],
+            canUseTool: async (
+                toolName: string,
+                toolInput: Record<string, unknown>,
+            ) => {
+                return this.resolveToolPermission(sessionId, toolName, toolInput);
+            },
+            hooks: this.buildNativeHooks(),
+            permissionMode: "dontAsk",
+        };
+
+        // Match v1 behavior: preserve built-in Claude Code prompt and append
+        // session-level custom instructions when configured.
+        const v2WithSystemPrompt = options as SDKSessionOptions & {
+            systemPrompt?:
+                | { type: "preset"; preset: "claude_code" }
+                | { type: "preset"; preset: "claude_code"; append: string };
+        };
+        v2WithSystemPrompt.systemPrompt = config.systemPrompt
+            ? {
+                  type: "preset",
+                  preset: "claude_code",
+                  append: config.systemPrompt,
+              }
+            : { type: "preset", preset: "claude_code" };
+
+        if (config.maxTurns !== undefined) {
+            options.maxTurns = config.maxTurns;
+        }
+
+        if (config.maxBudgetUsd !== undefined) {
+            options.maxBudgetUsd = config.maxBudgetUsd;
+        }
+
+        if (config.tools && config.tools.length > 0) {
+            options.tools = config.tools;
+        }
+
+        const mcpServers = this.buildMcpServers(config);
+        if (mcpServers) {
+            options.mcpServers = mcpServers;
+        }
+
+        return v2WithSystemPrompt;
+    }
+
+    private emitRuntimeMarker(
+        sessionId: string,
+        marker: string,
+        data: Record<string, unknown>,
+    ): void {
+        this.emitEvent("usage", sessionId, {
+            provider: "claude",
+            marker,
+            ...data,
+        });
+    }
+
+    private bumpStreamIntegrityCounter(
+        sessionId: string,
+        counter: keyof StreamIntegrityCounters,
+        amount = 1,
+    ): number {
+        this.streamIntegrity[counter] += amount;
+        const value = this.streamIntegrity[counter];
+        this.emitRuntimeMarker(sessionId, "claude.stream.integrity", {
+            [counter]: value,
+        });
+        return value;
+    }
+
+    private getV2SessionId(v2Session: SDKSession | null | undefined): string | null {
+        if (!v2Session) {
+            return null;
+        }
+
+        const candidate = v2Session as { sessionId?: string };
+        if (
+            typeof candidate.sessionId === "string" &&
+            candidate.sessionId.length > 0
+        ) {
+            return candidate.sessionId;
+        }
+
+        return null;
+    }
+
+    private ensureV2Session(state: ClaudeSessionState): SDKSession {
+        if (state.v2Session) {
+            state.sdkSessionId ??= this.getV2SessionId(state.v2Session);
+            return state.v2Session;
+        }
+
+        const options = this.buildV2SessionOptions(state.config, state.sessionId);
+        if (state.sdkSessionId) {
+            state.v2Session = unstable_v2_resumeSession(state.sdkSessionId, options);
+        } else {
+            state.v2Session = unstable_v2_createSession(options);
+        }
+        state.sdkSessionId ??= this.getV2SessionId(state.v2Session);
+        state.runtimeMode = "v2";
+        state.fallbackReason = null;
+        return state.v2Session;
+    }
+
+    private emitRuntimeSelection(
+        sessionId: string,
+        state: ClaudeSessionState,
+        operation: "create" | "resume" | "send" | "stream" | "summarize",
+    ): void {
+        this.emitRuntimeMarker(sessionId, "claude.runtime.selected", {
+            runtimeMode: state.runtimeMode,
+            operation,
+        });
+        if (state.fallbackReason) {
+            this.emitRuntimeMarker(sessionId, "claude.runtime.fallback_used", {
+                operation,
+                fallbackReason: state.fallbackReason,
+            });
+            this.emitRuntimeMarker(sessionId, "claude.runtime.fallback_reason", {
+                reason: state.fallbackReason,
+            });
+        }
+    }
+
+    private emitRuntimeSelectionFromDecision(
+        sessionId: string,
+        operation: "create" | "resume" | "send" | "stream" | "summarize",
+        decision: Pick<ClaudeRuntimeDecision, "mode" | "fallbackReason">,
+    ): void {
+        this.emitRuntimeMarker(sessionId, "claude.runtime.selected", {
+            runtimeMode: decision.mode,
+            operation,
+        });
+
+        if (decision.fallbackReason) {
+            this.emitRuntimeMarker(sessionId, "claude.runtime.fallback_used", {
+                operation,
+                fallbackReason: decision.fallbackReason,
+            });
+            this.emitRuntimeMarker(sessionId, "claude.runtime.fallback_reason", {
+                reason: decision.fallbackReason,
+            });
+        }
+    }
+
     /**
      * Wrap a Query into a unified Session interface
      */
@@ -476,17 +786,42 @@ export class ClaudeAgentClient implements CodingAgentClient {
         queryInstance: Query | null,
         sessionId: string,
         config: SessionConfig,
+        runtime?: Partial<
+            Pick<
+                ClaudeSessionState,
+                "v2Session" | "runtimeMode" | "fallbackReason" | "capabilities"
+            >
+        > &
+            Partial<
+                Pick<
+                    ClaudeSessionState,
+                    | "sdkSessionId"
+                    | "inputTokens"
+                    | "outputTokens"
+                    | "contextWindow"
+                    | "systemToolsBaseline"
+                >
+            >,
     ): Session {
+        const capabilities = runtime?.capabilities ?? this.resolveCapabilities(config);
         const state: ClaudeSessionState = {
             query: queryInstance,
+            v2Session: runtime?.v2Session ?? null,
             sessionId,
-            sdkSessionId: null,
+            sdkSessionId:
+                runtime?.sdkSessionId ??
+                this.getV2SessionId(runtime?.v2Session) ??
+                null,
             config,
-            inputTokens: 0,
-            outputTokens: 0,
+            inputTokens: runtime?.inputTokens ?? 0,
+            outputTokens: runtime?.outputTokens ?? 0,
             isClosed: false,
-            contextWindow: this.probeContextWindow,
-            systemToolsBaseline: this.probeSystemToolsBaseline,
+            contextWindow: runtime?.contextWindow ?? this.probeContextWindow,
+            systemToolsBaseline:
+                runtime?.systemToolsBaseline ?? this.probeSystemToolsBaseline,
+            runtimeMode: runtime?.runtimeMode ?? "v1_fallback",
+            fallbackReason: runtime?.fallbackReason ?? null,
+            capabilities,
         };
 
         this.sessions.set(sessionId, state);
@@ -497,6 +832,74 @@ export class ClaudeAgentClient implements CodingAgentClient {
             send: async (message: string): Promise<AgentMessage> => {
                 if (state.isClosed) {
                     throw new Error("Session is closed");
+                }
+
+                const decision = this.resolveRuntimeDecision("send", state.config);
+                state.runtimeMode = decision.mode;
+                state.fallbackReason = decision.fallbackReason;
+                this.emitRuntimeSelection(sessionId, state, "send");
+
+                if (decision.mode === "v2") {
+                    let lastAssistantMessage: AgentMessage | null = null;
+                    let sawTerminalEvent = false;
+
+                    try {
+                        const v2Session = this.ensureV2Session(state);
+                        await v2Session.send(message);
+
+                        for await (const sdkMessage of v2Session.stream()) {
+                            this.processMessage(sdkMessage, sessionId, state);
+                            if (sdkMessage.type === "result") {
+                                sawTerminalEvent = true;
+                            }
+
+                            if (sdkMessage.type === "assistant") {
+                                const { type, content } =
+                                    extractMessageContent(sdkMessage);
+                                lastAssistantMessage = {
+                                    type,
+                                    content,
+                                    role: "assistant",
+                                    metadata: {
+                                        tokenUsage: {
+                                            inputTokens:
+                                                sdkMessage.message.usage
+                                                    ?.input_tokens ?? 0,
+                                            outputTokens:
+                                                sdkMessage.message.usage
+                                                    ?.output_tokens ?? 0,
+                                        },
+                                        model: sdkMessage.message.model,
+                                        stopReason:
+                                            sdkMessage.message.stop_reason ??
+                                            undefined,
+                                    },
+                                };
+                            }
+                        }
+                    } catch (error) {
+                        state.runtimeMode = "v1_fallback";
+                        state.fallbackReason = "v2_execution_error";
+                        this.emitRuntimeSelection(sessionId, state, "send");
+                        this.emitEvent("session.error", sessionId, {
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : "Claude v2 send failed",
+                            code: "CLAUDE_V2_SEND_FAILED",
+                        });
+                    }
+
+                    if (!sawTerminalEvent) {
+                        this.bumpStreamIntegrityCounter(
+                            sessionId,
+                            "missingTerminalEvents",
+                        );
+                    }
+
+                    if (lastAssistantMessage) {
+                        return lastAssistantMessage;
+                    }
                 }
 
                 // Build options with resume if we have an SDK session ID
@@ -514,9 +917,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
                 // Consume all messages and return the final assistant message
                 let lastAssistantMessage: AgentMessage | null = null;
+                let sawTerminalEvent = false;
 
                 for await (const sdkMessage of newQuery) {
                     this.processMessage(sdkMessage, sessionId, state);
+                    if (sdkMessage.type === "result") {
+                        sawTerminalEvent = true;
+                    }
 
                     if (sdkMessage.type === "assistant") {
                         const { type, content } =
@@ -542,6 +949,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     }
                 }
 
+                if (!sawTerminalEvent) {
+                    this.bumpStreamIntegrityCounter(
+                        sessionId,
+                        "missingTerminalEvents",
+                    );
+                }
+
                 return (
                     lastAssistantMessage ?? {
                         type: "text",
@@ -557,6 +971,27 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     this.buildSdkOptions(config, sessionId);
                 const processMsg = (msg: SDKMessage) =>
                     this.processMessage(msg, sessionId, state);
+                const resolveDecision = (
+                    operation: "create" | "resume" | "send" | "stream" | "summarize",
+                ) => this.resolveRuntimeDecision(operation, state.config);
+                const emitSelection = (
+                    operation: "create" | "resume" | "send" | "stream" | "summarize",
+                ) => this.emitRuntimeSelection(sessionId, state, operation);
+                const ensureV2 = () => this.ensureV2Session(state);
+                const emitSessionError = (error: unknown, code: string) =>
+                    this.emitEvent("session.error", sessionId, {
+                        error:
+                            error instanceof Error
+                                ? error.message
+                                : "Claude stream failed",
+                        code,
+                    });
+                const bumpMissingTerminalEvents = () => {
+                    return this.bumpStreamIntegrityCounter(
+                        sessionId,
+                        "missingTerminalEvents",
+                    );
+                };
                 // Capture SDK session ID for resume
                 const getSdkSessionId = () => state.sdkSessionId;
 
@@ -566,21 +1001,59 @@ export class ClaudeAgentClient implements CodingAgentClient {
                             throw new Error("Session is closed");
                         }
 
-                        // Build options with resume if we have an SDK session ID
-                        const options = {
-                            ...buildOptions(),
-                            includePartialMessages: true,
-                        };
-                        const sdkSessionId = getSdkSessionId();
-                        if (sdkSessionId) {
-                            options.resume = sdkSessionId;
-                        }
+                        const decision = resolveDecision("stream");
+                        state.runtimeMode = decision.mode;
+                        state.fallbackReason = decision.fallbackReason;
+                        emitSelection("stream");
 
-                        const newQuery = query({
-                            prompt: message,
-                            options,
-                        });
-                        state.query = newQuery;
+                        const buildFallbackQuery = () => {
+                            const options = {
+                                ...buildOptions(),
+                                includePartialMessages: true,
+                            };
+                            const sdkSessionId = getSdkSessionId();
+                            if (sdkSessionId) {
+                                options.resume = sdkSessionId;
+                            }
+
+                            const newQuery = query({
+                                prompt: message,
+                                options,
+                            });
+                            state.query = newQuery;
+                            return newQuery;
+                        };
+
+                        const streamSource: AsyncGenerator<SDKMessage, void> =
+                            decision.mode === "v2"
+                                ? (() => {
+                                      const run = async function* () {
+                                          try {
+                                              const v2Session = ensureV2();
+                                              await v2Session.send(message);
+                                              for await (const sdkMessage of v2Session.stream()) {
+                                                  yield sdkMessage;
+                                              }
+                                          } catch (error) {
+                                              state.runtimeMode = "v1_fallback";
+                                              state.fallbackReason =
+                                                  "v2_execution_error";
+                                              emitSelection("stream");
+                                              emitSessionError(
+                                                  error,
+                                                  "CLAUDE_V2_STREAM_FAILED",
+                                              );
+
+                                              const fallbackQuery =
+                                                  buildFallbackQuery();
+                                              for await (const sdkMessage of fallbackQuery) {
+                                                  yield sdkMessage;
+                                              }
+                                          }
+                                      };
+                                      return run();
+                                  })()
+                                : buildFallbackQuery();
 
                         // Track if we've yielded streaming deltas to avoid duplicating content
                         let hasYieldedDeltas = false;
@@ -591,9 +1064,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         let currentBlockIsThinking = false;
                         // Output token tracking from message_delta events
                         let outputTokens = 0;
+                        let sawTerminalEvent = false;
 
-                        for await (const sdkMessage of newQuery) {
+                        for await (const sdkMessage of streamSource) {
                             processMsg(sdkMessage);
+                            if (sdkMessage.type === "result") {
+                                sawTerminalEvent = true;
+                            }
 
                             if (sdkMessage.type === "stream_event") {
                                 const event = sdkMessage.event;
@@ -738,6 +1215,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
                             }
                         }
 
+                        if (!sawTerminalEvent) {
+                            bumpMissingTerminalEvents();
+                        }
+
                         // Yield final metadata with actual token count and thinking duration
                         if (outputTokens > 0 || thinkingDurationMs > 0) {
                             yield {
@@ -759,6 +1240,36 @@ export class ClaudeAgentClient implements CodingAgentClient {
             summarize: async (): Promise<void> => {
                 if (state.isClosed) {
                     throw new Error("Session is closed");
+                }
+
+                const decision = this.resolveRuntimeDecision(
+                    "summarize",
+                    state.config,
+                );
+                state.runtimeMode = decision.mode;
+                state.fallbackReason = decision.fallbackReason;
+                this.emitRuntimeSelection(sessionId, state, "summarize");
+
+                if (decision.mode === "v2") {
+                    try {
+                        const v2Session = this.ensureV2Session(state);
+                        await v2Session.send("/compact");
+                        for await (const sdkMessage of v2Session.stream()) {
+                            this.processMessage(sdkMessage, sessionId, state);
+                        }
+                        return;
+                    } catch (error) {
+                        state.runtimeMode = "v1_fallback";
+                        state.fallbackReason = "v2_execution_error";
+                        this.emitRuntimeSelection(sessionId, state, "summarize");
+                        this.emitEvent("session.error", sessionId, {
+                            error:
+                                error instanceof Error
+                                    ? error.message
+                                    : "Claude v2 summarize failed",
+                            code: "CLAUDE_V2_SUMMARIZE_FAILED",
+                        });
+                    }
                 }
 
                 // Send /compact as a prompt to the Claude Agents SDK
@@ -853,6 +1364,27 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 if (!state.isClosed) {
                     state.isClosed = true;
                     state.query?.close();
+                    state.v2Session?.close();
+                    const pendingTools =
+                        this.pendingToolBySession.get(sessionId) ?? 0;
+                    const pendingSubagents =
+                        this.pendingSubagentBySession.get(sessionId) ?? 0;
+                    if (pendingTools > 0) {
+                        this.bumpStreamIntegrityCounter(
+                            sessionId,
+                            "unmatchedToolStarts",
+                            pendingTools,
+                        );
+                    }
+                    if (pendingSubagents > 0) {
+                        this.bumpStreamIntegrityCounter(
+                            sessionId,
+                            "unmatchedSubagentStarts",
+                            pendingSubagents,
+                        );
+                    }
+                    this.pendingToolBySession.delete(sessionId);
+                    this.pendingSubagentBySession.delete(sessionId);
                     this.sessions.delete(sessionId);
                     this.emitEvent("session.idle", sessionId, {
                         reason: "destroyed",
@@ -959,7 +1491,44 @@ export class ClaudeAgentClient implements CodingAgentClient {
         data: Record<string, unknown>,
     ): void {
         const handlers = this.eventHandlers.get(eventType);
-        if (!handlers) return;
+
+        if (eventType === "tool.start") {
+            const active = this.pendingToolBySession.get(sessionId) ?? 0;
+            this.pendingToolBySession.set(sessionId, active + 1);
+        }
+
+        if (eventType === "tool.complete") {
+            const active = this.pendingToolBySession.get(sessionId) ?? 0;
+            if (active === 0) {
+                this.bumpStreamIntegrityCounter(
+                    sessionId,
+                    "unmatchedToolCompletes",
+                );
+            } else {
+                this.pendingToolBySession.set(sessionId, active - 1);
+            }
+        }
+
+        if (eventType === "subagent.start") {
+            const active = this.pendingSubagentBySession.get(sessionId) ?? 0;
+            this.pendingSubagentBySession.set(sessionId, active + 1);
+        }
+
+        if (eventType === "subagent.complete") {
+            const active = this.pendingSubagentBySession.get(sessionId) ?? 0;
+            if (active === 0) {
+                this.bumpStreamIntegrityCounter(
+                    sessionId,
+                    "unmatchedSubagentCompletes",
+                );
+            } else {
+                this.pendingSubagentBySession.set(sessionId, active - 1);
+            }
+        }
+
+        if (!handlers) {
+            return;
+        }
 
         const event: AgentEvent<T> = {
             type: eventType,
@@ -1000,7 +1569,40 @@ export class ClaudeAgentClient implements CodingAgentClient {
         // Emit session start event
         this.emitEvent("session.start", sessionId, { config });
 
-        return this.wrapQuery(null, sessionId, config);
+        const capabilities = this.resolveCapabilities(config);
+        const decision = this.resolveRuntimeDecision("create", config);
+        this.emitRuntimeSelectionFromDecision(sessionId, "create", decision);
+
+        if (decision.mode === "v2") {
+            try {
+                const v2Session = unstable_v2_createSession(
+                    this.buildV2SessionOptions(config, sessionId),
+                );
+                return this.wrapQuery(null, sessionId, config, {
+                    v2Session,
+                    sdkSessionId: this.getV2SessionId(v2Session),
+                    runtimeMode: "v2",
+                    fallbackReason: null,
+                    capabilities,
+                });
+            } catch {
+                this.emitRuntimeSelectionFromDecision(sessionId, "create", {
+                    mode: "v1_fallback",
+                    fallbackReason: "v2_execution_error",
+                });
+                return this.wrapQuery(null, sessionId, config, {
+                    runtimeMode: "v1_fallback",
+                    fallbackReason: "v2_execution_error",
+                    capabilities,
+                });
+            }
+        }
+
+        return this.wrapQuery(null, sessionId, config, {
+            runtimeMode: "v1_fallback",
+            fallbackReason: decision.fallbackReason,
+            capabilities,
+        });
     }
 
     /**
@@ -1018,7 +1620,45 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 existingState.query,
                 sessionId,
                 existingState.config,
+                {
+                    v2Session: existingState.v2Session,
+                    runtimeMode: existingState.runtimeMode,
+                    fallbackReason: existingState.fallbackReason,
+                    capabilities: existingState.capabilities,
+                    sdkSessionId: existingState.sdkSessionId,
+                    inputTokens: existingState.inputTokens,
+                    outputTokens: existingState.outputTokens,
+                    contextWindow: existingState.contextWindow,
+                    systemToolsBaseline: existingState.systemToolsBaseline,
+                },
             );
+        }
+
+        const config: SessionConfig = { sessionId };
+        const capabilities = this.resolveCapabilities(config);
+        const decision = this.resolveRuntimeDecision("resume", config);
+        this.emitRuntimeSelectionFromDecision(sessionId, "resume", decision);
+
+        if (decision.mode === "v2") {
+            try {
+                const v2Session = unstable_v2_resumeSession(
+                    sessionId,
+                    this.buildV2SessionOptions(config, sessionId),
+                );
+                return this.wrapQuery(null, sessionId, config, {
+                    v2Session,
+                    sdkSessionId: sessionId,
+                    runtimeMode: "v2",
+                    fallbackReason: null,
+                    capabilities,
+                });
+            } catch {
+                this.emitRuntimeSelectionFromDecision(sessionId, "resume", {
+                    mode: "v1_fallback",
+                    fallbackReason: "v2_execution_error",
+                });
+                // fall through to v1 fallback
+            }
         }
 
         // Try to resume from SDK — use buildSdkOptions() so that
@@ -1031,7 +1671,12 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
             const queryInstance = query({ prompt: "", options });
 
-            return this.wrapQuery(queryInstance, sessionId, {});
+            return this.wrapQuery(queryInstance, sessionId, {}, {
+                runtimeMode: "v1_fallback",
+                fallbackReason: decision.fallbackReason ?? "v2_execution_error",
+                capabilities,
+                sdkSessionId: sessionId,
+            });
         } catch (error) {
             console.warn(`Failed to resume session ${sessionId}:`, error);
             return null;
@@ -1381,10 +2026,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
             if (!state.isClosed) {
                 state.isClosed = true;
                 state.query?.close();
+                state.v2Session?.close();
             }
         }
 
         this.sessions.clear();
+        this.pendingToolBySession.clear();
+        this.pendingSubagentBySession.clear();
         this.eventHandlers.clear();
     }
 

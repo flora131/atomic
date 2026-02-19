@@ -19,9 +19,11 @@ import { discoverMcpConfigs } from "../utils/mcp-config.ts";
 import { trackAtomicCommand } from "../telemetry/index.ts";
 
 // SDK client imports
-import { createClaudeAgentClient } from "../sdk/claude-client.ts";
-import { createOpenCodeClient } from "../sdk/opencode-client.ts";
-import { createCopilotClient } from "../sdk/copilot-client.ts";
+import {
+  createClaudeAgentClient,
+  createOpenCodeClient,
+  createCopilotClient,
+} from "../sdk/clients/index.ts";
 import { createTodoWriteTool } from "../sdk/tools/todo-write.ts";
 
 // Chat UI imports

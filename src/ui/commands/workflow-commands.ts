@@ -10,7 +10,7 @@
  * Session state is persisted to tasks.json in the workflow session directory.
  */
 
-import { existsSync, watch } from "fs";
+import { existsSync, watch, type FSWatcher } from "fs";
 import { readFile, rename, unlink, writeFile } from "fs/promises";
 import { join } from "path";
 import type {
@@ -19,6 +19,7 @@ import type {
     CommandResult,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
+import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 
 import {
     normalizeTodoItem,
@@ -508,6 +509,41 @@ function parseTasks(content: string): NormalizedTodoItem[] {
     return normalizeTodoItems(parsed);
 }
 
+function hasActionableTasks(tasks: NormalizedTodoItem[]): boolean {
+    const normalizeTaskId = (id: string): string => {
+        const trimmed = id.trim().toLowerCase();
+        return trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
+    };
+
+    const completedIds = new Set(
+        tasks
+            .filter((task) => task.status === "completed")
+            .map((task) => task.id)
+            .filter((id): id is string => Boolean(id))
+            .map((id) => normalizeTaskId(id))
+            .filter((id): id is string => Boolean(id)),
+    );
+
+    return tasks.some((task) => {
+        if (task.status === "in_progress") {
+            return true;
+        }
+        if (task.status !== "pending") {
+            return false;
+        }
+
+        const dependencies = (task.blockedBy ?? [])
+            .map((dependency) => normalizeTaskId(dependency))
+            .filter((dependency) => dependency.length > 0);
+
+        if (dependencies.length === 0) {
+            return true;
+        }
+
+        return dependencies.every((dependency) => completedIds.has(dependency));
+    });
+}
+
 function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
     return {
         name: metadata.name,
@@ -567,6 +603,17 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
             const tasks = parseTasks(step1.content);
             if (tasks.length > 0) {
                 await saveTasksToActiveSession(tasks, sessionId);
+                // Seed in-memory TodoWrite state so later payloads that omit IDs
+                // can be reconciled against the planning-phase task list.
+                context.setTodoItems(
+                    tasks.map((task) => ({
+                        ...task,
+                        status:
+                            task.status === "error"
+                                ? "pending"
+                                : task.status,
+                    })) as TodoItem[],
+                );
             }
 
             // Track Ralph session metadata AFTER tasks.json exists on disk
@@ -613,15 +660,8 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                     );
                     if (allCompleted) break;
 
-                    // Check if remaining tasks are all stuck (errored with no actionable tasks)
-                    const remaining = diskTasks.filter(
-                        (t) => t.status !== "completed",
-                    );
-                    const hasActionable = remaining.some(
-                        (t) =>
-                            t.status === "pending" ||
-                            t.status === "in_progress",
-                    );
+                    // Check if remaining tasks are all stuck (including dependency deadlocks)
+                    const hasActionable = hasActionableTasks(diskTasks);
                     if (!hasActionable) break;
 
                     currentTasks = diskTasks;
@@ -744,15 +784,8 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                             );
                             if (allFixCompleted) break;
 
-                            // Check if remaining tasks are all stuck
-                            const remaining = diskTasks.filter(
-                                (t) => t.status !== "completed",
-                            );
-                            const hasActionable = remaining.some(
-                                (t) =>
-                                    t.status === "pending" ||
-                                    t.status === "in_progress",
-                            );
+                            // Check if remaining fix tasks are all stuck (including dependency deadlocks)
+                            const hasActionable = hasActionableTasks(diskTasks);
                             if (!hasActionable) break;
 
                             currentFixTasks = diskTasks;
@@ -773,22 +806,55 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
 export function watchTasksJson(
     sessionDir: string,
     onUpdate: (items: NormalizedTodoItem[]) => void,
+    deps?: {
+        watchImpl?: (
+            filename: string,
+            listener:
+                | ((eventType: string, filename: string | Buffer | null) => void)
+                | ((eventType: string, filename: string | Buffer | null) => Promise<void>),
+        ) => FSWatcher;
+        readFileImpl?: (path: string, encoding: BufferEncoding) => Promise<string>;
+    },
 ): () => void {
     const tasksPath = join(sessionDir, "tasks.json");
+    const watchImpl = deps?.watchImpl ?? watch;
+    const readFileImpl = deps?.readFileImpl ?? readFile;
+    let disposed = false;
+    let latestReadToken = 0;
 
-    // Watch the directory instead of the file so we catch file creation
-    // even if tasks.json doesn't exist yet at mount time (BUG-7 fix)
-    const watcher = watch(sessionDir, async (eventType, filename) => {
-        if (filename !== "tasks.json") return;
+    const isTasksJsonEvent = (filename: string | Buffer | null): boolean => {
+        if (filename == null) return true;
+        const normalized =
+            typeof filename === "string" ? filename : filename.toString("utf-8");
+        return normalized === "tasks.json";
+    };
+
+    const refresh = async (): Promise<void> => {
+        const readToken = ++latestReadToken;
         try {
-            const content = await readFile(tasksPath, "utf-8");
+            const content = await readFileImpl(tasksPath, "utf-8");
             const tasks = normalizeTodoItems(JSON.parse(content));
+            if (disposed || readToken !== latestReadToken) return;
             onUpdate(tasks);
         } catch {
             // File may not exist yet or be mid-write; ignore
         }
+    };
+
+    // Watch the directory instead of the file so we catch file creation
+    // even if tasks.json doesn't exist yet at mount time (BUG-7 fix)
+    const watcher = watchImpl(sessionDir, async (_eventType, filename) => {
+        if (!isTasksJsonEvent(filename)) return;
+        await refresh();
     });
-    return () => watcher.close();
+
+    // Catch up immediately after watcher starts to close mount race window.
+    void refresh();
+
+    return () => {
+        disposed = true;
+        watcher.close();
+    };
 }
 
 // ============================================================================

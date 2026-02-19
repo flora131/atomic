@@ -229,7 +229,7 @@ export class UnifiedModelOperations implements ModelOperations {
   private async listModelsForCopilot(): Promise<Model[]> {
     // Dynamic import to avoid loading SDK when not needed
     const { CopilotClient } = await import('@github/copilot-sdk');
-    const { resolveNodePath, getBundledCopilotCliPath } = await import('../sdk/copilot-client.ts');
+    const { resolveNodePath, getBundledCopilotCliPath } = await import('../sdk/clients/index.ts');
 
     // The Copilot SDK spawns its CLI subprocess using process.execPath when
     // cliPath ends in ".js". Under Bun, this fails because @github/copilot

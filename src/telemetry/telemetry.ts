@@ -181,14 +181,18 @@ export function getOrCreateTelemetryState(): TelemetryState {
   return state;
 }
 
+function isTelemetryDisabledByEnv(): boolean {
+  const disableTelemetry = process.env.ATOMIC_DISABLE_TELEMETRY;
+  return disableTelemetry === "1";
+}
+
 /**
  * Check if telemetry is enabled with priority-based opt-out logic.
  *
  * Priority order (highest to lowest):
  * 1. CI environment (auto-disable via ci-info)
- * 2. ATOMIC_TELEMETRY env var ('0' or 'false' to disable)
- * 3. DO_NOT_TRACK env var ('1' to disable)
- * 4. Config file (enabled && consentGiven must both be true)
+ * 2. ATOMIC_DISABLE_TELEMETRY env var ('1' to disable)
+ * 3. Config file (enabled && consentGiven must both be true)
  *
  * @returns true if telemetry should be collected
  */
@@ -199,18 +203,12 @@ export async function isTelemetryEnabled(): Promise<boolean> {
     return false;
   }
 
-  // Priority 2: ATOMIC_TELEMETRY environment variable
-  const atomicTelemetry = process.env.ATOMIC_TELEMETRY;
-  if (atomicTelemetry === "0" || atomicTelemetry === "false") {
+  // Priority 2: ATOMIC_DISABLE_TELEMETRY environment variable
+  if (isTelemetryDisabledByEnv()) {
     return false;
   }
 
-  // Priority 3: DO_NOT_TRACK environment variable (standard opt-out)
-  if (process.env.DO_NOT_TRACK === "1") {
-    return false;
-  }
-
-  // Priority 4: Config file state
+  // Priority 3: Config file state
   const state = readTelemetryState();
   if (!state) {
     return false; // No state means no consent given yet
@@ -231,18 +229,12 @@ export function isTelemetryEnabledSync(): boolean {
     return false;
   }
 
-  // Priority 2: ATOMIC_TELEMETRY environment variable
-  const atomicTelemetry = process.env.ATOMIC_TELEMETRY;
-  if (atomicTelemetry === "0" || atomicTelemetry === "false") {
+  // Priority 2: ATOMIC_DISABLE_TELEMETRY environment variable
+  if (isTelemetryDisabledByEnv()) {
     return false;
   }
 
-  // Priority 3: DO_NOT_TRACK environment variable
-  if (process.env.DO_NOT_TRACK === "1") {
-    return false;
-  }
-
-  // Priority 4: Config file state
+  // Priority 3: Config file state
   const state = readTelemetryState();
   if (!state) {
     return false;

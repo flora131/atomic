@@ -145,7 +145,8 @@ describe("mergeBlockedBy", () => {
     ];
 
     const merged = mergeBlockedBy(updated, previous);
-    expect(merged[0]!.blockedBy).toBeUndefined();
+    expect(merged[0]!.id).toBeUndefined();
+    expect(merged[0]!.blockedBy).toEqual(["#1"]);
   });
 
   test("matches IDs case-insensitively", () => {
@@ -159,5 +160,47 @@ describe("mergeBlockedBy", () => {
 
     const merged = mergeBlockedBy(updated, previous);
     expect(merged[0]!.blockedBy).toEqual(["#2"]);
+  });
+
+  test("restores missing IDs by matching task content", () => {
+    const previous: NormalizedTaskItem[] = [
+      { id: "#1", content: "Implement login flow", status: "pending", blockedBy: ["#0"] },
+    ];
+
+    const updated: NormalizedTaskItem[] = [
+      { content: "  implement   login flow ", status: "completed" },
+    ];
+
+    const merged = mergeBlockedBy(updated, previous);
+    expect(merged[0]!.id).toBe("#1");
+    expect(merged[0]!.blockedBy).toEqual(["#0"]);
+  });
+
+  test("does not assign IDs when content does not match previous task", () => {
+    const previous: NormalizedTaskItem[] = [
+      { id: "#1", content: "Implement login flow", status: "pending" },
+    ];
+
+    const updated: NormalizedTaskItem[] = [
+      { content: "Write release notes", status: "completed" },
+    ];
+
+    const merged = mergeBlockedBy(updated, previous);
+    expect(merged[0]!.id).toBeUndefined();
+  });
+
+  test("does not use content fallback for blockedBy when updated task already has explicit ID", () => {
+    const previous: NormalizedTaskItem[] = [
+      { id: "#a", content: "Duplicate", status: "pending", blockedBy: ["#x"] },
+      { id: "#b", content: "Duplicate", status: "pending", blockedBy: ["#y"] },
+    ];
+
+    const updated: NormalizedTaskItem[] = [
+      { id: "#z", content: "Duplicate", status: "in_progress" },
+    ];
+
+    const merged = mergeBlockedBy(updated, previous);
+    expect(merged[0]!.id).toBe("#z");
+    expect(merged[0]!.blockedBy).toBeUndefined();
   });
 });

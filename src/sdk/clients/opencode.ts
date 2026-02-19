@@ -59,10 +59,10 @@ import {
   type AgentEvent,
   type ToolDefinition,
   type OpenCodeAgentMode,
-} from "./types.ts";
+} from "../types.ts";
 
-import { initOpenCodeConfigOverrides } from "./init.ts";
-import { createToolMcpServerScript } from "./tools/opencode-mcp-bridge.ts";
+import { initOpenCodeConfigOverrides } from "../init.ts";
+import { createToolMcpServerScript } from "../tools/opencode-mcp-bridge.ts";
 
 // Import the real SDK
 import {

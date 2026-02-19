@@ -38,7 +38,7 @@ Not just bug fixes — scoped, multi-file features that require architectural un
 - Features spanning dozens of files that need to understand existing patterns first
 - Trying different implementation approaches — spec it out, try one framework, revert, try another
 
-The workflow: `/research-codebase` → review → `/create-spec` → review → `/create-feature-list` → review → `/implement-feature` (manually one-by-one, or let Ralph run overnight). Wake up to completed features ready for review.
+The workflow: `/research-codebase` → review → `/create-spec` → review → `/ralph` (manual or autonomous implementation) → `/gh-create-pr`. Wake up to completed features ready for review.
 
 Works on macOS, Linux, and Windows.
 
@@ -69,17 +69,17 @@ When you're evaluating libraries, exploring implementation approaches, or need b
 
 ```bash
 # Run 3 parallel research sessions in separate terminals
-atomic run claude "/research-codebase Research implementing GraphRAG using \
+atomic chat -a claude "/research-codebase Research implementing GraphRAG using \
   LangChain's graph retrieval patterns. Look up langchain-ai/langchain for \
   graph store integrations, chunking strategies, and retrieval patterns. \
   Document how this would integrate with our existing vector store."
 
-atomic run claude "/research-codebase Research implementing GraphRAG using \
+atomic chat -a claude "/research-codebase Research implementing GraphRAG using \
   Microsoft's GraphRAG library. Look up microsoft/graphrag for their \
   community detection, entity extraction, and summarization pipeline. \
   Document the infrastructure requirements and how it fits our data model."
 
-atomic run claude "/research-codebase Research implementing GraphRAG using \
+atomic chat -a claude "/research-codebase Research implementing GraphRAG using \
   LlamaIndex's property graph index. Look up run-llama/llama_index for \
   their KnowledgeGraphIndex and property graph patterns. Document trade-offs \
   vs our current RAG implementation."
@@ -87,9 +87,9 @@ atomic run claude "/research-codebase Research implementing GraphRAG using \
 
 **What happens:** Each agent spawns `codebase-online-researcher` sub-agents that query DeepWiki for the specified repos, pull external documentation, and cross-reference with your existing codebase patterns. You get three research documents.
 
-**From there:** Run `/create-spec` and `/create-feature-list` on each research doc in parallel terminals. Then spin up three git worktrees and run `/ralph` in each. Wake up to three complete implementations on separate branches — review, benchmark, and choose the winner.
+**From there:** Run `/create-spec` on each research doc in parallel terminals. Then spin up three git worktrees and run `/ralph` in each. Wake up to three complete implementations on separate branches — review, benchmark, and choose the winner.
 
-> **Note:** This workflow works identically with `atomic run opencode` and `atomic run copilot` — just substitute the CLI command.
+> **Note:** This workflow works identically with `atomic chat -a opencode` and `atomic chat -a copilot`.
 
 ---
 
@@ -213,8 +213,8 @@ The selection is saved to `.atomic.json` in your project root and configures the
 If you select Sapling + Phabricator:
 
 1. Ensure `.arcconfig` exists in your repository root (required for Phabricator)
-2. Use `/commit` for creating commits with `sl commit`
-3. Use `/submit-diff` for submitting to Phabricator for code review
+2. Use `/sl-commit` for creating commits with `sl commit`
+3. Use `/sl-submit-diff` for submitting to Phabricator for code review
 
 **Note for Windows users:** Sapling templates use the full path `& 'C:\Program Files\Sapling\sl.exe'` to avoid conflicts with PowerShell's built-in `sl` alias for `Set-Location`.
 
@@ -338,17 +338,38 @@ Follow the debugging report above to resolve the issue.
 
 ## Commands, Agents, and Skills
 
-### Commands
+### CLI Commands
 
-User-invocable slash commands that orchestrate workflows.
+Top-level Atomic CLI commands.
 
-| Command              | Arguments         | Description                                                    |
-| -------------------- | ----------------- | -------------------------------------------------------------- |
-| `/init`              |                   | Generate `CLAUDE.md` and `AGENTS.md` by exploring the codebase |
-| `/research-codebase` | `[question]`      | Analyze codebase and document findings                         |
-| `/create-spec`       | `[research-path]` | Generate technical specification                               |
-| `/explain-code`      | `[path]`          | Explain code section in detail                                 |
-| `/ralph`             | `"<prompt>"`      | Run autonomous implementation workflow                         |
+| Command                    | Description                                                      |
+| -------------------------- | ---------------------------------------------------------------- |
+| `atomic init`              | Interactive setup (default command)                             |
+| `atomic chat`              | Start TUI chat with a coding agent                              |
+| `atomic config set <k> <v>` | Set CLI configuration values (example: telemetry opt-in/out)    |
+| `atomic update`            | Self-update Atomic (binary installs only)                       |
+| `atomic uninstall`         | Remove Atomic installation (binary installs only)               |
+
+### Slash Commands
+
+User-invocable chat commands for workflows, built-ins, and skills.
+
+| Command              | Arguments            | Description                                                    |
+| -------------------- | -------------------- | -------------------------------------------------------------- |
+| `/help`              |                      | Show all available commands                                   |
+| `/clear`             |                      | Clear all messages and reset session                          |
+| `/compact`           |                      | Compact context to reduce token usage                         |
+| `/model`             | `[model\|list\|select]` | View/switch active model                                   |
+| `/mcp`               | `[enable\|disable]`  | View and toggle MCP servers                                   |
+| `/init`              |                      | Generate `CLAUDE.md` and `AGENTS.md` by exploring codebase   |
+| `/research-codebase` | `"<question>"`       | Analyze codebase and document findings                         |
+| `/create-spec`       | `"<research-path>"`  | Generate technical specification                               |
+| `/explain-code`      | `"<path>"`           | Explain code section in detail                                 |
+| `/gh-commit`         |                      | Create a Git commit using Git/GitHub workflow                 |
+| `/gh-create-pr`      |                      | Commit, push, and open a GitHub pull request                  |
+| `/sl-commit`         |                      | Create a Sapling commit                                       |
+| `/sl-submit-diff`    |                      | Submit Sapling changes to Phabricator                         |
+| `/ralph`             | `"<prompt>"`         | Run autonomous implementation workflow                         |
 
 ### Agents
 
@@ -628,20 +649,17 @@ You can disable telemetry at any time using any of these methods:
 atomic config set telemetry false
 
 # Using environment variables (shell)
-export ATOMIC_TELEMETRY=0
-
-# Using the standard DO_NOT_TRACK signal (https://consoledonottrack.com/)
-export DO_NOT_TRACK=1
+export ATOMIC_DISABLE_TELEMETRY=1
 ```
 
 **Windows PowerShell:**
 
 ```powershell
 # Set environment variable for current session
-$env:ATOMIC_TELEMETRY = "0"
+$env:ATOMIC_DISABLE_TELEMETRY = "1"
 
 # Or set permanently for your user
-[Environment]::SetEnvironmentVariable("ATOMIC_TELEMETRY", "0", "User")
+[Environment]::SetEnvironmentVariable("ATOMIC_DISABLE_TELEMETRY", "1", "User")
 ```
 
 To re-enable telemetry:
@@ -649,8 +667,7 @@ To re-enable telemetry:
 ```bash
 atomic config set telemetry true
 # Or remove the environment variables
-unset ATOMIC_TELEMETRY
-unset DO_NOT_TRACK
+unset ATOMIC_DISABLE_TELEMETRY
 ```
 
 ### Programmatic Configuration

@@ -1550,6 +1550,43 @@ export class ClaudeAgentClient implements CodingAgentClient {
     }
 
     /**
+     * Normalize hook-reported session IDs back to Atomic's wrapped session ID.
+     *
+     * Claude hook callbacks report the SDK-native `session_id`, while the UI
+     * ownership filter tracks wrapped IDs returned by createSession().
+     * Without this mapping, tool/subagent hook events can be dropped.
+     */
+    private resolveHookSessionId(sdkSessionId: string): string {
+        // Already using wrapped ID
+        if (this.sessions.has(sdkSessionId)) {
+            return sdkSessionId;
+        }
+
+        // Known SDK session ID for an existing wrapped session
+        for (const [wrappedSessionId, state] of this.sessions.entries()) {
+            if (state.sdkSessionId === sdkSessionId) {
+                return wrappedSessionId;
+            }
+        }
+
+        // First hook can arrive before assistant/result messages populate sdkSessionId.
+        // If exactly one open session exists, bind this SDK session ID to it.
+        const openSessions = Array.from(this.sessions.entries()).filter(
+            ([, state]) => !state.isClosed,
+        );
+        if (openSessions.length === 1) {
+            const [wrappedSessionId, state] = openSessions[0]!;
+            if (!state.sdkSessionId) {
+                state.sdkSessionId = sdkSessionId;
+            }
+            return wrappedSessionId;
+        }
+
+        // Fall back to the SDK ID if we cannot disambiguate.
+        return sdkSessionId;
+    }
+
+    /**
      * Create a new agent session
      */
     async createSession(config: SessionConfig = {}): Promise<Session> {
@@ -1758,9 +1795,17 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         eventData.success = true;
                     }
 
+                    const hookSessionId =
+                        typeof input.session_id === "string"
+                            ? input.session_id
+                            : "";
+                    const sessionId = hookSessionId
+                        ? this.resolveHookSessionId(hookSessionId)
+                        : hookSessionId;
+
                     const event: AgentEvent<T> = {
                         type: eventType,
-                        sessionId: input.session_id,
+                        sessionId,
                         timestamp: new Date().toISOString(),
                         data: eventData as AgentEvent<T>["data"],
                     };

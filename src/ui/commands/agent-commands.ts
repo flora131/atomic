@@ -307,8 +307,9 @@ export function createAgentCommand(agent: AgentInfo): CommandDefinition {
     execute: (args: string, context: CommandContext): CommandResult => {
       const task = args.trim() || "Please proceed according to your instructions.";
 
-      // Inject into main session — SDK's native sub-agent dispatch handles it
-      const instruction = `Use the ${agent.name} sub-agent to handle this task: ${task}`;
+      // Strongly steer the model to use Task-tool sub-agent dispatch so
+      // sub-agent lifecycle events (and tree rendering) are emitted.
+      const instruction = `Use the Task tool to invoke the ${agent.name} sub-agent for this exact task: ${task}`;
       context.sendSilentMessage(instruction);
 
       return { success: true };

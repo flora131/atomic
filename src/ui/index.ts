@@ -482,6 +482,7 @@ export async function startChatUI(
     // the parallel agents tree but filtered out of the main chat UI and
     // ctrl+o transcript to avoid duplicate display.
     const subagentToolIds = new Set<string>();
+    const useStableSdkToolIds = agentType === "opencode";
 
     // Internal run ownership tracking for hook events.
     const toolIdToRunMap = new Map<string, number>();
@@ -554,7 +555,13 @@ export async function startChatUI(
 
     // Subscribe to tool.start events
     const unsubStart = client.on("tool.start", (event) => {
-      const data = event.data as { toolName?: string; toolInput?: unknown; toolUseId?: string; toolUseID?: string };
+      const data = event.data as {
+        toolName?: string;
+        toolInput?: unknown;
+        toolUseId?: string;
+        toolUseID?: string;
+        toolCallId?: string;
+      };
       if (data.toolName) {
         state.telemetryTracker?.trackToolStart(data.toolName);
       }
@@ -565,7 +572,7 @@ export async function startChatUI(
       if (activeRunId === null || !state.isStreaming) return;
 
       // Resolve SDK-provided tool use ID (OpenCode: toolUseId, Claude: toolUseID)
-      const sdkId = data.toolUseId ?? data.toolUseID;
+      const sdkId = data.toolUseId ?? data.toolUseID ?? data.toolCallId;
       const isTaskToolName = data.toolName === "Task" || data.toolName === "task";
       const sessionOwned = eventBelongsToOwnedSession(event.sessionId);
       if (!sessionOwned) {
@@ -589,7 +596,9 @@ export async function startChatUI(
         if (mappedRunId !== undefined && mappedRunId !== activeRunId) return;
       } else {
         // New tool call — assign a fresh internal ID
-        toolId = `tool_${++state.toolIdCounter}`;
+        toolId = useStableSdkToolIds && sdkId
+          ? `tool_${sdkId}`
+          : `tool_${++state.toolIdCounter}`;
         if (sdkId) sdkToolIdMap.set(sdkId, toolId);
       }
 
@@ -1236,6 +1245,7 @@ export async function startChatUI(
       let thinkingStartLocal: number | null = null;
       // Map SDK tool use IDs to internal tool IDs for stream-path deduplication
       const streamToolIdMap = new Map<string, string>();
+      const allowStreamToolEvents = !state.toolEventsViaHooks || agentType === "opencode";
       let thinkingText = "";
 
       // Reset the suppress state at the start of each stream
@@ -1347,19 +1357,23 @@ export async function startChatUI(
           onMeta?.({ outputTokens: sdkOutputTokens, thinkingMs, thinkingText });
         }
         // Handle tool_use content - notify UI of tool invocation
-        // Skip if we're getting tool events from hooks to avoid duplicates
-        else if (message.type === "tool_use" && message.content && !state.toolEventsViaHooks) {
+        // OpenCode can complete the stream before hook events flush; keep a
+        // stream-path fallback for it while preserving hook-first behavior elsewhere.
+        else if (message.type === "tool_use" && message.content && allowStreamToolEvents) {
           const toolContent = message.content as { name?: string; input?: Record<string, unknown>; toolUseId?: string };
           if (state.toolStartHandler && toolContent.name) {
             state.telemetryTracker?.trackToolStart(toolContent.name);
             // Deduplicate using SDK tool use ID (e.g., Claude's includePartialMessages
             // emits multiple assistant messages for the same tool_use block)
-            const sdkId = toolContent.toolUseId ?? (message.metadata as Record<string, unknown> | undefined)?.toolId as string | undefined;
+            const sdkId = toolContent.toolUseId
+              ?? (message.metadata as Record<string, unknown> | undefined)?.toolId as string | undefined;
             let toolId: string;
             if (sdkId && streamToolIdMap.has(sdkId)) {
               toolId = streamToolIdMap.get(sdkId)!;
             } else {
-              toolId = `tool_${++state.toolIdCounter}`;
+              toolId = agentType === "opencode" && sdkId
+                ? `tool_${sdkId}`
+                : `tool_${++state.toolIdCounter}`;
               if (sdkId) streamToolIdMap.set(sdkId, toolId);
             }
             state.toolStartHandler(
@@ -1370,14 +1384,20 @@ export async function startChatUI(
           }
         }
         // Handle tool_result content - notify UI of tool completion
-        // Skip if we're getting tool events from hooks to avoid duplicates
-        else if (message.type === "tool_result" && !state.toolEventsViaHooks) {
+        else if (message.type === "tool_result" && allowStreamToolEvents) {
           if (state.toolCompleteHandler) {
+            const metadata = message.metadata as Record<string, unknown> | undefined;
             const toolNameFromMeta = typeof message.metadata?.toolName === "string"
               ? message.metadata.toolName
               : "unknown";
+            const sdkId = typeof metadata?.toolId === "string" ? metadata.toolId : undefined;
             state.telemetryTracker?.trackToolComplete(toolNameFromMeta, true);
-            const toolId = `tool_${state.toolIdCounter}`;
+            const toolId = sdkId
+              ? (streamToolIdMap.get(sdkId) ?? (agentType === "opencode" ? `tool_${sdkId}` : `tool_${state.toolIdCounter}`))
+              : `tool_${state.toolIdCounter}`;
+            if (sdkId && !streamToolIdMap.has(sdkId)) {
+              streamToolIdMap.set(sdkId, toolId);
+            }
             state.toolCompleteHandler(
               toolId,
               message.content,

@@ -314,6 +314,108 @@ describe("ClaudeAgentClient observability and parity", () => {
     expect(integrity.unmatchedSubagentCompletes).toBe(1);
   });
 
+  test("maps hook sdk session IDs to wrapped session IDs for tool and subagent events", async () => {
+    const client = new ClaudeAgentClient();
+    const seenToolSessionIds: string[] = [];
+    const seenSubagentSessionIds: string[] = [];
+
+    const unsubTool = client.on("tool.start", (event) => {
+      seenToolSessionIds.push(event.sessionId);
+    });
+    const unsubSubagent = client.on("subagent.start", (event) => {
+      seenSubagentSessionIds.push(event.sessionId);
+    });
+
+    try {
+      const privateClient = client as unknown as {
+        registeredHooks: Record<
+          string,
+          Array<
+            (
+              input: Record<string, unknown>,
+              toolUseID: string | undefined,
+              options: { signal: AbortSignal },
+            ) => Promise<{ continue: boolean }>
+          >
+        >;
+        wrapQuery: (
+          queryInstance: null,
+          sessionId: string,
+          config: Record<string, unknown>,
+          runtime: {
+            runtimeMode: "v1_fallback";
+            fallbackReason: null;
+            capabilities: {
+              supportsV2SendStream: boolean;
+              supportsV2Resume: boolean;
+              supportsForkSession: boolean;
+              supportsAdvancedInput: boolean;
+            };
+          },
+        ) => { destroy: () => Promise<void> };
+        sessions: Map<
+          string,
+          {
+            sdkSessionId: string | null;
+            isClosed: boolean;
+          }
+        >;
+      };
+
+      const wrappedSession = privateClient.wrapQuery(
+        null,
+        "wrapped-session-id",
+        {},
+        {
+          runtimeMode: "v1_fallback",
+          fallbackReason: null,
+          capabilities: {
+            supportsV2SendStream: false,
+            supportsV2Resume: false,
+            supportsForkSession: false,
+            supportsAdvancedInput: true,
+          },
+        },
+      );
+
+      const preToolUseHook = privateClient.registeredHooks.PreToolUse?.[0];
+      const subagentStartHook = privateClient.registeredHooks.SubagentStart?.[0];
+      expect(preToolUseHook).toBeDefined();
+      expect(subagentStartHook).toBeDefined();
+
+      const hookSessionId = "sdk-hook-session-id";
+
+      await preToolUseHook?.(
+        {
+          session_id: hookSessionId,
+          tool_name: "Read",
+          tool_input: { file: "src/main.rs" },
+        },
+        "tool_use_1",
+        { signal: new AbortController().signal },
+      );
+
+      await subagentStartHook?.(
+        {
+          session_id: hookSessionId,
+          agent_id: "agent-1",
+          agent_type: "debugger",
+        },
+        "tool_use_2",
+        { signal: new AbortController().signal },
+      );
+
+      expect(seenToolSessionIds).toEqual(["wrapped-session-id"]);
+      expect(seenSubagentSessionIds).toEqual(["wrapped-session-id"]);
+      expect(privateClient.sessions.get("wrapped-session-id")?.sdkSessionId).toBe(hookSessionId);
+
+      await wrappedSession.destroy();
+    } finally {
+      unsubTool();
+      unsubSubagent();
+    }
+  });
+
   test("emits stream integrity counters through usage without payload leakage", async () => {
     const client = new ClaudeAgentClient();
     const usageEvents: Array<Record<string, unknown>> = [];

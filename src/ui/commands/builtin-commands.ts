@@ -69,12 +69,12 @@ export const helpCommand: CommandDefinition = {
 
         const categoryOrder = [
             "builtin",
-            "workflow",
-            "agent",
             "skill",
+            "agent",
+            "workflow",
         ] as const;
         const categoryLabels: Record<string, string> = {
-            builtin: "Built-in",
+            builtin: "Slash Commands",
             workflow: "Workflows",
             agent: "Sub-Agents",
             skill: "Skills",

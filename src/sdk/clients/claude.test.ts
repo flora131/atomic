@@ -724,6 +724,48 @@ describe("ClaudeAgentClient observability and parity", () => {
     await wrapped.destroy();
   });
 
+  test("clears stale v2 resume ID before fallback query resume", () => {
+    const client = new ClaudeAgentClient();
+    const state = {
+      v2Session: {
+        sessionId: "v2-session-id",
+      },
+      sdkSessionId: "v2-session-id",
+    };
+
+    (
+      client as unknown as {
+        clearStaleV2ResumeIdForFallback: (state: {
+          v2Session: { sessionId: string } | null;
+          sdkSessionId: string | null;
+        }) => void;
+      }
+    ).clearStaleV2ResumeIdForFallback(state);
+
+    expect(state.sdkSessionId).toBeNull();
+  });
+
+  test("preserves non-v2 resume ID during fallback", () => {
+    const client = new ClaudeAgentClient();
+    const state = {
+      v2Session: {
+        sessionId: "v2-session-id",
+      },
+      sdkSessionId: "v1-session-id",
+    };
+
+    (
+      client as unknown as {
+        clearStaleV2ResumeIdForFallback: (state: {
+          v2Session: { sessionId: string } | null;
+          sdkSessionId: string | null;
+        }) => void;
+      }
+    ).clearStaleV2ResumeIdForFallback(state);
+
+    expect(state.sdkSessionId).toBe("v1-session-id");
+  });
+
   test("normalizes AskUserQuestion permission events across v2 and fallback runtimes", async () => {
     const client = new ClaudeAgentClient();
     const seenEvents: Array<{

@@ -709,12 +709,17 @@ export class ClaudeAgentClient implements CodingAgentClient {
             return null;
         }
 
-        const candidate = v2Session as { sessionId?: string };
-        if (
-            typeof candidate.sessionId === "string" &&
-            candidate.sessionId.length > 0
-        ) {
-            return candidate.sessionId;
+        try {
+            const candidate = v2Session as { sessionId?: string };
+            if (
+                typeof candidate.sessionId === "string" &&
+                candidate.sessionId.length > 0
+            ) {
+                return candidate.sessionId;
+            }
+        } catch {
+            // Some SDK session implementations throw until a first message is received.
+            return null;
         }
 
         return null;
@@ -736,6 +741,23 @@ export class ClaudeAgentClient implements CodingAgentClient {
         state.runtimeMode = "v2";
         state.fallbackReason = null;
         return state.v2Session;
+    }
+
+    /**
+     * When v2 execution fails and we fall back to v1 query(), a v2-native
+     * session ID cannot be used as a v1 resume token. If we keep it, each
+     * fallback query effectively starts stateless. Clear only IDs that are
+     * known to come from the active v2 session so v1 can capture its own.
+     */
+    private clearStaleV2ResumeIdForFallback(state: ClaudeSessionState): void {
+        const v2SessionId = this.getV2SessionId(state.v2Session);
+        if (
+            v2SessionId &&
+            state.sdkSessionId &&
+            state.sdkSessionId === v2SessionId
+        ) {
+            state.sdkSessionId = null;
+        }
     }
 
     private emitRuntimeSelection(
@@ -888,6 +910,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                     : "Claude v2 send failed",
                             code: "CLAUDE_V2_SEND_FAILED",
                         });
+                        this.clearStaleV2ResumeIdForFallback(state);
                     }
 
                     if (!sawTerminalEvent) {
@@ -986,6 +1009,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                 : "Claude stream failed",
                         code,
                     });
+                const clearStaleV2FallbackResume = () =>
+                    this.clearStaleV2ResumeIdForFallback(state);
                 const bumpMissingTerminalEvents = () => {
                     return this.bumpStreamIntegrityCounter(
                         sessionId,
@@ -1043,6 +1068,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                                   error,
                                                   "CLAUDE_V2_STREAM_FAILED",
                                               );
+                                              clearStaleV2FallbackResume();
 
                                               const fallbackQuery =
                                                   buildFallbackQuery();
@@ -1269,6 +1295,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                     : "Claude v2 summarize failed",
                             code: "CLAUDE_V2_SUMMARIZE_FAILED",
                         });
+                        this.clearStaleV2ResumeIdForFallback(state);
                     }
                 }
 

@@ -57,6 +57,10 @@ export function toggleSelection(selected: string[], value: string): string[] {
   return [...selected, value];
 }
 
+export function isMultiSelectSubmitKey(key: string, ctrl: boolean, meta: boolean): boolean {
+  return (key === "return" || key === "linefeed") && (ctrl || meta);
+}
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
@@ -201,6 +205,13 @@ export function UserQuestionDialog({
         // Stop propagation to prevent other handlers from running
         // This ensures the dialog captures keyboard events exclusively
         event.stopPropagation();
+
+        if (question.multiSelect && isMultiSelectSubmitKey(key, event.ctrl, event.meta)) {
+          if (selectedValues.length > 0) {
+            submitAnswer(selectedValues);
+          }
+          return;
+        }
 
         // Number keys 1-9 for direct selection
         if (key >= "1" && key <= "9") {
@@ -388,7 +399,9 @@ export function UserQuestionDialog({
           </scrollbox>
           <box marginTop={SPACING.ELEMENT}>
             <text style={{ fg: colors.muted }}>
-              Enter to select · ↑/↓ to navigate · Esc to cancel
+              {question.multiSelect
+                ? "Enter/Space to toggle · Ctrl+Enter to submit · ↑/↓ to navigate · Esc to cancel"
+                : "Enter to select · ↑/↓ to navigate · Esc to cancel"}
             </text>
           </box>
         </>

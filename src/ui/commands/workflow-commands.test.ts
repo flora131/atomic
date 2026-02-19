@@ -3,7 +3,7 @@ import { mkdtemp, writeFile as fsWriteFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { CommandContext } from "./registry.ts";
-import { getWorkflowCommands, parseRalphArgs } from "./workflow-commands.ts";
+import { getWorkflowCommands, parseRalphArgs, watchTasksJson } from "./workflow-commands.ts";
 
 function createMockContext(overrides?: Partial<CommandContext>): CommandContext {
   return {
@@ -42,6 +42,129 @@ describe("parseRalphArgs", () => {
   test("trims whitespace from prompt", () => {
     const result = parseRalphArgs("  Build a feature  ");
     expect(result).toEqual({ prompt: "Build a feature" });
+  });
+});
+
+describe("watchTasksJson", () => {
+  function createDeferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  test("emits current tasks immediately after watcher starts", async () => {
+    const updates: string[] = [];
+
+    const cleanup = watchTasksJson(
+      "/tmp/ralph-watch-immediate",
+      (items) => {
+        updates.push(items[0]?.status ?? "missing");
+      },
+      {
+        watchImpl: () => ({ close: () => {} }) as unknown as import("fs").FSWatcher,
+        readFileImpl: async () =>
+          JSON.stringify([{ id: "#1", content: "Task", status: "pending", activeForm: "Working" }]),
+      },
+    );
+
+    await Bun.sleep(0);
+    cleanup();
+
+    expect(updates).toEqual(["pending"]);
+  });
+
+  test("ignores stale async reads when newer file event wins", async () => {
+    const updates: string[] = [];
+    const slowRead = createDeferred<string>();
+    const fastRead = createDeferred<string>();
+    let readCount = 0;
+    let listener:
+      | ((eventType: string, filename: string | Buffer | null) => void | Promise<void>)
+      | undefined;
+
+    const cleanup = watchTasksJson(
+      "/tmp/ralph-watch-stale",
+      (items) => {
+        updates.push(items[0]?.status ?? "missing");
+      },
+      {
+        watchImpl: (_path, cb) => {
+          listener = cb;
+          return { close: () => {} } as unknown as import("fs").FSWatcher;
+        },
+        readFileImpl: async () => {
+          readCount++;
+          if (readCount === 1) {
+            const err = new Error("ENOENT");
+            (err as { code?: string }).code = "ENOENT";
+            throw err;
+          }
+          if (readCount === 2) return slowRead.promise;
+          if (readCount === 3) return fastRead.promise;
+          return "[]";
+        },
+      },
+    );
+
+    expect(listener).toBeDefined();
+    void listener?.("change", "tasks.json");
+    void listener?.("change", "tasks.json");
+
+    fastRead.resolve(
+      JSON.stringify([{ id: "#1", content: "Task", status: "completed", activeForm: "Done" }]),
+    );
+    await Bun.sleep(0);
+
+    slowRead.resolve(
+      JSON.stringify([{ id: "#1", content: "Task", status: "pending", activeForm: "Working" }]),
+    );
+    await Bun.sleep(0);
+
+    cleanup();
+
+    expect(updates).toEqual(["completed"]);
+  });
+
+  test("handles Buffer filename events from fs.watch", async () => {
+    const updates: string[] = [];
+    let listener:
+      | ((eventType: string, filename: string | Buffer | null) => void | Promise<void>)
+      | undefined;
+    let readCount = 0;
+
+    const cleanup = watchTasksJson(
+      "/tmp/ralph-watch-buffer",
+      (items) => {
+        updates.push(items[0]?.status ?? "missing");
+      },
+      {
+        watchImpl: (_path, cb) => {
+          listener = cb;
+          return { close: () => {} } as unknown as import("fs").FSWatcher;
+        },
+        readFileImpl: async () => {
+          readCount++;
+          if (readCount === 1) {
+            const err = new Error("ENOENT");
+            (err as { code?: string }).code = "ENOENT";
+            throw err;
+          }
+          return JSON.stringify([
+            { id: "#1", content: "Task", status: "in_progress", activeForm: "Working" },
+          ]);
+        },
+      },
+    );
+
+    void listener?.("change", Buffer.from("tasks.json"));
+    await Bun.sleep(0);
+    cleanup();
+
+    expect(updates).toEqual(["in_progress"]);
   });
 });
 
@@ -162,6 +285,153 @@ describe("review step in /ralph", () => {
     
     // Cleanup
     await rm(tempDir, { recursive: true, force: true });
+    if (sessionDir) {
+      await rm(sessionDir, { recursive: true, force: true });
+    }
+  });
+
+  test("stops implementation loop when pending tasks are dependency-blocked", async () => {
+    let streamCallCount = 0;
+    let sessionDir: string | null = null;
+
+    const context = createMockContext({
+      streamAndWait: async () => {
+        streamCallCount++;
+
+        if (streamCallCount === 1) {
+          return {
+            content: JSON.stringify([
+              { id: "#1", content: "Failing root task", status: "pending", activeForm: "Working" },
+              {
+                id: "#2",
+                content: "Blocked follow-up",
+                status: "pending",
+                activeForm: "Waiting",
+                blockedBy: ["#1"],
+              },
+            ]),
+            wasInterrupted: false,
+          };
+        }
+
+        if (streamCallCount === 2 && sessionDir) {
+          await fsWriteFile(
+            join(sessionDir, "tasks.json"),
+            JSON.stringify([
+              { id: "#1", content: "Failing root task", status: "error", activeForm: "Working" },
+              {
+                id: "#2",
+                content: "Blocked follow-up",
+                status: "pending",
+                activeForm: "Waiting",
+                blockedBy: ["#1"],
+              },
+            ])
+          );
+          return { content: "", wasInterrupted: false };
+        }
+
+        throw new Error("Implementation loop did not stop on dependency deadlock");
+      },
+      setRalphSessionDir: (dir: string | null) => {
+        sessionDir = dir;
+        if (dir) {
+          const { mkdirSync } = require("fs");
+          mkdirSync(dir, { recursive: true });
+        }
+      },
+      setRalphSessionId: () => {},
+      setRalphTaskIds: () => {},
+      updateWorkflowState: () => {},
+    });
+
+    const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
+    const result = await ralphCommand!.execute("Build a feature", context);
+    expect(result.success).toBe(true);
+    expect(streamCallCount).toBe(2);
+
+    if (sessionDir) {
+      await rm(sessionDir, { recursive: true, force: true });
+    }
+  });
+
+  test("continues implementation loop when blockedBy uses non-prefixed IDs", async () => {
+    let streamCallCount = 0;
+    let sessionDir: string | null = null;
+
+    const context = createMockContext({
+      streamAndWait: async () => {
+        streamCallCount++;
+
+        if (streamCallCount === 1) {
+          return {
+            content: JSON.stringify([
+              { id: "#1", content: "Root task", status: "pending", activeForm: "Working" },
+              {
+                id: "#2",
+                content: "Dependent task",
+                status: "pending",
+                activeForm: "Waiting",
+                blockedBy: ["1"],
+              },
+            ]),
+            wasInterrupted: false,
+          };
+        }
+
+        if (streamCallCount === 2 && sessionDir) {
+          await fsWriteFile(
+            join(sessionDir, "tasks.json"),
+            JSON.stringify([
+              { id: "#1", content: "Root task", status: "completed", activeForm: "Working" },
+              {
+                id: "#2",
+                content: "Dependent task",
+                status: "pending",
+                activeForm: "Waiting",
+                blockedBy: ["1"],
+              },
+            ]),
+          );
+          return { content: "", wasInterrupted: false };
+        }
+
+        if (streamCallCount === 3 && sessionDir) {
+          await fsWriteFile(
+            join(sessionDir, "tasks.json"),
+            JSON.stringify([
+              { id: "#1", content: "Root task", status: "completed", activeForm: "Working" },
+              {
+                id: "#2",
+                content: "Dependent task",
+                status: "completed",
+                activeForm: "Waiting",
+                blockedBy: ["1"],
+              },
+            ]),
+          );
+          return { content: "", wasInterrupted: false };
+        }
+
+        throw new Error("Implementation loop stopped before dependency became actionable");
+      },
+      setRalphSessionDir: (dir: string | null) => {
+        sessionDir = dir;
+        if (dir) {
+          const { mkdirSync } = require("fs");
+          mkdirSync(dir, { recursive: true });
+        }
+      },
+      setRalphSessionId: () => {},
+      setRalphTaskIds: () => {},
+      updateWorkflowState: () => {},
+    });
+
+    const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
+    const result = await ralphCommand!.execute("Build a feature", context);
+    expect(result.success).toBe(true);
+    expect(streamCallCount).toBe(3);
+
     if (sessionDir) {
       await rm(sessionDir, { recursive: true, force: true });
     }
@@ -339,6 +609,106 @@ describe("review step in /ralph", () => {
       expect(existsSync(join(sessionDir, "review-0.json"))).toBe(true);
       expect(existsSync(join(sessionDir, "fix-spec-0.md"))).toBe(true);
       
+      await rm(sessionDir, { recursive: true, force: true });
+    }
+  });
+
+  test("stops fix loop when fix tasks are dependency-blocked", async () => {
+    let streamCallCount = 0;
+    let sessionDir: string | null = null;
+
+    const context = createMockContext({
+      streamAndWait: async (_prompt: string, options?: { hideContent?: boolean }) => {
+        streamCallCount++;
+
+        if (streamCallCount === 1) {
+          return {
+            content: JSON.stringify([
+              { id: "#1", content: "Initial task", status: "pending", activeForm: "Working" },
+            ]),
+            wasInterrupted: false,
+          };
+        }
+
+        if (streamCallCount === 2 && sessionDir) {
+          await fsWriteFile(
+            join(sessionDir, "tasks.json"),
+            JSON.stringify([
+              { id: "#1", content: "Initial task", status: "completed", activeForm: "Working" },
+            ])
+          );
+          return { content: "", wasInterrupted: false };
+        }
+
+        if (streamCallCount === 3 && options?.hideContent) {
+          return {
+            content: JSON.stringify([
+              { id: "#fix-1", content: "Fix root issue", status: "pending", activeForm: "Fixing" },
+              {
+                id: "#fix-2",
+                content: "Fix dependent issue",
+                status: "pending",
+                activeForm: "Waiting",
+                blockedBy: ["#fix-1"],
+              },
+            ]),
+            wasInterrupted: false,
+          };
+        }
+
+        if (streamCallCount === 4 && sessionDir) {
+          await fsWriteFile(
+            join(sessionDir, "tasks.json"),
+            JSON.stringify([
+              { id: "#fix-1", content: "Fix root issue", status: "error", activeForm: "Fixing" },
+              {
+                id: "#fix-2",
+                content: "Fix dependent issue",
+                status: "pending",
+                activeForm: "Waiting",
+                blockedBy: ["#fix-1"],
+              },
+            ])
+          );
+          return { content: "", wasInterrupted: false };
+        }
+
+        throw new Error("Fix loop did not stop on dependency deadlock");
+      },
+      spawnSubagent: async () => ({
+        success: true,
+        output: JSON.stringify({
+          findings: [
+            {
+              title: "[P1] Issue requiring fix",
+              body: "Needs follow-up task",
+              priority: 1,
+            },
+          ],
+          overall_correctness: "patch is incorrect",
+          overall_explanation: "Fix required",
+          overall_confidence_score: 0.9,
+        }),
+      }),
+      clearContext: async () => {},
+      setRalphSessionDir: (dir: string | null) => {
+        sessionDir = dir;
+        if (dir) {
+          const { mkdirSync } = require("fs");
+          mkdirSync(dir, { recursive: true });
+        }
+      },
+      setRalphSessionId: () => {},
+      setRalphTaskIds: () => {},
+      updateWorkflowState: () => {},
+    });
+
+    const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
+    const result = await ralphCommand!.execute("Build a feature", context);
+    expect(result.success).toBe(true);
+    expect(streamCallCount).toBe(4);
+
+    if (sessionDir) {
       await rm(sessionDir, { recursive: true, force: true });
     }
   });

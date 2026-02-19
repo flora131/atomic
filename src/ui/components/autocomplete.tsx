@@ -41,6 +41,20 @@ export interface AutocompleteProps {
   externalSuggestions?: CommandDefinition[];
 }
 
+export function getClampedAutocompleteIndex(
+  selectedIndex: number,
+  suggestionCount: number,
+): number {
+  if (suggestionCount <= 0) {
+    return 0;
+  }
+
+  return Math.min(
+    Math.max(0, selectedIndex),
+    suggestionCount - 1,
+  );
+}
+
 /**
  * A single suggestion row in the autocomplete dropdown.
  */
@@ -197,15 +211,18 @@ export function Autocomplete({
   }, [input, visible, externalSuggestions]);
 
   // Ensure selectedIndex is within bounds
-  const validIndex = Math.min(
-    Math.max(0, selectedIndex),
-    Math.max(0, suggestions.length - 1)
-  );
+  const validIndex = getClampedAutocompleteIndex(selectedIndex, suggestions.length);
 
-  // Notify parent if index was clamped
-  if (validIndex !== selectedIndex && suggestions.length > 0) {
-    onIndexChange(validIndex);
-  }
+  // Notify parent after render if index was clamped
+  useEffect(() => {
+    if (!visible || suggestions.length === 0) {
+      return;
+    }
+
+    if (validIndex !== selectedIndex) {
+      onIndexChange(validIndex);
+    }
+  }, [visible, suggestions.length, validIndex, selectedIndex, onIndexChange]);
 
   // Scroll to keep selected item visible
   useEffect(() => {

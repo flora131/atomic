@@ -88,6 +88,7 @@ import {
   type NormalizedTodoItem,
 } from "./utils/task-status.ts";
 import {
+  hasRalphTaskIdOverlap,
   normalizeInterruptedTasks,
   snapshotTaskItems,
 } from "./utils/ralph-task-state.ts";
@@ -1223,12 +1224,143 @@ function toToolState(
   }
 }
 
+function isActiveParallelAgent(agent: ParallelAgent): boolean {
+  return (
+    agent.status === "running"
+    || agent.status === "pending"
+    || agent.status === "background"
+  );
+}
+
+function hasSubagentCall(message: Pick<ChatMessage, "parallelAgents" | "toolCalls">): boolean {
+  if ((message.parallelAgents?.length ?? 0) > 0) return true;
+  return (message.toolCalls ?? []).some(
+    (tc) => tc.toolName === "Task" || tc.toolName === "task"
+  );
+}
+
+function isGroupedAgentPart(part: Part): part is AgentPart {
+  return part.type === "agent" && part.parentToolPartId === undefined;
+}
+
+export function shouldGroupSubagentTrees(
+  message: Pick<ChatMessage, "parallelAgents" | "toolCalls" | "parts">,
+  isLastMessage: boolean,
+): boolean {
+  if (!isLastMessage) return false;
+  const agents = message.parallelAgents ?? [];
+  if (agents.length === 0) return false;
+  if (!hasSubagentCall(message)) return false;
+  if (agents.some(isActiveParallelAgent)) return true;
+  return (message.parts ?? []).some(isGroupedAgentPart);
+}
+
+function getAgentInsertIndex(parts: Part[]): number {
+  let lastTaskToolIdx = -1;
+  let lastToolIdx = -1;
+
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (!part || part.type !== "tool") continue;
+    lastToolIdx = i;
+    const toolName = (part as ToolPart).toolName;
+    if (toolName === "Task" || toolName === "task") {
+      lastTaskToolIdx = i;
+    }
+  }
+
+  if (lastTaskToolIdx >= 0) return lastTaskToolIdx + 1;
+  if (lastToolIdx >= 0) return lastToolIdx + 1;
+  return parts.length;
+}
+
+function insertAgentPartAtTaskBoundary(parts: Part[], agentPart: AgentPart): Part[] {
+  const insertIdx = getAgentInsertIndex(parts);
+  return [
+    ...parts.slice(0, insertIdx),
+    agentPart,
+    ...parts.slice(insertIdx),
+  ];
+}
+
+function mergeParallelAgentsIntoParts(
+  parts: Part[],
+  parallelAgents: ParallelAgent[],
+  messageTimestamp: string,
+  groupIntoSingleTree: boolean,
+): Part[] {
+  const nonAgentParts: Part[] = parts.filter((p) => p.type !== "agent");
+  const existingAgentParts = parts.filter((p): p is AgentPart => p.type === "agent");
+
+  if (parallelAgents.length === 0) {
+    return nonAgentParts;
+  }
+
+  if (groupIntoSingleTree) {
+    const existingGroupedPart = existingAgentParts.find((p) => p.parentToolPartId === undefined) ?? existingAgentParts[0];
+    const groupedPart: AgentPart = {
+      id: existingGroupedPart?.id ?? createPartId(),
+      type: "agent",
+      agents: parallelAgents,
+      parentToolPartId: undefined,
+      createdAt: existingGroupedPart?.createdAt ?? messageTimestamp,
+    };
+    return insertAgentPartAtTaskBoundary(nonAgentParts, groupedPart);
+  }
+
+  const existingByParent = new Map<PartId | undefined, AgentPart>();
+  for (const existing of existingAgentParts) {
+    if (!existingByParent.has(existing.parentToolPartId)) {
+      existingByParent.set(existing.parentToolPartId, existing);
+    }
+  }
+
+  const agentsByToolCall = new Map<string | undefined, ParallelAgent[]>();
+  for (const agent of parallelAgents) {
+    const toolCallId = agent.taskToolCallId;
+    const grouped = agentsByToolCall.get(toolCallId) ?? [];
+    grouped.push(agent);
+    agentsByToolCall.set(toolCallId, grouped);
+  }
+
+  const nextAgentParts: AgentPart[] = [];
+  for (const [toolCallId, agents] of agentsByToolCall) {
+    let parentToolPartId: PartId | undefined;
+    if (toolCallId) {
+      const toolPart = nonAgentParts.find(
+        (p) => p.type === "tool" && (p as ToolPart).toolCallId === toolCallId
+      ) as ToolPart | undefined;
+      parentToolPartId = toolPart?.id;
+    }
+
+    const existingPart = existingByParent.get(parentToolPartId);
+    const newPart: AgentPart = {
+      id: existingPart?.id ?? createPartId(),
+      type: "agent",
+      agents,
+      parentToolPartId,
+      createdAt: existingPart?.createdAt ?? messageTimestamp,
+    };
+    nextAgentParts.push(newPart);
+  }
+
+  if (nextAgentParts.length === 0) return nonAgentParts;
+
+  const insertIdx = getAgentInsertIndex(nonAgentParts);
+  return [
+    ...nonAgentParts.slice(0, insertIdx),
+    ...nextAgentParts,
+    ...nonAgentParts.slice(insertIdx),
+  ];
+}
+
 function getRenderableAssistantParts(
   message: ChatMessage,
   taskItemsToShow: TaskItem[] | undefined,
   inlineTaskExpansion: boolean | undefined,
+  isLastMessage: boolean,
 ): Part[] {
-  const parts = [...(message.parts ?? [])];
+  let parts = [...(message.parts ?? [])];
 
   // Keep ToolPart state synchronized with the source toolCalls array.
   const toolCalls = message.toolCalls ?? [];
@@ -1264,48 +1396,12 @@ function getRenderableAssistantParts(
   }
 
   if (message.parallelAgents && message.parallelAgents.length > 0) {
-    // Group agents by their parent tool call to create separate AgentParts per tool
-    const agentsByToolCall = new Map<string | undefined, ParallelAgent[]>();
-    for (const agent of message.parallelAgents) {
-      const toolCallId = agent.taskToolCallId;
-      if (!agentsByToolCall.has(toolCallId)) {
-        agentsByToolCall.set(toolCallId, []);
-      }
-      agentsByToolCall.get(toolCallId)!.push(agent);
-    }
-
-    // Create/update an AgentPart for each tool call
-    for (const [toolCallId, agents] of agentsByToolCall) {
-      // Find the ToolPart ID for this tool call
-      let parentToolPartId: PartId | undefined = undefined;
-      if (toolCallId) {
-        const toolPart = parts.find(
-          (p) => p.type === "tool" && (p as ToolPart).toolCallId === toolCallId
-        ) as ToolPart | undefined;
-        parentToolPartId = toolPart?.id;
-      }
-
-      // Find existing AgentPart for this tool call or create new one
-      const existingAgentIdx = parts.findIndex(
-        (p) => p.type === "agent" && (p as AgentPart).parentToolPartId === parentToolPartId
-      );
-      
-      if (existingAgentIdx >= 0) {
-        parts[existingAgentIdx] = {
-          ...(parts[existingAgentIdx] as AgentPart),
-          agents,
-          parentToolPartId,
-        };
-      } else {
-        parts.push({
-          id: `agent-${message.id}${toolCallId ? `-${toolCallId}` : ""}`,
-          type: "agent",
-          agents,
-          parentToolPartId,
-          createdAt: message.timestamp,
-        } satisfies AgentPart);
-      }
-    }
+    parts = mergeParallelAgentsIntoParts(
+      parts,
+      message.parallelAgents,
+      message.timestamp,
+      shouldGroupSubagentTrees(message, isLastMessage),
+    );
   }
 
   const shouldRenderInlineTasks = taskItemsToShow && taskItemsToShow.length > 0 && inlineTaskExpansion !== false;
@@ -1461,7 +1557,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
     const inlineTaskExpansion = shouldRenderInlineTasks ? (tasksExpanded || undefined) : false;
     const renderableMessage = {
       ...message,
-      parts: getRenderableAssistantParts(message, taskItemsToShow, inlineTaskExpansion),
+      parts: getRenderableAssistantParts(message, taskItemsToShow, inlineTaskExpansion, Boolean(isLast)),
     };
 
     // Detect active background agents on this message
@@ -1713,6 +1809,9 @@ export function ChatApp({
   // Used to guard TodoWrite persistence: only updates whose items match
   // these IDs are written to tasks.json, preventing sub-agent overwrites.
   const ralphTaskIdsRef = useRef<Set<string>>(new Set());
+  // Tracks started tool names by toolCallId so completion handlers can
+  // safely identify TodoWrite payloads (and ignore unrelated `input.todos`).
+  const toolNameByIdRef = useRef<Map<string, string>>(new Map());
   // State for input textarea scrollbar (shown only when input overflows)
   const [inputScrollbar, setInputScrollbar] = useState<InputScrollbarState>({
     visible: false,
@@ -1868,10 +1967,11 @@ export function ChatApp({
    * incoming items are from a sub-agent's independent todo list, which
    * should NOT overwrite ralph's tasks.json.
    */
-  const isRalphTaskUpdate = useCallback((todos: NormalizedTodoItem[]): boolean => {
-    const ralphIds = ralphTaskIdsRef.current;
-    if (ralphIds.size === 0) return false;
-    return todos.some(t => t.id && ralphIds.has(t.id));
+  const isRalphTaskUpdate = useCallback((
+    todos: NormalizedTodoItem[],
+    previousTodos: readonly NormalizedTodoItem[] = todoItemsRef.current,
+  ): boolean => {
+    return hasRalphTaskIdOverlap(todos, ralphTaskIdsRef.current, previousTodos);
   }, []);
 
   /**
@@ -1893,6 +1993,44 @@ export function ChatApp({
 
     return snapshotTaskItems(updated) as TaskItem[] | undefined;
   }, [isRalphTaskUpdate]);
+
+  const handleStreamStartupError = useCallback((error: unknown, expectedGeneration: number) => {
+    // Ignore stale failures from an older stream generation.
+    if (streamGenerationRef.current !== expectedGeneration) {
+      return;
+    }
+
+    console.error("[stream] Failed to start stream:", error);
+
+    const failedMessageId = streamingMessageIdRef.current;
+    if (failedMessageId) {
+      setMessagesWindowed((prev: ChatMessage[]) => {
+        const failedMessage = prev.find((msg: ChatMessage) => msg.id === failedMessageId);
+        if (!failedMessage) {
+          return prev;
+        }
+
+        if (failedMessage.content.trim().length === 0) {
+          return prev.filter((msg: ChatMessage) => msg.id !== failedMessageId);
+        }
+
+        return prev.map((msg: ChatMessage) =>
+          msg.id === failedMessageId
+            ? { ...msg, streaming: false, modelId: currentModelRef.current }
+            : msg
+        );
+      });
+    }
+
+    streamingMessageIdRef.current = null;
+    streamingStartRef.current = null;
+    streamingMetaRef.current = null;
+    pendingCompleteRef.current = null;
+    isStreamingRef.current = false;
+    setIsStreaming(false);
+    setStreamingMeta(null);
+    hasRunningToolRef.current = false;
+  }, [setMessagesWindowed]);
 
   // Dynamic placeholder based on queue state
   const dynamicPlaceholder = useMemo(() => {
@@ -1926,6 +2064,8 @@ export function ChatApp({
     toolName: string,
     input: Record<string, unknown>
   ) => {
+    toolNameByIdRef.current.set(toolId, toolName);
+
     // Update streaming state
     streamingState.handleToolStart(toolId, toolName, input);
     // Track that a tool is running (synchronous ref for keyboard handler)
@@ -1999,15 +2139,23 @@ export function ChatApp({
 
     // Update persistent todo panel when TodoWrite is called
     if (toolName === "TodoWrite" && input.todos && Array.isArray(input.todos)) {
-      const todos = mergeBlockedBy(normalizeTodoItems(input.todos), todoItemsRef.current);
-      todoItemsRef.current = todos;
-      setTodoItems(todos);
+      const previousTodos = todoItemsRef.current;
+      const todos = mergeBlockedBy(normalizeTodoItems(input.todos), previousTodos);
       const taskStreamPinned = Boolean(ralphSessionIdRef.current);
+      const isRalphUpdate = isRalphTaskUpdate(todos, previousTodos);
+
+      // During /ralph, ignore unrelated sub-agent TodoWrite payloads so they
+      // cannot replace the in-memory ralph task state.
+      const shouldApplyTodoState = !ralphSessionIdRef.current || isRalphUpdate;
+      if (shouldApplyTodoState) {
+        todoItemsRef.current = todos;
+        setTodoItems(todos);
+      }
 
       // Persist to tasks.json only when the items are ralph task updates
       // (share IDs with the planning-phase tasks). Sub-agent or independent
       // TodoWrite lists must NOT overwrite ralph's persistent task state.
-      if (ralphSessionIdRef.current && isRalphTaskUpdate(todos)) {
+      if (ralphSessionIdRef.current && isRalphUpdate) {
         void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
       }
 
@@ -2038,6 +2186,11 @@ export function ChatApp({
     error?: string,
     input?: Record<string, unknown>
   ) => {
+    const completedToolName = toolNameByIdRef.current.get(toolId);
+    if (completedToolName) {
+      toolNameByIdRef.current.delete(toolId);
+    }
+
     // Update streaming state
     if (success) {
       streamingState.handleToolComplete(toolId, output);
@@ -2150,14 +2303,23 @@ export function ChatApp({
     }
 
     // Update persistent todo panel when TodoWrite completes (handles late input)
-    if (input && input.todos && Array.isArray(input.todos)) {
-      const todos = mergeBlockedBy(normalizeTodoItems(input.todos), todoItemsRef.current);
-      todoItemsRef.current = todos;
-      setTodoItems(todos);
+    const isTodoWriteCompletion = completedToolName === "TodoWrite";
+    if (isTodoWriteCompletion && input && input.todos && Array.isArray(input.todos)) {
+      const previousTodos = todoItemsRef.current;
+      const todos = mergeBlockedBy(normalizeTodoItems(input.todos), previousTodos);
       const taskStreamPinned = Boolean(ralphSessionIdRef.current);
+      const isRalphUpdate = isRalphTaskUpdate(todos, previousTodos);
+
+      // During /ralph, ignore unrelated sub-agent TodoWrite payloads so they
+      // cannot replace the in-memory ralph task state.
+      const shouldApplyTodoState = !ralphSessionIdRef.current || isRalphUpdate;
+      if (shouldApplyTodoState) {
+        todoItemsRef.current = todos;
+        setTodoItems(todos);
+      }
 
       // Persist to tasks.json only when the items are ralph task updates
-      if (ralphSessionIdRef.current && isRalphTaskUpdate(todos)) {
+      if (ralphSessionIdRef.current && isRalphUpdate) {
         void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
       }
 
@@ -2251,7 +2413,7 @@ export function ChatApp({
 
           // Call the stream handler - this is async but we don't await it
           // The callbacks will handle state updates
-          onStreamMessage?.(
+          void Promise.resolve(onStreamMessage?.(
             promptToSend,
             // onChunk: append to current message
             (chunk) => {
@@ -2335,7 +2497,9 @@ export function ChatApp({
               streamingMetaRef.current = meta;
               setStreamingMeta(meta);
             }
-          );
+          )).catch((error) => {
+            handleStreamStartupError(error, currentGeneration);
+          });
           } catch (error) {
             // Prevent unhandled errors from crashing the TUI
             console.error("[workflow auto-start] Error during context clear or streaming:", error);
@@ -2349,7 +2513,7 @@ export function ChatApp({
 
       return () => clearTimeout(timeoutId);
     }
-  }, [workflowState.workflowActive, workflowState.initialPrompt, isStreaming, onStreamMessage]);
+  }, [workflowState.workflowActive, workflowState.initialPrompt, isStreaming, onStreamMessage, handleStreamStartupError]);
 
   // Reset workflow started ref when workflow becomes inactive
   useEffect(() => {
@@ -2503,44 +2667,15 @@ export function ChatApp({
     const messageId = streamingMessageIdRef.current;
     if (messageId) {
       setMessagesWindowed((prev: ChatMessage[]) =>
-        prev.map((msg: ChatMessage) => {
+        prev.map((msg: ChatMessage, index: number) => {
           if (msg.id === messageId && msg.streaming) {
-            // DUAL POPULATION: Update legacy parallelAgents field AND parts[] array
-            // Group agents by their parent tool call to create separate AgentParts per tool
-            const agentsByToolCall = new Map<string | undefined, ParallelAgent[]>();
-            for (const agent of parallelAgents) {
-              const toolCallId = agent.taskToolCallId;
-              if (!agentsByToolCall.has(toolCallId)) {
-                agentsByToolCall.set(toolCallId, []);
-              }
-              agentsByToolCall.get(toolCallId)!.push(agent);
-            }
+            const updatedParts = mergeParallelAgentsIntoParts(
+              msg.parts ?? [],
+              parallelAgents,
+              msg.timestamp,
+              shouldGroupSubagentTrees({ ...msg, parallelAgents }, index === prev.length - 1),
+            );
 
-            let updatedParts = msg.parts ?? [];
-            
-            // Create/update an AgentPart for each tool call
-            for (const [toolCallId, agents] of agentsByToolCall) {
-              // Find the ToolPart ID for this tool call
-              let parentToolPartId: PartId | undefined = undefined;
-              if (toolCallId) {
-                const toolPart = updatedParts.find(
-                  (p) => p.type === "tool" && (p as ToolPart).toolCallId === toolCallId
-                ) as ToolPart | undefined;
-                parentToolPartId = toolPart?.id;
-              }
-
-              // Find existing AgentPart for this tool call or create new one
-              const existingAgentPart = updatedParts.find(
-                (p) => p.type === "agent" && (p as AgentPart).parentToolPartId === parentToolPartId
-              ) as AgentPart | undefined;
-              
-              const agentPart: AgentPart = existingAgentPart
-                ? { ...existingAgentPart, agents, parentToolPartId }
-                : { id: createPartId(), type: "agent", agents, parentToolPartId, createdAt: new Date().toISOString() };
-              
-              updatedParts = upsertPart(updatedParts, agentPart);
-            }
-            
             return { ...msg, parallelAgents, parts: updatedParts };
           }
           return msg;
@@ -2553,44 +2688,15 @@ export function ChatApp({
     const bgMsgId = backgroundAgentMessageIdRef.current;
     if (bgMsgId) {
       setMessagesWindowed((prev: ChatMessage[]) =>
-        prev.map((msg: ChatMessage) => {
+        prev.map((msg: ChatMessage, index: number) => {
           if (msg.id === bgMsgId) {
-            // DUAL POPULATION: Update legacy parallelAgents field AND parts[] array
-            // Group agents by their parent tool call to create separate AgentParts per tool
-            const agentsByToolCall = new Map<string | undefined, ParallelAgent[]>();
-            for (const agent of parallelAgents) {
-              const toolCallId = agent.taskToolCallId;
-              if (!agentsByToolCall.has(toolCallId)) {
-                agentsByToolCall.set(toolCallId, []);
-              }
-              agentsByToolCall.get(toolCallId)!.push(agent);
-            }
+            const updatedParts = mergeParallelAgentsIntoParts(
+              msg.parts ?? [],
+              parallelAgents,
+              msg.timestamp,
+              shouldGroupSubagentTrees({ ...msg, parallelAgents }, index === prev.length - 1),
+            );
 
-            let updatedParts = msg.parts ?? [];
-            
-            // Create/update an AgentPart for each tool call
-            for (const [toolCallId, agents] of agentsByToolCall) {
-              // Find the ToolPart ID for this tool call
-              let parentToolPartId: PartId | undefined = undefined;
-              if (toolCallId) {
-                const toolPart = updatedParts.find(
-                  (p) => p.type === "tool" && (p as ToolPart).toolCallId === toolCallId
-                ) as ToolPart | undefined;
-                parentToolPartId = toolPart?.id;
-              }
-
-              // Find existing AgentPart for this tool call or create new one
-              const existingAgentPart = updatedParts.find(
-                (p) => p.type === "agent" && (p as AgentPart).parentToolPartId === parentToolPartId
-              ) as AgentPart | undefined;
-              
-              const agentPart: AgentPart = existingAgentPart
-                ? { ...existingAgentPart, agents, parentToolPartId }
-                : { id: createPartId(), type: "agent", agents, parentToolPartId, createdAt: new Date().toISOString() };
-              
-              updatedParts = upsertPart(updatedParts, agentPart);
-            }
-            
             return { ...msg, parallelAgents, parts: updatedParts };
           }
           return msg;
@@ -2632,7 +2738,6 @@ export function ChatApp({
     // stream completion.  Without this, the placeholder assistant message
     // would stay in the streaming state indefinitely.
     if (
-      parallelAgents.length > 0 &&
       streamingMessageIdRef.current &&
       isStreamingRef.current &&
       isAgentOnlyStreamRef.current
@@ -2641,7 +2746,12 @@ export function ChatApp({
       const durationMs = streamingStartRef.current
         ? Date.now() - streamingStartRef.current
         : undefined;
-      const finalizedAgents = parallelAgents.map((a) => {
+      // SDK-side correlation cleanup may clear live parallelAgents before this
+      // finalizer runs. Fall back to the agents already baked onto the message
+      // so we can still stop streaming and preserve the final tree state.
+      const messageAgents = messages.find((m) => m.id === messageId)?.parallelAgents ?? [];
+      const sourceAgents = parallelAgents.length > 0 ? parallelAgents : messageAgents;
+      const finalizedAgents = sourceAgents.map((a) => {
         if (a.background) return a;
         return a.status === "running" || a.status === "pending"
           ? {
@@ -2703,7 +2813,7 @@ export function ChatApp({
         }, 50);
       }
     }
-  }, [parallelAgents, messageQueue, toolCompletionVersion]);
+  }, [parallelAgents, messageQueue, toolCompletionVersion, messages]);
 
   // Initialize SubagentGraphBridge when createSubagentSession is available
   useEffect(() => {
@@ -2731,11 +2841,9 @@ export function ChatApp({
   const handleQuestionAnswer = useCallback((answer: QuestionAnswer) => {
     const normalizedHitl = normalizeHitlAnswer(answer);
 
-    // Clear active question first
-    setActiveQuestion(null);
-
-    // Remove from pending questions queue
-    streamingState.removePendingQuestion();
+    // Advance to the next pending question (if any).
+    const nextQuestion = streamingState.removePendingQuestion();
+    setActiveQuestion(nextQuestion ?? null);
 
     // If there's a permission respond callback, call it (SDK permission requests)
     if (permissionRespondRef.current) {
@@ -3425,7 +3533,9 @@ export function ChatApp({
             setStreamingMeta(meta);
           };
 
-          void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete, handleMeta));
+          void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete, handleMeta)).catch((error) => {
+            handleStreamStartupError(error, currentGeneration);
+          });
         }
       },
       spawnSubagent: async (options) => {
@@ -3739,7 +3849,7 @@ export function ChatApp({
       });
       return false;
     }
-  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model, onModelChange, onSessionMcpServersChange, onCommandExecutionTelemetry, mcpServerToggles]);
+  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model, onModelChange, onSessionMcpServersChange, onCommandExecutionTelemetry, mcpServerToggles, handleStreamStartupError]);
 
   /**
    * Handle autocomplete selection (Tab for complete, Enter for execute).
@@ -4015,6 +4125,8 @@ export function ChatApp({
               (a) => a.status === "running" || a.status === "pending"
             );
             if (hasRunningAgents) {
+              // Inform parent integration so SDK-side run/correlation state is reset too.
+              onInterrupt?.();
               wasInterruptedRef.current = true;
               const interruptedAgents = currentAgents.map((a) =>
                 a.status === "running" || a.status === "pending"
@@ -4246,6 +4358,8 @@ export function ChatApp({
               (a) => a.status === "running" || a.status === "pending"
             );
             if (hasRunningAgents) {
+              // Inform parent integration so SDK-side run/correlation state is reset too.
+              onInterrupt?.();
               wasInterruptedRef.current = true;
               const interruptedAgents = currentAgents.map((a) =>
                 a.status === "running" || a.status === "pending"
@@ -4900,10 +5014,12 @@ export function ChatApp({
           setStreamingMeta(meta);
         };
 
-        void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete, handleMeta));
+        void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete, handleMeta)).catch((error) => {
+          handleStreamStartupError(error, currentGeneration);
+        });
       }
     },
-    [onSendMessage, onStreamMessage, messageQueue]
+    [onSendMessage, onStreamMessage, messageQueue, handleStreamStartupError]
   );
 
   // Keep the sendMessageRef in sync with sendMessage callback
@@ -5276,7 +5392,7 @@ export function ChatApp({
           messages={[...readHistoryBuffer(), ...messages]}
           liveThinkingText={streamingMeta?.thinkingText}
           liveParallelAgents={parallelAgents}
-          modelId={model}
+          modelId={currentModelId ?? initialModelId ?? model}
           isStreaming={isStreaming}
           streamingMeta={streamingMeta}
         />

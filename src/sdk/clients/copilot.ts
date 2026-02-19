@@ -53,9 +53,12 @@ import {
   type CustomAgentConfig as SdkCustomAgentConfig,
 } from "@github/copilot-sdk";
 
-import { initCopilotSessionOptions } from "./init.ts";
-import { loadCopilotAgents } from "../config/copilot-manual.ts";
-import { BACKGROUND_COMPACTION_THRESHOLD, BUFFER_EXHAUSTION_THRESHOLD } from "../graph/types.ts";
+import { initCopilotSessionOptions } from "../init.ts";
+import { loadCopilotAgents } from "../../config/copilot-manual.ts";
+import {
+  BACKGROUND_COMPACTION_THRESHOLD,
+  BUFFER_EXHAUSTION_THRESHOLD,
+} from "../../graph/types.ts";
 
 import {
   stripProviderPrefix,
@@ -69,7 +72,7 @@ import {
   type AgentEvent,
   type ToolDefinition,
   type ToolContext,
-} from "./types.ts";
+} from "../types.ts";
 
 /**
  * Permission handler function type (unified interface)

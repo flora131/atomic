@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { McpRuntimeSnapshot } from "./types.ts";
-import { buildOpenCodeMcpSnapshot } from "./opencode-client.ts";
+import type { McpRuntimeSnapshot } from "../types.ts";
+import { buildOpenCodeMcpSnapshot } from "./index.ts";
 
 describe("OpenCode MCP runtime snapshot", () => {
   test("builds snapshot from status, tool ids, and resources", async () => {

@@ -44,16 +44,16 @@
         "typescript": "^5.9.3"
     },
     "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.2.44",
+        "@anthropic-ai/claude-agent-sdk": "^0.2.47",
         "@azure/monitor-opentelemetry": "^1.15.1",
         "@clack/prompts": "^1.0.1",
         "@commander-js/extra-typings": "^14.0.0",
-        "@github/copilot-sdk": "^0.1.24",
+        "@github/copilot-sdk": "^0.1.25",
         "@opencode-ai/sdk": "^1.2.6",
         "@opentelemetry/api": "^1.9.0",
         "@opentelemetry/api-logs": "^0.212.0",
-        "@opentui/core": "^0.1.79",
-        "@opentui/react": "^0.1.79",
+        "@opentui/core": "^0.1.80",
+        "@opentui/react": "^0.1.80",
         "ci-info": "^4.4.0",
         "commander": "^14.0.3"
     }

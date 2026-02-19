@@ -47,10 +47,29 @@ function createParallelAgent(taskToolCallId: string, agentName: string): Paralle
 function createAgentPartsForMessage(
   parts: Part[],
   parallelAgents: ParallelAgent[],
-  messageId: string
+  messageId: string,
+  groupIntoSingleTree: boolean = false,
 ): Part[] {
-  const updatedParts = [...parts];
-  
+  if (parallelAgents.length === 0) return parts;
+
+  if (groupIntoSingleTree) {
+    const nonAgentParts = parts.filter((p) => p.type !== "agent");
+    return [
+      ...nonAgentParts,
+      {
+        id: `agent-${messageId}-grouped`,
+        type: "agent",
+        agents: parallelAgents,
+        parentToolPartId: undefined,
+        createdAt: new Date().toISOString(),
+      } satisfies AgentPart,
+    ];
+  }
+
+  const updatedParts = parts.filter(
+    (p) => !(p.type === "agent" && (p as AgentPart).id === `agent-${messageId}-grouped`)
+  );
+
   // Group agents by their parent tool call to create separate AgentParts per tool
   const agentsByToolCall = new Map<string | undefined, ParallelAgent[]>();
   for (const agent of parallelAgents) {
@@ -259,6 +278,26 @@ describe("Multiple task tool calls - AgentPart scoping", () => {
     expect(agentPart2.agents[0]!.name).toBe("codebase-analyzer");
   });
 
+  it("preserves chronological tool-call order when multiple groups are inserted together", () => {
+    const messageId = "msg-batch-order";
+    const tool1 = createToolPart("tool-1", "task");
+    const tool2 = createToolPart("tool-2", "task");
+
+    const parts = createAgentPartsForMessage(
+      [tool1, tool2],
+      [
+        createParallelAgent("tool-1", "a1"),
+        createParallelAgent("tool-2", "b1"),
+      ],
+      messageId,
+    );
+
+    const agentParts = parts.filter((p) => p.type === "agent") as AgentPart[];
+    expect(agentParts.length).toBe(2);
+    expect(agentParts[0]!.parentToolPartId).toBe(tool1.id);
+    expect(agentParts[1]!.parentToolPartId).toBe(tool2.id);
+  });
+
   it("should maintain chronological order of parts", () => {
     const messageId = "msg-order";
     
@@ -281,5 +320,49 @@ describe("Multiple task tool calls - AgentPart scoping", () => {
     expect((parts[2] as AgentPart).parentToolPartId).toBe(tool1.id);
     expect(parts[3]!.type).toBe("agent");
     expect((parts[3] as AgentPart).parentToolPartId).toBe(tool2.id);
+  });
+
+  it("should group all subagents into one AgentPart in grouped mode", () => {
+    const messageId = "msg-grouped";
+
+    const tool1 = createToolPart("tool-1", "task");
+    const tool2 = createToolPart("tool-2", "task");
+    const parts: Part[] = [tool1, tool2];
+
+    const grouped = createAgentPartsForMessage(
+      parts,
+      [
+        createParallelAgent("tool-1", "agent1"),
+        createParallelAgent("tool-2", "agent2"),
+        createParallelAgent("tool-1", "agent3"),
+      ],
+      messageId,
+      true,
+    );
+
+    expect(grouped.length).toBe(3);
+    const groupedPart = grouped.find((p) => p.type === "agent") as AgentPart;
+    expect(groupedPart.parentToolPartId).toBeUndefined();
+    expect(groupedPart.agents.length).toBe(3);
+  });
+
+  it("should remove grouped AgentPart when switching back to split mode", () => {
+    const messageId = "msg-split-after-group";
+
+    const tool1 = createToolPart("tool-1", "task");
+    const tool2 = createToolPart("tool-2", "task");
+    const agents = [
+      createParallelAgent("tool-1", "agent1"),
+      createParallelAgent("tool-2", "agent2"),
+    ];
+
+    const grouped = createAgentPartsForMessage([tool1, tool2], agents, messageId, true);
+    const split = createAgentPartsForMessage(grouped, agents, messageId, false);
+
+    expect(split.length).toBe(4);
+    const groupedPart = split.find(
+      (p) => p.type === "agent" && (p as AgentPart).parentToolPartId === undefined
+    );
+    expect(groupedPart).toBeUndefined();
   });
 });

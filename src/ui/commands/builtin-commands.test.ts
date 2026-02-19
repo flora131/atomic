@@ -15,7 +15,7 @@ import {
   builtinCommands,
   registerBuiltinCommands,
 } from "./builtin-commands.ts";
-import { CommandRegistry } from "./registry.ts";
+import { CommandRegistry, globalRegistry } from "./registry.ts";
 import type { CommandContext, CommandResult } from "./registry.ts";
 
 // Helper to create a minimal command context for testing
@@ -60,6 +60,30 @@ describe("Built-in Commands", () => {
       expect(result.success).toBe(true);
       // Result should contain either "Available Commands" or "No commands available"
       expect(result.message).toMatch(/Available Commands|No commands available/);
+    });
+
+    test("labels built-in commands as slash commands", async () => {
+      const existingCommands = globalRegistry.all();
+      globalRegistry.clear();
+      globalRegistry.register({
+        name: "test-help-builtin",
+        description: "test command",
+        category: "builtin",
+        execute: () => ({ success: true }),
+      });
+
+      try {
+        const context = createMockContext();
+        const result = await helpCommand.execute("", context);
+
+        expect(result.success).toBe(true);
+        expect(result.message).toContain("**Slash Commands**");
+      } finally {
+        globalRegistry.clear();
+        for (const command of existingCommands) {
+          globalRegistry.register(command);
+        }
+      }
     });
 
     test("includes model info in agent details when available", async () => {

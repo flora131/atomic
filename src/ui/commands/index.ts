@@ -32,7 +32,7 @@ export {
 import { globalRegistry } from "./registry.ts";
 import { registerBuiltinCommands } from "./builtin-commands.ts";
 import { registerWorkflowCommands, loadWorkflowsFromDisk } from "./workflow-commands.ts";
-import { registerSkillCommands, discoverAndRegisterDiskSkills, materializeBuiltinSkillsForSdk } from "./skill-commands.ts";
+import { discoverAndRegisterDiskSkills } from "./skill-commands.ts";
 import { registerAgentCommands } from "./agent-commands.ts";
 
 // ============================================================================
@@ -63,10 +63,6 @@ export {
 } from "./workflow-commands.ts";
 
 export {
-  // Skill commands
-  registerSkillCommands,
-  // SDK skill materialization
-  materializeBuiltinSkillsForSdk,
   // Disk skill discovery
   discoverAndRegisterDiskSkills,
   type SkillSource,
@@ -98,16 +94,8 @@ export async function initializeCommandsAsync(): Promise<number> {
   await loadWorkflowsFromDisk();
   registerWorkflowCommands();
 
-  // Register skill commands
-  registerSkillCommands();
-
-  // Materialize builtin skills as SKILL.md files on disk so each SDK's native
-  // skill discovery (Claude Skill tool, Copilot skillDirectories, OpenCode server)
-  // can find them for natural-language invocation.
-  materializeBuiltinSkillsForSdk();
-
   // Discover and register disk-based skills from .claude/skills/, .github/skills/, etc.
-  // Disk skills override non-pinned builtins (project > global > builtin priority)
+  // Disk skills use project > user priority
   await discoverAndRegisterDiskSkills();
 
   // Discover and register agent commands from .claude/agents/*.md etc.

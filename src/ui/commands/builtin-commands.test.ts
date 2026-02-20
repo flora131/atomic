@@ -10,13 +10,12 @@ import {
   exitCommand,
   modelCommand,
   mcpCommand,
-  contextCommand,
   groupByProvider,
   formatGroupedModels,
   builtinCommands,
   registerBuiltinCommands,
 } from "./builtin-commands.ts";
-import { CommandRegistry } from "./registry.ts";
+import { CommandRegistry, globalRegistry } from "./registry.ts";
 import type { CommandContext, CommandResult } from "./registry.ts";
 
 // Helper to create a minimal command context for testing
@@ -61,6 +60,50 @@ describe("Built-in Commands", () => {
       expect(result.success).toBe(true);
       // Result should contain either "Available Commands" or "No commands available"
       expect(result.message).toMatch(/Available Commands|No commands available/);
+    });
+
+    test("labels built-in commands as slash commands", async () => {
+        const existingCommands = globalRegistry.all();
+        globalRegistry.clear();
+        globalRegistry.register({
+            name: "test-help-builtin",
+            description: "test command",
+            category: "builtin",
+            execute: () => ({ success: true }),
+        });
+
+        try {
+            const context = createMockContext();
+            const result = await helpCommand.execute("", context);
+
+            expect(result.success).toBe(true);
+            expect(result.message).toContain("**Slash Commands**");
+        } finally {
+            globalRegistry.clear();
+            for (const command of existingCommands) {
+                globalRegistry.register(command);
+            }
+        }
+    });
+
+    test("always mentions sub-agents even when none are registered", async () => {
+        const existingCommands = globalRegistry.all();
+        globalRegistry.clear();
+        globalRegistry.register(helpCommand);
+
+        try {
+            const context = createMockContext();
+            const result = await helpCommand.execute("", context);
+
+            expect(result.success).toBe(true);
+            expect(result.message).toContain("**Sub-Agents**");
+            expect(result.message).toContain("(no sub-agents registered)");
+        } finally {
+            globalRegistry.clear();
+            for (const command of existingCommands) {
+                globalRegistry.register(command);
+            }
+        }
     });
 
     test("includes model info in agent details when available", async () => {
@@ -457,59 +500,6 @@ describe("Built-in Commands", () => {
     });
   });
 
-  describe("contextCommand", () => {
-    test("displays context usage with session", async () => {
-      const mockSession = {
-        getContextUsage: async () => ({
-          maxTokens: 200000,
-          inputTokens: 5000,
-          outputTokens: 3000,
-        }),
-        getSystemToolsTokens: () => 1000,
-      };
-
-      const context = createMockContext({
-        session: mockSession as any,
-        getModelDisplayInfo: async () => ({
-          model: "claude-sonnet-4",
-          tier: "standard",
-          contextWindow: 200000,
-        }),
-      });
-
-      const result = await contextCommand.execute("", context);
-
-      expect(result.success).toBe(true);
-      expect(result.contextInfo).toBeDefined();
-      expect(result.contextInfo?.model).toBe("claude-sonnet-4");
-      expect(result.contextInfo?.maxTokens).toBe(200000);
-    });
-
-    test("handles missing model info gracefully", async () => {
-      const context = createMockContext({
-        session: null,
-      });
-
-      const result = await contextCommand.execute("", context);
-
-      expect(result.success).toBe(true);
-      expect(result.contextInfo).toBeDefined();
-      expect(result.contextInfo?.model).toBe("Unknown");
-    });
-
-    test("falls back to client system tools tokens", async () => {
-      const context = createMockContext({
-        session: null,
-        getClientSystemToolsTokens: () => 1500,
-      });
-
-      const result = await contextCommand.execute("", context);
-
-      expect(result.success).toBe(true);
-      expect(result.contextInfo).toBeDefined();
-    });
-  });
-
   describe("groupByProvider", () => {
     test("groups models by provider ID", async () => {
       const models = [
@@ -601,7 +591,6 @@ describe("Built-in Commands", () => {
       expect(commandNames).toContain("exit");
       expect(commandNames).toContain("model");
       expect(commandNames).toContain("mcp");
-      expect(commandNames).toContain("context");
     });
   });
 
@@ -623,7 +612,6 @@ describe("Built-in Commands", () => {
       expect(registry.has("exit")).toBe(true);
       expect(registry.has("model")).toBe(true);
       expect(registry.has("mcp")).toBe(true);
-      expect(registry.has("context")).toBe(true);
     });
 
     test("is idempotent - allows multiple registrations", async () => {

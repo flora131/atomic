@@ -1,552 +1,802 @@
-# E2E Test & Bug Verification Suite
+# E2E Testing Guide
 
-> **Purpose:** Run end-to-end tests of all workflows in the codebase (`/research-codebase` -> `/create-spec` -> `/ralph`) across all three agents (claude, opencode, copilot), while simultaneously verifying that three known TUI bugs are fixed and stay fixed. Any regression or new bug discovered during testing MUST be fixed and committed before proceeding.
+> **Purpose:** End-to-end testing of the Atomic TUI across all three agents (claude, opencode, copilot). The test scenario builds a **snake game in Rust from scratch**, exercising every user-facing feature: slash commands, keyboard shortcuts, tool calls, MCP, message queuing, model selection, themes, session management, skills, agents, workflows, and HITL dialogs.
+
+Tip: This guide is window-based. In `REMOTE` mode, `tmux-cli launch` creates a new window; in `LOCAL` mode, use `tmux new-window` and target the returned `session:window.pane` with `tmux-cli`.
 
 ---
 
 ## Prerequisites
 
-Before starting any tests, complete these setup steps exactly:
-
-1. Set `ATOMIC_PROJECT_DIR` env var to the root of your local Atomic clone:
+1. **Verify the Atomic project builds and tests pass:**
 
     ```bash
-    export ATOMIC_PROJECT_DIR=/path/to/your/atomic/clone
+    bun install && bun typecheck && bun lint && bun test
     ```
 
-2. **Clone the test fixture project:**
+    If any fail, fix them before proceeding.
+
+2. **Set environment variables:**
 
     ```bash
-    rm -rf /tmp/rust-snake && git clone https://github.com/SLMT/rust-snake /tmp/rust-snake
+    export ATOMIC_PROJECT_DIR=~/Documents/projects/atomic
     ```
 
-3. **Create a tmux screenshots directory:**
+3. **Create a screenshots directory:**
 
     ```bash
-    mkdir -p ./tmux-screenshots
+    mkdir -p $ATOMIC_PROJECT_DIR/tmux-screenshots
     ```
 
-4. **Read the three open bug issues for full context:**
+4. **Ensure `tmux-cli` is available:**
 
     ```bash
-    gh issue view 200  # Non-built-in skill slash commands silently drop user arguments
-    gh issue view 204  # Stopped parallel subagents respawn automatically and leak across prompts
-    gh issue view 205  # Skill loading indicator appears twice in terminal UI
+    tmux-cli help
     ```
 
-5. **Verify the project builds and existing tests pass:**
+5. **Confirm tmux mode and launch method (window-based):**
+
     ```bash
-    bun install
-    bun typecheck
-    bun lint
-    bun test
+    tmux-cli help | rg "MODE:"
     ```
-    If any of these fail, fix them before proceeding. Do NOT begin E2E testing on a broken build.
+
+    - If it prints `MODE: REMOTE ...`, create windows with:
+
+      ```bash
+      tmux-cli launch "zsh"
+      ```
+
+    - If it prints `MODE: LOCAL ...`, create windows with:
+
+      ```bash
+      tmux new-window -P -F '#S:#I.0' -n atomic-e2e "zsh"
+      ```
+
+      Use the returned pane target (for example, `dev:3.0`) as `WINDOW_ID` for all `tmux-cli send/capture/wait_idle/kill` commands.
 
 ---
 
 ## Testing Protocol
 
-### How to Drive the TUI via tmux
+### How to Drive the TUI via `tmux-cli`
 
-Every test MUST be executed inside a tmux session. Follow this exact protocol for every interaction:
+Every test MUST be executed in a dedicated tmux window. Follow this protocol for every interaction:
 
-1. **Start a tmux session:**
-
-    ```bash
-    tmux new-session -d -s atomic-test -x 200 -y 50
-    ```
-
-2. **Launch Atomic inside tmux:**
+1. **Launch a shell window** (always launch a shell first to avoid losing output):
 
     ```bash
-    tmux send-keys -t atomic-test 'cd /tmp/rust-snake && bun run $ATOMIC_PROJECT_DIR/src/cli.ts chat -a <AGENT>' Enter
+    # REMOTE mode:
+    tmux-cli launch "zsh"
+    # OR LOCAL mode:
+    tmux new-window -P -F '#S:#I.0' -n atomic-e2e "zsh"
+    # Save the returned target (e.g., "remote-cli-session:2.0" or "dev:3.0") as WINDOW_ID
     ```
 
-    Replace `<AGENT>` with `claude`, `opencode`, or `copilot` depending on which agent you are testing.
-
-3. **Send commands by typing into the tmux pane:**
+2. **Start Atomic inside that window:**
 
     ```bash
-    tmux send-keys -t atomic-test '<YOUR COMMAND HERE>' Enter
+    tmux-cli send "cd /tmp/snake_game/<AGENT> && bun run $ATOMIC_PROJECT_DIR/src/cli.ts chat -a <AGENT>" --pane=<WINDOW_ID>
     ```
 
-4. **Capture TUI state after EVERY significant action:**
+    Replace `<AGENT>` with `claude`, `opencode`, or `copilot`.
+
+3. **Send commands to the TUI:**
 
     ```bash
-    tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/pane-$(date +%s).txt
+    tmux-cli send "<YOUR COMMAND HERE>" --pane=<WINDOW_ID>
     ```
 
-    Always name captures descriptively when saving for evidence:
+4. **Wait for operations to complete** before capturing:
 
     ```bash
-    tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/<AGENT>-<STEP>-<DESCRIPTION>.txt
+    tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=3.0
     ```
 
-5. **Wait for operations to complete** before capturing. Poll the pane output:
+5. **Capture TUI state after EVERY significant action:**
 
     ```bash
-    tmux capture-pane -t atomic-test -p | tail -20
+    tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-<STEP>-<DESCRIPTION>.txt
     ```
 
-    Look for the input prompt to reappear, or for the expected output text.
+6. **Check window status at any time:**
 
-6. **Kill the session when done with a test run:**
     ```bash
-    tmux kill-session -t atomic-test
+    tmux-cli status
+    tmux-cli list_windows
     ```
+
+7. **Kill the window when done:**
+
+    ```bash
+    tmux-cli kill --pane=<WINDOW_ID>
+    ```
+
+### Continuous Screenshot Polling
+
+**IMPORTANT:** Some UI events (spinners, status transitions, loading indicators) are transient and can be missed with a single capture. To catch these, use continuous polling that captures every 2 seconds during every test step.
+
+Define these helper functions at the start of your session:
+
+```bash
+# Start background polling — captures every 2 seconds
+start_polling() {
+  local window_id=$1 agent=$2 step=$3
+  (
+    local i=0
+    while true; do
+      tmux-cli capture --pane=$window_id > $ATOMIC_PROJECT_DIR/tmux-screenshots/${agent}-${step}-poll-${i}.txt 2>/dev/null
+      i=$((i + 1))
+      sleep 2
+    done
+  ) &
+  echo $!
+}
+
+# Stop background polling
+stop_polling() {
+  kill $1 2>/dev/null
+  wait $1 2>/dev/null
+}
+```
+
+**Usage pattern for every test step:**
+
+```bash
+# 1. Start polling BEFORE sending the command
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> <STEP>)
+
+# 2. Send the command
+tmux-cli send "<YOUR COMMAND>" --pane=<WINDOW_ID>
+
+# 3. Wait for completion
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=3.0
+
+# 4. Stop polling
+stop_polling $POLL_PID
+
+# 5. Take a final definitive capture
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-<STEP>-final.txt
+```
+
+The polling captures transient UI states (tool status transitions, spinner animations, loading indicators) while the final capture records the end state.
+
+### `tmux-cli` Command Reference
+
+| Command                                            | Description                                                    |
+| -------------------------------------------------- | -------------------------------------------------------------- |
+| `tmux-cli launch "cmd"`                            | Launches in a new window when `MODE: REMOTE`. **Always launch `zsh` first.** |
+| `tmux new-window -P -F '#S:#I.0' -n name "cmd"`   | Creates a new window when `MODE: LOCAL`; use the returned `session:window.pane` as `WINDOW_ID`. |
+| `tmux-cli send "text" --pane=ID`                   | Send text + Enter to a window's main pane                      |
+| `tmux-cli send "text" --pane=ID --enter=False`     | Send text without pressing Enter                               |
+| `tmux-cli send "text" --pane=ID --delay-enter=0.5` | Custom delay before Enter (seconds)                            |
+| `tmux-cli capture --pane=ID`                       | Capture output from a window's main pane                       |
+| `tmux-cli wait_idle --pane=ID --idle-time=3.0`     | Wait until output is idle for N seconds                        |
+| `tmux-cli status`                                  | Show current tmux location and targets                         |
+| `tmux-cli list_windows`                            | List windows in the managed remote session                     |
+| `tmux-cli kill --pane=ID`                          | Kill a window by targeting its `WINDOW_ID`                     |
+| `tmux-cli help`                                    | Show full help documentation                                   |
 
 ### When You Find a Bug
 
-If at ANY point during testing you observe a bug (either one of the three known bugs regressing, or a new bug), you MUST:
+If at ANY point during testing you observe a bug, you MUST:
 
 1. **Stop testing immediately.**
-2. **Capture evidence:** Save a tmux pane capture with a descriptive name, e.g.:
+2. **Capture evidence:**
     ```bash
-    tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/BUG-<issue-number-or-description>.txt
+    tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/BUG-<description>.txt
     ```
-3. **Identify the root cause** in the Atomic source code. Read the relevant files, trace the execution path.
-4. **Fix the bug** directly in the Atomic source code.
+3. **Identify the root cause** in the Atomic source code.
+4. **Fix the bug** directly in the source code.
 5. **Verify the fix:**
     - Run `bun typecheck && bun lint && bun test` — all must pass.
-    - Re-run the specific test scenario that triggered the bug and capture a new tmux snapshot showing it's fixed.
+    - Re-run the specific test scenario and capture a new snapshot showing it's fixed.
 6. **Commit the fix:**
     ```bash
     git add <specific-files-changed>
-    git commit -m "fix(<component>): <concise description of what was fixed>"
+    git commit -m "fix(<component>): <concise description>"
     ```
 7. **Resume testing from where you left off.**
 
-Do NOT skip bugs. Do NOT mark any test as passed if a bug was observed. Do NOT proceed to the next test phase until all bugs in the current phase are fixed.
+Do NOT skip bugs. Do NOT proceed to the next phase until all bugs are fixed.
 
 ---
 
-## Phase 1: Bug Regression Tests (Run FIRST)
+## Test Scenario: Building a Snake Game in Rust
 
-These tests verify that the three known bugs are currently fixed. Run them BEFORE the Ralph E2E flow. If any regress here, fix before moving on.
+The test builds a terminal-based snake game from scratch using Rust + crossterm. This exercises real tool calls (cargo, file creation, compilation), multi-turn conversation, and all TUI features.
 
-### Test 1.1: Skill Loading Indicator Appears Only Once (Issue #205)
+Run this entire sequence for **each agent** (`claude`, `opencode`, `copilot`). Replace `<AGENT>` throughout.
 
-**What to test:** When a skill is loaded via slash command, the loading indicator must appear exactly ONCE.
+### Phase 1: Setup & Launch
 
-**Steps:**
+```bash
+# 1. Create the project directory
+mkdir -p /tmp/snake_game/<AGENT>
 
-1. Start Atomic with the `claude` agent in tmux.
-2. Type `/prompt-engineer` and press Enter.
-3. When prompted, enter: `Optimize this prompt: Create a hello world program in Rust.`
-4. **Immediately start capturing pane output every 1 second for 10 seconds:**
-    ```bash
-    for i in $(seq 1 10); do
-      tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/claude-skill-indicator-t${i}.txt
-      sleep 1
-    done
-    ```
-5. **Inspect every captured file.** Count the number of times `skill (prompt-engineer)` appears in each capture.
+# 2. Launch a shell window
+# REMOTE mode:
+tmux-cli launch "zsh"
+# OR LOCAL mode:
+tmux new-window -P -F '#S:#I.0' -n atomic-e2e "zsh"
+# Save the returned window target as WINDOW_ID
 
-**Pass criteria:**
+# 3. Start polling to catch startup UI events
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 01-launch)
 
-- The string `skill (prompt-engineer)` (or equivalent skill loading indicator) appears **at most once** in every single captured pane snapshot.
-- If it appears **twice or more** in ANY capture, this is a REGRESSION of issue #205. Fix it.
+# 4. Start Atomic with the agent
+tmux-cli send "cd /tmp/snake_game/<AGENT> && bun run $ATOMIC_PROJECT_DIR/src/cli.ts chat -a <AGENT>" --pane=<WINDOW_ID>
 
-**Repeat with:** `opencode` and `copilot` agents.
+# 5. Wait for the TUI to fully render
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=5.0
+
+# 6. Stop polling and take final capture
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-01-launch-final.txt
+```
+
+**Verify:** TUI renders with the input prompt, footer shows agent name and model.
+
+### Phase 2: Built-in Commands
+
+Test every built-in slash command before starting the coding task.
+
+#### 2.1 — `/help`
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 02-help)
+tmux-cli send "/help" --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=3.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-02-help-final.txt
+```
+
+**Verify:** All command categories listed — Slash Commands, Skills, Sub-Agents, Workflows.
+
+#### 2.2 — `/theme`
+
+```bash
+# Switch to light theme
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 03-theme-light)
+tmux-cli send "/theme light" --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=2.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-03-theme-light-final.txt
+
+# Switch back to dark theme
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 04-theme-dark)
+tmux-cli send "/theme dark" --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=2.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-04-theme-dark-final.txt
+```
+
+**Verify:** Colors change visibly between captures. Footer and messages reflect the active theme.
+
+#### 2.3 — `/model`
+
+```bash
+# List available models
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 05-model-list)
+tmux-cli send "/model list" --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=3.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-05-model-list-final.txt
+
+# Open interactive model selector
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 06-model-selector)
+tmux-cli send "/model select" --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=2.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-06-model-selector-final.txt
+
+# Dismiss the selector with ESC
+tmux-cli send "" --pane=<WINDOW_ID> --enter=False
+# Send ESC key sequence
+tmux-cli send $'\x1b' --pane=<WINDOW_ID> --enter=False
+```
+
+**Verify:** Model list shows providers and context window sizes. Selector dialog appears with keyboard navigation hints.
+
+#### 2.4 — `/mcp`
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 07-mcp)
+tmux-cli send "/mcp" --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=3.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-07-mcp-final.txt
+```
+
+**Verify:** MCP servers listed with enabled/disabled status and tool counts.
+
+### Phase 3: Building the Snake Game (Tool Calls)
+
+These prompts generate real tool calls — bash commands, file creation, file edits — that you must verify render correctly in the TUI.
+
+#### 3.1 — Initialize Rust Project
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 08-cargo-init)
+tmux-cli send "Initialize a new Rust project here with cargo init. Add crossterm and rand as dependencies in Cargo.toml for terminal rendering and random food placement." --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-08-cargo-init-final.txt
+```
+
+**Verify:**
+
+- Tool call status indicators appear: `○` (pending) → `●` blinking (running) → `●` green (completed)
+- Bash tool calls show the commands executed (`cargo init`, editing `Cargo.toml`)
+- File creation/edit tools show paths and content with syntax highlighting
+
+#### 3.2 — Create Game Logic (Multi-turn + Tool Calls)
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 09-game-logic)
+tmux-cli send "Now create the snake game in src/main.rs. Requirements: 1) 20x20 grid rendered with crossterm, 2) Snake moves with WASD keys, 3) Food spawns randomly, 4) Score displayed at top, 5) Game over on wall or self collision. Make it a complete, runnable game." --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=30.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-09-game-logic-final.txt
+```
+
+**Verify:**
+
+- Multiple tool calls execute (file edits, possibly bash for cargo check)
+- Edit tool shows file path and diff coloring (green for additions)
+- Streaming metadata visible: elapsed time, token count, spinner animation
+- On completion: summary line shows total time + tokens
+
+#### 3.3 — Message Queuing (Ctrl+Q)
+
+While the agent is still streaming from the previous step (or send a new long prompt), test message queuing:
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 10-message-queue)
+
+# Send a prompt that will trigger a long response
+tmux-cli send "Add a high score system that persists to a file called highscores.txt, and add a pause feature with the P key." --pane=<WINDOW_ID>
+
+# Immediately queue a follow-up message (Ctrl+Q = \x11)
+sleep 2
+tmux-cli send $'\x11' --pane=<WINDOW_ID> --enter=False
+sleep 0.5
+tmux-cli send "Also add a speed increase every 5 points to make the game progressively harder." --pane=<WINDOW_ID>
+tmux-cli send $'\x11' --pane=<WINDOW_ID> --enter=False
+
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=15.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-10-message-queue-final.txt
+```
+
+**Verify:**
+
+- Queue indicator appears in footer (e.g., "1 queued")
+- Input placeholder changes to streaming mode text
+- Queued message processes automatically after the first response completes
+
+#### 3.4 — Build & Compile (Bash Tool Verification)
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 11-cargo-build)
+tmux-cli send "Run cargo build and fix any compilation errors." --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=20.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-11-cargo-build-final.txt
+```
+
+**Verify:**
+
+- Bash tool call shows `cargo build` command and output
+- If errors occur, agent iterates to fix them (multi-turn tool usage)
+- Tool status transitions through pending → running → completed/error
+
+### Phase 4: Session Management
+
+#### 4.1 — Session History Scrolling
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 12-scroll)
+
+# Scroll up through messages with Up arrow
+tmux-cli send "" --pane=<WINDOW_ID> --enter=False
+# Send multiple Up arrows to scroll
+tmux-cli send $'\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A' --pane=<WINDOW_ID> --enter=False
+sleep 2
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-12-scroll-up-final.txt
+
+# Scroll down back to latest
+tmux-cli send $'\x1b[B\x1b[B\x1b[B\x1b[B\x1b[B' --pane=<WINDOW_ID> --enter=False
+sleep 2
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-13-scroll-down-final.txt
+
+# PageUp for half-screen scroll
+tmux-cli send $'\x1b[5~' --pane=<WINDOW_ID> --enter=False
+sleep 2
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-14-pageup-final.txt
+
+# PageDown back
+tmux-cli send $'\x1b[6~' --pane=<WINDOW_ID> --enter=False
+sleep 2
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-15-pagedown-final.txt
+
+stop_polling $POLL_PID
+```
+
+**Verify:** Visible message content changes when scrolling. Auto-scroll returns to bottom.
+
+#### 4.2 — Transcript Mode (Ctrl+O)
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 16-transcript)
+
+# Toggle verbose transcript mode
+tmux-cli send $'\x0f' --pane=<WINDOW_ID> --enter=False
+sleep 2
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-16-verbose-mode-final.txt
+
+# Toggle back to compact mode
+tmux-cli send $'\x0f' --pane=<WINDOW_ID> --enter=False
+sleep 2
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-17-compact-mode-final.txt
+
+stop_polling $POLL_PID
+```
+
+**Verify:** Footer toggles between "verbose" and "compact". Message rendering changes accordingly.
+
+#### 4.3 — `/compact`
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 18-compact)
+tmux-cli send "/compact" --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-18-compact-final.txt
+```
+
+**Verify:** Context compaction summary appears. Token usage reduced. Session continues working.
+
+### Phase 5: Agent & Skill Invocation
+
+#### 5.1 — Sub-Agent Invocation (`@agent`)
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 19-agent-debugger)
+tmux-cli send "@debugger Check if the snake game compiles. Run cargo check and report any issues." --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=15.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-19-agent-debugger-final.txt
+```
+
+**Verify:**
+
+- Agent part renders with agent name and status
+- Parallel agent tree shows live status updates (pending → running → completed)
+- Sub-agent result displayed inline
+
+#### 5.2 — Skill Invocation (`/research-codebase`)
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 20-research-skill)
+tmux-cli send '/research-codebase "Analyze the snake game architecture and document the module structure"' --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=30.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-20-research-skill-final.txt
+```
+
+**Verify:**
+
+- Skill loading indicator appears
+- Research agents spawn (parallel agent tree visible)
+- Output documents created in `research/` directory
+
+### Phase 6: HITL / Ask-Question Dialog
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 21-ask-question)
+tmux-cli send "I want to refactor the game. Should I split it into multiple files (game.rs, snake.rs, food.rs, renderer.rs) or keep it in a single file? Ask me which approach I prefer before proceeding." --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-21-ask-question-final.txt
+```
+
+If the ask_question dialog appears:
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 22-ask-answer)
+# Select an option (e.g., press 1 for first option)
+tmux-cli send "1" --pane=<WINDOW_ID> --enter=False
+sleep 0.5
+tmux-cli send "" --pane=<WINDOW_ID>  # Enter to confirm
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=15.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-22-ask-question-answered-final.txt
+```
+
+**Verify:**
+
+- Modal dialog renders with numbered options
+- Keyboard selection works (number keys, Up/Down arrows)
+- Response is captured and agent continues with the selected choice
+- HITL response rendered inline with the tool call
+
+### Phase 7: Autocomplete
+
+#### 7.1 — Slash Command Autocomplete
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 23-autocomplete-slash)
+# Type "/" to trigger autocomplete, then a partial command
+tmux-cli send "/" --pane=<WINDOW_ID> --enter=False
+sleep 2
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-23-autocomplete-slash-final.txt
+
+# Navigate with Down arrow and dismiss with ESC
+tmux-cli send $'\x1b[B\x1b[B' --pane=<WINDOW_ID> --enter=False
+sleep 2
+stop_polling $POLL_PID
+tmux-cli send $'\x1b' --pane=<WINDOW_ID> --enter=False
+```
+
+**Verify:** Autocomplete dropdown appears with command names and descriptions in two columns.
+
+#### 7.2 — Agent Autocomplete
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 24-autocomplete-agent)
+# Type "@" to trigger agent autocomplete
+tmux-cli send "@" --pane=<WINDOW_ID> --enter=False
+sleep 2
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-24-autocomplete-agent-final.txt
+stop_polling $POLL_PID
+
+# Dismiss with ESC
+tmux-cli send $'\x1b' --pane=<WINDOW_ID> --enter=False
+```
+
+**Verify:** Agent names appear in dropdown with descriptions. Substring matching works.
+
+### Phase 8: Task List (Ctrl+T)
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 25-task-list)
+# Toggle task list panel
+tmux-cli send $'\x14' --pane=<WINDOW_ID> --enter=False
+sleep 2
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-25-task-list-final.txt
+
+# Toggle it off
+tmux-cli send $'\x14' --pane=<WINDOW_ID> --enter=False
+sleep 2
+stop_polling $POLL_PID
+```
+
+**Verify:** Task list panel toggles visibility. Shows tasks with checkboxes and status indicators.
+
+### Phase 9: Interrupt & Multi-line Input
+
+#### 9.1 — Interrupt Streaming (Ctrl+C)
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 26-interrupt)
+# Send a prompt that will generate a long response
+tmux-cli send "Write comprehensive documentation for every function in the snake game. Include parameter descriptions, return values, examples, and edge cases for each function." --pane=<WINDOW_ID>
+sleep 3
+
+# Interrupt with Ctrl+C
+tmux-cli send $'\x03' --pane=<WINDOW_ID> --enter=False
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=3.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-26-interrupt-final.txt
+```
+
+**Verify:** Streaming stops. Interrupted tool shows `●` yellow indicator. Partial response preserved.
+
+#### 9.2 — Multi-line Input (Shift+Enter)
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 27-multiline)
+# Send multi-line input using Shift+Enter (sends newline without submitting)
+# Note: Shift+Enter may need to be sent as a literal newline without Enter
+tmux-cli send "Add these features:" --pane=<WINDOW_ID> --enter=False
+tmux-cli send $'\x1b[13;2u' --pane=<WINDOW_ID> --enter=False  # Shift+Enter
+tmux-cli send "1. Color the snake green" --pane=<WINDOW_ID> --enter=False
+tmux-cli send $'\x1b[13;2u' --pane=<WINDOW_ID> --enter=False  # Shift+Enter
+tmux-cli send "2. Color the food red" --pane=<WINDOW_ID> --enter=False
+sleep 2
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-27-multiline-final.txt
+
+# Submit with Enter
+tmux-cli send "" --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=15.0
+stop_polling $POLL_PID
+```
+
+**Verify:** Input box expands to show multiple lines before submission.
+
+### Phase 10: Workflow — `/ralph`
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 28-ralph)
+tmux-cli send "/ralph Add a main menu screen with Play, High Scores, and Quit options. The menu should render in the terminal with arrow key navigation." --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=60.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-28-ralph-final.txt
+```
+
+**Verify:**
+
+- Ralph workflow starts: task decomposition → worker dispatch → review & fix
+- Task list updates in real-time with worker progress (ToDo widget should be able to update the task list)
+- Multiple sub-agents spawn and complete
+- Final review cycle runs
+
+### Phase 11: Final Verification & Cleanup
+
+#### 11.1 — Verify the Game Builds
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 29-final-build)
+tmux-cli send "Run cargo build --release and confirm the snake game compiles successfully." --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=20.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-29-final-build-final.txt
+```
+
+**Verify:** `cargo build --release` succeeds. Binary produced.
+
+#### 11.2 — `/clear` and `/exit`
+
+```bash
+# Clear session
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 30-clear)
+tmux-cli send "/clear" --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=3.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-30-clear-final.txt
+
+# Exit
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 31-exit)
+tmux-cli send "/exit" --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=3.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-31-exit-final.txt
+
+# Kill the window
+tmux-cli kill --pane=<WINDOW_ID>
+```
+
+**Verify:** `/clear` resets all messages and session state. `/exit` cleanly exits the TUI.
 
 ---
 
-### Test 1.2: Stopped Subagents Stay Stopped and Don't Leak (Issue #204)
+## Feature Coverage Matrix
 
-**What to test:** When parallel subagents are stopped with Escape, they must not respawn. When a new prompt is entered, only new subagents should appear.
+Every feature below MUST be verified during the test run. Check each one as you go.
 
-**Steps:**
+### Slash Commands
 
-1. Start Atomic with the `claude` agent in tmux.
-2. Enter a prompt that spawns parallel subagents. For example, type:
-    ```
-    Use the codebase-online-researcher to research how the Rust snake game handles rendering
-    ```
-3. Wait 5 seconds for subagents to begin spawning. Capture the pane:
-    ```bash
-    tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/claude-subagent-spawned.txt
-    ```
-4. **Press Escape to stop all subagents:**
-    ```bash
-    tmux send-keys -t atomic-test Escape
-    ```
-5. Capture immediately after stopping:
-    ```bash
-    tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/claude-subagent-stopped.txt
-    ```
-6. **Wait 15 seconds.** During this wait, capture the pane every 3 seconds:
-    ```bash
-    for i in $(seq 1 5); do
-      sleep 3
-      tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/claude-subagent-respawn-check-${i}.txt
-    done
-    ```
-7. **Inspect all respawn-check captures.** Look for any sign that the stopped subagents have restarted (new agent activity indicators, spinning indicators reappearing, or output from the original research topic).
+- [ ] `/help` — shows all commands grouped by category
+- [ ] `/theme light` / `/theme dark` — switches theme, colors change
+- [ ] `/model list` — lists models with providers
+- [ ] `/model select` — opens interactive selector dialog
+- [ ] `/mcp` — lists MCP servers with status
+- [ ] `/compact` — compacts context, summary appears
+- [ ] `/clear` — resets session and messages
+- [ ] `/exit` — cleanly exits the application
 
-**Pass criteria (respawn check):**
+### Keyboard Shortcuts
 
-- No stopped subagent restarts in any of the 5 captures. If subagents respawn, this is a REGRESSION of issue #204. Fix it.
+- [ ] `Ctrl+C` — interrupts streaming response
+- [ ] `Ctrl+C` twice — exits application
+- [ ] `Ctrl+O` — toggles verbose/compact transcript mode
+- [ ] `Ctrl+T` — toggles task list panel
+- [ ] `Ctrl+Q` — queues message during streaming
+- [ ] `Enter` — submits message
+- [ ] `Shift+Enter` — inserts newline (multi-line input)
+- [ ] `ESC` — dismisses dialogs/autocomplete
+- [ ] `Up/Down` arrows — scrolls messages or navigates history
+- [ ] `PageUp/PageDown` — half-screen scroll
+- [ ] `Tab` — completes autocomplete suggestion
 
-8. **Now test cross-prompt leaking.** Enter a NEW, completely different prompt:
-    ```
-    Use the codebase-online-researcher to research how Rust's ownership model works
-    ```
-9. Wait 5 seconds, then capture:
-    ```bash
-    tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/claude-subagent-new-prompt.txt
-    ```
-10. **Inspect the capture.** Look for ANY reference to the original research topic ("rendering", "snake game rendering") in the active subagent output.
+### Tool Calls
 
-**Pass criteria (leak check):**
+- [ ] Bash tool — shows command + output with syntax highlighting
+- [ ] Edit/Create tool — shows file path + diff coloring
+- [ ] Read tool — shows file path + content
+- [ ] Tool status indicators — `○` pending, `●` blinking running, `●` green completed, `●` red error
+- [ ] Expandable tool output — long outputs collapsed with expand option
 
-- Only subagents related to the NEW prompt ("ownership model") appear. Zero references to the old prompt's topic in active subagent output. If old subagents leaked, this is a REGRESSION of issue #204. Fix it.
+### MCP Tool Calls
 
-**Repeat with:** `opencode` and `copilot` agents.
+- [ ] MCP servers discovered and listed via `/mcp`
+- [ ] MCP tool calls render with server/tool name
+- [ ] MCP enable/disable works via `/mcp enable/disable <server>`
 
----
+### Message Queuing
 
-### Test 1.3: Disk-Discovered Skill Commands Preserve User Arguments (Issue #200)
+- [ ] `Ctrl+Q` enqueues message during streaming
+- [ ] Queue count shown in footer
+- [ ] Queued messages process sequentially after response
+- [ ] `Up/Down` arrows edit queued messages
 
-**What to test:** When a non-built-in (disk-discovered) skill is invoked with arguments, the arguments must be received by the agent.
+### Ask-Question / HITL Dialog
 
-**Steps:**
+- [ ] Modal dialog renders with numbered options
+- [ ] Number keys select options (1-9, 0)
+- [ ] Up/Down navigates options
+- [ ] Enter confirms selection
+- [ ] ESC dismisses dialog
+- [ ] Custom text input option works
 
-1. First, verify which disk-discovered skills exist. Check:
-    ```bash
-    ls -la .github/skills/*/SKILL.md .claude/skills/*/SKILL.md .opencode/skills/*/SKILL.md 2>/dev/null
-    ```
-2. Pick a disk-discovered skill that exists (e.g., `gh-commit`, `sl-commit`, or any custom skill).
-3. Start Atomic with the `claude` agent in tmux.
-4. Invoke the disk skill WITH explicit arguments. For example:
-    ```
-    /gh-commit Fix the rendering logic in the snake game
-    ```
-5. Wait for the agent to respond. Capture the pane:
-    ```bash
-    tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/claude-disk-skill-args.txt
-    ```
-6. **Inspect the agent's response.** The agent should be acting on the user's specific request ("Fix the rendering logic in the snake game"), NOT asking "What would you like me to do?" or responding generically.
+### Session Management
 
-**Pass criteria:**
+- [ ] Session scrolling (Up/Down, PageUp/PageDown)
+- [ ] Transcript mode toggle (Ctrl+O, verbose/compact)
+- [ ] Context compaction (`/compact`)
+- [ ] Session reset (`/clear`)
+- [ ] Command history (Up/Down with empty input)
 
-- The agent's response demonstrates awareness of the user's arguments. It should reference the specific task described ("rendering logic", "snake game", or similar).
-- If the agent responds generically or asks what to do (as if no arguments were provided), this is a REGRESSION of issue #200. Fix it.
+### Agents & Skills
 
-**Additional validation:** Read `src/ui/commands/skill-commands.ts` and verify:
+- [ ] Sub-agent invocation (`@agent-name <task>`)
+- [ ] Agent autocomplete (`@` triggers dropdown)
+- [ ] Parallel agent tree renders with live status
+- [ ] `/research-codebase` skill executes and produces output
+- [ ] Skill loading indicator appears
 
-- The `expandArguments` function has a fallback that appends user args even when `$ARGUMENTS` is not in the SKILL.md template.
-- OR all disk SKILL.md files include `$ARGUMENTS`.
-- Capture this evidence:
-    ```bash
-    grep -n "ARGUMENTS" .github/skills/*/SKILL.md 2>/dev/null
-    ```
-    If any SKILL.md lacks `$ARGUMENTS` AND the code has no fallback, this is still a bug. Fix the code.
+### Workflows
 
-**Repeat with:** `opencode` and `copilot` agents.
+- [ ] `/ralph` decomposes tasks and dispatches workers
+- [ ] Task list updates in real-time
+- [ ] Worker sub-agents execute and complete
+- [ ] Review & fix cycle runs
 
----
+### Model Selection
 
-## Phase 2: Ralph E2E Flow (Run AFTER Phase 1 passes completely)
+- [ ] `/model list` shows available models
+- [ ] `/model select` opens interactive dialog
+- [ ] Model switching works and footer updates
+- [ ] Reasoning effort selection for supported models
 
-This phase tests the full Ralph pipeline. Every handoff between stages is a potential regression point. Test each transition meticulously.
+### Themes
 
-The test fixture is the `rust-snake` project cloned to `/tmp/rust-snake`.
+- [ ] `/theme light` applies light theme
+- [ ] `/theme dark` applies dark theme
+- [ ] Colors change across all UI elements
 
-### Test 2.1: `/research-codebase` Execution
+### Streaming Metadata
 
-**Run for each agent:** `claude`, `opencode`, `copilot`.
+- [ ] Elapsed time displayed during streaming
+- [ ] Token count shown (output tokens)
+- [ ] Spinner animation visible
+- [ ] Completion summary on stream end
 
-**Steps:**
+### Autocomplete
 
-1. Start Atomic in tmux pointed at the test fixture:
-    ```bash
-    tmux send-keys -t atomic-test 'cd /tmp/rust-snake && bun run $ATOMIC_PROJECT_DIR/src/cli.ts chat -a <AGENT>' Enter
-    ```
-2. Wait for the TUI to fully load (input prompt visible).
-3. Run the research command:
-    ```
-    /research-codebase How does the rust-snake project structure its game loop, rendering, and input handling?
-    ```
-4. **Capture the pane immediately after pressing Enter:**
+- [ ] `/` triggers command autocomplete
+- [ ] `@` triggers agent/file autocomplete
+- [ ] Two-column layout (name + description)
+- [ ] Tab completes without executing
+- [ ] Enter completes and executes
 
-    ```bash
-    tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/<AGENT>-research-started.txt
-    ```
+### Footer Status Bar
 
-5. **Verify the skill loaded correctly (no double indicator — cross-check with Issue #205):**
-    - The capture should show the research-codebase skill loading indicator at most once.
-
-6. **Verify arguments were received (cross-check with Issue #200):**
-    - The agent should be acting on the specific research question, NOT asking "What would you like to research?"
-
-7. **Wait for research to complete.** This will take time. Poll every 30 seconds:
-
-    ```bash
-    tmux capture-pane -t atomic-test -p | tail -30
-    ```
-
-    Look for the agent to indicate research is complete, or for the input prompt to return.
-
-8. **While waiting, verify subagent behavior (cross-check with Issue #204):**
-    - If parallel subagents spawn, capture and verify they are properly managed.
-    - If you press Escape at any point to stop, subagents must not respawn.
-
-9. **Once complete, verify a research document was created:**
-
-    ```bash
-    ls -la /tmp/rust-snake/research/docs/
-    ```
-
-    Capture the filename(s) of the generated research documents.
-
-10. **Capture the research file path** — you will need this EXACT path for the next step:
-    ```bash
-    RESEARCH_PATH=$(ls -t /tmp/rust-snake/research/docs/*.md | head -1)
-    echo "Research path: $RESEARCH_PATH"
-    ```
-
-**Pass criteria:**
-
-- [ ] Skill loading indicator appeared at most once
-- [ ] Agent received and acted on the research question (not generic)
-- [ ] Subagents (if spawned) behaved correctly (no respawn, no leak)
-- [ ] At least one research document was created in `research/docs/`
-- [ ] The research document contains substantive findings about the rust-snake project
-- [ ] The input prompt returned after completion (the TUI is not hung/stuck)
-
-**If ANY criterion fails, stop, fix the bug, commit, and re-run this test.**
+- [ ] Model ID displayed
+- [ ] Streaming indicator shown
+- [ ] Verbose/compact mode shown
+- [ ] Queue count displayed
+- [ ] Agent type displayed
 
 ---
 
-### Test 2.2: `/create-spec` With Research Path Handoff
+## Final Steps
 
-**This is a critical handoff point.** The path from `/research-codebase` output must be correctly consumed by `/create-spec`.
-
-**Steps:**
-
-1. **In the SAME Atomic session** (do NOT restart — this tests session continuity), run:
-
-    ```
-    /create-spec research/docs/<THE-EXACT-FILENAME-FROM-STEP-2.1>
-    ```
-
-    Use the EXACT filename from the research output. For example:
-
-    ```
-    /create-spec research/docs/2026-02-15-rust-snake-game-loop.md
-    ```
-
-2. **Capture immediately:**
-
-    ```bash
-    tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/<AGENT>-create-spec-started.txt
-    ```
-
-3. **Verify the path was accepted (CRITICAL — this is the handoff regression test):**
-    - The agent should NOT say "file not found", "cannot read", or "what research path?"
-    - The agent should be reading the research document and beginning spec creation.
-    - If the agent cannot find the file, this is a PATH HANDOFF BUG. Investigate:
-        - Is the path relative vs absolute?
-        - Did `research-codebase` create the file in a different directory than expected?
-        - Is there a CWD mismatch between what the agent sees and where the file lives?
-    - Fix and commit before proceeding.
-
-4. **Verify skill loading indicator (cross-check #205):** appears at most once.
-
-5. **Verify arguments (the research path) were received (cross-check #200):**
-    - The agent must be using the specific research document, not the entire research/ directory.
-
-6. **Wait for spec creation to complete.** Poll:
-
-    ```bash
-    tmux capture-pane -t atomic-test -p | tail -30
-    ```
-
-7. **Verify a spec was created:**
-
-    ```bash
-    ls -la /tmp/rust-snake/specs/
-    ```
-
-    Capture the spec filename.
-
-8. **Verify spec content references the research:**
-    ```bash
-    head -50 /tmp/rust-snake/specs/<SPEC-FILENAME>
-    ```
-    The spec should contain references to findings from the research document.
-
-**Pass criteria:**
-
-- [ ] The research path argument was correctly received and resolved
-- [ ] The agent read the research document (not a generic response)
-- [ ] Skill loading indicator appeared at most once
-- [ ] A spec file was created in `specs/`
-- [ ] The spec contains substantive content derived from the research
-- [ ] The TUI is responsive and not hung after completion
-
-**If ANY criterion fails, stop, fix the bug, commit, and re-run this test.**
-
----
-
-### Test 2.3: `/ralph` With Spec Path Handoff
-
-**This is the second critical handoff and the most complex step.**
-
-**Steps:**
-
-1. **In the SAME Atomic session**, run:
-
-    ```
-    /ralph specs/<THE-EXACT-SPEC-FILENAME-FROM-STEP-2.2>
-    ```
-
-    For example:
-
-    ```
-    /ralph specs/rust-snake-refactor.md
-    ```
-
-2. **Capture immediately:**
-
-    ```bash
-    tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/<AGENT>-ralph-started.txt
-    ```
-
-3. **Verify the spec path was accepted (CRITICAL — second handoff regression test):**
-    - The agent should NOT say "file not found" or ask what to work on.
-    - The agent should be decomposing the spec into tasks.
-    - If path resolution fails, investigate the same CWD/relative/absolute issues as in Test 2.2.
-
-4. **Monitor task decomposition (Step 1 of Ralph):**
-    - Capture pane output as the task list is being generated.
-    - Verify a task list appears in the TUI.
-
-    ```bash
-    tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/<AGENT>-ralph-tasks.txt
-    ```
-
-5. **Monitor worker subagent dispatch (Step 2 of Ralph):**
-    - As workers are dispatched, capture the pane:
-
-    ```bash
-    tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/<AGENT>-ralph-workers.txt
-    ```
-
-    - **Verify subagent behavior (cross-check #204):** Workers should not respawn if stopped. Workers from one task should not leak into another.
-
-6. **Verify the task list UI renders correctly:**
-    - Tasks should show status transitions (pending -> in_progress -> completed).
-    - No duplicate indicators or ghost entries.
-
-7. **Wait for Ralph to complete.** This may take a while. Poll every 30 seconds and capture:
-
-    ```bash
-    for i in $(seq 1 20); do
-      sleep 30
-      tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/<AGENT>-ralph-progress-${i}.txt
-      # Check if done
-      tmux capture-pane -t atomic-test -p | tail -5
-    done
-    ```
-
-8. **Verify Ralph completed successfully:**
-    - All tasks in the task list should show as completed.
-    - The TUI should return to the input prompt.
-    - No error messages or stack traces visible.
-
-**Pass criteria:**
-
-- [ ] The spec path argument was correctly received and resolved
-- [ ] Task decomposition produced a visible task list
-- [ ] Worker subagents were dispatched and ran
-- [ ] Subagents did not respawn or leak (cross-check #204)
-- [ ] No duplicate skill/loading indicators (cross-check #205)
-- [ ] All tasks reached completed status
-- [ ] The TUI is responsive after Ralph finishes
-- [ ] No error messages or stack traces in any capture
-
-**If ANY criterion fails, stop, fix the bug, commit, and re-run this test.**
-
----
-
-### Test 2.4: `/ralph --resume` (Session Resume)
-
-**Steps:**
-
-1. Kill the current Atomic session and restart it:
-
-    ```bash
-    tmux kill-session -t atomic-test
-    tmux new-session -d -s atomic-test -x 200 -y 50
-    tmux send-keys -t atomic-test 'cd /tmp/rust-snake && bun run $ATOMIC_PROJECT_DIR/src/cli.ts chat -a <AGENT>' Enter
-    ```
-
-2. Attempt to resume the Ralph session from Test 2.3. You need the session ID — check:
-
-    ```bash
-    ls -la /tmp/rust-snake/.atomic/sessions/ 2>/dev/null || ls -la /tmp/rust-snake/.workflows/ 2>/dev/null
-    ```
-
-3. If a session ID is available, run:
-
-    ```
-    /ralph --resume <SESSION-ID>
-    ```
-
-4. Capture and verify the session resumes correctly:
-
-    ```bash
-    tmux capture-pane -t atomic-test -p -e > ./tmux-screenshots/<AGENT>-ralph-resume.txt
-    ```
-
-5. Verify:
-    - The task list from the previous session is restored.
-    - Completed tasks show as completed.
-    - The agent can continue from where it left off.
-
-**Pass criteria:**
-
-- [ ] Session resumed without errors
-- [ ] Previous task state was restored
-- [ ] No duplicate or ghost subagents from the previous session
-
----
-
-## Phase 3: Cross-Agent Parity Verification
-
-After completing Phases 1 and 2 for ALL three agents, compare results:
-
-1. **Collect all tmux captures:**
-
-    ```bash
-    ls -la ./tmux-screenshots/
-    ```
-
-2. **Verify each agent produced equivalent outputs:**
-    - Each agent should have created research docs in `research/docs/`
-    - Each agent should have created specs in `specs/`
-    - Each agent should have completed the Ralph task list
-
-3. **Look for agent-specific regressions:**
-    - Did any bug appear in only one agent but not others?
-    - Did any agent fail to render the task list?
-    - Did any agent have different subagent behavior?
-
-4. **Document parity gaps** — if one agent works but another doesn't, investigate whether the bug is in agent-specific code or shared code.
-
----
-
-## Phase 4: Final Verification
-
-1. **Run the full test suite one final time:**
+1. **Run the full test suite:**
 
     ```bash
     bun typecheck && bun lint && bun test
     ```
-
-    ALL must pass.
 
 2. **Review all commits made during testing:**
 
@@ -554,47 +804,7 @@ After completing Phases 1 and 2 for ALL three agents, compare results:
     git log --oneline -20
     ```
 
-    Each fix commit should be atomic and well-described.
-
-3. **Verify no regressions were introduced by fixes:**
-    - If you fixed issue #205, re-run Test 1.1 to confirm.
-    - If you fixed issue #204, re-run Test 1.2 to confirm.
-    - If you fixed issue #200, re-run Test 1.3 to confirm.
-
-4. **Clean up:**
-    - Remove any `issues.md` or temp files created during debugging.
-    - Ensure no test artifacts are committed to the repo.
-
----
-
-## Summary Checklist
-
-Before marking this task as COMPLETE, every single box must be checked:
-
-### Bug Regressions
-
-- [ ] Issue #200 (dropped arguments) — verified fixed across all 3 agents
-- [ ] Issue #204 (subagent respawn/leak) — verified fixed across all 3 agents
-- [ ] Issue #205 (double skill indicator) — verified fixed across all 3 agents
-
-### Ralph E2E Flow (per agent: claude, opencode, copilot)
-
-- [ ] `/research-codebase` executed successfully and produced research docs
-- [ ] `/create-spec <research-path>` correctly received the path and produced a spec
-- [ ] `/ralph <spec-path>` correctly received the path, decomposed tasks, dispatched workers, and completed
-- [ ] `/ralph --resume` correctly restored session state (if supported by agent)
-- [ ] No path resolution errors at any handoff point
-- [ ] No TUI hangs, crashes, or unresponsive states
-
-### Code Health
-
-- [ ] `bun typecheck` passes
-- [ ] `bun lint` passes
-- [ ] `bun test` passes
-- [ ] All fix commits are atomic with clear messages
-
-### Evidence
-
-- [ ] tmux captures exist in `./tmux-screenshots/` for every test step
-- [ ] Bug fix captures show before/after state
-- [ ] No test artifacts left in the repo
+3. **Clean up:**
+    - Remove `issues.md` or temp files created during debugging
+    - Ensure no test artifacts are committed to the repo
+    - Remove `/tmp/snake_game/` directories if no longer needed

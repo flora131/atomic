@@ -58,12 +58,11 @@ import {
   type EventHandler,
   type AgentEvent,
   type ToolDefinition,
-  type ToolContext,
   type OpenCodeAgentMode,
-} from "./types.ts";
+} from "../types.ts";
 
-import { initOpenCodeConfigOverrides } from "./init.ts";
-import { createToolMcpServerScript, cleanupMcpBridgeScripts } from "./tools/opencode-mcp-bridge.ts";
+import { initOpenCodeConfigOverrides } from "../init.ts";
+import { createToolMcpServerScript } from "../tools/opencode-mcp-bridge.ts";
 
 // Import the real SDK
 import {
@@ -554,9 +553,12 @@ export class OpenCodeClient implements CodingAgentClient {
     // Map SDK events to unified events
     switch (eventType) {
       case "session.created":
+        // OpenCode emits session ID under properties.info.id (not properties.sessionID).
+        // Fall back to sessionID for defensive compatibility with older payloads.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         this.emitEvent(
           "session.start",
-          (properties?.sessionID as string) ?? "",
+          ((properties?.info as any)?.id as string) ?? (properties?.sessionID as string) ?? "",
           {
             config: {},
           }
@@ -628,6 +630,7 @@ export class OpenCodeClient implements CodingAgentClient {
               toolName,
               toolInput,
               toolUseId: part?.id as string,
+              toolCallId: part?.callID as string,
             });
           } else if (toolState?.status === "completed") {
             // Only emit complete if output is available
@@ -640,6 +643,7 @@ export class OpenCodeClient implements CodingAgentClient {
                 toolInput,
                 success: true,
                 toolUseId: part?.id as string,
+                toolCallId: part?.callID as string,
               });
             }
           } else if (toolState?.status === "error") {
@@ -649,6 +653,7 @@ export class OpenCodeClient implements CodingAgentClient {
               toolInput,
               success: false,
               toolUseId: part?.id as string,
+              toolCallId: part?.callID as string,
             });
           }
         } else if (part?.type === "agent") {
@@ -1179,6 +1184,7 @@ export class OpenCodeClient implements CodingAgentClient {
                         content: {
                           name: toolName,
                           input: toolState?.input ?? {},
+                          toolUseId: toolPart.id as string,
                         },
                         role: "assistant" as const,
                         metadata: {
@@ -1195,6 +1201,7 @@ export class OpenCodeClient implements CodingAgentClient {
                         role: "assistant" as const,
                         metadata: {
                           toolName,
+                          toolId: toolPart.id as string,
                         },
                       };
                     }
@@ -1207,6 +1214,7 @@ export class OpenCodeClient implements CodingAgentClient {
                         role: "assistant" as const,
                         metadata: {
                           toolName,
+                          toolId: toolPart.id as string,
                           error: true,
                         },
                       };

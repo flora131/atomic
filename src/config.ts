@@ -62,10 +62,10 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     folder: ".github",
     install_url:
       "https://github.com/github/copilot-cli?tab=readme-ov-file#installation",
-    exclude: ["workflows", "dependabot.yml", ".DS_Store"],
-    additional_files: [],
+    exclude: ["workflows", "dependabot.yml", "mcp-config.json", ".DS_Store"],
+    additional_files: [".github/mcp-config.json"],
     preserve_files: [],
-    merge_files: [],
+    merge_files: [".github/mcp-config.json"],
   },
 };
 
@@ -86,11 +86,11 @@ export function getAgentKeys(): AgentKey[] {
  */
 
 /** Supported source control types */
-export type SourceControlType = "github" | "sapling-phabricator";
+export type SourceControlType = "github" | "sapling";
 // Future: | 'azure-devops'
 
 /** SCM keys for iteration */
-const SCM_KEYS = ["github", "sapling-phabricator"] as const;
+const SCM_KEYS = ["github", "sapling"] as const;
 
 export interface ScmConfig {
   /** Internal identifier */
@@ -121,8 +121,8 @@ export const SCM_CONFIG: Record<SourceControlType, ScmConfig> = {
     detectDir: ".git",
     reviewCommandFile: "create-gh-pr.md",
   },
-  "sapling-phabricator": {
-    name: "sapling-phabricator",
+  sapling: {
+    name: "sapling",
     displayName: "Sapling + Phabricator",
     cliTool: "sl",
     reviewTool: "jf submit",

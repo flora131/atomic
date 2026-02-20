@@ -134,8 +134,6 @@ export interface CommandContext {
   modelOps?: ModelOperations;
   /** Resolve current model display info (name + tier) from the SDK client */
   getModelDisplayInfo?: () => Promise<ModelDisplayInfo>;
-  /** Get system tools tokens from the client (pre-session fallback) */
-  getClientSystemToolsTokens?: () => number | null;
   /** Get current session-level MCP toggles keyed by server name */
   getMcpServerToggles?: () => McpServerToggleMap;
   /** Set one MCP server toggle for this TUI session */
@@ -225,23 +223,6 @@ export interface CommandResult {
   mcpSnapshot?: McpSnapshotView;
   /** Display name for the model (used to update the header after /model command) */
   modelDisplayName?: string;
-  /** Context usage info to display via ContextInfoDisplay */
-  contextInfo?: ContextDisplayInfo;
-}
-
-/** Context window usage display data */
-export interface ContextDisplayInfo {
-  model: string;
-  tier: string;
-  maxTokens: number;
-  /** Pre-message context: system prompt + tool defs + agents + skills + MCP + memory */
-  systemTools: number;
-  /** Conversation content (all user + assistant messages) */
-  messages: number;
-  /** Remaining available capacity */
-  freeSpace: number;
-  /** Autocompact buffer reservation */
-  buffer: number;
 }
 
 /**

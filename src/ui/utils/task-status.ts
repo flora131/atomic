@@ -52,6 +52,13 @@ function normalizeStatusToken(status: string): string {
     .replace(/[\s-]+/g, "_");
 }
 
+function normalizeToolNameToken(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+}
+
 function asRecord(input: unknown): Record<string, unknown> {
   return typeof input === "object" && input !== null
     ? input as Record<string, unknown>
@@ -96,6 +103,13 @@ export function normalizeTaskStatus(status: unknown): TaskStatus {
   return TASK_STATUS_ALIASES[normalized] ?? "pending";
 }
 
+export function isTodoWriteToolName(name: unknown): boolean {
+  if (typeof name !== "string") {
+    return false;
+  }
+  return normalizeToolNameToken(name) === "todowrite";
+}
+
 export function normalizeTaskItem(input: unknown): NormalizedTaskItem {
   const record = asRecord(input);
   return {
@@ -133,14 +147,14 @@ export function normalizeTodoItems(input: unknown): NormalizedTodoItem[] {
 }
 
 /**
- * Merge blockedBy from previous task state into newly normalized tasks.
+ * Merge task metadata from previous state into newly normalized tasks.
  *
  * When an agent calls TodoWrite to update task progress it often omits the
  * optional `blockedBy` field, causing dependency info to be lost. This
- * function restores `blockedBy` from `previous` for any task whose new
- * entry has `blockedBy === undefined` (i.e. the agent didn't provide it).
+ * function restores `blockedBy` (and missing `id` values) from `previous`
+ * when the update omits them.
  *
- * Tasks are matched by normalized ID (case-insensitive, `#`-prefixed).
+ * Tasks are matched by normalized ID first, then by normalized content.
  */
 export function mergeBlockedBy<T extends NormalizedTaskItem>(
   updated: T[],
@@ -150,21 +164,44 @@ export function mergeBlockedBy<T extends NormalizedTaskItem>(
 
   // Build a lookup from normalized ID → blockedBy from the previous state
   const prevBlockedById = new Map<string, string[]>();
+  const prevByContent = new Map<string, NormalizedTaskItem>();
   for (const task of previous) {
     const id = task.id?.trim().toLowerCase();
     if (id && task.blockedBy) {
       prevBlockedById.set(id, task.blockedBy);
     }
+
+    const contentKey = task.content.trim().toLowerCase().replace(/\s+/g, " ");
+    if (contentKey.length > 0 && !prevByContent.has(contentKey)) {
+      prevByContent.set(contentKey, task);
+    }
   }
 
-  if (prevBlockedById.size === 0) return updated;
+  if (prevBlockedById.size === 0 && prevByContent.size === 0) return updated;
 
   return updated.map((task) => {
-    if (task.blockedBy !== undefined) return task; // already provided
-    const id = task.id?.trim().toLowerCase();
-    if (!id) return task;
-    const prev = prevBlockedById.get(id);
-    if (!prev) return task;
-    return { ...task, blockedBy: prev };
+    const hasExplicitId =
+      typeof task.id === "string" && task.id.trim().length > 0;
+    const contentKey = task.content.trim().toLowerCase().replace(/\s+/g, " ");
+    const prevByMatchingContent = contentKey.length > 0
+      ? prevByContent.get(contentKey)
+      : undefined;
+
+    const restoredId = hasExplicitId ? task.id : prevByMatchingContent?.id;
+    const normalizedId = restoredId?.trim().toLowerCase();
+
+    const restoredBlockedBy = task.blockedBy
+      ?? (normalizedId ? prevBlockedById.get(normalizedId) : undefined)
+      ?? (!hasExplicitId ? prevByMatchingContent?.blockedBy : undefined);
+
+    if (restoredId === task.id && restoredBlockedBy === task.blockedBy) {
+      return task;
+    }
+
+    return {
+      ...task,
+      id: restoredId,
+      blockedBy: restoredBlockedBy,
+    };
   });
 }

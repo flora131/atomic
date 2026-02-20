@@ -8,7 +8,7 @@
  * - types.ts: Shared interfaces (CodingAgentClient, Session, etc.)
  * - base-client.ts: Common utilities (EventEmitter, createAgentEvent)
  * - init.ts: Agent-specific initialization helpers
- * - *-client.ts: Agent-specific implementations (Claude, OpenCode, Copilot)
+ * - clients/: Shared client module exports (Claude, OpenCode, Copilot)
  *
  * Each agent client implements the CodingAgentClient interface (Strategy Pattern)
  * while containing agent-specific logic for SDK integration.
@@ -79,34 +79,8 @@ export type {
   CodingAgentClientFactory,
 } from "./types.ts";
 
-// Claude Agent Client exports
-export {
-  ClaudeAgentClient,
-  createClaudeAgentClient,
-  type ClaudeHookConfig,
-} from "./claude-client.ts";
-
-// OpenCode Client exports
-export {
-  OpenCodeClient,
-  createOpenCodeClient,
-  type OpenCodeClientOptions,
-  type OpenCodeHealthStatus,
-} from "./opencode-client.ts";
-
-// Copilot Client exports
-export {
-  CopilotClient,
-  createCopilotClient,
-  createAutoApprovePermissionHandler,
-  createDenyAllPermissionHandler,
-  type CopilotSdkEventType,
-  type CopilotSdkEvent,
-  type CopilotSdkPermissionRequest,
-  type CopilotPermissionHandler,
-  type CopilotConnectionMode,
-  type CopilotClientOptions,
-} from "./copilot-client.ts";
+// Shared client exports
+export * from "./clients/index.ts";
 
 // Note: Hook modules have been removed.
 // Hooks are now passthrough to underlying SDKs:

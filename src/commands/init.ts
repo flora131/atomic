@@ -48,7 +48,7 @@ interface InitOptions {
 
 const SCM_PREFIX_BY_TYPE: Record<SourceControlType, "gh-" | "sl-"> = {
   github: "gh-",
-  "sapling-phabricator": "sl-",
+  sapling: "sl-",
 };
 
 function getScmPrefix(scmType: SourceControlType): "gh-" | "sl-" {
@@ -248,7 +248,7 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
   }
 
   // Show Phabricator configuration warning if Sapling is selected
-  if (scmType === "sapling-phabricator") {
+  if (scmType === "sapling") {
     const arcconfigPath = join(targetDir, ".arcconfig");
     const hasArcconfig = await pathExists(arcconfigPath);
 

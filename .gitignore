@@ -175,4 +175,5 @@ atomic
 atomic.exe
 
 # TUI test screenshots
+screenshots/
 tmux-screenshots/

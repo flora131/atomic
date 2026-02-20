@@ -548,13 +548,22 @@ export const defaultToolRenderer: ToolRenderer = {
 /**
  * Parse an MCP tool name into server and tool components.
  * MCP tools follow the convention: mcp__<server>__<tool>
+ * Copilot tools follow the convention: <server>/<tool>
  *
  * @returns Parsed server/tool names, or null if not an MCP tool name
  */
 export function parseMcpToolName(toolName: string): { server: string; tool: string } | null {
-  const match = toolName.match(/^mcp__(.+?)__(.+)$/);
-  if (!match || !match[1] || !match[2]) return null;
-  return { server: match[1], tool: match[2] };
+  const matchUnderscore = toolName.match(/^mcp__(.+?)__(.+)$/);
+  if (matchUnderscore && matchUnderscore[1] && matchUnderscore[2]) {
+    return { server: matchUnderscore[1], tool: matchUnderscore[2] };
+  }
+  
+  const matchSlash = toolName.match(/^([^/]+)\/(.+)$/);
+  if (matchSlash && matchSlash[1] && matchSlash[2]) {
+    return { server: matchSlash[1], tool: matchSlash[2] };
+  }
+  
+  return null;
 }
 
 /**

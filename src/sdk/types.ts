@@ -153,6 +153,16 @@ export interface SessionConfig {
   reasoningEffort?: string;
   /** Maximum thinking tokens for the model (Claude Agent SDK). Defaults to 16000. */
   maxThinkingTokens?: number;
+  /**
+   * Programmatically defined custom sub-agents (Claude SDK format)
+   * Key: Agent name, Value: Agent definition
+   */
+  agents?: Record<string, {
+    description: string;
+    prompt: string;
+    tools?: string[];
+    model?: "sonnet" | "opus" | "haiku" | "inherit";
+  }>;
 }
 
 /**
@@ -267,6 +277,14 @@ export interface Session {
    * Should be called when the session is no longer needed.
    */
   destroy(): Promise<void>;
+
+  /**
+   * Abort any ongoing work in the session.
+   * Optional - only supported by some SDKs (e.g., Copilot).
+   * When supported, this cancels in-flight agent work including sub-agent invocations.
+   * @returns Promise resolving when the abort request is acknowledged
+   */
+  abort?(): Promise<void>;
 }
 
 /**

@@ -1,4 +1,5 @@
 ---
+name: sl-submit-diff
 description: Submit commits as Phabricator diffs for code review using Sapling.
 ---
 

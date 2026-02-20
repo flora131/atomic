@@ -62,7 +62,7 @@ export async function promptTelemetryConsent(): Promise<boolean> {
 
   // Display opt-out hint
   log.info(
-    "You can opt out anytime with: ATOMIC_TELEMETRY=0"
+    "You can opt out anytime with: ATOMIC_DISABLE_TELEMETRY=1"
   );
 
   // Ask for consent

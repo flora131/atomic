@@ -503,10 +503,10 @@ describe("copyDir with skipOppositeScripts", () => {
 
     await copyDir(srcDir, destDir);
 
-    // On Linux, .ps1 files should be skipped
-    expect(existsSync(join(destDir, "script.sh"))).toBe(true);
-    // Note: This test depends on the platform - on Linux, .ps1 is skipped
-    // On Windows, .sh would be skipped
+    const isWin = process.platform === "win32";
+    // On Linux, .ps1 files should be skipped; on Windows, .sh is skipped
+    expect(existsSync(join(destDir, "script.sh"))).toBe(!isWin);
+    expect(existsSync(join(destDir, "script.ps1"))).toBe(isWin);
   });
 
   test("should include all scripts when skipOppositeScripts is false", async () => {

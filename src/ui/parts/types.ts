@@ -13,7 +13,6 @@ import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
 import type { TaskItem } from "../components/task-list-indicator.tsx";
 import type { MessageSkillLoad } from "../chat.tsx";
 import type { McpSnapshotView } from "../utils/mcp-output.ts";
-import type { ContextDisplayInfo } from "../commands/registry.ts";
 
 /**
  * Common base for all part types.
@@ -105,11 +104,6 @@ export interface McpSnapshotPart extends BasePart {
   snapshot: McpSnapshotView;
 }
 
-export interface ContextInfoPart extends BasePart {
-  type: "context-info";
-  info: ContextDisplayInfo;
-}
-
 export interface CompactionPart extends BasePart {
   type: "compaction";
   summary: string;
@@ -128,5 +122,4 @@ export type Part =
   | TaskListPart
   | SkillLoadPart
   | McpSnapshotPart
-  | ContextInfoPart
   | CompactionPart;

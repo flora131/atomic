@@ -15,7 +15,6 @@ import { AgentPartDisplay } from "./agent-part-display.tsx";
 import { TaskListPartDisplay } from "./task-list-part-display.tsx";
 import { SkillLoadPartDisplay } from "./skill-load-part-display.tsx";
 import { McpSnapshotPartDisplay } from "./mcp-snapshot-part-display.tsx";
-import { ContextInfoPartDisplay } from "./context-info-part-display.tsx";
 import { CompactionPartDisplay } from "./compaction-part-display.tsx";
 
 export type PartRenderer = (props: { part: any; isLast: boolean; syntaxStyle?: SyntaxStyle }) => React.ReactNode;
@@ -28,6 +27,5 @@ export const PART_REGISTRY: Record<Part["type"], PartRenderer> = {
   "task-list": TaskListPartDisplay,
   "skill-load": SkillLoadPartDisplay,
   "mcp-snapshot": McpSnapshotPartDisplay,
-  "context-info": ContextInfoPartDisplay,
   "compaction": CompactionPartDisplay,
 };

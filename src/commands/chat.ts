@@ -17,6 +17,10 @@ import type { CodingAgentClient } from "../sdk/types.ts";
 import { getModelPreference, getReasoningEffortPreference } from "../utils/settings.ts";
 import { discoverMcpConfigs } from "../utils/mcp-config.ts";
 import { trackAtomicCommand } from "../telemetry/index.ts";
+import { pathExists } from "../utils/copy.ts";
+import { AGENT_CONFIG } from "../config.ts";
+import { initCommand } from "./init.ts";
+import { join } from "path";
 
 // SDK client imports
 import {
@@ -166,6 +170,19 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   const effectiveReasoningEffort = getReasoningEffortPreference(agentType);
 
   const agentName = getAgentDisplayName(agentType);
+
+  // Check if config folder exists locally
+  const configFolder = join(process.cwd(), AGENT_CONFIG[agentType].folder);
+  if (!(await pathExists(configFolder))) {
+    console.log(`\nLocal configuration not found for ${agentName}.`);
+    console.log(`Running initialization for ${agentName}...\n`);
+    await initCommand({
+      showBanner: false,
+      preSelectedAgent: agentType,
+      yes: true,
+    });
+    console.log(`\nInitialization complete. Starting chat...\n`);
+  }
 
   console.log(`Starting ${agentName} chat interface...`);
   console.log("");

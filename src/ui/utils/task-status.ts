@@ -52,6 +52,13 @@ function normalizeStatusToken(status: string): string {
     .replace(/[\s-]+/g, "_");
 }
 
+function normalizeToolNameToken(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_-]+/g, "");
+}
+
 function asRecord(input: unknown): Record<string, unknown> {
   return typeof input === "object" && input !== null
     ? input as Record<string, unknown>
@@ -94,6 +101,13 @@ export function normalizeTaskStatus(status: unknown): TaskStatus {
 
   const normalized = normalizeStatusToken(status);
   return TASK_STATUS_ALIASES[normalized] ?? "pending";
+}
+
+export function isTodoWriteToolName(name: unknown): boolean {
+  if (typeof name !== "string") {
+    return false;
+  }
+  return normalizeToolNameToken(name) === "todowrite";
 }
 
 export function normalizeTaskItem(input: unknown): NormalizedTaskItem {

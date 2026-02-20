@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isTodoWriteToolName,
   isTaskStatus,
   mergeBlockedBy,
   normalizeTaskItem,
@@ -45,6 +46,24 @@ describe("isTaskStatus", () => {
     expect(isTaskStatus(null)).toBe(false);
     expect(isTaskStatus(undefined)).toBe(false);
     expect(isTaskStatus({})).toBe(false);
+  });
+});
+
+describe("isTodoWriteToolName", () => {
+  test("accepts TodoWrite variants across SDK providers", () => {
+    expect(isTodoWriteToolName("TodoWrite")).toBe(true);
+    expect(isTodoWriteToolName("todowrite")).toBe(true);
+    expect(isTodoWriteToolName("todo_write")).toBe(true);
+    expect(isTodoWriteToolName("todo-write")).toBe(true);
+    expect(isTodoWriteToolName("todo write")).toBe(true);
+  });
+
+  test("rejects non-TodoWrite tool names", () => {
+    expect(isTodoWriteToolName("Read")).toBe(false);
+    expect(isTodoWriteToolName("Write")).toBe(false);
+    expect(isTodoWriteToolName("")).toBe(false);
+    expect(isTodoWriteToolName(null)).toBe(false);
+    expect(isTodoWriteToolName(undefined)).toBe(false);
   });
 });
 

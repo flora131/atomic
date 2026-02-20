@@ -85,6 +85,7 @@ import {
 import {
   normalizeTodoItems,
   mergeBlockedBy,
+  isTodoWriteToolName,
   type NormalizedTodoItem,
 } from "./utils/task-status.ts";
 import {
@@ -2191,7 +2192,7 @@ export function ChatApp({
     }
 
     // Update persistent todo panel when TodoWrite is called
-    if (toolName === "TodoWrite" && input.todos && Array.isArray(input.todos)) {
+    if (isTodoWriteToolName(toolName) && input.todos && Array.isArray(input.todos)) {
       const previousTodos = todoItemsRef.current;
       const todos = mergeBlockedBy(normalizeTodoItems(input.todos), previousTodos);
       const taskStreamPinned = Boolean(ralphSessionIdRef.current);
@@ -2356,7 +2357,7 @@ export function ChatApp({
     }
 
     // Update persistent todo panel when TodoWrite completes (handles late input)
-    const isTodoWriteCompletion = completedToolName === "TodoWrite";
+    const isTodoWriteCompletion = isTodoWriteToolName(completedToolName);
     if (isTodoWriteCompletion && input && input.todos && Array.isArray(input.todos)) {
       const previousTodos = todoItemsRef.current;
       const todos = mergeBlockedBy(normalizeTodoItems(input.todos), previousTodos);

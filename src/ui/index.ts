@@ -1930,9 +1930,6 @@ export {
   type WorkflowMetadata,
   getWorkflowMetadata,
 
-  // Skill commands
-  registerSkillCommands,
-
   // Initialization and helpers
   initializeCommandsAsync,
   parseSlashCommand,

@@ -514,6 +514,8 @@ export interface ChatMessage {
   thinkingMs?: number;
   /** Accumulated thinking/reasoning text content (baked on completion) */
   thinkingText?: string;
+  /** Optional spinner verb override for this message (e.g., /compact => "Compacting") */
+  spinnerVerb?: string;
 }
 
 /**
@@ -857,6 +859,13 @@ export function createMessage(
 }
 
 /**
+ * Returns a command-specific spinner verb override when needed.
+ */
+export function getSpinnerVerbForCommand(commandName: string): string | undefined {
+  return commandName === "compact" ? "Compacting" : undefined;
+}
+
+/**
  * Format timestamp for display.
  */
 export function formatTimestamp(isoString: string): string {
@@ -918,6 +927,8 @@ export { getRandomVerb as getRandomSpinnerVerb } from "./constants/index.ts";
 interface LoadingIndicatorProps {
   /** Speed of animation in milliseconds per frame */
   speed?: number;
+  /** Optional fixed verb override (falls back to random when omitted) */
+  verbOverride?: string;
   /** Elapsed time in milliseconds (displays formatted duration after verb) */
   elapsedMs?: number;
   /** Estimated output tokens generated so far */
@@ -949,11 +960,11 @@ function formatTokenCount(tokens: number): string {
  * Returns span elements (not wrapped in text) so it can be composed
  * inside other text elements. Wrap in <text> when using standalone.
  */
-export function LoadingIndicator({ speed = 100, elapsedMs, outputTokens, thinkingMs }: LoadingIndicatorProps): React.ReactNode {
+export function LoadingIndicator({ speed = 100, verbOverride, elapsedMs, outputTokens, thinkingMs }: LoadingIndicatorProps): React.ReactNode {
   const themeColors = useThemeColors();
   const [frameIndex, setFrameIndex] = useState(0);
   // Select random verb only on mount (empty dependency array)
-  const [verb] = useState(() => getRandomVerb());
+  const [verb] = useState(() => verbOverride ?? getRandomVerb());
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1583,7 +1594,13 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
         {(message.streaming || hasActiveBackgroundAgents) && !hideLoading && (
           <box flexDirection="row" alignItems="flex-start" marginTop={renderableMessage.parts.length > 0 ? SPACING.ELEMENT : SPACING.NONE}>
             <text>
-              <LoadingIndicator speed={120} elapsedMs={elapsedMs} outputTokens={streamingMeta?.outputTokens} thinkingMs={streamingMeta?.thinkingMs} />
+              <LoadingIndicator
+                speed={120}
+                verbOverride={message.spinnerVerb}
+                elapsedMs={elapsedMs}
+                outputTokens={streamingMeta?.outputTokens}
+                thinkingMs={streamingMeta?.thinkingMs}
+              />
             </text>
           </box>
         )}
@@ -3650,6 +3667,7 @@ export function ChatApp({
         streamingStartRef.current = Date.now();
         isStreamingRef.current = true;
         const msg = createMessage("assistant", "", true);
+        msg.spinnerVerb = getSpinnerVerbForCommand(commandName);
         commandSpinnerMsgId = msg.id;
         flushSync(() => {
           setIsStreaming(true);

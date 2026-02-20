@@ -1,9 +1,6 @@
 ---
 name: research-codebase
 description: Document codebase as-is with research directory for historical context
-aliases: [research]
-argument-hint: "<research-question>"
-required-arguments: [research-question]
 ---
 # Research Codebase
 

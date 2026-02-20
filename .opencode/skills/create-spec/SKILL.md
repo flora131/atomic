@@ -1,9 +1,6 @@
 ---
 name: create-spec
 description: Create a detailed execution plan for implementing features or refactors in a codebase by leveraging existing research in the specified `research` directory.
-aliases: [spec]
-argument-hint: "<research-path>"
-required-arguments: [research-path]
 ---
 You are tasked with creating a spec for implementing a new feature or system change in the codebase by leveraging existing research in the **$ARGUMENTS** path. If no research path is specified, use the entire `research/` directory. IMPORTANT: Research documents are located in the `research/` directory — do NOT look in the `specs/` directory for research. Follow the template below to produce a comprehensive specification as output in the `specs/` folder using the findings from RELEVANT research documents found in `research/`. Tip: It's good practice to use the `codebase-research-locator` and `codebase-research-analyzer` agents to help you find and analyze the research documents in the `research/` directory. It is also HIGHLY recommended to cite relevant research throughout the spec for additional context.
 

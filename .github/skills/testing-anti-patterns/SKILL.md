@@ -1,7 +1,6 @@
 ---
 name: testing-anti-patterns
 description: Identify and prevent testing anti-patterns when writing tests
-aliases: [test-patterns]
 ---
 # Testing Anti-Patterns
 

@@ -7,8 +7,10 @@
  * these leftover files when they're no longer locked.
  */
 
-import { rm } from "fs/promises";
+import { rm, readdir } from "fs/promises";
 import { existsSync } from "fs";
+import { tmpdir } from "os";
+import { join } from "path";
 
 import { getBinaryPath } from "./config-path";
 import { isWindows } from "./detect";
@@ -50,11 +52,40 @@ export async function cleanupLeftoverFilesAt(binaryPath: string): Promise<void> 
 }
 
 /**
+ * Clean up Bun's temporary native addon files from the OS temp directory.
+ *
+ * Bun-compiled binaries extract embedded native addons (.dll/.so/.dylib/.node)
+ * to the OS temp directory at runtime with hash-based filenames
+ * (e.g., `.3ff63fefebffffbf-00000001.dll`). After an update or uninstall,
+ * these files become orphaned and should be cleaned up.
+ *
+ * Locked files (from currently running processes) are silently skipped.
+ */
+export async function cleanupBunTempNativeAddons(): Promise<void> {
+  try {
+    const tempDir = tmpdir();
+    const files = await readdir(tempDir);
+
+    // Bun temp native addon pattern: .{hex}-{hex}.{dll|so|dylib|node}
+    const bunTempPattern = /^\.[0-9a-f]+-[0-9a-f]+\.(dll|so|dylib|node)$/i;
+
+    for (const file of files) {
+      if (bunTempPattern.test(file)) {
+        await tryRemoveFile(join(tempDir, file));
+      }
+    }
+  } catch {
+    // Best-effort cleanup - ignore all errors
+  }
+}
+
+/**
  * Clean up leftover Windows files from previous uninstall/update operations.
  *
  * On Windows, when uninstalling or updating:
  * - Uninstall renames the binary to .delete (can't delete running executable)
  * - Update renames the old binary to .old before replacing
+ * - Bun extracts native addons to temp as .dll files that become orphaned
  *
  * These files persist until manually removed or system restart.
  * This function attempts to clean them up at startup when they're no longer locked.
@@ -70,4 +101,5 @@ export async function cleanupWindowsLeftoverFiles(): Promise<void> {
 
   const binaryPath = getBinaryPath();
   await cleanupLeftoverFilesAt(binaryPath);
+  await cleanupBunTempNativeAddons();
 }

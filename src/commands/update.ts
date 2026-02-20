@@ -27,6 +27,7 @@ import {
   getDownloadUrl,
   getChecksumsUrl,
 } from "../utils/download";
+import { cleanupBunTempNativeAddons } from "../utils/cleanup";
 import { trackAtomicCommand } from "../telemetry";
 
 /**
@@ -242,6 +243,9 @@ export async function updateCommand(): Promise<void> {
         await replaceBinaryUnix(binaryPath, targetBinaryPath);
       }
       s.stop("Binary installed");
+
+      // Clean up stale native addon DLLs from temp directory
+      await cleanupBunTempNativeAddons();
 
       // Update config files (clean install - remove stale artifacts)
       s.start("Updating config files...");

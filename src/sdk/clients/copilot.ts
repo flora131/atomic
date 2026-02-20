@@ -501,6 +501,11 @@ export class CopilotClient implements CodingAgentClient {
         }
       },
 
+      abort: async (): Promise<void> => {
+        // Abort any ongoing work in the session (including sub-agent invocations)
+        await state.sdkSession.abort();
+      },
+
       getSystemToolsTokens: (): number => {
         if (state.systemToolsBaseline === null) {
           throw new Error("System tools baseline unavailable: no session.usage_info received yet.");

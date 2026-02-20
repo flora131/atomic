@@ -277,6 +277,14 @@ export interface Session {
    * Should be called when the session is no longer needed.
    */
   destroy(): Promise<void>;
+
+  /**
+   * Abort any ongoing work in the session.
+   * Optional - only supported by some SDKs (e.g., Copilot).
+   * When supported, this cancels in-flight agent work including sub-agent invocations.
+   * @returns Promise resolving when the abort request is acknowledged
+   */
+  abort?(): Promise<void>;
 }
 
 /**

@@ -153,6 +153,16 @@ export interface SessionConfig {
   reasoningEffort?: string;
   /** Maximum thinking tokens for the model (Claude Agent SDK). Defaults to 16000. */
   maxThinkingTokens?: number;
+  /**
+   * Programmatically defined custom sub-agents (Claude SDK format)
+   * Key: Agent name, Value: Agent definition
+   */
+  agents?: Record<string, {
+    description: string;
+    prompt: string;
+    tools?: string[];
+    model?: "sonnet" | "opus" | "haiku" | "inherit";
+  }>;
 }
 
 /**

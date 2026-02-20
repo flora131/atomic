@@ -69,7 +69,7 @@ describe("Unified provider event parity", () => {
         }
       ).emitEvent("usage", "parity-session", {
         marker: "parity.marker",
-        runtimeMode: "v2",
+        runtimeMode: "v1",
       });
 
       unsubscribe();
@@ -79,7 +79,7 @@ describe("Unified provider event parity", () => {
       expect(events[0]?.sessionId).toBe("parity-session");
       expect(events[0]?.data).toEqual({
         marker: "parity.marker",
-        runtimeMode: "v2",
+        runtimeMode: "v1",
       });
       expect(Number.isNaN(Date.parse(events[0]?.timestamp ?? ""))).toBe(false);
     }

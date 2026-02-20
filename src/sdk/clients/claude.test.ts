@@ -84,86 +84,13 @@ describe("ClaudeAgentClient.setActiveSessionModel", () => {
     const client = new ClaudeAgentClient();
 
     await expect(client.setActiveSessionModel("default")).rejects.toThrow(
-      "Model 'default' is not supported for Claude. Use one of: opus, sonnet, haiku."
+      "Model 'default' is not supported for Claude. Use one of: opus, sonnet, haiku.",
     );
   });
 });
 
-describe("ClaudeAgentClient v2 runtime routing", () => {
-  test("selects v2 runtime for default send path", () => {
-    const client = new ClaudeAgentClient();
-    const runtime = (
-      client as unknown as {
-        resolveRuntimeDecision: (
-          operation: "send" | "stream" | "create" | "resume" | "summarize",
-          config: Record<string, unknown>
-        ) => { mode: string; fallbackReason: string | null };
-      }
-    ).resolveRuntimeDecision("send", {});
-
-    expect(runtime.mode).toBe("v2");
-    expect(runtime.fallbackReason).toBeNull();
-  });
-
-  test("selects v2 runtime for default stream and resume paths", () => {
-    const client = new ClaudeAgentClient();
-    const streamRuntime = (
-      client as unknown as {
-        resolveRuntimeDecision: (
-          operation: "send" | "stream" | "create" | "resume" | "summarize",
-          config: Record<string, unknown>
-        ) => { mode: string; fallbackReason: string | null };
-      }
-    ).resolveRuntimeDecision("stream", {});
-    const resumeRuntime = (
-      client as unknown as {
-        resolveRuntimeDecision: (
-          operation: "send" | "stream" | "create" | "resume" | "summarize",
-          config: Record<string, unknown>
-        ) => { mode: string; fallbackReason: string | null };
-      }
-    ).resolveRuntimeDecision("resume", {});
-
-    expect(streamRuntime.mode).toBe("v2");
-    expect(streamRuntime.fallbackReason).toBeNull();
-    expect(resumeRuntime.mode).toBe("v2");
-    expect(resumeRuntime.fallbackReason).toBeNull();
-  });
-
-  test("keeps v2 runtime for advanced input options", () => {
-    const client = new ClaudeAgentClient();
-    const runtime = (
-      client as unknown as {
-        resolveRuntimeDecision: (
-          operation: "send" | "stream" | "create" | "resume" | "summarize",
-          config: Record<string, unknown>
-        ) => { mode: string; fallbackReason: string | null };
-      }
-    ).resolveRuntimeDecision("stream", { maxTurns: 3 });
-
-    expect(runtime.mode).toBe("v2");
-    expect(runtime.fallbackReason).toBeNull();
-  });
-
-  test("keeps v2 routing when custom systemPrompt is configured", () => {
-    const client = new ClaudeAgentClient();
-    const runtime = (
-      client as unknown as {
-        resolveRuntimeDecision: (
-          operation: "send" | "stream" | "create" | "resume" | "summarize",
-          config: Record<string, unknown>
-        ) => { mode: string; fallbackReason: string | null };
-      }
-    ).resolveRuntimeDecision("stream", { systemPrompt: "Custom instruction" });
-
-    expect(runtime.mode).toBe("v2");
-    expect(runtime.fallbackReason).toBeNull();
-  });
-
-});
-
 describe("ClaudeAgentClient observability and parity", () => {
-  test("emits runtime selection marker through unified usage events", () => {
+  test("emits v1 runtime selection marker through unified usage events", () => {
     const client = new ClaudeAgentClient();
     const usageEvents: Array<Record<string, unknown>> = [];
 
@@ -174,69 +101,19 @@ describe("ClaudeAgentClient observability and parity", () => {
     try {
       (
         client as unknown as {
-          emitRuntimeSelectionFromDecision: (
+          emitRuntimeSelection: (
             sessionId: string,
             operation: "create" | "resume" | "send" | "stream" | "summarize",
-            decision: { mode: "v2" | "v1_fallback"; fallbackReason: string | null }
           ) => void;
         }
-      ).emitRuntimeSelectionFromDecision("session-runtime", "send", {
-        mode: "v2",
-        fallbackReason: null,
-      });
+      ).emitRuntimeSelection("session-runtime", "send");
 
       expect(usageEvents).toEqual([
         {
           provider: "claude",
           marker: "claude.runtime.selected",
-          runtimeMode: "v2",
+          runtimeMode: "v1",
           operation: "send",
-        },
-      ]);
-    } finally {
-      unsubscribe();
-    }
-  });
-
-  test("emits fallback usage and reason markers through unified usage events", () => {
-    const client = new ClaudeAgentClient();
-    const usageEvents: Array<Record<string, unknown>> = [];
-
-    const unsubscribe = client.on("usage", (event) => {
-      usageEvents.push(event.data as Record<string, unknown>);
-    });
-
-    try {
-      (
-        client as unknown as {
-          emitRuntimeSelectionFromDecision: (
-            sessionId: string,
-            operation: "create" | "resume" | "send" | "stream" | "summarize",
-            decision: { mode: "v2" | "v1_fallback"; fallbackReason: string | null }
-          ) => void;
-        }
-      ).emitRuntimeSelectionFromDecision("session-fallback", "stream", {
-        mode: "v1_fallback",
-        fallbackReason: "fork_unsupported",
-      });
-
-      expect(usageEvents).toEqual([
-        {
-          provider: "claude",
-          marker: "claude.runtime.selected",
-          runtimeMode: "v1_fallback",
-          operation: "stream",
-        },
-        {
-          provider: "claude",
-          marker: "claude.runtime.fallback_used",
-          operation: "stream",
-          fallbackReason: "fork_unsupported",
-        },
-        {
-          provider: "claude",
-          marker: "claude.runtime.fallback_reason",
-          reason: "fork_unsupported",
         },
       ]);
     } finally {
@@ -255,22 +132,18 @@ describe("ClaudeAgentClient observability and parity", () => {
     try {
       (
         client as unknown as {
-          emitRuntimeSelectionFromDecision: (
+          emitRuntimeSelection: (
             sessionId: string,
             operation: "create" | "resume" | "send" | "stream" | "summarize",
-            decision: { mode: "v2" | "v1_fallback"; fallbackReason: string | null }
           ) => void;
         }
-      ).emitRuntimeSelectionFromDecision("session-create", "create", {
-        mode: "v2",
-        fallbackReason: null,
-      });
+      ).emitRuntimeSelection("session-create", "create");
 
       expect(usageEvents).toEqual([
         {
           provider: "claude",
           marker: "claude.runtime.selected",
-          runtimeMode: "v2",
+          runtimeMode: "v1",
           operation: "create",
         },
       ]);
@@ -286,7 +159,7 @@ describe("ClaudeAgentClient observability and parity", () => {
       emitEvent: (
         eventType: "tool.complete" | "subagent.complete",
         sessionId: string,
-        data: Record<string, unknown>
+        data: Record<string, unknown>,
       ) => void;
     }).emitEvent("tool.complete", "session-1", { toolName: "Read", success: true });
 
@@ -294,7 +167,7 @@ describe("ClaudeAgentClient observability and parity", () => {
       emitEvent: (
         eventType: "tool.complete" | "subagent.complete",
         sessionId: string,
-        data: Record<string, unknown>
+        data: Record<string, unknown>,
       ) => void;
     }).emitEvent("subagent.complete", "session-1", {
       subagentId: "agent-1",
@@ -342,15 +215,12 @@ describe("ClaudeAgentClient observability and parity", () => {
           queryInstance: null,
           sessionId: string,
           config: Record<string, unknown>,
-          runtime: {
-            runtimeMode: "v1_fallback";
-            fallbackReason: null;
-            capabilities: {
-              supportsV2SendStream: boolean;
-              supportsV2Resume: boolean;
-              supportsForkSession: boolean;
-              supportsAdvancedInput: boolean;
-            };
+          persisted?: {
+            sdkSessionId?: string | null;
+            inputTokens?: number;
+            outputTokens?: number;
+            contextWindow?: number | null;
+            systemToolsBaseline?: number | null;
           },
         ) => { destroy: () => Promise<void> };
         sessions: Map<
@@ -362,21 +232,7 @@ describe("ClaudeAgentClient observability and parity", () => {
         >;
       };
 
-      const wrappedSession = privateClient.wrapQuery(
-        null,
-        "wrapped-session-id",
-        {},
-        {
-          runtimeMode: "v1_fallback",
-          fallbackReason: null,
-          capabilities: {
-            supportsV2SendStream: false,
-            supportsV2Resume: false,
-            supportsForkSession: false,
-            supportsAdvancedInput: true,
-          },
-        },
-      );
+      const wrappedSession = privateClient.wrapQuery(null, "wrapped-session-id", {});
 
       const preToolUseHook = privateClient.registeredHooks.PreToolUse?.[0];
       const subagentStartHook = privateClient.registeredHooks.SubagentStart?.[0];
@@ -429,7 +285,7 @@ describe("ClaudeAgentClient observability and parity", () => {
         emitEvent: (
           eventType: "tool.complete" | "subagent.complete" | "tool.start" | "subagent.start",
           sessionId: string,
-          data: Record<string, unknown>
+          data: Record<string, unknown>,
         ) => void;
       }).emitEvent("tool.complete", "session-usage", {
         toolName: "Read",
@@ -440,7 +296,7 @@ describe("ClaudeAgentClient observability and parity", () => {
         emitEvent: (
           eventType: "tool.complete" | "subagent.complete" | "tool.start" | "subagent.start",
           sessionId: string,
-          data: Record<string, unknown>
+          data: Record<string, unknown>,
         ) => void;
       }).emitEvent("subagent.complete", "session-usage", {
         subagentId: "agent-1",
@@ -452,33 +308,21 @@ describe("ClaudeAgentClient observability and parity", () => {
           queryInstance: null,
           sessionId: string,
           config: Record<string, unknown>,
-          runtime: {
-            runtimeMode: "v1_fallback";
-            fallbackReason: null;
-            capabilities: {
-              supportsV2SendStream: boolean;
-              supportsV2Resume: boolean;
-              supportsForkSession: boolean;
-              supportsAdvancedInput: boolean;
-            };
-          }
+          persisted?: {
+            sdkSessionId?: string | null;
+            inputTokens?: number;
+            outputTokens?: number;
+            contextWindow?: number | null;
+            systemToolsBaseline?: number | null;
+          },
         ) => { destroy: () => Promise<void> };
-      }).wrapQuery(null, "session-start-gaps", {}, {
-        runtimeMode: "v1_fallback",
-        fallbackReason: null,
-        capabilities: {
-          supportsV2SendStream: false,
-          supportsV2Resume: false,
-          supportsForkSession: false,
-          supportsAdvancedInput: true,
-        },
-      });
+      }).wrapQuery(null, "session-start-gaps", {});
 
       (client as unknown as {
         emitEvent: (
           eventType: "tool.complete" | "subagent.complete" | "tool.start" | "subagent.start",
           sessionId: string,
-          data: Record<string, unknown>
+          data: Record<string, unknown>,
         ) => void;
       }).emitEvent("tool.start", "session-start-gaps", { toolName: "Read" });
 
@@ -486,7 +330,7 @@ describe("ClaudeAgentClient observability and parity", () => {
         emitEvent: (
           eventType: "tool.complete" | "subagent.complete" | "tool.start" | "subagent.start",
           sessionId: string,
-          data: Record<string, unknown>
+          data: Record<string, unknown>,
         ) => void;
       }).emitEvent("subagent.start", "session-start-gaps", {
         subagentType: "background",
@@ -526,247 +370,10 @@ describe("ClaudeAgentClient observability and parity", () => {
       unsubscribe();
     }
   });
+});
 
-  test("preserves resumed sdkSessionId in wrapped state", async () => {
-    const client = new ClaudeAgentClient();
-
-    const wrapped = (
-      client as unknown as {
-        wrapQuery: (
-          queryInstance: null,
-          sessionId: string,
-          config: Record<string, unknown>,
-          runtime: {
-            runtimeMode: "v2";
-            fallbackReason: null;
-            capabilities: {
-              supportsV2SendStream: boolean;
-              supportsV2Resume: boolean;
-              supportsForkSession: boolean;
-              supportsAdvancedInput: boolean;
-            };
-            sdkSessionId: string;
-          }
-        ) => { id: string; destroy: () => Promise<void> };
-      }
-    ).wrapQuery(null, "session-2", {}, {
-      runtimeMode: "v2",
-      fallbackReason: null,
-      capabilities: {
-        supportsV2SendStream: true,
-        supportsV2Resume: true,
-        supportsForkSession: false,
-        supportsAdvancedInput: true,
-      },
-      sdkSessionId: "sdk-session-2",
-    });
-
-    const state = (
-      client as unknown as {
-        sessions: Map<string, { sdkSessionId: string | null }>;
-      }
-    ).sessions.get("session-2");
-
-    expect(wrapped.id).toBe("session-2");
-    expect(state?.sdkSessionId).toBe("sdk-session-2");
-    await wrapped.destroy();
-  });
-
-  test("derives sdkSessionId from v2 session for fallback continuity", async () => {
-    const client = new ClaudeAgentClient();
-
-    const fakeV2Session = {
-      get sessionId() {
-        return "sdk-derived-session";
-      },
-      send: async () => {},
-      stream: async function* () {},
-      close: () => {},
-      [Symbol.asyncDispose]: async () => {},
-    };
-
-    const wrapped = (
-      client as unknown as {
-        wrapQuery: (
-          queryInstance: null,
-          sessionId: string,
-          config: Record<string, unknown>,
-          runtime: {
-            runtimeMode: "v2";
-            fallbackReason: null;
-            capabilities: {
-              supportsV2SendStream: boolean;
-              supportsV2Resume: boolean;
-              supportsForkSession: boolean;
-              supportsAdvancedInput: boolean;
-            };
-            v2Session: unknown;
-          }
-        ) => { destroy: () => Promise<void> };
-      }
-    ).wrapQuery(null, "session-derived", {}, {
-      runtimeMode: "v2",
-      fallbackReason: null,
-      capabilities: {
-        supportsV2SendStream: true,
-        supportsV2Resume: true,
-        supportsForkSession: false,
-        supportsAdvancedInput: true,
-      },
-      v2Session: fakeV2Session,
-    });
-
-    const state = (
-      client as unknown as {
-        sessions: Map<string, { sdkSessionId: string | null }>;
-      }
-    ).sessions.get("session-derived");
-
-    expect(state?.sdkSessionId).toBe("sdk-derived-session");
-    await wrapped.destroy();
-  });
-
-  test("keeps original sdkSessionId stable after v2 to fallback transition", async () => {
-    const client = new ClaudeAgentClient();
-
-    const wrapped = (
-      client as unknown as {
-        wrapQuery: (
-          queryInstance: null,
-          sessionId: string,
-          config: Record<string, unknown>,
-          runtime: {
-            runtimeMode: "v2";
-            fallbackReason: null;
-            capabilities: {
-              supportsV2SendStream: boolean;
-              supportsV2Resume: boolean;
-              supportsForkSession: boolean;
-              supportsAdvancedInput: boolean;
-            };
-            sdkSessionId: string;
-          }
-        ) => { destroy: () => Promise<void> };
-        processMessage: (
-          message: Record<string, unknown>,
-          sessionId: string,
-          state: {
-            sdkSessionId: string | null;
-            runtimeMode: "v2" | "v1_fallback";
-            fallbackReason: string | null;
-          }
-        ) => void;
-        sessions: Map<
-          string,
-          {
-            sdkSessionId: string | null;
-            runtimeMode: "v2" | "v1_fallback";
-            fallbackReason: string | null;
-          }
-        >;
-      }
-    ).wrapQuery(null, "session-stable", {}, {
-      runtimeMode: "v2",
-      fallbackReason: null,
-      capabilities: {
-        supportsV2SendStream: true,
-        supportsV2Resume: true,
-        supportsForkSession: false,
-        supportsAdvancedInput: true,
-      },
-      sdkSessionId: "sdk-stable",
-    });
-
-    const privateClient = client as unknown as {
-      processMessage: (
-        message: Record<string, unknown>,
-        sessionId: string,
-        state: {
-          sdkSessionId: string | null;
-          runtimeMode: "v2" | "v1_fallback";
-          fallbackReason: string | null;
-        }
-      ) => void;
-      sessions: Map<
-        string,
-        {
-          sdkSessionId: string | null;
-          runtimeMode: "v2" | "v1_fallback";
-          fallbackReason: string | null;
-        }
-      >;
-    };
-
-    const state = privateClient.sessions.get("session-stable");
-    if (!state) {
-      throw new Error("Expected session state to exist");
-    }
-
-    state.runtimeMode = "v1_fallback";
-    state.fallbackReason = "v2_execution_error";
-
-    privateClient.processMessage(
-      {
-        type: "assistant",
-        session_id: "sdk-changed",
-        message: {
-          content: [],
-          usage: { input_tokens: 1, output_tokens: 1 },
-          model: "sonnet",
-          stop_reason: "end_turn",
-        },
-      },
-      "session-stable",
-      state
-    );
-
-    expect(state.sdkSessionId).toBe("sdk-stable");
-    await wrapped.destroy();
-  });
-
-  test("clears stale v2 resume ID before fallback query resume", () => {
-    const client = new ClaudeAgentClient();
-    const state = {
-      v2Session: {
-        sessionId: "v2-session-id",
-      },
-      sdkSessionId: "v2-session-id",
-    };
-
-    (
-      client as unknown as {
-        clearStaleV2ResumeIdForFallback: (state: {
-          v2Session: { sessionId: string } | null;
-          sdkSessionId: string | null;
-        }) => void;
-      }
-    ).clearStaleV2ResumeIdForFallback(state);
-
-    expect(state.sdkSessionId).toBeNull();
-  });
-
-  test("preserves non-v2 resume ID during fallback", () => {
-    const client = new ClaudeAgentClient();
-    const state = {
-      v2Session: {
-        sessionId: "v2-session-id",
-      },
-      sdkSessionId: "v1-session-id",
-    };
-
-    (
-      client as unknown as {
-        clearStaleV2ResumeIdForFallback: (state: {
-          v2Session: { sessionId: string } | null;
-          sdkSessionId: string | null;
-        }) => void;
-      }
-    ).clearStaleV2ResumeIdForFallback(state);
-
-    expect(state.sdkSessionId).toBe("v1-session-id");
-  });
-
-  test("normalizes AskUserQuestion permission events across v2 and fallback runtimes", async () => {
+describe("ClaudeAgentClient permissions and options", () => {
+  test("normalizes AskUserQuestion permission events via v1 canUseTool", async () => {
     const client = new ClaudeAgentClient();
     const seenEvents: Array<{
       sessionId: string;
@@ -793,52 +400,31 @@ describe("ClaudeAgentClient observability and parity", () => {
       const privateClient = client as unknown as {
         buildSdkOptions: (
           config: Record<string, unknown>,
-          sessionId?: string
+          sessionId?: string,
         ) => {
           canUseTool?: (
             toolName: string,
             toolInput: Record<string, unknown>,
-            options: { signal: AbortSignal }
-          ) => Promise<{ behavior: string; updatedInput: Record<string, unknown> }>;
-        };
-        buildV2SessionOptions: (
-          config: Record<string, unknown>,
-          sessionId: string
-        ) => {
-          canUseTool?: (
-            toolName: string,
-            toolInput: Record<string, unknown>
+            options: { signal: AbortSignal },
           ) => Promise<{ behavior: string; updatedInput: Record<string, unknown> }>;
         };
       };
 
-      const fallbackOptions = privateClient.buildSdkOptions({}, "session-fallback");
-      const fallbackResult = await fallbackOptions.canUseTool?.(
-        "AskUserQuestion",
-        {
-          questions: [{ question: "fallback question" }],
-        },
-        { signal: new AbortController().signal }
-      );
+      const result = await privateClient
+        .buildSdkOptions({}, "session-v1")
+        .canUseTool?.(
+          "AskUserQuestion",
+          {
+            questions: [{ question: "v1 question" }],
+          },
+          { signal: new AbortController().signal },
+        );
 
-      const v2Options = privateClient.buildV2SessionOptions({}, "session-v2");
-      const v2Result = await v2Options.canUseTool?.("AskUserQuestion", {
-        questions: [{ question: "v2 question" }],
-      });
-
-      expect(fallbackResult?.behavior).toBe("allow");
-      expect(v2Result?.behavior).toBe("allow");
-      expect((fallbackResult?.updatedInput.answers as Record<string, string>)["fallback question"]).toBe("yes");
-      expect((v2Result?.updatedInput.answers as Record<string, string>)["v2 question"]).toBe("yes");
-
+      expect(result?.behavior).toBe("allow");
+      expect((result?.updatedInput.answers as Record<string, string>)["v1 question"]).toBe("yes");
       expect(seenEvents).toEqual([
         {
-          sessionId: "session-fallback",
-          toolName: "AskUserQuestion",
-          options: ["Yes", "No"],
-        },
-        {
-          sessionId: "session-v2",
+          sessionId: "session-v1",
           toolName: "AskUserQuestion",
           options: ["Yes", "No"],
         },
@@ -848,71 +434,7 @@ describe("ClaudeAgentClient observability and parity", () => {
     }
   });
 
-  test("keeps tool permission and allowed-tool policy equivalent across v2 and fallback options", async () => {
-    const client = new ClaudeAgentClient();
-
-    const privateClient = client as unknown as {
-      buildSdkOptions: (
-        config: Record<string, unknown>,
-        sessionId?: string
-      ) => {
-        allowedTools?: string[];
-        canUseTool?: (
-          toolName: string,
-          toolInput: Record<string, unknown>,
-          options: { signal: AbortSignal }
-        ) => Promise<{ behavior: string; updatedInput: Record<string, unknown> }>;
-      };
-      buildV2SessionOptions: (
-        config: Record<string, unknown>,
-        sessionId: string
-      ) => {
-        allowedTools?: string[];
-        systemPrompt?: unknown;
-        canUseTool?: (
-          toolName: string,
-          toolInput: Record<string, unknown>
-        ) => Promise<{ behavior: string; updatedInput: Record<string, unknown> }>;
-      };
-    };
-
-    const fallbackOptions = privateClient.buildSdkOptions({}, "session-fallback");
-    const v2Options = privateClient.buildV2SessionOptions({}, "session-v2");
-
-    expect(fallbackOptions.allowedTools).toEqual(v2Options.allowedTools);
-    expect(v2Options.systemPrompt).toEqual({ type: "preset", preset: "claude_code" });
-
-    const v2WithPrompt = privateClient.buildV2SessionOptions(
-      { systemPrompt: "Extra system guidance" },
-      "session-v2",
-    );
-    expect(v2WithPrompt.systemPrompt).toEqual({
-      type: "preset",
-      preset: "claude_code",
-      append: "Extra system guidance",
-    });
-
-    const fallbackToolInput = { path: "src/index.ts" };
-    const v2ToolInput = { path: "src/index.ts" };
-
-    const fallbackResult = await fallbackOptions.canUseTool?.(
-      "Read",
-      fallbackToolInput,
-      { signal: new AbortController().signal }
-    );
-    const v2Result = await v2Options.canUseTool?.("Read", v2ToolInput);
-
-    expect(fallbackResult).toEqual({
-      behavior: "allow",
-      updatedInput: fallbackToolInput,
-    });
-    expect(v2Result).toEqual({
-      behavior: "allow",
-      updatedInput: v2ToolInput,
-    });
-  });
-
-  test("normalizes AskUserQuestion custom options and multiselect answers equally", async () => {
+  test("normalizes AskUserQuestion custom options and multiselect answers", async () => {
     const client = new ClaudeAgentClient();
     const seenEvents: Array<{ sessionId: string; multiSelect: boolean }> = [];
 
@@ -941,15 +463,6 @@ describe("ClaudeAgentClient observability and parity", () => {
             options: { signal: AbortSignal },
           ) => Promise<{ behavior: string; updatedInput: Record<string, unknown> }>;
         };
-        buildV2SessionOptions: (
-          config: Record<string, unknown>,
-          sessionId: string,
-        ) => {
-          canUseTool?: (
-            toolName: string,
-            toolInput: Record<string, unknown>,
-          ) => Promise<{ behavior: string; updatedInput: Record<string, unknown> }>;
-        };
       };
 
       const toolInput = {
@@ -962,31 +475,22 @@ describe("ClaudeAgentClient observability and parity", () => {
         ],
       };
 
-      const fallbackResult = await privateClient
-        .buildSdkOptions({}, "session-fallback")
+      const result = await privateClient
+        .buildSdkOptions({}, "session-v1")
         .canUseTool?.("AskUserQuestion", toolInput, {
           signal: new AbortController().signal,
         });
-      const v2Result = await privateClient
-        .buildV2SessionOptions({}, "session-v2")
-        .canUseTool?.("AskUserQuestion", toolInput);
 
-      expect((fallbackResult?.updatedInput.answers as Record<string, string>)["pick values"]).toBe(
+      expect((result?.updatedInput.answers as Record<string, string>)["pick values"]).toBe(
         "alpha, beta",
       );
-      expect((v2Result?.updatedInput.answers as Record<string, string>)["pick values"]).toBe(
-        "alpha, beta",
-      );
-      expect(seenEvents).toEqual([
-        { sessionId: "session-fallback", multiSelect: true },
-        { sessionId: "session-v2", multiSelect: true },
-      ]);
+      expect(seenEvents).toEqual([{ sessionId: "session-v1", multiSelect: true }]);
     } finally {
       unsubscribe();
     }
   });
 
-  test("handles AskUserQuestion with empty question lists consistently", async () => {
+  test("handles AskUserQuestion with empty question lists", async () => {
     const client = new ClaudeAgentClient();
 
     const privateClient = client as unknown as {
@@ -1000,42 +504,53 @@ describe("ClaudeAgentClient observability and parity", () => {
           options: { signal: AbortSignal },
         ) => Promise<{ behavior: string; updatedInput: Record<string, unknown> }>;
       };
-      buildV2SessionOptions: (
+    };
+
+    const input = { questions: [] as Array<{ question: string }> };
+
+    const result = await privateClient
+      .buildSdkOptions({}, "session-v1")
+      .canUseTool?.("AskUserQuestion", input, {
+        signal: new AbortController().signal,
+      });
+
+    expect(result).toEqual({
+      behavior: "allow",
+      updatedInput: input,
+    });
+  });
+
+  test("builds v1 SDK options with allowed tools and claude_code system prompt", () => {
+    const client = new ClaudeAgentClient();
+
+    const privateClient = client as unknown as {
+      buildSdkOptions: (
         config: Record<string, unknown>,
-        sessionId: string,
+        sessionId?: string,
       ) => {
-        canUseTool?: (
-          toolName: string,
-          toolInput: Record<string, unknown>,
-        ) => Promise<{ behavior: string; updatedInput: Record<string, unknown> }>;
+        allowedTools?: string[];
+        systemPrompt?: unknown;
       };
     };
 
-    const fallbackInput = { questions: [] as Array<{ question: string }> };
-    const v2Input = { questions: [] as Array<{ question: string }> };
+    const options = privateClient.buildSdkOptions({}, "session-v1");
+    expect(options.allowedTools?.length).toBeGreaterThan(0);
+    expect(options.systemPrompt).toEqual({ type: "preset", preset: "claude_code" });
 
-    const fallbackResult = await privateClient
-      .buildSdkOptions({}, "session-fallback")
-      .canUseTool?.("AskUserQuestion", fallbackInput, {
-        signal: new AbortController().signal,
-      });
-    const v2Result = await privateClient
-      .buildV2SessionOptions({}, "session-v2")
-      .canUseTool?.("AskUserQuestion", v2Input);
-
-    expect(fallbackResult).toEqual({
-      behavior: "allow",
-      updatedInput: fallbackInput,
-    });
-    expect(v2Result).toEqual({
-      behavior: "allow",
-      updatedInput: v2Input,
+    const withPrompt = privateClient.buildSdkOptions(
+      { systemPrompt: "Extra system guidance" },
+      "session-v1",
+    );
+    expect(withPrompt.systemPrompt).toEqual({
+      type: "preset",
+      preset: "claude_code",
+      append: "Extra system guidance",
     });
   });
 });
 
 describe("ClaudeAgentClient resume continuity semantics", () => {
-  test("re-wraps active sessions without losing runtime and usage state", async () => {
+  test("re-wraps active sessions without losing usage state", async () => {
     const client = new ClaudeAgentClient();
     (client as unknown as { isRunning: boolean }).isRunning = true;
 
@@ -1045,32 +560,16 @@ describe("ClaudeAgentClient resume continuity semantics", () => {
           queryInstance: null,
           sessionId: string,
           config: Record<string, unknown>,
-          runtime: {
-            runtimeMode: "v2";
-            fallbackReason: null;
-            capabilities: {
-              supportsV2SendStream: boolean;
-              supportsV2Resume: boolean;
-              supportsForkSession: boolean;
-              supportsAdvancedInput: boolean;
-            };
-            sdkSessionId: string;
-            inputTokens: number;
-            outputTokens: number;
-            contextWindow: number;
-            systemToolsBaseline: number;
+          persisted?: {
+            sdkSessionId?: string | null;
+            inputTokens?: number;
+            outputTokens?: number;
+            contextWindow?: number | null;
+            systemToolsBaseline?: number | null;
           },
         ) => { destroy: () => Promise<void> };
       }
     ).wrapQuery(null, "resume-open", {}, {
-      runtimeMode: "v2",
-      fallbackReason: null,
-      capabilities: {
-        supportsV2SendStream: true,
-        supportsV2Resume: true,
-        supportsForkSession: false,
-        supportsAdvancedInput: true,
-      },
       sdkSessionId: "sdk-resume-open",
       inputTokens: 123,
       outputTokens: 456,
@@ -1084,8 +583,6 @@ describe("ClaudeAgentClient resume continuity semantics", () => {
         sessions: Map<
           string,
           {
-            runtimeMode: "v2" | "v1_fallback";
-            fallbackReason: string | null;
             sdkSessionId: string | null;
             inputTokens: number;
             outputTokens: number;
@@ -1098,8 +595,6 @@ describe("ClaudeAgentClient resume continuity semantics", () => {
 
     expect(resumed).not.toBeNull();
     expect(resumedState).toMatchObject({
-      runtimeMode: "v2",
-      fallbackReason: null,
       sdkSessionId: "sdk-resume-open",
       inputTokens: 123,
       outputTokens: 456,
@@ -1108,210 +603,5 @@ describe("ClaudeAgentClient resume continuity semantics", () => {
     });
 
     await resumed?.destroy();
-  });
-});
-
-describe("ClaudeAgentClient integration routing", () => {
-  test("uses v2 session send/stream when runtime selects v2", async () => {
-    const client = new ClaudeAgentClient();
-    const sentMessages: string[] = [];
-
-    const fakeV2Session = {
-      get sessionId() {
-        return "sdk-v2-session";
-      },
-      send: async (message: string) => {
-        sentMessages.push(message);
-      },
-      stream: async function* () {
-        yield {
-          type: "assistant",
-          message: {
-            content: [{ type: "text", text: "hello from v2" }],
-            usage: { input_tokens: 3, output_tokens: 5 },
-            model: "sonnet",
-            stop_reason: "end_turn",
-          },
-          parent_tool_use_id: null,
-          uuid: "u1",
-          session_id: "sdk-v2-session",
-        };
-
-        yield {
-          type: "result",
-          subtype: "success",
-          duration_ms: 1,
-          duration_api_ms: 1,
-          is_error: false,
-          num_turns: 1,
-          result: "ok",
-          stop_reason: "end_turn",
-          total_cost_usd: 0,
-          usage: { input_tokens: 3, output_tokens: 5 },
-          modelUsage: {},
-          permission_denials: [],
-          uuid: "u2",
-          session_id: "sdk-v2-session",
-        };
-      },
-      close: () => {},
-      [Symbol.asyncDispose]: async () => {},
-    };
-
-    const session = (
-      client as unknown as {
-        wrapQuery: (
-          queryInstance: null,
-          sessionId: string,
-          config: Record<string, unknown>,
-          runtime: {
-            runtimeMode: "v2";
-            fallbackReason: null;
-            capabilities: {
-              supportsV2SendStream: boolean;
-              supportsV2Resume: boolean;
-              supportsForkSession: boolean;
-              supportsAdvancedInput: boolean;
-            };
-            v2Session: unknown;
-            sdkSessionId: string;
-          }
-        ) => { send: (msg: string) => Promise<{ content: string | unknown }> };
-      }
-    ).wrapQuery(null, "session-v2", {}, {
-      runtimeMode: "v2",
-      fallbackReason: null,
-      capabilities: {
-        supportsV2SendStream: true,
-        supportsV2Resume: true,
-        supportsForkSession: false,
-        supportsAdvancedInput: true,
-      },
-      v2Session: fakeV2Session,
-      sdkSessionId: "sdk-v2-session",
-    });
-
-    const reply = await session.send("hello");
-    expect(sentMessages).toEqual(["hello"]);
-    expect(reply.content).toBe("hello from v2");
-  });
-
-  test("uses v2 session stream path when runtime selects v2", async () => {
-    const client = new ClaudeAgentClient();
-    const sentMessages: string[] = [];
-
-    const fakeV2Session = {
-      get sessionId() {
-        return "sdk-v2-stream-session";
-      },
-      send: async (message: string) => {
-        sentMessages.push(message);
-      },
-      stream: async function* () {
-        yield {
-          type: "stream_event",
-          event: {
-            type: "content_block_delta",
-            delta: {
-              type: "text_delta",
-              text: "hello from v2 stream",
-            },
-          },
-          session_id: "sdk-v2-stream-session",
-        };
-
-        yield {
-          type: "result",
-          subtype: "success",
-          duration_ms: 1,
-          duration_api_ms: 1,
-          is_error: false,
-          num_turns: 1,
-          result: "ok",
-          stop_reason: "end_turn",
-          total_cost_usd: 0,
-          usage: { input_tokens: 2, output_tokens: 4 },
-          modelUsage: {},
-          permission_denials: [],
-          uuid: "u2",
-          session_id: "sdk-v2-stream-session",
-        };
-      },
-      close: () => {},
-      [Symbol.asyncDispose]: async () => {},
-    };
-
-    const session = (
-      client as unknown as {
-        wrapQuery: (
-          queryInstance: null,
-          sessionId: string,
-          config: Record<string, unknown>,
-          runtime: {
-            runtimeMode: "v2";
-            fallbackReason: null;
-            capabilities: {
-              supportsV2SendStream: boolean;
-              supportsV2Resume: boolean;
-              supportsForkSession: boolean;
-              supportsAdvancedInput: boolean;
-            };
-            v2Session: unknown;
-            sdkSessionId: string;
-          }
-        ) => {
-          stream: (msg: string) => AsyncIterable<{
-            type: string;
-            content: string | unknown;
-            role?: string;
-          }>;
-        };
-      }
-    ).wrapQuery(null, "session-v2-stream", {}, {
-      runtimeMode: "v2",
-      fallbackReason: null,
-      capabilities: {
-        supportsV2SendStream: true,
-        supportsV2Resume: true,
-        supportsForkSession: false,
-        supportsAdvancedInput: true,
-      },
-      v2Session: fakeV2Session,
-      sdkSessionId: "sdk-v2-stream-session",
-    });
-
-    const chunks: Array<{
-      type: string;
-      content: string | unknown;
-      role?: string;
-    }> = [];
-    for await (const chunk of session.stream("hello stream")) {
-      chunks.push(chunk);
-    }
-
-    expect(sentMessages).toEqual(["hello stream"]);
-    expect(chunks).toEqual([
-      {
-        type: "text",
-        content: "hello from v2 stream",
-        role: "assistant",
-      },
-    ]);
-  });
-
-  test("keeps v2 create routing for advanced settings", () => {
-    const client = new ClaudeAgentClient();
-
-    const runtime = (
-      client as unknown as {
-        resolveRuntimeDecision: (
-          operation: "send" | "stream" | "create" | "resume" | "summarize",
-          config: Record<string, unknown>
-        ) => { mode: string; fallbackReason: string | null };
-      }
-    ).resolveRuntimeDecision("create", { maxTurns: 2 });
-
-    expect(runtime.mode).toBe("v2");
-    expect(runtime.fallbackReason).toBeNull();
   });
 });

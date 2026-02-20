@@ -17,6 +17,10 @@ permissions:
     contents: write
     id-token: write
 
+concurrency:
+    group: publish-${{ github.ref }}
+    cancel-in-progress: true
+
 jobs:
     build:
         name: Build Binaries
@@ -124,6 +128,16 @@ jobs:
               run: |
                   cd dist
                   sha256sum * > checksums.txt
+
+            - name: Delete existing release assets
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  TAG="v${{ steps.version.outputs.version }}"
+                  gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null | while read -r name; do
+                    gh release delete-asset "$TAG" "$name" --yes 2>/dev/null || true
+                  done
+              continue-on-error: true
 
             - name: Create GitHub Release
               uses: softprops/action-gh-release@v2

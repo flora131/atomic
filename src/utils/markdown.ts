@@ -97,8 +97,15 @@ export function parseMarkdownFrontmatter(
 
     // Simple string/number value
     if (value) {
-      // Try to parse as boolean
-      if (value === "true") {
+      // Try to parse YAML flow sequence: [item1, item2, ...]
+      const flowSeqMatch = value.match(/^\[(.+)\]$/);
+      if (flowSeqMatch) {
+        const items = flowSeqMatch[1]!
+          .split(",")
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0);
+        frontmatter[key] = items;
+      } else if (value === "true") {
         frontmatter[key] = true;
       } else if (value === "false") {
         frontmatter[key] = false;

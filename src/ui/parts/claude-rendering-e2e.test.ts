@@ -7,7 +7,7 @@ import type { ChatMessage } from "../chat.tsx";
 
 function createMockMessage(): ChatMessage {
   return {
-    id: "msg-claude-v2",
+    id: "msg-claude-v1",
     role: "assistant",
     content: "",
     timestamp: new Date().toISOString(),
@@ -28,27 +28,15 @@ function createRunningToolPart(toolCallId: string, toolName: string): ToolPart {
   };
 }
 
-describe("Claude v2-first TUI E2E parity", () => {
+describe("Claude TUI E2E parity", () => {
   beforeEach(() => {
     _resetPartCounter();
   });
 
-  test("renders tool, subagent, and permission flow in one Claude v2-first conversation", async () => {
+  test("renders tool, subagent, and permission flow in one Claude v1 conversation", async () => {
     const client = new ClaudeAgentClient();
-    const sessionId = "claude-v2-flow";
+    const sessionId = "claude-v1-flow";
     const toolCallId = "tool-flow-1";
-
-    const decision = (
-      client as unknown as {
-        resolveRuntimeDecision: (
-          operation: "create" | "resume" | "send" | "stream" | "summarize",
-          config: Record<string, unknown>,
-        ) => { mode: "v2" | "v1_fallback"; fallbackReason: string | null };
-      }
-    ).resolveRuntimeDecision("stream", {});
-
-    expect(decision.mode).toBe("v2");
-    expect(decision.fallbackReason).toBeNull();
 
     let msg = createMockMessage();
     const seen: string[] = [];
@@ -162,21 +150,26 @@ describe("Claude v2-first TUI E2E parity", () => {
 
       const permissionResult = await (
         client as unknown as {
-          buildV2SessionOptions: (
+          buildSdkOptions: (
             config: Record<string, unknown>,
-            eventSessionId: string,
+            eventSessionId?: string,
           ) => {
             canUseTool?: (
               toolName: string,
               toolInput: Record<string, unknown>,
+              options: { signal: AbortSignal },
             ) => Promise<{ behavior: string; updatedInput: Record<string, unknown> }>;
           };
         }
       )
-        .buildV2SessionOptions({}, sessionId)
-        .canUseTool?.("AskUserQuestion", {
-          questions: [{ question: "continue?" }],
-        });
+        .buildSdkOptions({}, sessionId)
+        .canUseTool?.(
+          "AskUserQuestion",
+          {
+            questions: [{ question: "continue?" }],
+          },
+          { signal: new AbortController().signal },
+        );
 
       (
         client as unknown as {
@@ -236,30 +229,16 @@ describe("Claude v2-first TUI E2E parity", () => {
           queryInstance: null,
           wrappedSessionId: string,
           config: Record<string, unknown>,
-          runtime: {
-            runtimeMode: "v2";
-            fallbackReason: null;
-            capabilities: {
-              supportsV2SendStream: boolean;
-              supportsV2Resume: boolean;
-              supportsForkSession: boolean;
-              supportsAdvancedInput: boolean;
-            };
-            sdkSessionId: string;
-            inputTokens: number;
-            outputTokens: number;
+          persisted?: {
+            sdkSessionId?: string | null;
+            inputTokens?: number;
+            outputTokens?: number;
+            contextWindow?: number | null;
+            systemToolsBaseline?: number | null;
           },
         ) => { destroy: () => Promise<void> };
       }
     ).wrapQuery(null, sessionId, {}, {
-      runtimeMode: "v2",
-      fallbackReason: null,
-      capabilities: {
-        supportsV2SendStream: true,
-        supportsV2Resume: true,
-        supportsForkSession: false,
-        supportsAdvancedInput: true,
-      },
       sdkSessionId: "sdk-claude-restart-resume",
       inputTokens: 11,
       outputTokens: 29,
@@ -290,8 +269,6 @@ describe("Claude v2-first TUI E2E parity", () => {
         sessions: Map<
           string,
           {
-            runtimeMode: "v2" | "v1_fallback";
-            fallbackReason: string | null;
             sdkSessionId: string | null;
             inputTokens: number;
             outputTokens: number;
@@ -301,24 +278,35 @@ describe("Claude v2-first TUI E2E parity", () => {
     ).sessions.get(sessionId);
 
     expect(resumedState).toMatchObject({
-      runtimeMode: "v2",
-      fallbackReason: null,
       sdkSessionId: "sdk-claude-restart-resume",
       inputTokens: 11,
       outputTokens: 29,
     });
 
-    const resumeDecision = (
-      secondClient as unknown as {
-        resolveRuntimeDecision: (
-          operation: "create" | "resume" | "send" | "stream" | "summarize",
-          config: Record<string, unknown>,
-        ) => { mode: "v2" | "v1_fallback"; fallbackReason: string | null };
-      }
-    ).resolveRuntimeDecision("resume", { sessionId });
-    expect(resumeDecision.mode).toBe("v2");
-    expect(resumeDecision.fallbackReason).toBeNull();
+    const usageEvents: Array<Record<string, unknown>> = [];
+    const unsubscribe = secondClient.on("usage", (event) => {
+      usageEvents.push(event.data as Record<string, unknown>);
+    });
 
+    (
+      secondClient as unknown as {
+        emitRuntimeSelection: (
+          wrappedSessionId: string,
+          operation: "create" | "resume" | "send" | "stream" | "summarize",
+        ) => void;
+      }
+    ).emitRuntimeSelection(sessionId, "resume");
+
+    expect(usageEvents).toEqual([
+      {
+        provider: "claude",
+        marker: "claude.runtime.selected",
+        runtimeMode: "v1",
+        operation: "resume",
+      },
+    ]);
+
+    unsubscribe();
     await resumed?.destroy();
   });
 });

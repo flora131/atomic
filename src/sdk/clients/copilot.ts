@@ -149,99 +149,6 @@ export function resolveCopilotUserInputSessionId(
 }
 
 /**
- * Parse a Copilot choice string into a structured option with label and optional description.
- *
- * The Copilot SDK only provides `choices: string[]`, but the model may embed
- * descriptions using separator patterns. This parser extracts them so the UI
- * can render structured options matching Claude and OpenCode.
- *
- * Supported patterns (checked in order):
- *  - "Label - Description"   (dash separator)
- *  - "Label: Description"    (colon separator)
- *  - "Label"                 (plain label, no description)
- */
-export function parseCopilotChoice(choice: string): { label: string; value: string; description?: string } {
-  const trimmed = choice.trim();
-
-  // Try "Label - Description" (dash with spaces)
-  const dashIndex = trimmed.indexOf(" - ");
-  if (dashIndex > 0 && dashIndex < trimmed.length - 3) {
-    const label = trimmed.slice(0, dashIndex).trim();
-    const description = trimmed.slice(dashIndex + 3).trim();
-    if (label.length > 0 && description.length > 0) {
-      return { label, value: choice, description };
-    }
-  }
-
-  // Try "Label: Description" (colon with following space)
-  const colonIndex = trimmed.indexOf(": ");
-  if (colonIndex > 0 && colonIndex < trimmed.length - 2) {
-    const label = trimmed.slice(0, colonIndex).trim();
-    const description = trimmed.slice(colonIndex + 2).trim();
-    if (label.length > 0 && description.length > 0) {
-      return { label, value: choice, description };
-    }
-  }
-
-  // Plain label, no description
-  return { label: trimmed, value: choice };
-}
-
-/**
- * Derive a short header label from a question string.
- *
- * Claude provides `q.header` (e.g. "Color", "Auth method") and OpenCode
- * provides `firstQuestion.header`. Copilot has no equivalent field, so we
- * extract a topic keyword from the question text to keep the UI consistent.
- *
- * Heuristic: pick the last significant noun/phrase from the question,
- * falling back to "Question" when nothing useful can be extracted.
- */
-export function deriveCopilotHeader(question: string): string {
-  const trimmed = question.trim().replace(/\?+$/, "").trim();
-  if (trimmed.length === 0) return "Question";
-
-  // Short questions (≤ 20 chars) work as headers directly
-  if (trimmed.length <= 20) return trimmed;
-
-  // Try to extract a short phrase from common question patterns
-  // "What is your favorite X" → "X"
-  // "Which Y should we use" → "Y"
-  // "How would you like to Z" → "Z"
-  const patterns = [
-    /\bfavorite\s+(.+)/i,
-    /\bpreferred?\s+(.+)/i,
-    /\bwhich\s+(.+?)(?:\s+(?:should|would|do|did|to|for)\b)/i,
-    /\bwhat\s+(.+?)(?:\s+(?:should|would|do|did|to|for)\b)/i,
-    /\bchoose\s+(?:a|an|the)\s+(.+)/i,
-    /\bselect\s+(?:a|an|the)\s+(.+)/i,
-    /\bpick\s+(?:a|an|the)\s+(.+)/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = trimmed.match(pattern);
-    if (match?.[1]) {
-      const extracted = match[1].trim().replace(/\?+$/, "").trim();
-      if (extracted.length > 0 && extracted.length <= 30) {
-        // Capitalize first letter
-        return extracted.charAt(0).toUpperCase() + extracted.slice(1);
-      }
-    }
-  }
-
-  // Fallback: use first few words (up to ~25 chars)
-  const words = trimmed.split(/\s+/);
-  let header = "";
-  for (const word of words) {
-    const candidate = header.length === 0 ? word : `${header} ${word}`;
-    if (candidate.length > 25) break;
-    header = candidate;
-  }
-
-  return header.length > 0 ? header : "Question";
-}
-
-/**
  * Maps SDK event types to unified EventType.
  * Uses string key type to accommodate SDK event types that may not be in the type definition.
  */
@@ -817,15 +724,8 @@ export class CopilotClient implements CodingAgentClient {
 
   /**
    * Create an onUserInputRequest handler that enables the ask_user tool.
-   * Maps Copilot SDK's UserInputRequest to our unified permission.requested event,
-   * showing the same UserQuestionDialog as Claude and OpenCode.
-   *
-   * Since the Copilot SDK only provides plain string choices (no structured
-   * label/description pairs or header), this handler:
-   *  - Parses choice strings to extract labels and descriptions
-   *  - Derives a header label from the question text
-   * This makes the Copilot ask_user UI consistent with Claude's AskUserQuestion
-   * and OpenCode's question.asked dialog.
+   * Maps Copilot SDK's UserInputRequest directly into the shared
+   * `permission.requested` event used by the TUI.
    */
   private createUserInputHandler(sessionId: string): SdkSessionConfig["onUserInputRequest"] {
     return async (request) => {
@@ -838,13 +738,13 @@ export class CopilotClient implements CodingAgentClient {
         ? requestRecord.toolCallId
         : undefined;
 
-      // Parse choice strings into structured options with labels and descriptions
+      // Keep Copilot request payload semantics: one line option string per choice.
       const options = request.choices
-        ? request.choices.map(parseCopilotChoice)
+        ? request.choices.map((choice: string) => ({
+          label: choice,
+          value: choice,
+        }))
         : [];
-
-      // Derive a header from the question (Copilot SDK has no header field)
-      const header = deriveCopilotHeader(request.question);
 
       // Create a promise that resolves when the user responds via the UI
       const response = await new Promise<string | string[]>((resolve) => {
@@ -852,9 +752,7 @@ export class CopilotClient implements CodingAgentClient {
           requestId: `ask_user_${Date.now()}`,
           toolName: "ask_user",
           question: request.question,
-          header,
           options,
-          allowFreeform: request.allowFreeform !== false,
           toolCallId,
           respond: resolve,
         });

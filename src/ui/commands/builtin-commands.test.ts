@@ -63,27 +63,47 @@ describe("Built-in Commands", () => {
     });
 
     test("labels built-in commands as slash commands", async () => {
-      const existingCommands = globalRegistry.all();
-      globalRegistry.clear();
-      globalRegistry.register({
-        name: "test-help-builtin",
-        description: "test command",
-        category: "builtin",
-        execute: () => ({ success: true }),
-      });
-
-      try {
-        const context = createMockContext();
-        const result = await helpCommand.execute("", context);
-
-        expect(result.success).toBe(true);
-        expect(result.message).toContain("**Slash Commands**");
-      } finally {
+        const existingCommands = globalRegistry.all();
         globalRegistry.clear();
-        for (const command of existingCommands) {
-          globalRegistry.register(command);
+        globalRegistry.register({
+            name: "test-help-builtin",
+            description: "test command",
+            category: "builtin",
+            execute: () => ({ success: true }),
+        });
+
+        try {
+            const context = createMockContext();
+            const result = await helpCommand.execute("", context);
+
+            expect(result.success).toBe(true);
+            expect(result.message).toContain("**Slash Commands**");
+        } finally {
+            globalRegistry.clear();
+            for (const command of existingCommands) {
+                globalRegistry.register(command);
+            }
         }
-      }
+    });
+
+    test("always mentions sub-agents even when none are registered", async () => {
+        const existingCommands = globalRegistry.all();
+        globalRegistry.clear();
+        globalRegistry.register(helpCommand);
+
+        try {
+            const context = createMockContext();
+            const result = await helpCommand.execute("", context);
+
+            expect(result.success).toBe(true);
+            expect(result.message).toContain("**Sub-Agents**");
+            expect(result.message).toContain("(no sub-agents registered)");
+        } finally {
+            globalRegistry.clear();
+            for (const command of existingCommands) {
+                globalRegistry.register(command);
+            }
+        }
     });
 
     test("includes model info in agent details when available", async () => {

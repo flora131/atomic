@@ -70,13 +70,11 @@ export const helpCommand: CommandDefinition = {
         const categoryOrder = [
             "builtin",
             "skill",
-            "agent",
             "workflow",
         ] as const;
         const categoryLabels: Record<string, string> = {
             builtin: "Slash Commands",
             workflow: "Workflows",
-            agent: "Sub-Agents",
             skill: "Skills",
         };
 
@@ -95,6 +93,21 @@ export const helpCommand: CommandDefinition = {
             }
         }
 
+        const agentCommands = grouped["agent"] ?? [];
+        lines.push("**Sub-Agents**");
+        if (agentCommands.length > 0) {
+            for (const cmd of agentCommands) {
+                const aliases =
+                    cmd.aliases && cmd.aliases.length > 0
+                        ? ` (${cmd.aliases.join(", ")})`
+                        : "";
+                lines.push(`  /${cmd.name}${aliases} - ${cmd.description}`);
+            }
+        } else {
+            lines.push("  (no sub-agents registered)");
+        }
+        lines.push("");
+
         // Add Ralph workflow usage if /ralph is registered
         if (grouped["workflow"]?.some((cmd) => cmd.name === "ralph")) {
             lines.push("**Workflow Usage**");
@@ -103,8 +116,7 @@ export const helpCommand: CommandDefinition = {
         }
 
         // Add Sub-Agents documentation if agent commands are registered
-        const agentCommands = grouped["agent"];
-        if (agentCommands && agentCommands.length > 0) {
+        if (agentCommands.length > 0) {
             lines.push("**Sub-Agent Details**");
             lines.push(
                 "  Specialized agents for specific tasks. Invoke with /<agent-name> <query>",

@@ -86,8 +86,8 @@ Relevant resources (use the deepwiki mcp `ask_question` tool for repos):
       1. [Hooks](../docs/copilot-cli/hooks.md)
       2. [Skills](../docs/copilot-cli/skills.md)
 4. Claude Agent SDK:
-   a. [TypeScript V2 SDK](../docs/claude-agent-sdk/typescript-v2-sdk.md), preferred (fallback to v1 if something is not supported)
-   b. [TypeScript SDK](../docs/claude-agent-sdk/typescript-sdk.md)
+   a. [TypeScript SDK](../docs/claude-agent-sdk/typescript-sdk.md), preferred
+   b. [TypeScript V2 SDK](../docs/claude-agent-sdk/typescript-v2-sdk.md), reference only (not used in runtime)
 
 ### Coding Agent Configuration Locations
 

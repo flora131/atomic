@@ -12,8 +12,6 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { useTerminalDimensions } from "@opentui/react";
 
 import { watchTasksJson } from "../commands/workflow-commands.ts";
@@ -21,7 +19,7 @@ import { MISC, TASK as TASK_ICONS } from "../constants/icons.ts";
 import { useThemeColors, useTheme, getCatppuccinPalette } from "../theme.tsx";
 import { TaskListIndicator, type TaskItem } from "./task-list-indicator.tsx";
 import { sortTasksTopologically } from "./task-order.ts";
-import { normalizeTaskItem, normalizeTaskItems } from "../utils/task-status.ts";
+import { normalizeTaskItem } from "../utils/task-status.ts";
 import { SPACING } from "../constants/spacing.ts";
 
 // ============================================================================
@@ -162,15 +160,6 @@ export function TaskListPanel({
   const [tasks, setTasks] = useState<TaskItem[]>([]);
 
   useEffect(() => {
-    // Initial load: read tasks.json synchronously on mount to avoid flash
-    const tasksPath = join(sessionDir, "tasks.json");
-    if (existsSync(tasksPath)) {
-      try {
-        const content = readFileSync(tasksPath, "utf-8");
-        setTasks(sortTasksTopologically(normalizeTaskItems(JSON.parse(content))));
-      } catch { /* ignore parse errors */ }
-    }
-
     // Start file watcher for live updates
     const cleanup = watchTasksJson(sessionDir, (items) => {
       setTasks(sortTasksTopologically(items.map(toTaskItem)));

@@ -64,6 +64,20 @@
 .github/scripts/run.cmd text eol=lf
 plugins/**/run.cmd text eol=lf
 
+# Source code
+*.ts       text eol=lf
+*.tsx      text eol=lf
+*.js       text eol=lf
+*.jsx      text eol=lf
+*.mjs      text eol=lf
+*.mts      text eol=lf
+*.cjs      text eol=lf
+*.css      text eol=lf
+*.html     text eol=lf
+
+# Config files
+*.lock     text eol=lf
+
 # Serialisation
 *.json     text
 *.toml     text

@@ -4,7 +4,11 @@ import {
   buildTaskListPreamble,
   buildWorkerAssignment,
   buildBootstrappedTaskContext,
+  buildReviewPrompt,
+  parseReviewResult,
+  buildFixSpecFromReview,
   type TaskItem,
+  type ReviewResult,
 } from "./ralph.ts";
 
 describe("buildSpecToTasksPrompt", () => {
@@ -469,5 +473,337 @@ describe("buildBootstrappedTaskContext", () => {
     const result2 = buildBootstrappedTaskContext(tasks, "session-x");
 
     expect(result1).toBe(result2);
+  });
+});
+
+describe("buildReviewPrompt", () => {
+  test("includes user prompt in review request", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", content: "Add login", status: "completed", activeForm: "Adding login" },
+    ];
+    const userPrompt = "Implement user authentication";
+    const prompt = buildReviewPrompt(tasks, userPrompt);
+
+    expect(prompt).toContain("Implement user authentication");
+    expect(prompt).toContain("<user_request>");
+    expect(prompt).toContain("</user_request>");
+  });
+
+  test("lists all completed tasks", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", content: "Setup DB", status: "completed", activeForm: "Setting up" },
+      { id: "#2", content: "Add API", status: "completed", activeForm: "Adding API" },
+      { id: "#3", content: "Not done yet", status: "pending", activeForm: "Working" },
+    ];
+    const prompt = buildReviewPrompt(tasks, "Build backend");
+
+    expect(prompt).toContain("#1");
+    expect(prompt).toContain("Setup DB");
+    expect(prompt).toContain("#2");
+    expect(prompt).toContain("Add API");
+    expect(prompt).not.toContain("Not done yet");
+  });
+
+  test("includes review focus areas", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", content: "Task", status: "completed", activeForm: "Working" },
+    ];
+    const prompt = buildReviewPrompt(tasks, "Test");
+
+    expect(prompt).toContain("Correctness of Logic");
+    expect(prompt).toContain("Error Handling");
+    expect(prompt).toContain("Edge Cases");
+    expect(prompt).toContain("Security Concerns");
+    expect(prompt).toContain("Performance Implications");
+    expect(prompt).toContain("Test Coverage");
+  });
+
+  test("specifies JSON output format", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", content: "Task", status: "completed", activeForm: "Working" },
+    ];
+    const prompt = buildReviewPrompt(tasks, "Test");
+
+    expect(prompt).toContain("findings");
+    expect(prompt).toContain("overall_correctness");
+    expect(prompt).toContain("overall_explanation");
+    expect(prompt).toContain("confidence_score");
+  });
+
+  test("defines priority levels", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", content: "Task", status: "completed", activeForm: "Working" },
+    ];
+    const prompt = buildReviewPrompt(tasks, "Test");
+
+    expect(prompt).toContain("P0");
+    expect(prompt).toContain("P1");
+    expect(prompt).toContain("P2");
+    expect(prompt).toContain("P3");
+    expect(prompt).toContain("Critical");
+    expect(prompt).toContain("Important");
+  });
+
+  test("handles tasks without IDs", () => {
+    const tasks: TaskItem[] = [
+      { content: "Unnamed task", status: "completed", activeForm: "Working" },
+    ];
+    const prompt = buildReviewPrompt(tasks, "Test");
+
+    expect(prompt).toContain("?");
+    expect(prompt).toContain("Unnamed task");
+  });
+});
+
+describe("parseReviewResult", () => {
+  test("parses direct JSON", () => {
+    const json = JSON.stringify({
+      findings: [
+        {
+          title: "[P0] Critical bug",
+          body: "Description",
+          priority: 0,
+          confidence_score: 0.95,
+        },
+      ],
+      overall_correctness: "patch is incorrect",
+      overall_explanation: "Has bugs",
+      overall_confidence_score: 0.9,
+    });
+
+    const result = parseReviewResult(json);
+
+    expect(result).not.toBeNull();
+    expect(result?.findings).toHaveLength(1);
+    expect(result?.findings[0]?.title).toBe("[P0] Critical bug");
+    expect(result?.overall_correctness).toBe("patch is incorrect");
+  });
+
+  test("parses JSON from markdown code fence", () => {
+    const markdown = `Here's the review:
+
+\`\`\`json
+{
+  "findings": [{"title": "[P1] Issue", "body": "Details", "priority": 1}],
+  "overall_correctness": "patch is correct",
+  "overall_explanation": "Looks good"
+}
+\`\`\`
+
+End of review.`;
+
+    const result = parseReviewResult(markdown);
+
+    expect(result).not.toBeNull();
+    expect(result?.findings).toHaveLength(1);
+    expect(result?.findings[0]?.title).toBe("[P1] Issue");
+  });
+
+  test("parses JSON from surrounding prose", () => {
+    const prose = `After careful review, here are my findings: {"findings": [{"title": "[P2] Minor issue", "body": "Detail", "priority": 2}], "overall_correctness": "patch is correct", "overall_explanation": "Good work"} That completes the review.`;
+
+    const result = parseReviewResult(prose);
+
+    expect(result).not.toBeNull();
+    expect(result?.findings).toHaveLength(1);
+  });
+
+  test("filters out P3 (low priority) findings", () => {
+    const json = JSON.stringify({
+      findings: [
+        { title: "[P0] Critical", body: "Must fix", priority: 0 },
+        { title: "[P1] Important", body: "Should fix", priority: 1 },
+        { title: "[P2] Moderate", body: "Could fix", priority: 2 },
+        { title: "[P3] Minor", body: "Style nit", priority: 3 },
+      ],
+      overall_correctness: "patch is correct",
+      overall_explanation: "Mostly good",
+    });
+
+    const result = parseReviewResult(json);
+
+    expect(result).not.toBeNull();
+    expect(result?.findings).toHaveLength(3);
+    expect(result?.findings.some((f) => f.priority === 3)).toBe(false);
+  });
+
+  test("handles findings without priority field", () => {
+    const json = JSON.stringify({
+      findings: [{ title: "Issue", body: "Details" }],
+      overall_correctness: "patch is correct",
+      overall_explanation: "OK",
+    });
+
+    const result = parseReviewResult(json);
+
+    expect(result).not.toBeNull();
+    expect(result?.findings).toHaveLength(1);
+  });
+
+  test("returns null for invalid JSON", () => {
+    const result = parseReviewResult("This is not JSON at all");
+
+    expect(result).toBeNull();
+  });
+
+  test("returns null for JSON without required fields", () => {
+    const json = JSON.stringify({ some_field: "value" });
+
+    const result = parseReviewResult(json);
+
+    expect(result).toBeNull();
+  });
+});
+
+describe("buildFixSpecFromReview", () => {
+  test("returns empty string when no findings", () => {
+    const review: ReviewResult = {
+      findings: [],
+      overall_correctness: "patch is correct",
+      overall_explanation: "No issues found",
+    };
+    const tasks: TaskItem[] = [];
+    const spec = buildFixSpecFromReview(review, tasks, "Original request");
+
+    expect(spec).toBe("");
+  });
+
+  test("returns empty string when patch is correct with no findings", () => {
+    const review: ReviewResult = {
+      findings: [],
+      overall_correctness: "patch is correct",
+      overall_explanation: "All good",
+    };
+    const tasks: TaskItem[] = [];
+    const spec = buildFixSpecFromReview(review, tasks, "Test");
+
+    expect(spec).toBe("");
+  });
+
+  test("generates fix spec with single finding", () => {
+    const review: ReviewResult = {
+      findings: [
+        {
+          title: "[P0] Null pointer bug",
+          body: "Code crashes on null input",
+          priority: 0,
+          confidence_score: 0.95,
+          code_location: {
+            absolute_file_path: "/path/to/file.ts",
+            line_range: { start: 10, end: 15 },
+          },
+        },
+      ],
+      overall_correctness: "patch is incorrect",
+      overall_explanation: "Critical bug found",
+    };
+    const tasks: TaskItem[] = [];
+    const spec = buildFixSpecFromReview(review, tasks, "Add feature X");
+
+    expect(spec).toContain("# Review Fix Specification");
+    expect(spec).toContain("Add feature X");
+    expect(spec).toContain("patch is incorrect");
+    expect(spec).toContain("Critical bug found");
+    expect(spec).toContain("Finding 1");
+    expect(spec).toContain("[P0] Null pointer bug");
+    expect(spec).toContain("P0");
+    expect(spec).toContain("/path/to/file.ts:10-15");
+    expect(spec).toContain("Code crashes on null input");
+  });
+
+  test("sorts findings by priority", () => {
+    const review: ReviewResult = {
+      findings: [
+        { title: "[P2] Moderate", body: "Issue 1", priority: 2 },
+        { title: "[P0] Critical", body: "Issue 2", priority: 0 },
+        { title: "[P1] Important", body: "Issue 3", priority: 1 },
+      ],
+      overall_correctness: "patch is incorrect",
+      overall_explanation: "Multiple issues",
+    };
+    const tasks: TaskItem[] = [];
+    const spec = buildFixSpecFromReview(review, tasks, "Test");
+
+    const p0Index = spec.indexOf("[P0] Critical");
+    const p1Index = spec.indexOf("[P1] Important");
+    const p2Index = spec.indexOf("[P2] Moderate");
+
+    expect(p0Index).toBeLessThan(p1Index);
+    expect(p1Index).toBeLessThan(p2Index);
+  });
+
+  test("handles findings without code location", () => {
+    const review: ReviewResult = {
+      findings: [
+        {
+          title: "[P1] General issue",
+          body: "No specific location",
+          priority: 1,
+        },
+      ],
+      overall_correctness: "patch is incorrect",
+      overall_explanation: "Has issues",
+    };
+    const tasks: TaskItem[] = [];
+    const spec = buildFixSpecFromReview(review, tasks, "Test");
+
+    expect(spec).toContain("Location not specified");
+  });
+
+  test("handles findings without explicit priority", () => {
+    const review: ReviewResult = {
+      findings: [
+        {
+          title: "Issue without priority",
+          body: "Details",
+        },
+      ],
+      overall_correctness: "patch is incorrect",
+      overall_explanation: "Issue found",
+    };
+    const tasks: TaskItem[] = [];
+    const spec = buildFixSpecFromReview(review, tasks, "Test");
+
+    expect(spec).toContain("P2"); // Default priority
+  });
+
+  test("includes fix guidelines", () => {
+    const review: ReviewResult = {
+      findings: [
+        {
+          title: "[P0] Bug",
+          body: "Fix this",
+          priority: 0,
+        },
+      ],
+      overall_correctness: "patch is incorrect",
+      overall_explanation: "Bug exists",
+    };
+    const tasks: TaskItem[] = [];
+    const spec = buildFixSpecFromReview(review, tasks, "Test");
+
+    expect(spec).toContain("Fix Guidelines");
+    expect(spec).toContain("priority order");
+    expect(spec).toContain("existing tests");
+    expect(spec).toContain("minimal changes");
+  });
+
+  test("includes rubric for each finding", () => {
+    const review: ReviewResult = {
+      findings: [
+        {
+          title: "[P1] Issue",
+          body: "Problem description",
+          priority: 1,
+        },
+      ],
+      overall_correctness: "patch is incorrect",
+      overall_explanation: "Issue found",
+    };
+    const tasks: TaskItem[] = [];
+    const spec = buildFixSpecFromReview(review, tasks, "Test");
+
+    expect(spec).toContain("Rubric");
+    expect(spec).toContain("fix is complete when");
   });
 });

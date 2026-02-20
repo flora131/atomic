@@ -17,11 +17,17 @@ import type { CodingAgentClient } from "../sdk/types.ts";
 import { getModelPreference, getReasoningEffortPreference } from "../utils/settings.ts";
 import { discoverMcpConfigs } from "../utils/mcp-config.ts";
 import { trackAtomicCommand } from "../telemetry/index.ts";
+import { pathExists } from "../utils/copy.ts";
+import { AGENT_CONFIG } from "../config.ts";
+import { initCommand } from "./init.ts";
+import { join } from "path";
 
 // SDK client imports
-import { createClaudeAgentClient } from "../sdk/claude-client.ts";
-import { createOpenCodeClient } from "../sdk/opencode-client.ts";
-import { createCopilotClient } from "../sdk/copilot-client.ts";
+import {
+  createClaudeAgentClient,
+  createOpenCodeClient,
+  createCopilotClient,
+} from "../sdk/clients/index.ts";
 import { createTodoWriteTool } from "../sdk/tools/todo-write.ts";
 
 // Chat UI imports
@@ -164,6 +170,16 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   const effectiveReasoningEffort = getReasoningEffortPreference(agentType);
 
   const agentName = getAgentDisplayName(agentType);
+
+  // Check if config folder exists locally
+  const configFolder = join(process.cwd(), AGENT_CONFIG[agentType].folder);
+  if (!(await pathExists(configFolder))) {
+    await initCommand({
+      showBanner: false,
+      preSelectedAgent: agentType,
+      configNotFoundMessage: `Local configuration not found for ${agentName}. Starting interactive setup...`,
+    });
+  }
 
   console.log(`Starting ${agentName} chat interface...`);
   console.log("");

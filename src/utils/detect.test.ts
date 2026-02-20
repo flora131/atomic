@@ -41,11 +41,11 @@ describe("Platform Detection", () => {
     expect(trueCount).toBe(1);
   });
 
-  test("should detect Linux platform in this environment", () => {
-    // We're running on Linux according to the environment context
-    expect(isLinux()).toBe(true);
-    expect(isWindows()).toBe(false);
-    expect(isMacOS()).toBe(false);
+  test("should detect current platform correctly", () => {
+    const platform = process.platform;
+    expect(isLinux()).toBe(platform === "linux");
+    expect(isWindows()).toBe(platform === "win32");
+    expect(isMacOS()).toBe(platform === "darwin");
   });
 
   test("should detect correct platform based on process.platform", () => {
@@ -67,9 +67,8 @@ describe("Platform Detection", () => {
     }
   });
 
-  test("should return .sh extension on Linux", () => {
-    // On Linux (current environment), script extension should be .sh
-    expect(getScriptExtension()).toBe(".sh");
+  test("should return correct script extension for current platform", () => {
+    expect(getScriptExtension()).toBe(isWindows() ? ".ps1" : ".sh");
   });
 
   test("should return correct script extension for current platform", () => {
@@ -198,9 +197,9 @@ describe("Command Detection", () => {
       expect(isCommandInstalled("this-command-definitely-does-not-exist-xyz")).toBe(false);
     });
 
-    test("should return true for 'sh' command (standard shell)", () => {
-      // sh should be available on all Unix-like systems
-      expect(isCommandInstalled("sh")).toBe(true);
+    test("should return true for a common command", () => {
+      const cmd = process.platform === "win32" ? "cmd" : "sh";
+      expect(isCommandInstalled(cmd)).toBe(true);
     });
   });
 
@@ -215,8 +214,9 @@ describe("Command Detection", () => {
       expect(getCommandPath("this-command-definitely-does-not-exist-xyz")).toBeNull();
     });
 
-    test("should return a path for 'sh' command", () => {
-      const path = getCommandPath("sh");
+    test("should return a path for a common command", () => {
+      const cmd = process.platform === "win32" ? "cmd" : "sh";
+      const path = getCommandPath(cmd);
       expect(path).not.toBeNull();
     });
   });
@@ -403,8 +403,9 @@ describe("getCommandPath — additional tests", () => {
   test("should return an absolute path for known commands", () => {
     const path = getCommandPath("bun");
     expect(path).not.toBeNull();
-    // Absolute paths start with /
-    expect(path!.startsWith("/")).toBe(true);
+    // Absolute paths start with / on Unix or drive letter on Windows
+    const isAbsolute = path!.startsWith("/") || /^[A-Za-z]:/.test(path!);
+    expect(isAbsolute).toBe(true);
   });
 
   test("should delegate to Bun.which and return the resolved path", () => {

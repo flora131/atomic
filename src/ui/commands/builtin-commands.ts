@@ -13,7 +13,6 @@ import type {
     CommandDefinition,
     CommandContext,
     CommandResult,
-    ContextDisplayInfo,
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
 import {
@@ -21,7 +20,7 @@ import {
     clearReasoningEffortPreference,
 } from "../../utils/settings.ts";
 import { discoverMcpConfigs } from "../../utils/mcp-config.ts";
-import { BACKGROUND_COMPACTION_THRESHOLD } from "../../graph/types.ts";
+
 import {
     buildMcpSnapshotView,
     getActiveMcpServers,
@@ -70,14 +69,12 @@ export const helpCommand: CommandDefinition = {
 
         const categoryOrder = [
             "builtin",
-            "workflow",
-            "agent",
             "skill",
+            "workflow",
         ] as const;
         const categoryLabels: Record<string, string> = {
-            builtin: "Built-in",
+            builtin: "Slash Commands",
             workflow: "Workflows",
-            agent: "Sub-Agents",
             skill: "Skills",
         };
 
@@ -96,6 +93,21 @@ export const helpCommand: CommandDefinition = {
             }
         }
 
+        const agentCommands = grouped["agent"] ?? [];
+        lines.push("**Sub-Agents**");
+        if (agentCommands.length > 0) {
+            for (const cmd of agentCommands) {
+                const aliases =
+                    cmd.aliases && cmd.aliases.length > 0
+                        ? ` (${cmd.aliases.join(", ")})`
+                        : "";
+                lines.push(`  /${cmd.name}${aliases} - ${cmd.description}`);
+            }
+        } else {
+            lines.push("  (no sub-agents registered)");
+        }
+        lines.push("");
+
         // Add Ralph workflow usage if /ralph is registered
         if (grouped["workflow"]?.some((cmd) => cmd.name === "ralph")) {
             lines.push("**Workflow Usage**");
@@ -104,8 +116,7 @@ export const helpCommand: CommandDefinition = {
         }
 
         // Add Sub-Agents documentation if agent commands are registered
-        const agentCommands = grouped["agent"];
-        if (agentCommands && agentCommands.length > 0) {
+        if (agentCommands.length > 0) {
             lines.push("**Sub-Agent Details**");
             lines.push(
                 "  Specialized agents for specific tasks. Invoke with /<agent-name> <query>",
@@ -566,95 +577,6 @@ export const mcpCommand: CommandDefinition = {
 };
 
 // ============================================================================
-// CONTEXT COMMAND
-// ============================================================================
-
-/**
- * /context - Display context window usage.
- *
- * Shows model info, a visual usage bar, and a four-category token breakdown:
- * System/Tools, Messages, Free Space, and Buffer.
- */
-export const contextCommand: CommandDefinition = {
-    name: "context",
-    description: "View context window usage",
-    category: "builtin",
-    execute: async (
-        _args: string,
-        context: CommandContext,
-    ): Promise<CommandResult> => {
-        let model = "Unknown";
-        let tier = "Unknown";
-        let modelContextWindow: number | undefined;
-        if (context.getModelDisplayInfo) {
-            try {
-                const info = await context.getModelDisplayInfo();
-                model = info.model;
-                tier = info.tier;
-                modelContextWindow = info.contextWindow;
-            } catch {
-                // Use defaults
-            }
-        }
-
-        let maxTokens = 0;
-        let systemTools = 0;
-        let inputTokens = 0;
-        let outputTokens = 0;
-
-        if (context.session) {
-            try {
-                const usage = await context.session.getContextUsage();
-                maxTokens = usage.maxTokens;
-                inputTokens = usage.inputTokens;
-                outputTokens = usage.outputTokens;
-            } catch {
-                // No usage available yet (no messages sent)
-            }
-            try {
-                systemTools = context.session.getSystemToolsTokens();
-            } catch {
-                // Session baseline not yet captured — fall back to client-level probe
-            }
-        }
-
-        // Fall back to client-level system tools baseline (captured during start() probe)
-        // when session doesn't have it yet (e.g., before first message completes)
-        if (systemTools === 0 && context.getClientSystemToolsTokens) {
-            systemTools = context.getClientSystemToolsTokens() ?? 0;
-        }
-
-        // Prefer model metadata context window (reflects current/pending model)
-        // over session maxTokens which may be stale after a model change.
-        if (modelContextWindow) {
-            maxTokens = modelContextWindow;
-        }
-
-        const buffer =
-            maxTokens > 0
-                ? Math.floor(maxTokens * (1 - BACKGROUND_COMPACTION_THRESHOLD))
-                : 0;
-        const messages = Math.max(0, inputTokens - systemTools + outputTokens);
-        const freeSpace = Math.max(
-            0,
-            maxTokens - systemTools - messages - buffer,
-        );
-
-        const contextInfo: ContextDisplayInfo = {
-            model,
-            tier,
-            maxTokens,
-            systemTools,
-            messages,
-            freeSpace,
-            buffer,
-        };
-
-        return { success: true, contextInfo };
-    },
-};
-
-// ============================================================================
 // REGISTRATION
 // ============================================================================
 
@@ -669,7 +591,6 @@ export const builtinCommands: CommandDefinition[] = [
     exitCommand,
     modelCommand,
     mcpCommand,
-    contextCommand,
 ];
 
 /**

@@ -1,0 +1,9 @@
+{
+    "mcpServers": {
+        "deepwiki": {
+            "type": "http",
+            "url": "https://mcp.deepwiki.com/mcp",
+            "tools": ["ask_question"]
+        }
+    }
+}

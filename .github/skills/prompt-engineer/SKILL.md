@@ -1,15 +1,14 @@
 ---
 name: prompt-engineer
-description: Skill: Create, improve, or optimize prompts for Claude using best practices
+description: Skill: Create, improve, or optimize prompts using best practices
 aliases: [prompt]
 argument-hint: "<prompt-description>"
 required-arguments: [prompt-description]
 ---
+
 # Prompt Engineering Skill
 
 This skill provides comprehensive guidance for creating effective prompts for Claude based on Anthropic's official best practices. Use this skill whenever working on prompt design, optimization, or troubleshooting.
-
-User request: $ARGUMENTS
 
 ## Overview
 
@@ -18,6 +17,7 @@ Apply proven prompt engineering techniques to create high-quality, reliable prom
 ## When to Use This Skill
 
 Trigger this skill when users request:
+
 - Help writing a prompt for a specific task
 - Improving an existing prompt that isn't performing well
 - Making Claude more consistent, accurate, or secure
@@ -31,6 +31,7 @@ Trigger this skill when users request:
 ### Step 1: Understand Requirements
 
 Ask clarifying questions to understand:
+
 - **Task goal**: What should the prompt accomplish?
 - **Use case**: One-time use, API integration, or production system?
 - **Constraints**: Output format, length, style, tone requirements
@@ -42,10 +43,12 @@ Ask clarifying questions to understand:
 Based on requirements, determine which techniques to apply:
 
 **Core techniques (for all prompts):**
+
 - Be clear and direct
 - Use XML tags for structure
 
 **Specialized techniques:**
+
 - **Role-specific expertise** → System prompts
 - **Complex reasoning** → Chain of thought
 - **Format consistency** → Multishot prompting
@@ -61,21 +64,27 @@ Based on requirements, determine which techniques to apply:
 Read the appropriate reference file(s) based on techniques needed:
 
 **For basic prompt improvement:**
+
 ```
-Read .github/skills/prompt-engineer/references/core_prompting.md
+Read references/core_prompting.md
 ```
+
 Covers: clarity, system prompts, XML tags
 
 **For complex tasks:**
+
 ```
-Read .github/skills/prompt-engineer/references/advanced_patterns.md
+Read references/advanced_patterns.md
 ```
+
 Covers: chain of thought, multishot, chaining, long context, extended thinking
 
 **For specific quality issues:**
+
 ```
-Read .github/skills/prompt-engineer/references/quality_improvement.md
+Read references/quality_improvement.md
 ```
+
 Covers: hallucinations, consistency, security
 
 ### Step 4: Design the Prompt
@@ -83,6 +92,7 @@ Covers: hallucinations, consistency, security
 Apply techniques from references to create the prompt structure:
 
 **Basic Template:**
+
 ```
 [System prompt - optional, for role assignment]
 
@@ -111,6 +121,7 @@ Specify exact format (JSON, XML, markdown, etc.)
 ```
 
 **Key Design Principles:**
+
 1. **Clarity**: Be explicit and specific
 2. **Structure**: Use XML tags to organize
 3. **Examples**: Provide 3-5 concrete examples for complex formats
@@ -122,18 +133,21 @@ Specify exact format (JSON, XML, markdown, etc.)
 Based on quality needs, add appropriate safeguards:
 
 **For factual accuracy:**
+
 - Grant permission to say "I don't know"
 - Request quote extraction before analysis
 - Require citations for claims
 - Limit to provided information sources
 
 **For consistency:**
+
 - Provide explicit format specifications
 - Use response prefilling
 - Include diverse examples
 - Consider prompt chaining
 
 **For security:**
+
 - Add harmlessness screening
 - Establish clear ethical boundaries
 - Implement input validation
@@ -142,6 +156,7 @@ Based on quality needs, add appropriate safeguards:
 ### Step 6: Optimize and Test
 
 **Optimization checklist:**
+
 - [ ] Could someone with minimal context follow the instructions?
 - [ ] Are all terms and requirements clearly defined?
 - [ ] Is the desired output format explicitly specified?
@@ -149,18 +164,34 @@ Based on quality needs, add appropriate safeguards:
 - [ ] Are XML tags used consistently?
 - [ ] Is the prompt as concise as possible while remaining clear?
 
+**Testing approach:**
+
+- Run prompt multiple times with varied inputs
+- Check consistency across runs
+- Verify outputs match expected format
+- Test edge cases
+- Validate quality controls work
+
 ### Step 7: Iterate Based on Results
+
+**Debugging process:**
+
+1. Identify failure points
+2. Review relevant reference material
+3. Apply appropriate techniques
+4. Test and measure improvement
+5. Repeat until satisfactory
 
 **Common Issues and Solutions:**
 
-| Issue | Solution | Reference |
-|-------|----------|-----------|
-| Inconsistent format | Add examples, use prefilling | quality_improvement.md |
-| Hallucinations | Add uncertainty permission, quote grounding | quality_improvement.md |
-| Missing steps | Break into subtasks, use chaining | advanced_patterns.md |
-| Wrong tone | Add role to system prompt | core_prompting.md |
-| Misunderstands task | Add clarity, provide context | core_prompting.md |
-| Complex reasoning fails | Add chain of thought | advanced_patterns.md |
+| Issue                   | Solution                                    | Reference              |
+| ----------------------- | ------------------------------------------- | ---------------------- |
+| Inconsistent format     | Add examples, use prefilling                | quality_improvement.md |
+| Hallucinations          | Add uncertainty permission, quote grounding | quality_improvement.md |
+| Missing steps           | Break into subtasks, use chaining           | advanced_patterns.md   |
+| Wrong tone              | Add role to system prompt                   | core_prompting.md      |
+| Misunderstands task     | Add clarity, provide context                | core_prompting.md      |
+| Complex reasoning fails | Add chain of thought                        | advanced_patterns.md   |
 
 ## Important Principles
 
@@ -175,3 +206,61 @@ Always validate critical outputs, especially for high-stakes applications. No pr
 
 **Experimentation**
 Prompt engineering is iterative. Small changes can have significant impacts. Test variations and measure results.
+
+## Quick Reference Guide
+
+### Technique Selection Matrix
+
+| User Need                     | Primary Technique       | Reference File         |
+| ----------------------------- | ----------------------- | ---------------------- |
+| Better clarity                | Be clear and direct     | core_prompting.md      |
+| Domain expertise              | System prompts          | core_prompting.md      |
+| Organized structure           | XML tags                | core_prompting.md      |
+| Complex reasoning             | Chain of thought        | advanced_patterns.md   |
+| Format consistency            | Multishot prompting     | advanced_patterns.md   |
+| Multi-step process            | Prompt chaining         | advanced_patterns.md   |
+| Long documents (100K+ tokens) | Long context tips       | advanced_patterns.md   |
+| Deep analysis                 | Extended thinking       | advanced_patterns.md   |
+| Reduce false information      | Hallucination reduction | quality_improvement.md |
+| Consistent outputs            | Consistency techniques  | quality_improvement.md |
+| Security/safety               | Jailbreak mitigation    | quality_improvement.md |
+
+### When to Combine Techniques
+
+- **Structured analysis**: XML tags + Chain of thought
+- **Consistent formatting**: Multishot + Response prefilling
+- **Complex workflows**: Prompt chaining + XML tags
+- **Factual reports**: Quote grounding + Citation verification
+- **Production systems**: System prompts + Input validation + Consistency techniques
+
+## Resources
+
+This skill includes three comprehensive reference files:
+
+### references/core_prompting.md
+
+Essential techniques for all prompts:
+
+- Being clear and direct
+- System prompts and role assignment
+- Using XML tags effectively
+
+### references/advanced_patterns.md
+
+Sophisticated techniques for complex tasks:
+
+- Chain of thought prompting
+- Multishot prompting
+- Prompt chaining
+- Long context handling
+- Extended thinking
+
+### references/quality_improvement.md
+
+Techniques for specific quality issues:
+
+- Reducing hallucinations
+- Increasing consistency
+- Mitigating jailbreaks and prompt injections
+
+Load these files as needed based on the workflow steps above.

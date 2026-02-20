@@ -3674,19 +3674,38 @@ export function ChatApp({
       },
       spawnSubagent: async (options) => {
         // Inject into main session — SDK's native sub-agent dispatch handles it.
-        // Wait for the streaming response so the caller gets the actual result
-        // (previously returned empty output immediately).
+        // Wait for the streaming response so the caller gets the actual result.
+        // 
+        // IMPORTANT: For ralph review-fix loops, the sub-agent output must be
+        // clean JSON without additional commentary. We hide the stream content
+        // to avoid polluting the chat UI with intermediate steps.
         const agentName = options.name ?? options.model ?? "general-purpose";
         const task = options.message;
-        const instruction = `Use the ${agentName} sub-agent to handle this task: ${task}`;
+        
+        // Format instruction to ensure clean sub-agent invocation.
+        // Explicitly request the agent tool and ask for the complete output
+        // to be passed through without additional commentary.
+        const instruction = `Invoke the "${agentName}" sub-agent with the following task. Return ONLY the sub-agent's complete output with no additional commentary or explanation.
+
+Task for ${agentName}:
+${task}
+
+Important: Do not add any text before or after the sub-agent's output. Pass through the complete response exactly as produced.`;
+        
         const result = await new Promise<import("./commands/registry.ts").StreamResult>((resolve) => {
           const previousResolver = streamCompletionResolverRef.current;
           if (previousResolver) {
             previousResolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
           }
           streamCompletionResolverRef.current = resolve;
+          // Hide stream content to keep chat UI clean (content is still accumulated)
+          hideStreamContentRef.current = true;
           context.sendSilentMessage(instruction);
         });
+        
+        // Reset hideStreamContent for next stream
+        hideStreamContentRef.current = false;
+        
         return {
           success: !result.wasInterrupted,
           output: result.content,

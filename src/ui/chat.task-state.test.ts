@@ -136,6 +136,36 @@ describe("ralph task state helpers", () => {
     expect(hasRalphTaskIdOverlap(incomingWithoutIds, knownIds, previous)).toBe(true);
   });
 
+  test("recognizes no-id updates when content prefixes include task IDs/checkboxes", () => {
+    const knownIds = new Set(["#1", "#2"]);
+    const previous: NormalizedTodoItem[] = [
+      { id: "#1", content: "Wire auth route", status: "pending", activeForm: "Wiring auth route" },
+      { id: "#2", content: "Add tests", status: "pending", activeForm: "Adding tests" },
+    ];
+    const incomingWithoutIds: NormalizedTodoItem[] = [
+      { content: "[x] #1 Wire auth route", status: "completed", activeForm: "Wiring auth route" },
+      { content: "[ ] #2 Add tests", status: "in_progress", activeForm: "Adding tests" },
+    ];
+
+    const merged = mergeBlockedBy(incomingWithoutIds, previous);
+    expect(hasRalphTaskIdOverlap(merged, knownIds, previous)).toBe(true);
+  });
+
+  test("rejects no-id updates when prefixed content carries foreign task IDs", () => {
+    const knownIds = new Set(["#1", "#2"]);
+    const previous: NormalizedTodoItem[] = [
+      { id: "#1", content: "Wire auth route", status: "pending", activeForm: "Wiring auth route" },
+      { id: "#2", content: "Add tests", status: "pending", activeForm: "Adding tests" },
+    ];
+    const incomingWithoutIds: NormalizedTodoItem[] = [
+      { content: "[x] #1 Wire auth route", status: "completed", activeForm: "Wiring auth route" },
+      { content: "[ ] #99 Unexpected task", status: "in_progress", activeForm: "Unexpected tasking" },
+    ];
+
+    const merged = mergeBlockedBy(incomingWithoutIds, previous);
+    expect(hasRalphTaskIdOverlap(merged, knownIds, previous)).toBe(false);
+  });
+
   test("rejects unrelated no-id TodoWrite payloads during /ralph", () => {
     const knownIds = new Set(["#1", "#2"]);
     const previous: NormalizedTodoItem[] = [

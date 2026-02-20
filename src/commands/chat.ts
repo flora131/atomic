@@ -174,14 +174,11 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   // Check if config folder exists locally
   const configFolder = join(process.cwd(), AGENT_CONFIG[agentType].folder);
   if (!(await pathExists(configFolder))) {
-    console.log(`\nLocal configuration not found for ${agentName}.`);
-    console.log(`Running initialization for ${agentName}...\n`);
     await initCommand({
       showBanner: false,
       preSelectedAgent: agentType,
-      yes: true,
+      configNotFoundMessage: `Local configuration not found for ${agentName}. Starting interactive setup...`,
     });
-    console.log(`\nInitialization complete. Starting chat...\n`);
   }
 
   console.log(`Starting ${agentName} chat interface...`);

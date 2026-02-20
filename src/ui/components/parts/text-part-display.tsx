@@ -33,23 +33,16 @@ export function TextPartDisplay({ part, syntaxStyle }: TextPartDisplayProps) {
 
   return (
     <box flexDirection="column">
-      <box flexDirection="row">
-        <box flexShrink={0}>
-          <text style={{ fg: colors.foreground }}>{STATUS.active} </text>
-        </box>
-        <box flexShrink={1}>
-          {syntaxStyle ? (
-            <markdown
-              content={trimmedContent}
-              syntaxStyle={syntaxStyle}
-              streaming={part.isStreaming}
-              conceal={true}
-            />
-          ) : (
-            <text style={{ fg: colors.foreground }}>{trimmedContent}</text>
-          )}
-        </box>
-      </box>
+      {syntaxStyle ? (
+        <markdown
+          content={`${STATUS.active} ${trimmedContent}`}
+          syntaxStyle={syntaxStyle}
+          streaming={part.isStreaming}
+          conceal={true}
+        />
+      ) : (
+        <text style={{ fg: colors.foreground }}>{STATUS.active} {trimmedContent}</text>
+      )}
     </box>
   );
 }

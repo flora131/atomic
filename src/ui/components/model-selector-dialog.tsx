@@ -152,8 +152,8 @@ export function ModelSelectorDialog({
     return { offsets, totalRows: row };
   }, [groupedModels]);
 
-  // Reserve space for header (4 rows) and footer (2 rows)
-  const maxListHeight = Math.max(5, terminalHeight - 6);
+  // Reserve space for header (4 rows), footer (2 rows), and outer chat app UI elements
+  const maxListHeight = Math.max(5, terminalHeight - 12);
   const listHeight = Math.min(modelRowOffsets.totalRows, maxListHeight);
 
   // Find index of current model on mount

@@ -1062,6 +1062,20 @@ export function CompletionSummary({ durationMs, outputTokens, thinkingMs }: Comp
   );
 }
 
+/**
+ * Decide whether to render completion summary metadata for an assistant message.
+ * Keep this aligned with transcript formatter behavior (>=1s).
+ */
+export function shouldShowCompletionSummary(
+  message: { streaming?: boolean; durationMs?: number },
+  hasActiveBackgroundAgents: boolean,
+): boolean {
+  return !message.streaming
+    && !hasActiveBackgroundAgents
+    && message.durationMs != null
+    && message.durationMs >= 1000;
+}
+
 // ============================================================================
 // STREAMING BULLET PREFIX COMPONENT
 // ============================================================================
@@ -1268,6 +1282,24 @@ export function shouldGroupSubagentTrees(
   const agents = message.parallelAgents ?? [];
   if (agents.length === 0) return false;
   if (!hasSubagentCall(message)) return false;
+
+  const parts = message.parts ?? [];
+  let hasSeenTask = false;
+  for (const part of parts) {
+    if (part.type === "tool") {
+      const toolName = part.toolName;
+      if (toolName === "Task" || toolName === "task") {
+        hasSeenTask = true;
+      } else {
+        return false;
+      }
+    } else if (part.type === "text") {
+      if (hasSeenTask && part.content.trim().length > 0) {
+        return false;
+      }
+    }
+  }
+
   if (agents.some(isActiveParallelAgent)) return true;
   return (message.parts ?? []).some(isGroupedAgentPart);
 }
@@ -1606,10 +1638,10 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
           </box>
         )}
 
-        {/* Completion summary: shown only when response took longer than 60s and all work is done */}
-        {!message.streaming && !hasActiveBackgroundAgents && message.durationMs != null && message.durationMs > 60_000 && (
+        {/* Completion summary: shown when all work is done and duration is meaningful */}
+        {shouldShowCompletionSummary(message, hasActiveBackgroundAgents) && (
           <box marginTop={SPACING.ELEMENT}>
-            <CompletionSummary durationMs={message.durationMs} outputTokens={message.outputTokens} thinkingMs={message.thinkingMs} />
+            <CompletionSummary durationMs={message.durationMs!} outputTokens={message.outputTokens} thinkingMs={message.thinkingMs} />
           </box>
         )}
 
@@ -3855,10 +3887,14 @@ export function ChatApp({
           // Remove spinner message (either no result or messages will be cleared)
           setMessagesWindowed((prev) => prev.filter((msg) => msg.id !== msgId));
         }
-        isStreamingRef.current = false;
-        setIsStreaming(false);
-        streamingStartRef.current = null;
-        hasRunningToolRef.current = false;
+        
+        // Only reset streaming state if the current stream is still the spinner stream
+        if (streamingMessageIdRef.current === msgId) {
+          isStreamingRef.current = false;
+          setIsStreaming(false);
+          streamingStartRef.current = null;
+          hasRunningToolRef.current = false;
+        }
       }
 
       onCommandExecutionTelemetry?.({
@@ -3876,10 +3912,14 @@ export function ChatApp({
       if (commandSpinnerShown && commandSpinnerMsgId) {
         const msgId = commandSpinnerMsgId;
         setMessagesWindowed((prev) => prev.filter((msg) => msg.id !== msgId));
-        isStreamingRef.current = false;
-        setIsStreaming(false);
-        hasRunningToolRef.current = false;
-        streamingStartRef.current = null;
+        
+        // Only reset streaming state if the current stream is still the spinner stream
+        if (streamingMessageIdRef.current === msgId) {
+          isStreamingRef.current = false;
+          setIsStreaming(false);
+          hasRunningToolRef.current = false;
+          streamingStartRef.current = null;
+        }
       }
       // Handle execution error (as assistant message, not system)
       const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -5522,6 +5562,15 @@ export function ChatApp({
             />
           </box>
         )}
+
+        {/* Ralph persistent task list - rendered in chat flow, Ctrl+T toggleable */}
+        {ralphSessionDir && showTodoPanel && (
+          <TaskListPanel
+            sessionDir={ralphSessionDir}
+            expanded={tasksExpanded}
+          />
+        )}
+
         {/* Input Area - flows with content inside scrollbox */}
         {/* Hidden when question dialog or model selector is active */}
         {!activeQuestion && !showModelSelector && (
@@ -5616,14 +5665,6 @@ export function ChatApp({
           </box>
         )}
       </scrollbox>
-
-      {/* Ralph persistent task list - separate scroll context from chat, Ctrl+T toggleable */}
-      {ralphSessionDir && showTodoPanel && (
-        <TaskListPanel
-          sessionDir={ralphSessionDir}
-          expanded={tasksExpanded}
-        />
-      )}
       </box>
       )}
 

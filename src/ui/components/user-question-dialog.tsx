@@ -125,8 +125,8 @@ export function UserQuestionDialog({
     return { offsets, totalRows: row };
   }, [allOptions]);
 
-  // Reserve space for header (~4 rows) and footer (2 rows)
-  const maxListHeight = Math.max(5, terminalHeight - 6);
+  // Reserve space for header (~4 rows), footer (2 rows), and outer chat app UI elements
+  const maxListHeight = Math.max(5, terminalHeight - 12);
   const listHeight = Math.min(optionRowOffsets.totalRows, maxListHeight);
 
   // Scroll to keep highlighted item visible

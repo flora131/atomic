@@ -34,7 +34,9 @@
  */
 
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { execSync } from "node:child_process";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 
 import {
@@ -51,9 +53,12 @@ import {
   type CustomAgentConfig as SdkCustomAgentConfig,
 } from "@github/copilot-sdk";
 
-import { initCopilotSessionOptions } from "./init.ts";
-import { loadCopilotAgents } from "../config/copilot-manual.ts";
-import { BACKGROUND_COMPACTION_THRESHOLD, BUFFER_EXHAUSTION_THRESHOLD } from "../graph/types.ts";
+import { initCopilotSessionOptions } from "../init.ts";
+import { loadCopilotAgents } from "../../config/copilot-manual.ts";
+import {
+  BACKGROUND_COMPACTION_THRESHOLD,
+  BUFFER_EXHAUSTION_THRESHOLD,
+} from "../../graph/types.ts";
 
 import {
   stripProviderPrefix,
@@ -67,7 +72,7 @@ import {
   type AgentEvent,
   type ToolDefinition,
   type ToolContext,
-} from "./types.ts";
+} from "../types.ts";
 
 /**
  * Permission handler function type (unified interface)
@@ -126,6 +131,24 @@ interface CopilotSessionState {
 }
 
 /**
+ * Resolve the session ID used for user-input (HITL) events.
+ *
+ * Copilot can emit user-input requests after createSession() returns an SDK-
+ * assigned session ID that differs from our tentative pre-create ID.
+ * Use the active session when the preferred ID is not yet known locally.
+ */
+export function resolveCopilotUserInputSessionId(
+  preferredSessionId: string,
+  activeSessionIds: string[]
+): string {
+  if (preferredSessionId.length > 0 && activeSessionIds.includes(preferredSessionId)) {
+    return preferredSessionId;
+  }
+  const latestActive = activeSessionIds[activeSessionIds.length - 1];
+  return latestActive ?? preferredSessionId;
+}
+
+/**
  * Maps SDK event types to unified EventType.
  * Uses string key type to accommodate SDK event types that may not be in the type definition.
  */
@@ -165,6 +188,7 @@ export class CopilotClient implements CodingAgentClient {
   private permissionHandler: CopilotPermissionHandler | null = null;
   private isRunning = false;
   private probeSystemToolsBaseline: number | null = null;
+  private probePromise: Promise<void> | null = null;
 
   /**
    * Create a new CopilotClient
@@ -182,12 +206,34 @@ export class CopilotClient implements CodingAgentClient {
   }
 
   /**
-   * Build SDK client options from our client options
+   * Build SDK client options from our client options.
+   *
+   * The Copilot SDK spawns its CLI subprocess using process.execPath when
+   * cliPath ends in ".js". Under Bun, this fails because @github/copilot
+   * depends on node:sqlite which Bun does not support. Work around this by
+   * setting cliPath to the Node.js binary and prepending the copilot CLI
+   * index.js path to cliArgs so the SDK spawns Node (not Bun) as the
+   * subprocess host.
    */
   private buildSdkOptions(): SdkClientOptions {
+    let cliPath = this.clientOptions.cliPath;
+    const cliArgs = [...(this.clientOptions.cliArgs ?? [])];
+
+    // When no explicit cliPath is provided, resolve the Node.js binary and
+    // the bundled Copilot CLI index.js so the subprocess runs under Node
+    // (required for node:sqlite support). --no-warnings suppresses the
+    // ExperimentalWarning about SQLite.
+    if (!cliPath) {
+      const nodePath = resolveNodePath();
+      if (nodePath) {
+        cliPath = nodePath;
+        cliArgs.unshift("--no-warnings", getBundledCopilotCliPath());
+      }
+    }
+
     const opts: SdkClientOptions = {
-      cliPath: this.clientOptions.cliPath,
-      cliArgs: this.clientOptions.cliArgs,
+      cliPath,
+      cliArgs,
       cwd: this.clientOptions.cwd,
       logLevel: this.clientOptions.logLevel,
       autoStart: this.clientOptions.autoStart ?? true,
@@ -455,6 +501,11 @@ export class CopilotClient implements CodingAgentClient {
         }
       },
 
+      abort: async (): Promise<void> => {
+        // Abort any ongoing work in the session (including sub-agent invocations)
+        await state.sdkSession.abort();
+      },
+
       getSystemToolsTokens: (): number => {
         if (state.systemToolsBaseline === null) {
           throw new Error("System tools baseline unavailable: no session.usage_info received yet.");
@@ -547,6 +598,7 @@ export class CopilotClient implements CodingAgentClient {
           eventData = {
             toolName: toolName,
             toolInput: data.arguments,
+            toolCallId,
           };
           break;
         }
@@ -677,27 +729,36 @@ export class CopilotClient implements CodingAgentClient {
 
   /**
    * Create an onUserInputRequest handler that enables the ask_user tool.
-   * Maps Copilot SDK's UserInputRequest to our unified permission.requested event,
-   * showing the same UserQuestionDialog as Claude and OpenCode.
+   * Maps Copilot SDK's UserInputRequest directly into the shared
+   * `permission.requested` event used by the TUI.
    */
   private createUserInputHandler(sessionId: string): SdkSessionConfig["onUserInputRequest"] {
     return async (request) => {
-      // Map choices to our unified options format
+      const activeSessionIds = Array.from(this.sessions.values())
+        .filter((session) => !session.isClosed)
+        .map((session) => session.sessionId);
+      const resolvedSessionId = resolveCopilotUserInputSessionId(sessionId, activeSessionIds);
+      const requestRecord = request as unknown as Record<string, unknown>;
+      const toolCallId = typeof requestRecord.toolCallId === "string"
+        ? requestRecord.toolCallId
+        : undefined;
+
+      // Keep Copilot request payload semantics: one line option string per choice.
       const options = request.choices
-        ? request.choices.map((choice) => ({
-            label: choice,
-            value: choice,
-          }))
+        ? request.choices.map((choice: string) => ({
+          label: choice,
+          value: choice,
+        }))
         : [];
 
       // Create a promise that resolves when the user responds via the UI
       const response = await new Promise<string | string[]>((resolve) => {
-        this.emitEvent("permission.requested", sessionId, {
+        this.emitEvent("permission.requested", resolvedSessionId, {
           requestId: `ask_user_${Date.now()}`,
           toolName: "ask_user",
           question: request.question,
           options,
-          allowFreeform: request.allowFreeform !== false,
+          toolCallId,
           respond: resolve,
         });
       });
@@ -968,33 +1029,35 @@ export class CopilotClient implements CodingAgentClient {
     await this.sdkClient.start();
     this.isRunning = true;
 
-    // Probe for system tools baseline by creating a temporary session
-    // and waiting for the session.usage_info event which reports currentTokens
-    // (the pre-message baseline: system prompt + tool definitions)
-    try {
-      const probeSession = await this.sdkClient.createSession({});
-      const baseline = await new Promise<number | null>((resolve) => {
-        let unsub: (() => void) | null = null;
-        const timeout = setTimeout(() => {
-          unsub?.();
-          resolve(null);
-        }, 3000);
-        unsub = probeSession.on("session.usage_info", (event) => {
-          const data = event.data as Record<string, unknown>;
-          const currentTokens = data.currentTokens;
-          if (typeof currentTokens !== "number" || currentTokens <= 0) {
-            return;
-          }
-          unsub?.();
-          clearTimeout(timeout);
-          resolve(currentTokens);
+    // Probe for system tools baseline in the background (non-blocking).
+    // The baseline is only needed for the /context command, so there's no
+    // reason to block startup on it.
+    this.probePromise = (async () => {
+      try {
+        const probeSession = await this.sdkClient!.createSession({});
+        const baseline = await new Promise<number | null>((resolve) => {
+          let unsub: (() => void) | null = null;
+          const timeout = setTimeout(() => {
+            unsub?.();
+            resolve(null);
+          }, 3000);
+          unsub = probeSession.on("session.usage_info", (event) => {
+            const data = event.data as Record<string, unknown>;
+            const currentTokens = data.currentTokens;
+            if (typeof currentTokens !== "number" || currentTokens <= 0) {
+              return;
+            }
+            unsub?.();
+            clearTimeout(timeout);
+            resolve(currentTokens);
+          });
         });
-      });
-      this.probeSystemToolsBaseline = baseline;
-      await probeSession.destroy();
-    } catch {
-      // Probe failed - baseline will be populated on first message
-    }
+        this.probeSystemToolsBaseline = baseline;
+        await probeSession.destroy();
+      } catch {
+        // Probe failed - baseline will be populated on first message
+      }
+    })();
   }
 
   /**
@@ -1003,6 +1066,12 @@ export class CopilotClient implements CodingAgentClient {
   async stop(): Promise<void> {
     if (!this.isRunning) {
       return;
+    }
+
+    // Wait for background probe to finish before tearing down
+    if (this.probePromise) {
+      await this.probePromise;
+      this.probePromise = null;
     }
 
     // Close all active sessions
@@ -1157,6 +1226,29 @@ export function createAutoApprovePermissionHandler(): CopilotPermissionHandler {
  */
 export function createDenyAllPermissionHandler(): CopilotPermissionHandler {
   return async () => ({ kind: "denied-interactively-by-user" });
+}
+
+/**
+ * Resolve the path to the system Node.js binary.
+ * Returns undefined if Node.js is not found.
+ */
+export function resolveNodePath(): string | undefined {
+  try {
+    const cmd = process.platform === "win32" ? "where node" : "which node";
+    const nodePath = execSync(cmd, { encoding: "utf-8" }).trim().split(/\r?\n/)[0];
+    return nodePath || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Get the path to the bundled Copilot CLI index.js shipped with @github/copilot.
+ */
+export function getBundledCopilotCliPath(): string {
+  const sdkUrl = import.meta.resolve("@github/copilot/sdk");
+  const sdkPath = fileURLToPath(sdkUrl);
+  return join(dirname(dirname(sdkPath)), "index.js");
 }
 
 /**

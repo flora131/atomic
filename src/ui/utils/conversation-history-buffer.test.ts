@@ -848,6 +848,9 @@ describe("conversation-history-buffer", () => {
     });
 
     test("file permissions are set to 0600", () => {
+      // Windows does not support Unix file permissions the same way
+      if (process.platform === "win32") return;
+
       appendToHistoryBuffer(makeChatMessages(1));
 
       const stats = statSync(BUFFER_FILE);

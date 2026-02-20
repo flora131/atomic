@@ -132,7 +132,7 @@ describe("atomic-config", () => {
       };
       writeFileSync(configPath, JSON.stringify(existing), "utf-8");
 
-      await saveAtomicConfig(tempDir, { scm: "sapling-phabricator" });
+      await saveAtomicConfig(tempDir, { scm: "sapling" });
 
       const saved = JSON.parse(readFileSync(configPath, "utf-8")) as AtomicConfig;
       expect(saved.version).toBe(1); // Always reset to 1
@@ -157,12 +157,12 @@ describe("atomic-config", () => {
     test("returns scm value when configured", async () => {
       const configPath = join(tempDir, ".atomic.json");
       const config: AtomicConfig = {
-        scm: "sapling-phabricator",
+        scm: "sapling",
       };
       writeFileSync(configPath, JSON.stringify(config), "utf-8");
 
       const result = await getSelectedScm(tempDir);
-      expect(result).toBe("sapling-phabricator");
+      expect(result).toBe("sapling");
     });
   });
 });

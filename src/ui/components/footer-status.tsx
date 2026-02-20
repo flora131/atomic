@@ -13,7 +13,7 @@
 
 import React from "react";
 import { useTheme } from "../theme.tsx";
-import type { FooterState, FooterStatusProps } from "../types.ts";
+import type { FooterState } from "../types.ts";
 import { SPACING } from "../constants/spacing.ts";
 
 // ============================================================================

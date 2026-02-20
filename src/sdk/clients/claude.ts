@@ -52,9 +52,10 @@ import type {
     ToolDefinition,
     ToolContext,
     MessageContentType,
-} from "./types.ts";
-import { stripProviderPrefix } from "./types.ts";
-import { initClaudeOptions } from "./init.ts";
+} from "../types.ts";
+import { stripProviderPrefix } from "../types.ts";
+import { initClaudeOptions } from "../init.ts";
+import { loadCopilotAgents } from "../../config/copilot-manual.ts";
 
 /**
  * Configuration for Claude SDK native hooks
@@ -91,6 +92,14 @@ interface ClaudeSessionState {
     contextWindow: number | null;
     /** System tools baseline tokens captured from cache tokens */
     systemToolsBaseline: number | null;
+}
+
+interface StreamIntegrityCounters {
+    missingTerminalEvents: number;
+    unmatchedToolStarts: number;
+    unmatchedToolCompletes: number;
+    unmatchedSubagentStarts: number;
+    unmatchedSubagentCompletes: number;
 }
 
 /**
@@ -210,6 +219,18 @@ function normalizeClaudeModelLabel(model: string): string {
 
 type ReasoningEffort = "low" | "medium" | "high" | "max";
 
+interface AskUserQuestionInput {
+    questions?: Array<{
+        header?: string;
+        question: string;
+        options?: Array<{
+            label: string;
+            description?: string;
+        }>;
+        multiSelect?: boolean;
+    }>;
+}
+
 /**
  * ClaudeAgentClient implements CodingAgentClient for the Claude Agent SDK.
  *
@@ -219,6 +240,23 @@ type ReasoningEffort = "low" | "medium" | "high" | "max";
  */
 export class ClaudeAgentClient implements CodingAgentClient {
     readonly agentType = "claude" as const;
+    private static readonly BUILTIN_ALLOWED_TOOLS = [
+        "Bash",
+        "Read",
+        "Write",
+        "Edit",
+        "Glob",
+        "Grep",
+        "Task",
+        "Skill",
+        "MultiEdit",
+        "TodoRead",
+        "TodoWrite",
+        "WebFetch",
+        "WebSearch",
+        "NotebookEdit",
+        "NotebookRead",
+    ] as const;
     private static readonly SUPPORTED_REASONING_EFFORTS = new Set([
         "low",
         "medium",
@@ -241,6 +279,15 @@ export class ClaudeAgentClient implements CodingAgentClient {
     private probeContextWindow: number | null = null;
     /** System tools baseline captured from the start() probe query */
     private probeSystemToolsBaseline: number | null = null;
+    private streamIntegrity: StreamIntegrityCounters = {
+        missingTerminalEvents: 0,
+        unmatchedToolStarts: 0,
+        unmatchedToolCompletes: 0,
+        unmatchedSubagentStarts: 0,
+        unmatchedSubagentCompletes: 0,
+    };
+    private pendingToolBySession = new Map<string, number>();
+    private pendingSubagentBySession = new Map<string, number>();
 
     /**
      * Register native SDK hooks for event handling.
@@ -273,6 +320,123 @@ export class ClaudeAgentClient implements CodingAgentClient {
         )
             ? (effort as ReasoningEffort)
             : "high";
+    }
+
+    private async handleAskUserQuestion(
+        sessionId: string,
+        toolInput: Record<string, unknown>,
+    ): Promise<
+        | {
+              behavior: "allow";
+              updatedInput: Record<string, unknown>;
+          }
+        | null
+    > {
+        const input = toolInput as AskUserQuestionInput;
+
+        if (!input.questions || input.questions.length === 0) {
+            return null;
+        }
+
+        const answers: Record<string, string> = {};
+
+        for (const q of input.questions) {
+            const responsePromise = new Promise<string | string[]>((resolve) => {
+                this.emitEvent("permission.requested", sessionId, {
+                    requestId: `ask_${Date.now()}`,
+                    toolName: "AskUserQuestion",
+                    toolInput: q,
+                    question: q.question,
+                    header: q.header,
+                    options:
+                        q.options?.map((opt) => ({
+                            label: opt.label,
+                            value: opt.label,
+                            description: opt.description,
+                        })) ?? [
+                            {
+                                label: "Yes",
+                                value: "yes",
+                                description: "Approve",
+                            },
+                            {
+                                label: "No",
+                                value: "no",
+                                description: "Deny",
+                            },
+                        ],
+                    multiSelect: q.multiSelect ?? false,
+                    respond: resolve,
+                });
+            });
+
+            const response = await responsePromise;
+            answers[q.question] = Array.isArray(response)
+                ? response.join(", ")
+                : response;
+        }
+
+        return {
+            behavior: "allow",
+            updatedInput: { ...input, answers },
+        };
+    }
+
+    private async resolveToolPermission(
+        sessionId: string,
+        toolName: string,
+        toolInput: Record<string, unknown>,
+    ): Promise<{ behavior: "allow"; updatedInput: Record<string, unknown> }> {
+        if (toolName === "AskUserQuestion") {
+            const resolved = await this.handleAskUserQuestion(sessionId, toolInput);
+            if (resolved) {
+                return resolved;
+            }
+        }
+
+        return { behavior: "allow", updatedInput: toolInput };
+    }
+
+    private buildMcpServers(
+        config: SessionConfig,
+    ): NonNullable<Options["mcpServers"]> | undefined {
+        const mcpServers: NonNullable<Options["mcpServers"]> = {};
+        let hasMcpServers = false;
+
+        if (config.mcpServers && config.mcpServers.length > 0) {
+            for (const server of config.mcpServers) {
+                if (server.url && server.type === "sse") {
+                    mcpServers[server.name] = {
+                        type: "sse" as const,
+                        url: server.url,
+                        headers: server.headers,
+                    };
+                    hasMcpServers = true;
+                } else if (server.url) {
+                    mcpServers[server.name] = {
+                        type: "http" as const,
+                        url: server.url,
+                        headers: server.headers,
+                    };
+                    hasMcpServers = true;
+                } else if (server.command) {
+                    mcpServers[server.name] = {
+                        type: "stdio" as const,
+                        command: server.command,
+                        args: server.args,
+                        env: server.env,
+                    };
+                    hasMcpServers = true;
+                }
+            }
+        }
+
+        for (const [name, server] of this.registeredTools) {
+            mcpServers[name] = server;
+            hasMcpServers = true;
+        }
+
+        return hasMcpServers ? mcpServers : undefined;
     }
 
     /**
@@ -314,113 +478,12 @@ export class ClaudeAgentClient implements CodingAgentClient {
             toolInput: Record<string, unknown>,
             _options: { signal: AbortSignal },
         ) => {
-            // Handle AskUserQuestion tool - this is the primary HITL mechanism
-            if (toolName === "AskUserQuestion") {
-                const input = toolInput as {
-                    questions?: Array<{
-                        header?: string;
-                        question: string;
-                        options?: Array<{
-                            label: string;
-                            description?: string;
-                        }>;
-                        multiSelect?: boolean;
-                    }>;
-                };
-
-                if (input.questions && input.questions.length > 0) {
-                    // Process each question and collect answers
-                    const answers: Record<string, string> = {};
-
-                    for (const q of input.questions) {
-                        // Create a promise that will be resolved when user responds
-                        const responsePromise = new Promise<string | string[]>(
-                            (resolve) => {
-                                // Emit permission.requested event with question data
-                                this.emitEvent(
-                                    "permission.requested",
-                                    sessionId ?? "",
-                                    {
-                                        requestId: `ask_${Date.now()}`,
-                                        toolName: "AskUserQuestion",
-                                        toolInput: q,
-                                        question: q.question,
-                                        header: q.header,
-                                        options: q.options?.map((opt) => ({
-                                            label: opt.label,
-                                            value: opt.label,
-                                            description: opt.description,
-                                        })) ?? [
-                                            {
-                                                label: "Yes",
-                                                value: "yes",
-                                                description: "Approve",
-                                            },
-                                            {
-                                                label: "No",
-                                                value: "no",
-                                                description: "Deny",
-                                            },
-                                        ],
-                                        multiSelect: q.multiSelect ?? false,
-                                        respond: resolve,
-                                    },
-                                );
-                            },
-                        );
-
-                        // Wait for user response
-                        const response = await responsePromise;
-                        answers[q.question] = Array.isArray(response)
-                            ? response.join(", ")
-                            : response;
-                    }
-
-                    // Return allow with updated input including answers
-                    return {
-                        behavior: "allow" as const,
-                        updatedInput: { ...input, answers },
-                    };
-                }
-            }
-
-            // For other tools, allow by default (they'll use the SDK's permission system)
-            return { behavior: "allow" as const, updatedInput: toolInput };
+            return this.resolveToolPermission(sessionId ?? "", toolName, toolInput);
         };
 
-        // Add MCP servers if configured
-        if (config.mcpServers && config.mcpServers.length > 0) {
-            options.mcpServers = {};
-            for (const server of config.mcpServers) {
-                if (server.url && server.type === "sse") {
-                    options.mcpServers[server.name] = {
-                        type: "sse" as const,
-                        url: server.url,
-                        headers: server.headers,
-                    };
-                } else if (server.url) {
-                    options.mcpServers[server.name] = {
-                        type: "http" as const,
-                        url: server.url,
-                        headers: server.headers,
-                    };
-                } else if (server.command) {
-                    options.mcpServers[server.name] = {
-                        type: "stdio" as const,
-                        command: server.command,
-                        args: server.args,
-                        env: server.env,
-                    };
-                }
-            }
-        }
-
-        // Add registered tools as SDK MCP servers
-        for (const [name, server] of this.registeredTools) {
-            if (!options.mcpServers) {
-                options.mcpServers = {};
-            }
-            options.mcpServers[name] = server;
+        const mcpServers = this.buildMcpServers(config);
+        if (mcpServers) {
+            options.mcpServers = mcpServers;
         }
 
         // Forward tool restrictions to the SDK so sub-agents only have access
@@ -428,6 +491,12 @@ export class ClaudeAgentClient implements CodingAgentClient {
         // When config.tools is undefined, no restriction is applied (default tools).
         if (config.tools && config.tools.length > 0) {
             options.tools = config.tools;
+        }
+
+        // Forward sub-agent definitions to the Claude SDK
+        // This is what makes /subagent commands discoverable to the model
+        if (config.agents && Object.keys(config.agents).length > 0) {
+            options.agents = config.agents;
         }
 
         // Always bypass permissions - Atomic handles its own permission flow
@@ -443,23 +512,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
         // checked BEFORE the permission mode in the SDK's resolution chain,
         // which also prevents the sub-agent auto-deny path
         // (shouldAvoidPermissionPrompts) from rejecting tools.
-        options.allowedTools = [
-            "Bash",
-            "Read",
-            "Write",
-            "Edit",
-            "Glob",
-            "Grep",
-            "Task",
-            "Skill",
-            "MultiEdit",
-            "TodoRead",
-            "TodoWrite",
-            "WebFetch",
-            "WebSearch",
-            "NotebookEdit",
-            "NotebookRead",
-        ];
+        options.allowedTools = [...ClaudeAgentClient.BUILTIN_ALLOWED_TOOLS];
 
         // Resume session if sessionId provided
         if (config.sessionId) {
@@ -469,6 +522,41 @@ export class ClaudeAgentClient implements CodingAgentClient {
         return options;
     }
 
+    private emitRuntimeMarker(
+        sessionId: string,
+        marker: string,
+        data: Record<string, unknown>,
+    ): void {
+        this.emitEvent("usage", sessionId, {
+            provider: "claude",
+            marker,
+            ...data,
+        });
+    }
+
+    private bumpStreamIntegrityCounter(
+        sessionId: string,
+        counter: keyof StreamIntegrityCounters,
+        amount = 1,
+    ): number {
+        this.streamIntegrity[counter] += amount;
+        const value = this.streamIntegrity[counter];
+        this.emitRuntimeMarker(sessionId, "claude.stream.integrity", {
+            [counter]: value,
+        });
+        return value;
+    }
+
+    private emitRuntimeSelection(
+        sessionId: string,
+        operation: "create" | "resume" | "send" | "stream" | "summarize",
+    ): void {
+        this.emitRuntimeMarker(sessionId, "claude.runtime.selected", {
+            runtimeMode: "v1",
+            operation,
+        });
+    }
+
     /**
      * Wrap a Query into a unified Session interface
      */
@@ -476,17 +564,28 @@ export class ClaudeAgentClient implements CodingAgentClient {
         queryInstance: Query | null,
         sessionId: string,
         config: SessionConfig,
+        persisted?: Partial<
+            Pick<
+                ClaudeSessionState,
+                | "sdkSessionId"
+                | "inputTokens"
+                | "outputTokens"
+                | "contextWindow"
+                | "systemToolsBaseline"
+            >
+        >,
     ): Session {
         const state: ClaudeSessionState = {
             query: queryInstance,
             sessionId,
-            sdkSessionId: null,
+            sdkSessionId: persisted?.sdkSessionId ?? null,
             config,
-            inputTokens: 0,
-            outputTokens: 0,
+            inputTokens: persisted?.inputTokens ?? 0,
+            outputTokens: persisted?.outputTokens ?? 0,
             isClosed: false,
-            contextWindow: this.probeContextWindow,
-            systemToolsBaseline: this.probeSystemToolsBaseline,
+            contextWindow: persisted?.contextWindow ?? this.probeContextWindow,
+            systemToolsBaseline:
+                persisted?.systemToolsBaseline ?? this.probeSystemToolsBaseline,
         };
 
         this.sessions.set(sessionId, state);
@@ -498,6 +597,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 if (state.isClosed) {
                     throw new Error("Session is closed");
                 }
+                this.emitRuntimeSelection(sessionId, "send");
 
                 // Build options with resume if we have an SDK session ID
                 const options = this.buildSdkOptions(config, sessionId);
@@ -514,9 +614,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
                 // Consume all messages and return the final assistant message
                 let lastAssistantMessage: AgentMessage | null = null;
+                let sawTerminalEvent = false;
 
                 for await (const sdkMessage of newQuery) {
                     this.processMessage(sdkMessage, sessionId, state);
+                    if (sdkMessage.type === "result") {
+                        sawTerminalEvent = true;
+                    }
 
                     if (sdkMessage.type === "assistant") {
                         const { type, content } =
@@ -542,6 +646,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     }
                 }
 
+                if (!sawTerminalEvent) {
+                    this.bumpStreamIntegrityCounter(
+                        sessionId,
+                        "missingTerminalEvents",
+                    );
+                }
+
                 return (
                     lastAssistantMessage ?? {
                         type: "text",
@@ -557,6 +668,14 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     this.buildSdkOptions(config, sessionId);
                 const processMsg = (msg: SDKMessage) =>
                     this.processMessage(msg, sessionId, state);
+                const emitRuntimeSelection = () =>
+                    this.emitRuntimeSelection(sessionId, "stream");
+                const bumpMissingTerminalEvents = () => {
+                    return this.bumpStreamIntegrityCounter(
+                        sessionId,
+                        "missingTerminalEvents",
+                    );
+                };
                 // Capture SDK session ID for resume
                 const getSdkSessionId = () => state.sdkSessionId;
 
@@ -565,8 +684,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         if (state.isClosed) {
                             throw new Error("Session is closed");
                         }
-
-                        // Build options with resume if we have an SDK session ID
+                        emitRuntimeSelection();
                         const options = {
                             ...buildOptions(),
                             includePartialMessages: true,
@@ -576,11 +694,11 @@ export class ClaudeAgentClient implements CodingAgentClient {
                             options.resume = sdkSessionId;
                         }
 
-                        const newQuery = query({
+                        const streamSource = query({
                             prompt: message,
                             options,
                         });
-                        state.query = newQuery;
+                        state.query = streamSource;
 
                         // Track if we've yielded streaming deltas to avoid duplicating content
                         let hasYieldedDeltas = false;
@@ -591,9 +709,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         let currentBlockIsThinking = false;
                         // Output token tracking from message_delta events
                         let outputTokens = 0;
+                        let sawTerminalEvent = false;
 
-                        for await (const sdkMessage of newQuery) {
+                        for await (const sdkMessage of streamSource) {
                             processMsg(sdkMessage);
+                            if (sdkMessage.type === "result") {
+                                sawTerminalEvent = true;
+                            }
 
                             if (sdkMessage.type === "stream_event") {
                                 const event = sdkMessage.event;
@@ -738,6 +860,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
                             }
                         }
 
+                        if (!sawTerminalEvent) {
+                            bumpMissingTerminalEvents();
+                        }
+
                         // Yield final metadata with actual token count and thinking duration
                         if (outputTokens > 0 || thinkingDurationMs > 0) {
                             yield {
@@ -760,6 +886,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 if (state.isClosed) {
                     throw new Error("Session is closed");
                 }
+                this.emitRuntimeSelection(sessionId, "summarize");
 
                 // Send /compact as a prompt to the Claude Agents SDK
                 const options = this.buildSdkOptions(config, sessionId);
@@ -853,6 +980,26 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 if (!state.isClosed) {
                     state.isClosed = true;
                     state.query?.close();
+                    const pendingTools =
+                        this.pendingToolBySession.get(sessionId) ?? 0;
+                    const pendingSubagents =
+                        this.pendingSubagentBySession.get(sessionId) ?? 0;
+                    if (pendingTools > 0) {
+                        this.bumpStreamIntegrityCounter(
+                            sessionId,
+                            "unmatchedToolStarts",
+                            pendingTools,
+                        );
+                    }
+                    if (pendingSubagents > 0) {
+                        this.bumpStreamIntegrityCounter(
+                            sessionId,
+                            "unmatchedSubagentStarts",
+                            pendingSubagents,
+                        );
+                    }
+                    this.pendingToolBySession.delete(sessionId);
+                    this.pendingSubagentBySession.delete(sessionId);
                     this.sessions.delete(sessionId);
                     this.emitEvent("session.idle", sessionId, {
                         reason: "destroyed",
@@ -959,7 +1106,44 @@ export class ClaudeAgentClient implements CodingAgentClient {
         data: Record<string, unknown>,
     ): void {
         const handlers = this.eventHandlers.get(eventType);
-        if (!handlers) return;
+
+        if (eventType === "tool.start") {
+            const active = this.pendingToolBySession.get(sessionId) ?? 0;
+            this.pendingToolBySession.set(sessionId, active + 1);
+        }
+
+        if (eventType === "tool.complete") {
+            const active = this.pendingToolBySession.get(sessionId) ?? 0;
+            if (active === 0) {
+                this.bumpStreamIntegrityCounter(
+                    sessionId,
+                    "unmatchedToolCompletes",
+                );
+            } else {
+                this.pendingToolBySession.set(sessionId, active - 1);
+            }
+        }
+
+        if (eventType === "subagent.start") {
+            const active = this.pendingSubagentBySession.get(sessionId) ?? 0;
+            this.pendingSubagentBySession.set(sessionId, active + 1);
+        }
+
+        if (eventType === "subagent.complete") {
+            const active = this.pendingSubagentBySession.get(sessionId) ?? 0;
+            if (active === 0) {
+                this.bumpStreamIntegrityCounter(
+                    sessionId,
+                    "unmatchedSubagentCompletes",
+                );
+            } else {
+                this.pendingSubagentBySession.set(sessionId, active - 1);
+            }
+        }
+
+        if (!handlers) {
+            return;
+        }
 
         const event: AgentEvent<T> = {
             type: eventType,
@@ -981,6 +1165,43 @@ export class ClaudeAgentClient implements CodingAgentClient {
     }
 
     /**
+     * Normalize hook-reported session IDs back to Atomic's wrapped session ID.
+     *
+     * Claude hook callbacks report the SDK-native `session_id`, while the UI
+     * ownership filter tracks wrapped IDs returned by createSession().
+     * Without this mapping, tool/subagent hook events can be dropped.
+     */
+    private resolveHookSessionId(sdkSessionId: string): string {
+        // Already using wrapped ID
+        if (this.sessions.has(sdkSessionId)) {
+            return sdkSessionId;
+        }
+
+        // Known SDK session ID for an existing wrapped session
+        for (const [wrappedSessionId, state] of this.sessions.entries()) {
+            if (state.sdkSessionId === sdkSessionId) {
+                return wrappedSessionId;
+            }
+        }
+
+        // First hook can arrive before assistant/result messages populate sdkSessionId.
+        // If exactly one open session exists, bind this SDK session ID to it.
+        const openSessions = Array.from(this.sessions.entries()).filter(
+            ([, state]) => !state.isClosed,
+        );
+        if (openSessions.length === 1) {
+            const [wrappedSessionId, state] = openSessions[0]!;
+            if (!state.sdkSessionId) {
+                state.sdkSessionId = sdkSessionId;
+            }
+            return wrappedSessionId;
+        }
+
+        // Fall back to the SDK ID if we cannot disambiguate.
+        return sdkSessionId;
+    }
+
+    /**
      * Create a new agent session
      */
     async createSession(config: SessionConfig = {}): Promise<Session> {
@@ -997,9 +1218,30 @@ export class ClaudeAgentClient implements CodingAgentClient {
         // query was spawned here, which leaked a Claude Code subprocess that was
         // never consumed.
 
+        // Load custom agents from project and global directories
+        const projectRoot = process.cwd();
+        const loadedAgents = await loadCopilotAgents(projectRoot);
+        
+        const agentsMap: Record<string, { description: string; prompt: string; tools?: string[]; model?: "sonnet" | "opus" | "haiku" | "inherit" }> = { ...config.agents };
+        
+        for (const agent of loadedAgents) {
+            if (!agentsMap[agent.name]) {
+                agentsMap[agent.name] = {
+                    description: agent.description,
+                    prompt: agent.systemPrompt,
+                    tools: agent.tools,
+                    // Note: model is optional, defaulting to SDK's behavior
+                };
+            }
+        }
+        
+        if (Object.keys(agentsMap).length > 0) {
+            config.agents = agentsMap;
+        }
+
         // Emit session start event
         this.emitEvent("session.start", sessionId, { config });
-
+        this.emitRuntimeSelection(sessionId, "create");
         return this.wrapQuery(null, sessionId, config);
     }
 
@@ -1018,20 +1260,31 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 existingState.query,
                 sessionId,
                 existingState.config,
+                {
+                    sdkSessionId: existingState.sdkSessionId,
+                    inputTokens: existingState.inputTokens,
+                    outputTokens: existingState.outputTokens,
+                    contextWindow: existingState.contextWindow,
+                    systemToolsBaseline: existingState.systemToolsBaseline,
+                },
             );
         }
+
+        this.emitRuntimeSelection(sessionId, "resume");
 
         // Try to resume from SDK — use buildSdkOptions() so that
         // permissionMode, allowedTools, canUseTool, and settingSources are
         // all present (a bare Options object would fall back to "default"
         // mode which causes sub-agent tool denials).
         try {
-            const options = this.buildSdkOptions({}, sessionId);
+            const options = this.buildSdkOptions({ sessionId }, sessionId);
             options.resume = sessionId;
 
             const queryInstance = query({ prompt: "", options });
 
-            return this.wrapQuery(queryInstance, sessionId, {});
+            return this.wrapQuery(queryInstance, sessionId, {}, {
+                sdkSessionId: sessionId,
+            });
         } catch (error) {
             console.warn(`Failed to resume session ${sessionId}:`, error);
             return null;
@@ -1113,9 +1366,17 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         eventData.success = true;
                     }
 
+                    const hookSessionId =
+                        typeof input.session_id === "string"
+                            ? input.session_id
+                            : "";
+                    const sessionId = hookSessionId
+                        ? this.resolveHookSessionId(hookSessionId)
+                        : hookSessionId;
+
                     const event: AgentEvent<T> = {
                         type: eventType,
-                        sessionId: input.session_id,
+                        sessionId,
                         timestamp: new Date().toISOString(),
                         data: eventData as AgentEvent<T>["data"],
                     };
@@ -1310,11 +1571,15 @@ export class ClaudeAgentClient implements CodingAgentClient {
         // Probe the SDK to detect the default model from the system init message
         // This makes a lightweight query that doesn't require actual user input
         try {
+            const probeOptions: Options = {
+                ...initClaudeOptions(),
+                maxTurns: 0, // Don't allow any turns - just get init message
+                // Required for CLAUDE.md/project-setting based sub-agent discovery.
+                systemPrompt: { type: "preset", preset: "claude_code" },
+            };
             const probeQuery = query({
                 prompt: "",
-                options: {
-                    maxTurns: 0, // Don't allow any turns - just get init message
-                },
+                options: probeOptions,
             });
 
             // Read the first message (should be system init)
@@ -1385,6 +1650,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
         }
 
         this.sessions.clear();
+        this.pendingToolBySession.clear();
+        this.pendingSubagentBySession.clear();
         this.eventHandlers.clear();
     }
 

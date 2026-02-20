@@ -127,6 +127,17 @@ describe("parseMcpToolName", () => {
     });
   });
 
+  test("handles Copilot format MCP tool names", () => {
+    expect(parseMcpToolName("deepwiki/ask_question")).toEqual({
+      server: "deepwiki",
+      tool: "ask_question",
+    });
+    expect(parseMcpToolName("file_system/read_write")).toEqual({
+      server: "file_system",
+      tool: "read_write",
+    });
+  });
+
   test("returns null for invalid MCP tool names", () => {
     expect(parseMcpToolName("mcp__only_one_part")).toBeNull();
     expect(parseMcpToolName("mcp_single_underscore__tool")).toBeNull();

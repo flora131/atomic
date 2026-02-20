@@ -10,7 +10,6 @@ export { TextPartDisplay, type TextPartDisplayProps } from "./text-part-display.
 export { ToolPartDisplay, type ToolPartDisplayProps } from "./tool-part-display.tsx";
 export { SkillLoadPartDisplay, type SkillLoadPartDisplayProps } from "./skill-load-part-display.tsx";
 export { McpSnapshotPartDisplay, type McpSnapshotPartDisplayProps } from "./mcp-snapshot-part-display.tsx";
-export { ContextInfoPartDisplay, type ContextInfoPartDisplayProps } from "./context-info-part-display.tsx";
 export { CompactionPartDisplay, type CompactionPartDisplayProps } from "./compaction-part-display.tsx";
 export { AgentPartDisplay, type AgentPartDisplayProps } from "./agent-part-display.tsx";
 export { TaskListPartDisplay, type TaskListPartDisplayProps } from "./task-list-part-display.tsx";

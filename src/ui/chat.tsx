@@ -1372,35 +1372,94 @@ function mergeParallelAgentsIntoParts(
     agentsByToolCall.set(toolCallId, grouped);
   }
 
-  const nextAgentParts: AgentPart[] = [];
-  for (const [toolCallId, agents] of agentsByToolCall) {
-    let parentToolPartId: PartId | undefined;
-    if (toolCallId) {
-      const toolPart = nonAgentParts.find(
-        (p) => p.type === "tool" && (p as ToolPart).toolCallId === toolCallId
-      ) as ToolPart | undefined;
-      parentToolPartId = toolPart?.id;
+  const finalParts: Part[] = [];
+  const handledToolCallIds = new Set<string>();
+
+  let currentGroup: ToolPart[] = [];
+  let currentGroupAgents: ParallelAgent[] = [];
+
+  for (let i = 0; i < nonAgentParts.length; i++) {
+    const part = nonAgentParts[i];
+    if (!part) continue;
+    finalParts.push(part);
+
+    if (part.type === "tool" && ((part as ToolPart).toolName === "Task" || (part as ToolPart).toolName === "task")) {
+      const toolPart = part as ToolPart;
+      currentGroup.push(toolPart);
+      const agents = agentsByToolCall.get(toolPart.toolCallId);
+      if (agents) {
+        currentGroupAgents.push(...agents);
+        if (toolPart.toolCallId) {
+          handledToolCallIds.add(toolPart.toolCallId);
+        }
+      }
     }
 
-    const existingPart = existingByParent.get(parentToolPartId);
-    const newPart: AgentPart = {
-      id: existingPart?.id ?? createPartId(),
-      type: "agent",
-      agents,
-      parentToolPartId,
-      createdAt: existingPart?.createdAt ?? messageTimestamp,
-    };
-    nextAgentParts.push(newPart);
+    let endsGroup = false;
+    if (currentGroup.length > 0) {
+      if (i === nonAgentParts.length - 1) {
+        endsGroup = true;
+      } else {
+        const nextPart = nonAgentParts[i + 1];
+        if (!nextPart) {
+          endsGroup = true;
+        } else if (nextPart.type === "tool") {
+          const toolName = (nextPart as ToolPart).toolName;
+          if (toolName !== "Task" && toolName !== "task") {
+            endsGroup = true;
+          }
+        } else if (nextPart.type === "text") {
+          if ((nextPart as TextPart).content.trim().length > 0) {
+            endsGroup = true;
+          }
+        }
+      }
+    }
+
+    if (endsGroup) {
+      if (currentGroupAgents.length > 0) {
+        const lastToolPart = currentGroup[currentGroup.length - 1];
+        if (lastToolPart) {
+          const parentToolPartId = lastToolPart.id;
+          const existingPart = existingByParent.get(parentToolPartId);
+          
+          const agentPart: AgentPart = {
+            id: existingPart?.id ?? createPartId(),
+            type: "agent",
+            agents: currentGroupAgents,
+            parentToolPartId,
+            createdAt: existingPart?.createdAt ?? messageTimestamp,
+          };
+          finalParts.push(agentPart);
+        }
+      }
+      currentGroup = [];
+      currentGroupAgents = [];
+    }
   }
 
-  if (nextAgentParts.length === 0) return nonAgentParts;
+  const remainingAgents: ParallelAgent[] = [];
+  for (const [toolCallId, agents] of agentsByToolCall) {
+    if (!toolCallId || !handledToolCallIds.has(toolCallId)) {
+      remainingAgents.push(...agents);
+    }
+  }
 
-  const insertIdx = getAgentInsertIndex(nonAgentParts);
-  return [
-    ...nonAgentParts.slice(0, insertIdx),
-    ...nextAgentParts,
-    ...nonAgentParts.slice(insertIdx),
-  ];
+  if (remainingAgents.length > 0) {
+    const existingPart = existingByParent.get(undefined);
+    const fallbackPart: AgentPart = {
+      id: existingPart?.id ?? createPartId(),
+      type: "agent",
+      agents: remainingAgents,
+      parentToolPartId: undefined,
+      createdAt: existingPart?.createdAt ?? messageTimestamp,
+    };
+    // Insert remaining agents at the task boundary (end of nonAgentParts)
+    const insertIdx = getAgentInsertIndex(finalParts);
+    finalParts.splice(insertIdx, 0, fallbackPart);
+  }
+
+  return finalParts;
 }
 
 function getRenderableAssistantParts(

@@ -1,9 +1,6 @@
 ---
 name: explain-code
 description: Explain code functionality in detail.
-aliases: [explain]
-argument-hint: "<code-path>"
-required-arguments: [code-path]
 ---
 # Analyze and Explain Code Functionality
 

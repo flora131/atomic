@@ -21,6 +21,7 @@ import {
   getBinaryInstallDir,
 } from "../utils/config-path";
 import { isWindows } from "../utils/detect";
+import { cleanupBunTempNativeAddons } from "../utils/cleanup";
 import { trackAtomicCommand } from "../telemetry";
 
 /** Options for the uninstall command */
@@ -183,6 +184,9 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
         log.success("Binary removed");
       }
     }
+
+    // Clean up orphaned native addon files from temp directory
+    await cleanupBunTempNativeAddons();
 
     // Track successful uninstall command
     trackAtomicCommand("uninstall", null, true);

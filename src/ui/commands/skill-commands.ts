@@ -29,7 +29,7 @@ import {
     readdirSync,
     readFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { parseMarkdownFrontmatter } from "../../utils/markdown.ts";
 
@@ -201,11 +201,22 @@ function loadSkillContent(skillFilePath: string): string | null {
     try {
         const content = readFileSync(skillFilePath, "utf-8");
         const parsed = parseMarkdownFrontmatter(content);
-        if (parsed) {
-            return parsed.body;
+        const body = parsed ? parsed.body : content;
+        
+        // Include skill directory path context for multi-file skills
+        const skillDir = dirname(skillFilePath);
+        const hasAdditionalFiles = existsSync(skillDir) && 
+            readdirSync(skillDir).some(entry => entry !== "SKILL.md");
+        
+        if (hasAdditionalFiles) {
+            const pathContext = `<skill-directory path="${skillDir}">\n` +
+                `This skill's directory is located at: ${skillDir}\n` +
+                `Use this path when accessing additional files referenced in the skill instructions.\n` +
+                `</skill-directory>\n\n`;
+            return pathContext + body;
         }
-        // No frontmatter — return entire content as body
-        return content;
+        
+        return body;
     } catch {
         return null;
     }

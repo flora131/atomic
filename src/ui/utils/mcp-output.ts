@@ -64,6 +64,10 @@ function normalizeToolName(serverName: string, toolName: string): string {
   if (normalized.toLowerCase().startsWith(prefix)) {
     return normalized.slice(prefix.length);
   }
+  const copilotPrefix = `${serverName.toLowerCase()}/`;
+  if (normalized.toLowerCase().startsWith(copilotPrefix)) {
+    return normalized.slice(copilotPrefix.length);
+  }
   return normalized;
 }
 

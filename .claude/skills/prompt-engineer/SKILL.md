@@ -1,9 +1,6 @@
 ---
 name: prompt-engineer
 description: Create, improve, or optimize prompts using best practices
-aliases: [prompt]
-argument-hint: "<prompt-description>"
-required-arguments: [prompt-description]
 ---
 
 # Prompt Engineering Skill

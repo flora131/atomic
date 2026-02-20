@@ -1318,9 +1318,17 @@ function getAgentInsertIndex(parts: Part[]): number {
     }
   }
 
-  if (lastTaskToolIdx >= 0) return lastTaskToolIdx + 1;
-  if (lastToolIdx >= 0) return lastToolIdx + 1;
-  return parts.length;
+  let idx = parts.length;
+  if (lastTaskToolIdx >= 0) {
+    idx = lastTaskToolIdx + 1;
+  } else if (lastToolIdx >= 0) {
+    idx = lastToolIdx + 1;
+  }
+
+  while (idx < parts.length && parts[idx]?.type === "agent") {
+    idx++;
+  }
+  return idx;
 }
 
 function insertAgentPartAtTaskBoundary(parts: Part[], agentPart: AgentPart): Part[] {

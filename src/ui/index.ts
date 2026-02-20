@@ -1456,6 +1456,15 @@ export async function startChatUI(
       state.currentRunId = null;
       state.resetParallelTracking?.("interrupt");
       state.streamAbortController?.abort();
+      // If the session supports abort (e.g., Copilot), call it to cancel
+      // in-flight agent work including sub-agent invocations.
+      // This prevents cancelled sub-agent requests from being queued and
+      // executing when the next prompt is submitted.
+      if (state.session?.abort) {
+        void state.session.abort().catch((error) => {
+          console.error("Failed to abort session:", error);
+        });
+      }
       state.telemetryTracker?.trackInterrupt(sourceType);
       // Reset interrupt state
       state.interruptCount = 0;

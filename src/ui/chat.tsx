@@ -2011,6 +2011,16 @@ export function ChatApp({
   }, []);
 
   /**
+   * Clear stale TodoWrite state when starting a new stream, except during
+   * active /ralph workflows where task continuity must persist across turns.
+   */
+  const resetTodoItemsForNewStream = useCallback(() => {
+    if (ralphSessionIdRef.current) return;
+    todoItemsRef.current = [];
+    setTodoItems([]);
+  }, []);
+
+  /**
    * Finalize task items on interrupt: mark in_progress -> pending (unchecked), update state/ref,
    * persist to tasks.json if Ralph is active, and return taskItems for baking into message.
    */
@@ -2442,9 +2452,8 @@ export function ChatApp({
         void (async () => {
           try {
             const promptToSend = workflowState.initialPrompt!;
-            // Clear stale todo items from previous turn
-            todoItemsRef.current = [];
-            setTodoItems([]);
+            // Clear stale todo items from previous turn when not in /ralph
+            resetTodoItemsForNewStream();
 
           // Increment stream generation so stale handleComplete callbacks become no-ops
           const currentGeneration = ++streamGenerationRef.current;
@@ -3085,8 +3094,7 @@ export function ChatApp({
       streamingMetaRef.current = null;
       setIsStreaming(true);
       setStreamingMeta(null);
-      todoItemsRef.current = [];
-      setTodoItems([]);
+      resetTodoItemsForNewStream();
       setMessagesWindowed((prev: ChatMessage[]) => [...prev, assistantMsg]);
 
       for (const mention of atMentions) {
@@ -3383,9 +3391,8 @@ export function ChatApp({
           streamingStartRef.current = Date.now();
           streamingMetaRef.current = null;
           setStreamingMeta(null);
-          // Clear stale todo items from previous turn
-          todoItemsRef.current = [];
-          setTodoItems([]);
+          // Clear stale todo items from previous turn when not in /ralph
+          resetTodoItemsForNewStream();
           // Reset streaming content accumulator for step 1 → step 2 task parsing
           lastStreamingContentRef.current = "";
           // Reset tool tracking for the new stream
@@ -4917,9 +4924,8 @@ export function ChatApp({
         // Reset streaming metadata
         streamingMetaRef.current = null;
         setStreamingMeta(null);
-        // Clear stale todo items from previous turn
-        todoItemsRef.current = [];
-        setTodoItems([]);
+        // Clear stale todo items from previous turn when not in /ralph
+        resetTodoItemsForNewStream();
         // Reset tool tracking for the new stream
         hasRunningToolRef.current = false;
 
@@ -5246,8 +5252,7 @@ export function ChatApp({
           streamingMetaRef.current = null;
           setIsStreaming(true);
           setStreamingMeta(null);
-          todoItemsRef.current = [];
-          setTodoItems([]);
+          resetTodoItemsForNewStream();
           setMessagesWindowed((prev) => [...prev, assistantMsg]);
 
           for (const mention of atMentions) {

@@ -16,8 +16,28 @@ function normalizeRalphTaskId(id: string): string {
   return trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
 }
 
+function stripLeadingTaskPrefixes(content: string): string {
+  const prefixPattern = /^(?:(?:[-*]\s+)|(?:\[(?: |x)\]\s+)|(?:[✓✔☑●○◉]\s+)|(?:#?\d+(?:[.):-])?\s+))/i;
+  let current = content;
+  while (true) {
+    const next = current.replace(prefixPattern, "");
+    if (next === current) break;
+    current = next;
+  }
+  return current.trim();
+}
+
+function extractLeadingTaskId(content: string): string | undefined {
+  const normalized = content.trim().toLowerCase();
+  const match = normalized.match(
+    /^(?:[-*]\s+)?(?:\[(?: |x)\]\s+)?(?:[✓✔☑●○◉]\s+)?#?(\d+)\b/i,
+  );
+  return match?.[1];
+}
+
 function normalizeTaskContent(content: string): string {
-  return content.trim().toLowerCase().replace(/\s+/g, " ");
+  const normalized = content.trim().toLowerCase().replace(/\s+/g, " ");
+  return stripLeadingTaskPrefixes(normalized);
 }
 
 /**
@@ -56,11 +76,21 @@ export function hasRalphTaskIdOverlap<T extends { id?: string }>(
       continue;
     }
 
+    const maybeContent = (todo as { content?: unknown }).content;
+    const content = typeof maybeContent === "string" ? maybeContent : "";
+    const extractedId = extractLeadingTaskId(content);
+    if (extractedId) {
+      if (normalizedKnownIds.size > 0 && !normalizedKnownIds.has(extractedId)) {
+        return false;
+      }
+      hasAnchoredMatch = true;
+      continue;
+    }
+
     if (previousContentKeys.size === 0) {
       continue;
     }
 
-    const maybeContent = (todo as { content?: unknown }).content;
     const contentKey = typeof maybeContent === "string"
       ? normalizeTaskContent(maybeContent)
       : "";

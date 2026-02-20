@@ -161,6 +161,7 @@ jobs:
         name: Publish to npm
         runs-on: ubuntu-latest
         needs: build
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
         permissions:
             contents: read
             id-token: write # Required for OIDC provenance

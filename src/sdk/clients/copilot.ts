@@ -1299,7 +1299,7 @@ export function getBundledCopilotCliPath(): string {
   }
 
   throw new Error(
-    "Cannot find @github/copilot CLI. Install it with: npm install -g @github/copilot\n" +
+    "Cannot find @github/copilot CLI. Install it by going to https://github.com/github/copilot-cli\n" +
       "Or set a custom cliPath in CopilotClientOptions.",
   );
 }

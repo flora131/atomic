@@ -237,9 +237,10 @@ export class UnifiedModelOperations implements ModelOperations {
     // setting cliPath to the Node.js binary and prepending the copilot CLI
     // index.js path to cliArgs (same fix as CopilotClient.buildSdkOptions).
     const nodePath = resolveNodePath();
+    const copilotCliPath = getBundledCopilotCliPath();
     const clientOpts = nodePath
-      ? { cliPath: nodePath, cliArgs: ["--no-warnings", getBundledCopilotCliPath()] }
-      : {};
+      ? { cliPath: nodePath, cliArgs: ["--no-warnings", copilotCliPath] }
+      : { cliPath: copilotCliPath };
 
     const client = new CopilotClient(clientOpts);
 

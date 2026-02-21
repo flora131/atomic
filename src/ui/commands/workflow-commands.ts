@@ -656,12 +656,13 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                             : buildContinuePrompt(currentTasks, sessionId);
 
                     const result = await context.streamAndWait(prompt);
+                    if (result.wasCancelled) break;
                     if (result.wasInterrupted) {
                         // Yield control to user: wait for their next prompt
                         const userPrompt = await context.waitForUserInput();
                         // Pass user's prompt to model within workflow context
                         const userResult = await context.streamAndWait(userPrompt);
-                        if (userResult.wasInterrupted) break;
+                        if (userResult.wasCancelled || userResult.wasInterrupted) break;
                     }
 
                     // Read latest task state from disk after agent response
@@ -806,7 +807,6 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
 
             return {
                 success: true,
-                message: "Workflow completed successfully.",
                 stateUpdate: {
                     workflowActive: false,
                     workflowType: null,
@@ -814,6 +814,17 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 },
             };
             } catch (error) {
+                // Silent exit for workflow cancellation (double Ctrl+C)
+                if (error instanceof Error && error.message === "Workflow cancelled") {
+                    return {
+                        success: true,
+                        stateUpdate: {
+                            workflowActive: false,
+                            workflowType: null,
+                            initialPrompt: null,
+                        },
+                    };
+                }
                 return {
                     success: false,
                     message: `Workflow failed: ${error instanceof Error ? error.message : String(error)}`,

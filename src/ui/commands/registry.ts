@@ -24,6 +24,8 @@ export interface StreamResult {
   content: string;
   /** Whether the stream was interrupted (e.g., Ctrl+C / ESC) */
   wasInterrupted: boolean;
+  /** Whether the workflow was cancelled (double Ctrl+C) */
+  wasCancelled?: boolean;
 }
 
 /**

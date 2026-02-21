@@ -1938,7 +1938,7 @@ export function ChatApp({
   // Resolver for streamAndWait: when set, handleComplete resolves the Promise instead of processing the queue
   const streamCompletionResolverRef = useRef<((result: import("./commands/registry.ts").StreamResult) => void) | null>(null);
   // Resolver for waitForUserInput: when set, handleSubmit resolves the Promise with the user's prompt
-  const waitForUserInputResolverRef = useRef<((prompt: string) => void) | null>(null);
+  const waitForUserInputResolverRef = useRef<{ resolve: (prompt: string) => void; reject: (reason: Error) => void } | null>(null);
   // When true, streaming chunks are accumulated but NOT rendered in the assistant message (for hidden workflow steps)
   const hideStreamContentRef = useRef(false);
   const [showTodoPanel, setShowTodoPanel] = useState(true);
@@ -3754,8 +3754,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         });
       },
       waitForUserInput: () => {
-        return new Promise<string>((resolve) => {
-          waitForUserInputResolverRef.current = resolve;
+        return new Promise<string>((resolve, reject) => {
+          waitForUserInputResolverRef.current = { resolve, reject };
         });
       },
       clearContext: async () => {
@@ -4316,18 +4316,65 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             // Sub-agent cancellation handled by SDK session interrupt
 
-            // Clear any pending ask-user question so dialog dismisses on ESC
+            // Clear any pending ask-user question so dialog dismisses
             setActiveQuestion(null);
             askUserQuestionRequestIdRef.current = null;
             activeHitlToolCallIdRef.current = null;
 
-            setInterruptCount(0);
-            if (interruptTimeoutRef.current) {
-              clearTimeout(interruptTimeoutRef.current);
-              interruptTimeoutRef.current = null;
+            // Resolve streamAndWait promise with interrupted flag so workflow can react
+            const streamResolver = streamCompletionResolverRef.current;
+            if (streamResolver) {
+              streamCompletionResolverRef.current = null;
+              if (hideStreamContentRef.current && interruptedId) {
+                setMessagesWindowed((prev: ChatMessage[]) => prev.filter((msg: ChatMessage) => msg.id !== interruptedId));
+              }
+              hideStreamContentRef.current = false;
+
+              if (workflowState.workflowActive && interruptCount >= 1) {
+                // Double Ctrl+C during streaming — cancel workflow
+                streamResolver({ content: lastStreamingContentRef.current, wasInterrupted: true, wasCancelled: true });
+              } else {
+                streamResolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
+              }
             }
-            setCtrlCPressed(false);
-            continueQueuedConversation();
+
+            if (workflowState.workflowActive) {
+              const newCount = interruptCount + 1;
+              if (newCount >= 2) {
+                // Double Ctrl+C — terminate workflow
+                updateWorkflowState({ workflowActive: false, workflowType: null, initialPrompt: null });
+                if (waitForUserInputResolverRef.current) {
+                  waitForUserInputResolverRef.current.reject(new Error("Workflow cancelled"));
+                  waitForUserInputResolverRef.current = null;
+                }
+                setInterruptCount(0);
+                if (interruptTimeoutRef.current) {
+                  clearTimeout(interruptTimeoutRef.current);
+                  interruptTimeoutRef.current = null;
+                }
+                setCtrlCPressed(false);
+              } else {
+                // Single Ctrl+C — cancel stream, workflow will waitForUserInput
+                setInterruptCount(newCount);
+                setCtrlCPressed(true);
+                if (interruptTimeoutRef.current) {
+                  clearTimeout(interruptTimeoutRef.current);
+                }
+                interruptTimeoutRef.current = setTimeout(() => {
+                  setInterruptCount(0);
+                  setCtrlCPressed(false);
+                  interruptTimeoutRef.current = null;
+                }, 1000);
+              }
+            } else {
+              setInterruptCount(0);
+              if (interruptTimeoutRef.current) {
+                clearTimeout(interruptTimeoutRef.current);
+                interruptTimeoutRef.current = null;
+              }
+              setCtrlCPressed(false);
+              continueQueuedConversation();
+            }
             return;
           }
 
@@ -4382,17 +4429,27 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             return;
           }
 
-          // Textarea empty: use double-press to exit
+          // Textarea empty: use double-press to cancel workflow or exit
           const newCount = interruptCount + 1;
           if (newCount >= 2) {
-            // Double press - exit
             setInterruptCount(0);
             if (interruptTimeoutRef.current) {
               clearTimeout(interruptTimeoutRef.current);
               interruptTimeoutRef.current = null;
             }
             setCtrlCPressed(false);
-            onExit?.();
+
+            if (workflowState.workflowActive) {
+              // Double Ctrl+C — terminate workflow
+              updateWorkflowState({ workflowActive: false, workflowType: null, initialPrompt: null });
+              if (waitForUserInputResolverRef.current) {
+                waitForUserInputResolverRef.current.reject(new Error("Workflow cancelled"));
+                waitForUserInputResolverRef.current = null;
+              }
+            } else {
+              // Double press - exit
+              onExit?.();
+            }
             return;
           }
 
@@ -4543,16 +4600,20 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             askUserQuestionRequestIdRef.current = null;
             activeHitlToolCallIdRef.current = null;
 
-            // Cancel active workflow too (if running)
-            if (workflowState.workflowActive) {
-              updateWorkflowState({
-                workflowActive: false,
-                workflowType: null,
-                initialPrompt: null,
-              });
+            // Resolve streamAndWait promise with interrupted flag so workflow can react
+            const streamResolver = streamCompletionResolverRef.current;
+            if (streamResolver) {
+              streamCompletionResolverRef.current = null;
+              if (hideStreamContentRef.current && interruptedId) {
+                setMessagesWindowed((prev: ChatMessage[]) => prev.filter((msg: ChatMessage) => msg.id !== interruptedId));
+              }
+              hideStreamContentRef.current = false;
+              streamResolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
             }
 
-            continueQueuedConversation();
+            if (!workflowState.workflowActive) {
+              continueQueuedConversation();
+            }
             return;
           }
 
@@ -4597,16 +4658,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               continueQueuedConversation();
               return;
             }
-          }
-
-          // Cancel active workflow regardless of streaming state
-          if (workflowState.workflowActive) {
-            updateWorkflowState({
-              workflowActive: false,
-              workflowType: null,
-              initialPrompt: null,
-            });
-            return;
           }
 
           // ESC when idle does nothing - use /exit or Ctrl+C twice to exit
@@ -5360,10 +5411,10 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       // If a workflow is waiting for user input (after Ctrl+C stream interrupt),
       // resolve the pending promise with the user's prompt instead of sending normally.
       if (waitForUserInputResolverRef.current) {
-        const resolver = waitForUserInputResolverRef.current;
+        const { resolve } = waitForUserInputResolverRef.current;
         waitForUserInputResolverRef.current = null;
         addMessage("user", trimmedValue);
-        resolver(trimmedValue);
+        resolve(trimmedValue);
         return;
       }
 
@@ -5748,8 +5799,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 </box>
               )}
             </box>
-            {/* Streaming hints - shows "esc to interrupt" and "ctrl+q enqueue" during streaming */}
-            {isStreaming ? (
+            {/* Streaming/workflow hints */}
+            {isStreaming && !workflowState.workflowActive ? (
               <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
                 <text style={{ fg: themeColors.muted }}>
                   esc to interrupt
@@ -5760,12 +5811,24 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 </text>
               </box>
             ) : null}
-            {/* Workflow mode label - shown when workflow/ralph is active */}
-            {!isStreaming && workflowState.workflowActive && (
-              <box paddingLeft={SPACING.CONTAINER_PAD} flexShrink={0}>
+            {/* Workflow mode label with hints - shown when workflow is active */}
+            {workflowState.workflowActive && (
+              <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
                 <text style={{ fg: themeColors.accent }}>
                   {workflowState.workflowType ?? "workflow"}
                 </text>
+                {!isStreaming && (
+                  <>
+                    <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
+                    <text style={{ fg: themeColors.muted }}>
+                      esc to interrupt
+                    </text>
+                    <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
+                    <text style={{ fg: themeColors.muted }}>
+                      ctrl+q enqueue
+                    </text>
+                  </>
+                )}
               </box>
             )}
           </>

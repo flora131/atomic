@@ -5815,20 +5815,20 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             {workflowState.workflowActive && (
               <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
                 <text style={{ fg: themeColors.accent }}>
-                  {workflowState.workflowType ?? "workflow"}
+                  workflow
                 </text>
-                {!isStreaming && (
-                  <>
-                    <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
-                    <text style={{ fg: themeColors.muted }}>
-                      esc to interrupt
-                    </text>
-                    <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
-                    <text style={{ fg: themeColors.muted }}>
-                      ctrl+q enqueue
-                    </text>
-                  </>
-                )}
+                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
+                <text style={{ fg: themeColors.muted }}>
+                  esc to interrupt
+                </text>
+                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
+                <text style={{ fg: themeColors.muted }}>
+                  ctrl+q enqueue
+                </text>
+                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
+                <text style={{ fg: themeColors.muted }}>
+                  ctrl+c twice to exit workflow
+                </text>
               </box>
             )}
           </>

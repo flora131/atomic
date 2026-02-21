@@ -460,9 +460,9 @@ describe("review step in /ralph", () => {
             ])
           );
         }
-        // After first iteration, return interrupted to stop loop
+        // After first iteration, return cancelled to stop loop
         if (streamCallCount > 2) {
-          return { content: "", wasInterrupted: true };
+          return { content: "", wasInterrupted: true, wasCancelled: true };
         }
         return { content: "", wasInterrupted: false };
       },
@@ -766,16 +766,50 @@ describe("workflow inline mode", () => {
     expect(clearContextCalled).toBe(false);
   });
 
-  test("interrupted step1 returns stateUpdate to deactivate workflow", async () => {
+  test("interrupted step1 waits for user input and continues", async () => {
     const commands = getWorkflowCommands();
     const ralphCommand = commands.find((cmd) => cmd.name === "ralph");
-    
+    const prompts: string[] = [];
+    let streamCallCount = 0;
+    let waitForUserInputCalled = false;
+
     const context = createMockContext({
-      streamAndWait: async () => ({ content: "", wasInterrupted: true }),
+      waitForUserInput: async () => {
+        waitForUserInputCalled = true;
+        return "retry planning with smaller scope";
+      },
+      streamAndWait: async (prompt: string) => {
+        prompts.push(prompt);
+        streamCallCount++;
+
+        if (streamCallCount === 1) {
+          return { content: "", wasInterrupted: true };
+        }
+
+        if (streamCallCount === 2) {
+          return {
+            content: JSON.stringify([
+              {
+                id: "#1",
+                content: "Test task",
+                status: "completed",
+                activeForm: "Testing",
+              },
+            ]),
+            wasInterrupted: false,
+          };
+        }
+
+        return { content: "done", wasInterrupted: false };
+      },
       state: { isStreaming: false, messageCount: 0, workflowActive: false },
     });
-    
+
     const result = await ralphCommand!.execute("Build something", context);
+
+    expect(waitForUserInputCalled).toBe(true);
+    expect(streamCallCount).toBeGreaterThanOrEqual(2);
+    expect(prompts[1]).toContain("retry planning with smaller scope");
     expect(result.success).toBe(true);
     expect(result.stateUpdate).toBeDefined();
     expect(result.stateUpdate?.workflowActive).toBe(false);

@@ -2702,7 +2702,7 @@ export function ChatApp({
       setRalphSessionDir(null);
       setRalphSessionId(null);
     }
-  }, [workflowState.workflowActive]);
+  }, [workflowState.workflowActive, ralphSessionDir]);
 
   /**
    * Handle human_input_required signal.

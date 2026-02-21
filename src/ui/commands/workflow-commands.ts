@@ -778,8 +778,7 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                         await writeFile(fixSpecPath, fixSpec);
 
                         // Re-invoke ralph: decompose fix-spec into tasks (Step 1 again)
-                        const fixStep1 = await streamWithInterruptRecovery(
-                            context,
+                        const fixStep1 = await context.streamAndWait(
                             buildSpecToTasksPrompt(fixSpec),
                             { hideContent: true },
                             (userPrompt) => ({

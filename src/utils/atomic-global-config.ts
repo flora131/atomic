@@ -22,6 +22,12 @@ const TEMPLATE_AGENT_FOLDER_BY_KEY: Record<AgentKey, string> = {
   copilot: AGENT_CONFIG.copilot.folder,
 };
 
+const REQUIRED_GLOBAL_CONFIG_ENTRIES: Record<AgentKey, string[]> = {
+  claude: ["agents", "skills", "settings.json"],
+  opencode: ["agents", "skills", "opencode.json"],
+  copilot: ["agents", "skills"],
+};
+
 /**
  * Return the Atomic home directory used for global workflows/tools/settings.
  */
@@ -96,15 +102,18 @@ async function getManagedScmSkillExcludes(sourceDir: string): Promise<string[]> 
  * excluding SCM-specific skills (gh-*, sl-*), which are configured per-project
  * by `atomic init`.
  */
-export async function syncAtomicGlobalAgentConfigs(configRoot: string): Promise<void> {
-  await mkdir(ATOMIC_HOME_DIR, { recursive: true });
+export async function syncAtomicGlobalAgentConfigs(
+  configRoot: string,
+  baseDir: string = ATOMIC_HOME_DIR
+): Promise<void> {
+  await mkdir(baseDir, { recursive: true });
 
   const agentKeys = Object.keys(AGENT_CONFIG) as AgentKey[];
   for (const agentKey of agentKeys) {
     const sourceFolder = join(configRoot, getTemplateAgentFolder(agentKey));
     if (!(await pathExists(sourceFolder))) continue;
 
-    const destinationFolder = join(ATOMIC_HOME_DIR, getAtomicGlobalAgentFolder(agentKey));
+    const destinationFolder = join(baseDir, getAtomicGlobalAgentFolder(agentKey));
     const scmSkillExcludes = await getManagedScmSkillExcludes(sourceFolder);
 
     await copyDir(sourceFolder, destinationFolder, {
@@ -119,17 +128,35 @@ export async function syncAtomicGlobalAgentConfigs(configRoot: string): Promise<
 /**
  * Return true when Atomic-managed global config folders already exist.
  */
-export async function hasAtomicGlobalAgentConfigs(): Promise<boolean> {
-  const checks = await Promise.all(
-    getAtomicManagedConfigDirs().map((dir) => pathExists(dir))
-  );
-  return checks.every(Boolean);
+export async function hasAtomicGlobalAgentConfigs(
+  baseDir: string = ATOMIC_HOME_DIR
+): Promise<boolean> {
+  const agentKeys = Object.keys(AGENT_CONFIG) as AgentKey[];
+
+  for (const agentKey of agentKeys) {
+    const agentDir = join(baseDir, getAtomicGlobalAgentFolder(agentKey));
+    if (!(await pathExists(agentDir))) return false;
+
+    const requiredEntries = REQUIRED_GLOBAL_CONFIG_ENTRIES[agentKey];
+    const entryChecks = await Promise.all(
+      requiredEntries.map((entryName) => pathExists(join(agentDir, entryName)))
+    );
+
+    if (entryChecks.some((exists) => !exists)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 /**
  * Ensure ~/.atomic contains Atomic-managed global agent configs.
  */
-export async function ensureAtomicGlobalAgentConfigs(configRoot: string): Promise<void> {
-  if (await hasAtomicGlobalAgentConfigs()) return;
-  await syncAtomicGlobalAgentConfigs(configRoot);
+export async function ensureAtomicGlobalAgentConfigs(
+  configRoot: string,
+  baseDir: string = ATOMIC_HOME_DIR
+): Promise<void> {
+  if (await hasAtomicGlobalAgentConfigs(baseDir)) return;
+  await syncAtomicGlobalAgentConfigs(configRoot, baseDir);
 }

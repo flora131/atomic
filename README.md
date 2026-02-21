@@ -190,7 +190,7 @@ atomic init
 
 Select your agent. The CLI configures your project automatically.
 
-`atomic init` configures source-control-specific skills in your project (GitHub/Git or Sapling), while Atomic's baseline agents/skills are installed globally under `~/.atomic` during binary install/update.
+`atomic init` configures source-control-specific skills in your project (GitHub/Git or Sapling), while Atomic's baseline agents/skills are installed globally under `~/.atomic/.claude`, `~/.atomic/.opencode`, and `~/.atomic/.copilot` during install/update (including `bun install` for editable/package installs).
 
 Then start a chat session and run `/init` to generate `CLAUDE.md` and `AGENTS.md`:
 

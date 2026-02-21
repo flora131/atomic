@@ -27,6 +27,7 @@ import {
   isManagedScmSkillName,
 } from "../utils/atomic-global-config.ts";
 import { detectInstallationType, getConfigRoot } from "../utils/config-path.ts";
+import { prepareOpenCodeConfigDir } from "../utils/opencode-config.ts";
 
 // SDK client imports
 import {
@@ -83,7 +84,7 @@ function createClientForAgentType(agentType: AgentType): CodingAgentClient {
     case "claude":
       return createClaudeAgentClient();
     case "opencode":
-      return createOpenCodeClient();
+      return createOpenCodeClient({ directory: process.cwd() });
     case "copilot":
       return createCopilotClient();
     default:
@@ -210,6 +211,13 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
 
   if (detectInstallationType() !== "source") {
     await ensureAtomicGlobalAgentConfigs(getConfigRoot());
+  }
+
+  if (agentType === "opencode") {
+    const mergedConfigDir = await prepareOpenCodeConfigDir({ projectRoot });
+    if (mergedConfigDir) {
+      process.env.OPENCODE_CONFIG_DIR = mergedConfigDir;
+    }
   }
 
   // Auto-init when project SCM skills are missing

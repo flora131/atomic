@@ -171,6 +171,31 @@ export function formatDuration(ms: number | undefined): string {
   return formatDurationObj(ms).text;
 }
 
+export function isGenericSubagentTask(task: string): boolean {
+  const normalized = task.trim().toLowerCase();
+  return normalized === "" || normalized === "sub-agent task" || normalized === "subagent task";
+}
+
+export function getAgentTaskLabel(agent: Pick<ParallelAgent, "task" | "name">): string {
+  return isGenericSubagentTask(agent.task) ? agent.name : agent.task;
+}
+
+export function buildAgentHeaderLabel(count: number, dominantType: string): string {
+  const normalized = dominantType.trim();
+  const lower = normalized.toLowerCase();
+  const plural = count !== 1;
+
+  if (!normalized || lower === "agent" || lower === "agents") {
+    return `${count} agent${plural ? "s" : ""}`;
+  }
+
+  if (lower.endsWith(" agent") || lower.endsWith(" agents")) {
+    return `${count} ${normalized}`;
+  }
+
+  return `${count} ${normalized} agent${plural ? "s" : ""}`;
+}
+
 
 /**
  * Get elapsed time since start.
@@ -303,6 +328,8 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
       );
     }
 
+    const displayTask = truncateText(getAgentTaskLabel(agent), 40);
+
     return (
       <box flexDirection="column">
         <box flexDirection="row">
@@ -311,7 +338,7 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
             <text style={{ fg: rowIndicatorColor }}>●</text>
           </box>
           <text style={{ fg: themeColors.foreground }}>
-            {" "}{truncateText(agent.task, 40)}
+            {" "}{displayTask}
           </text>
           {metricsText && (
             <text style={{ fg: themeColors.muted }}> · {metricsText}</text>
@@ -377,9 +404,9 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
         <box flexShrink={0}>
           <text style={{ fg: fullRowIndicatorColor }}>●</text>
         </box>
-        <text style={{ fg: themeColors.foreground, attributes: 1 }}>
-          {" "}{agent.task}
-        </text>
+          <text style={{ fg: themeColors.foreground, attributes: 1 }}>
+            {" "}{getAgentTaskLabel(agent)}
+          </text>
         {metricsText && (
           <text style={{ fg: themeColors.muted }}> · {metricsText}</text>
         )}
@@ -487,7 +514,7 @@ export function ParallelAgentsTree({
 
   // Get the dominant agent type for the header
   const agentTypes = [...new Set(agents.map(a => a.name))];
-  const dominantType = agentTypes.length === 1 ? agentTypes[0] : "agents";
+  const dominantType = agentTypes.length === 1 ? (agentTypes[0] ?? "agents") : "agents";
 
   // Theme colors
   const themeColors: ThemeColors = {
@@ -514,18 +541,11 @@ export function ParallelAgentsTree({
       : completedCount > 0
         ? themeColors.success
         : themeColors.muted;
-  // Build header label: "Explore agent(s)" for single type, "agent(s)" for mixed types
-  const buildLabel = (count: number): string => {
-    if (dominantType === "agents") {
-      return `${count} agent${count !== 1 ? "s" : ""}`;
-    }
-    return `${count} ${dominantType} agent${count !== 1 ? "s" : ""}`;
-  };
   const headerText = runningCount > 0
-    ? `Running ${buildLabel(runningCount)}…`
+    ? `Running ${buildAgentHeaderLabel(runningCount, dominantType)}…`
     : completedCount > 0
-      ? `${buildLabel(completedCount)} finished`
-      : `${buildLabel(pendingCount)} pending`;
+      ? `${buildAgentHeaderLabel(completedCount, dominantType)} finished`
+      : `${buildAgentHeaderLabel(pendingCount, dominantType)} pending`;
 
   return (
     <box

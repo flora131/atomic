@@ -366,11 +366,17 @@ export class OpenCodeClient implements CodingAgentClient {
    * @param options - Client options
    */
   constructor(options: OpenCodeClientOptions = {}) {
+    // Always pin the directory to the caller's cwd by default.
+    // OpenCode resolves agent definitions from the provided directory context,
+    // and leaving this undefined can make sub-agent lookup depend on an
+    // unrelated server process working directory.
+    const resolvedDirectory = options.directory ?? process.cwd();
     this.clientOptions = {
       baseUrl: DEFAULT_OPENCODE_BASE_URL,
       maxRetries: DEFAULT_MAX_RETRIES,
       retryDelay: DEFAULT_RETRY_DELAY,
       ...options,
+      directory: resolvedDirectory,
     };
   }
 
@@ -706,6 +712,23 @@ export class OpenCodeClient implements CodingAgentClient {
           this.emitEvent("subagent.start", partSessionId, {
             subagentId: (part?.id as string) ?? "",
             subagentType: (part?.name as string) ?? "",
+          });
+        } else if (part?.type === "subtask") {
+          // SubtaskPart: { type: "subtask", prompt, description, agent, ... }
+          // Some OpenCode versions emit sub-agent dispatch as "subtask" parts
+          // instead of "agent" parts. Normalize both to subagent.start.
+          const subtaskPrompt = (part?.prompt as string) ?? "";
+          const subtaskDescription = (part?.description as string) ?? "";
+          const subtaskAgent = (part?.agent as string) ?? "";
+          this.emitEvent("subagent.start", partSessionId, {
+            subagentId: (part?.id as string) ?? "",
+            subagentType: subtaskAgent,
+            task: subtaskDescription || subtaskPrompt,
+            toolInput: {
+              prompt: subtaskPrompt,
+              description: subtaskDescription,
+              agent: subtaskAgent,
+            },
           });
         } else if (part?.type === "step-finish") {
           // StepFinishPart signals the end of a sub-agent step

@@ -637,8 +637,21 @@ export async function startChatUI(
         // arrive late or not at all). When subagent.start fires later, the
         // entry is updated in-place with the real subagentId.
         if (state.parallelAgentHandler) {
-          const agentType = (input.subagent_type as string) ?? (input.agent_type as string) ?? "agent";
-          const taskDesc = (input.description as string) ?? prompt ?? "Sub-agent task";
+          const agentType = (
+            (input.subagent_type as string)
+            ?? (input.agent_type as string)
+            ?? (input.agent as string)
+            ?? (input.name as string)
+            ?? "agent"
+          ).trim() || "agent";
+          const taskDescRaw = (
+            (input.description as string)
+            ?? (input.prompt as string)
+            ?? (input.task as string)
+            ?? prompt
+            ?? "Sub-agent task"
+          );
+          const taskDesc = taskDescRaw.trim() || "Sub-agent task";
           const newAgent: ParallelAgent = {
             id: toolId,
             taskToolCallId: toolId,
@@ -656,6 +669,44 @@ export async function startChatUI(
           toolCallToAgentMap.set(toolId, toolId);
           agentIdToRunMap.set(toolId, activeRunId);
         }
+      }
+      if (isTaskToolName && data.toolInput && isUpdate && state.parallelAgentHandler) {
+        // OpenCode often sends Task as pending -> running with richer input in
+        // the running update. Refresh eager placeholder metadata so we don't
+        // keep generic labels like "agent" / "Sub-agent task".
+        const input = data.toolInput as Record<string, unknown>;
+        const agentType = (
+          (input.subagent_type as string)
+          ?? (input.agent_type as string)
+          ?? (input.agent as string)
+          ?? (input.name as string)
+          ?? "agent"
+        ).trim() || "agent";
+        const taskDescRaw = (
+          (input.description as string)
+          ?? (input.prompt as string)
+          ?? (input.task as string)
+          ?? "Sub-agent task"
+        );
+        const taskDesc = taskDescRaw.trim() || "Sub-agent task";
+        const isBackground = input.run_in_background === true;
+        const mappedAgentId = toolCallToAgentMap.get(toolId) ?? toolId;
+
+        state.parallelAgents = state.parallelAgents.map((a) =>
+          a.id === mappedAgentId || a.id === toolId
+            ? {
+                ...a,
+                name: agentType,
+                task: taskDesc,
+                status: isBackground ? "background" : a.status,
+                background: isBackground || a.background,
+                currentTool: isBackground
+                  ? `Running ${agentType} in background…`
+                  : `Running ${agentType}…`,
+              }
+            : a
+        );
+        state.parallelAgentHandler(state.parallelAgents);
       }
 
       // Reset post-task text suppression when the model invokes a new tool —
@@ -1015,7 +1066,14 @@ export async function startChatUI(
         || fallbackPrompt
         || data.subagentType
         || "Sub-agent";
-      const agentTypeName = data.subagentType ?? "agent";
+      const agentTypeName = (
+        data.subagentType
+        ?? (fallbackInput?.subagent_type as string | undefined)
+        ?? (fallbackInput?.agent_type as string | undefined)
+        ?? (fallbackInput?.agent as string | undefined)
+        ?? (fallbackInput?.name as string | undefined)
+        ?? "agent"
+      ).trim() || "agent";
       const isBackground = pendingTaskEntry?.isBackground
         ?? (fallbackInput?.run_in_background === true);
 
@@ -1044,6 +1102,21 @@ export async function startChatUI(
         );
         // Re-point correlation: toolId now maps to the real subagentId
         toolCallToAgentMap.set(eagerToolId, data.subagentId!);
+      } else if (state.parallelAgents.some(a => a.id === data.subagentId)) {
+        // Duplicate lifecycle event for an already-tracked agent (can happen
+        // when SDKs emit both "subtask" and "agent" parts). Update in-place.
+        state.parallelAgents = state.parallelAgents.map(a =>
+          a.id === data.subagentId
+            ? {
+                ...a,
+                name: agentTypeName,
+                task: data.task || a.task,
+                currentTool: isBackground
+                  ? `Running ${agentTypeName} in background…`
+                  : `Running ${agentTypeName}…`,
+              }
+            : a
+        );
       } else {
         // No eager agent — create fresh (backward compat for non-Task subagents)
         // Use stored background status from pendingTaskEntry

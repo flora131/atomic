@@ -5408,16 +5408,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         return;
       }
 
-      // If a workflow is waiting for user input (after Ctrl+C stream interrupt),
-      // resolve the pending promise with the user's prompt instead of sending normally.
-      if (waitForUserInputResolverRef.current) {
-        const { resolve } = waitForUserInputResolverRef.current;
-        waitForUserInputResolverRef.current = null;
-        addMessage("user", trimmedValue);
-        resolve(trimmedValue);
-        return;
-      }
-
       // Dismiss ralph panel when user sends a non-ralph message (Copilot only)
       if (agentType === "copilot" && ralphSessionDirRef.current && !trimmedValue.startsWith("/ralph")) {
         setRalphSessionDir(null);

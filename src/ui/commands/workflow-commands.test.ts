@@ -19,6 +19,7 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
     sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "" }),
     streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+    waitForUserInput: async () => "",
     clearContext: async () => {},
     setTodoItems: () => {},
     setRalphSessionDir: () => {},
@@ -708,5 +709,75 @@ describe("review step in /ralph", () => {
     if (sessionDir) {
       await rm(sessionDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("workflow inline mode", () => {
+  test("workflow completion returns stateUpdate with workflowActive: false", async () => {
+    // Mock streamAndWait to return a valid task JSON response
+    const taskJson = JSON.stringify([
+      { id: "#1", content: "Test task", status: "completed", activeForm: "Testing" }
+    ]);
+    const commands = getWorkflowCommands();
+    const ralphCommand = commands.find((cmd) => cmd.name === "ralph");
+    expect(ralphCommand).toBeDefined();
+    
+    const context = createMockContext({
+      streamAndWait: async () => ({ content: taskJson, wasInterrupted: false }),
+      state: { isStreaming: false, messageCount: 0, workflowActive: false },
+    });
+    
+    const result = await ralphCommand!.execute("Build a feature", context);
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate).toBeDefined();
+    expect(result.stateUpdate?.workflowActive).toBe(false);
+    expect(result.stateUpdate?.workflowType).toBeNull();
+    expect(result.stateUpdate?.initialPrompt).toBeNull();
+  });
+
+  test("waitForUserInput is present in CommandContext interface", () => {
+    const context = createMockContext();
+    expect(typeof context.waitForUserInput).toBe("function");
+  });
+
+  test("mock waitForUserInput resolves with a string", async () => {
+    const context = createMockContext({
+      waitForUserInput: async () => "user typed this",
+    });
+    const result = await context.waitForUserInput();
+    expect(result).toBe("user typed this");
+  });
+
+  test("clearContext is not called during workflow execution", async () => {
+    let clearContextCalled = false;
+    const taskJson = JSON.stringify([
+      { id: "#1", content: "Test task", status: "completed", activeForm: "Testing" }
+    ]);
+    const commands = getWorkflowCommands();
+    const ralphCommand = commands.find((cmd) => cmd.name === "ralph");
+    
+    const context = createMockContext({
+      streamAndWait: async () => ({ content: taskJson, wasInterrupted: false }),
+      clearContext: async () => { clearContextCalled = true; },
+      state: { isStreaming: false, messageCount: 0, workflowActive: false },
+    });
+    
+    await ralphCommand!.execute("Build a feature", context);
+    expect(clearContextCalled).toBe(false);
+  });
+
+  test("interrupted step1 returns stateUpdate to deactivate workflow", async () => {
+    const commands = getWorkflowCommands();
+    const ralphCommand = commands.find((cmd) => cmd.name === "ralph");
+    
+    const context = createMockContext({
+      streamAndWait: async () => ({ content: "", wasInterrupted: true }),
+      state: { isStreaming: false, messageCount: 0, workflowActive: false },
+    });
+    
+    const result = await ralphCommand!.execute("Build something", context);
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate).toBeDefined();
+    expect(result.stateUpdate?.workflowActive).toBe(false);
   });
 });

@@ -5764,13 +5764,9 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             ) : null}
             {/* Workflow mode label - shown when workflow/ralph is active */}
             {!isStreaming && workflowState.workflowActive && (
-              <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
+              <box paddingLeft={SPACING.CONTAINER_PAD} flexShrink={0}>
                 <text style={{ fg: themeColors.accent }}>
                   {workflowState.workflowType ?? "workflow"}
-                </text>
-                <text style={{ fg: themeColors.accent }}>{MISC.separator}</text>
-                <text style={{ fg: themeColors.accent }}>
-                  shift+tab switch mode
                 </text>
               </box>
             )}

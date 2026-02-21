@@ -125,6 +125,38 @@ export function formatTimestamp(date: Date | string): FormattedTimestamp {
 }
 
 // ============================================================================
+// MARKDOWN NEWLINE NORMALIZATION
+// ============================================================================
+
+/**
+ * Normalize inline newlines for terminal markdown rendering.
+ *
+ * The marked parser preserves literal `\n` inside paragraph text tokens,
+ * and OpenTUI's TextRenderable renders them as hard line breaks. In HTML
+ * these would be collapsed to spaces (standard markdown behaviour for
+ * soft line breaks).  This function replicates that collapsing while
+ * preserving double-newline paragraph breaks and code-fence contents.
+ *
+ * @param content - Raw markdown string (may be streaming / partial)
+ * @returns Content with single newlines collapsed to spaces
+ */
+export function normalizeMarkdownNewlines(content: string): string {
+  // 1. Protect fenced code blocks (including unclosed fences during streaming)
+  const fences: string[] = [];
+  let text = content.replace(/```[^\n]*\n[\s\S]*?(?:```|$)/g, (m) => {
+    fences.push(m);
+    return `\x00F${fences.length - 1}\x00`;
+  });
+
+  // 2. Collapse single newlines to spaces; keep \n\n+ intact
+  text = text.replace(/(?<!\n)\n(?!\n)/g, " ");
+
+  // 3. Restore fenced code blocks
+  text = text.replace(/\x00F(\d+)\x00/g, (_, i) => fences[parseInt(i)] ?? "");
+  return text;
+}
+
+// ============================================================================
 // TEXT TRUNCATION
 // ============================================================================
 

@@ -280,9 +280,6 @@ describe("review step in /ralph", () => {
     expect(spawnCalls[0]?.name).toBe("reviewer");
     expect(spawnCalls[0]?.message).toContain("Code Review Request");
     
-    // Verify context was cleared before review
-    expect(clearCallCount).toBeGreaterThanOrEqual(1);
-    
     // Cleanup
     await rm(tempDir, { recursive: true, force: true });
     if (sessionDir) {

@@ -680,9 +680,6 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                         reviewIteration < MAX_REVIEW_ITERATIONS;
                         reviewIteration++
                     ) {
-                        // Clear context before review to provide clean slate
-                        await context.clearContext();
-
                         // Get current task state for review
                         const reviewTasks = await readTasksFromDisk(sessionDir);
                         const reviewPrompt = buildReviewPrompt(
@@ -731,7 +728,6 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                         await writeFile(fixSpecPath, fixSpec);
 
                         // Re-invoke ralph: decompose fix-spec into tasks (Step 1 again)
-                        await context.clearContext();
                         const fixStep1 = await context.streamAndWait(
                             buildSpecToTasksPrompt(fixSpec),
                             { hideContent: true },

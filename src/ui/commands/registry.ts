@@ -125,6 +125,12 @@ export interface CommandContext {
    */
   setRalphTaskIds: (ids: Set<string>) => void;
   /**
+   * Wait for the user to type and submit a prompt.
+   * Used by workflows after a stream interruption (Ctrl+C) to yield control
+   * to the user and receive their next direction.
+   */
+  waitForUserInput: () => Promise<string>;
+  /**
    * Update workflow state from a command handler.
    */
   updateWorkflowState: (update: Partial<CommandContextState>) => void;

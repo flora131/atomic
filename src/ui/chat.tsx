@@ -1917,6 +1917,8 @@ export function ChatApp({
   const lastStreamingContentRef = useRef<string>("");
   // Resolver for streamAndWait: when set, handleComplete resolves the Promise instead of processing the queue
   const streamCompletionResolverRef = useRef<((result: import("./commands/registry.ts").StreamResult) => void) | null>(null);
+  // Resolver for waitForUserInput: when set, handleSubmit resolves the Promise with the user's prompt
+  const waitForUserInputResolverRef = useRef<((prompt: string) => void) | null>(null);
   // When true, streaming chunks are accumulated but NOT rendered in the assistant message (for hidden workflow steps)
   const hideStreamContentRef = useRef(false);
   const [showTodoPanel, setShowTodoPanel] = useState(true);
@@ -2671,6 +2673,14 @@ export function ChatApp({
   useEffect(() => {
     if (!workflowState.workflowActive) {
       workflowStartedRef.current = null;
+    }
+  }, [workflowState.workflowActive]);
+
+  // Auto-hide task list panel when workflow ends naturally
+  useEffect(() => {
+    if (!workflowState.workflowActive && ralphSessionDir) {
+      setRalphSessionDir(null);
+      setRalphSessionId(null);
     }
   }, [workflowState.workflowActive]);
 
@@ -3723,6 +3733,11 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           context.sendSilentMessage(prompt);
         });
       },
+      waitForUserInput: () => {
+        return new Promise<string>((resolve) => {
+          waitForUserInputResolverRef.current = resolve;
+        });
+      },
       clearContext: async () => {
         if (onResetSession) {
           await onResetSession();
@@ -4286,15 +4301,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             askUserQuestionRequestIdRef.current = null;
             activeHitlToolCallIdRef.current = null;
 
-            // Cancel active workflow too (if running)
-            if (workflowState.workflowActive) {
-              updateWorkflowState({
-                workflowActive: false,
-                workflowType: null,
-                initialPrompt: null,
-              });
-            }
-
             setInterruptCount(0);
             if (interruptTimeoutRef.current) {
               clearTimeout(interruptTimeoutRef.current);
@@ -4346,23 +4352,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               continueQueuedConversation();
               return;
             }
-          }
-
-          // Cancel active workflow regardless of streaming state
-          // (workflow may be active but between API calls, e.g. after error)
-          if (workflowState.workflowActive) {
-            updateWorkflowState({
-              workflowActive: false,
-              workflowType: null,
-              initialPrompt: null,
-            });
-            setInterruptCount(0);
-            if (interruptTimeoutRef.current) {
-              clearTimeout(interruptTimeoutRef.current);
-              interruptTimeoutRef.current = null;
-            }
-            setCtrlCPressed(false);
-            return;
           }
 
           // Not streaming: if textarea has content, clear it first
@@ -5345,6 +5334,16 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         addMessage("user", trimmedValue);
         // Execute the slash command (allowed even during streaming)
         void executeCommand(parsed.name, parsed.args, "input");
+        return;
+      }
+
+      // If a workflow is waiting for user input (after Ctrl+C stream interrupt),
+      // resolve the pending promise with the user's prompt instead of sending normally.
+      if (waitForUserInputResolverRef.current) {
+        const resolver = waitForUserInputResolverRef.current;
+        waitForUserInputResolverRef.current = null;
+        addMessage("user", trimmedValue);
+        resolver(trimmedValue);
         return;
       }
 

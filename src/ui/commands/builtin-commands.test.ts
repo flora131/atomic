@@ -32,6 +32,7 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
     sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "" }),
     streamAndWait: async () => ({ content: "", wasInterrupted: false }),
+    waitForUserInput: async () => "",
     clearContext: async () => {},
     setTodoItems: () => {},
     setRalphSessionDir: () => {},

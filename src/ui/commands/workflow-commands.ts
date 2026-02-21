@@ -597,7 +597,14 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 buildSpecToTasksPrompt(parsed.prompt),
                 { hideContent: true },
             );
-            if (step1.wasInterrupted) return { success: true };
+            if (step1.wasInterrupted) return {
+                success: true,
+                stateUpdate: {
+                    workflowActive: false,
+                    workflowType: null,
+                    initialPrompt: null,
+                },
+            };
 
             // Parse tasks from step 1 output and save to disk (file watcher handles UI)
             const tasks = parseTasks(step1.content);
@@ -648,7 +655,13 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                             : buildContinuePrompt(currentTasks, sessionId);
 
                     const result = await context.streamAndWait(prompt);
-                    if (result.wasInterrupted) break;
+                    if (result.wasInterrupted) {
+                        // Yield control to user: wait for their next prompt
+                        const userPrompt = await context.waitForUserInput();
+                        // Pass user's prompt to model within workflow context
+                        const userResult = await context.streamAndWait(userPrompt);
+                        if (userResult.wasInterrupted) break;
+                    }
 
                     // Read latest task state from disk after agent response
                     const diskTasks = await readTasksFromDisk(sessionDir);
@@ -790,7 +803,15 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 }
             }
 
-            return { success: true };
+            return {
+                success: true,
+                message: "Workflow completed successfully.",
+                stateUpdate: {
+                    workflowActive: false,
+                    workflowType: null,
+                    initialPrompt: null,
+                },
+            };
         },
     };
 }

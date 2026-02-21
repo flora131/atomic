@@ -623,7 +623,8 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 ralphConfig: { sessionId, userPrompt: parsed.prompt },
             });
 
-            // Step 1: Task decomposition (blocks until streaming completes)
+            try {
+                // Step 1: Task decomposition (blocks until streaming completes)
             // hideContent suppresses raw JSON rendering in the chat — content is still
             // accumulated in StreamResult for parseTasks() and task-state persistence takes over.
             const step1 = await context.streamAndWait(
@@ -877,6 +878,17 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                     initialPrompt: null,
                 },
             };
+            } catch (error) {
+                return {
+                    success: false,
+                    message: `Workflow failed: ${error instanceof Error ? error.message : String(error)}`,
+                    stateUpdate: {
+                        workflowActive: false,
+                        workflowType: null,
+                        initialPrompt: null,
+                    },
+                };
+            }
         },
     };
 }

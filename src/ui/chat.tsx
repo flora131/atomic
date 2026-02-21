@@ -808,6 +808,10 @@ export interface MessageBubbleProps {
   tasksExpanded?: boolean;
   /** Whether task updates should be rendered inline for this message */
   inlineTasksEnabled?: boolean;
+  /** Ralph session directory for persistent task list panel */
+  ralphSessionDir?: string | null;
+  /** Whether the todo/task panel is visible (Ctrl+T toggle) */
+  showTodoPanel?: boolean;
   /** Elapsed streaming time in milliseconds */
   elapsedMs?: number;
   /** Whether the conversation is collapsed (shows compact single-line summaries) */
@@ -1598,7 +1602,7 @@ function getRenderableAssistantParts(
 
   return parts;
 }
-export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, ralphSessionDir, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
   // Collapsed mode: show compact single-line summary for each message
@@ -1660,6 +1664,14 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
             <span style={{ bg: themeColors.userBubbleBg, fg: themeColors.userBubbleFg }}> {message.content} </span>
           </text>
         </box>
+
+        {/* Ralph persistent task list - also shown after user messages */}
+        {isLast && ralphSessionDir && showTodoPanel && (
+          <TaskListPanel
+            sessionDir={ralphSessionDir}
+            expanded={tasksExpanded}
+          />
+        )}
       </box>
     );
   }
@@ -1689,6 +1701,14 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
         paddingRight={SPACING.CONTAINER_PAD}
       >
         <MessageBubbleParts message={renderableMessage} syntaxStyle={syntaxStyle} />
+
+        {/* Ralph persistent task list - pinned above streaming text in last message */}
+        {isLast && ralphSessionDir && showTodoPanel && (
+          <TaskListPanel
+            sessionDir={ralphSessionDir}
+            expanded={tasksExpanded}
+          />
+        )}
 
         {/* Loading spinner — shown during streaming OR while background agents are still running */}
         {(message.streaming || hasActiveBackgroundAgents) && !hideLoading && (
@@ -5538,6 +5558,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           collapsed={!showLive}
           tasksExpanded={tasksExpanded}
           inlineTasksEnabled={!ralphSessionDir}
+          ralphSessionDir={ralphSessionDir}
+          showTodoPanel={showTodoPanel}
         />
         );
       })}
@@ -5569,6 +5591,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           collapsed={false}
           tasksExpanded={tasksExpanded}
           inlineTasksEnabled={!ralphSessionDir}
+          ralphSessionDir={ralphSessionDir}
+          showTodoPanel={showTodoPanel}
         />
         );
       })}
@@ -5669,14 +5693,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           </box>
         )}
 
-        {/* Ralph persistent task list - rendered in chat flow, Ctrl+T toggleable */}
-        {ralphSessionDir && showTodoPanel && (
-          <TaskListPanel
-            sessionDir={ralphSessionDir}
-            expanded={tasksExpanded}
-          />
-        )}
-
         {/* Input Area - flows with content inside scrollbox */}
         {/* Hidden when question dialog or model selector is active */}
         {!activeQuestion && !showModelSelector && (
@@ -5744,6 +5760,18 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 </text>
               </box>
             ) : null}
+            {/* Workflow mode label - shown when workflow/ralph is active */}
+            {!isStreaming && workflowState.workflowActive && (
+              <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
+                <text style={{ fg: themeColors.accent }}>
+                  {workflowState.workflowType ?? "workflow"}
+                </text>
+                <text style={{ fg: themeColors.accent }}>{MISC.separator}</text>
+                <text style={{ fg: themeColors.accent }}>
+                  shift+tab switch mode
+                </text>
+              </box>
+            )}
           </>
         )}
 

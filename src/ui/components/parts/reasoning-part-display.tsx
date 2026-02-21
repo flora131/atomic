@@ -12,6 +12,7 @@ import type { SyntaxStyle } from "@opentui/core";
 import type { ReasoningPart } from "../../parts/types.ts";
 import { createDimmedSyntaxStyle, createMarkdownSyntaxStyle, useTheme, useThemeColors } from "../../theme.tsx";
 import { SPACING } from "../../constants/spacing.ts";
+import { normalizeMarkdownNewlines } from "../../utils/format.ts";
 
 export interface ReasoningPartDisplayProps {
   part: ReasoningPart;
@@ -49,7 +50,7 @@ export function ReasoningPartDisplay({ part, syntaxStyle }: ReasoningPartDisplay
             drawUnstyledText={false}
             streaming={part.isStreaming}
             syntaxStyle={dimmedStyle}
-            content={part.content}
+            content={normalizeMarkdownNewlines(part.content)}
             conceal={true}
             fg={colors.muted}
           />

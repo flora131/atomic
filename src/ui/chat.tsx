@@ -5685,7 +5685,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             <box
               border
               borderStyle="rounded"
-              borderColor={themeColors.inputFocus}
+              borderColor={workflowState.workflowActive ? themeColors.accent : themeColors.inputFocus}
               paddingLeft={SPACING.CONTAINER_PAD}
               paddingRight={SPACING.CONTAINER_PAD}
               marginTop={messages.length > 0 ? SPACING.ELEMENT : SPACING.NONE}

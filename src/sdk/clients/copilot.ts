@@ -320,7 +320,7 @@ export class CopilotClient implements CodingAgentClient {
         };
       },
 
-      stream: (message: string): AsyncIterable<AgentMessage> => {
+      stream: (message: string, _options?: { agent?: string }): AsyncIterable<AgentMessage> => {
         return {
           [Symbol.asyncIterator]: async function* () {
             if (state.isClosed) {

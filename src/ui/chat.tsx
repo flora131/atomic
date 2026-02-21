@@ -616,7 +616,8 @@ export interface ChatAppProps {
     content: string,
     onChunk: (chunk: string) => void,
     onComplete: () => void,
-    onMeta?: (meta: StreamingMeta) => void
+    onMeta?: (meta: StreamingMeta) => void,
+    options?: import("./commands/registry.ts").StreamMessageOptions
   ) => void | Promise<void>;
   /** Callback when user exits the chat */
   onExit?: () => void | Promise<void>;
@@ -3489,7 +3490,7 @@ export function ChatApp({
           sendMessageRef.current(content);
         }
       },
-      sendSilentMessage: (content: string) => {
+      sendSilentMessage: (content: string, options?: import("./commands/registry.ts").StreamMessageOptions) => {
         // Send to agent without displaying as user message
         // Call send handler (fire and forget)
         if (onSendMessage) {
@@ -3697,7 +3698,7 @@ export function ChatApp({
             setStreamingMeta(meta);
           };
 
-          void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete, handleMeta)).catch((error) => {
+          void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete, handleMeta, options)).catch((error) => {
             handleStreamStartupError(error, currentGeneration);
           });
         }
@@ -3705,23 +3706,33 @@ export function ChatApp({
       spawnSubagent: async (options) => {
         // Inject into main session — SDK's native sub-agent dispatch handles it.
         // Wait for the streaming response so the caller gets the actual result.
-        // 
+        //
         // IMPORTANT: For ralph review-fix loops, the sub-agent output must be
         // clean JSON without additional commentary. We hide the stream content
         // to avoid polluting the chat UI with intermediate steps.
         const agentName = options.name ?? options.model ?? "general-purpose";
         const task = options.message;
-        
-        // Format instruction to ensure clean sub-agent invocation.
-        // Explicitly request the agent tool and ask for the complete output
-        // to be passed through without additional commentary.
-        const instruction = `Invoke the "${agentName}" sub-agent with the following task. Return ONLY the sub-agent's complete output with no additional commentary or explanation.
+
+        let instruction: string;
+        let silentOptions: import("./commands/registry.ts").StreamMessageOptions | undefined;
+        if (agentType === "opencode") {
+          // OpenCode SDK dispatches sub-agents via AgentPartInput parts.
+          // Pass the agent name structurally so the client can construct the
+          // correct prompt parts without string encoding.
+          instruction = task;
+          silentOptions = { agent: agentName };
+        } else {
+          // Claude SDK and Copilot SDK use the Task tool for sub-agent dispatch.
+          // Explicitly request the agent tool and ask for the complete output
+          // to be passed through without additional commentary.
+          instruction = `Invoke the "${agentName}" sub-agent with the following task. Return ONLY the sub-agent's complete output with no additional commentary or explanation.
 
 Task for ${agentName}:
 ${task}
 
 Important: Do not add any text before or after the sub-agent's output. Pass through the complete response exactly as produced.`;
-        
+        }
+
         const result = await new Promise<import("./commands/registry.ts").StreamResult>((resolve) => {
           const previousResolver = streamCompletionResolverRef.current;
           if (previousResolver) {
@@ -3730,7 +3741,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           streamCompletionResolverRef.current = resolve;
           // Hide stream content to keep chat UI clean (content is still accumulated)
           hideStreamContentRef.current = true;
-          context.sendSilentMessage(instruction);
+          context.sendSilentMessage(instruction, silentOptions);
         });
         
         // Reset hideStreamContent for next stream

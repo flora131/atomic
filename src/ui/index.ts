@@ -1210,7 +1210,8 @@ export async function startChatUI(
     content: string,
     onChunk: (chunk: string) => void,
     onComplete: () => void,
-    onMeta?: (meta: { outputTokens: number; thinkingMs: number; thinkingText: string }) => void
+    onMeta?: (meta: { outputTokens: number; thinkingMs: number; thinkingText: string }) => void,
+    options?: { agent?: string }
   ): Promise<void> {
     // Single-owner stream model: any new stream handoff resets previous
     // run-owned hook state before creating the next owner.
@@ -1234,7 +1235,7 @@ export async function startChatUI(
     try {
       // Stream the response, wrapped so abort takes effect immediately
       // even while iterator.next() is blocked on the network
-      const stream = state.session!.stream(content);
+      const stream = state.session!.stream(content, options);
       const abortableStream = abortableAsyncIterable(
         stream,
         state.streamAbortController.signal

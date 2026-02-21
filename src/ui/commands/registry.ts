@@ -29,9 +29,14 @@ export interface StreamResult {
 }
 
 /**
- * State available to commands during execution.
- * Provides access to session, UI state, and helper methods.
+ * Options for sendSilentMessage controlling how the message is dispatched
+ * to the underlying SDK session.
  */
+export interface StreamMessageOptions {
+  /** Sub-agent name for OpenCode dispatch via AgentPartInput. Ignored by Claude/Copilot. */
+  agent?: string;
+}
+
 /**
  * Options for spawning a sub-agent.
  */
@@ -82,7 +87,7 @@ export interface CommandContext {
    * Send a message to the agent without displaying it as a user message in the chat.
    * Use this for commands that need to invoke agent interactions silently (e.g., skill prompts).
    */
-  sendSilentMessage: (content: string) => void;
+  sendSilentMessage: (content: string, options?: StreamMessageOptions) => void;
   /**
    * Spawn a sub-agent with specific configuration.
    * Use this for commands that need to delegate tasks to specialized agents.

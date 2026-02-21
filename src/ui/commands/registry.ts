@@ -24,6 +24,8 @@ export interface StreamResult {
   content: string;
   /** Whether the stream was interrupted (e.g., Ctrl+C / ESC) */
   wasInterrupted: boolean;
+  /** Whether the workflow was cancelled (double Ctrl+C) */
+  wasCancelled?: boolean;
 }
 
 /**
@@ -124,6 +126,12 @@ export interface CommandContext {
    * updates are written to tasks.json (prevents sub-agent overwrites).
    */
   setRalphTaskIds: (ids: Set<string>) => void;
+  /**
+   * Wait for the user to type and submit a prompt.
+   * Used by workflows after a stream interruption (Ctrl+C) to yield control
+   * to the user and receive their next direction.
+   */
+  waitForUserInput: () => Promise<string>;
   /**
    * Update workflow state from a command handler.
    */

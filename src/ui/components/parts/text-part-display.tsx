@@ -13,6 +13,7 @@ import type { TextPart } from "../../parts/types.ts";
 import { useThrottledValue } from "../../hooks/use-throttled-value.ts";
 import { createMarkdownSyntaxStyle, useTheme, useThemeColors } from "../../theme.tsx";
 import { STATUS } from "../../constants/icons.ts";
+import { normalizeMarkdownNewlines } from "../../utils/format.ts";
 
 export interface TextPartDisplayProps {
   part: TextPart;
@@ -37,18 +38,22 @@ export function TextPartDisplay({ part, syntaxStyle }: TextPartDisplayProps) {
     return null;
   }
 
+  // Collapse single newlines to spaces (standard markdown soft-break behaviour).
+  // OpenTUI's TextRenderable renders literal \n as hard line breaks unlike HTML.
+  const normalizedContent = normalizeMarkdownNewlines(trimmedContent);
+
   return (
     <box flexDirection="column">
       {syntaxStyle ? (
         <markdown
-          content={`${STATUS.active} ${trimmedContent}`}
+          content={`${STATUS.active} ${normalizedContent}`}
           syntaxStyle={syntaxStyle}
           streaming={part.isStreaming}
           conceal={true}
         />
       ) : (
         <code
-          content={`${STATUS.active} ${trimmedContent}`}
+          content={`${STATUS.active} ${normalizedContent}`}
           filetype="markdown"
           drawUnstyledText={false}
           streaming={part.isStreaming}

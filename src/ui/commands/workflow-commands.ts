@@ -544,6 +544,39 @@ function hasActionableTasks(tasks: NormalizedTodoItem[]): boolean {
     });
 }
 
+type StreamAndWaitResult = Awaited<ReturnType<CommandContext["streamAndWait"]>>;
+
+async function streamWithInterruptRecovery(
+    context: CommandContext,
+    initialPrompt: string,
+    options?: { hideContent?: boolean },
+    onInterrupted?: (
+        userPrompt: string,
+    ) => { prompt: string; options?: { hideContent?: boolean } },
+): Promise<StreamAndWaitResult> {
+    let prompt = initialPrompt;
+    let streamOptions = options;
+
+    while (true) {
+        const result = await context.streamAndWait(prompt, streamOptions);
+
+        if (result.wasCancelled || !result.wasInterrupted) {
+            return result;
+        }
+
+        const userPrompt = await context.waitForUserInput();
+
+        if (onInterrupted) {
+            const next = onInterrupted(userPrompt);
+            prompt = next.prompt;
+            streamOptions = next.options;
+        } else {
+            prompt = userPrompt;
+            streamOptions = undefined;
+        }
+    }
+}
+
 function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
     return {
         name: metadata.name,
@@ -590,31 +623,45 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 ralphConfig: { sessionId, userPrompt: parsed.prompt },
             });
 
-            // Step 1: Task decomposition (blocks until streaming completes)
-            // hideContent suppresses raw JSON rendering in the chat — content is still
-            // accumulated in StreamResult for parseTasks() and task-state persistence takes over.
-            const step1 = await context.streamAndWait(
-                buildSpecToTasksPrompt(parsed.prompt),
-                { hideContent: true },
-            );
-            if (step1.wasInterrupted) return { success: true };
-
-            // Parse tasks from step 1 output and save to disk (file watcher handles UI)
-            const tasks = parseTasks(step1.content);
-            if (tasks.length > 0) {
-                await saveTasksToActiveSession(tasks, sessionId);
-                // Seed in-memory TodoWrite state so later payloads that omit IDs
-                // can be reconciled against the planning-phase task list.
-                context.setTodoItems(
-                    tasks.map((task) => ({
-                        ...task,
-                        status:
-                            task.status === "error"
-                                ? "pending"
-                                : task.status,
-                    })) as TodoItem[],
+            try {
+                // Step 1: Task decomposition (blocks until streaming completes)
+                // hideContent suppresses raw JSON rendering in the chat — content is still
+                // accumulated in StreamResult for parseTasks() and task-state persistence takes over.
+                const step1 = await streamWithInterruptRecovery(
+                    context,
+                    buildSpecToTasksPrompt(parsed.prompt),
+                    { hideContent: true },
+                    (userPrompt) => ({
+                        prompt: buildSpecToTasksPrompt(userPrompt),
+                        options: { hideContent: true },
+                    }),
                 );
-            }
+                if (step1.wasCancelled)
+                    return {
+                        success: true,
+                        stateUpdate: {
+                            workflowActive: false,
+                            workflowType: null,
+                            initialPrompt: null,
+                        },
+                    };
+
+                // Parse tasks from step 1 output and save to disk (file watcher handles UI)
+                const tasks = parseTasks(step1.content);
+                if (tasks.length > 0) {
+                    await saveTasksToActiveSession(tasks, sessionId);
+                    // Seed in-memory TodoWrite state so later payloads that omit IDs
+                    // can be reconciled against the planning-phase task list.
+                    context.setTodoItems(
+                        tasks.map((task) => ({
+                            ...task,
+                            status:
+                                task.status === "error"
+                                    ? "pending"
+                                    : task.status,
+                        })) as TodoItem[],
+                    );
+                }
 
             // Track Ralph session metadata AFTER tasks.json exists on disk
             context.setRalphSessionDir(sessionDir);
@@ -647,8 +694,11 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                               )
                             : buildContinuePrompt(currentTasks, sessionId);
 
-                    const result = await context.streamAndWait(prompt);
-                    if (result.wasInterrupted) break;
+                    const result = await streamWithInterruptRecovery(
+                        context,
+                        prompt,
+                    );
+                    if (result.wasCancelled) break;
 
                     // Read latest task state from disk after agent response
                     const diskTasks = await readTasksFromDisk(sessionDir);
@@ -680,9 +730,6 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                         reviewIteration < MAX_REVIEW_ITERATIONS;
                         reviewIteration++
                     ) {
-                        // Clear context before review to provide clean slate
-                        await context.clearContext();
-
                         // Get current task state for review
                         const reviewTasks = await readTasksFromDisk(sessionDir);
                         const reviewPrompt = buildReviewPrompt(
@@ -731,12 +778,16 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                         await writeFile(fixSpecPath, fixSpec);
 
                         // Re-invoke ralph: decompose fix-spec into tasks (Step 1 again)
-                        await context.clearContext();
-                        const fixStep1 = await context.streamAndWait(
+                        const fixStep1 = await streamWithInterruptRecovery(
+                            context,
                             buildSpecToTasksPrompt(fixSpec),
                             { hideContent: true },
+                            (userPrompt) => ({
+                                prompt: buildSpecToTasksPrompt(userPrompt),
+                                options: { hideContent: true },
+                            }),
                         );
-                        if (fixStep1.wasInterrupted) break;
+                        if (fixStep1.wasCancelled) break;
 
                         const fixTasks = parseTasks(fixStep1.content);
                         if (fixTasks.length === 0) break;
@@ -770,8 +821,11 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                                           sessionId,
                                       );
 
-                            const result = await context.streamAndWait(prompt);
-                            if (result.wasInterrupted) break;
+                            const result = await streamWithInterruptRecovery(
+                                context,
+                                prompt,
+                            );
+                            if (result.wasCancelled) break;
 
                             // Read latest task state from disk after agent response
                             const diskTasks =
@@ -794,7 +848,36 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 }
             }
 
-            return { success: true };
+            return {
+                success: true,
+                stateUpdate: {
+                    workflowActive: false,
+                    workflowType: null,
+                    initialPrompt: null,
+                },
+            };
+            } catch (error) {
+                // Silent exit for workflow cancellation (double Ctrl+C)
+                if (error instanceof Error && error.message === "Workflow cancelled") {
+                    return {
+                        success: true,
+                        stateUpdate: {
+                            workflowActive: false,
+                            workflowType: null,
+                            initialPrompt: null,
+                        },
+                    };
+                }
+                return {
+                    success: false,
+                    message: `Workflow failed: ${error instanceof Error ? error.message : String(error)}`,
+                    stateUpdate: {
+                        workflowActive: false,
+                        workflowType: null,
+                        initialPrompt: null,
+                    },
+                };
+            }
         },
     };
 }

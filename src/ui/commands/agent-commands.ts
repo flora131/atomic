@@ -8,6 +8,8 @@
  * Agents can be defined as:
  * - Project: Defined in .claude/agents, .opencode/agents, .github/agents
  * - User: Defined in ~/.claude/agents, ~/.opencode/agents, ~/.copilot/agents
+ * - Atomic global: Defined in ~/.atomic/.claude/agents, ~/.atomic/.opencode/agents,
+ *   ~/.atomic/.copilot/agents
  */
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
@@ -44,6 +46,9 @@ export const GLOBAL_AGENT_PATHS = [
   "~/.claude/agents",
   "~/.opencode/agents",
   "~/.copilot/agents",
+  "~/.atomic/.claude/agents",
+  "~/.atomic/.opencode/agents",
+  "~/.atomic/.copilot/agents",
 ] as const;
 
 // ============================================================================

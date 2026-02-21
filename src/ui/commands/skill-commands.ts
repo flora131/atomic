@@ -14,6 +14,9 @@
  *   - ~/.claude/skills/
  *   - ~/.opencode/skills/
  *   - ~/.copilot/skills/
+ *   - ~/.atomic/.claude/skills/
+ *   - ~/.atomic/.opencode/skills/
+ *   - ~/.atomic/.copilot/skills/
  *
  * The $ARGUMENTS placeholder is expanded with user arguments before sending to the agent.
  */
@@ -60,6 +63,12 @@ const GLOBAL_SKILL_PATHS = [
     join(HOME, ".claude", "skills"),
     join(HOME, ".opencode", "skills"),
     join(HOME, ".copilot", "skills"),
+] as const;
+
+const GLOBAL_ATOMIC_SKILL_PATHS = [
+    join(HOME, ".atomic", ".claude", "skills"),
+    join(HOME, ".atomic", ".opencode", "skills"),
+    join(HOME, ".atomic", ".copilot", "skills"),
 ] as const;
 
 export type SkillSource = "project" | "user";
@@ -117,7 +126,8 @@ function discoverSkillFiles(): DiscoveredSkillFile[] {
         }
     }
 
-    for (const globalPath of GLOBAL_SKILL_PATHS) {
+    const allGlobalPaths = [...GLOBAL_SKILL_PATHS, ...GLOBAL_ATOMIC_SKILL_PATHS];
+    for (const globalPath of allGlobalPaths) {
         if (!existsSync(globalPath)) continue;
 
         try {

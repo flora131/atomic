@@ -190,6 +190,8 @@ atomic init
 
 Select your agent. The CLI configures your project automatically.
 
+`atomic init` configures source-control-specific skills in your project (GitHub/Git or Sapling), while Atomic's baseline agents/skills are installed globally under `~/.atomic` during binary install/update.
+
 Then start a chat session and run `/init` to generate `CLAUDE.md` and `AGENTS.md`:
 
 ```bash
@@ -211,7 +213,7 @@ During `atomic init`, you'll be prompted to select your source control system:
 | GitHub / Git          | `git`    | Pull Requests     | Most open-source projects    |
 | Sapling + Phabricator | `sl`     | Phabricator Diffs | Meta-style stacked workflows |
 
-The selection is saved to `.atomic.json` in your project root and configures the appropriate commit and code review commands for your workflow.
+The selection is saved to `.atomic/settings.json` in your project and configures the appropriate commit and code review commands for your workflow.
 
 #### Sapling + Phabricator Setup
 
@@ -507,11 +509,18 @@ atomic chat -a opencode --theme <light/dark>
 
 ## Configuration Files
 
-### `.atomic.json`
+### `.atomic/settings.json`
 
-Atomic stores project-level configuration in `.atomic.json` at the root of your project. This file is created automatically during `atomic init`.
+Atomic stores project-level configuration in `.atomic/settings.json`. This file is created automatically during `atomic init`.
 
-**Example `.atomic.json`:**
+Configuration resolution for project defaults:
+
+1. Local override: `.atomic/settings.json`
+2. Global fallback: `~/.atomic/settings.json`
+
+Atomic no longer reads or writes `.atomic.json`.
+
+**Example `.atomic/settings.json`:**
 
 ```json
 {
@@ -591,6 +600,7 @@ The uninstall command will:
 
 - Remove the Atomic binary from `~/.local/bin/atomic` (or your custom install directory)
 - Remove configuration data from `~/.local/share/atomic` (unless `--keep-config` is used)
+- Remove Atomic-managed global agent configs from `~/.atomic/.claude`, `~/.atomic/.opencode`, and `~/.atomic/.copilot` (unless `--keep-config` is used)
 - Display instructions for removing the PATH entry from your shell configuration
 
 ### Native installation (manual)
@@ -602,6 +612,7 @@ If the CLI command is not available, you can manually remove the files:
 ```bash
 rm -f ~/.local/bin/atomic
 rm -rf ~/.local/share/atomic
+rm -rf ~/.atomic/.claude ~/.atomic/.opencode ~/.atomic/.copilot
 ```
 
 If you installed to a custom directory, remove the binary from that location instead.
@@ -611,6 +622,9 @@ If you installed to a custom directory, remove the binary from that location ins
 ```powershell
 Remove-Item "$env:USERPROFILE\.local\bin\atomic.exe" -Force
 Remove-Item "$env:LOCALAPPDATA\atomic" -Recurse -Force
+Remove-Item "$env:USERPROFILE\.atomic\.claude" -Recurse -Force
+Remove-Item "$env:USERPROFILE\.atomic\.opencode" -Recurse -Force
+Remove-Item "$env:USERPROFILE\.atomic\.copilot" -Recurse -Force
 ```
 
 ### bun installation

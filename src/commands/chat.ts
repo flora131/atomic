@@ -21,6 +21,12 @@ import { pathExists } from "../utils/copy.ts";
 import { AGENT_CONFIG } from "../config.ts";
 import { initCommand } from "./init.ts";
 import { join } from "path";
+import { readdir } from "fs/promises";
+import {
+  ensureAtomicGlobalAgentConfigs,
+  isManagedScmSkillName,
+} from "../utils/atomic-global-config.ts";
+import { detectInstallationType, getConfigRoot } from "../utils/config-path.ts";
 
 // SDK client imports
 import {
@@ -104,6 +110,36 @@ function getTheme(themeName: "dark" | "light"): Theme {
   return themeName === "light" ? lightTheme : darkTheme;
 }
 
+/**
+ * Determine whether the selected agent already has project-level SCM skills.
+ */
+export async function hasProjectScmSkills(
+  agentType: AgentType,
+  projectRoot: string
+): Promise<boolean> {
+  const skillsDir = join(projectRoot, AGENT_CONFIG[agentType].folder, "skills");
+  if (!(await pathExists(skillsDir))) return false;
+
+  try {
+    const entries = await readdir(skillsDir, { withFileTypes: true });
+    return entries.some(
+      (entry) => entry.isDirectory() && isManagedScmSkillName(entry.name)
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Determine whether chat should auto-run init for the selected agent.
+ */
+export async function shouldAutoInitChat(
+  agentType: AgentType,
+  projectRoot: string = process.cwd()
+): Promise<boolean> {
+  return !(await hasProjectScmSkills(agentType, projectRoot));
+}
+
 // ============================================================================
 // Slash Command Handling
 // ============================================================================
@@ -170,14 +206,21 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   const effectiveReasoningEffort = getReasoningEffortPreference(agentType);
 
   const agentName = getAgentDisplayName(agentType);
+  const projectRoot = process.cwd();
 
-  // Check if config folder exists locally
-  const configFolder = join(process.cwd(), AGENT_CONFIG[agentType].folder);
-  if (!(await pathExists(configFolder))) {
+  if (detectInstallationType() !== "source") {
+    await ensureAtomicGlobalAgentConfigs(getConfigRoot());
+  }
+
+  // Auto-init when project SCM skills are missing
+  if (await shouldAutoInitChat(agentType, projectRoot)) {
+    const configNotFoundMessage =
+      `Source control skills are not configured for ${agentName}. Starting interactive setup...`;
+
     await initCommand({
       showBanner: false,
       preSelectedAgent: agentType,
-      configNotFoundMessage: `Local configuration not found for ${agentName}. Starting interactive setup...`,
+      configNotFoundMessage,
     });
   }
 
@@ -221,7 +264,7 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
       version: VERSION,
       model: displayModelName,
       tier: modelDisplayInfo.tier,
-      workingDir: process.cwd(),
+      workingDir: projectRoot,
       suggestion: 'Try "fix typecheck errors"',
       agentType,
       initialPrompt,

@@ -5762,23 +5762,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 </text>
               </box>
             ) : null}
-            {/* Workflow mode label with hints - shown when workflow is active */}
-            {workflowState.workflowActive && (
+            {/* Workflow mode label - shown when workflow/ralph is active */}
+            {!isStreaming && workflowState.workflowActive && (
               <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
                 <text style={{ fg: themeColors.accent }}>
-                  workflow
+                  {workflowState.workflowType ?? "workflow"}
                 </text>
-                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
-                <text style={{ fg: themeColors.muted }}>
-                  esc to interrupt
-                </text>
-                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
-                <text style={{ fg: themeColors.muted }}>
-                  ctrl+q enqueue
-                </text>
-                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
-                <text style={{ fg: themeColors.muted }}>
-                  ctrl+c twice to exit workflow
+                <text style={{ fg: themeColors.accent }}>{MISC.separator}</text>
+                <text style={{ fg: themeColors.accent }}>
+                  shift+tab switch mode
                 </text>
               </box>
             )}

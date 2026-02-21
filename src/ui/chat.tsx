@@ -3821,6 +3821,16 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         clearHistoryBuffer();
         setTrimmedMessageCount(0);
         loadedSkillsRef.current.clear();
+        // Reset ralph state on /clear (Copilot only)
+        if (agentType === "copilot") {
+          setRalphSessionDir(null);
+          setRalphSessionId(null);
+          ralphSessionDirRef.current = null;
+          ralphSessionIdRef.current = null;
+          ralphTaskIdsRef.current = new Set();
+          todoItemsRef.current = [];
+          setTodoItems([]);
+        }
         // /clear postcondition contract: messages=[], trimmedMessageCount=0,
         // transcriptMode=false, historyBuffer=[], compactionSummary=null
         console.debug("[lifecycle] /clear postconditions: messages=[], trimmedMessageCount=0, transcriptMode=false, historyBuffer=[], compactionSummary=null");
@@ -5320,6 +5330,17 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       // Check if this is a slash command
       const parsed = parseSlashCommand(trimmedValue);
       if (parsed.isCommand) {
+        // Dismiss ralph panel when user sends a non-ralph slash command (Copilot only)
+        if (agentType === "copilot" && ralphSessionDirRef.current && parsed.name !== "ralph") {
+          setRalphSessionDir(null);
+          setRalphSessionId(null);
+          ralphSessionDirRef.current = null;
+          ralphSessionIdRef.current = null;
+          ralphTaskIdsRef.current = new Set();
+          todoItemsRef.current = [];
+          setTodoItems([]);
+        }
+
         // Add the slash command to conversation history like any regular user message
         addMessage("user", trimmedValue);
         // Execute the slash command (allowed even during streaming)
@@ -5327,8 +5348,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         return;
       }
 
-      // Dismiss ralph panel when user sends a non-ralph message
-      if (ralphSessionDirRef.current && !trimmedValue.startsWith("/ralph")) {
+      // Dismiss ralph panel when user sends a non-ralph message (Copilot only)
+      if (agentType === "copilot" && ralphSessionDirRef.current && !trimmedValue.startsWith("/ralph")) {
         setRalphSessionDir(null);
         setRalphSessionId(null);
         ralphSessionDirRef.current = null;

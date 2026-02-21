@@ -228,6 +228,10 @@ export class CopilotClient implements CodingAgentClient {
       if (nodePath) {
         cliPath = nodePath;
         cliArgs.unshift("--no-warnings", getBundledCopilotCliPath());
+      } else {
+        // Even without Node.js, provide cliPath to prevent the SDK's own
+        // getBundledCliPath() from failing inside a compiled binary.
+        cliPath = getBundledCopilotCliPath();
       }
     }
 
@@ -1235,7 +1239,7 @@ export function createDenyAllPermissionHandler(): CopilotPermissionHandler {
 export function resolveNodePath(): string | undefined {
   try {
     const cmd = process.platform === "win32" ? "where node" : "which node";
-    const nodePath = execSync(cmd, { encoding: "utf-8" }).trim().split(/\r?\n/)[0];
+    const nodePath = execSync(cmd, { encoding: "utf-8" }).trim().split(/\r?\n/)[0]?.replace(/\r$/, "");
     return nodePath || undefined;
   } catch {
     return undefined;
@@ -1244,11 +1248,60 @@ export function resolveNodePath(): string | undefined {
 
 /**
  * Get the path to the bundled Copilot CLI index.js shipped with @github/copilot.
+ *
+ * Resolution order:
+ * 1. import.meta.resolve (works in dev when @github/copilot is hoisted)
+ * 2. Resolve from @github/copilot-sdk's directory context (its direct dependency)
+ * 3. Find globally-installed copilot CLI on $PATH
  */
 export function getBundledCopilotCliPath(): string {
-  const sdkUrl = import.meta.resolve("@github/copilot/sdk");
-  const sdkPath = fileURLToPath(sdkUrl);
-  return join(dirname(dirname(sdkPath)), "index.js");
+  // Strategy 1: import.meta.resolve (works in dev, fails in compiled binary)
+  try {
+    const sdkUrl = import.meta.resolve("@github/copilot/sdk");
+    const sdkPath = fileURLToPath(sdkUrl);
+    const indexPath = join(dirname(dirname(sdkPath)), "index.js");
+    if (existsSync(indexPath)) return indexPath;
+  } catch {
+    // Falls through
+  }
+
+  // Strategy 2: Resolve relative to @github/copilot-sdk package location.
+  // @github/copilot is a direct dependency of @github/copilot-sdk.
+  try {
+    const copilotSdkUrl = import.meta.resolve("@github/copilot-sdk");
+    const copilotSdkDir = dirname(fileURLToPath(copilotSdkUrl));
+    // Navigate from copilot-sdk's dist/ up to its package root's node_modules
+    const copilotPkgPath = require.resolve("@github/copilot/sdk", {
+      paths: [join(copilotSdkDir, "..")],
+    });
+    const indexPath = join(dirname(dirname(copilotPkgPath)), "index.js");
+    if (existsSync(indexPath)) return indexPath;
+  } catch {
+    // Falls through
+  }
+
+  // Strategy 3: Find copilot CLI binary on $PATH and derive the package directory.
+  try {
+    const cmd = process.platform === "win32" ? "where copilot" : "which copilot";
+    const copilotBin = execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] })
+      .trim()
+      .split(/\r?\n/)[0]
+      ?.replace(/\r$/, "");
+    if (copilotBin) {
+      const { realpathSync } = require("node:fs") as typeof import("node:fs");
+      const realPath = realpathSync(copilotBin);
+      const pkgDir = dirname(realPath);
+      const indexPath = join(pkgDir, "index.js");
+      if (existsSync(indexPath)) return indexPath;
+    }
+  } catch {
+    // Falls through
+  }
+
+  throw new Error(
+    "Cannot find @github/copilot CLI. Install it with: npm install -g @github/copilot\n" +
+      "Or set a custom cliPath in CopilotClientOptions.",
+  );
 }
 
 /**

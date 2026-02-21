@@ -16,7 +16,7 @@ Ship complex features with AI agents that actually understand your codebase. Res
 
 - Review specs before implementation (architecture decisions)
 - Review code after each feature (quality gate)
-- The 40-60% rule: agents get you most of the way, you provide the polish
+- The 60-80% rule: agents get you most of the way, you provide the polish
 - Play around with the agents and use them as your swiss army knife
 
 ---
@@ -46,7 +46,7 @@ Works on macOS, Linux, and Windows.
 
 You know the pain:
 
-- **Hours lost** hunting through unfamiliar code manually
+- **Hours lost** hunting through unfamiliar code manually and not seeing real gains in productivity with coding agents
 - **Agents missing key files** even when you know they're relevant
 - **Repeating yourself** — mentioning the same file over and over, only for the agent to ignore it
 - **Context window blown** before you've even started the real work
@@ -85,7 +85,7 @@ atomic chat -a claude "/research-codebase Research implementing GraphRAG using \
   vs our current RAG implementation."
 ```
 
-**What happens:** Each agent spawns `codebase-online-researcher` sub-agents that query DeepWiki for the specified repos, pull external documentation, and cross-reference with your existing codebase patterns. You get three research documents.
+**What happens:** Each agent spawns specialized codebase research sub-agents that query DeepWiki for the specified repos, pull external documentation, and cross-reference with your existing codebase patterns and logic. You get three research documents.
 
 **From there:** Run `/create-spec` on each research doc in parallel terminals. Then spin up three git worktrees and run `/ralph` in each. Wake up to three complete implementations on separate branches — review, benchmark, and choose the winner.
 
@@ -101,6 +101,7 @@ atomic chat -a claude "/research-codebase Research implementing GraphRAG using \
 - [How It Works](#how-it-works)
 - [The Workflow](#the-workflow)
 - [Commands, Agents, and Skills](#commands-agents-and-skills)
+- [TUI Features](#tui-features)
 - [Supported Coding Agents](#supported-coding-agents)
 - [Autonomous Execution (Ralph)](#autonomous-execution-ralph)
 - [Configuration Files](#configuration-files)
@@ -164,6 +165,20 @@ bun add -g @bastani/atomic
 bunx @bastani/atomic
 ```
 
+### Install a specific version
+
+**macOS, Linux:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- v1.0.0
+```
+
+**Windows PowerShell:**
+
+```powershell
+iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Version v1.0.0"
+```
+
 ### Getting started
 
 After installation, navigate to your project and set up Atomic:
@@ -196,16 +211,6 @@ During `atomic init`, you'll be prompted to select your source control system:
 | GitHub / Git          | `git`    | Pull Requests     | Most open-source projects    |
 | Sapling + Phabricator | `sl`     | Phabricator Diffs | Meta-style stacked workflows |
 
-**Pre-select via CLI flag:**
-
-```bash
-# Use GitHub/Git (default)
-atomic init --scm github
-
-# Use Sapling + Phabricator
-atomic init --scm sapling
-```
-
 The selection is saved to `.atomic.json` in your project root and configures the appropriate commit and code review commands for your workflow.
 
 #### Sapling + Phabricator Setup
@@ -217,20 +222,6 @@ If you select Sapling + Phabricator:
 3. Use `/sl-submit-diff` for submitting to Phabricator for code review
 
 **Note for Windows users:** Sapling templates use the full path `& 'C:\Program Files\Sapling\sl.exe'` to avoid conflicts with PowerShell's built-in `sl` alias for `Set-Location`.
-
-### Install a specific version
-
-**macOS, Linux:**
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- v1.0.0
-```
-
-**Windows PowerShell:**
-
-```powershell
-iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Version v1.0.0"
-```
 
 ### Custom install directory
 
@@ -312,7 +303,13 @@ Use the Ralph workflow to autonomously implement features from the task list. Mo
 /ralph "<prompt-or-spec-path>"
 ```
 
-### 4. Debugging
+### 4. Commit Changes
+
+```
+/gh-commit
+```
+
+### 5. Debugging
 
 Software engineering is highly non-linear. You are bound to need to debug along the way.
 
@@ -328,7 +325,7 @@ Then, use the debugging report to guide your agent:
 Follow the debugging report above to resolve the issue.
 ```
 
-### 5. Create Pull Request
+### 6. Create Pull Request
 
 ```
 /gh-create-pr
@@ -350,26 +347,45 @@ Top-level Atomic CLI commands.
 | `atomic update`            | Self-update Atomic (binary installs only)                       |
 | `atomic uninstall`         | Remove Atomic installation (binary installs only)               |
 
+#### `atomic chat` Flags
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `-a, --agent <name>` | `"claude"` | Agent to chat with (`claude`, `opencode`, `copilot`) |
+| `-w, --workflow` | `false` | Enable graph workflow mode |
+| `-t, --theme <name>` | `"dark"` | UI theme (`dark`, `light`) |
+| `-m, --model <name>` | (none) | Model to use for the chat session |
+| `--max-iterations <n>` | `"100"` | Maximum iterations for workflow mode |
+| `[prompt...]` | (none) | Initial prompt to send |
+
+#### `atomic init` Flags
+
+| Flag | Default | Description |
+| ---- | ------- | ----------- |
+| `-a, --agent <name>` | (none) | Pre-select agent (skips interactive prompt) |
+
 ### Slash Commands
 
 User-invocable chat commands for workflows, built-ins, and skills.
 
-| Command              | Arguments            | Description                                                    |
-| -------------------- | -------------------- | -------------------------------------------------------------- |
-| `/help`              |                      | Show all available commands                                   |
-| `/clear`             |                      | Clear all messages and reset session                          |
-| `/compact`           |                      | Compact context to reduce token usage                         |
-| `/model`             | `[model\|list\|select]` | View/switch active model                                   |
-| `/mcp`               | `[enable\|disable]`  | View and toggle MCP servers                                   |
-| `/init`              |                      | Generate `CLAUDE.md` and `AGENTS.md` by exploring codebase   |
-| `/research-codebase` | `"<question>"`       | Analyze codebase and document findings                         |
-| `/create-spec`       | `"<research-path>"`  | Generate technical specification                               |
-| `/explain-code`      | `"<path>"`           | Explain code section in detail                                 |
-| `/gh-commit`         |                      | Create a Git commit using Git/GitHub workflow                 |
-| `/gh-create-pr`      |                      | Commit, push, and open a GitHub pull request                  |
-| `/sl-commit`         |                      | Create a Sapling commit                                       |
-| `/sl-submit-diff`    |                      | Submit Sapling changes to Phabricator                         |
-| `/ralph`             | `"<prompt>"`         | Run autonomous implementation workflow                         |
+| Command              | Arguments               | Description                                                   |
+| -------------------- | ----------------------- | ------------------------------------------------------------- |
+| `/help`              |                         | Show all available commands                                   |
+| `/clear`             |                         | Clear all messages and reset session                          |
+| `/compact`           |                         | Compact context to reduce token usage                         |
+| `/model`             | `[model\|list\|select]` | View/switch active model                                      |
+| `/mcp`               | `[enable\|disable]`     | View and toggle MCP servers                                   |
+| `/theme`             | `[dark\|light]`         | Toggle between dark and light theme                           |
+| `/exit`              |                         | Exit the chat application                                     |
+| `/init`              |                         | Generate `CLAUDE.md` and `AGENTS.md` by exploring codebase   |
+| `/research-codebase` | `"<question>"`          | Analyze codebase and document findings                        |
+| `/create-spec`       | `"<research-path>"`     | Generate technical specification                              |
+| `/explain-code`      | `"<path>"`              | Explain code section in detail                                |
+| `/gh-commit`         |                         | Create a Git commit using Git/GitHub workflow                 |
+| `/gh-create-pr`      |                         | Commit, push, and open a GitHub pull request                  |
+| `/sl-commit`         |                         | Create a Sapling commit                                       |
+| `/sl-submit-diff`    |                         | Submit Sapling changes to Phabricator                         |
+| `/ralph`             | `"<prompt>"`            | Run autonomous implementation workflow                        |
 
 ### Agents
 
@@ -389,10 +405,42 @@ Sub-agents that execute specialized tasks. These are invoked automatically by co
 
 Domain knowledge applied during work. These are automatically invoked when relevant.
 
-| Skill                   | Purpose                                                       |
-| ----------------------- | ------------------------------------------------------------- |
-| `testing-anti-patterns` | Prevent common testing mistakes (mock misuse, test pollution) |
-| `prompt-engineer`       | Apply best practices when creating or improving prompts       |
+| Skill                   | Purpose                                                                          |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `testing-anti-patterns` | Prevent common testing mistakes (mock misuse, test pollution)                    |
+| `prompt-engineer`       | Apply best practices when creating or improving prompts                          |
+| `frontend-design`       | Create distinctive, production-grade frontend interfaces with high design quality |
+
+### TUI Features
+
+The Atomic TUI chat interface includes several features for an enhanced development experience.
+
+#### Keyboard Shortcuts
+
+| Shortcut | Action |
+| -------- | ------ |
+| `Ctrl+O` | Open transcript view |
+| `Ctrl+C` | Interrupt current operation |
+
+#### Themes
+
+Switch between dark and light themes:
+
+```bash
+# Via CLI flag
+atomic chat -a claude --theme light
+
+# Via slash command in chat
+/theme dark
+```
+
+#### @Mentions
+
+Reference files in your messages using `@` mentions. The TUI provides autocomplete suggestions as you type.
+
+#### Verbose Mode
+
+Toggle verbose output to see detailed agent activity, tool calls, and token usage.
 
 ---
 
@@ -418,7 +466,10 @@ The [Ralph Wiggum Method](https://ghuntley.com/ralph/) enables multi-hour autono
 
 1. Create and approve your spec (`/create-spec`)
 2. Start the workflow (`/ralph "<prompt-or-spec-path>"`)
-3. Ralph decomposes tasks and implements features one-by-one until complete
+3. Ralph executes a 3-step process:
+   - **Step 1 — Task Decomposition**: Breaks the spec/prompt into a structured task list
+   - **Step 2 — Implementation Loop**: Dispatches `worker` sub-agents to implement tasks one-by-one (up to 100 iterations)
+   - **Step 3 — Review & Fix**: Spawns a `reviewer` sub-agent to audit the implementation, generates fix specs if needed, and re-runs implementation for any issues found
 
 ### Usage
 

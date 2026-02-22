@@ -224,14 +224,13 @@ export class CopilotClient implements CodingAgentClient {
     // (required for node:sqlite support). --no-warnings suppresses the
     // ExperimentalWarning about SQLite.
     if (!cliPath) {
+      const copilotCliPath = getBundledCopilotCliPath();
       const nodePath = resolveNodePath();
-      if (nodePath) {
+      if (nodePath && copilotCliPath.endsWith(".js")) {
         cliPath = nodePath;
-        cliArgs.unshift("--no-warnings", getBundledCopilotCliPath());
+        cliArgs.unshift("--no-warnings", copilotCliPath);
       } else {
-        // Even without Node.js, provide cliPath to prevent the SDK's own
-        // getBundledCliPath() from failing inside a compiled binary.
-        cliPath = getBundledCopilotCliPath();
+        cliPath = copilotCliPath;
       }
     }
 
@@ -1250,7 +1249,11 @@ export function resolveNodePath(): string | undefined {
 }
 
 /**
- * Get the path to the bundled Copilot CLI index.js shipped with @github/copilot.
+ * Get the path to the Copilot CLI entry point.
+ *
+ * Returns either:
+ * - A `.js` path (index.js) when @github/copilot is installed as an npm package
+ * - A binary path when copilot is installed standalone (Homebrew, install script, winget)
  *
  * Resolution order:
  * 1. import.meta.resolve (works in dev when @github/copilot is hoisted)
@@ -1283,7 +1286,10 @@ export function getBundledCopilotCliPath(): string {
     // Falls through
   }
 
-  // Strategy 3: Find copilot CLI binary on $PATH and derive the package directory.
+  // Strategy 3: Find copilot CLI on $PATH and derive the package directory.
+  // For npm global installs, the symlink resolves into the package with index.js.
+  // For standalone installs (Homebrew, install script, winget), return the binary directly
+  // — the SDK handles non-.js cliPaths by spawning them as executables.
   try {
     const cmd = process.platform === "win32" ? "where copilot" : "which copilot";
     const copilotBin = execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] })
@@ -1296,13 +1302,20 @@ export function getBundledCopilotCliPath(): string {
       const pkgDir = dirname(realPath);
       const indexPath = join(pkgDir, "index.js");
       if (existsSync(indexPath)) return indexPath;
+      // Standalone binary (Homebrew, install script, winget) — no index.js
+      if (existsSync(realPath)) return realPath;
     }
   } catch {
     // Falls through
   }
 
   throw new Error(
-    "Cannot find @github/copilot CLI. Install it by going to https://github.com/github/copilot-cli\n" +
+    "Cannot find @github/copilot CLI.\n\n" +
+      "Install the Copilot CLI using one of:\n" +
+      "  brew install copilot-cli          # macOS/Linux\n" +
+      "  npm install -g @github/copilot    # macOS/Linux/Windows\n" +
+      "  winget install GitHub.Copilot     # Windows\n" +
+      "  curl -fsSL https://gh.io/copilot-install | bash  # macOS/Linux\n\n" +
       "Or set a custom cliPath in CopilotClientOptions.",
   );
 }

@@ -4979,7 +4979,12 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         }
 
         // Autocomplete: Enter - execute the selected command immediately (skip if shift/meta held for newline)
-        if (event.name === "return" && !event.shift && !event.meta && workflowState.showAutocomplete && autocompleteSuggestions.length > 0) {
+        // Also skip when backslash line continuation applies: in non-Kitty terminals,
+        // Shift+Enter sends "\" then "\r" as two events. The "\" gets typed (keeping
+        // autocomplete visible) and the "\r" arrives as plain Enter. We must let
+        // handleSubmit process the backslash continuation instead of executing the command.
+        if (event.name === "return" && !event.shift && !event.meta && workflowState.showAutocomplete && autocompleteSuggestions.length > 0
+          && !shouldApplyBackslashLineContinuation(textareaRef.current?.plainText ?? "", kittyKeyboardDetectedRef.current)) {
           const selectedCommand = autocompleteSuggestions[workflowState.selectedSuggestionIndex];
           const textarea = textareaRef.current;
           if (selectedCommand && textarea) {

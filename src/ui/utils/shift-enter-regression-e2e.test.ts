@@ -14,7 +14,9 @@ interface SimulatedKeyEvent extends NewlineKeyEventLike {
 interface InputHarness {
   value: string;
   submitted: string[];
+  executedCommands: string[];
   kittyKeyboardDetected: boolean;
+  autocompleteVisible: boolean;
   typeText: (text: string) => void;
   pressKey: (event: SimulatedKeyEvent) => void;
 }
@@ -23,7 +25,9 @@ function createInputHarness(): InputHarness {
   const state = {
     value: "",
     submitted: [] as string[],
+    executedCommands: [] as string[],
     kittyKeyboardDetected: false,
+    autocompleteVisible: false,
   };
 
   const pressKey = (event: SimulatedKeyEvent): void => {
@@ -48,6 +52,19 @@ function createInputHarness(): InputHarness {
       return;
     }
 
+    // Model autocomplete Enter handler: execute command if autocomplete is
+    // visible UNLESS backslash line continuation applies (mirrors chat.tsx).
+    if (
+      !event.shift && !event.meta
+      && state.autocompleteVisible
+      && !shouldApplyBackslashLineContinuation(state.value, state.kittyKeyboardDetected)
+    ) {
+      state.executedCommands.push(state.value);
+      state.value = "";
+      state.autocompleteVisible = false;
+      return;
+    }
+
     if (shouldApplyBackslashLineContinuation(state.value, state.kittyKeyboardDetected)) {
       state.value = state.value.slice(0, -1) + "\n";
       return;
@@ -63,6 +80,9 @@ function createInputHarness(): InputHarness {
 
   const typeText = (text: string): void => {
     state.value += text;
+    // Simulate autocomplete showing when typing a slash or @ command prefix
+    const trimmed = state.value.trimStart();
+    state.autocompleteVisible = trimmed.startsWith("/") || trimmed.includes("@");
   };
 
   return {
@@ -72,8 +92,14 @@ function createInputHarness(): InputHarness {
     get submitted() {
       return state.submitted;
     },
+    get executedCommands() {
+      return state.executedCommands;
+    },
     get kittyKeyboardDetected() {
       return state.kittyKeyboardDetected;
+    },
+    get autocompleteVisible() {
+      return state.autocompleteVisible;
     },
     typeText,
     pressKey,
@@ -109,5 +135,54 @@ describe("Shift+Enter repeated newline regression E2E", () => {
     input.pressKey({ name: "linefeed", ctrl: false, shift: false, meta: false, raw: "\n" });
     expect(input.value).toBe("ctrl-j\n");
     expect(input.submitted).toEqual(["first line\nsecond line"]);
+  });
+
+  test("Shift+Enter inserts newline for slash command without trailing space (non-Kitty)", () => {
+    const input = createInputHarness();
+
+    // Type a slash command without a trailing space — autocomplete is visible
+    input.typeText("/help");
+    expect(input.autocompleteVisible).toBe(true);
+
+    // Shift+Enter in non-Kitty terminal: "\" then "\r"
+    input.typeText("\\");
+    input.pressKey({ name: "return", raw: "\r" });
+
+    // Should insert newline, NOT execute the autocomplete command
+    expect(input.executedCommands).toHaveLength(0);
+    expect(input.submitted).toHaveLength(0);
+    expect(input.value).toBe("/help\n");
+  });
+
+  test("Shift+Enter inserts newline for @mention without trailing space (non-Kitty)", () => {
+    const input = createInputHarness();
+
+    // Type an @mention without a trailing space — autocomplete is visible
+    input.typeText("tell me about @file.ts");
+    expect(input.autocompleteVisible).toBe(true);
+
+    // Shift+Enter in non-Kitty terminal: "\" then "\r"
+    input.typeText("\\");
+    input.pressKey({ name: "return", raw: "\r" });
+
+    // Should insert newline, NOT execute the autocomplete command
+    expect(input.executedCommands).toHaveLength(0);
+    expect(input.submitted).toHaveLength(0);
+    expect(input.value).toBe("tell me about @file.ts\n");
+  });
+
+  test("Enter without backslash still executes autocomplete command", () => {
+    const input = createInputHarness();
+
+    // Type a slash command — autocomplete is visible
+    input.typeText("/help");
+    expect(input.autocompleteVisible).toBe(true);
+
+    // Plain Enter should execute autocomplete (no backslash present)
+    input.pressKey({ name: "return", raw: "\r" });
+
+    expect(input.executedCommands).toEqual(["/help"]);
+    expect(input.submitted).toHaveLength(0);
+    expect(input.value).toBe("");
   });
 });

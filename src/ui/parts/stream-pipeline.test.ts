@@ -154,6 +154,45 @@ describe("applyStreamPartEvent", () => {
     }
   });
 
+  test("handles invalid running startedAt when completing a tool", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "tool_1",
+      toolName: "Read",
+      input: { filePath: "README.md" },
+    });
+
+    msg = {
+      ...msg,
+      parts: (msg.parts ?? []).map((part) => {
+        if (part.type !== "tool" || part.toolCallId !== "tool_1" || part.state.status !== "running") {
+          return part;
+        }
+        return {
+          ...part,
+          state: {
+            ...part.state,
+            startedAt: "invalid-date",
+          },
+        };
+      }),
+    };
+
+    const next = applyStreamPartEvent(msg, {
+      type: "tool-complete",
+      toolId: "tool_1",
+      output: "ok",
+      success: true,
+    });
+
+    const toolPart = next.parts?.find((part) => part.type === "tool");
+    expect(toolPart?.type).toBe("tool");
+    if (toolPart?.type === "tool" && toolPart.state.status === "completed") {
+      expect(toolPart.state.durationMs).toBe(0);
+    }
+  });
+
   test("keeps thinking, pre-tool text, and post-tool text segmented", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {

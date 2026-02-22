@@ -122,6 +122,18 @@ describe("normalizeMarkdownNewlines", () => {
 
     expect(normalizeMarkdownNewlines(content)).toBe("line one\nline two");
   });
+
+  test("converts markdown task checkboxes to unicode bullets", () => {
+    const content = "- [ ] pending task\n- [x] done task\n- [X] also done";
+
+    expect(normalizeMarkdownNewlines(content)).toBe("- ☐ pending task\n- ☑ done task\n- ☑ also done");
+  });
+
+  test("converts ordered list task checkboxes to unicode bullets", () => {
+    const content = "1. [ ] first\n2. [x] second";
+
+    expect(normalizeMarkdownNewlines(content)).toBe("1. ☐ first\n2. ☑ second");
+  });
 });
 
 describe("truncateText", () => {

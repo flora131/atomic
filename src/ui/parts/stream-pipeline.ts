@@ -301,7 +301,10 @@ function upsertToolPartComplete(parts: Part[], event: ToolCompleteEvent): Part[]
     const existing = parts[toolPartIdx] as ToolPart;
     let durationMs = 0;
     if (existing.state.status === "running") {
-      durationMs = Date.now() - new Date(existing.state.startedAt).getTime();
+      const startedAtMs = new Date(existing.state.startedAt).getTime();
+      durationMs = Number.isFinite(startedAtMs)
+        ? Math.max(0, Date.now() - startedAtMs)
+        : 0;
     }
     const updatedInput = (event.input && Object.keys(existing.input).length === 0)
       ? event.input
@@ -722,7 +725,7 @@ export function syncToolCallsIntoParts(
         toolName: toolCall.toolName,
         input: toolCall.input,
         output: toolCall.output,
-        hitlResponse: toolCall.hitlResponse,
+        hitlResponse: toolCall.hitlResponse ?? existing.hitlResponse,
         state: toToolState(toolCall.status, toolCall.output, messageTimestamp, existing.state),
       };
       continue;

@@ -768,6 +768,13 @@ git config --global user.email "you@example.com"
 
 **Generating CLAUDE.md/AGENTS.md:** `atomic init` does not create `CLAUDE.md` or `AGENTS.md`. Run `/init` inside a chat session to generate these files. The command explores your codebase and produces project-specific documentation for coding agents.
 
+**Shift+Enter Not Inserting Newline:** Atomic uses layered newline detection in chat input.
+
+- **Kitty protocol (VS Code path):** In VS Code's integrated terminal, keep `terminal.integrated.enableKittyKeyboardProtocol` enabled so Shift+Enter is sent as a modified Enter key.
+- **modifyOtherKeys (supported terminals):** In terminals like GNOME Terminal, xterm, Alacritty, WezTerm, and iTerm2, Atomic enables `modifyOtherKeys` mode automatically to preserve Shift+Enter multiline behavior.
+- **Universal fallback:** Use `Ctrl+J` to insert a newline in any terminal.
+- **Last resort:** If your terminal does not provide modified Enter sequences, end the line with `\` and press Enter to continue on a new line.
+
 **Best Practice:** Run Ralph in a separate [git worktree](https://git-scm.com/docs/git-worktree) to isolate autonomous execution from your main development session:
 
 ```bash

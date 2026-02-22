@@ -12,6 +12,7 @@ import { join, dirname } from "path";
 import { homedir } from "os";
 import { type AgentKey } from "../config";
 import { type SourceControlType } from "../config";
+import { SETTINGS_SCHEMA_URL } from "./settings-schema";
 
 const SETTINGS_DIR = ".atomic";
 const SETTINGS_FILENAME = "settings.json";
@@ -112,6 +113,7 @@ export async function saveAtomicConfig(
   const nextSettings: JsonRecord = {
     ...localSettings,
     ...newConfig,
+    $schema: SETTINGS_SCHEMA_URL,
   };
 
   await mkdir(dirname(localPath), { recursive: true });

@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Atomic Settings",
+  "description": "Configuration file for the Atomic CLI (@bastani/atomic). Stored at ~/.atomic/settings.json (global) or .atomic/settings.json (project-local).",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "JSON Schema URL for editor intellisense."
+    },
+    "version": {
+      "type": "number",
+      "description": "Config schema version."
+    },
+    "agent": {
+      "type": "string",
+      "enum": ["claude", "opencode", "copilot"],
+      "description": "Selected coding agent."
+    },
+    "scm": {
+      "type": "string",
+      "enum": ["github", "sapling"],
+      "description": "Selected source control management system."
+    },
+    "lastUpdated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of the last configuration update."
+    },
+    "model": {
+      "type": "object",
+      "description": "Model preferences keyed by agent type.",
+      "properties": {
+        "claude": { "type": "string", "description": "Model ID for Claude Code." },
+        "opencode": { "type": "string", "description": "Model ID for OpenCode." },
+        "copilot": { "type": "string", "description": "Model ID for GitHub Copilot." }
+      },
+      "additionalProperties": { "type": "string" }
+    },
+    "reasoningEffort": {
+      "type": "object",
+      "description": "Reasoning effort level keyed by agent type.",
+      "properties": {
+        "claude": { "type": "string", "description": "Reasoning effort for Claude Code." },
+        "opencode": { "type": "string", "description": "Reasoning effort for OpenCode." },
+        "copilot": { "type": "string", "description": "Reasoning effort for GitHub Copilot." }
+      },
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "additionalProperties": true
+}

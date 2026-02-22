@@ -1,4 +1,4 @@
-const MODIFY_OTHER_KEYS_PATTERN = /^\x1b\[27;\d+;\d+~$/;
+const MODIFY_OTHER_KEYS_ENTER_PATTERN = /^\x1b\[27;[2-9]\d*;13~$/;
 const CSI_U_CODEPOINT_PATTERN = /^\x1b\[(\d+)/;
 
 export function shouldEnableKittyKeyboardDetection(raw: string | undefined): boolean {
@@ -6,7 +6,11 @@ export function shouldEnableKittyKeyboardDetection(raw: string | undefined): boo
     return false;
   }
 
-  if (MODIFY_OTHER_KEYS_PATTERN.test(raw)) {
+  // Only detect modifyOtherKeys if it's specifically for Enter with modifiers (Shift, Alt, Ctrl, etc.)
+  // This ensures we only disable the backslash fallback when the terminal actually
+  // sends proper modified Enter sequences, not just when it supports modifyOtherKeys in general.
+  // Pattern: \x1b[27;modifier;13~ where modifier >= 2 (indicating at least one modifier key)
+  if (MODIFY_OTHER_KEYS_ENTER_PATTERN.test(raw)) {
     return true;
   }
 

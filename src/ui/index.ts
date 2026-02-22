@@ -406,6 +406,13 @@ export async function startChatUI(
     // Destroy the CLI renderer
     if (state.renderer) {
       try {
+        if (process.stdout.isTTY) {
+          try {
+            process.stdout.write("\x1b[>4;0m");
+          } catch {
+            // Ignore errors during cleanup
+          }
+        }
         state.renderer.destroy();
       } catch {
         // Ignore errors during cleanup
@@ -1645,6 +1652,10 @@ export async function startChatUI(
       exitOnCtrlC: false,
       useKittyKeyboard: { disambiguate: true },
     });
+
+    if (process.stdout.isTTY) {
+      process.stdout.write("\x1b[>4;2m");
+    }
 
     // Create React root
     state.root = createRoot(state.renderer);

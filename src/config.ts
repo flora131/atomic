@@ -32,7 +32,7 @@ export const AGENT_CONFIG: Record<AgentKey, AgentConfig> = {
     cmd: "claude",
     additional_flags: [],
     folder: ".claude",
-    install_url: "https://docs.anthropic.com/en/docs/claude-code/setup",
+    install_url: "https://code.claude.com/docs/en/setup",
     exclude: [".DS_Store"],
     additional_files: [".mcp.json"],
     preserve_files: [],

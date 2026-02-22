@@ -93,6 +93,11 @@ import {
   isCurrentStreamCallback,
   invalidateActiveStreamGeneration,
 } from "./utils/stream-continuation.ts";
+import { getNextKittyKeyboardDetectionState } from "./utils/kitty-keyboard-detection.ts";
+import {
+  shouldApplyBackslashLineContinuation,
+  shouldInsertNewlineFromKeyEvent,
+} from "./utils/newline-strategies.ts";
 import {
   hasRalphTaskIdOverlap,
   normalizeInterruptedTasks,
@@ -4250,10 +4255,13 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
   useKeyboard(
     useCallback(
       (event: KeyEvent) => {
-        // Detect Kitty keyboard protocol support from any CSI u-style event
-        if (!kittyKeyboardDetectedRef.current && event.raw?.endsWith("u") && event.raw.startsWith("\x1b[")) {
-          kittyKeyboardDetectedRef.current = true;
-        }
+        // Detect advanced keyboard protocol support used for newline handling.
+        // Keep Enter-specific CSI-u detection (task #1) and also treat
+        // modifyOtherKeys CSI sequences as protocol-active.
+        kittyKeyboardDetectedRef.current = getNextKittyKeyboardDetectionState(
+          kittyKeyboardDetectedRef.current,
+          event.raw,
+        );
 
         // Ctrl+C handling must work everywhere (even in dialogs) for double-press exit
         if (event.ctrl && event.name === "c") {
@@ -4905,12 +4913,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Fallback: some terminals send Shift+Enter as a Kitty-protocol escape sequence
         // that gets misinterpreted (e.g., "/" extracted from the CSI sequence).
         // Detect by checking event.raw for Enter codepoint (13/10) with a modifier.
-        if (
-          ((event.name === "return" || event.name === "linefeed") && (event.shift || event.meta)) ||
-          (event.name === "linefeed" && !event.ctrl && !event.shift && !event.meta) ||
-          (event.name !== "return" && event.name !== "linefeed" && event.raw?.endsWith("u") && /^\x1b\[(?:13|10)/.test(event.raw) && event.raw.includes(";")) ||
-          (event.name === "return" && !event.shift && event.raw != null && event.raw !== "\r" && event.raw !== "\n" && event.raw.includes(";2"))
-        ) {
+        if (shouldInsertNewlineFromKeyEvent(event)) {
           const textarea = textareaRef.current;
           if (textarea) {
             textarea.insertText("\n");
@@ -5358,7 +5361,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       // This serves as a universal fallback for terminals where Shift+Enter
       // sends "\" followed by Enter (e.g., VSCode integrated terminal).
       // Only applies when the terminal doesn't support the Kitty keyboard protocol.
-      if (!kittyKeyboardDetectedRef.current && value.endsWith("\\")) {
+      if (shouldApplyBackslashLineContinuation(value, kittyKeyboardDetectedRef.current)) {
         const textarea = textareaRef.current;
         if (textarea) {
           const newValue = value.slice(0, -1) + "\n";

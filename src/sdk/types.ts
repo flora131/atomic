@@ -243,9 +243,12 @@ export interface Session {
   /**
    * Send a message and stream the response incrementally.
    * @param message - The message to send
+   * @param options - Optional dispatch options. The `agent` field is used by
+   *   the OpenCode client to dispatch to a named sub-agent via AgentPartInput.
+   *   Other clients ignore it.
    * @returns AsyncIterable yielding partial response chunks
    */
-  stream(message: string): AsyncIterable<AgentMessage>;
+  stream(message: string, options?: { agent?: string }): AsyncIterable<AgentMessage>;
 
   /**
    * Summarize the current conversation to reduce context usage.

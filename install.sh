@@ -10,6 +10,7 @@ GITHUB_REPO="flora131/atomic"
 BINARY_NAME="atomic"
 BIN_DIR="${ATOMIC_INSTALL_DIR:-$HOME/.local/bin}"
 DATA_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/atomic"
+ATOMIC_HOME="$HOME/.atomic"
 
 # Colors
 RED='\033[0;31m'
@@ -138,6 +139,31 @@ verify_checksum() {
     info "Checksum verified successfully"
 }
 
+# Sync bundled config templates into ~/.atomic for global discovery
+# Excludes SCM-specific skills (gh-*, sl-*), which are configured per-project via `atomic init`.
+sync_global_agent_configs() {
+    local source_root="$1"
+
+    mkdir -p "$ATOMIC_HOME/.claude" "$ATOMIC_HOME/.opencode" "$ATOMIC_HOME/.copilot"
+
+    cp -R "$source_root/.claude/." "$ATOMIC_HOME/.claude/"
+    cp -R "$source_root/.opencode/." "$ATOMIC_HOME/.opencode/"
+    cp -R "$source_root/.github/." "$ATOMIC_HOME/.copilot/"
+
+    if [[ -f "$source_root/.mcp.json" ]]; then
+        cp "$source_root/.mcp.json" "$ATOMIC_HOME/.mcp.json"
+    fi
+
+    # Remove SCM-managed skills from global config; these are project-scoped.
+    rm -rf "$ATOMIC_HOME/.claude/skills/gh-"* "$ATOMIC_HOME/.claude/skills/sl-"* 2>/dev/null || true
+    rm -rf "$ATOMIC_HOME/.opencode/skills/gh-"* "$ATOMIC_HOME/.opencode/skills/sl-"* 2>/dev/null || true
+    rm -rf "$ATOMIC_HOME/.copilot/skills/gh-"* "$ATOMIC_HOME/.copilot/skills/sl-"* 2>/dev/null || true
+
+    # Keep Copilot global config focused on skills/agents/instructions/MCP.
+    rm -rf "$ATOMIC_HOME/.copilot/workflows" 2>/dev/null || true
+    rm -f "$ATOMIC_HOME/.copilot/dependabot.yml" 2>/dev/null || true
+}
+
 # Get latest version
 get_latest_version() {
     curl -fsSL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" |
@@ -204,12 +230,16 @@ main() {
     mkdir -p "$DATA_DIR"
     tar -xzf "${tmp_dir}/${BINARY_NAME}-config.tar.gz" -C "$DATA_DIR"
 
+    info "Syncing global agent configs to ${ATOMIC_HOME}..."
+    sync_global_agent_configs "$DATA_DIR"
+
     # Verify installation
     "${BIN_DIR}/${BINARY_NAME}" --version >/dev/null 2>&1 ||
         error "Installation verification failed"
 
     success "Installed ${BINARY_NAME} ${version} to ${BIN_DIR}/${BINARY_NAME}"
     success "Config files installed to ${DATA_DIR}"
+    success "Global agent configs synced to ${ATOMIC_HOME}"
 
     # Update PATH in shell config
     if [[ ":$PATH:" != *":${BIN_DIR}:"* ]]; then

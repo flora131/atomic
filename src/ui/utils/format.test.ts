@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatDuration, formatTimestamp, truncateText } from "./format";
+import { formatDuration, formatTimestamp, normalizeMarkdownNewlines, truncateText } from "./format";
 
 describe("formatDuration", () => {
   test("formats milliseconds under 1 second", () => {
@@ -95,6 +95,26 @@ describe("formatTimestamp", () => {
     const invalidDate = new Date("not a date");
     const result = formatTimestamp(invalidDate);
     expect(result.text).toBe("--:-- --");
+  });
+});
+
+describe("normalizeMarkdownNewlines", () => {
+  test("preserves markdown list newlines", () => {
+    const content = "\n- first item\n- second item\n- third item\n";
+
+    expect(normalizeMarkdownNewlines(content)).toBe("- first item\n- second item\n- third item");
+  });
+
+  test("preserves single newlines inside paragraphs", () => {
+    const content = "Line one\nLine two\nLine three";
+
+    expect(normalizeMarkdownNewlines(content)).toBe("Line one\nLine two\nLine three");
+  });
+
+  test("trims outer whitespace while keeping internal blank lines", () => {
+    const content = "\n\nParagraph one\n\nParagraph two\n\n";
+
+    expect(normalizeMarkdownNewlines(content)).toBe("Paragraph one\n\nParagraph two");
   });
 });
 

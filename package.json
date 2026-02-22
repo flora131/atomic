@@ -21,6 +21,7 @@
     },
     "files": [
         "src",
+        "assets/settings.schema.json",
         ".claude",
         ".opencode",
         ".mcp.json",

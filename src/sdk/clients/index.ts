@@ -1,6 +1,7 @@
 export {
     ClaudeAgentClient,
     createClaudeAgentClient,
+    getBundledClaudeCodePath,
     type ClaudeHookConfig,
 } from "./claude.ts";
 

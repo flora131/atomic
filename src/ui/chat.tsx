@@ -89,8 +89,14 @@ import {
   type NormalizedTodoItem,
 } from "./utils/task-status.ts";
 import {
+  createStartedStreamControlState,
+  createStoppedStreamControlState,
   dispatchNextQueuedMessage,
+  interruptRunningToolCalls,
+  isAskQuestionToolName,
   isCurrentStreamCallback,
+  shouldDispatchQueuedMessage,
+  shouldDeferComposerSubmit,
   invalidateActiveStreamGeneration,
 } from "./utils/stream-continuation.ts";
 import { getNextKittyKeyboardDetectionState } from "./utils/kitty-keyboard-detection.ts";
@@ -2022,6 +2028,8 @@ export function ChatApp({
   // Ref to track whether any tool call is currently running (synchronous check
   // for keyboard handler to avoid stale closure issues with React state).
   const hasRunningToolRef = useRef(false);
+  // Track active ask_question tools so Enter can defer submit without clearing input.
+  const runningAskQuestionToolIdsRef = useRef<Set<string>>(new Set());
   // Counter to trigger effect when tools complete (used for deferred completion logic)
   const [toolCompletionVersion, setToolCompletionVersion] = useState(0);
   // Incremented when message-window overflow eviction happens.
@@ -2044,7 +2052,10 @@ export function ChatApp({
         dispatchQueuedMessageRef.current(queuedMessage);
       },
       {
-        shouldDispatch: () => !isStreamingRef.current,
+        shouldDispatch: () => shouldDispatchQueuedMessage({
+          isStreaming: isStreamingRef.current,
+          runningAskQuestionToolCount: runningAskQuestionToolIdsRef.current.size,
+        }),
       },
     );
   }, [messageQueue]);
@@ -2168,6 +2179,39 @@ export function ChatApp({
     return snapshotTaskItems(updated) as TaskItem[] | undefined;
   }, [isRalphTaskUpdate]);
 
+  const stopSharedStreamState = useCallback((options?: {
+    preserveStreamingStart?: boolean;
+    resetStreamingStateHook?: boolean;
+  }) => {
+    const next = createStoppedStreamControlState(
+      {
+        isStreaming: isStreamingRef.current,
+        streamingMessageId: streamingMessageIdRef.current,
+        streamingStart: streamingStartRef.current,
+        hasStreamingMeta: streamingMetaRef.current !== null,
+        hasRunningTool: hasRunningToolRef.current,
+        isAgentOnlyStream: isAgentOnlyStreamRef.current,
+        hasPendingCompletion: pendingCompleteRef.current !== null,
+      },
+      { preserveStreamingStart: options?.preserveStreamingStart },
+    );
+
+    streamingMessageIdRef.current = next.streamingMessageId;
+    streamingStartRef.current = next.streamingStart;
+    streamingMetaRef.current = null;
+    pendingCompleteRef.current = null;
+    isAgentOnlyStreamRef.current = next.isAgentOnlyStream;
+    isStreamingRef.current = next.isStreaming;
+    hasRunningToolRef.current = next.hasRunningTool;
+    runningAskQuestionToolIdsRef.current.clear();
+    setIsStreaming(next.isStreaming);
+    setStreamingMeta(null);
+
+    if (options?.resetStreamingStateHook !== false) {
+      streamingState.reset();
+    }
+  }, [streamingState]);
+
   const handleStreamStartupError = useCallback((error: unknown, expectedGeneration: number) => {
     // Ignore stale failures from an older stream generation.
     if (streamGenerationRef.current !== expectedGeneration) {
@@ -2196,14 +2240,7 @@ export function ChatApp({
       });
     }
 
-    streamingMessageIdRef.current = null;
-    streamingStartRef.current = null;
-    streamingMetaRef.current = null;
-    pendingCompleteRef.current = null;
-    isStreamingRef.current = false;
-    setIsStreaming(false);
-    setStreamingMeta(null);
-    hasRunningToolRef.current = false;
+    stopSharedStreamState();
 
     const resolver = streamCompletionResolverRef.current;
     streamCompletionResolverRef.current = null;
@@ -2211,7 +2248,7 @@ export function ChatApp({
     if (resolver) {
       resolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
     }
-  }, [setMessagesWindowed]);
+  }, [setMessagesWindowed, stopSharedStreamState]);
 
   // Dynamic placeholder based on queue state
   const dynamicPlaceholder = useMemo(() => {
@@ -2251,6 +2288,9 @@ export function ChatApp({
     streamingState.handleToolStart(toolId, toolName, input);
     // Track that a tool is running (synchronous ref for keyboard handler)
     hasRunningToolRef.current = true;
+    if (isAskQuestionToolName(toolName)) {
+      runningAskQuestionToolIdsRef.current.add(toolId);
+    }
 
     // Add tool call to current streaming message.
     // If a tool call with the same ID already exists, update its input
@@ -2368,8 +2408,24 @@ export function ChatApp({
     input?: Record<string, unknown>
   ) => {
     const completedToolName = toolNameByIdRef.current.get(toolId);
+    const completedAskQuestion = completedToolName
+      ? isAskQuestionToolName(completedToolName)
+      : false;
     if (completedToolName) {
       toolNameByIdRef.current.delete(toolId);
+      if (completedAskQuestion) {
+        runningAskQuestionToolIdsRef.current.delete(toolId);
+      }
+    }
+
+    if (
+      completedAskQuestion
+      && shouldDispatchQueuedMessage({
+        isStreaming: isStreamingRef.current,
+        runningAskQuestionToolCount: runningAskQuestionToolIdsRef.current.size,
+      })
+    ) {
+      continueQueuedConversation();
     }
 
     // Update streaming state
@@ -2517,7 +2573,7 @@ export function ChatApp({
         );
       }
     }
-  }, [streamingState, isRalphTaskUpdate]);
+  }, [streamingState, isRalphTaskUpdate, continueQueuedConversation]);
 
   /**
    * Handle skill invoked event from SDK.
@@ -2664,13 +2720,7 @@ export function ChatApp({
                 });
                 return currentAgents;
               });
-              streamingMessageIdRef.current = null;
-              streamingStartRef.current = null;
-              streamingMetaRef.current = null;
-              isStreamingRef.current = false;
-              setIsStreaming(false);
-              setStreamingMeta(null);
-              hasRunningToolRef.current = false;
+              stopSharedStreamState();
             },
             // onMeta: update streaming metadata
             (meta: StreamingMeta) => {
@@ -2683,17 +2733,14 @@ export function ChatApp({
           } catch (error) {
             // Prevent unhandled errors from crashing the TUI
             console.error("[workflow auto-start] Error during context clear or streaming:", error);
-            isStreamingRef.current = false;
-            setIsStreaming(false);
-            setStreamingMeta(null);
-            hasRunningToolRef.current = false;
+            stopSharedStreamState();
           }
         })();
       }, 100);
 
       return () => clearTimeout(timeoutId);
     }
-  }, [workflowState.workflowActive, workflowState.initialPrompt, isStreaming, onStreamMessage, handleStreamStartupError]);
+  }, [workflowState.workflowActive, workflowState.initialPrompt, isStreaming, onStreamMessage, handleStreamStartupError, stopSharedStreamState]);
 
   // Reset workflow started ref when workflow becomes inactive
   useEffect(() => {
@@ -2973,21 +3020,15 @@ export function ChatApp({
             : msg
         )
       );
-      streamingMessageIdRef.current = null;
-      streamingMetaRef.current = null;
-      isStreamingRef.current = false;
-      isAgentOnlyStreamRef.current = false;
-      setIsStreaming(false);
-      setStreamingMeta(null);
-      hasRunningToolRef.current = false;
       // Keep background agents in live state for post-stream completion tracking
       const remainingBg = parallelAgents.filter((a) => a.background && a.status === "background");
       if (remainingBg.length > 0 && messageId) {
+        stopSharedStreamState({ preserveStreamingStart: true });
         backgroundAgentMessageIdRef.current = messageId;
         setParallelAgents(remainingBg);
         parallelAgentsRef.current = remainingBg;
       } else {
-        streamingStartRef.current = null;
+        stopSharedStreamState();
         setParallelAgents([]);
         parallelAgentsRef.current = [];
       }
@@ -2996,7 +3037,7 @@ export function ChatApp({
       // the SDK handleComplete callback, so we must dequeue here.
       continueQueuedConversation();
     }
-  }, [parallelAgents, continueQueuedConversation, toolCompletionVersion, messages]);
+  }, [parallelAgents, continueQueuedConversation, toolCompletionVersion, messages, stopSharedStreamState]);
 
   // Initialize SubagentGraphBridge when createSubagentSession is available
   useEffect(() => {
@@ -3587,13 +3628,7 @@ export function ChatApp({
                 );
               }
               setParallelAgents([]);
-              streamingMessageIdRef.current = null;
-              streamingStartRef.current = null;
-              streamingMetaRef.current = null;
-              isStreamingRef.current = false;
-              setIsStreaming(false);
-              setStreamingMeta(null);
-              hasRunningToolRef.current = false;
+              stopSharedStreamState();
 
               // Resolve streamAndWait promise with interrupted flag
               const resolver = streamCompletionResolverRef.current;
@@ -3648,9 +3683,7 @@ export function ChatApp({
                         outputTokens: finalMeta?.outputTokens,
                         thinkingMs: finalMeta?.thinkingMs,
                         thinkingText: finalMeta?.thinkingText || undefined,
-                        toolCalls: msg.toolCalls?.map((tc) =>
-                          tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                        ),
+                        toolCalls: interruptRunningToolCalls(msg.toolCalls),
                         parallelAgents: finalizedAgents,
                         taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
                       }
@@ -3666,20 +3699,12 @@ export function ChatApp({
               return remaining;
             });
 
-            streamingMessageIdRef.current = null;
             // Preserve streamingStartRef when background agents are still running
             // so the elapsed timer continues tracking total work duration
             const hasRemainingBg = parallelAgentsRef.current.some(
               (a) => a.background && a.status === "background"
             );
-            if (!hasRemainingBg) {
-              streamingStartRef.current = null;
-            }
-            streamingMetaRef.current = null;
-            isStreamingRef.current = false;
-            setIsStreaming(false);
-            setStreamingMeta(null);
-            hasRunningToolRef.current = false;
+            stopSharedStreamState({ preserveStreamingStart: hasRemainingBg });
 
             // If a streamAndWait call is pending, resolve its promise
             // instead of processing the message queue.
@@ -3841,13 +3866,33 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       // Don't show spinner if command already set streaming (e.g., /compact)
       if (!isStreamingRef.current) {
         commandSpinnerShown = true;
-        streamingStartRef.current = Date.now();
-        isStreamingRef.current = true;
         const msg = createMessage("assistant", "", true);
         msg.spinnerVerb = getSpinnerVerbForCommand(commandName);
         commandSpinnerMsgId = msg.id;
+        const next = createStartedStreamControlState(
+          {
+            isStreaming: isStreamingRef.current,
+            streamingMessageId: streamingMessageIdRef.current,
+            streamingStart: streamingStartRef.current,
+            hasStreamingMeta: streamingMetaRef.current !== null,
+            hasRunningTool: hasRunningToolRef.current,
+            isAgentOnlyStream: isAgentOnlyStreamRef.current,
+            hasPendingCompletion: pendingCompleteRef.current !== null,
+          },
+          { messageId: msg.id, startedAt: Date.now() },
+        );
+
+        streamingMessageIdRef.current = next.streamingMessageId;
+        streamingStartRef.current = next.streamingStart;
+        streamingMetaRef.current = null;
+        pendingCompleteRef.current = null;
+        isAgentOnlyStreamRef.current = next.isAgentOnlyStream;
+        isStreamingRef.current = next.isStreaming;
+        hasRunningToolRef.current = next.hasRunningTool;
+        runningAskQuestionToolIdsRef.current.clear();
         flushSync(() => {
-          setIsStreaming(true);
+          setIsStreaming(next.isStreaming);
+          setStreamingMeta(null);
           setMessagesWindowed((prev) => [...prev, msg]);
         });
       }
@@ -4037,10 +4082,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         
         // Only reset streaming state if the current stream is still the spinner stream
         if (streamingMessageIdRef.current === msgId) {
-          isStreamingRef.current = false;
-          setIsStreaming(false);
-          streamingStartRef.current = null;
-          hasRunningToolRef.current = false;
+          stopSharedStreamState({ resetStreamingStateHook: false });
         }
       }
 
@@ -4062,10 +4104,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         
         // Only reset streaming state if the current stream is still the spinner stream
         if (streamingMessageIdRef.current === msgId) {
-          isStreamingRef.current = false;
-          setIsStreaming(false);
-          hasRunningToolRef.current = false;
-          streamingStartRef.current = null;
+          stopSharedStreamState({ resetStreamingStateHook: false });
         }
       }
       // Handle execution error (as assistant message, not system)
@@ -4080,7 +4119,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       });
       return false;
     }
-  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model, onModelChange, onSessionMcpServersChange, onCommandExecutionTelemetry, mcpServerToggles, handleStreamStartupError]);
+  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model, onModelChange, onSessionMcpServersChange, onCommandExecutionTelemetry, mcpServerToggles, handleStreamStartupError, stopSharedStreamState]);
 
   /**
    * Handle autocomplete selection (Tab for complete, Enter for execute).
@@ -4313,9 +4352,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                       streaming: false,
                       parallelAgents: interruptedAgents,
                       taskItems: interruptedTaskItems,
-                      toolCalls: msg.toolCalls?.map((tc) =>
-                        tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                      ),
+                      toolCalls: interruptRunningToolCalls(msg.toolCalls),
                     }
                     : msg
                 )
@@ -4324,14 +4361,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             // Stop streaming state immediately so UI reflects interrupted state
             wasInterruptedRef.current = false;
-            streamingMessageIdRef.current = null;
-            streamingStartRef.current = null;
-            streamingMetaRef.current = null;
-            isAgentOnlyStreamRef.current = false;
-            isStreamingRef.current = false;
-            setIsStreaming(false);
-            setStreamingMeta(null);
-            hasRunningToolRef.current = false;
+            stopSharedStreamState();
 
             // Sub-agent cancellation handled by SDK session interrupt
 
@@ -4423,9 +4453,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                         ...msg,
                         parallelAgents: interruptedAgents,
                         taskItems: interruptedTaskItems,
-                        toolCalls: msg.toolCalls?.map((tc) =>
-                          tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                        ),
+                        toolCalls: interruptRunningToolCalls(msg.toolCalls),
                       }
                       : msg
                   )
@@ -4433,8 +4461,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               }
               parallelAgentsRef.current = [];
               setParallelAgents([]);
-              pendingCompleteRef.current = null;
               wasInterruptedRef.current = false;
+              stopSharedStreamState();
               continueQueuedConversation();
               return;
             }
@@ -4592,9 +4620,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                       streaming: false,
                       parallelAgents: interruptedAgents,
                       taskItems: interruptedTaskItems,
-                      toolCalls: msg.toolCalls?.map((tc) =>
-                        tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                      ),
+                      toolCalls: interruptRunningToolCalls(msg.toolCalls),
                     }
                     : msg
                 )
@@ -4603,14 +4629,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             // Stop streaming state immediately so UI reflects interrupted state
             wasInterruptedRef.current = false;
-            streamingMessageIdRef.current = null;
-            streamingStartRef.current = null;
-            streamingMetaRef.current = null;
-            isAgentOnlyStreamRef.current = false;
-            isStreamingRef.current = false;
-            setIsStreaming(false);
-            setStreamingMeta(null);
-            hasRunningToolRef.current = false;
+            stopSharedStreamState();
 
             // Sub-agent cancellation handled by SDK session interrupt
 
@@ -4662,9 +4681,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                         ...msg,
                         parallelAgents: interruptedAgents,
                         taskItems: interruptedTaskItems,
-                        toolCalls: msg.toolCalls?.map((tc) =>
-                          tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                        ),
+                        toolCalls: interruptRunningToolCalls(msg.toolCalls),
                       }
                       : msg
                   )
@@ -4672,8 +4689,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               }
               parallelAgentsRef.current = [];
               setParallelAgents([]);
-              pendingCompleteRef.current = null;
               wasInterruptedRef.current = false;
+              stopSharedStreamState();
               continueQueuedConversation();
               return;
             }
@@ -5088,7 +5105,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           syncInputScrollbar();
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer, emitMessageSubmitTelemetry]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer, emitMessageSubmitTelemetry, finalizeTaskItemsOnInterrupt, stopSharedStreamState]
     )
   );
 
@@ -5197,13 +5214,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               );
             }
             setParallelAgents([]);
-            streamingMessageIdRef.current = null;
-            streamingStartRef.current = null;
-            streamingMetaRef.current = null;
-            isStreamingRef.current = false;
-            setIsStreaming(false);
-            setStreamingMeta(null);
-            hasRunningToolRef.current = false;
+            stopSharedStreamState();
 
             continueQueuedConversation();
             return;
@@ -5245,9 +5256,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                       outputTokens: finalMeta?.outputTokens,
                       thinkingMs: finalMeta?.thinkingMs,
                       thinkingText: finalMeta?.thinkingText || undefined,
-                      toolCalls: msg.toolCalls?.map((tc) =>
-                        tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                      ),
+                      toolCalls: interruptRunningToolCalls(msg.toolCalls),
                       parallelAgents: finalizedAgents,
                       taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
                     }
@@ -5263,19 +5272,10 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             return remaining;
           });
 
-          streamingMessageIdRef.current = null;
           const hasRemainingBg = parallelAgentsRef.current.some(
             (a) => a.background && a.status === "background"
           );
-          if (!hasRemainingBg) {
-            streamingStartRef.current = null;
-          }
-          streamingMetaRef.current = null;
-          // Clear ref immediately (synchronous) before state update
-          isStreamingRef.current = false;
-          setIsStreaming(false);
-          setStreamingMeta(null);
-          hasRunningToolRef.current = false;
+          stopSharedStreamState({ preserveStreamingStart: hasRemainingBg });
           continueQueuedConversation();
         };
 
@@ -5290,7 +5290,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         });
       }
     },
-    [onSendMessage, onStreamMessage, continueQueuedConversation, handleStreamStartupError]
+    [onSendMessage, onStreamMessage, continueQueuedConversation, handleStreamStartupError, stopSharedStreamState]
   );
 
   // Keep the sendMessageRef in sync with sendMessage callback
@@ -5375,6 +5375,13 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           textarea.deleteChar();
           textarea.insertText(newValue);
         }
+        return;
+      }
+
+      if (shouldDeferComposerSubmit({
+        isStreaming: isStreamingRef.current,
+        runningAskQuestionToolCount: runningAskQuestionToolIdsRef.current.size,
+      })) {
         return;
       }
 
@@ -5524,6 +5531,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
         // Round-robin inject: finalize current stream and send new message immediately
         const interruptedId = streamingMessageIdRef.current;
+        const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
         if (interruptedId) {
           const durationMs = streamingStartRef.current ? Date.now() - streamingStartRef.current : undefined;
           const finalMeta = streamingMetaRef.current;
@@ -5538,9 +5546,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                   outputTokens: finalMeta?.outputTokens,
                   thinkingMs: finalMeta?.thinkingMs,
                   thinkingText: finalMeta?.thinkingText || undefined,
-                  toolCalls: msg.toolCalls?.map((tc) =>
-                    tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                  ),
+                  toolCalls: interruptRunningToolCalls(msg.toolCalls),
+                  taskItems: interruptedTaskItems,
                 }
                 : msg
             )
@@ -5548,15 +5555,20 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         }
         // Invalidate callbacks for the interrupted stream before aborting.
         streamGenerationRef.current = invalidateActiveStreamGeneration(streamGenerationRef.current);
-        pendingCompleteRef.current = null;
-        // Clear streaming state before starting new stream
-        streamingMessageIdRef.current = null;
-        streamingStartRef.current = null;
-        streamingMetaRef.current = null;
-        isStreamingRef.current = false;
-        setIsStreaming(false);
-        setStreamingMeta(null);
-        hasRunningToolRef.current = false;
+        stopSharedStreamState();
+
+        const streamResolver = streamCompletionResolverRef.current;
+        if (streamResolver) {
+          streamCompletionResolverRef.current = null;
+          if (hideStreamContentRef.current && interruptedId) {
+            setMessagesWindowed((prev: ChatMessage[]) =>
+              prev.filter((msg: ChatMessage) => msg.id !== interruptedId)
+            );
+          }
+          hideStreamContentRef.current = false;
+          streamResolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
+        }
+
         // Abort the SDK stream (stale handleComplete is a no-op via generation guard)
         onInterrupt?.();
         // Send immediately — starts a new stream generation
@@ -5581,7 +5593,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       });
       sendMessage(processedValue);
     },
-    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt, emitMessageSubmitTelemetry]
+    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt, emitMessageSubmitTelemetry, finalizeTaskItemsOnInterrupt, stopSharedStreamState]
   );
 
   // Get the visible messages and hidden transcript count for UI rendering.

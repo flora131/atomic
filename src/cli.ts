@@ -70,9 +70,9 @@ export function createProgram() {
   // Build agent choices string for help text
   const agentChoices = Object.keys(AGENT_CONFIG).join(", ");
 
-  // Add init command (default command when no subcommand is provided)
+  // Add init command
   program
-    .command("init", { isDefault: true })
+    .command("init")
     .description("Interactive setup with agent selection")
     .option(
       "-a, --agent <name>",
@@ -89,9 +89,9 @@ export function createProgram() {
       });
     });
 
-  // Add chat command for interactive chat with coding agents
+  // Add chat command (default command when no subcommand is provided)
   program
-    .command("chat")
+    .command("chat", { isDefault: true })
     .description("Start an interactive chat session with a coding agent")
     .option(
       "-a, --agent <name>",

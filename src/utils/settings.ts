@@ -12,8 +12,10 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
+import { SETTINGS_SCHEMA_URL } from "./settings-schema";
 
 interface AtomicSettings {
+  $schema?: string;
   model?: Record<string, string>; // agentType -> modelId
   reasoningEffort?: Record<string, string>; // agentType -> effort level
 }
@@ -99,6 +101,7 @@ export function saveModelPreference(agentType: string, modelId: string): void {
   try {
     const path = globalSettingsPath();
     const settings = loadSettingsFile(path);
+    settings.$schema = SETTINGS_SCHEMA_URL;
     settings.model = settings.model ?? {};
     settings.model[agentType] = normalizeModelPreference(agentType, modelId);
     const dir = dirname(path);
@@ -129,6 +132,7 @@ export function saveReasoningEffortPreference(agentType: string, effort: string)
   try {
     const path = globalSettingsPath();
     const settings = loadSettingsFile(path);
+    settings.$schema = SETTINGS_SCHEMA_URL;
     settings.reasoningEffort = settings.reasoningEffort ?? {};
     settings.reasoningEffort[agentType] = effort;
     const dir = dirname(path);
@@ -148,6 +152,7 @@ export function clearReasoningEffortPreference(agentType: string): void {
     const settings = loadSettingsFile(path);
     if (settings.reasoningEffort?.[agentType]) {
       delete settings.reasoningEffort[agentType];
+      settings.$schema = SETTINGS_SCHEMA_URL;
       writeFileSync(path, JSON.stringify(settings, null, 2), "utf-8");
     }
   } catch {

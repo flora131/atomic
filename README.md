@@ -343,8 +343,8 @@ Top-level Atomic CLI commands.
 
 | Command                    | Description                                                      |
 | -------------------------- | ---------------------------------------------------------------- |
-| `atomic init`              | Interactive setup (default command)                             |
-| `atomic chat`              | Start TUI chat with a coding agent                              |
+| `atomic init`              | Interactive setup                                               |
+| `atomic chat`              | Start TUI chat with a coding agent (default command)            |
 | `atomic config set <k> <v>` | Set CLI configuration values (example: telemetry opt-in/out)    |
 | `atomic update`            | Self-update Atomic (binary installs only)                       |
 | `atomic uninstall`         | Remove Atomic installation (binary installs only)               |

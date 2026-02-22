@@ -1710,9 +1710,11 @@ export function createClaudeAgentClient(): ClaudeAgentClient {
 /**
  * Get the path to the Claude Code CLI entry point.
  *
- * Returns either:
- * - A `.js` path (cli.js) when @anthropic-ai/claude-agent-sdk is installed as an npm package
- * - A binary path when claude is installed standalone (install script, Homebrew, etc.)
+ * Supports all official installation methods:
+ * - Native install (curl/bash on macOS/Linux/WSL, PowerShell/CMD on Windows)
+ * - Homebrew (brew install --cask claude-code)
+ * - WinGet (winget install Anthropic.ClaudeCode)
+ * - npm package (@anthropic-ai/claude-agent-sdk, dev only)
  *
  * Resolution order:
  * 1. import.meta.resolve (works in dev when @anthropic-ai/claude-agent-sdk is available)
@@ -1732,8 +1734,8 @@ export function getBundledClaudeCodePath(): string {
 
     // Strategy 2: Find claude CLI on $PATH.
     // For npm global installs, the symlink resolves into the package with cli.js.
-    // For standalone installs (install script, Homebrew), return the binary directly
-    // — the SDK handles executable paths by spawning them directly.
+    // For standalone installs (native install, Homebrew, WinGet), return the binary
+    // directly — the SDK handles executable paths by spawning them directly.
     try {
         const cmd =
             process.platform === "win32" ? "where claude" : "which claude";
@@ -1751,7 +1753,7 @@ export function getBundledClaudeCodePath(): string {
             const pkgDir = dirname(realPath);
             const cliPath = join(pkgDir, "cli.js");
             if (existsSync(cliPath)) return cliPath;
-            // Standalone binary (install script, Homebrew) — no cli.js
+            // Standalone binary (native install, Homebrew, WinGet) — no cli.js
             if (existsSync(realPath)) return realPath;
         }
     } catch {
@@ -1760,9 +1762,7 @@ export function getBundledClaudeCodePath(): string {
 
     throw new Error(
         "Cannot find Claude Code CLI.\n\n" +
-            "Install Claude Code using one of:\n" +
-            "  curl -fsSL https://anthropic.com/install-claude-code | bash  # macOS/Linux\n" +
-            "  npm install -g @anthropic-ai/claude-agent-sdk    # macOS/Linux/Windows\n\n" +
+            "Install Claude Code by visiting: https://code.claude.com/docs/en/setup\n\n" +
             "Or ensure 'claude' is available in your PATH.",
     );
 }

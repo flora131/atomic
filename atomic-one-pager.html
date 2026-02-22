@@ -17,8 +17,8 @@
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
       background: #ffffff;
       color: #2a2a3a;
-      line-height: 1.5;
-      padding: 40px 48px;
+      line-height: 1.45;
+      padding: 28px 40px;
       max-width: 8.5in;
       margin: 0 auto;
     }
@@ -28,8 +28,8 @@
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      margin-bottom: 28px;
-      padding-bottom: 20px;
+      margin-bottom: 16px;
+      padding-bottom: 14px;
       border-bottom: 1px solid #E8DCD0;
     }
 
@@ -79,37 +79,43 @@
       background: linear-gradient(135deg, #D87848 0%, #E89060 100%);
     }
 
-    /* Main content grid */
+    /* Main content layout */
     .content {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .columns {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 32px;
+      gap: 24px;
     }
 
     .left-column {
       display: flex;
       flex-direction: column;
-      gap: 24px;
+      gap: 14px;
     }
 
     .right-column {
       display: flex;
       flex-direction: column;
-      gap: 24px;
+      gap: 14px;
     }
 
     /* Section styling */
     .section h2 {
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: #3A9690;
-      margin-bottom: 10px;
+      margin-bottom: 6px;
     }
 
     .section p {
-      font-size: 14px;
+      font-size: 13px;
       color: #3a3a4a;
     }
 
@@ -117,7 +123,7 @@
     .workflow {
       background: linear-gradient(135deg, #FAF8F6 0%, #F8F4F0 100%);
       border-radius: 12px;
-      padding: 20px 24px;
+      padding: 14px 20px;
       border: 1px solid #E8DCD0;
     }
 
@@ -134,16 +140,16 @@
     }
 
     .step-icon {
-      width: 40px;
-      height: 40px;
-      border-radius: 10px;
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
       background: linear-gradient(135deg, #C06030 0%, #D87848 100%);
       color: white;
       display: flex;
       align-items: center;
       justify-content: center;
-      margin: 0 auto 8px;
-      font-size: 16px;
+      margin: 0 auto 6px;
+      font-size: 14px;
     }
 
     .step-label {
@@ -169,21 +175,21 @@
     .highlight-box {
       background: linear-gradient(135deg, #f5faf9 0%, #eef7f5 100%);
       border-left: 3px solid #3A9690;
-      padding: 16px 20px;
+      padding: 12px 16px;
       border-radius: 0 8px 8px 0;
     }
 
     .highlight-box .label {
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.5px;
       color: #3A9690;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
 
     .highlight-box p {
-      font-size: 14px;
+      font-size: 13px;
       color: #2a2a3a;
       font-weight: 500;
     }
@@ -192,7 +198,7 @@
     .benefits {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 8px;
     }
 
     .benefit {
@@ -216,7 +222,7 @@
     }
 
     .benefit-text {
-      font-size: 13px;
+      font-size: 12px;
       color: #3a3a4a;
     }
 
@@ -226,8 +232,8 @@
 
     /* Footer */
     .footer {
-      margin-top: 28px;
-      padding-top: 20px;
+      margin-top: 16px;
+      padding-top: 14px;
       border-top: 1px solid #E8DCD0;
       display: flex;
       justify-content: space-between;
@@ -268,7 +274,7 @@
     /* Print optimization */
     @media print {
       body {
-        padding: 0.4in 0.5in;
+        padding: 0.3in 0.4in;
       }
 
       .header-link:hover,
@@ -305,88 +311,96 @@
   </header>
 
   <main class="content">
-    <div class="left-column">
-      <section class="section">
-        <h2>What is Atomic?</h2>
-        <p>Atomic is a framework that guides AI coding tools to follow real software engineering practices. Instead of generating code immediately, it enforces a structured process: research the codebase, write a technical plan, break work into a feature list, then implement one piece at a time. It works for existing projects and new ones you're starting from scratch.</p>
-      </section>
+    <section class="section">
+      <h2>What is Atomic?</h2>
+      <p>Atomic is a framework that guides AI coding tools to follow real software engineering practices. Instead of generating code immediately, it enforces a structured process: research the codebase, write a technical plan, break work into a feature list, implement one piece at a time, then verify changes through review. It works for existing projects and new ones you're starting from scratch.</p>
+    </section>
 
-      <section class="section workflow">
-        <h2>The Workflow</h2>
-        <div class="workflow-steps">
-          <div class="step">
-            <div class="step-icon">1</div>
-            <div class="step-label">Research</div>
-            <div class="step-desc">Understand what exists</div>
-          </div>
-          <span class="arrow">&rarr;</span>
-          <div class="step">
-            <div class="step-icon">2</div>
-            <div class="step-label">Plan</div>
-            <div class="step-desc">Write technical spec</div>
-          </div>
-          <span class="arrow">&rarr;</span>
-          <div class="step">
-            <div class="step-icon">3</div>
-            <div class="step-label">Features</div>
-            <div class="step-desc">Break into tasks</div>
-          </div>
-          <span class="arrow">&rarr;</span>
-          <div class="step">
-            <div class="step-icon">4</div>
-            <div class="step-label">Implement</div>
-            <div class="step-desc">Build one at a time</div>
-          </div>
+    <section class="section workflow">
+      <h2>The Workflow</h2>
+      <div class="workflow-steps">
+        <div class="step">
+          <div class="step-icon">1</div>
+          <div class="step-label">Research</div>
+          <div class="step-desc">Understand what exists</div>
         </div>
-      </section>
-
-      <section class="section highlight-box">
-        <div class="label">Key Principle</div>
-        <p>You own the decisions. AI owns the execution.</p>
-      </section>
-
-      <section class="section">
-        <h2>Why It Matters</h2>
-        <p>Atomic handles the complexity&mdash;codebase research, web lookups, architecture planning&mdash;so you can focus on understanding and decision-making. At each step, you review the output: the research findings, the technical plan, the feature list. Nothing gets built without your approval.</p>
-      </section>
-    </div>
-
-    <div class="right-column">
-      <section class="section">
-        <h2>This Isn't Outsourcing Your Thinking</h2>
-        <p>The common concern with AI coding tools is that they let you skip understanding. Atomic is the opposite. You can't jump to code&mdash;you must engage with each phase. You read the research. You review the plan. You approve the feature list. This is mentor-guided learning, not autopilot.</p>
-      </section>
-
-      <section class="section">
-        <h2>What You'll Learn</h2>
-        <div class="benefits">
-          <div class="benefit">
-            <span class="benefit-icon">&#9679;</span>
-            <span class="benefit-text"><strong>Technical specifications</strong> &mdash; How professional teams document what they're building before writing code</span>
-          </div>
-          <div class="benefit">
-            <span class="benefit-icon">&#9679;</span>
-            <span class="benefit-text"><strong>Architecture decisions</strong> &mdash; Why code is organized a certain way and what tradeoffs exist</span>
-          </div>
-          <div class="benefit">
-            <span class="benefit-icon">&#9679;</span>
-            <span class="benefit-text"><strong>Implementation planning</strong> &mdash; Breaking complex features into testable, incremental pieces</span>
-          </div>
-          <div class="benefit">
-            <span class="benefit-icon">&#9679;</span>
-            <span class="benefit-text"><strong>Code review mindset</strong> &mdash; Evaluating generated code against specs and best practices</span>
-          </div>
-          <div class="benefit">
-            <span class="benefit-icon">&#9679;</span>
-            <span class="benefit-text"><strong>Long-horizon execution</strong> &mdash; Using Ralph mode to run autonomous multi-hour coding sessions while you focus elsewhere</span>
-          </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step">
+          <div class="step-icon">2</div>
+          <div class="step-label">Plan</div>
+          <div class="step-desc">Write technical spec</div>
         </div>
-      </section>
+        <span class="arrow">&rarr;</span>
+        <div class="step">
+          <div class="step-icon">3</div>
+          <div class="step-label">Features</div>
+          <div class="step-desc">Break into tasks</div>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step">
+          <div class="step-icon">4</div>
+          <div class="step-label">Implement</div>
+          <div class="step-desc">Build functionality</div>
+        </div>
+        <span class="arrow">&rarr;</span>
+        <div class="step">
+          <div class="step-icon">5</div>
+          <div class="step-label">Verify</div>
+          <div class="step-desc">Review & iterate</div>
+        </div>
+      </div>
+    </section>
 
-      <section class="section highlight-box">
-        <div class="label">Real SDLC Practices</div>
-        <p>Research &rarr; Plan &rarr; Features &rarr; Implement is how professional software teams operate. Atomic makes this workflow accessible while AI handles the tedious parts.</p>
-      </section>
+    <div class="columns">
+      <div class="left-column">
+        <section class="section">
+          <h2>This Isn't Outsourcing Your Thinking</h2>
+          <p>Without structure, AI coding agents generate first and ask questions never. That's how you end up with thousands of lines that miss the point. Atomic forces the agent through checkpoints&mdash;you read the research, review the plan, approve the feature list&mdash;so the AI stays on track and you stay in control.</p>
+        </section>
+
+        <section class="section highlight-box">
+          <div class="label">Key Principle</div>
+          <p>You own the decisions. AI owns the execution.</p>
+        </section>
+
+        <section class="section">
+          <h2>Why It Matters</h2>
+          <p>When AI coding agents jump straight to code, the result is slop&mdash;bloated, incoherent output that doesn't fit the codebase. Atomic prevents this by keeping agents steerable. Each phase produces a reviewable artifact&mdash;research findings, technical plan, feature list&mdash;so you can course-correct before any code is written. Nothing gets built without your approval.</p>
+        </section>
+      </div>
+
+      <div class="right-column">
+        <section class="section">
+          <h2>What You'll Learn</h2>
+          <div class="benefits">
+            <div class="benefit">
+              <span class="benefit-icon">&#9679;</span>
+              <span class="benefit-text"><strong>Technical specifications</strong> &mdash; How professional teams document what they're building before writing code</span>
+            </div>
+            <div class="benefit">
+              <span class="benefit-icon">&#9679;</span>
+              <span class="benefit-text"><strong>Architecture decisions</strong> &mdash; Why code is organized a certain way and what tradeoffs exist</span>
+            </div>
+            <div class="benefit">
+              <span class="benefit-icon">&#9679;</span>
+              <span class="benefit-text"><strong>Implementation planning</strong> &mdash; Breaking complex features into testable, incremental pieces</span>
+            </div>
+            <div class="benefit">
+              <span class="benefit-icon">&#9679;</span>
+              <span class="benefit-text"><strong>Code review mindset</strong> &mdash; Evaluating generated code against specs and best practices</span>
+            </div>
+            <div class="benefit">
+              <span class="benefit-icon">&#9679;</span>
+              <span class="benefit-text"><strong>Long-horizon execution</strong> &mdash; Using Ralph mode to run autonomous multi-hour coding sessions</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="section highlight-box">
+          <div class="label">Real SDLC Practices</div>
+          <p>Research &rarr; Plan &rarr; Features &rarr; Implement &rarr; Verify is how professional software teams operate. Changes are reviewed and iterated on until requirements are met. Atomic makes this workflow accessible while AI handles the tedious parts.</p>
+        </section>
+      </div>
     </div>
   </main>
 

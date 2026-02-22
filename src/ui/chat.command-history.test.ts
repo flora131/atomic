@@ -57,8 +57,7 @@ function shouldNavigateHistoryUp(params: {
   return (
     !params.showAutocomplete &&
     !params.isEditingQueue &&
-    !params.isStreaming &&
-    params.messageQueueCount === 0 &&
+    (params.isStreaming || params.messageQueueCount === 0) &&
     params.promptHistoryLength > 0 &&
     params.cursorOffset === 0
   );
@@ -83,8 +82,7 @@ function shouldNavigateHistoryDown(params: {
   return (
     !params.showAutocomplete &&
     !params.isEditingQueue &&
-    !params.isStreaming &&
-    params.messageQueueCount === 0 &&
+    (params.isStreaming || params.messageQueueCount === 0) &&
     params.historyIndex >= 0 &&
     params.cursorOffset === params.textLength
   );
@@ -132,6 +130,37 @@ describe("chat command history integration", () => {
         shouldNavigateHistoryUp({ ...defaultUpParams, promptHistoryLength: 0 }),
       ).toBe(false);
     });
+
+    test("allows history navigation while streaming, even with queued messages", () => {
+      expect(
+        shouldNavigateHistoryUp({
+          ...defaultUpParams,
+          isStreaming: true,
+          messageQueueCount: 2,
+        }),
+      ).toBe(true);
+    });
+
+    test("still blocks up-arrow history while streaming when autocomplete is open", () => {
+      expect(
+        shouldNavigateHistoryUp({
+          ...defaultUpParams,
+          isStreaming: true,
+          messageQueueCount: 2,
+          showAutocomplete: true,
+        }),
+      ).toBe(false);
+    });
+
+    test("still blocks up-arrow history when idle and queue has messages", () => {
+      expect(
+        shouldNavigateHistoryUp({
+          ...defaultUpParams,
+          isStreaming: false,
+          messageQueueCount: 2,
+        }),
+      ).toBe(false);
+    });
   });
 
   describe("cursor-offset gate for down arrow", () => {
@@ -148,6 +177,37 @@ describe("chat command history integration", () => {
     test("blocks forward navigation when not in history (historyIndex === -1)", () => {
       expect(
         shouldNavigateHistoryDown({ ...defaultDownParams, historyIndex: -1 }),
+      ).toBe(false);
+    });
+
+    test("allows down-arrow history navigation while streaming, even with queued messages", () => {
+      expect(
+        shouldNavigateHistoryDown({
+          ...defaultDownParams,
+          isStreaming: true,
+          messageQueueCount: 3,
+        }),
+      ).toBe(true);
+    });
+
+    test("still blocks down-arrow history while streaming when editing queue", () => {
+      expect(
+        shouldNavigateHistoryDown({
+          ...defaultDownParams,
+          isStreaming: true,
+          messageQueueCount: 3,
+          isEditingQueue: true,
+        }),
+      ).toBe(false);
+    });
+
+    test("still blocks down-arrow history when idle and queue has messages", () => {
+      expect(
+        shouldNavigateHistoryDown({
+          ...defaultDownParams,
+          isStreaming: false,
+          messageQueueCount: 3,
+        }),
       ).toBe(false);
     });
   });

@@ -68,7 +68,7 @@ import {
   type CommandContextState,
   type CommandCategory,
 } from "./commands/index.ts";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AskUserQuestionEventData } from "../graph/index.ts";
 import type { AgentType, ModelOperations } from "../models";
@@ -89,6 +89,16 @@ import {
   type NormalizedTodoItem,
 } from "./utils/task-status.ts";
 import {
+  AUTO_COMPACTION_INDICATOR_IDLE_STATE,
+  AUTO_COMPACTION_RESULT_VISIBILITY_MS,
+  clearRunningAutoCompactionIndicator,
+  completeAutoCompactionIndicator,
+  getAutoCompactionIndicatorLabel,
+  shouldShowAutoCompactionIndicator,
+  startAutoCompactionIndicator,
+  type AutoCompactionIndicatorState,
+} from "./utils/auto-compaction-lifecycle.ts";
+import {
   createStartedStreamControlState,
   createStoppedStreamControlState,
   dispatchNextQueuedMessage,
@@ -101,12 +111,22 @@ import {
 } from "./utils/stream-continuation.ts";
 import { getNextKittyKeyboardDetectionState } from "./utils/kitty-keyboard-detection.ts";
 import {
+  getEnqueueShortcutLabel,
   shouldApplyBackslashLineContinuation,
+  shouldEnqueueMessageFromKeyEvent,
   shouldInsertNewlineFromKeyEvent,
 } from "./utils/newline-strategies.ts";
 import {
+  hasAnyAtReferenceToken,
+  parseAtMentions,
+  processFileMentions,
+  type FileReadInfo,
+} from "./utils/mention-parsing.ts";
+import {
+  applyTaskSnapshotToLatestAssistantMessage,
   hasRalphTaskIdOverlap,
   normalizeInterruptedTasks,
+  preferTerminalTaskItems,
   snapshotTaskItems,
 } from "./utils/ralph-task-state.ts";
 import type {
@@ -122,49 +142,6 @@ import type {
 } from "./parts/index.ts";
 import { createPartId, upsertPart, findLastPartIndex, handleTextDelta, shouldFinalizeOnToolComplete } from "./parts/index.ts";
 import { MessageBubbleParts } from "./components/parts/message-bubble-parts.tsx";
-
-// ============================================================================
-// @ MENTION HELPERS
-// ============================================================================
-
-interface ParsedAtMention {
-  agentName: string;
-  args: string;
-}
-
-/**
- * Parse @mentions in a message and extract agent invocations.
- * Returns an array of { agentName, args } for each agent mention found.
- */
-function parseAtMentions(message: string): ParsedAtMention[] {
-  const atMentions: ParsedAtMention[] = [];
-  const atRegex = /@(\S+)/g;
-  let atMatch: RegExpExecArray | null;
-  const agentPositions: Array<{ name: string; start: number; end: number }> = [];
-
-  while ((atMatch = atRegex.exec(message)) !== null) {
-    const candidateName = atMatch[1] ?? "";
-    const cmd = globalRegistry.get(candidateName);
-    if (cmd && cmd.category === "agent") {
-      agentPositions.push({
-        name: candidateName,
-        start: atMatch.index,
-        end: atMatch.index + atMatch[0].length,
-      });
-    }
-  }
-
-  for (let i = 0; i < agentPositions.length; i++) {
-    const pos = agentPositions[i]!;
-    const nextPos = agentPositions[i + 1];
-    const argsStart = pos.end;
-    const argsEnd = nextPos ? nextPos.start : message.length;
-    const args = message.slice(argsStart, argsEnd).trim();
-    atMentions.push({ agentName: pos.name, args });
-  }
-
-  return atMentions;
-}
 
 /**
  * Get autocomplete suggestions for @ mentions (agents and files).
@@ -255,69 +232,6 @@ export function getMentionSuggestions(input: string): CommandDefinition[] {
   }
 
   return suggestions;
-}
-
-interface FileReadInfo {
-  path: string;
-  sizeBytes: number;
-  lineCount: number;
-  isImage: boolean;
-  isDirectory: boolean;
-}
-
-interface ProcessedMention {
-  message: string;
-  filesRead: FileReadInfo[];
-}
-
-/**
- * Process file @mentions in a message. Resolves @filepath references and collects
- * metadata about mentioned files without loading their content into the context window.
- */
-function processFileMentions(message: string): ProcessedMention {
-  const mentionRegex = /@([\w./_-]+)/g;
-  const filesRead: FileReadInfo[] = [];
-  const cleanedMessage = message.replace(mentionRegex, (match, filePath: string) => {
-    const cmd = globalRegistry.get(filePath);
-    if (cmd && cmd.category === "agent") return match;
-
-    try {
-      const fullPath = join(process.cwd(), filePath);
-      const stats = statSync(fullPath);
-
-      if (stats.isDirectory()) {
-        const entries = readdirSync(fullPath, { withFileTypes: true });
-
-        filesRead.push({
-          path: filePath.endsWith("/") ? filePath : `${filePath}/`,
-          sizeBytes: stats.size,
-          lineCount: entries.length,
-          isImage: false,
-          isDirectory: true,
-        });
-
-        return filePath;
-      }
-
-      const content = readFileSync(fullPath, "utf-8");
-      const lineCount = content.split("\n").length;
-      const isImage = /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(filePath);
-
-      filesRead.push({
-        path: filePath,
-        sizeBytes: stats.size,
-        lineCount,
-        isImage,
-        isDirectory: false,
-      });
-
-      return filePath;
-    } catch {
-      return match;
-    }
-  });
-
-  return { message: cleanedMessage, filesRead };
 }
 
 // ============================================================================
@@ -1942,6 +1856,13 @@ export function ChatApp({
   // Compaction state: stores summary text after /compact for Ctrl+O history
   const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
   const [showCompactionHistory, setShowCompactionHistory] = useState(false);
+  const [autoCompactionIndicator, setAutoCompactionIndicator] = useState<AutoCompactionIndicatorState>(
+    AUTO_COMPACTION_INDICATOR_IDLE_STATE
+  );
+  const autoCompactionIndicatorRef = useRef<AutoCompactionIndicatorState>(
+    AUTO_COMPACTION_INDICATOR_IDLE_STATE
+  );
+  const autoCompactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // TodoWrite persistent state
   const [todoItems, setTodoItems] = useState<NormalizedTodoItem[]>([]);
   const todoItemsRef = useRef<NormalizedTodoItem[]>([]);
@@ -2179,6 +2100,27 @@ export function ChatApp({
     return snapshotTaskItems(updated) as TaskItem[] | undefined;
   }, [isRalphTaskUpdate]);
 
+  const clearAutoCompactionTimeout = useCallback(() => {
+    if (autoCompactionTimeoutRef.current) {
+      clearTimeout(autoCompactionTimeoutRef.current);
+      autoCompactionTimeoutRef.current = null;
+    }
+  }, []);
+
+  const applyAutoCompactionIndicator = useCallback((next: AutoCompactionIndicatorState) => {
+    clearAutoCompactionTimeout();
+    autoCompactionIndicatorRef.current = next;
+    setAutoCompactionIndicator(next);
+
+    if (next.status === "completed" || next.status === "error") {
+      autoCompactionTimeoutRef.current = setTimeout(() => {
+        autoCompactionIndicatorRef.current = AUTO_COMPACTION_INDICATOR_IDLE_STATE;
+        setAutoCompactionIndicator(AUTO_COMPACTION_INDICATOR_IDLE_STATE);
+        autoCompactionTimeoutRef.current = null;
+      }, AUTO_COMPACTION_RESULT_VISIBILITY_MS);
+    }
+  }, [clearAutoCompactionTimeout]);
+
   const stopSharedStreamState = useCallback((options?: {
     preserveStreamingStart?: boolean;
     resetStreamingStateHook?: boolean;
@@ -2207,10 +2149,17 @@ export function ChatApp({
     setIsStreaming(next.isStreaming);
     setStreamingMeta(null);
 
+    const nextCompactionState = clearRunningAutoCompactionIndicator(
+      autoCompactionIndicatorRef.current,
+    );
+    if (nextCompactionState !== autoCompactionIndicatorRef.current) {
+      applyAutoCompactionIndicator(nextCompactionState);
+    }
+
     if (options?.resetStreamingStateHook !== false) {
       streamingState.reset();
     }
-  }, [streamingState]);
+  }, [streamingState, applyAutoCompactionIndicator]);
 
   const handleStreamStartupError = useCallback((error: unknown, expectedGeneration: number) => {
     // Ignore stale failures from an older stream generation.
@@ -2250,16 +2199,18 @@ export function ChatApp({
     }
   }, [setMessagesWindowed, stopSharedStreamState]);
 
+  const enqueueShortcutLabel = useMemo(() => getEnqueueShortcutLabel(), []);
+
   // Dynamic placeholder based on queue state
   const dynamicPlaceholder = useMemo(() => {
     if (messageQueue.count > 0) {
       return "Press ↑ to edit queued messages...";
     } else if (isStreaming) {
-      return "Type a message (enter to interrupt, ctrl+q to enqueue)...";
+      return `Type a message (enter to interrupt, ${enqueueShortcutLabel} to enqueue)...`;
     } else {
       return "Enter a message...";
     }
-  }, [messageQueue.count, isStreaming]);
+  }, [enqueueShortcutLabel, messageQueue.count, isStreaming]);
 
   /**
    * Update workflow state with partial values.
@@ -2282,6 +2233,14 @@ export function ChatApp({
     toolName: string,
     input: Record<string, unknown>
   ) => {
+    const nextCompactionState = startAutoCompactionIndicator(
+      autoCompactionIndicatorRef.current,
+      toolName,
+    );
+    if (nextCompactionState !== autoCompactionIndicatorRef.current) {
+      applyAutoCompactionIndicator(nextCompactionState);
+    }
+
     toolNameByIdRef.current.set(toolId, toolName);
 
     // Update streaming state
@@ -2393,7 +2352,7 @@ export function ChatApp({
         );
       }
     }
-  }, [streamingState, isRalphTaskUpdate]);
+  }, [streamingState, isRalphTaskUpdate, applyAutoCompactionIndicator]);
 
   /**
    * Handle tool execution complete event.
@@ -2408,6 +2367,18 @@ export function ChatApp({
     input?: Record<string, unknown>
   ) => {
     const completedToolName = toolNameByIdRef.current.get(toolId);
+    if (completedToolName) {
+      const nextCompactionState = completeAutoCompactionIndicator(
+        autoCompactionIndicatorRef.current,
+        completedToolName,
+        success,
+        error,
+      );
+      if (nextCompactionState !== autoCompactionIndicatorRef.current) {
+        applyAutoCompactionIndicator(nextCompactionState);
+      }
+    }
+
     const completedAskQuestion = completedToolName
       ? isAskQuestionToolName(completedToolName)
       : false;
@@ -2573,7 +2544,7 @@ export function ChatApp({
         );
       }
     }
-  }, [streamingState, isRalphTaskUpdate, continueQueuedConversation]);
+  }, [streamingState, isRalphTaskUpdate, continueQueuedConversation, applyAutoCompactionIndicator]);
 
   /**
    * Handle skill invoked event from SDK.
@@ -2614,8 +2585,9 @@ export function ChatApp({
       if (interruptTimeoutRef.current) {
         clearTimeout(interruptTimeoutRef.current);
       }
+      clearAutoCompactionTimeout();
     };
-  }, []);
+  }, [clearAutoCompactionTimeout]);
 
   // Auto-start workflow when workflowActive becomes true with an initialPrompt.
   // This handles non-context-clear workflow starts (e.g., generic workflow commands).
@@ -2750,12 +2722,34 @@ export function ChatApp({
   }, [workflowState.workflowActive]);
 
   // Auto-hide task list panel when workflow ends naturally
+  const syncTerminalTaskStateFromSession = useCallback((sessionDir: string) => {
+    let diskTasks: NormalizedTodoItem[] = [];
+    try {
+      const content = readFileSync(join(sessionDir, "tasks.json"), "utf-8");
+      diskTasks = normalizeTodoItems(JSON.parse(content));
+    } catch {
+      // best effort: tasks.json may be absent during teardown
+    }
+
+    const terminalTasks = preferTerminalTaskItems(todoItemsRef.current, diskTasks);
+    if (terminalTasks.length === 0) return;
+
+    todoItemsRef.current = terminalTasks;
+    setTodoItems(terminalTasks);
+    setMessagesWindowed((prev: ChatMessage[]) =>
+      applyTaskSnapshotToLatestAssistantMessage(prev, terminalTasks)
+    );
+  }, [setMessagesWindowed]);
+
   useEffect(() => {
     if (!workflowState.workflowActive && ralphSessionDir) {
+      syncTerminalTaskStateFromSession(ralphSessionDir);
       setRalphSessionDir(null);
       setRalphSessionId(null);
+      ralphSessionDirRef.current = null;
+      ralphSessionIdRef.current = null;
     }
-  }, [workflowState.workflowActive, ralphSessionDir]);
+  }, [workflowState.workflowActive, ralphSessionDir, syncTerminalTaskStateFromSession]);
 
   /**
    * Handle human_input_required signal.
@@ -3912,6 +3906,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Reset UI state on session destroy (/clear)
         setCompactionSummary(null);
         setShowCompactionHistory(false);
+        applyAutoCompactionIndicator(AUTO_COMPACTION_INDICATOR_IDLE_STATE);
         setParallelAgents([]);
         setTranscriptMode(false);
         clearHistoryBuffer();
@@ -4119,7 +4114,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       });
       return false;
     }
-  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model, onModelChange, onSessionMcpServersChange, onCommandExecutionTelemetry, mcpServerToggles, handleStreamStartupError, stopSharedStreamState]);
+  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model, onModelChange, onSessionMcpServersChange, onCommandExecutionTelemetry, mcpServerToggles, handleStreamStartupError, stopSharedStreamState, applyAutoCompactionIndicator]);
 
   /**
    * Handle autocomplete selection (Tab for complete, Enter for execute).
@@ -4526,33 +4521,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           return;
         }
 
-        // Ctrl+Q - enqueue message (round-robin) during streaming
-        if (event.ctrl && event.name === "q") {
-          if (isStreamingRef.current) {
-            const textarea = textareaRef.current;
-            const value = textarea?.plainText?.trim() ?? "";
-            if (value) {
-              const hasAgentMentions = parseAtMentions(value).length > 0;
-              const hasAnyMentionToken = /@([\w./_-]+)/.test(value);
-              emitMessageSubmitTelemetry({
-                messageLength: value.length,
-                queued: true,
-                fromInitialPrompt: false,
-                hasFileMentions: hasAnyMentionToken && !hasAgentMentions,
-                hasAgentMentions,
-              });
-              messageQueue.enqueue(value);
-              // Clear textarea
-              if (textarea) {
-                textarea.gotoBufferHome();
-                textarea.gotoBufferEnd({ select: true });
-                textarea.deleteChar();
-              }
-            }
-          }
-          return;
-        }
-
         // Skip other keyboard handling when a dialog is active
         // The dialog components handle their own keyboard events via their own useKeyboard hooks
         if (activeQuestion || showModelSelector) {
@@ -4806,7 +4774,12 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Rule 1: first line + not index 0 → move cursor to index 0
         // Rule 3: index 0 → navigate older history; down just moves in chatbox
         // Rule 4: at last index, up just moves up in chatbox (no history)
-        if (event.name === "up" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0) {
+        if (
+          event.name === "up"
+          && !workflowState.showAutocomplete
+          && !isEditingQueue
+          && (isStreaming || messageQueue.count === 0)
+        ) {
           const textarea = textareaRef.current;
           if (textarea) {
             const cursorOffset = textarea.cursorOffset;
@@ -4858,7 +4831,12 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Rule 2: last line + not last index → move cursor to last index
         // Rule 3: at index 0, down just moves down in chatbox (no history)
         // Rule 4: at last index → navigate newer history
-        if (event.name === "down" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0) {
+        if (
+          event.name === "down"
+          && !workflowState.showAutocomplete
+          && !isEditingQueue
+          && (isStreaming || messageQueue.count === 0)
+        ) {
           const textarea = textareaRef.current;
           if (textarea) {
             const cursorOffset = textarea.cursorOffset;
@@ -4923,6 +4901,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         }
 
         // Shift+Enter or Alt+Enter - insert newline
+        // (unless streaming + enqueue shortcut is used)
         // Must be handled here (before autocomplete Enter handler) with stopPropagation
         // to prevent the textarea's built-in "return → submit" key binding from firing.
         // Ctrl+J (linefeed without shift) also inserts newline as a universal fallback
@@ -4930,6 +4909,30 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Fallback: some terminals send Shift+Enter as a Kitty-protocol escape sequence
         // that gets misinterpreted (e.g., "/" extracted from the CSI sequence).
         // Detect by checking event.raw for Enter codepoint (13/10) with a modifier.
+        if (isStreamingRef.current && shouldEnqueueMessageFromKeyEvent(event)) {
+          const textarea = textareaRef.current;
+          const value = textarea?.plainText?.trim() ?? "";
+          if (value) {
+            const hasAgentMentions = parseAtMentions(value).length > 0;
+            const hasAnyMentionToken = hasAnyAtReferenceToken(value);
+            emitMessageSubmitTelemetry({
+              messageLength: value.length,
+              queued: true,
+              fromInitialPrompt: false,
+              hasFileMentions: hasAnyMentionToken && !hasAgentMentions,
+              hasAgentMentions,
+            });
+            messageQueue.enqueue(value);
+            if (textarea) {
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+            }
+          }
+          event.stopPropagation();
+          return;
+        }
+
         if (shouldInsertNewlineFromKeyEvent(event)) {
           const textarea = textareaRef.current;
           if (textarea) {
@@ -5461,7 +5464,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
         if (atMentions.length > 0) {
           // @mention invocations queue while streaming so they stay in the
-          // same round-robin queue UI as Ctrl+Q inputs.
+          // same round-robin queue UI as keyboard enqueue inputs.
           if (isStreamingRef.current) {
             emitMessageSubmitTelemetry({
               messageLength: trimmedValue.length,
@@ -5830,6 +5833,25 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 </box>
               )}
             </box>
+            {shouldShowAutoCompactionIndicator(autoCompactionIndicator) && (
+              <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
+                <text style={{ fg: themeColors.muted }}>
+                  auto-compaction
+                </text>
+                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
+                <text
+                  style={{
+                    fg: autoCompactionIndicator.status === "running"
+                      ? themeColors.accent
+                      : autoCompactionIndicator.status === "completed"
+                        ? themeColors.success
+                        : themeColors.error,
+                  }}
+                >
+                  {getAutoCompactionIndicatorLabel(autoCompactionIndicator)}
+                </text>
+              </box>
+            )}
             {/* Streaming/workflow hints */}
             {isStreaming && !workflowState.workflowActive ? (
               <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
@@ -5838,7 +5860,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 </text>
                 <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
                 <text style={{ fg: themeColors.muted }}>
-                  ctrl+q enqueue
+                  {enqueueShortcutLabel} enqueue
                 </text>
               </box>
             ) : null}
@@ -5854,7 +5876,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 </text>
                 <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
                 <text style={{ fg: themeColors.muted }}>
-                  ctrl+q enqueue
+                  {enqueueShortcutLabel} enqueue
                 </text>
                 <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
                 <text style={{ fg: themeColors.muted }}>

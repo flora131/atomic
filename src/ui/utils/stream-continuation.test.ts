@@ -237,6 +237,20 @@ describe("stream continuation helpers", () => {
     expect(afterSecondInterrupt).toEqual(afterFirstInterrupt);
   });
 
+  test("double interrupt keeps tool calls in interrupted terminal state", () => {
+    const firstPass = interruptRunningToolCalls([
+      { id: "1", status: "running" },
+      { id: "2", status: "completed" },
+    ]);
+    const secondPass = interruptRunningToolCalls(firstPass);
+
+    expect(firstPass).toEqual([
+      { id: "1", status: "interrupted" },
+      { id: "2", status: "completed" },
+    ]);
+    expect(secondPass).toEqual(firstPass);
+  });
+
   test("interruptRunningToolCalls only changes running tools", () => {
     const interrupted = interruptRunningToolCalls([
       { id: "1", status: "running" },
@@ -274,6 +288,35 @@ describe("stream continuation helpers", () => {
       isStreaming: false,
       runningAskQuestionToolCount: 2,
     })).toBe(false);
+  });
+
+  test("composer text stays intact while ask_question is active", () => {
+    const composerState = {
+      value: "keep this draft",
+      submitted: [] as string[],
+      isStreaming: true,
+      runningAskQuestionToolCount: 1,
+    };
+
+    const attemptSubmit = () => {
+      const trimmed = composerState.value.trim();
+      if (!trimmed) {
+        return;
+      }
+      if (shouldDeferComposerSubmit({
+        isStreaming: composerState.isStreaming,
+        runningAskQuestionToolCount: composerState.runningAskQuestionToolCount,
+      })) {
+        return;
+      }
+      composerState.submitted.push(trimmed);
+      composerState.value = "";
+    };
+
+    attemptSubmit();
+
+    expect(composerState.value).toBe("keep this draft");
+    expect(composerState.submitted).toEqual([]);
   });
 
   test("shouldDispatchQueuedMessage waits for stream + ask_question to settle", () => {
@@ -334,6 +377,63 @@ describe("stream continuation helpers", () => {
     guardState.runningAskQuestionToolCount = 0;
     scheduleDispatch();
     callbacks.shift()?.();
+    expect(dispatched).toEqual(["queued-message"]);
+    expect(queue).toEqual([]);
+  });
+
+  test("queue dispatch remains blocked while ask_question is active after interruption", () => {
+    const queue = ["queued-message"];
+    const dispatched: string[] = [];
+
+    dispatchNextQueuedMessage(
+      () => queue.shift(),
+      (message) => {
+        dispatched.push(message);
+      },
+      {
+        shouldDispatch: () => shouldDispatchQueuedMessage({
+          isStreaming: false,
+          runningAskQuestionToolCount: 1,
+        }),
+        schedule: (callback) => {
+          callback();
+        },
+      },
+    );
+
+    expect(dispatched).toEqual([]);
+    expect(queue).toEqual(["queued-message"]);
+  });
+
+  test("blocked queued message resumes once ask_question settles", () => {
+    const queue = ["queued-message"];
+    const dispatched: string[] = [];
+    const guardState = {
+      isStreaming: false,
+      runningAskQuestionToolCount: 1,
+    };
+
+    const dispatchIfAllowed = () => {
+      dispatchNextQueuedMessage(
+        () => queue.shift(),
+        (message) => {
+          dispatched.push(message);
+        },
+        {
+          shouldDispatch: () => shouldDispatchQueuedMessage(guardState),
+          schedule: (callback) => {
+            callback();
+          },
+        },
+      );
+    };
+
+    dispatchIfAllowed();
+    expect(dispatched).toEqual([]);
+    expect(queue).toEqual(["queued-message"]);
+
+    guardState.runningAskQuestionToolCount = 0;
+    dispatchIfAllowed();
     expect(dispatched).toEqual(["queued-message"]);
     expect(queue).toEqual([]);
   });

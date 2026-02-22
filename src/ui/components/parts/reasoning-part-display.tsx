@@ -23,6 +23,7 @@ export interface ReasoningPartDisplayProps {
 export function ReasoningPartDisplay({ part, syntaxStyle }: ReasoningPartDisplayProps): React.ReactNode {
   const colors = useThemeColors();
   const { isDark } = useTheme();
+  const normalizedContent = normalizeMarkdownNewlines(part.content);
   const durationLabel = part.durationMs > 0
     ? `${(part.durationMs / 1000).toFixed(1)}s`
     : "";
@@ -43,14 +44,14 @@ export function ReasoningPartDisplay({ part, syntaxStyle }: ReasoningPartDisplay
       <text style={{ fg: colors.muted }}>
         {part.isStreaming ? "💭 Thinking..." : `💭 Thought${durationLabel ? ` (${durationLabel})` : ""}`}
       </text>
-      {part.content && (
+      {normalizedContent && (
         <box marginLeft={SPACING.INDENT}>
           <code
             filetype="markdown"
             drawUnstyledText={false}
             streaming={part.isStreaming}
             syntaxStyle={dimmedStyle}
-            content={normalizeMarkdownNewlines(part.content)}
+            content={normalizedContent}
             conceal={true}
             fg={colors.muted}
           />

@@ -20,6 +20,7 @@ import {
   getBinaryDataDir,
   getBinaryInstallDir,
 } from "../utils/config-path";
+import { getAtomicManagedConfigDirs } from "../utils/atomic-global-config";
 import { isWindows } from "../utils/detect";
 import { cleanupBunTempNativeAddons } from "../utils/cleanup";
 import { trackAtomicCommand } from "../telemetry";
@@ -103,11 +104,13 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
   // Binary installation - proceed with uninstall
   const binaryPath = getBinaryPath();
   const dataDir = getBinaryDataDir();
+  const managedConfigDirs = getAtomicManagedConfigDirs();
 
   const binaryExists = existsSync(binaryPath);
   const dataDirExists = existsSync(dataDir);
+  const existingManagedConfigDirs = managedConfigDirs.filter((dir) => existsSync(dir));
 
-  if (!binaryExists && !dataDirExists) {
+  if (!binaryExists && !dataDirExists && existingManagedConfigDirs.length === 0) {
     log.success("Atomic is already uninstalled (no files found).");
     return;
   }
@@ -122,6 +125,14 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
   }
   if (options.keepConfig && dataDirExists) {
     log.info(`  - (keeping)  ${dataDir}`);
+  }
+
+  for (const dir of existingManagedConfigDirs) {
+    if (options.keepConfig) {
+      log.info(`  - (keeping)  ${dir}`);
+    } else {
+      log.info(`  - Config:    ${dir}`);
+    }
   }
   log.info("");
 
@@ -150,6 +161,14 @@ export async function uninstallCommand(options: UninstallOptions = {}): Promise<
       log.step("Removing data directory...");
       await rm(dataDir, { recursive: true, force: true });
       log.success("Data directory removed");
+    }
+
+    if (!options.keepConfig) {
+      for (const dir of existingManagedConfigDirs) {
+        log.step(`Removing managed config directory: ${dir}`);
+        await rm(dir, { recursive: true, force: true });
+        log.success(`Removed ${dir}`);
+      }
     }
 
     // Remove binary (self-deletion)

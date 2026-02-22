@@ -109,6 +109,50 @@ const DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096";
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
 
+/**
+ * Part types accepted by OpenCode SDK's session.prompt().
+ * These mirror the SDK's TextPartInput and AgentPartInput types.
+ */
+type OpenCodeTextPart = { type: "text"; text: string };
+type OpenCodeAgentPart = {
+  type: "agent";
+  name: string;
+  source?: { value: string; start: number; end: number };
+};
+type OpenCodePromptPart = OpenCodeTextPart | OpenCodeAgentPart;
+
+/**
+ * Build an array of prompt parts for the OpenCode SDK's session.prompt() API.
+ *
+ * When an `agentName` is provided (from structured dispatch options), the
+ * message is split into a TextPartInput + AgentPartInput. The AgentPartInput
+ * triggers the OpenCode SDK's native sub-agent dispatch (which internally
+ * creates a synthetic "task tool" invocation).
+ *
+ * Messages without an agent name are returned as a single TextPartInput.
+ *
+ * @param message - The message text to send
+ * @param agentName - Optional sub-agent name for dispatch via AgentPartInput
+ * @returns An array of prompt parts (text and/or agent) for the SDK
+ */
+function buildOpenCodePromptParts(message: string, agentName?: string): OpenCodePromptPart[] {
+  if (!agentName) {
+    return [{ type: "text", text: message }];
+  }
+
+  const parts: OpenCodePromptPart[] = [];
+
+  // Add the task text first so the agent has context to work with
+  if (message.trim()) {
+    parts.push({ type: "text", text: message });
+  }
+
+  // AgentPartInput triggers the SDK's sub-agent dispatch
+  parts.push({ type: "agent", name: agentName });
+
+  return parts;
+}
+
 function parseOpenCodeMcpToolId(toolId: string): { server: string; tool: string } | null {
   const match = toolId.match(/^mcp__(.+?)__(.+)$/);
   if (!match) return null;
@@ -322,11 +366,17 @@ export class OpenCodeClient implements CodingAgentClient {
    * @param options - Client options
    */
   constructor(options: OpenCodeClientOptions = {}) {
+    // Always pin the directory to the caller's cwd by default.
+    // OpenCode resolves agent definitions from the provided directory context,
+    // and leaving this undefined can make sub-agent lookup depend on an
+    // unrelated server process working directory.
+    const resolvedDirectory = options.directory ?? process.cwd();
     this.clientOptions = {
       baseUrl: DEFAULT_OPENCODE_BASE_URL,
       maxRetries: DEFAULT_MAX_RETRIES,
       retryDelay: DEFAULT_RETRY_DELAY,
       ...options,
+      directory: resolvedDirectory,
     };
   }
 
@@ -663,6 +713,23 @@ export class OpenCodeClient implements CodingAgentClient {
             subagentId: (part?.id as string) ?? "",
             subagentType: (part?.name as string) ?? "",
           });
+        } else if (part?.type === "subtask") {
+          // SubtaskPart: { type: "subtask", prompt, description, agent, ... }
+          // Some OpenCode versions emit sub-agent dispatch as "subtask" parts
+          // instead of "agent" parts. Normalize both to subagent.start.
+          const subtaskPrompt = (part?.prompt as string) ?? "";
+          const subtaskDescription = (part?.description as string) ?? "";
+          const subtaskAgent = (part?.agent as string) ?? "";
+          this.emitEvent("subagent.start", partSessionId, {
+            subagentId: (part?.id as string) ?? "",
+            subagentType: subtaskAgent,
+            task: subtaskDescription || subtaskPrompt,
+            toolInput: {
+              prompt: subtaskPrompt,
+              description: subtaskDescription,
+              agent: subtaskAgent,
+            },
+          });
         } else if (part?.type === "step-finish") {
           // StepFinishPart signals the end of a sub-agent step
           // Map to subagent.complete with success based on reason
@@ -997,7 +1064,7 @@ export class OpenCodeClient implements CodingAgentClient {
           agent: agentMode,
           model: client.activePromptModel ?? initialPromptModel,
           system: config.systemPrompt || undefined,
-          parts: [{ type: "text", text: message }],
+          parts: buildOpenCodePromptParts(message),
         });
 
         if (result.error) {
@@ -1052,7 +1119,7 @@ export class OpenCodeClient implements CodingAgentClient {
         };
       },
 
-      stream: (message: string): AsyncIterable<AgentMessage> => {
+      stream: (message: string, options?: { agent?: string }): AsyncIterable<AgentMessage> => {
         return {
           async *[Symbol.asyncIterator]() {
             if (sessionState.isClosed) {
@@ -1125,7 +1192,7 @@ export class OpenCodeClient implements CodingAgentClient {
                 agent: agentMode,
                 model: client.activePromptModel ?? initialPromptModel,
                 system: config.systemPrompt || undefined,
-                parts: [{ type: "text", text: message }],
+                parts: buildOpenCodePromptParts(message, options?.agent),
               });
 
               if (result.error) {

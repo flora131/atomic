@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { getStatusIndicatorColor } from "./parallel-agents-tree.tsx";
+import {
+  buildAgentHeaderLabel,
+  getAgentTaskLabel,
+  getStatusIndicatorColor,
+} from "./parallel-agents-tree.tsx";
 
 describe("ParallelAgentsTree status indicator colors", () => {
   const colors = {
@@ -22,5 +26,30 @@ describe("ParallelAgentsTree status indicator colors", () => {
 
   test("renders error as error color", () => {
     expect(getStatusIndicatorColor("error", colors)).toBe(colors.error);
+  });
+});
+
+describe("ParallelAgentsTree labeling", () => {
+  test("avoids duplicate 'agent agent' header labels", () => {
+    expect(buildAgentHeaderLabel(1, "agent")).toBe("1 agent");
+    expect(buildAgentHeaderLabel(2, "agents")).toBe("2 agents");
+    expect(buildAgentHeaderLabel(1, "codebase-online-researcher")).toBe(
+      "1 codebase-online-researcher agent"
+    );
+  });
+
+  test("uses agent name when task label is generic placeholder", () => {
+    expect(
+      getAgentTaskLabel({
+        name: "codebase-online-researcher",
+        task: "Sub-agent task",
+      })
+    ).toBe("codebase-online-researcher");
+    expect(
+      getAgentTaskLabel({
+        name: "codebase-online-researcher",
+        task: "Research Rust TUI stacks",
+      })
+    ).toBe("Research Rust TUI stacks");
   });
 });

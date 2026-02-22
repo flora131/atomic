@@ -83,9 +83,11 @@ jobs:
                   # Copy config directories (same as package.json "files" for binary distribution)
                   cp -r .claude config-staging/
                   cp -r .opencode config-staging/
+                  cp .mcp.json config-staging/
                   mkdir -p config-staging/.github
                   cp -r .github/skills config-staging/.github/
                   cp -r .github/agents config-staging/.github/
+                  cp .github/mcp-config.json config-staging/.github/
 
                   # Remove node_modules from .opencode if present
                   rm -rf config-staging/.opencode/node_modules

@@ -13,6 +13,7 @@ import {
   MAIN_CHAT_TOOL_PREVIEW_LIMITS,
   truncateToolText,
 } from "../utils/tool-preview-truncation.ts";
+import { normalizeMarkdownNewlines } from "../utils/format.ts";
 
 // ============================================================================
 // TYPES
@@ -620,6 +621,11 @@ export function parseTaskToolResult(output: unknown): {
   tokens?: number;
   isAsync?: boolean;
 } {
+  const normalizeTaskText = (text: string): string | undefined => {
+    const normalized = normalizeMarkdownNewlines(text);
+    return normalized.length > 0 ? normalized : undefined;
+  };
+
   if (output === undefined || output === null) {
     return { text: undefined };
   }
@@ -631,12 +637,12 @@ export function parseTaskToolResult(output: unknown): {
       const parsed = JSON.parse(output);
       return parseTaskToolResult(parsed);
     } catch {
-      return { text: output };
+      return { text: normalizeTaskText(output) };
     }
   }
 
   if (typeof output !== "object") {
-    return { text: String(output) };
+    return { text: normalizeTaskText(String(output)) };
   }
 
   const obj = output as Record<string, unknown>;
@@ -651,7 +657,7 @@ export function parseTaskToolResult(output: unknown): {
     );
     const text = textBlock?.text as string | undefined;
     return {
-      text,
+      text: text ? normalizeTaskText(text) : undefined,
       durationMs: typeof obj.totalDurationMs === "number" ? obj.totalDurationMs : undefined,
       toolUses: typeof obj.totalToolUseCount === "number" ? obj.totalToolUseCount : undefined,
       tokens: typeof obj.totalTokens === "number" ? obj.totalTokens : undefined,
@@ -662,18 +668,18 @@ export function parseTaskToolResult(output: unknown): {
   // Format 2: Documented TaskOutput with result field
   if (typeof obj.result === "string") {
     return {
-      text: obj.result,
+      text: normalizeTaskText(obj.result),
       durationMs: typeof obj.duration_ms === "number" ? obj.duration_ms : undefined,
       isAsync,
     };
   }
 
   // Fallback: try common text fields
-  if (typeof obj.text === "string") return { text: obj.text, isAsync };
-  if (typeof obj.output === "string") return { text: obj.output, isAsync };
+  if (typeof obj.text === "string") return { text: normalizeTaskText(obj.text), isAsync };
+  if (typeof obj.output === "string") return { text: normalizeTaskText(obj.output), isAsync };
 
   // Last resort: stringify
-  return { text: JSON.stringify(output, null, 2), isAsync };
+  return { text: normalizeTaskText(JSON.stringify(output, null, 2)), isAsync };
 }
 
 // ============================================================================

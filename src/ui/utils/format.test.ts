@@ -116,6 +116,12 @@ describe("normalizeMarkdownNewlines", () => {
 
     expect(normalizeMarkdownNewlines(content)).toBe("Paragraph one\n\nParagraph two");
   });
+
+  test("normalizes Windows-style line endings", () => {
+    const content = "\r\nline one\r\nline two\r\n";
+
+    expect(normalizeMarkdownNewlines(content)).toBe("line one\nline two");
+  });
 });
 
 describe("truncateText", () => {

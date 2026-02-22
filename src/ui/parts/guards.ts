@@ -21,3 +21,25 @@ export function shouldFinalizeOnToolComplete(agent: ParallelAgent): boolean {
   if (agent.status === "background") return false;
   return true;
 }
+
+/**
+ * Returns true when at least one foreground sub-agent is still in-flight.
+ * Background agents are intentionally excluded from this gate.
+ */
+export function hasActiveForegroundAgents(agents: readonly ParallelAgent[]): boolean {
+  return agents.some(
+    (agent) =>
+      (agent.status === "running" || agent.status === "pending")
+      && shouldFinalizeOnToolComplete(agent),
+  );
+}
+
+/**
+ * Stream completion can proceed only when no blocking sub-agents or tools remain.
+ */
+export function shouldFinalizeDeferredStream(
+  agents: readonly ParallelAgent[],
+  hasRunningTool: boolean,
+): boolean {
+  return !hasRunningTool && !hasActiveForegroundAgents(agents);
+}

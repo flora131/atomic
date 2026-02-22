@@ -139,7 +139,7 @@ export function formatTimestamp(date: Date | string): FormattedTimestamp {
  * @returns Content trimmed at both ends, with internal newlines preserved
  */
 export function normalizeMarkdownNewlines(content: string): string {
-  return content.trim();
+  return content.replace(/\r\n?/g, "\n").trim();
 }
 
 // ============================================================================

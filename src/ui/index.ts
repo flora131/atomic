@@ -17,6 +17,7 @@ import {
   type OnSkillInvoked,
   type OnPermissionRequest as ChatOnPermissionRequest,
   type OnInterrupt,
+  type OnTerminateBackgroundAgents,
   type OnAskUserQuestion,
   type CommandExecutionTelemetry,
   type MessageSubmitTelemetry,
@@ -33,11 +34,13 @@ import type {
 } from "../sdk/types.ts";
 import { UnifiedModelOperations } from "../models/model-operations.ts";
 import { parseTaskToolResult } from "./tools/registry.ts";
+import { normalizeMarkdownNewlines } from "./utils/format.ts";
 import {
   createTuiTelemetrySessionTracker,
   type TuiTelemetrySessionTracker,
 } from "../telemetry/index.ts";
 import { shouldFinalizeOnToolComplete } from "./parts/index.ts";
+import { getActiveBackgroundAgents } from "./utils/background-agent-footer.ts";
 
 /**
  * Build a system prompt section describing all registered capabilities.
@@ -851,9 +854,11 @@ export async function startChatUI(
       ) {
         // Extract clean result text using the shared parser
         const parsed = parseTaskToolResult(data.toolResult);
-        const resultStr = parsed.text ?? (typeof data.toolResult === "string"
+        const fallbackResultText = parsed.text ?? (typeof data.toolResult === "string"
           ? data.toolResult
           : JSON.stringify(data.toolResult));
+        const normalizedResult = normalizeMarkdownNewlines(fallbackResultText);
+        const resultStr = normalizedResult.length > 0 ? normalizedResult : undefined;
 
         // Try ID-based correlation: SDK-level IDs first, then internal toolId
         const taskSdkCorrelationId = data.toolUseID ?? data.toolCallId ?? data.toolUseId;
@@ -928,7 +933,7 @@ export async function startChatUI(
         // The SDK model may echo back the raw tool_response JSON as
         // streaming text — we suppress text that matches the result but
         // allow the model's real follow-up response through.
-        state.suppressPostTaskResult = resultStr;
+        state.suppressPostTaskResult = resultStr ?? null;
       } else if (
         isTaskTool &&
         state.parallelAgentHandler &&
@@ -1185,6 +1190,9 @@ export async function startChatUI(
 
       if (state.parallelAgentHandler && data.subagentId) {
         const status = data.success !== false ? "completed" : "error";
+        const normalizedResult = data.result == null
+          ? undefined
+          : normalizeMarkdownNewlines(String(data.result));
         state.parallelAgents = state.parallelAgents.map((a) =>
           a.id === data.subagentId
             ? {
@@ -1193,7 +1201,7 @@ export async function startChatUI(
                 // Clear currentTool so getSubStatusText falls through to
                 // the status-based default ("Done" / error message)
                 currentTool: undefined,
-                result: data.result ? String(data.result) : undefined,
+                result: normalizedResult && normalizedResult.length > 0 ? normalizedResult : undefined,
                 durationMs: Date.now() - new Date(a.startedAt).getTime(),
               }
             : a
@@ -1698,6 +1706,26 @@ export async function startChatUI(
       handleInterrupt("ui");
     };
 
+    const handleTerminateBackgroundAgentsFromUI: OnTerminateBackgroundAgents = () => {
+      if (getActiveBackgroundAgents(state.parallelAgents).length === 0) {
+        return;
+      }
+
+      state.currentRunId = null;
+      state.isStreaming = false;
+      if (state.streamAbortController && !state.streamAbortController.signal.aborted) {
+        state.streamAbortController.abort();
+      }
+      state.streamAbortController = null;
+      state.resetParallelTracking?.("background_terminate");
+
+      if (state.session?.abort) {
+        void state.session.abort().catch((error) => {
+          console.error("Failed to abort session during background-agent termination:", error);
+        });
+      }
+    };
+
     /**
      * Get the current session for slash commands like /compact.
      */
@@ -1787,6 +1815,7 @@ export async function startChatUI(
                 onExit: handleExit,
                 onResetSession: resetSession,
                 onInterrupt: handleInterruptFromUI,
+                onTerminateBackgroundAgents: handleTerminateBackgroundAgentsFromUI,
                 registerToolStartHandler,
                 registerToolCompleteHandler,
                 registerSkillInvokedHandler,
@@ -1937,6 +1966,7 @@ export {
   type OnToolStart,
   type OnToolComplete,
   type OnInterrupt,
+  type OnTerminateBackgroundAgents,
   type OnAskUserQuestion,
   defaultWorkflowChatState,
 } from "./chat.tsx";

@@ -203,6 +203,11 @@ export type {
   // Subagent node types (workflow SDK)
   SubagentNodeConfig,
   ParallelSubagentNodeConfig,
+
+  // Loop node factories
+  TaskLoopConfig,
+  TaskLoopState,
+  CriteriaLoopConfig,
 } from "./nodes.ts";
 
 // Value exports from nodes.ts
@@ -242,6 +247,10 @@ export {
   // Subagent node factories
   subagentNode,
   parallelSubagentNode,
+
+  // Loop node factories
+  taskLoopNode,
+  criteriaLoopNode,
 } from "./nodes.ts";
 
 // Type exports from compiled.ts

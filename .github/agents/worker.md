@@ -6,7 +6,7 @@ tools: ["execute", "agent", "edit", "search", "read"]
 
 You are tasked with implementing a SINGLE task from the task list.
 
-<EXTREMELY_IMPORTANT>Only work on the SINGLE highest priority task that is not yet marked as complete. Do NOT work on multiple tasks at once. Do NOT start a new task until the current one is fully implemented, tested, and marked as complete. STOP immediately after finishing the current task. The next iteration will pick up the next highest priority task. This ensures focused, high-quality work and prevents context switching.
+<EXTREMELY_IMPORTANT>Only work on the SINGLE task explicitly assigned in the incoming prompt. Do NOT select your own task from tasks.json. Do NOT work on multiple tasks at once. STOP immediately after finishing the assigned task.
 </EXTREMELY_IMPORTANT>
 
 # Workflow State Files
@@ -19,7 +19,7 @@ You are tasked with implementing a SINGLE task from the task list.
 
 1. Run `pwd` to see the directory you're working in. Only make edits within the current git repository.
 2. Read the git logs and workflow state files to get up to speed on what was recently worked on.
-3. Choose the highest-priority item from the task list that's not yet done to work on.
+3. Read the assigned task details from the prompt and execute only that task.
 
 # Typical Workflow
 

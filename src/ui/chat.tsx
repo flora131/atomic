@@ -64,6 +64,9 @@ import {
   type CommandContext,
   type CommandContextState,
   type CommandCategory,
+  type TodoWritePersistHandler,
+  type TodoWriteCompleteHandler,
+  type TodoWritePersistResult,
 } from "./commands/index.ts";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -137,12 +140,12 @@ import {
   type FileReadInfo,
 } from "./utils/mention-parsing.ts";
 import {
-  applyTaskSnapshotToLatestAssistantMessage,
-  hasRalphTaskIdOverlap,
+  validateRalphTaskIds,
   normalizeInterruptedTasks,
   preferTerminalTaskItems,
   snapshotTaskItems,
 } from "./utils/ralph-task-state.ts";
+import { buildHiddenPhaseSummary } from "./utils/hidden-phase-summary.ts";
 import type {
   Part,
   TextPart,
@@ -615,6 +618,10 @@ export interface ChatMessage {
   thinkingText?: string;
   /** Optional spinner verb override for this message (e.g., /compact => "Compacting") */
   spinnerVerb?: string;
+  /** Whether this message is a collapsed summary for a hidden workflow phase */
+  isCollapsed?: boolean;
+  /** Full hidden phase output for future expand-on-demand interactions */
+  hiddenPhaseContent?: string;
 }
 
 /**
@@ -760,6 +767,14 @@ export interface ChatAppProps {
    * Called with a function that should be invoked when a tool completes.
    */
   registerToolCompleteHandler?: (handler: OnToolComplete) => void;
+  /**
+   * Register callback that persists TodoWrite payloads when tool events are bypassed.
+   */
+  registerTodoWritePersistHandler?: (handler: TodoWritePersistHandler) => void;
+  /**
+   * Register callback invoked after bypassed TodoWrite completion.
+   */
+  registerTodoWriteCompleteHandler?: (handler: TodoWriteCompleteHandler) => void;
   /**
    * Register callback to receive skill invoked notifications.
    * Called with a function that should be invoked when the SDK loads a skill.
@@ -1436,6 +1451,17 @@ function getRenderableAssistantParts(
 export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, ralphSessionDir, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
+  if (message.isCollapsed && !message.streaming) {
+    return (
+      <box paddingLeft={SPACING.CONTAINER_PAD} paddingRight={SPACING.CONTAINER_PAD} marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}>
+        <text wrapMode="char">
+          <span style={{ fg: themeColors.dim }}>[collapsed] </span>
+          <span style={{ fg: themeColors.muted }}>{message.content}</span>
+        </text>
+      </box>
+    );
+  }
+
   // Collapsed mode: show compact single-line summary for each message
   // Spacing: user messages sit tight above their reply; assistant messages
   // get a bottom margin to visually separate conversation pairs.
@@ -1625,6 +1651,8 @@ export function ChatApp({
   suggestion: _suggestion,
   registerToolStartHandler,
   registerToolCompleteHandler,
+  registerTodoWritePersistHandler,
+  registerTodoWriteCompleteHandler,
   registerSkillInvokedHandler,
   registerPermissionRequestHandler,
   registerCtrlCWarningHandler,
@@ -1797,6 +1825,8 @@ export function ChatApp({
   const streamCompletionResolverRef = useRef<((result: import("./commands/registry.ts").StreamResult) => void) | null>(null);
   // Resolver for waitForUserInput: when set, handleSubmit resolves the Promise with the user's prompt
   const waitForUserInputResolverRef = useRef<{ resolve: (prompt: string) => void; reject: (reason: Error) => void } | null>(null);
+  // Workflow cancellation listeners registered by command handlers.
+  const workflowCancelHandlersRef = useRef<Set<() => void>>(new Set());
   // When true, streaming chunks are accumulated but NOT rendered in the assistant message (for hidden workflow steps)
   const hideStreamContentRef = useRef(false);
   const [showTodoPanel, setShowTodoPanel] = useState(true);
@@ -1981,6 +2011,49 @@ export function ChatApp({
     [messages, todoItems],
   );
 
+  const injectHiddenPhaseSummary = useCallback((messageId: string, content: string) => {
+    const summary = buildHiddenPhaseSummary(content);
+    setMessagesWindowed((prev: ChatMessage[]) =>
+      prev.map((msg: ChatMessage) =>
+        msg.id === messageId
+          ? {
+              ...msg,
+              streaming: false,
+              content: summary,
+              isCollapsed: true,
+              hiddenPhaseContent: content,
+            }
+          : msg,
+      ),
+    );
+  }, [setMessagesWindowed]);
+
+  // Process pending evictions after state commits — keeps the state updater pure.
+  useEffect(() => {
+    if (pendingEvictionsRef.current.length === 0) return;
+    const evictions = pendingEvictionsRef.current;
+    pendingEvictionsRef.current = [];
+    // Accumulate all evicted messages into a single batch to minimize disk I/O.
+    const allEvicted: ChatMessage[] = [];
+    let totalEvicted = 0;
+    for (const { messages: evicted, count } of evictions) {
+      allEvicted.push(...evicted);
+      totalEvicted += count;
+    }
+    if (totalEvicted > 0) {
+      appendToHistoryBuffer(allEvicted);
+      setTrimmedMessageCount((c) => c + totalEvicted);
+      setMessageWindowEpoch((e) => e + 1);
+      console.debug(`[eviction] flushed ${totalEvicted} messages in ${evictions.length} batch(es), epoch incremented`);
+    }
+  }, [messages]);
+
+  // Live elapsed time counter for streaming indicator
+  // Also keeps running while background agents are active (stream ended but work continues)
+  const hasActiveBackgroundAgentsGlobal = parallelAgents.some(
+    (a) => a.background && a.status === "background"
+  );
+
   // Live elapsed time counter for the visible loading indicator.
   useEffect(() => {
     if (!hasLiveLoadingIndicator || !streamingStartRef.current) {
@@ -2035,11 +2108,61 @@ export function ChatApp({
    * incoming items are from a sub-agent's independent todo list, which
    * should NOT overwrite ralph's tasks.json.
    */
-  const isRalphTaskUpdate = useCallback((
-    todos: NormalizedTodoItem[],
-    previousTodos: readonly NormalizedTodoItem[] = todoItemsRef.current,
-  ): boolean => {
-    return hasRalphTaskIdOverlap(todos, ralphTaskIdsRef.current, previousTodos);
+  const validateRalphTodoWrite = useCallback((todos: NormalizedTodoItem[]) => {
+    return validateRalphTaskIds(todos, ralphTaskIdsRef.current);
+  }, []);
+
+  const persistTodoWritePayload = useCallback((
+    _toolId: string,
+    toolName: string,
+    input: Record<string, unknown>,
+    options?: { ralphOnly?: boolean },
+  ): TodoWritePersistResult => {
+    if (!isTodoWriteToolName(toolName)) {
+      return { success: true };
+    }
+
+    if (options?.ralphOnly && !ralphSessionIdRef.current) {
+      return { success: true };
+    }
+
+    if (!Array.isArray(input.todos)) {
+      return { success: false, error: "TodoWrite payload is missing a todos array." };
+    }
+
+    const previousTodos = todoItemsRef.current;
+    const todos = mergeBlockedBy(normalizeTodoItems(input.todos), previousTodos);
+
+    if (ralphSessionIdRef.current) {
+      const validation = validateRalphTodoWrite(todos);
+      if (!validation.valid) {
+        const errorMessage = validation.errorMessage ?? "TodoWrite rejected by ralph task ID guard.";
+        console.debug("[ralph] TodoWrite rejected:", errorMessage);
+        return {
+          success: false,
+          error: errorMessage,
+        };
+      }
+    }
+
+    todoItemsRef.current = todos;
+    setTodoItems(todos);
+
+    if (ralphSessionIdRef.current) {
+      void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
+    }
+
+    return { success: true };
+  }, [validateRalphTodoWrite]);
+
+  const notifyWorkflowCancelled = useCallback(() => {
+    for (const handler of workflowCancelHandlersRef.current) {
+      try {
+        handler();
+      } catch (error) {
+        console.error("[workflow] onCancel handler failed:", error);
+      }
+    }
   }, []);
 
   /**
@@ -2064,13 +2187,15 @@ export function ChatApp({
     todoItemsRef.current = updated;
     setTodoItems(updated);
 
-    // Persist to tasks.json only if the current items are ralph tasks
-    if (ralphSessionIdRef.current && isRalphTaskUpdate(updated)) {
+    const validation = validateRalphTodoWrite(updated);
+
+    // Persist to tasks.json only if the current items are valid ralph tasks
+    if (ralphSessionIdRef.current && validation.valid) {
       void saveTasksToActiveSession(updated, ralphSessionIdRef.current);
     }
 
     return snapshotTaskItems(updated) as TaskItem[] | undefined;
-  }, [isRalphTaskUpdate]);
+  }, [validateRalphTodoWrite]);
 
   const clearAutoCompactionTimeout = useCallback(() => {
     if (autoCompactionTimeoutRef.current) {
@@ -2253,25 +2378,8 @@ export function ChatApp({
 
     // Update persistent todo panel when TodoWrite is called
     if (isTodoWriteToolName(toolName) && input.todos && Array.isArray(input.todos)) {
-      const previousTodos = todoItemsRef.current;
-      const todos = mergeBlockedBy(normalizeTodoItems(input.todos), previousTodos);
       const taskStreamPinned = Boolean(ralphSessionIdRef.current);
-      const isRalphUpdate = isRalphTaskUpdate(todos, previousTodos);
-
-      // During /ralph, ignore unrelated sub-agent TodoWrite payloads so they
-      // cannot replace the in-memory ralph task state.
-      const shouldApplyTodoState = !ralphSessionIdRef.current || isRalphUpdate;
-      if (shouldApplyTodoState) {
-        todoItemsRef.current = todos;
-        setTodoItems(todos);
-      }
-
-      // Persist to tasks.json only when the items are ralph task updates
-      // (share IDs with the planning-phase tasks). Sub-agent or independent
-      // TodoWrite lists must NOT overwrite ralph's persistent task state.
-      if (ralphSessionIdRef.current && isRalphUpdate) {
-        void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
-      }
+      void persistTodoWritePayload(toolId, toolName, input);
 
       if (messageId) {
         setMessagesWindowed((prev) =>
@@ -2286,7 +2394,7 @@ export function ChatApp({
         );
       }
     }
-  }, [streamingState, isRalphTaskUpdate, applyAutoCompactionIndicator]);
+  }, [streamingState, persistTodoWritePayload]);
 
   /**
    * Handle tool execution complete event.
@@ -2378,23 +2486,8 @@ export function ChatApp({
     // Update persistent todo panel when TodoWrite completes (handles late input)
     const isTodoWriteCompletion = isTodoWriteToolName(completedToolName);
     if (isTodoWriteCompletion && input && input.todos && Array.isArray(input.todos)) {
-      const previousTodos = todoItemsRef.current;
-      const todos = mergeBlockedBy(normalizeTodoItems(input.todos), previousTodos);
       const taskStreamPinned = Boolean(ralphSessionIdRef.current);
-      const isRalphUpdate = isRalphTaskUpdate(todos, previousTodos);
-
-      // During /ralph, ignore unrelated sub-agent TodoWrite payloads so they
-      // cannot replace the in-memory ralph task state.
-      const shouldApplyTodoState = !ralphSessionIdRef.current || isRalphUpdate;
-      if (shouldApplyTodoState) {
-        todoItemsRef.current = todos;
-        setTodoItems(todos);
-      }
-
-      // Persist to tasks.json only when the items are ralph task updates
-      if (ralphSessionIdRef.current && isRalphUpdate) {
-        void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
-      }
+      void persistTodoWritePayload(toolId, completedToolName ?? "TodoWrite", input);
 
       if (messageId) {
         setMessagesWindowed((prev) =>
@@ -2409,7 +2502,7 @@ export function ChatApp({
         );
       }
     }
-  }, [streamingState, isRalphTaskUpdate, continueQueuedConversation, applyAutoCompactionIndicator]);
+  }, [streamingState, persistTodoWritePayload]);
 
   /**
    * Handle skill invoked event from SDK.
@@ -2421,6 +2514,23 @@ export function ChatApp({
   ) => {
     // No-op: skill.invoked is intentionally not rendered as a separate indicator.
   }, []);
+
+  const handleTodoWritePersist = useCallback<TodoWritePersistHandler>((
+    toolId,
+    toolName,
+    input,
+  ) => {
+    return persistTodoWritePayload(toolId, toolName, input, { ralphOnly: true });
+  }, [persistTodoWritePayload]);
+
+  const handleTodoWriteComplete = useCallback<TodoWriteCompleteHandler>((
+    toolId,
+    result,
+  ) => {
+    if (!result.success && result.error) {
+      streamingState.handleToolError(toolId, result.error);
+    }
+  }, [streamingState]);
 
   // Register tool event handlers with parent component
   useEffect(() => {
@@ -2434,6 +2544,18 @@ export function ChatApp({
       registerToolCompleteHandler(handleToolComplete);
     }
   }, [registerToolCompleteHandler, handleToolComplete]);
+
+  useEffect(() => {
+    if (registerTodoWritePersistHandler) {
+      registerTodoWritePersistHandler(handleTodoWritePersist);
+    }
+  }, [registerTodoWritePersistHandler, handleTodoWritePersist]);
+
+  useEffect(() => {
+    if (registerTodoWriteCompleteHandler) {
+      registerTodoWriteCompleteHandler(handleTodoWriteComplete);
+    }
+  }, [registerTodoWriteCompleteHandler, handleTodoWriteComplete]);
 
   useEffect(() => {
     if (registerSkillInvokedHandler) {
@@ -3392,6 +3514,8 @@ export function ChatApp({
     args: string,
     trigger: CommandExecutionTrigger = "input"
   ): Promise<boolean> => {
+    workflowCancelHandlersRef.current.clear();
+
     // Clear stale todo items from previous commands
     setTodoItems([]);
 
@@ -3547,9 +3671,8 @@ export function ChatApp({
               const resolver = streamCompletionResolverRef.current;
               if (resolver) {
                 streamCompletionResolverRef.current = null;
-                // Remove the empty placeholder message when content was hidden
                 if (hideStreamContentRef.current && messageId) {
-                  setMessagesWindowed((prev: ChatMessage[]) => prev.filter((msg: ChatMessage) => msg.id !== messageId));
+                  injectHiddenPhaseSummary(messageId, lastStreamingContentRef.current);
                 }
                 hideStreamContentRef.current = false;
                 resolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
@@ -3621,9 +3744,8 @@ export function ChatApp({
             const resolver = streamCompletionResolverRef.current;
             if (resolver) {
               streamCompletionResolverRef.current = null;
-              // Remove the empty placeholder message when content was hidden
               if (hideStreamContentRef.current && messageId) {
-                setMessagesWindowed((prev: ChatMessage[]) => prev.filter((msg: ChatMessage) => msg.id !== messageId));
+                injectHiddenPhaseSummary(messageId, lastStreamingContentRef.current);
               }
               hideStreamContentRef.current = false;
               resolver({ content: lastStreamingContentRef.current, wasInterrupted: false });
@@ -3733,6 +3855,9 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         return new Promise<string>((resolve, reject) => {
           waitForUserInputResolverRef.current = { resolve, reject };
         });
+      },
+      onCancel: (handler: () => void) => {
+        workflowCancelHandlersRef.current.add(handler);
       },
       clearContext: async () => {
         if (onResetSession) {
@@ -4292,12 +4417,16 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             finalizeThinkingSourceTracking();
             activeHitlToolCallIdRef.current = null;
 
+            // Always notify graph-level cancellation handlers, even when this
+            // interrupt did not originate from streamAndWait.
+            notifyWorkflowCancelled();
+
             // Resolve streamAndWait promise with interrupted flag so workflow can react
             const streamResolver = streamCompletionResolverRef.current;
             if (streamResolver) {
               streamCompletionResolverRef.current = null;
               if (hideStreamContentRef.current && interruptedId) {
-                setMessagesWindowed((prev: ChatMessage[]) => prev.filter((msg: ChatMessage) => msg.id !== interruptedId));
+                injectHiddenPhaseSummary(interruptedId, lastStreamingContentRef.current);
               }
               hideStreamContentRef.current = false;
 
@@ -4618,12 +4747,16 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             askUserQuestionRequestIdRef.current = null;
             activeHitlToolCallIdRef.current = null;
 
+            // Always notify graph-level cancellation handlers, even when this
+            // interrupt did not originate from streamAndWait.
+            notifyWorkflowCancelled();
+
             // Resolve streamAndWait promise with interrupted flag so workflow can react
             const streamResolver = streamCompletionResolverRef.current;
             if (streamResolver) {
               streamCompletionResolverRef.current = null;
               if (hideStreamContentRef.current && interruptedId) {
-                setMessagesWindowed((prev: ChatMessage[]) => prev.filter((msg: ChatMessage) => msg.id !== interruptedId));
+                injectHiddenPhaseSummary(interruptedId, lastStreamingContentRef.current);
               }
               hideStreamContentRef.current = false;
               streamResolver({ content: lastStreamingContentRef.current, wasInterrupted: true });

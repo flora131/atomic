@@ -65,6 +65,22 @@ export interface SpawnSubagentResult {
   error?: string;
 }
 
+export interface TodoWritePersistResult {
+  success: boolean;
+  error?: string;
+}
+
+export type TodoWritePersistHandler = (
+  toolId: string,
+  toolName: string,
+  input: Record<string, unknown>,
+) => TodoWritePersistResult | Promise<TodoWritePersistResult>;
+
+export type TodoWriteCompleteHandler = (
+  toolId: string,
+  result: TodoWritePersistResult,
+) => void;
+
 /**
  * State available to commands during execution.
  * Provides access to session, UI state, and helper methods.
@@ -137,6 +153,11 @@ export interface CommandContext {
    * to the user and receive their next direction.
    */
   waitForUserInput: () => Promise<string>;
+  /**
+   * Register a cancellation callback for long-running workflow execution.
+   * The callback is invoked when the user interrupts/cancels the active workflow.
+   */
+  onCancel?: (handler: () => void) => void;
   /**
    * Update workflow state from a command handler.
    */

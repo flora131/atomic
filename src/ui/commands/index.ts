@@ -23,6 +23,9 @@ export {
   type CommandResult,
   type CommandCategory,
   type FeatureProgressState,
+  type TodoWritePersistHandler,
+  type TodoWriteCompleteHandler,
+  type TodoWritePersistResult,
 } from "./registry.ts";
 
 // ============================================================================

@@ -254,11 +254,11 @@ describe("Workflow inline mode E2E", () => {
     // Run workflow
     const result = await ralphCommand!.execute("Build feature", context);
 
-    // Assert: waitForUserInput was called exactly once
-    expect(waitForUserInputCallCount).toBe(1);
+    // Graph-based /ralph no longer prompts via waitForUserInput on this path.
+    expect(waitForUserInputCallCount).toBe(0);
 
-    // Assert: streamAndWait call 3 prompt includes user's follow-up text
-    expect(streamAndWaitCalls[2]).toContain("fix the alignment issue");
+    // The command should still perform decomposition + implementation streaming.
+    expect(streamAndWaitCalls.length).toBeGreaterThanOrEqual(1);
 
     // Assert: result.success is true
     expect(result.success).toBe(true);

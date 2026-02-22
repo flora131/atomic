@@ -68,6 +68,9 @@ Produce a JSON array where each element follows this exact schema:
 - Order tasks by priority: foundational/infrastructure tasks first, then features, then tests, then polish.
 - Analyze technical dependencies between tasks and populate \`blockedBy\` arrays.
 - Keep \`content\` concise (under 80 characters).
+- CRITICAL: Every task ID must be in strict \`#N\` format. Ranges like \`#2-#11\` are invalid.
+- CRITICAL: Never condense multiple tasks into one row. Each task needs its own object.
+- CRITICAL: Every object must include \`id\`, \`content\`, \`status\`, \`activeForm\`, and \`blockedBy\`.
 - Output ONLY the JSON array. No surrounding text, no markdown fences, no explanation.`;
 }
 
@@ -156,7 +159,8 @@ ${taskListJson}
 
 - Process tasks in dependency order.
 - Respect each task's blockedBy list before starting work.
-- Dispatch workers with explicit task assignments and update TodoWrite as progress changes.
+- After each worker completes, YOU (the main agent) must call TodoWrite with updated statuses.
+- Do NOT rely on worker sub-agents to call TodoWrite.
 - Continue until all tasks are completed or an error/deadlock is surfaced.`;
 }
 
@@ -176,7 +180,7 @@ Current task state:
 ${taskListJson}
 \`\`\`
 
-Some tasks are still incomplete. Continue processing tasks in dependency order. Dispatch workers for ready tasks and update TodoWrite as progress changes. Continue until all tasks are completed or an error/deadlock is surfaced.`;
+Some tasks are still incomplete. Continue processing tasks in dependency order. Dispatch workers for ready tasks. After each worker finishes, YOU (the main agent) must call TodoWrite to persist status updates. Continue until all tasks are completed or an error/deadlock is surfaced.`;
 }
 
 // ============================================================================

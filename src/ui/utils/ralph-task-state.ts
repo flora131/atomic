@@ -11,50 +11,41 @@ export interface RalphTaskStateItem {
   blockedBy?: string[];
 }
 
-export interface RalphTaskSnapshotMessage {
-  role: string;
-  taskItems?: RalphTaskStateItem[];
+export interface TaskIdValidationResult {
+  valid: boolean;
+  matchedIds: string[];
+  unknownIds: string[];
+  knownIds: string[];
+  errorMessage?: string;
 }
 
-function normalizeRalphTaskId(id: string): string {
+export function normalizeRalphTaskId(id: string): string {
   const trimmed = id.trim().toLowerCase();
-  return trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
+  return trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
 }
 
-function stripLeadingTaskPrefixes(content: string): string {
-  const prefixPattern = /^(?:(?:[-*]\s+)|(?:\[(?: |x)\]\s+)|(?:[✓✔☑●○◉]\s+)|(?:#?\d+(?:[.):-])?\s+))/i;
-  let current = content;
-  while (true) {
-    const next = current.replace(prefixPattern, "");
-    if (next === current) break;
-    current = next;
-  }
-  return current.trim();
-}
-
-function extractLeadingTaskId(content: string): string | undefined {
+export function extractLeadingTaskId(content: string): string | undefined {
   const normalized = content.trim().toLowerCase();
   const match = normalized.match(
     /^(?:[-*]\s+)?(?:\[(?: |x)\]\s+)?(?:[✓✔☑●○◉]\s+)?#?(\d+)\b/i,
   );
-  return match?.[1];
+  return match ? `#${match[1]}` : undefined;
 }
 
-function normalizeTaskContent(content: string): string {
-  const normalized = content.trim().toLowerCase().replace(/\s+/g, " ");
-  return stripLeadingTaskPrefixes(normalized);
-}
-
-/**
- * True when any incoming todo item belongs to the current ralph task set.
- * ID matching is format-tolerant (`#1` and `1` are treated as equivalent).
- */
-export function hasRalphTaskIdOverlap<T extends { id?: string }>(
+export function validateRalphTaskIds<T extends { id?: string; content?: string }>(
   todos: readonly T[],
   knownTaskIds: ReadonlySet<string>,
-  previousTasks: readonly { content: string }[] = [],
-): boolean {
-  if (todos.length === 0) return false;
+): TaskIdValidationResult {
+  if (todos.length === 0) {
+    const knownIds = Array.from(knownTaskIds).map(normalizeRalphTaskId);
+    return {
+      valid: false,
+      matchedIds: [],
+      unknownIds: [],
+      knownIds,
+      errorMessage: "TodoWrite payload is empty.",
+    };
+  }
 
   const normalizedKnownIds = new Set(
     Array.from(knownTaskIds)
@@ -62,51 +53,51 @@ export function hasRalphTaskIdOverlap<T extends { id?: string }>(
       .map(normalizeRalphTaskId),
   );
 
-  const previousContentKeys = new Set(
-    previousTasks
-      .map((task) => normalizeTaskContent(task.content))
-      .filter((content) => content.length > 0),
-  );
-
-  let hasAnchoredMatch = false;
+  const matchedIds: string[] = [];
+  const unknownIds: string[] = [];
 
   for (const todo of todos) {
     const rawId = todo.id;
     if (typeof rawId === "string" && rawId.trim().length > 0) {
       const normalizedId = normalizeRalphTaskId(rawId);
-      if (normalizedKnownIds.size > 0 && !normalizedKnownIds.has(normalizedId)) {
-        return false;
+      if (normalizedKnownIds.has(normalizedId)) {
+        matchedIds.push(normalizedId);
+      } else {
+        unknownIds.push(rawId);
       }
-      hasAnchoredMatch = true;
       continue;
     }
 
-    const maybeContent = (todo as { content?: unknown }).content;
-    const content = typeof maybeContent === "string" ? maybeContent : "";
+    const content = typeof todo.content === "string" ? todo.content : "";
     const extractedId = extractLeadingTaskId(content);
-    if (extractedId) {
-      if (normalizedKnownIds.size > 0 && !normalizedKnownIds.has(extractedId)) {
-        return false;
-      }
-      hasAnchoredMatch = true;
+    if (extractedId && normalizedKnownIds.has(extractedId)) {
+      matchedIds.push(extractedId);
       continue;
     }
 
-    if (previousContentKeys.size === 0) {
-      continue;
-    }
-
-    const contentKey = typeof maybeContent === "string"
-      ? normalizeTaskContent(maybeContent)
-      : "";
-
-    if (contentKey.length === 0 || !previousContentKeys.has(contentKey)) {
-      return false;
-    }
-    hasAnchoredMatch = true;
+    unknownIds.push(rawId ?? "(no id)");
   }
 
-  return hasAnchoredMatch;
+  const knownIds = Array.from(normalizedKnownIds);
+  if (unknownIds.length > 0) {
+    return {
+      valid: false,
+      matchedIds,
+      unknownIds,
+      knownIds,
+      errorMessage:
+        `TodoWrite rejected: ${unknownIds.length} item(s) have unknown task IDs: ` +
+        `[${unknownIds.join(", ")}]. Valid ralph task IDs are: [${knownIds.join(", ")}]. ` +
+        "Please retry using only valid task IDs.",
+    };
+  }
+
+  return {
+    valid: true,
+    matchedIds,
+    unknownIds: [],
+    knownIds,
+  };
 }
 
 /**
@@ -118,7 +109,7 @@ export function normalizeInterruptedTasks<T extends RalphTaskStateItem>(
   return tasks.map((task) =>
     task.status === "in_progress"
       ? ({ ...task, status: "pending" } as T)
-      : task
+      : task,
   );
 }
 

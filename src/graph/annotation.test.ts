@@ -426,6 +426,13 @@ function createTestRalphState(overrides: Partial<RalphWorkflowState> = {}): Ralp
     completedFeatures: [],
     sourceFeatureListPath: undefined,
     maxIterationsReached: undefined,
+    tasks: [],
+    taskIds: new Set<string>(),
+    reviewResult: null,
+    fixSpec: "",
+    reviewIteration: 0,
+    userPrompt: "",
+    decompositionRetryCount: 0,
     ...overrides,
   };
 }
@@ -644,6 +651,13 @@ describe("createRalphState", () => {
     expect(state.maxIterations).toBe(100);
     expect(state.shouldContinue).toBe(true);
     expect(state.completedFeatures).toEqual([]);
+    expect(state.tasks).toEqual([]);
+    expect(state.taskIds).toEqual(new Set());
+    expect(state.reviewResult).toBeNull();
+    expect(state.fixSpec).toBe("");
+    expect(state.reviewIteration).toBe(0);
+    expect(state.userPrompt).toBe("");
+    expect(state.decompositionRetryCount).toBe(0);
   });
 
   test("uses provided executionId", () => {
@@ -749,6 +763,54 @@ describe("updateRalphState", () => {
     expect(updated.completedFeatures).toEqual(["feature1", "feature2", "feature3"]);
   });
 
+  test("applies mergeById reducer to tasks", () => {
+    const current = createTestRalphState({
+      tasks: [
+        {
+          id: "#1",
+          content: "first",
+          status: "pending",
+          activeForm: "Working on first",
+          blockedBy: [],
+        },
+      ],
+    });
+
+    const updated = updateRalphState(current, {
+      tasks: [
+        {
+          id: "#1",
+          content: "first updated",
+          status: "in_progress",
+          activeForm: "Updating first",
+          blockedBy: [],
+        },
+        {
+          id: "#2",
+          content: "second",
+          status: "pending",
+          activeForm: "Working on second",
+          blockedBy: ["#1"],
+        },
+      ],
+    });
+
+    expect(updated.tasks).toHaveLength(2);
+    expect(updated.tasks.find((task) => task.id === "#1")?.content).toBe(
+      "first updated",
+    );
+    expect(updated.tasks.find((task) => task.id === "#2")?.status).toBe(
+      "pending",
+    );
+  });
+
+  test("replaces taskIds set", () => {
+    const current = createTestRalphState({ taskIds: new Set(["#1"]) });
+    const updated = updateRalphState(current, { taskIds: new Set(["#2", "#3"]) });
+
+    expect(Array.from(updated.taskIds)).toEqual(["#2", "#3"]);
+  });
+
   test("preserves original state (immutability)", () => {
     const current = createTestRalphState({ yolo: false });
     updateRalphState(current, { yolo: true });
@@ -805,6 +867,24 @@ describe("isRalphWorkflowState", () => {
 
   test("returns false when completedFeatures is not an array", () => {
     const state = createTestRalphState({ completedFeatures: "not-array" as unknown as string[] });
+    expect(isRalphWorkflowState(state)).toBe(false);
+  });
+
+  test("returns false when tasks is not an array", () => {
+    const state = createTestRalphState();
+    (state as unknown as Record<string, unknown>).tasks = "nope";
+    expect(isRalphWorkflowState(state)).toBe(false);
+  });
+
+  test("returns false when taskIds is not a Set", () => {
+    const state = createTestRalphState();
+    (state as unknown as Record<string, unknown>).taskIds = ["#1"];
+    expect(isRalphWorkflowState(state)).toBe(false);
+  });
+
+  test("returns false when decompositionRetryCount is not a number", () => {
+    const state = createTestRalphState();
+    (state as unknown as Record<string, unknown>).decompositionRetryCount = "1";
     expect(isRalphWorkflowState(state)).toBe(false);
   });
 

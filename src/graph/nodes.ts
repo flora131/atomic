@@ -1836,3 +1836,14 @@ export function parallelSubagentNode<TState extends BaseState>(
     },
   };
 }
+
+export type {
+  TaskLoopConfig,
+  TaskLoopState,
+  CriteriaLoopConfig,
+} from "./nodes/task-loop.ts";
+
+export {
+  taskLoopNode,
+  criteriaLoopNode,
+} from "./nodes/task-loop.ts";

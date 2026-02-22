@@ -11,7 +11,7 @@
  */
 
 import { existsSync, watch, type FSWatcher } from "fs";
-import { readFile, rename, unlink, writeFile } from "fs/promises";
+import { readFile, rename, unlink } from "fs/promises";
 import { join } from "path";
 import type {
     CommandDefinition,
@@ -32,22 +32,17 @@ import {
     type WorkflowSession,
 } from "../../workflows/session.ts";
 import {
-    buildSpecToTasksPrompt,
-    buildBootstrappedTaskContext,
-    buildContinuePrompt,
-    buildReviewPrompt,
-    parseReviewResult,
-    buildFixSpecFromReview,
-} from "../../graph/nodes/ralph.ts";
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-/** Maximum number of iterations for the main implementation loop to prevent infinite loops */
-const MAX_RALPH_ITERATIONS = 100;
-/** Maximum number of review-fix cycles to prevent infinite loops */
-const MAX_REVIEW_ITERATIONS = 1;
+    createExecutor,
+    createRalphState,
+    getClientProvider,
+    setClientProvider,
+    type AgentNodeAgentType,
+} from "../../graph/index.ts";
+import { createRalphWorkflow } from "../../graph/workflows/ralph.ts";
+import {
+    getSubagentBridge,
+    setSubagentBridge,
+} from "../../graph/subagent-bridge.ts";
 
 // ============================================================================
 // RALPH COMMAND PARSING
@@ -196,19 +191,6 @@ export async function saveTasksToActiveSession(
         await atomicWrite(tasksPath, content);
     } catch (error) {
         console.error("[ralph] Failed to write tasks.json:", error);
-    }
-}
-
-/** Read current task state from tasks.json on disk */
-async function readTasksFromDisk(
-    sessionDir: string,
-): Promise<NormalizedTodoItem[]> {
-    const tasksPath = join(sessionDir, "tasks.json");
-    try {
-        const content = await readFile(tasksPath, "utf-8");
-        return normalizeTodoItems(JSON.parse(content));
-    } catch {
-        return [];
     }
 }
 
@@ -490,7 +472,7 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
  * Parse a JSON task list from streaming content.
  * Handles both raw JSON arrays and content with markdown fences or extra text.
  */
-function parseTasks(content: string): NormalizedTodoItem[] {
+export function parseTasks(content: string): NormalizedTodoItem[] {
     const trimmed = content.trim();
     let parsed: unknown = null;
     try {
@@ -505,79 +487,98 @@ function parseTasks(content: string): NormalizedTodoItem[] {
             }
         }
     }
-    if (!Array.isArray(parsed) || parsed.length === 0) return [];
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+        return [];
+    }
+
+    const idPattern = /^#\d+$/;
+    const statuses = new Set(["pending", "in_progress", "completed"]);
+    const seenIds = new Set<string>();
+
+    for (const entry of parsed) {
+        if (typeof entry !== "object" || entry === null) {
+            return [];
+        }
+        const task = entry as Record<string, unknown>;
+
+        if (typeof task.id !== "string" || !idPattern.test(task.id)) {
+            return [];
+        }
+        if (seenIds.has(task.id)) {
+            return [];
+        }
+        seenIds.add(task.id);
+
+        if (
+            typeof task.content !== "string" ||
+            task.content.trim().length === 0
+        ) {
+            return [];
+        }
+
+        if (
+            typeof task.activeForm !== "string" ||
+            task.activeForm.trim().length === 0
+        ) {
+            return [];
+        }
+
+        if (typeof task.status !== "string" || !statuses.has(task.status)) {
+            return [];
+        }
+
+        if (task.blockedBy !== undefined) {
+            if (!Array.isArray(task.blockedBy)) {
+                return [];
+            }
+
+            const hasInvalidBlockedBy = task.blockedBy.some(
+                (blockedId) =>
+                    typeof blockedId !== "string" || !idPattern.test(blockedId),
+            );
+            if (hasInvalidBlockedBy) {
+                return [];
+            }
+        }
+    }
+
     return normalizeTodoItems(parsed);
 }
 
-function hasActionableTasks(tasks: NormalizedTodoItem[]): boolean {
-    const normalizeTaskId = (id: string): string => {
-        const trimmed = id.trim().toLowerCase();
-        return trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
+function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
+    const toAgentNodeType = (
+        agentType?: CommandContext["agentType"],
+    ): AgentNodeAgentType => {
+        if (agentType === "claude") return "claude";
+        if (agentType === "opencode") return "opencode";
+        if (agentType === "copilot") return "copilot";
+        return "claude";
     };
 
-    const completedIds = new Set(
-        tasks
-            .filter((task) => task.status === "completed")
-            .map((task) => task.id)
-            .filter((id): id is string => Boolean(id))
-            .map((id) => normalizeTaskId(id))
-            .filter((id): id is string => Boolean(id)),
-    );
-
-    return tasks.some((task) => {
-        if (task.status === "in_progress") {
-            return true;
+    const getPhaseSummary = (
+        nodeId: string,
+        state: {
+            tasks?: Array<{
+                id?: string;
+                content: string;
+                status: string;
+                activeForm: string;
+                blockedBy?: string[];
+            }>;
+        },
+    ): string | null => {
+        if (nodeId === "taskDecomposition") {
+            return `[Task Decomposition] Decomposed into ${state.tasks?.length ?? 0} tasks.`;
         }
-        if (task.status !== "pending") {
-            return false;
+        if (nodeId === "review") {
+            return "[Code Review] Review completed.";
         }
-
-        const dependencies = (task.blockedBy ?? [])
-            .map((dependency) => normalizeTaskId(dependency))
-            .filter((dependency) => dependency.length > 0);
-
-        if (dependencies.length === 0) {
-            return true;
+        if (nodeId === "complete") {
+            return "[Workflow] Ralph workflow completed.";
         }
+        return null;
+    };
 
-        return dependencies.every((dependency) => completedIds.has(dependency));
-    });
-}
-
-type StreamAndWaitResult = Awaited<ReturnType<CommandContext["streamAndWait"]>>;
-
-async function streamWithInterruptRecovery(
-    context: CommandContext,
-    initialPrompt: string,
-    options?: { hideContent?: boolean },
-    onInterrupted?: (
-        userPrompt: string,
-    ) => { prompt: string; options?: { hideContent?: boolean } },
-): Promise<StreamAndWaitResult> {
-    let prompt = initialPrompt;
-    let streamOptions = options;
-
-    while (true) {
-        const result = await context.streamAndWait(prompt, streamOptions);
-
-        if (result.wasCancelled || !result.wasInterrupted) {
-            return result;
-        }
-
-        const userPrompt = await context.waitForUserInput();
-
-        if (onInterrupted) {
-            const next = onInterrupted(userPrompt);
-            prompt = next.prompt;
-            streamOptions = next.options;
-        } else {
-            prompt = userPrompt;
-            streamOptions = undefined;
-        }
-    }
-}
-
-function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
     return {
         name: metadata.name,
         description: metadata.description,
@@ -605,17 +606,13 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 };
             }
 
-            // ── Two-step workflow (async/await) ──────────────────────────────
-            // Step 1: Task decomposition via streamAndWait
-            // Step 2: Feature implementation via worker sub-agent
-            // ────────────────────────────────────────────────────────────────
-
-            // Initialize a workflow session via the SDK
             const sessionId = crypto.randomUUID();
             const sessionDir = getWorkflowSessionDir(sessionId);
-            void initWorkflowSession("ralph", sessionId).then((session) => {
-                activeSessions.set(session.sessionId, session);
-            });
+            const initializedSession = await initWorkflowSession("ralph", sessionId);
+            activeSessions.set(initializedSession.sessionId, initializedSession);
+
+            context.setRalphSessionDir(sessionDir);
+            context.setRalphSessionId(sessionId);
 
             context.updateWorkflowState({
                 workflowActive: true,
@@ -623,260 +620,268 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 ralphConfig: { sessionId, userPrompt: parsed.prompt },
             });
 
-            try {
-                // Step 1: Task decomposition (blocks until streaming completes)
-                // hideContent suppresses raw JSON rendering in the chat — content is still
-                // accumulated in StreamResult for parseTasks() and task-state persistence takes over.
-                const step1 = await streamWithInterruptRecovery(
-                    context,
-                    buildSpecToTasksPrompt(parsed.prompt),
-                    { hideContent: true },
-                    (userPrompt) => ({
-                        prompt: buildSpecToTasksPrompt(userPrompt),
-                        options: { hideContent: true },
-                    }),
-                );
-                if (step1.wasCancelled)
-                    return {
-                        success: true,
-                        stateUpdate: {
-                            workflowActive: false,
-                            workflowType: null,
-                            initialPrompt: null,
+            const compiled = createRalphWorkflow({
+                agentType: toAgentNodeType(context.agentType),
+            });
+            const executor = createExecutor(compiled);
+
+            const previousClientProvider = getClientProvider();
+            const resolvedAgentType = toAgentNodeType(context.agentType);
+            const hasUsableClientProvider = (() => {
+                if (!previousClientProvider) return false;
+                try {
+                    return previousClientProvider(resolvedAgentType) != null;
+                } catch {
+                    return false;
+                }
+            })();
+            let installedFallbackClientProvider = false;
+            if (!hasUsableClientProvider) {
+                setClientProvider(() => ({
+                    createSession: async () => ({
+                        id: `ralph-fallback-${crypto.randomUUID()}`,
+                        send: async (message: string) => ({
+                            type: "text",
+                            content: (await context.streamAndWait(message, { hideContent: true })).content,
+                        }),
+                        stream: async function* (message: string): AsyncIterable<{
+                            type: "text";
+                            content: string;
+                        }> {
+                            const streamResult = await context.streamAndWait(message, {
+                                hideContent: true,
+                            });
+
+                            if (streamResult.wasCancelled) {
+                                throw new Error("Workflow cancelled");
+                            }
+
+                            if (streamResult.wasInterrupted) {
+                                const userPrompt = await context.waitForUserInput();
+                                const resumed = await context.streamAndWait(userPrompt, {
+                                    hideContent: true,
+                                });
+                                if (resumed.wasCancelled) {
+                                    throw new Error("Workflow cancelled");
+                                }
+                                yield { type: "text", content: resumed.content };
+                                return;
+                            }
+
+                            yield { type: "text", content: streamResult.content };
                         },
-                    };
-
-                // Parse tasks from step 1 output and save to disk (file watcher handles UI)
-                const tasks = parseTasks(step1.content);
-                if (tasks.length > 0) {
-                    await saveTasksToActiveSession(tasks, sessionId);
-                    // Seed in-memory TodoWrite state so later payloads that omit IDs
-                    // can be reconciled against the planning-phase task list.
-                    context.setTodoItems(
-                        tasks.map((task) => ({
-                            ...task,
-                            status:
-                                task.status === "error"
-                                    ? "pending"
-                                    : task.status,
-                        })) as TodoItem[],
-                    );
-                }
-
-            // Track Ralph session metadata AFTER tasks.json exists on disk
-            context.setRalphSessionDir(sessionDir);
-            context.setRalphSessionId(sessionId);
-
-            // Register the planning-phase task IDs so the TodoWrite persistence
-            // guard can distinguish ralph task updates from sub-agent todo lists.
-            const taskIds = new Set(
-                tasks
-                    .map((t) => t.id)
-                    .filter((id): id is string => id != null && id.length > 0),
-            );
-            context.setRalphTaskIds(taskIds);
-
-            // Step 2: Execute tasks in a loop until all are completed.
-            // The agent's context is blank after Step 1 (hideContent suppressed the JSON),
-            // so inject the task list and instructions for worker dispatch, then loop
-            // until tasks.json shows all items completed.
-            if (tasks.length > 0) {
-                let iteration = 0;
-                let currentTasks: NormalizedTodoItem[] = tasks;
-
-                while (iteration < MAX_RALPH_ITERATIONS) {
-                    iteration++;
-                    const prompt =
-                        iteration === 1
-                            ? buildBootstrappedTaskContext(
-                                  currentTasks,
-                                  sessionId,
-                              )
-                            : buildContinuePrompt(currentTasks, sessionId);
-
-                    const result = await streamWithInterruptRecovery(
-                        context,
-                        prompt,
-                    );
-                    if (result.wasCancelled) break;
-
-                    // Read latest task state from disk after agent response
-                    const diskTasks = await readTasksFromDisk(sessionDir);
-                    if (diskTasks.length === 0) break;
-
-                    // Check if all tasks are completed
-                    const allCompleted = diskTasks.every(
-                        (t) => t.status === "completed",
-                    );
-                    if (allCompleted) break;
-
-                    // Check if remaining tasks are all stuck (including dependency deadlocks)
-                    const hasActionable = hasActionableTasks(diskTasks);
-                    if (!hasActionable) break;
-
-                    currentTasks = diskTasks;
-                }
-
-                // Step 3: Review & Fix phase
-                // Re-read tasks from disk to confirm final state
-                const finalTasks = await readTasksFromDisk(sessionDir);
-                const allTasksCompleted =
-                    finalTasks.length > 0 &&
-                    finalTasks.every((t) => t.status === "completed");
-
-                if (allTasksCompleted) {
-                    for (
-                        let reviewIteration = 0;
-                        reviewIteration < MAX_REVIEW_ITERATIONS;
-                        reviewIteration++
-                    ) {
-                        // Get current task state for review
-                        const reviewTasks = await readTasksFromDisk(sessionDir);
-                        const reviewPrompt = buildReviewPrompt(
-                            reviewTasks,
-                            parsed.prompt,
-                        );
-
-                        // Spawn reviewer sub-agent
-                        const reviewResult = await context.spawnSubagent({
-                            name: "reviewer",
-                            message: reviewPrompt,
-                        });
-
-                        if (!reviewResult.success || !reviewResult.output)
-                            break;
-
-                        // Parse review findings from reviewer output
-                        const review = parseReviewResult(reviewResult.output);
-                        if (!review) break;
-
-                        // Persist review artifacts to session directory
-                        const reviewArtifactPath = join(
-                            sessionDir,
-                            `review-${reviewIteration}.json`,
-                        );
-                        await writeFile(
-                            reviewArtifactPath,
-                            JSON.stringify(review, null, 2),
-                        );
-
-                        // Build fix specification from review findings
-                        const fixSpec = buildFixSpecFromReview(
-                            review,
-                            reviewTasks,
-                            parsed.prompt,
-                        );
-
-                        // If no actionable findings, we're done
-                        if (!fixSpec) break;
-
-                        // Persist fix spec to session directory
-                        const fixSpecPath = join(
-                            sessionDir,
-                            `fix-spec-${reviewIteration}.md`,
-                        );
-                        await writeFile(fixSpecPath, fixSpec);
-
-                        // Re-invoke ralph: decompose fix-spec into tasks (Step 1 again)
-                        const fixStep1 = await streamWithInterruptRecovery(
-                            context,
-                            buildSpecToTasksPrompt(fixSpec),
-                            { hideContent: true },
-                            (userPrompt) => ({
-                                prompt: buildSpecToTasksPrompt(userPrompt),
-                                options: { hideContent: true },
-                            }),
-                        );
-                        if (fixStep1.wasCancelled) break;
-
-                        const fixTasks = parseTasks(fixStep1.content);
-                        if (fixTasks.length === 0) break;
-
-                        // Save fix tasks and update tracking
-                        await saveTasksToActiveSession(fixTasks, sessionId);
-                        const fixTaskIds = new Set(
-                            fixTasks
-                                .map((t) => t.id)
-                                .filter(
-                                    (id): id is string =>
-                                        id != null && id.length > 0,
-                                ),
-                        );
-                        context.setRalphTaskIds(fixTaskIds);
-
-                        // Re-run implementation loop for fix tasks (Step 2 again)
-                        let fixIteration = 0;
-                        let currentFixTasks: NormalizedTodoItem[] = fixTasks;
-
-                        while (fixIteration < MAX_RALPH_ITERATIONS) {
-                            fixIteration++;
-                            const prompt =
-                                fixIteration === 1
-                                    ? buildBootstrappedTaskContext(
-                                          currentFixTasks,
-                                          sessionId,
-                                      )
-                                    : buildContinuePrompt(
-                                          currentFixTasks,
-                                          sessionId,
-                                      );
-
-                            const result = await streamWithInterruptRecovery(
-                                context,
-                                prompt,
-                            );
-                            if (result.wasCancelled) break;
-
-                            // Read latest task state from disk after agent response
-                            const diskTasks =
-                                await readTasksFromDisk(sessionDir);
-                            if (diskTasks.length === 0) break;
-
-                            // Check if all fix tasks are completed
-                            const allFixCompleted = diskTasks.every(
-                                (t) => t.status === "completed",
-                            );
-                            if (allFixCompleted) break;
-
-                            // Check if remaining fix tasks are all stuck (including dependency deadlocks)
-                            const hasActionable = hasActionableTasks(diskTasks);
-                            if (!hasActionable) break;
-
-                            currentFixTasks = diskTasks;
-                        }
-                    }
-                }
+                        summarize: async () => {},
+                        getContextUsage: async () => ({
+                            inputTokens: 0,
+                            outputTokens: 0,
+                            maxTokens: 200000,
+                            usagePercentage: 0,
+                        }),
+                        getSystemToolsTokens: () => 0,
+                        destroy: async () => {},
+                    }),
+                }) as unknown as import("../../sdk/types.ts").CodingAgentClient);
+                installedFallbackClientProvider = true;
             }
 
-            return {
-                success: true,
-                stateUpdate: {
-                    workflowActive: false,
-                    workflowType: null,
-                    initialPrompt: null,
-                },
-            };
-            } catch (error) {
-                // Silent exit for workflow cancellation (double Ctrl+C)
-                if (error instanceof Error && error.message === "Workflow cancelled") {
-                    return {
-                        success: true,
-                        stateUpdate: {
-                            workflowActive: false,
-                            workflowType: null,
-                            initialPrompt: null,
-                        },
-                    };
+            const previousBridge = getSubagentBridge();
+            let installedFallbackBridge = false;
+            if (!previousBridge) {
+                const fallbackBridge = {
+                    spawn: async (options: {
+                        agentId: string;
+                        agentName: string;
+                        task: string;
+                    }) => {
+                        const startedAt = Date.now();
+                        const result = await context.spawnSubagent({
+                            name: options.agentName,
+                            message: options.task,
+                        });
+
+                        return {
+                            agentId: options.agentId,
+                            success: result.success,
+                            output: result.output ?? "",
+                            error: result.error,
+                            toolUses: 0,
+                            durationMs: Date.now() - startedAt,
+                        };
+                    },
+                    spawnParallel: async (agents: Array<{
+                        agentId: string;
+                        agentName: string;
+                        task: string;
+                    }>) => {
+                        const results: Array<{
+                            agentId: string;
+                            success: boolean;
+                            output: string;
+                            error?: string;
+                            toolUses: number;
+                            durationMs: number;
+                        }> = [];
+
+                        for (const agent of agents) {
+                            const startedAt = Date.now();
+                            const result = await context.spawnSubagent({
+                                name: agent.agentName,
+                                message: agent.task,
+                            });
+
+                            results.push({
+                                agentId: agent.agentId,
+                                success: result.success,
+                                output: result.output ?? "",
+                                error: result.error,
+                                toolUses: 0,
+                                durationMs: Date.now() - startedAt,
+                            });
+                        }
+
+                        return results;
+                    },
+                };
+
+                setSubagentBridge(
+                    fallbackBridge as unknown as import("../../graph/subagent-bridge.ts").SubagentGraphBridge,
+                );
+                installedFallbackBridge = true;
+            }
+
+            const abortController = new AbortController();
+            context.onCancel?.(() => {
+                abortController.abort();
+            });
+
+            const initialState = createRalphState(undefined, {
+                ralphSessionId: sessionId,
+                ralphSessionDir: sessionDir,
+                userPrompt: parsed.prompt,
+                yoloPrompt: parsed.prompt,
+                tasks: [],
+                taskIds: new Set<string>(),
+                reviewResult: null,
+                fixSpec: "",
+                reviewIteration: 0,
+                iteration: 0,
+                shouldContinue: true,
+            });
+
+            try {
+                for await (const step of executor.stream({
+                    initialState,
+                    abortSignal: abortController.signal,
+                    workflowName: "ralph",
+                })) {
+                    const tasks = step.state.tasks ?? [];
+                    if (tasks.length > 0) {
+                        context.setTodoItems(tasks as TodoItem[]);
+                        context.setRalphTaskIds(
+                            new Set(
+                                tasks
+                                    .map((task) => task.id)
+                                    .filter(
+                                        (id): id is string =>
+                                            typeof id === "string" &&
+                                            id.length > 0,
+                                    ),
+                            ),
+                        );
+                    }
+
+                    const phaseSummary = getPhaseSummary(step.nodeId, {
+                        tasks,
+                    });
+                    if (phaseSummary) {
+                        context.addMessage("assistant", phaseSummary);
+                    }
+
+                    if (step.status === "completed") {
+                        completeSession(sessionId);
+                        return {
+                            success: true,
+                            stateUpdate: {
+                                workflowActive: false,
+                                workflowType: null,
+                                initialPrompt: null,
+                            },
+                        };
+                    }
+
+                    if (step.status === "paused") {
+                        completeSession(sessionId);
+                        return {
+                            success: false,
+                            message:
+                                "Workflow paused for human input, but resume is not yet supported.",
+                            stateUpdate: {
+                                workflowActive: false,
+                                workflowType: null,
+                                initialPrompt: null,
+                            },
+                        };
+                    }
+
+                    if (step.status === "failed") {
+                        completeSession(sessionId);
+                        return {
+                            success: false,
+                            message: `Workflow failed: ${
+                                step.error?.error instanceof Error
+                                    ? step.error.error.message
+                                    : String(step.error?.error ?? "Unknown error")
+                            }`,
+                            stateUpdate: {
+                                workflowActive: false,
+                                workflowType: null,
+                                initialPrompt: null,
+                            },
+                        };
+                    }
+
+                    if (step.status === "cancelled") {
+                        completeSession(sessionId);
+                        return {
+                            success: true,
+                            stateUpdate: {
+                                workflowActive: false,
+                                workflowType: null,
+                                initialPrompt: null,
+                            },
+                        };
+                    }
                 }
+
+                completeSession(sessionId);
                 return {
-                    success: false,
-                    message: `Workflow failed: ${error instanceof Error ? error.message : String(error)}`,
+                    success: true,
                     stateUpdate: {
                         workflowActive: false,
                         workflowType: null,
                         initialPrompt: null,
                     },
                 };
+            } catch (error) {
+                completeSession(sessionId);
+                return {
+                    success: false,
+                    message: `Workflow failed: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                    stateUpdate: {
+                        workflowActive: false,
+                        workflowType: null,
+                        initialPrompt: null,
+                    },
+                };
+            } finally {
+                if (installedFallbackClientProvider) {
+                    setClientProvider(previousClientProvider ?? (() => null));
+                }
+                if (installedFallbackBridge) {
+                    setSubagentBridge(previousBridge);
+                }
             }
         },
     };

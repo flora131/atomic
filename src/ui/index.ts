@@ -29,6 +29,11 @@ import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
 import { AppErrorBoundary } from "./components/error-exit-screen.tsx";
 import { initializeCommandsAsync, globalRegistry } from "./commands/index.ts";
 import type {
+  TodoWriteCompleteHandler,
+  TodoWritePersistHandler,
+  TodoWritePersistResult,
+} from "./commands/registry.ts";
+import type {
   CodingAgentClient,
   SessionConfig,
   Session,
@@ -43,6 +48,8 @@ import {
 } from "../telemetry/index.ts";
 import { shouldFinalizeOnToolComplete } from "./parts/index.ts";
 import { getActiveBackgroundAgents, isBackgroundAgent } from "./utils/background-agent-footer.ts";
+import { setClientProvider } from "../graph/index.ts";
+import { isTodoWriteToolName } from "./utils/task-status.ts";
 
 /**
  * Build a system prompt section describing all registered capabilities.
@@ -174,6 +181,10 @@ interface ChatUIState {
   permissionRequestHandler: OnPermissionRequest | null;
   /** Registered handler for askUserQuestion events from workflow graphs */
   askUserQuestionHandler: OnAskUserQuestion | null;
+  /** Registered handler for TodoWrite persistence requests from sub-agent bypass */
+  todoWritePersistHandler: TodoWritePersistHandler | null;
+  /** Registered handler for TodoWrite completion notifications from sub-agent bypass */
+  todoWriteCompleteHandler: TodoWriteCompleteHandler | null;
   /** Tool ID counter for generating unique IDs */
   toolIdCounter: number;
   /** Interrupt counter for double-press exit (shared between signal and UI) */
@@ -340,6 +351,8 @@ export async function startChatUI(
     skillInvokedHandler: null,
     permissionRequestHandler: null,
     askUserQuestionHandler: null,
+    todoWritePersistHandler: null,
+    todoWriteCompleteHandler: null,
     toolIdCounter: 0,
     interruptCount: 0,
     interruptTimeout: null,
@@ -494,6 +507,7 @@ export async function startChatUI(
     // the parallel agents tree but filtered out of the main chat UI and
     // ctrl+o transcript to avoid duplicate display.
     const subagentToolIds = new Set<string>();
+    const todoWritePersistByToolId = new Map<string, Promise<TodoWritePersistResult>>();
     const useStableSdkToolIds = agentType === "opencode";
 
     // Internal run ownership tracking for hook events.
@@ -524,6 +538,7 @@ export async function startChatUI(
     const clearToolRunTracking = (toolId: string, sdkCorrelationId?: string): void => {
       state.activeToolIds.delete(toolId);
       subagentToolIds.delete(toolId);
+      todoWritePersistByToolId.delete(toolId);
       toolIdToRunMap.delete(toolId);
       if (sdkCorrelationId) {
         sdkToolIdMap.delete(sdkCorrelationId);
@@ -536,6 +551,7 @@ export async function startChatUI(
       toolCallToAgentMap.clear();
       sdkToolIdMap.clear();
       subagentToolIds.clear();
+      todoWritePersistByToolId.clear();
       toolIdToRunMap.clear();
       sdkCorrelationToRunMap.clear();
       agentIdToRunMap.clear();
@@ -752,6 +768,18 @@ export async function startChatUI(
       // Only dispatch to the main chat UI for non-subagent tools.
       // Sub-agent tool calls are tracked in the parallel agents tree
       // and filtered out of the main UI / ctrl+o transcript.
+      if (
+        isSubagentTool
+        && isTodoWriteToolName(data.toolName)
+        && state.todoWritePersistHandler
+      ) {
+        const persistInput = (data.toolInput as Record<string, unknown>) ?? {};
+        const persistPromise = Promise.resolve(
+          state.todoWritePersistHandler(toolId, data.toolName, persistInput),
+        );
+        todoWritePersistByToolId.set(toolId, persistPromise);
+      }
+
       if (!isSubagentTool) {
         state.toolStartHandler(
           toolId,
@@ -819,6 +847,26 @@ export async function startChatUI(
       // They were never registered via toolStartHandler, so there's
       // nothing to complete in the message parts or tool calls arrays.
       const isSubagentTool = subagentToolIds.has(toolId);
+      if (
+        isSubagentTool
+        && isTodoWriteToolName(data.toolName)
+        && state.todoWriteCompleteHandler
+      ) {
+        const persistPromise = todoWritePersistByToolId.get(toolId);
+        if (persistPromise) {
+          void persistPromise
+            .then((result) => {
+              state.todoWriteCompleteHandler?.(toolId, result);
+            })
+            .catch((error) => {
+              state.todoWriteCompleteHandler?.(toolId, {
+                success: false,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            });
+        }
+      }
+
       if (!isSubagentTool) {
         state.toolCompleteHandler(
           toolId,
@@ -828,6 +876,7 @@ export async function startChatUI(
           data.toolInput // Pass input to update if it wasn't available at start
         );
       }
+      todoWritePersistByToolId.delete(toolId);
       subagentToolIds.delete(toolId);
 
       const isTaskTool = data.toolName === "Task" || data.toolName === "task";
@@ -1806,6 +1855,14 @@ export async function startChatUI(
       state.toolCompleteHandler = handler;
     };
 
+    const registerTodoWritePersistHandler = (handler: TodoWritePersistHandler) => {
+      state.todoWritePersistHandler = handler;
+    };
+
+    const registerTodoWriteCompleteHandler = (handler: TodoWriteCompleteHandler) => {
+      state.todoWriteCompleteHandler = handler;
+    };
+
     const registerSkillInvokedHandler = (handler: OnSkillInvoked) => {
       state.skillInvokedHandler = handler;
     };
@@ -1894,6 +1951,11 @@ export async function startChatUI(
       return session;
     };
 
+    setClientProvider(() => client);
+    state.cleanupHandlers.push(() => {
+      setClientProvider(() => null);
+    });
+
     /**
      * Handle model change from ChatApp (via /model command or model selector).
      * Updates sessionConfig so that new sessions (e.g., after /clear) use the correct model.
@@ -1952,6 +2014,8 @@ export async function startChatUI(
                 onTerminateBackgroundAgents: handleTerminateBackgroundAgentsFromUI,
                 registerToolStartHandler,
                 registerToolCompleteHandler,
+                registerTodoWritePersistHandler,
+                registerTodoWriteCompleteHandler,
                 registerSkillInvokedHandler,
                 registerPermissionRequestHandler,
                 registerAskUserQuestionHandler,

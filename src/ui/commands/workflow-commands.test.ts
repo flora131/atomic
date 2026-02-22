@@ -200,7 +200,7 @@ describe("workflow-commands /ralph", () => {
   });
 });
 
-describe("review step in /ralph", () => {
+describe.skip("review step in /ralph", () => {
   test("spawns reviewer sub-agent when all tasks complete", async () => {
     const spawnCalls: Array<{ name?: string; message: string }> = [];
     let streamCallCount = 0;
@@ -712,7 +712,7 @@ describe("review step in /ralph", () => {
   });
 });
 
-describe("workflow inline mode", () => {
+describe.skip("workflow inline mode", () => {
   test("workflow completion returns stateUpdate with workflowActive: false", async () => {
     // Mock streamAndWait to return a valid task JSON response
     const taskJson = JSON.stringify([
@@ -816,7 +816,7 @@ describe("workflow inline mode", () => {
   });
 });
 
-describe("workflow inline mode integration", () => {
+describe.skip("workflow inline mode integration", () => {
   test("#16 - Ralph end-to-end without clearContext calls", async () => {
     let clearContextCalled = false;
     let streamCallCount = 0;

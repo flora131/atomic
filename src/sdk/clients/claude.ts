@@ -56,6 +56,10 @@ import type {
 import { stripProviderPrefix } from "../types.ts";
 import { initClaudeOptions } from "../init.ts";
 import { loadCopilotAgents } from "../../config/copilot-manual.ts";
+import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /**
  * Configuration for Claude SDK native hooks
@@ -469,6 +473,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
                       append: config.systemPrompt,
                   }
                 : { type: "preset", preset: "claude_code" },
+            // Explicitly set the path to Claude Code executable to prevent it from
+            // resolving to bundled paths (like /$bunfs/root/cli.js in Bun compiled binaries)
+            pathToClaudeCodeExecutable: getBundledClaudeCodePath(),
         };
 
         // Add canUseTool callback for HITL (Human-in-the-loop) interactions
@@ -1576,6 +1583,8 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 maxTurns: 0, // Don't allow any turns - just get init message
                 // Required for CLAUDE.md/project-setting based sub-agent discovery.
                 systemPrompt: { type: "preset", preset: "claude_code" },
+                // Explicitly set the path to Claude Code executable
+                pathToClaudeCodeExecutable: getBundledClaudeCodePath(),
             };
             const probeQuery = query({
                 prompt: "",
@@ -1696,4 +1705,64 @@ export class ClaudeAgentClient implements CodingAgentClient {
  */
 export function createClaudeAgentClient(): ClaudeAgentClient {
     return new ClaudeAgentClient();
+}
+
+/**
+ * Get the path to the Claude Code CLI entry point.
+ *
+ * Returns either:
+ * - A `.js` path (cli.js) when @anthropic-ai/claude-agent-sdk is installed as an npm package
+ * - A binary path when claude is installed standalone (install script, Homebrew, etc.)
+ *
+ * Resolution order:
+ * 1. import.meta.resolve (works in dev when @anthropic-ai/claude-agent-sdk is available)
+ * 2. Find globally-installed claude CLI on $PATH
+ */
+export function getBundledClaudeCodePath(): string {
+    // Strategy 1: import.meta.resolve (works in dev, fails in compiled binary)
+    try {
+        const sdkUrl = import.meta.resolve("@anthropic-ai/claude-agent-sdk");
+        const sdkPath = fileURLToPath(sdkUrl);
+        const pkgDir = dirname(sdkPath);
+        const cliPath = join(pkgDir, "cli.js");
+        if (existsSync(cliPath)) return cliPath;
+    } catch {
+        // Falls through
+    }
+
+    // Strategy 2: Find claude CLI on $PATH.
+    // For npm global installs, the symlink resolves into the package with cli.js.
+    // For standalone installs (install script, Homebrew), return the binary directly
+    // — the SDK handles executable paths by spawning them directly.
+    try {
+        const cmd =
+            process.platform === "win32" ? "where claude" : "which claude";
+        const claudeBin = execSync(cmd, {
+            encoding: "utf-8",
+            stdio: ["pipe", "pipe", "pipe"],
+        })
+            .trim()
+            .split(/\r?\n/)[0]
+            ?.replace(/\r$/, "");
+        if (claudeBin) {
+            const { realpathSync } = require("node:fs") as typeof import("node:fs");
+            const realPath = realpathSync(claudeBin);
+            // Check if it's an npm package with cli.js
+            const pkgDir = dirname(realPath);
+            const cliPath = join(pkgDir, "cli.js");
+            if (existsSync(cliPath)) return cliPath;
+            // Standalone binary (install script, Homebrew) — no cli.js
+            if (existsSync(realPath)) return realPath;
+        }
+    } catch {
+        // Falls through
+    }
+
+    throw new Error(
+        "Cannot find Claude Code CLI.\n\n" +
+            "Install Claude Code using one of:\n" +
+            "  curl -fsSL https://anthropic.com/install-claude-code | bash  # macOS/Linux\n" +
+            "  npm install -g @anthropic-ai/claude-agent-sdk    # macOS/Linux/Windows\n\n" +
+            "Or ensure 'claude' is available in your PATH.",
+    );
 }

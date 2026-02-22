@@ -15,6 +15,7 @@ import {
   getBinaryPath,
   getBinaryDataDir,
 } from "../utils/config-path";
+import { syncAtomicGlobalAgentConfigs } from "../utils/atomic-global-config";
 import { isWindows } from "../utils/detect";
 import { VERSION } from "../version";
 import {
@@ -252,6 +253,9 @@ export async function updateCommand(): Promise<void> {
       const dataDir = getBinaryDataDir();
       await rm(dataDir, { recursive: true, force: true });
       await extractConfig(configPath, dataDir);
+
+      // Sync globally discoverable agent configs into ~/.atomic
+      await syncAtomicGlobalAgentConfigs(dataDir);
       s.stop("Config files updated");
 
       // Verify installation

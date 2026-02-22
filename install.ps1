@@ -15,6 +15,40 @@ $GithubRepo = "flora131/atomic"
 $BinaryName = "atomic"
 $BinDir = if ($env:ATOMIC_INSTALL_DIR) { $env:ATOMIC_INSTALL_DIR } elseif ($InstallDir) { $InstallDir } else { "${Home}\.local\bin" }
 $DataDir = if ($env:LOCALAPPDATA) { "${env:LOCALAPPDATA}\atomic" } else { "${Home}\AppData\Local\atomic" }
+$AtomicHome = "${Home}\.atomic"
+
+function Sync-GlobalAgentConfigs {
+    param([string]$SourceRoot)
+
+    $claudeDir = Join-Path $AtomicHome ".claude"
+    $opencodeDir = Join-Path $AtomicHome ".opencode"
+    $copilotDir = Join-Path $AtomicHome ".copilot"
+
+    $null = New-Item -ItemType Directory -Force -Path $claudeDir
+    $null = New-Item -ItemType Directory -Force -Path $opencodeDir
+    $null = New-Item -ItemType Directory -Force -Path $copilotDir
+
+    Copy-Item -Path (Join-Path $SourceRoot ".claude\*") -Destination $claudeDir -Recurse -Force
+    Copy-Item -Path (Join-Path $SourceRoot ".opencode\*") -Destination $opencodeDir -Recurse -Force
+    Copy-Item -Path (Join-Path $SourceRoot ".github\*") -Destination $copilotDir -Recurse -Force
+
+    $mcpConfigSource = Join-Path $SourceRoot ".mcp.json"
+    if (Test-Path $mcpConfigSource) {
+        Copy-Item -Path $mcpConfigSource -Destination (Join-Path $AtomicHome ".mcp.json") -Force
+    }
+
+    foreach ($agentDir in @($claudeDir, $opencodeDir, $copilotDir)) {
+        $skillsDir = Join-Path $agentDir "skills"
+        if (Test-Path $skillsDir) {
+            Get-ChildItem -Path $skillsDir -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -like "gh-*" -or $_.Name -like "sl-*" } |
+                ForEach-Object { Remove-Item -Recurse -Force $_.FullName -ErrorAction SilentlyContinue }
+        }
+    }
+
+    Remove-Item -Recurse -Force (Join-Path $copilotDir "workflows") -ErrorAction SilentlyContinue
+    Remove-Item -Force (Join-Path $copilotDir "dependabot.yml") -ErrorAction SilentlyContinue
+}
 
 # Colors for output
 $C_RESET = [char]27 + "[0m"
@@ -43,6 +77,7 @@ switch ($Arch) {
 Write-Info "Detected architecture: $Arch"
 Write-Info "Installing to: $BinDir"
 Write-Info "Config directory: $DataDir"
+Write-Info "Atomic home: $AtomicHome"
 
 # Create install directories
 $null = New-Item -ItemType Directory -Force -Path $BinDir
@@ -142,6 +177,9 @@ try {
     $null = New-Item -ItemType Directory -Force -Path $DataDir
     Expand-Archive -Path $TempConfig -DestinationPath $DataDir -Force
 
+    Write-Info "Syncing global agent configs to ${AtomicHome}..."
+    Sync-GlobalAgentConfigs -SourceRoot $DataDir
+
     # Verify installation
     $VersionOutput = & $BinaryPath --version 2>&1
     if ($LASTEXITCODE -ne 0) {
@@ -150,6 +188,7 @@ try {
 
     Write-Success "Installed ${BinaryName} ${Version} to ${BinaryPath}"
     Write-Success "Config files installed to ${DataDir}"
+    Write-Success "Global agent configs synced to ${AtomicHome}"
 
     # Update PATH
     if (-not $NoPathUpdate) {

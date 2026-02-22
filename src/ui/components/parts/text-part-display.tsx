@@ -29,18 +29,11 @@ export function TextPartDisplay({ part, syntaxStyle }: TextPartDisplayProps) {
     [colors, isDark],
   );
 
-  // Strip leading/trailing whitespace so the circle indicator always has text
-  // beside it and trailing blank lines don't create excessive spacing before
-  // the next part in the message.
-  const trimmedContent = displayContent?.replace(/^\n+/, "").replace(/\n+$/, "");
+  const normalizedContent = normalizeMarkdownNewlines(displayContent ?? "");
 
-  if (!trimmedContent) {
+  if (!normalizedContent) {
     return null;
   }
-
-  // Collapse single newlines to spaces (standard markdown soft-break behaviour).
-  // OpenTUI's TextRenderable renders literal \n as hard line breaks unlike HTML.
-  const normalizedContent = normalizeMarkdownNewlines(trimmedContent);
 
   return (
     <box flexDirection="column">

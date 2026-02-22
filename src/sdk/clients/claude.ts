@@ -662,7 +662,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 );
             },
 
-            stream: (message: string): AsyncIterable<AgentMessage> => {
+            stream: (message: string, _options?: { agent?: string }): AsyncIterable<AgentMessage> => {
                 // Capture references for the async generator
                 const buildOptions = () =>
                     this.buildSdkOptions(config, sessionId);

@@ -111,9 +111,9 @@ export async function saveAtomicConfig(
   };
 
   const nextSettings: JsonRecord = {
-    $schema: SETTINGS_SCHEMA_URL,
     ...localSettings,
     ...newConfig,
+    $schema: SETTINGS_SCHEMA_URL,
   };
 
   await mkdir(dirname(localPath), { recursive: true });

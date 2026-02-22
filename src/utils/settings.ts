@@ -152,6 +152,7 @@ export function clearReasoningEffortPreference(agentType: string): void {
     const settings = loadSettingsFile(path);
     if (settings.reasoningEffort?.[agentType]) {
       delete settings.reasoningEffort[agentType];
+      settings.$schema = SETTINGS_SCHEMA_URL;
       writeFileSync(path, JSON.stringify(settings, null, 2), "utf-8");
     }
   } catch {

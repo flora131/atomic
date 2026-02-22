@@ -23,8 +23,10 @@
         "src",
         ".claude",
         ".opencode",
+        ".mcp.json",
         ".github/skills",
-        ".github/agents"
+        ".github/agents",
+        ".github/mcp-config.json"
     ],
     "scripts": {
         "dev": "bun run src/cli.ts",
@@ -33,7 +35,7 @@
         "typecheck": "tsc --noEmit",
         "lint": "oxlint --config=oxlint.json src",
         "lint:fix": "oxlint --config=oxlint.json --fix src",
-        "postinstall": "lefthook install"
+        "postinstall": "lefthook install && bun run src/scripts/postinstall.ts"
     },
     "devDependencies": {
         "@types/bun": "^1.3.9",

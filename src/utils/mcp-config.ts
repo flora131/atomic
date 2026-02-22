@@ -128,7 +128,7 @@ export function parseOpenCodeMcpConfig(filePath: string): McpServerConfig[] {
  *
  * Discovery order per ecosystem:
  * 1. Claude: ~/.claude/.mcp.json → .mcp.json
- * 2. Copilot: ~/.copilot/mcp-config.json → .github/mcp-config.json, mcp-config.json
+ * 2. Copilot: ~/.copilot/mcp-config.json → .github/mcp-config.json, .vscode/mcp.json, mcp-config.json
  * 3. OpenCode: ~/.opencode/opencode.json[c] → opencode.json[c], .opencode/opencode.json[c]
  *
  * @param cwd - Project root directory (defaults to process.cwd())
@@ -166,6 +166,7 @@ export function discoverMcpConfigs(cwd?: string, options: DiscoverMcpConfigsOpti
   // Project-level configs (override user-level within the same ecosystem)
   addSources(parseClaudeMcpConfig(join(projectRoot, ".mcp.json")), "claude");
   addSources(parseCopilotMcpConfig(join(projectRoot, ".github", "mcp-config.json")), "copilot");
+  addSources(parseCopilotMcpConfig(join(projectRoot, ".vscode", "mcp.json")), "copilot");
   addSources(parseCopilotMcpConfig(join(projectRoot, "mcp-config.json")), "copilot");
   addSources(parseOpenCodeMcpConfig(join(projectRoot, "opencode.json")), "opencode");
   addSources(parseOpenCodeMcpConfig(join(projectRoot, "opencode.jsonc")), "opencode");

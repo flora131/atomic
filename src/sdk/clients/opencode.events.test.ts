@@ -2,6 +2,12 @@ import { describe, expect, test } from "bun:test";
 import { OpenCodeClient } from "./opencode.ts";
 
 describe("OpenCodeClient event mapping", () => {
+  test("defaults directory to process.cwd() for project-scoped agent resolution", () => {
+    const client = new OpenCodeClient();
+    const options = client as unknown as { clientOptions?: { directory?: string } };
+    expect(options.clientOptions?.directory).toBe(process.cwd());
+  });
+
   test("maps session.created info.id to session.start sessionId", () => {
     const client = new OpenCodeClient();
     const sessionStarts: string[] = [];
@@ -98,5 +104,54 @@ describe("OpenCodeClient event mapping", () => {
       },
     ]);
   });
-});
 
+  test("maps subtask parts to subagent.start with agent name and task", () => {
+    const client = new OpenCodeClient();
+    const starts: Array<{
+      sessionId: string;
+      subagentId?: string;
+      subagentType?: string;
+      task?: string;
+    }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as {
+        subagentId?: string;
+        subagentType?: string;
+        task?: string;
+      };
+      starts.push({
+        sessionId: event.sessionId,
+        subagentId: data.subagentId,
+        subagentType: data.subagentType,
+        task: data.task,
+      });
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "subtask_1",
+          sessionID: "ses_parent",
+          messageID: "msg_1",
+          type: "subtask",
+          prompt: "Research Rust TUI stacks",
+          description: "Research the best technology stacks in Rust for terminal games",
+          agent: "codebase-online-researcher",
+        },
+      },
+    });
+
+    unsubStart();
+
+    expect(starts).toEqual([
+      {
+        sessionId: "ses_parent",
+        subagentId: "subtask_1",
+        subagentType: "codebase-online-researcher",
+        task: "Research the best technology stacks in Rust for terminal games",
+      },
+    ]);
+  });
+});

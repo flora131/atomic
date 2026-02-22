@@ -690,7 +690,12 @@ export const taskToolRenderer: ToolRenderer = {
 
   getTitle(props: ToolRenderProps): string {
     const desc = (props.input.description as string) || (props.input.prompt as string) || "";
-    const agentType = (props.input.agent_type as string) || "";
+    const agentType = (
+      (props.input.agent_type as string)
+      || (props.input.subagent_type as string)
+      || (props.input.agent as string)
+      || ""
+    );
     if (desc && agentType) return `${agentType}: ${desc}`;
     if (desc) return desc;
     if (agentType) return agentType;
@@ -703,7 +708,12 @@ export const taskToolRenderer: ToolRenderer = {
     const TASK_FIELD_MAX_CHARS = 160;
     const desc = (props.input.description as string) || "";
     const prompt = (props.input.prompt as string) || "";
-    const agentType = (props.input.agent_type as string) || "";
+    const agentType = (
+      (props.input.agent_type as string)
+      || (props.input.subagent_type as string)
+      || (props.input.agent as string)
+      || ""
+    );
     const model = (props.input.model as string) || "";
     const mode = (props.input.mode as string) || "";
 

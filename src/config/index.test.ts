@@ -256,6 +256,82 @@ describe("loadCopilotAgents", () => {
     }
   });
 
+  test("loads agents from ~/.atomic fallback directories", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
+
+    try {
+      const atomicAgentsDir = join(root, ".atomic", ".copilot", "agents");
+      await mkdir(atomicAgentsDir, { recursive: true });
+      await writeFile(
+        join(atomicAgentsDir, "atomic-agent.md"),
+        "---\nname: Atomic Global Agent\n---\nAtomic global content",
+        "utf-8"
+      );
+
+      const mockFsOps = {
+        readdir: async (dir: string) => {
+          const fs = await import("node:fs/promises");
+          const remappedDir = dir.replace(homedir(), root);
+          return fs.readdir(remappedDir);
+        },
+        readFile: async (file: string, encoding?: string) => {
+          const fs = await import("node:fs/promises");
+          const remappedFile = file.replace(homedir(), root);
+          return fs.readFile(remappedFile, encoding as BufferEncoding);
+        },
+      } as unknown as FsOps;
+
+      const agents = await loadCopilotAgents(root, mockFsOps);
+      expect(agents.length).toBe(1);
+      expect(agents[0]?.name).toBe("Atomic Global Agent");
+      expect(agents[0]?.source).toBe("global");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("legacy global agents override ~/.atomic global agents", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
+
+    try {
+      const atomicDir = join(root, ".atomic", ".copilot", "agents");
+      await mkdir(atomicDir, { recursive: true });
+      await writeFile(
+        join(atomicDir, "shared.md"),
+        "---\nname: Shared Agent\ndescription: From atomic\n---\nAtomic version",
+        "utf-8"
+      );
+
+      const legacyDir = join(root, ".copilot", "agents");
+      await mkdir(legacyDir, { recursive: true });
+      await writeFile(
+        join(legacyDir, "shared.md"),
+        "---\nname: Shared Agent\ndescription: From legacy\n---\nLegacy version",
+        "utf-8"
+      );
+
+      const mockFsOps = {
+        readdir: async (dir: string) => {
+          const fs = await import("node:fs/promises");
+          const remappedDir = dir.replace(homedir(), root);
+          return fs.readdir(remappedDir);
+        },
+        readFile: async (file: string, encoding?: string) => {
+          const fs = await import("node:fs/promises");
+          const remappedFile = file.replace(homedir(), root);
+          return fs.readFile(remappedFile, encoding as BufferEncoding);
+        },
+      } as unknown as FsOps;
+
+      const agents = await loadCopilotAgents(root, mockFsOps);
+      expect(agents.length).toBe(1);
+      expect(agents[0]?.name).toBe("Shared Agent");
+      expect(agents[0]?.description).toBe("From legacy");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("performs case-insensitive deduplication", async () => {
     const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
 
@@ -370,6 +446,30 @@ describe("loadCopilotInstructions", () => {
 
       const instructions = await loadCopilotInstructions(root, mockFsOps);
       expect(instructions).toBe("Global user instructions");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("falls back to ~/.atomic global instructions when legacy global is missing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "atomic-config-test-"));
+
+    try {
+      const atomicInstructionsPath = join(root, ".atomic", ".copilot", "copilot-instructions.md");
+      await mkdir(join(root, ".atomic", ".copilot"), { recursive: true });
+      await writeFile(atomicInstructionsPath, "Atomic global instructions", "utf-8");
+
+      const mockFsOps = {
+        readdir: async () => [],
+        readFile: async (file: string, encoding?: string) => {
+          const fs = await import("node:fs/promises");
+          const remappedFile = file.replace(homedir(), root);
+          return fs.readFile(remappedFile, encoding as BufferEncoding);
+        },
+      } as unknown as FsOps;
+
+      const instructions = await loadCopilotInstructions(root, mockFsOps);
+      expect(instructions).toBe("Atomic global instructions");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

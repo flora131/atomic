@@ -324,7 +324,7 @@ export class CopilotClient implements CodingAgentClient {
         };
       },
 
-      stream: (message: string): AsyncIterable<AgentMessage> => {
+      stream: (message: string, _options?: { agent?: string }): AsyncIterable<AgentMessage> => {
         return {
           [Symbol.asyncIterator]: async function* () {
             if (state.isClosed) {
@@ -810,6 +810,9 @@ export class CopilotClient implements CodingAgentClient {
       join(HOME, ".copilot", "skills"),
       join(HOME, ".claude", "skills"),
       join(HOME, ".opencode", "skills"),
+      join(HOME, ".atomic", ".copilot", "skills"),
+      join(HOME, ".atomic", ".claude", "skills"),
+      join(HOME, ".atomic", ".opencode", "skills"),
     ].filter((dir) => existsSync(dir));
 
     // Strip provider prefix from model ID (e.g. "github-copilot/claude-opus-4.6-fast" → "claude-opus-4.6-fast")

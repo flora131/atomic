@@ -119,10 +119,15 @@ export async function loadCopilotAgents(
   fsOps: FsOps = defaultFsOps
 ): Promise<CopilotAgent[]> {
   const HOME = os.homedir();
+  const ATOMIC_HOME = path.join(HOME, ".atomic");
 
   // All agent directories in priority order (later entries override earlier for same name)
   const agentDirs: Array<{ dir: string; source: "global" | "local" }> = [
-    // Global directories (lowest priority)
+    // Atomic-managed global directories (lowest priority)
+    { dir: path.join(ATOMIC_HOME, ".copilot", "agents"), source: "global" },
+    { dir: path.join(ATOMIC_HOME, ".claude", "agents"), source: "global" },
+    { dir: path.join(ATOMIC_HOME, ".opencode", "agents"), source: "global" },
+    // Legacy global directories
     { dir: path.join(HOME, ".copilot", "agents"), source: "global" },
     { dir: path.join(HOME, ".claude", "agents"), source: "global" },
     { dir: path.join(HOME, ".opencode", "agents"), source: "global" },
@@ -159,6 +164,7 @@ export async function loadCopilotInstructions(
 ): Promise<string | null> {
   const localPath = path.join(projectRoot, ".github", "copilot-instructions.md");
   const globalPath = path.join(os.homedir(), ".copilot", "copilot-instructions.md");
+  const atomicGlobalPath = path.join(os.homedir(), ".atomic", ".copilot", "copilot-instructions.md");
 
   // Try local first (higher priority)
   try {
@@ -170,6 +176,12 @@ export async function loadCopilotInstructions(
   // Try global
   try {
     return (await fsOps.readFile(globalPath, "utf-8")) as string;
+  } catch {
+    // Global not found, try Atomic-managed global path
+  }
+
+  try {
+    return (await fsOps.readFile(atomicGlobalPath, "utf-8")) as string;
   } catch {
     // Neither found
     return null;

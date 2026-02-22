@@ -35,6 +35,17 @@ async function createTemplateAgentConfigs(configRoot: string): Promise<void> {
   await mkdir(join(configRoot, ".github", "skills", "init"), { recursive: true });
   await writeFile(join(configRoot, ".github", "agents", "debugger.md"), "# debugger\n", "utf-8");
   await writeFile(join(configRoot, ".github", "skills", "init", "SKILL.md"), "# init\n", "utf-8");
+  await writeFile(
+    join(configRoot, ".github", "mcp-config.json"),
+    '{"mcpServers":{"deepwiki":{"type":"http","url":"https://mcp.deepwiki.com/mcp"}}}\n',
+    "utf-8"
+  );
+
+  await writeFile(
+    join(configRoot, ".mcp.json"),
+    '{"mcpServers":{"deepwiki":{"type":"http","url":"https://mcp.deepwiki.com/mcp"}}}\n',
+    "utf-8"
+  );
 }
 
 test("syncAtomicGlobalAgentConfigs installs all agents under ~/.atomic", async () => {
@@ -50,6 +61,8 @@ test("syncAtomicGlobalAgentConfigs installs all agents under ~/.atomic", async (
     expect(existsSync(join(atomicHome, ".claude", "settings.json"))).toBe(true);
     expect(existsSync(join(atomicHome, ".opencode", "opencode.json"))).toBe(true);
     expect(existsSync(join(atomicHome, ".copilot", "agents", "debugger.md"))).toBe(true);
+    expect(existsSync(join(atomicHome, ".mcp.json"))).toBe(true);
+    expect(existsSync(join(atomicHome, ".copilot", "mcp-config.json"))).toBe(true);
 
     expect(existsSync(join(root, ".claude"))).toBe(false);
     expect(existsSync(join(root, ".opencode"))).toBe(false);
@@ -76,7 +89,7 @@ test("hasAtomicGlobalAgentConfigs requires complete global config contents", asy
     await syncAtomicGlobalAgentConfigs(configRoot, atomicHome);
     expect(await hasAtomicGlobalAgentConfigs(atomicHome)).toBe(true);
 
-    await rm(join(atomicHome, ".opencode", "opencode.json"), { force: true });
+    await rm(join(atomicHome, ".mcp.json"), { force: true });
     expect(await hasAtomicGlobalAgentConfigs(atomicHome)).toBe(false);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -101,6 +114,8 @@ test("ensureAtomicGlobalAgentConfigs re-syncs when config folders are incomplete
     expect(existsSync(join(atomicHome, ".claude", "settings.json"))).toBe(true);
     expect(existsSync(join(atomicHome, ".opencode", "opencode.json"))).toBe(true);
     expect(existsSync(join(atomicHome, ".copilot", "skills", "init", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(atomicHome, ".mcp.json"))).toBe(true);
+    expect(existsSync(join(atomicHome, ".copilot", "mcp-config.json"))).toBe(true);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

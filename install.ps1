@@ -32,6 +32,11 @@ function Sync-GlobalAgentConfigs {
     Copy-Item -Path (Join-Path $SourceRoot ".opencode\*") -Destination $opencodeDir -Recurse -Force
     Copy-Item -Path (Join-Path $SourceRoot ".github\*") -Destination $copilotDir -Recurse -Force
 
+    $mcpConfigSource = Join-Path $SourceRoot ".mcp.json"
+    if (Test-Path $mcpConfigSource) {
+        Copy-Item -Path $mcpConfigSource -Destination (Join-Path $AtomicHome ".mcp.json") -Force
+    }
+
     foreach ($agentDir in @($claudeDir, $opencodeDir, $copilotDir)) {
         $skillsDir = Join-Path $agentDir "skills"
         if (Test-Path $skillsDir) {
@@ -43,7 +48,6 @@ function Sync-GlobalAgentConfigs {
 
     Remove-Item -Recurse -Force (Join-Path $copilotDir "workflows") -ErrorAction SilentlyContinue
     Remove-Item -Force (Join-Path $copilotDir "dependabot.yml") -ErrorAction SilentlyContinue
-    Remove-Item -Force (Join-Path $copilotDir "mcp-config.json") -ErrorAction SilentlyContinue
 }
 
 # Colors for output

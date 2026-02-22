@@ -23,8 +23,10 @@
         "src",
         ".claude",
         ".opencode",
+        ".mcp.json",
         ".github/skills",
-        ".github/agents"
+        ".github/agents",
+        ".github/mcp-config.json"
     ],
     "scripts": {
         "dev": "bun run src/cli.ts",

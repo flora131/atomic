@@ -150,14 +150,18 @@ sync_global_agent_configs() {
     cp -R "$source_root/.opencode/." "$ATOMIC_HOME/.opencode/"
     cp -R "$source_root/.github/." "$ATOMIC_HOME/.copilot/"
 
+    if [[ -f "$source_root/.mcp.json" ]]; then
+        cp "$source_root/.mcp.json" "$ATOMIC_HOME/.mcp.json"
+    fi
+
     # Remove SCM-managed skills from global config; these are project-scoped.
     rm -rf "$ATOMIC_HOME/.claude/skills/gh-"* "$ATOMIC_HOME/.claude/skills/sl-"* 2>/dev/null || true
     rm -rf "$ATOMIC_HOME/.opencode/skills/gh-"* "$ATOMIC_HOME/.opencode/skills/sl-"* 2>/dev/null || true
     rm -rf "$ATOMIC_HOME/.copilot/skills/gh-"* "$ATOMIC_HOME/.copilot/skills/sl-"* 2>/dev/null || true
 
-    # Keep Copilot global config focused on skills/agents/instructions.
+    # Keep Copilot global config focused on skills/agents/instructions/MCP.
     rm -rf "$ATOMIC_HOME/.copilot/workflows" 2>/dev/null || true
-    rm -f "$ATOMIC_HOME/.copilot/dependabot.yml" "$ATOMIC_HOME/.copilot/mcp-config.json" 2>/dev/null || true
+    rm -f "$ATOMIC_HOME/.copilot/dependabot.yml" 2>/dev/null || true
 }
 
 # Get latest version

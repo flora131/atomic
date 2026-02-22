@@ -3,7 +3,7 @@ import { join } from "path";
 import { homedir } from "os";
 
 import { AGENT_CONFIG, type AgentKey } from "../config";
-import { copyDir, pathExists } from "./copy";
+import { copyDir, copyFile, pathExists } from "./copy";
 
 const ATOMIC_HOME_DIR = join(homedir(), ".atomic");
 
@@ -27,6 +27,11 @@ const REQUIRED_GLOBAL_CONFIG_ENTRIES: Record<AgentKey, string[]> = {
   opencode: ["agents", "skills", "opencode.json"],
   copilot: ["agents", "skills"],
 };
+
+const REQUIRED_ATOMIC_HOME_ENTRIES = [
+  ".mcp.json",
+  join(".copilot", "mcp-config.json"),
+] as const;
 
 /**
  * Return the Atomic home directory used for global workflows/tools/settings.
@@ -96,6 +101,24 @@ async function getManagedScmSkillExcludes(sourceDir: string): Promise<string[]> 
 }
 
 /**
+ * Sync bundled MCP defaults into ~/.atomic.
+ */
+async function syncAtomicGlobalMcpConfigs(configRoot: string, baseDir: string): Promise<void> {
+  const claudeMcpSource = join(configRoot, ".mcp.json");
+  const claudeMcpDestination = join(baseDir, ".mcp.json");
+  if (await pathExists(claudeMcpSource)) {
+    await copyFile(claudeMcpSource, claudeMcpDestination);
+  }
+
+  const copilotMcpSource = join(configRoot, AGENT_CONFIG.copilot.folder, "mcp-config.json");
+  const copilotMcpDestination = join(baseDir, GLOBAL_AGENT_FOLDER_BY_KEY.copilot, "mcp-config.json");
+  if (await pathExists(copilotMcpSource)) {
+    await mkdir(join(baseDir, GLOBAL_AGENT_FOLDER_BY_KEY.copilot), { recursive: true });
+    await copyFile(copilotMcpSource, copilotMcpDestination);
+  }
+}
+
+/**
  * Sync bundled agent templates into ~/.atomic for global discovery.
  *
  * This installs baseline agent/skill configs globally while intentionally
@@ -123,6 +146,8 @@ export async function syncAtomicGlobalAgentConfigs(
     // Ensure stale managed SCM skills from previous installs are removed.
     await pruneManagedScmSkills(destinationFolder);
   }
+
+  await syncAtomicGlobalMcpConfigs(configRoot, baseDir);
 }
 
 /**
@@ -145,6 +170,13 @@ export async function hasAtomicGlobalAgentConfigs(
     if (entryChecks.some((exists) => !exists)) {
       return false;
     }
+  }
+
+  const atomicHomeChecks = await Promise.all(
+    REQUIRED_ATOMIC_HOME_ENTRIES.map((entryName) => pathExists(join(baseDir, entryName)))
+  );
+  if (atomicHomeChecks.some((exists) => !exists)) {
+    return false;
   }
 
   return true;

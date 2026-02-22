@@ -1,19 +1,14 @@
 #!/usr/bin/env bun
 
 import {
-  getAtomicManagedConfigDirs,
+  hasAtomicGlobalAgentConfigs,
   syncAtomicGlobalAgentConfigs,
 } from "../utils/atomic-global-config";
 import { getConfigRoot } from "../utils/config-path";
-import { pathExists } from "../utils/copy";
 
 async function verifyAtomicGlobalConfigSync(): Promise<void> {
-  const managedDirs = getAtomicManagedConfigDirs();
-  const checks = await Promise.all(managedDirs.map((dir) => pathExists(dir)));
-  const missingDirs = managedDirs.filter((_, index) => !checks[index]);
-
-  if (missingDirs.length > 0) {
-    throw new Error(`Missing synced global config directories: ${missingDirs.join(", ")}`);
+  if (!(await hasAtomicGlobalAgentConfigs())) {
+    throw new Error("Missing synced global config entries in ~/.atomic");
   }
 }
 

@@ -27,6 +27,7 @@ import { QueueIndicator } from "./components/queue-indicator.tsx";
 import {
   type ParallelAgent,
 } from "./components/parallel-agents-tree.tsx";
+import { BackgroundAgentFooter } from "./components/background-agent-footer.tsx";
 import { TranscriptView } from "./components/transcript-view.tsx";
 import {
   appendCompactionSummary,
@@ -70,7 +71,24 @@ import type { AskUserQuestionEventData } from "../graph/index.ts";
 import type { AgentType, ModelOperations } from "../models";
 import type { McpServerConfig } from "../sdk/types.ts";
 import { saveModelPreference, saveReasoningEffortPreference, clearReasoningEffortPreference } from "../utils/settings.ts";
-import { formatDuration } from "./utils/format.ts";
+import { formatDuration, normalizeMarkdownNewlines } from "./utils/format.ts";
+import {
+  hasLiveLoadingIndicator as hasAnyLiveLoadingIndicator,
+  shouldShowCompletionSummary,
+  shouldShowMessageLoadingIndicator,
+} from "./utils/loading-state.ts";
+import {
+  getActiveBackgroundAgents,
+  resolveBackgroundAgentsForFooter,
+  formatBackgroundAgentFooterStatus,
+  isBackgroundAgent,
+} from "./utils/background-agent-footer.ts";
+import { BACKGROUND_FOOTER_CONTRACT } from "./utils/background-agent-contracts.ts";
+import {
+  getBackgroundTerminationDecision,
+  interruptActiveBackgroundAgents,
+  isBackgroundTerminationKey,
+} from "./utils/background-agent-termination.ts";
 import { loadCommandHistory, appendCommandHistory } from "./utils/command-history.ts";
 import { getRandomVerb, getRandomCompletionVerb } from "./constants/index.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "./utils/mcp-output.ts";
@@ -127,18 +145,34 @@ import {
 } from "./utils/ralph-task-state.ts";
 import type {
   Part,
-  AgentPart,
-  ToolPart,
   TextPart,
-  ToolState,
   TaskListPart,
   SkillLoadPart,
   McpSnapshotPart,
   CompactionPart,
   PartId,
+  ToolPart,
 } from "./parts/index.ts";
-import { createPartId, upsertPart, findLastPartIndex, handleTextDelta, shouldFinalizeOnToolComplete } from "./parts/index.ts";
+import {
+  createPartId,
+  finalizeStreamingReasoningInMessage,
+  hasActiveForegroundAgents,
+  shouldFinalizeDeferredStream,
+  applyStreamPartEvent,
+  mergeParallelAgentsIntoParts,
+  shouldGroupSubagentTrees,
+  syncToolCallsIntoParts,
+} from "./parts/index.ts";
 import { MessageBubbleParts } from "./components/parts/message-bubble-parts.tsx";
+
+
+export { shouldGroupSubagentTrees };
+export {
+  isTaskProgressComplete,
+  shouldShowMessageLoadingIndicator,
+  shouldShowCompletionSummary,
+} from "./utils/loading-state.ts";
+
 
 /**
  * Get autocomplete suggestions for @ mentions (agents and files).
@@ -393,6 +427,148 @@ export interface StreamingMeta {
   outputTokens: number;
   thinkingMs: number;
   thinkingText: string;
+  /** Source key that produced the latest thinking-meta emission. */
+  thinkingSourceKey?: string;
+  /** Snapshot of accumulated thinking text keyed by source identity. */
+  thinkingTextBySource?: Record<string, string>;
+  /** Stream generation/run association keyed by source identity. */
+  thinkingGenerationBySource?: Record<string, number>;
+  /** Message binding keyed by source identity when metadata is available. */
+  thinkingMessageBySource?: Record<string, string>;
+}
+
+export interface ThinkingDropDiagnostics {
+  droppedStaleOrClosedThinkingEvents: number;
+  droppedMissingBindingThinkingEvents: number;
+}
+
+type ThinkingSourceLifecycleAction = "create" | "update" | "finalize" | "drop";
+
+const THINKING_SOURCE_DIAGNOSTICS_DEBUG = process.env.ATOMIC_THINKING_DIAGNOSTICS_DEBUG === "1";
+
+function createThinkingDropDiagnostics(): ThinkingDropDiagnostics {
+  return {
+    droppedStaleOrClosedThinkingEvents: 0,
+    droppedMissingBindingThinkingEvents: 0,
+  };
+}
+
+export function traceThinkingSourceLifecycle(
+  action: ThinkingSourceLifecycleAction,
+  sourceKey: string,
+  detail?: string,
+): void {
+  if (!THINKING_SOURCE_DIAGNOSTICS_DEBUG) {
+    return;
+  }
+  const suffix = detail ? ` ${detail}` : "";
+  console.debug(`[thinking-source] ${action} ${sourceKey}${suffix}`);
+}
+
+function addThinkingSourceKey(sourceKeys: Set<string>, key: unknown): void {
+  if (typeof key !== "string") {
+    return;
+  }
+  const normalized = key.trim();
+  if (normalized.length === 0) {
+    return;
+  }
+  sourceKeys.add(normalized);
+}
+
+function addThinkingSourceKeysFromRecord(
+  sourceKeys: Set<string>,
+  sourceRecord: Record<string, unknown> | undefined,
+): void {
+  if (!sourceRecord) {
+    return;
+  }
+  for (const key of Object.keys(sourceRecord)) {
+    addThinkingSourceKey(sourceKeys, key);
+  }
+}
+
+export function mergeClosedThinkingSources(
+  closedSources: ReadonlySet<string>,
+  meta: StreamingMeta | null | undefined,
+): Set<string> {
+  const merged = new Set(closedSources);
+  if (!meta) {
+    return merged;
+  }
+
+  addThinkingSourceKey(merged, meta.thinkingSourceKey);
+  addThinkingSourceKeysFromRecord(merged, meta.thinkingTextBySource);
+  addThinkingSourceKeysFromRecord(merged, meta.thinkingGenerationBySource);
+  addThinkingSourceKeysFromRecord(merged, meta.thinkingMessageBySource);
+
+  return merged;
+}
+
+export function resolveValidatedThinkingMetaEvent(
+  meta: StreamingMeta,
+  expectedMessageId: string,
+  currentGeneration: number,
+  closedSources?: ReadonlySet<string>,
+  diagnostics?: ThinkingDropDiagnostics,
+): {
+  thinkingSourceKey: string;
+  targetMessageId: string;
+  streamGeneration: number;
+  thinkingText: string;
+} | null {
+  const recordDrop = (
+    category: "stale_or_closed" | "missing_binding",
+    sourceKey: string,
+    detail: string,
+  ): null => {
+    if (category === "stale_or_closed") {
+      if (diagnostics) {
+        diagnostics.droppedStaleOrClosedThinkingEvents += 1;
+      }
+      traceThinkingSourceLifecycle("drop", sourceKey, `(stale/closed) ${detail}`);
+      return null;
+    }
+
+    if (diagnostics) {
+      diagnostics.droppedMissingBindingThinkingEvents += 1;
+    }
+    traceThinkingSourceLifecycle("drop", sourceKey, `(missing-binding) ${detail}`);
+    return null;
+  };
+
+  const sourceKey = typeof meta.thinkingSourceKey === "string"
+    ? meta.thinkingSourceKey.trim()
+    : "";
+  if (sourceKey.length === 0) {
+    return null;
+  }
+  if (closedSources?.has(sourceKey)) {
+    return recordDrop("stale_or_closed", sourceKey, "source already finalized");
+  }
+
+  const sourceTargetMessageId = meta.thinkingMessageBySource?.[sourceKey];
+  if (typeof sourceTargetMessageId !== "string" || sourceTargetMessageId.length === 0) {
+    return recordDrop("missing_binding", sourceKey, "missing targetMessageId binding");
+  }
+  if (sourceTargetMessageId !== expectedMessageId) {
+    return recordDrop("stale_or_closed", sourceKey, "targetMessageId mismatch");
+  }
+
+  const sourceGeneration = meta.thinkingGenerationBySource?.[sourceKey];
+  if (typeof sourceGeneration !== "number" || !Number.isFinite(sourceGeneration)) {
+    return recordDrop("missing_binding", sourceKey, "missing streamGeneration binding");
+  }
+  if (sourceGeneration !== currentGeneration) {
+    return recordDrop("stale_or_closed", sourceKey, "streamGeneration mismatch");
+  }
+
+  return {
+    thinkingSourceKey: sourceKey,
+    targetMessageId: sourceTargetMessageId,
+    streamGeneration: sourceGeneration,
+    thinkingText: meta.thinkingTextBySource?.[sourceKey] ?? meta.thinkingText,
+  };
 }
 
 /**
@@ -493,6 +669,12 @@ export type OnPermissionRequest = (
 export type OnInterrupt = () => void;
 
 /**
+ * Callback signature for background-agent termination handler.
+ * Called when user confirms Ctrl+F termination for active background agents.
+ */
+export type OnTerminateBackgroundAgents = () => void | Promise<void>;
+
+/**
  * AskUserQuestion event callback signature.
  * Called when askUserNode emits a human_input_required signal.
  */
@@ -550,6 +732,8 @@ export interface ChatAppProps {
    * Called to abort the current operation. If not streaming, double press exits.
    */
   onInterrupt?: OnInterrupt;
+  /** Callback when user confirms Ctrl+F background-agent termination. */
+  onTerminateBackgroundAgents?: OnTerminateBackgroundAgents;
   /** Placeholder text for input */
   placeholder?: string;
   /** Title for the chat window (deprecated, use header props instead) */
@@ -970,20 +1154,6 @@ export function CompletionSummary({ durationMs, outputTokens, thinkingMs }: Comp
   );
 }
 
-/**
- * Decide whether to render completion summary metadata for an assistant message.
- * Keep this aligned with transcript formatter behavior (>=1s).
- */
-export function shouldShowCompletionSummary(
-  message: { streaming?: boolean; durationMs?: number },
-  hasActiveBackgroundAgents: boolean,
-): boolean {
-  return !message.streaming
-    && !hasActiveBackgroundAgents
-    && message.durationMs != null
-    && message.durationMs >= 1000;
-}
-
 // ============================================================================
 // STREAMING BULLET PREFIX COMPONENT
 // ============================================================================
@@ -1130,302 +1300,31 @@ export function AtomicHeader({
  * - User messages: highlighted inline box with just the text
  * - Assistant messages: parts-based content rendering
  */
-function toToolState(
-  status: ToolExecutionStatus,
-  output: unknown,
-  fallbackStartedAt: string,
-  existingState?: ToolState,
-): ToolState {
-  switch (status) {
-    case "pending":
-      return { status: "pending" };
-    case "running":
-      return {
-        status: "running",
-        startedAt: existingState?.status === "running" ? existingState.startedAt : fallbackStartedAt,
-      };
-    case "completed":
-      return {
-        status: "completed",
-        output,
-        durationMs: existingState?.status === "completed" ? existingState.durationMs : 0,
-      };
-    case "error":
-      return {
-        status: "error",
-        error: existingState?.status === "error"
-          ? existingState.error
-          : (typeof output === "string" && output.trim() ? output : "Tool execution failed"),
-        output,
-      };
-    case "interrupted":
-      return { status: "interrupted", partialOutput: output };
-  }
-}
-
-function isActiveParallelAgent(agent: ParallelAgent): boolean {
-  return (
-    agent.status === "running"
-    || agent.status === "pending"
-    || agent.status === "background"
-  );
-}
-
-function hasSubagentCall(message: Pick<ChatMessage, "parallelAgents" | "toolCalls">): boolean {
-  if ((message.parallelAgents?.length ?? 0) > 0) return true;
-  return (message.toolCalls ?? []).some(
-    (tc) => tc.toolName === "Task" || tc.toolName === "task"
-  );
-}
-
-function isGroupedAgentPart(part: Part): part is AgentPart {
-  return part.type === "agent" && part.parentToolPartId === undefined;
-}
-
-export function shouldGroupSubagentTrees(
-  message: Pick<ChatMessage, "parallelAgents" | "toolCalls" | "parts">,
-  isLastMessage: boolean,
-): boolean {
-  if (!isLastMessage) return false;
-  const agents = message.parallelAgents ?? [];
-  if (agents.length === 0) return false;
-  if (!hasSubagentCall(message)) return false;
-
-  const parts = message.parts ?? [];
-  let hasSeenTask = false;
-  for (const part of parts) {
-    if (part.type === "tool") {
-      const toolName = part.toolName;
-      if (toolName === "Task" || toolName === "task") {
-        hasSeenTask = true;
-      } else {
-        return false;
-      }
-    } else if (part.type === "text") {
-      if (hasSeenTask && part.content.trim().length > 0) {
-        return false;
-      }
-    }
-  }
-
-  if (agents.some(isActiveParallelAgent)) return true;
-  return (message.parts ?? []).some(isGroupedAgentPart);
-}
-
-function getAgentInsertIndex(parts: Part[]): number {
-  let lastTaskToolIdx = -1;
-  let lastToolIdx = -1;
-
-  for (let i = 0; i < parts.length; i++) {
-    const part = parts[i];
-    if (!part || part.type !== "tool") continue;
-    lastToolIdx = i;
-    const toolName = (part as ToolPart).toolName;
-    if (toolName === "Task" || toolName === "task") {
-      lastTaskToolIdx = i;
-    }
-  }
-
-  let idx = parts.length;
-  if (lastTaskToolIdx >= 0) {
-    idx = lastTaskToolIdx + 1;
-  } else if (lastToolIdx >= 0) {
-    idx = lastToolIdx + 1;
-  }
-
-  while (idx < parts.length && parts[idx]?.type === "agent") {
-    idx++;
-  }
-  return idx;
-}
-
-function insertAgentPartAtTaskBoundary(parts: Part[], agentPart: AgentPart): Part[] {
-  const insertIdx = getAgentInsertIndex(parts);
-  return [
-    ...parts.slice(0, insertIdx),
-    agentPart,
-    ...parts.slice(insertIdx),
-  ];
-}
-
-function mergeParallelAgentsIntoParts(
-  parts: Part[],
-  parallelAgents: ParallelAgent[],
-  messageTimestamp: string,
-  groupIntoSingleTree: boolean,
-): Part[] {
-  const nonAgentParts: Part[] = parts.filter((p) => p.type !== "agent");
-  const existingAgentParts = parts.filter((p): p is AgentPart => p.type === "agent");
-
-  if (parallelAgents.length === 0) {
-    return nonAgentParts;
-  }
-
-  if (groupIntoSingleTree) {
-    const existingGroupedPart = existingAgentParts.find((p) => p.parentToolPartId === undefined) ?? existingAgentParts[0];
-    const groupedPart: AgentPart = {
-      id: existingGroupedPart?.id ?? createPartId(),
-      type: "agent",
-      agents: parallelAgents,
-      parentToolPartId: undefined,
-      createdAt: existingGroupedPart?.createdAt ?? messageTimestamp,
-    };
-    return insertAgentPartAtTaskBoundary(nonAgentParts, groupedPart);
-  }
-
-  const existingByParent = new Map<PartId | undefined, AgentPart>();
-  for (const existing of existingAgentParts) {
-    if (!existingByParent.has(existing.parentToolPartId)) {
-      existingByParent.set(existing.parentToolPartId, existing);
-    }
-  }
-
-  const agentsByToolCall = new Map<string | undefined, ParallelAgent[]>();
-  for (const agent of parallelAgents) {
-    const toolCallId = agent.taskToolCallId;
-    const grouped = agentsByToolCall.get(toolCallId) ?? [];
-    grouped.push(agent);
-    agentsByToolCall.set(toolCallId, grouped);
-  }
-
-  const finalParts: Part[] = [];
-  const handledToolCallIds = new Set<string>();
-
-  let currentGroup: ToolPart[] = [];
-  let currentGroupAgents: ParallelAgent[] = [];
-
-  for (let i = 0; i < nonAgentParts.length; i++) {
-    const part = nonAgentParts[i];
-    if (!part) continue;
-    finalParts.push(part);
-
-    if (part.type === "tool" && ((part as ToolPart).toolName === "Task" || (part as ToolPart).toolName === "task")) {
-      const toolPart = part as ToolPart;
-      currentGroup.push(toolPart);
-      const agents = agentsByToolCall.get(toolPart.toolCallId);
-      if (agents) {
-        currentGroupAgents.push(...agents);
-        if (toolPart.toolCallId) {
-          handledToolCallIds.add(toolPart.toolCallId);
-        }
-      }
-    }
-
-    let endsGroup = false;
-    if (currentGroup.length > 0) {
-      if (i === nonAgentParts.length - 1) {
-        endsGroup = true;
-      } else {
-        const nextPart = nonAgentParts[i + 1];
-        if (!nextPart) {
-          endsGroup = true;
-        } else if (nextPart.type === "tool") {
-          const toolName = (nextPart as ToolPart).toolName;
-          if (toolName !== "Task" && toolName !== "task") {
-            endsGroup = true;
-          }
-        } else if (nextPart.type === "text") {
-          if ((nextPart as TextPart).content.trim().length > 0) {
-            endsGroup = true;
-          }
-        }
-      }
-    }
-
-    if (endsGroup) {
-      if (currentGroupAgents.length > 0) {
-        const lastToolPart = currentGroup[currentGroup.length - 1];
-        if (lastToolPart) {
-          const parentToolPartId = lastToolPart.id;
-          const existingPart = existingByParent.get(parentToolPartId);
-          
-          const agentPart: AgentPart = {
-            id: existingPart?.id ?? createPartId(),
-            type: "agent",
-            agents: currentGroupAgents,
-            parentToolPartId,
-            createdAt: existingPart?.createdAt ?? messageTimestamp,
-          };
-          finalParts.push(agentPart);
-        }
-      }
-      currentGroup = [];
-      currentGroupAgents = [];
-    }
-  }
-
-  const remainingAgents: ParallelAgent[] = [];
-  for (const [toolCallId, agents] of agentsByToolCall) {
-    if (!toolCallId || !handledToolCallIds.has(toolCallId)) {
-      remainingAgents.push(...agents);
-    }
-  }
-
-  if (remainingAgents.length > 0) {
-    const existingPart = existingByParent.get(undefined);
-    const fallbackPart: AgentPart = {
-      id: existingPart?.id ?? createPartId(),
-      type: "agent",
-      agents: remainingAgents,
-      parentToolPartId: undefined,
-      createdAt: existingPart?.createdAt ?? messageTimestamp,
-    };
-    // Insert remaining agents at the task boundary (end of nonAgentParts)
-    const insertIdx = getAgentInsertIndex(finalParts);
-    finalParts.splice(insertIdx, 0, fallbackPart);
-  }
-
-  return finalParts;
-}
-
 function getRenderableAssistantParts(
   message: ChatMessage,
   taskItemsToShow: TaskItem[] | undefined,
   inlineTaskExpansion: boolean | undefined,
   isLastMessage: boolean,
+  hideAskUserQuestion: boolean,
 ): Part[] {
   let parts = [...(message.parts ?? [])];
 
   // Keep ToolPart state synchronized with the source toolCalls array.
-  const toolCalls = message.toolCalls ?? [];
-  for (const tc of toolCalls) {
-    const existingIdx = parts.findIndex(
-      (p) => p.type === "tool" && (p as ToolPart).toolCallId === tc.id
-    );
+  parts = syncToolCallsIntoParts(parts, message.toolCalls ?? [], message.timestamp, message.id);
 
-    if (existingIdx >= 0) {
-      const existing = parts[existingIdx] as ToolPart;
-      parts[existingIdx] = {
-        ...existing,
-        toolName: tc.toolName,
-        input: tc.input,
-        output: tc.output,
-        hitlResponse: tc.hitlResponse,
-        state: toToolState(tc.status, tc.output, message.timestamp, existing.state),
-      };
-      continue;
-    }
-
-    parts.push({
-      id: `tool-${message.id}-${tc.id}`,
-      type: "tool",
-      toolCallId: tc.id,
-      toolName: tc.toolName,
-      input: tc.input,
-      output: tc.output,
-      hitlResponse: tc.hitlResponse,
-      state: toToolState(tc.status, tc.output, message.timestamp),
-      createdAt: message.timestamp,
-    } satisfies ToolPart);
-  }
-
+  // Only merge parallel agents into parts if agent parts don't already exist.
+  // During streaming, agents are already added to parts via applyStreamPartEvent.
+  // This check prevents duplicate agent trees from being rendered.
   if (message.parallelAgents && message.parallelAgents.length > 0) {
-    parts = mergeParallelAgentsIntoParts(
-      parts,
-      message.parallelAgents,
-      message.timestamp,
-      shouldGroupSubagentTrees(message, isLastMessage),
-    );
+    const hasExistingAgentParts = parts.some((part) => part.type === "agent");
+    if (!hasExistingAgentParts) {
+      parts = mergeParallelAgentsIntoParts(
+        parts,
+        message.parallelAgents,
+        message.timestamp,
+        shouldGroupSubagentTrees(message, isLastMessage),
+      );
+    }
   }
 
   const shouldRenderInlineTasks = taskItemsToShow && taskItemsToShow.length > 0 && inlineTaskExpansion !== false;
@@ -1521,9 +1420,20 @@ function getRenderableAssistantParts(
     }
   }
 
+  if (hideAskUserQuestion) {
+    parts = parts.filter((part) => {
+      if (part.type !== "tool") return true;
+      const toolPart = part as ToolPart;
+      const isHitlTool = toolPart.toolName === "AskUserQuestion"
+        || toolPart.toolName === "question"
+        || toolPart.toolName === "ask_user";
+      return !(isHitlTool && toolPart.pendingQuestion);
+    });
+  }
+
   return parts;
 }
-export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, ralphSessionDir, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, ralphSessionDir, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
   // Collapsed mode: show compact single-line summary for each message
@@ -1606,13 +1516,19 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
     const inlineTaskExpansion = shouldRenderInlineTasks ? (tasksExpanded || undefined) : false;
     const renderableMessage = {
       ...message,
-      parts: getRenderableAssistantParts(message, taskItemsToShow, inlineTaskExpansion, Boolean(isLast)),
+      parts: getRenderableAssistantParts(
+        message,
+        taskItemsToShow,
+        inlineTaskExpansion,
+        Boolean(isLast),
+        hideAskUserQuestion,
+      ),
     };
 
     // Detect active background agents on this message
-    const hasActiveBackgroundAgents = (message.parallelAgents ?? []).some(
-      (a) => a.background && a.status === "background"
-    );
+    const hasActiveBackgroundAgents = getActiveBackgroundAgents(message.parallelAgents ?? []).length > 0;
+    const liveTaskItems = message.streaming ? todoItems : message.taskItems;
+    const showLoadingIndicator = shouldShowMessageLoadingIndicator(message, liveTaskItems);
 
     return (
       <box
@@ -1631,8 +1547,8 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
           />
         )}
 
-        {/* Loading spinner — shown during streaming OR while background agents are still running */}
-        {(message.streaming || hasActiveBackgroundAgents) && !hideLoading && (
+        {/* Loading spinner while work is active (stops once task progress is fully complete). */}
+        {showLoadingIndicator && !hideLoading && (
           <box flexDirection="row" alignItems="flex-start" marginTop={renderableMessage.parts.length > 0 ? SPACING.ELEMENT : SPACING.NONE}>
             <text>
               <LoadingIndicator
@@ -1698,6 +1614,7 @@ export function ChatApp({
   onExit,
   onResetSession,
   onInterrupt,
+  onTerminateBackgroundAgents,
   placeholder: _placeholder = "Type a message...",
   title: _title,
   syntaxStyle: _syntaxStyle,
@@ -1745,6 +1662,20 @@ export function ChatApp({
   // OpenCode behavior: single press interrupts streaming, double press exits when idle
   const [interruptCount, setInterruptCount] = useState(0);
   const interruptTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Ctrl+F confirmation state for terminating active background agents.
+  const [backgroundTerminationCount, setBackgroundTerminationCount] = useState(0);
+  const [ctrlFPressed, setCtrlFPressed] = useState(false);
+  const backgroundTerminationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backgroundTerminationInFlightRef = useRef(false);
+  const clearBackgroundTerminationConfirmation = useCallback(() => {
+    setBackgroundTerminationCount(0);
+    setCtrlFPressed(false);
+    if (backgroundTerminationTimeoutRef.current) {
+      clearTimeout(backgroundTerminationTimeoutRef.current);
+      backgroundTerminationTimeoutRef.current = null;
+    }
+  }, []);
 
   // Separate state for showing Ctrl+C warning (controlled by parent via signal handler)
   const [ctrlCPressed, setCtrlCPressed] = useState(false);
@@ -1923,6 +1854,11 @@ export function ChatApp({
   const isStreamingRef = useRef(false);
   // Ref to keep a synchronous copy of streaming meta for baking into message on completion
   const streamingMetaRef = useRef<StreamingMeta | null>(null);
+  // Source keys closed by stream finalize/interrupt/error.
+  // Used to drop late thinking events that arrive after stream teardown.
+  const closedThinkingSourcesRef = useRef<Set<string>>(new Set());
+  // Cumulative drop counters for rejected thinking-meta events.
+  const thinkingDropDiagnosticsRef = useRef<ThinkingDropDiagnostics>(createThinkingDropDiagnostics());
   // Ref to track whether an interrupt (ESC/Ctrl+C) already finalized agents.
   // Prevents handleComplete from overwriting interrupted agents with "completed".
   const wasInterruptedRef = useRef(false);
@@ -1932,6 +1868,9 @@ export function ChatApp({
   // When the last agent finishes, the stored function is called to finalize
   // the message and process the next queued message.
   const pendingCompleteRef = useRef<(() => void) | null>(null);
+  // Small grace timer before running deferred completion. If new chunks arrive,
+  // we cancel this timer so the main stream can continue after sub-agent handoff.
+  const deferredCompleteTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Tracks whether the current stream is an @mention-only stream (no SDK onComplete).
   // Prevents the agent-only completion path from firing for SDK-spawned sub-agents.
   const isAgentOnlyStreamRef = useRef(false);
@@ -1954,6 +1893,63 @@ export function ChatApp({
   const scrollboxRef = useRef<ScrollBoxRenderable>(null);
   // Ref for deferred queue dispatch without circular callback deps
   const dispatchQueuedMessageRef = useRef<(queuedMessage: QueuedMessage) => void>(() => {});
+
+  const clearDeferredCompletion = useCallback(() => {
+    pendingCompleteRef.current = null;
+    if (deferredCompleteTimeoutRef.current) {
+      clearTimeout(deferredCompleteTimeoutRef.current);
+      deferredCompleteTimeoutRef.current = null;
+    }
+  }, []);
+
+  const resetThinkingSourceTracking = useCallback(() => {
+    closedThinkingSourcesRef.current = new Set();
+    streamingMetaRef.current = null;
+    setStreamingMeta(null);
+  }, []);
+
+  const finalizeThinkingSourceTracking = useCallback(() => {
+    const previousClosedSources = closedThinkingSourcesRef.current;
+    const mergedClosedSources = mergeClosedThinkingSources(
+      previousClosedSources,
+      streamingMetaRef.current,
+    );
+    for (const sourceKey of mergedClosedSources) {
+      if (!previousClosedSources.has(sourceKey)) {
+        traceThinkingSourceLifecycle("finalize", sourceKey, "chat stream teardown");
+      }
+    }
+    closedThinkingSourcesRef.current = mergedClosedSources;
+    streamingMetaRef.current = null;
+    setStreamingMeta(null);
+  }, []);
+
+  /**
+   * Helper function to separate and interrupt agents.
+   * Ctrl+C should ONLY interrupt foreground agents, preserving background agents.
+   * Returns { interruptedAgents: all agents with foreground ones marked as interrupted,
+   *           remainingLiveAgents: only background agents that should stay in refs }
+   */
+  const separateAndInterruptAgents = useCallback((agents: ParallelAgent[]) => {
+    const backgroundAgents = agents.filter(isBackgroundAgent);
+    const foregroundAgents = agents.filter(a => !isBackgroundAgent(a));
+    
+    // Only interrupt foreground agents
+    const interruptedAgents = [
+      ...foregroundAgents.map((a) =>
+        a.status === "running" || a.status === "pending"
+          ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+          : a
+      ),
+      // Keep background agents as-is
+      ...backgroundAgents,
+    ];
+    
+    return {
+      interruptedAgents,
+      remainingLiveAgents: backgroundAgents,
+    };
+  }, []);
 
   const continueQueuedConversation = useCallback(() => {
     dispatchNextQueuedMessage<QueuedMessage>(
@@ -1980,13 +1976,14 @@ export function ChatApp({
     setMessages(next);
   }, []);
 
-  // Live elapsed time counter for streaming indicator
-  // Also keeps running while background agents are active (stream ended but work continues)
-  const hasActiveBackgroundAgentsGlobal = parallelAgents.some(
-    (a) => a.background && a.status === "background"
+  const hasLiveLoadingIndicator = useMemo(
+    () => hasAnyLiveLoadingIndicator(messages, todoItems),
+    [messages, todoItems],
   );
+
+  // Live elapsed time counter for the visible loading indicator.
   useEffect(() => {
-    if ((!isStreaming && !hasActiveBackgroundAgentsGlobal) || !streamingStartRef.current) {
+    if (!hasLiveLoadingIndicator || !streamingStartRef.current) {
       setStreamingElapsedMs(0);
       return;
     }
@@ -1997,12 +1994,32 @@ export function ChatApp({
       }
     }, 1000);
     return () => clearInterval(interval);
-  }, [isStreaming, hasActiveBackgroundAgentsGlobal]);
+  }, [hasLiveLoadingIndicator]);
 
   // Keep todoItemsRef in sync with state for use in completion callbacks
   useEffect(() => {
     todoItemsRef.current = todoItems;
   }, [todoItems]);
+
+  // Keep parallelAgentsRef synchronized with local state updates.
+  useEffect(() => {
+    parallelAgentsRef.current = parallelAgents;
+  }, [parallelAgents]);
+
+  // Auto-clear Ctrl+F confirmation when no active background agents remain.
+  useEffect(() => {
+    if (
+      getActiveBackgroundAgents(parallelAgents).length === 0
+      && (backgroundTerminationCount > 0 || ctrlFPressed)
+    ) {
+      clearBackgroundTerminationConfirmation();
+    }
+  }, [
+    parallelAgents,
+    backgroundTerminationCount,
+    ctrlFPressed,
+    clearBackgroundTerminationConfirmation,
+  ]);
 
   // Keep ralph session refs in sync with state
   useEffect(() => {
@@ -2140,13 +2157,14 @@ export function ChatApp({
 
         return prev.map((msg: ChatMessage) =>
           msg.id === failedMessageId
-            ? { ...msg, streaming: false, modelId: currentModelRef.current }
+            ? { ...finalizeStreamingReasoningInMessage(msg), streaming: false, modelId: currentModelRef.current }
             : msg
         );
       });
     }
 
     stopSharedStreamState();
+    finalizeThinkingSourceTracking();
 
     const resolver = streamCompletionResolverRef.current;
     streamCompletionResolverRef.current = null;
@@ -2154,7 +2172,7 @@ export function ChatApp({
     if (resolver) {
       resolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
     }
-  }, [setMessagesWindowed, stopSharedStreamState]);
+  }, [setMessagesWindowed, stopSharedStreamState, finalizeThinkingSourceTracking]);
 
   const enqueueShortcutLabel = useMemo(() => getEnqueueShortcutLabel(), []);
 
@@ -2208,6 +2226,10 @@ export function ChatApp({
       runningAskQuestionToolIdsRef.current.add(toolId);
     }
 
+    if (toolName === "AskUserQuestion" || toolName === "question" || toolName === "ask_user") {
+      activeHitlToolCallIdRef.current = toolId;
+    }
+
     // Add tool call to current streaming message.
     // If a tool call with the same ID already exists, update its input
     // (SDKs may send an initial event with empty input followed by a
@@ -2217,57 +2239,12 @@ export function ChatApp({
       setMessagesWindowed((prev) =>
         prev.map((msg) => {
           if (msg.id === messageId) {
-            const existing = msg.toolCalls?.find(tc => tc.id === toolId);
-            if (existing) {
-              // Update existing tool call's input with the latest values
-              return {
-                ...msg,
-                toolCalls: msg.toolCalls?.map(tc =>
-                  tc.id === toolId ? { ...tc, input } : tc
-                ),
-              };
-            }
-
-            const newToolCall: MessageToolCall = {
-              id: toolId,
+            return applyStreamPartEvent(msg, {
+              type: "tool-start",
+              toolId,
               toolName,
               input,
-              status: "running",
-            };
-            
-            // Track active HITL tool call for answer storage
-            if (toolName === "AskUserQuestion" || toolName === "question" || toolName === "ask_user") {
-              activeHitlToolCallIdRef.current = toolId;
-            }
-
-            // Create updated message with new tool call
-            const updatedMsg = {
-              ...msg,
-              toolCalls: [...(msg.toolCalls || []), newToolCall],
-            };
-
-            // *** DUAL POPULATION: Create ToolPart and finalize TextPart ***
-            // Finalize any streaming TextPart
-            const parts = [...(msg.parts ?? [])];
-            const lastTextIdx = findLastPartIndex(parts, p => p.type === "text" && (p as TextPart).isStreaming);
-            if (lastTextIdx >= 0) {
-              parts[lastTextIdx] = { ...parts[lastTextIdx], isStreaming: false } as TextPart;
-            }
-
-            // Create ToolPart
-            const toolPart: ToolPart = {
-              id: createPartId(),
-              type: "tool",
-              toolCallId: toolId,
-              toolName: toolName,
-              input: input,
-              state: { status: "running", startedAt: new Date().toISOString() },
-              createdAt: new Date().toISOString(),
-            };
-
-            updatedMsg.parts = upsertPart(parts, toolPart);
-            
-            return updatedMsg;
+            });
           }
           return msg;
         })
@@ -2369,85 +2346,15 @@ export function ChatApp({
     if (messageId) {
       setMessagesWindowed((prev) => {
         const updated = prev.map((msg) => {
-          if (msg.id === messageId && msg.toolCalls) {
-            const updatedMsg = {
-              ...msg,
-              toolCalls: msg.toolCalls.map((tc) => {
-                if (tc.id === toolId) {
-                  // Merge input if provided and current input is empty
-                  const updatedInput = (input && Object.keys(tc.input).length === 0)
-                    ? input
-                    : tc.input;
-                  const isHitlTool = tc.toolName === "AskUserQuestion"
-                    || tc.toolName === "question"
-                    || tc.toolName === "ask_user";
-                  let mergedOutput = output !== undefined ? output : tc.output;
-
-                  // Preserve the canonical HITL answer text if tool.complete arrives later.
-                  if (isHitlTool && tc.hitlResponse) {
-                    const outputObject = (
-                      mergedOutput !== null
-                      && typeof mergedOutput === "object"
-                    )
-                      ? mergedOutput as Record<string, unknown>
-                      : {};
-                    mergedOutput = {
-                      ...outputObject,
-                      answer: tc.hitlResponse.answerText,
-                      cancelled: tc.hitlResponse.cancelled,
-                      responseMode: tc.hitlResponse.responseMode,
-                      displayText: tc.hitlResponse.displayText,
-                    };
-                  }
-                  return {
-                    ...tc,
-                    input: updatedInput,
-                    output: mergedOutput,
-                    status: success ? "completed" as const : "error" as const,
-                  };
-                }
-                return tc;
-              }),
-            };
-
-            // *** DUAL POPULATION: Update ToolPart state ***
-            // Find matching ToolPart by toolCallId
-            const parts = [...(msg.parts ?? [])];
-            const toolPartIdx = parts.findIndex(
-              p => p.type === "tool" && (p as ToolPart).toolCallId === toolId
-            );
-
-            if (toolPartIdx >= 0) {
-              const toolPart = parts[toolPartIdx] as ToolPart;
-              
-              // Compute durationMs from startedAt if available
-              let durationMs = 0;
-              if (toolPart.state.status === "running") {
-                durationMs = Date.now() - new Date(toolPart.state.startedAt).getTime();
-              }
-
-              // Merge input if provided (handles late input from OpenCode)
-              const updatedInput = (input && Object.keys(toolPart.input).length === 0)
-                ? input
-                : toolPart.input;
-
-              // Create new state based on success/error
-              const newState: ToolState = success
-                ? { status: "completed", output, durationMs }
-                : { status: "error", error: error || "Unknown error", output };
-
-              // Update the ToolPart
-              parts[toolPartIdx] = {
-                ...toolPart,
-                input: updatedInput,
-                output,
-                state: newState,
-              };
-
-              updatedMsg.parts = parts;
-            }
-
-            return updatedMsg;
+          if (msg.id === messageId) {
+            return applyStreamPartEvent(msg, {
+              type: "tool-complete",
+              toolId,
+              output,
+              success,
+              error,
+              input,
+            });
           }
           return msg;
         });
@@ -2544,6 +2451,12 @@ export function ChatApp({
         clearTimeout(interruptTimeoutRef.current);
       }
       clearAutoCompactionTimeout();
+      if (deferredCompleteTimeoutRef.current) {
+        clearTimeout(deferredCompleteTimeoutRef.current);
+      }
+      if (backgroundTerminationTimeoutRef.current) {
+        clearTimeout(backgroundTerminationTimeoutRef.current);
+      }
     };
   }, [clearAutoCompactionTimeout]);
 
@@ -2568,14 +2481,14 @@ export function ChatApp({
             const promptToSend = workflowState.initialPrompt!;
             // Clear stale todo items from previous turn when not in /ralph
             resetTodoItemsForNewStream();
+            clearDeferredCompletion();
 
           // Increment stream generation so stale handleComplete callbacks become no-ops
           const currentGeneration = ++streamGenerationRef.current;
           // Set streaming BEFORE calling onStreamMessage to prevent race conditions
           setIsStreaming(true);
           isStreamingRef.current = true;
-          streamingMetaRef.current = null;
-          setStreamingMeta(null);
+          resetThinkingSourceTracking();
 
           // Call the stream handler - this is async but we don't await it
           // The callbacks will handle state updates
@@ -2585,25 +2498,19 @@ export function ChatApp({
             (chunk) => {
               // Drop chunks from stale streams (round-robin replaced this stream)
               if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
+              if (pendingCompleteRef.current) {
+                clearDeferredCompletion();
+              }
               setMessagesWindowed((prev) => {
                 const lastMsg = prev[prev.length - 1];
                 if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
-                  // Dual population: update both legacy content and parts array
-                  const withParts = handleTextDelta(lastMsg, chunk);
                   return [
                     ...prev.slice(0, -1),
-                    { ...lastMsg, content: lastMsg.content + chunk, parts: withParts.parts },
+                    applyStreamPartEvent(lastMsg, { type: "text-delta", delta: chunk }),
                   ];
                 }
                 // Create new streaming message
-                const newMessage: ChatMessage = {
-                  id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-                  role: "assistant",
-                  content: chunk,
-                  timestamp: new Date().toISOString(),
-                  streaming: true,
-                  toolCalls: [],
-                };
+                const newMessage = createMessage("assistant", chunk, true);
                 streamingMessageIdRef.current = newMessage.id;
                 isAgentOnlyStreamRef.current = false;
                 return [...prev, newMessage];
@@ -2629,7 +2536,13 @@ export function ChatApp({
                     if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
                       return [
                         ...prev.slice(0, -1),
-                        { ...lastMsg, streaming: false, completedAt: new Date(), parallelAgents: finalizedAgents, taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined },
+                        {
+                          ...finalizeStreamingReasoningInMessage(lastMsg),
+                          streaming: false,
+                          completedAt: new Date(),
+                          parallelAgents: finalizedAgents,
+                          taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
+                        },
                       ];
                     }
                     return prev;
@@ -2643,7 +2556,12 @@ export function ChatApp({
                   if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
                     return [
                       ...prev.slice(0, -1),
-                      { ...lastMsg, streaming: false, completedAt: new Date(), taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined },
+                      {
+                        ...finalizeStreamingReasoningInMessage(lastMsg),
+                        streaming: false,
+                        completedAt: new Date(),
+                        taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
+                      },
                     ];
                   }
                   return prev;
@@ -2651,11 +2569,37 @@ export function ChatApp({
                 return currentAgents;
               });
               stopSharedStreamState();
+              finalizeThinkingSourceTracking();
             },
             // onMeta: update streaming metadata
             (meta: StreamingMeta) => {
               streamingMetaRef.current = meta;
               setStreamingMeta(meta);
+              const messageId = streamingMessageIdRef.current;
+              if (!messageId) return;
+              const thinkingMetaEvent = resolveValidatedThinkingMetaEvent(
+                meta,
+                messageId,
+                currentGeneration,
+                closedThinkingSourcesRef.current,
+                thinkingDropDiagnosticsRef.current,
+              );
+              if (!thinkingMetaEvent) return;
+              setMessagesWindowed((prev: ChatMessage[]) =>
+                prev.map((msg: ChatMessage) =>
+                  msg.id === messageId
+                    ? applyStreamPartEvent(msg, {
+                        type: "thinking-meta",
+                        thinkingSourceKey: thinkingMetaEvent.thinkingSourceKey,
+                        targetMessageId: thinkingMetaEvent.targetMessageId,
+                        streamGeneration: thinkingMetaEvent.streamGeneration,
+                        thinkingMs: meta.thinkingMs,
+                        thinkingText: thinkingMetaEvent.thinkingText,
+                        includeReasoningPart: true,
+                      })
+                    : msg
+                )
+              );
             }
           )).catch((error) => {
             handleStreamStartupError(error, currentGeneration);
@@ -2664,13 +2608,14 @@ export function ChatApp({
             // Prevent unhandled errors from crashing the TUI
             console.error("[workflow auto-start] Error during context clear or streaming:", error);
             stopSharedStreamState();
+            finalizeThinkingSourceTracking();
           }
         })();
       }, 100);
 
       return () => clearTimeout(timeoutId);
     }
-  }, [workflowState.workflowActive, workflowState.initialPrompt, isStreaming, onStreamMessage, handleStreamStartupError, stopSharedStreamState]);
+  }, [workflowState.workflowActive, workflowState.initialPrompt, isStreaming, onStreamMessage, handleStreamStartupError, stopSharedStreamState, finalizeThinkingSourceTracking, resetThinkingSourceTracking]);
 
   // Reset workflow started ref when workflow becomes inactive
   useEffect(() => {
@@ -2739,7 +2684,7 @@ export function ChatApp({
     options: Array<{ label: string; value: string; description?: string }>,
     respond: (answer: string | string[]) => void,
     header?: string,
-    _toolCallId?: string
+    toolCallId?: string
   ) => {
     // During Ralph autonomous execution, auto-approve permission requests
     if (workflowState.workflowActive) {
@@ -2766,7 +2711,33 @@ export function ChatApp({
 
     // Show the question dialog (custom UI overlay)
     handleHumanInputRequired(userQuestion);
-  }, [handleHumanInputRequired, workflowState.workflowActive]);
+
+    const targetToolId = toolCallId ?? activeHitlToolCallIdRef.current;
+    if (targetToolId) {
+      setMessagesWindowed((prev) =>
+        prev.map((msg) => {
+          const hasToolCall = msg.toolCalls?.some((toolCall) => toolCall.id === targetToolId) ?? false;
+          const hasToolPart = msg.parts?.some(
+            (part) => part.type === "tool" && part.toolCallId === targetToolId,
+          ) ?? false;
+          if (!hasToolCall && !hasToolPart) return msg;
+
+          return applyStreamPartEvent(msg, {
+            type: "tool-hitl-request",
+            toolId: targetToolId,
+            request: {
+              requestId,
+              header: header || toolName,
+              question,
+              options,
+              multiSelect: false,
+              respond,
+            },
+          });
+        }),
+      );
+    }
+  }, [handleHumanInputRequired, workflowState.workflowActive, setMessagesWindowed]);
 
   // Store the requestId for askUserNode questions (for workflow resumption)
   const askUserQuestionRequestIdRef = useRef<string | null>(null);
@@ -2856,14 +2827,11 @@ export function ChatApp({
       setMessagesWindowed((prev: ChatMessage[]) =>
         prev.map((msg: ChatMessage, index: number) => {
           if (msg.id === messageId && msg.streaming) {
-            const updatedParts = mergeParallelAgentsIntoParts(
-              msg.parts ?? [],
-              parallelAgents,
-              msg.timestamp,
-              shouldGroupSubagentTrees({ ...msg, parallelAgents }, index === prev.length - 1),
-            );
-
-            return { ...msg, parallelAgents, parts: updatedParts };
+            return applyStreamPartEvent(msg, {
+              type: "parallel-agents",
+              agents: parallelAgents,
+              isLastMessage: index === prev.length - 1,
+            });
           }
           return msg;
         })
@@ -2877,22 +2845,17 @@ export function ChatApp({
       setMessagesWindowed((prev: ChatMessage[]) =>
         prev.map((msg: ChatMessage, index: number) => {
           if (msg.id === bgMsgId) {
-            const updatedParts = mergeParallelAgentsIntoParts(
-              msg.parts ?? [],
-              parallelAgents,
-              msg.timestamp,
-              shouldGroupSubagentTrees({ ...msg, parallelAgents }, index === prev.length - 1),
-            );
-
-            return { ...msg, parallelAgents, parts: updatedParts };
+            return applyStreamPartEvent(msg, {
+              type: "parallel-agents",
+              agents: parallelAgents,
+              isLastMessage: index === prev.length - 1,
+            });
           }
           return msg;
         })
       );
       // Clear refs once all background agents have reached terminal state
-      const hasActiveBg = parallelAgents.some(
-        (a) => a.background && a.status === "background"
-      );
+      const hasActiveBg = getActiveBackgroundAgents(parallelAgents).length > 0;
       if (!hasActiveBg) {
         backgroundAgentMessageIdRef.current = null;
         streamingStartRef.current = null;
@@ -2904,19 +2867,34 @@ export function ChatApp({
   // This fires whenever parallelAgents changes (from SDK events OR interrupt handler)
   // or when tools complete (via toolCompletionVersion).
   useEffect(() => {
-    const hasActive = parallelAgents.some(
-      (a) => a.status === "running" || a.status === "pending"
+    const canFinalizeDeferred = shouldFinalizeDeferredStream(
+      parallelAgents,
+      hasRunningToolRef.current,
     );
-    // Also check if tools are still running.
-    // Background agents are excluded — they must not block spinner
-    // termination. They continue running after the main stream ends
-    // and their progress is tracked separately via hasActiveBackgroundAgents.
-    if (hasActive || hasRunningToolRef.current) return;
+    if (!canFinalizeDeferred) {
+      if (deferredCompleteTimeoutRef.current) {
+        clearTimeout(deferredCompleteTimeoutRef.current);
+        deferredCompleteTimeoutRef.current = null;
+      }
+      return;
+    }
 
     if (pendingCompleteRef.current) {
-      const complete = pendingCompleteRef.current;
-      pendingCompleteRef.current = null;
-      complete();
+      if (deferredCompleteTimeoutRef.current) {
+        return;
+      }
+      const pendingComplete = pendingCompleteRef.current;
+      deferredCompleteTimeoutRef.current = setTimeout(() => {
+        deferredCompleteTimeoutRef.current = null;
+        if (pendingCompleteRef.current !== pendingComplete) {
+          return;
+        }
+        if (!shouldFinalizeDeferredStream(parallelAgentsRef.current, hasRunningToolRef.current)) {
+          return;
+        }
+        pendingCompleteRef.current = null;
+        pendingComplete();
+      }, 0);
       return;
     }
 
@@ -2953,15 +2931,15 @@ export function ChatApp({
       // Collect sub-agent result text into the message content so it
       // renders in the main conversation (like Claude Code's Task tool).
       const agentOutputParts = finalizedAgents
-        .filter((a) => a.result && a.result.trim())
-        .map((a) => a.result!.trim());
+        .map((a) => (typeof a.result === "string" ? normalizeMarkdownNewlines(a.result) : ""))
+        .filter((result) => result.length > 0);
       const agentOutput = agentOutputParts.join("\n\n");
 
       setMessagesWindowed((prev: ChatMessage[]) =>
         prev.map((msg: ChatMessage) =>
           msg.id === messageId
             ? {
-              ...msg,
+              ...finalizeStreamingReasoningInMessage(msg),
               content: (msg.toolCalls?.length ?? 0) > 0 ? msg.content : (agentOutput || msg.content),
               streaming: false,
               completedAt: new Date(),
@@ -2972,8 +2950,9 @@ export function ChatApp({
             : msg
         )
       );
+      finalizeThinkingSourceTracking();
       // Keep background agents in live state for post-stream completion tracking
-      const remainingBg = parallelAgents.filter((a) => a.background && a.status === "background");
+      const remainingBg = getActiveBackgroundAgents(parallelAgents);
       if (remainingBg.length > 0 && messageId) {
         stopSharedStreamState({ preserveStreamingStart: true });
         backgroundAgentMessageIdRef.current = messageId;
@@ -2989,7 +2968,7 @@ export function ChatApp({
       // the SDK handleComplete callback, so we must dequeue here.
       continueQueuedConversation();
     }
-  }, [parallelAgents, continueQueuedConversation, toolCompletionVersion, messages, stopSharedStreamState]);
+  }, [parallelAgents, continueQueuedConversation, toolCompletionVersion, messages, stopSharedStreamState, finalizeThinkingSourceTracking]);
 
   // Initialize SubagentGraphBridge when createSubagentSession is available
   useEffect(() => {
@@ -3066,54 +3045,17 @@ export function ChatApp({
 
       setMessagesWindowed((prev) =>
         prev.map((msg) => {
-          // Update legacy toolCalls array
-          const hasMatchingToolCall = msg.toolCalls?.some(tc => tc.id === hitlToolId);
-          const updatedToolCalls = hasMatchingToolCall
-            ? msg.toolCalls!.map((tc) =>
-                tc.id === hitlToolId
-                  ? {
-                      ...tc,
-                      output: {
-                        ...(tc.output && typeof tc.output === "object"
-                          ? tc.output as Record<string, unknown>
-                          : {}),
-                        answer: normalizedHitl.answerText,
-                        cancelled: normalizedHitl.cancelled,
-                        responseMode: normalizedHitl.responseMode,
-                        displayText: normalizedHitl.displayText,
-                      },
-                      hitlResponse: normalizedHitl,
-                    }
-                  : tc
-              )
-            : msg.toolCalls;
+          const hasMatchingToolCall = msg.toolCalls?.some((toolCall) => toolCall.id === hitlToolId) ?? false;
+          const hasMatchingToolPart = msg.parts?.some(
+            (part) => part.type === "tool" && part.toolCallId === hitlToolId,
+          ) ?? false;
 
-          // Update parts array: clear pendingQuestion and set hitlResponse on matching ToolPart
-          let updatedParts = msg.parts;
-          if (msg.parts && msg.parts.length > 0) {
-            const parts = [...msg.parts];
-            const toolPartIdx = parts.findIndex(
-              p => p.type === "tool" && (p as ToolPart).toolCallId === hitlToolId
-            );
-
-            if (toolPartIdx >= 0) {
-              const toolPart = parts[toolPartIdx] as ToolPart;
-              parts[toolPartIdx] = {
-                ...toolPart,
-                pendingQuestion: undefined, // Clear the pending question
-                hitlResponse: normalizedHitl, // Set the response
-              };
-              updatedParts = parts;
-            }
-          }
-
-          // Return updated message if anything changed
-          if (updatedToolCalls !== msg.toolCalls || updatedParts !== msg.parts) {
-            return {
-              ...msg,
-              toolCalls: updatedToolCalls,
-              parts: updatedParts,
-            };
+          if (hasMatchingToolCall || hasMatchingToolPart) {
+            return applyStreamPartEvent(msg, {
+              type: "tool-hitl-response",
+              toolId: hitlToolId,
+              response: normalizedHitl,
+            });
           }
           return msg;
         })
@@ -3220,9 +3162,8 @@ export function ChatApp({
       isAgentOnlyStreamRef.current = true;
       isStreamingRef.current = true;
       streamingStartRef.current = Date.now();
-      streamingMetaRef.current = null;
+      resetThinkingSourceTracking();
       setIsStreaming(true);
-      setStreamingMeta(null);
       resetTodoItemsForNewStream();
       setMessagesWindowed((prev: ChatMessage[]) => [...prev, assistantMsg]);
 
@@ -3238,7 +3179,7 @@ export function ChatApp({
         queuedMessage.skipUserMessage ? { skipUserMessage: true } : undefined
       );
     }
-  }, []);
+  }, [resetThinkingSourceTracking, resetTodoItemsForNewStream]);
 
   useEffect(() => {
     dispatchQueuedMessageRef.current = dispatchQueuedMessage;
@@ -3513,7 +3454,7 @@ export function ChatApp({
             setMessagesWindowed((prev: ChatMessage[]) =>
               prev.map((msg: ChatMessage) =>
                 msg.id === prevStreamingId && msg.streaming
-                  ? { ...msg, streaming: false }
+                  ? { ...finalizeStreamingReasoningInMessage(msg), streaming: false }
                   : msg
               ).filter((msg: ChatMessage) =>
                 // Remove the previous placeholder if it has no content
@@ -3527,14 +3468,14 @@ export function ChatApp({
           isStreamingRef.current = true;
           setIsStreaming(true);
           streamingStartRef.current = Date.now();
-          streamingMetaRef.current = null;
-          setStreamingMeta(null);
+          resetThinkingSourceTracking();
           // Clear stale todo items from previous turn when not in /ralph
           resetTodoItemsForNewStream();
           // Reset streaming content accumulator for step 1 → step 2 task parsing
           lastStreamingContentRef.current = "";
           // Reset tool tracking for the new stream
           hasRunningToolRef.current = false;
+          clearDeferredCompletion();
 
           // Create placeholder assistant message for the response
           const assistantMessage = createMessage("assistant", "", true);
@@ -3546,6 +3487,12 @@ export function ChatApp({
             if (!isStreamingRef.current) return;
             // Drop chunks from stale streams (round-robin replaced this stream)
             if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
+            // If completion was deferred waiting on sub-agents/tools but the
+            // model resumes emitting chunks, cancel the deferred completion and
+            // keep the current stream alive.
+            if (pendingCompleteRef.current) {
+              clearDeferredCompletion();
+            }
             // Accumulate content for step 1 → step 2 task parsing
             lastStreamingContentRef.current += chunk;
             // Skip rendering in message when content is hidden (e.g., step 1 JSON output)
@@ -3555,9 +3502,7 @@ export function ChatApp({
               setMessagesWindowed((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) => {
                   if (msg.id === messageId) {
-                    // Dual population: update both legacy content and parts array
-                    const withParts = handleTextDelta(msg, chunk);
-                    return { ...msg, content: msg.content + chunk, parts: withParts.parts };
+                    return applyStreamPartEvent(msg, { type: "text-delta", delta: chunk });
                   }
                   return msg;
                 })
@@ -3583,15 +3528,22 @@ export function ChatApp({
                 setMessagesWindowed((prev: ChatMessage[]) =>
                   prev.map((msg: ChatMessage) =>
                     msg.id === messageId
-                      ? { ...msg, streaming: false, durationMs, modelId: currentModelRef.current, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs, thinkingText: finalMeta?.thinkingText || undefined }
+                      ? {
+                        ...finalizeStreamingReasoningInMessage(msg),
+                        streaming: false,
+                        durationMs,
+                        modelId: currentModelRef.current,
+                        outputTokens: finalMeta?.outputTokens,
+                        thinkingMs: finalMeta?.thinkingMs,
+                        thinkingText: finalMeta?.thinkingText || undefined,
+                      }
                       : msg
                   )
                 );
               }
               setParallelAgents([]);
               stopSharedStreamState();
-
-              // Resolve streamAndWait promise with interrupted flag
+              finalizeThinkingSourceTracking();
               const resolver = streamCompletionResolverRef.current;
               if (resolver) {
                 streamCompletionResolverRef.current = null;
@@ -3613,9 +3565,7 @@ export function ChatApp({
             // Background agents are excluded — they must not block completion;
             // they continue running after the main stream ends and are tracked
             // separately via hasActiveBackgroundAgents.
-            const hasActiveAgents = parallelAgentsRef.current.some(
-              (a) => (a.status === "running" || a.status === "pending") && shouldFinalizeOnToolComplete(a)
-            );
+            const hasActiveAgents = hasActiveForegroundAgents(parallelAgentsRef.current);
             if (hasActiveAgents || hasRunningToolRef.current) {
               pendingCompleteRef.current = handleComplete;
               return;
@@ -3637,7 +3587,7 @@ export function ChatApp({
                   prev.map((msg: ChatMessage) =>
                     msg.id === messageId
                       ? {
-                        ...msg,
+                        ...finalizeStreamingReasoningInMessage(msg),
                         streaming: false,
                         durationMs,
                         modelId: currentModelRef.current,
@@ -3653,7 +3603,7 @@ export function ChatApp({
                 );
               }
               // Keep background agents in live state for post-stream completion tracking
-              const remaining = currentAgents.filter((a) => a.background && a.status === "background");
+              const remaining = getActiveBackgroundAgents(currentAgents);
               if (remaining.length > 0 && messageId) {
                 backgroundAgentMessageIdRef.current = messageId;
               }
@@ -3662,10 +3612,9 @@ export function ChatApp({
 
             // Preserve streamingStartRef when background agents are still running
             // so the elapsed timer continues tracking total work duration
-            const hasRemainingBg = parallelAgentsRef.current.some(
-              (a) => a.background && a.status === "background"
-            );
+            const hasRemainingBg = getActiveBackgroundAgents(parallelAgentsRef.current).length > 0;
             stopSharedStreamState({ preserveStreamingStart: hasRemainingBg });
+            finalizeThinkingSourceTracking();
 
             // If a streamAndWait call is pending, resolve its promise
             // instead of processing the message queue.
@@ -3687,6 +3636,31 @@ export function ChatApp({
           const handleMeta = (meta: StreamingMeta) => {
             streamingMetaRef.current = meta;
             setStreamingMeta(meta);
+            const messageId = streamingMessageIdRef.current;
+            if (!messageId) return;
+            const thinkingMetaEvent = resolveValidatedThinkingMetaEvent(
+              meta,
+              messageId,
+              currentGeneration,
+              closedThinkingSourcesRef.current,
+              thinkingDropDiagnosticsRef.current,
+            );
+            if (!thinkingMetaEvent) return;
+            setMessagesWindowed((prev: ChatMessage[]) =>
+              prev.map((msg: ChatMessage) =>
+                msg.id === messageId
+                  ? applyStreamPartEvent(msg, {
+                      type: "thinking-meta",
+                      thinkingSourceKey: thinkingMetaEvent.thinkingSourceKey,
+                      targetMessageId: thinkingMetaEvent.targetMessageId,
+                      streamGeneration: thinkingMetaEvent.streamGeneration,
+                      thinkingMs: meta.thinkingMs,
+                      thinkingText: thinkingMetaEvent.thinkingText,
+                      includeReasoningPart: true,
+                    })
+                  : msg
+              )
+            );
           };
 
           void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete, handleMeta, options)).catch((error) => {
@@ -4278,23 +4252,17 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             // Invalidate current stream callbacks before interrupting the SDK,
             // so synchronous onComplete callbacks from an interrupt become stale.
             streamGenerationRef.current = invalidateActiveStreamGeneration(streamGenerationRef.current);
-            pendingCompleteRef.current = null;
+            clearDeferredCompletion();
             // Abort the stream FIRST so chunks stop arriving immediately
             onInterrupt?.();
 
             // Read agents synchronously from ref (avoids nested dispatch issues)
             const currentAgents = parallelAgentsRef.current;
-            const interruptedAgents = currentAgents.length > 0
-              ? currentAgents.map((a) =>
-                a.status === "running" || a.status === "pending"
-                  ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                  : a
-              )
-              : undefined;
+            const { interruptedAgents, remainingLiveAgents } = separateAndInterruptAgents(currentAgents);
 
-            // Clear live agents and update ref immediately
-            parallelAgentsRef.current = [];
-            setParallelAgents([]);
+            // Keep background agents alive in refs
+            parallelAgentsRef.current = remainingLiveAgents;
+            setParallelAgents(remainingLiveAgents);
 
             // Finalize in_progress task items -> pending and bake into message
             const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
@@ -4306,7 +4274,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 prev.map((msg: ChatMessage) =>
                   msg.id === interruptedId
                     ? {
-                      ...msg,
+                      ...finalizeStreamingReasoningInMessage(msg),
                       wasInterrupted: true,
                       streaming: false,
                       parallelAgents: interruptedAgents,
@@ -4321,12 +4289,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             // Stop streaming state immediately so UI reflects interrupted state
             wasInterruptedRef.current = false;
             stopSharedStreamState();
-
-            // Sub-agent cancellation handled by SDK session interrupt
-
-            // Clear any pending ask-user question so dialog dismisses
-            setActiveQuestion(null);
-            askUserQuestionRequestIdRef.current = null;
+            finalizeThinkingSourceTracking();
             activeHitlToolCallIdRef.current = null;
 
             // Resolve streamAndWait promise with interrupted flag so workflow can react
@@ -4389,17 +4352,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           // If not streaming but subagents are still running, mark them interrupted
           {
             const currentAgents = parallelAgentsRef.current;
-            const hasRunningAgents = currentAgents.some(
+            // Only check for foreground agents - background agents should continue running
+            const foregroundAgents = currentAgents.filter(a => !isBackgroundAgent(a));
+            const hasRunningForegroundAgents = foregroundAgents.some(
               (a) => a.status === "running" || a.status === "pending"
             );
-            if (hasRunningAgents) {
+            if (hasRunningForegroundAgents) {
               // Inform parent integration so SDK-side run/correlation state is reset too.
               onInterrupt?.();
-              const interruptedAgents = currentAgents.map((a) =>
-                a.status === "running" || a.status === "pending"
-                  ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                  : a
-              );
+              const { interruptedAgents, remainingLiveAgents } = separateAndInterruptAgents(currentAgents);
               // Finalize in_progress task items -> pending and bake into message
               const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
 
@@ -4418,10 +4379,12 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                   )
                 );
               }
-              parallelAgentsRef.current = [];
-              setParallelAgents([]);
+              parallelAgentsRef.current = remainingLiveAgents;
+              setParallelAgents(remainingLiveAgents);
+              clearDeferredCompletion();
               wasInterruptedRef.current = false;
               stopSharedStreamState();
+              finalizeThinkingSourceTracking();
               continueQueuedConversation();
               return;
             }
@@ -4473,6 +4436,100 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           return;
         }
 
+        // While a dialog is active, it owns keyboard input exclusively.
+        // Keep Ctrl+C handling above for copy/interrupt semantics.
+        if (activeQuestion || showModelSelector) {
+          return;
+        }
+
+        // Ctrl+F - terminate active background agents (double press confirmation)
+        if (isBackgroundTerminationKey(event)) {
+          // Keep foreground stream interruption on ESC/Ctrl+C only.
+          if (isStreamingRef.current) {
+            return;
+          }
+
+          const currentAgents = parallelAgentsRef.current;
+          const activeBackgroundAgents = getActiveBackgroundAgents(currentAgents);
+          const decision = getBackgroundTerminationDecision(
+            backgroundTerminationCount,
+            activeBackgroundAgents.length,
+          );
+
+          console.debug("[background-termination] decision:", decision.action, {
+            pressCount: backgroundTerminationCount,
+            activeAgents: activeBackgroundAgents.length,
+          });
+
+          if (decision.action === "none") {
+            console.debug("[background-termination] noop: no active background agents");
+            clearBackgroundTerminationConfirmation();
+            return;
+          }
+
+          if (decision.action === "terminate") {
+            if (backgroundTerminationInFlightRef.current) {
+              return;
+            }
+            backgroundTerminationInFlightRef.current = true;
+            clearBackgroundTerminationConfirmation();
+
+            const { agents: interruptedAgents, interruptedIds } = interruptActiveBackgroundAgents(currentAgents);
+            if (interruptedIds.length === 0) {
+              backgroundTerminationInFlightRef.current = false;
+              return;
+            }
+
+            console.debug("[background-termination] executing termination", {
+              interruptedIds,
+              remainingCount: currentAgents.filter((agent) => !new Set(interruptedIds).has(agent.id)).length,
+            });
+
+            const interruptedIdSet = new Set(interruptedIds);
+            const remainingLiveAgents = currentAgents.filter((agent) => !interruptedIdSet.has(agent.id));
+
+            const interruptedMessageId = backgroundAgentMessageIdRef.current ?? streamingMessageIdRef.current;
+            if (interruptedMessageId) {
+              setMessagesWindowed((prev: ChatMessage[]) =>
+                prev.map((msg: ChatMessage) =>
+                  msg.id === interruptedMessageId
+                    ? {
+                      ...msg,
+                      parallelAgents: interruptedAgents,
+                    }
+                    : msg
+                )
+              );
+            }
+
+            parallelAgentsRef.current = remainingLiveAgents;
+            setParallelAgents(remainingLiveAgents);
+            backgroundAgentMessageIdRef.current = null;
+            streamingStartRef.current = null;
+            clearDeferredCompletion();
+
+            void Promise.resolve(onTerminateBackgroundAgents?.()).catch((error) => {
+              console.error("[background-termination] parent callback failed:", error);
+            });
+            addMessage("assistant", `${STATUS.error} ${decision.message}`);
+            backgroundTerminationInFlightRef.current = false;
+            return;
+          }
+
+          console.debug("[background-termination] armed: awaiting confirmation");
+          setBackgroundTerminationCount(1);
+          setCtrlFPressed(true);
+          if (backgroundTerminationTimeoutRef.current) {
+            clearTimeout(backgroundTerminationTimeoutRef.current);
+          }
+          backgroundTerminationTimeoutRef.current = setTimeout(() => {
+            setBackgroundTerminationCount(0);
+            setCtrlFPressed(false);
+            backgroundTerminationTimeoutRef.current = null;
+          }, 1000);
+          return;
+        }
+
         // Ctrl+O - toggle transcript mode (full-screen detailed view)
         if (event.ctrl && event.name === "o") {
           setTranscriptMode(prev => !prev);
@@ -4519,23 +4576,17 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             // Invalidate current stream callbacks before interrupting the SDK,
             // so synchronous onComplete callbacks from an interrupt become stale.
             streamGenerationRef.current = invalidateActiveStreamGeneration(streamGenerationRef.current);
-            pendingCompleteRef.current = null;
+            clearDeferredCompletion();
             // Abort the stream FIRST so chunks stop arriving immediately
             onInterrupt?.();
 
             // Read agents synchronously from ref (avoids nested dispatch issues)
             const currentAgents = parallelAgentsRef.current;
-            const interruptedAgents = currentAgents.length > 0
-              ? currentAgents.map((a) =>
-                a.status === "running" || a.status === "pending"
-                  ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                  : a
-              )
-              : undefined;
+            const { interruptedAgents, remainingLiveAgents } = separateAndInterruptAgents(currentAgents);
 
-            // Clear live agents and update ref immediately
-            parallelAgentsRef.current = [];
-            setParallelAgents([]);
+            // Keep background agents alive in refs
+            parallelAgentsRef.current = remainingLiveAgents;
+            setParallelAgents(remainingLiveAgents);
 
             // Finalize in_progress task items -> pending and bake into message
             const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
@@ -4547,7 +4598,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 prev.map((msg: ChatMessage) =>
                   msg.id === interruptedId
                     ? {
-                      ...msg,
+                      ...finalizeStreamingReasoningInMessage(msg),
                       wasInterrupted: true,
                       streaming: false,
                       parallelAgents: interruptedAgents,
@@ -4562,10 +4613,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             // Stop streaming state immediately so UI reflects interrupted state
             wasInterruptedRef.current = false;
             stopSharedStreamState();
-
-            // Sub-agent cancellation handled by SDK session interrupt
-
-            // Clear any pending ask-user question so dialog dismisses on ESC
+            finalizeThinkingSourceTracking();
             setActiveQuestion(null);
             askUserQuestionRequestIdRef.current = null;
             activeHitlToolCallIdRef.current = null;
@@ -4590,17 +4638,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           // If not streaming but subagents are still running, mark them interrupted
           {
             const currentAgents = parallelAgentsRef.current;
-            const hasRunningAgents = currentAgents.some(
+            // Only check for foreground agents - background agents should continue running
+            const foregroundAgents = currentAgents.filter(a => !isBackgroundAgent(a));
+            const hasRunningForegroundAgents = foregroundAgents.some(
               (a) => a.status === "running" || a.status === "pending"
             );
-            if (hasRunningAgents) {
+            if (hasRunningForegroundAgents) {
               // Inform parent integration so SDK-side run/correlation state is reset too.
               onInterrupt?.();
-              const interruptedAgents = currentAgents.map((a) =>
-                a.status === "running" || a.status === "pending"
-                  ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                  : a
-              );
+              const { interruptedAgents, remainingLiveAgents } = separateAndInterruptAgents(currentAgents);
               // Finalize in_progress task items -> pending and bake into message
               const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
 
@@ -4619,8 +4665,9 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                   )
                 );
               }
-              parallelAgentsRef.current = [];
-              setParallelAgents([]);
+              parallelAgentsRef.current = remainingLiveAgents;
+              setParallelAgents(remainingLiveAgents);
+              clearDeferredCompletion();
               wasInterruptedRef.current = false;
               stopSharedStreamState();
               continueQueuedConversation();
@@ -5072,7 +5119,38 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           syncInputScrollbar();
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer, emitMessageSubmitTelemetry, finalizeTaskItemsOnInterrupt, stopSharedStreamState]
+      [
+        onExit,
+        onInterrupt,
+        onTerminateBackgroundAgents,
+        isStreaming,
+        interruptCount,
+        backgroundTerminationCount,
+        handleCopy,
+        workflowState.showAutocomplete,
+        workflowState.selectedSuggestionIndex,
+        workflowState.autocompleteInput,
+        workflowState.autocompleteMode,
+        autocompleteSuggestions,
+        updateWorkflowState,
+        handleInputChange,
+        syncInputScrollbar,
+        executeCommand,
+        activeQuestion,
+        showModelSelector,
+        ctrlCPressed,
+        messageQueue,
+        setIsEditingQueue,
+        parallelAgents,
+        compactionSummary,
+        addMessage,
+        renderer,
+        emitMessageSubmitTelemetry,
+        finalizeTaskItemsOnInterrupt,
+        stopSharedStreamState,
+        clearBackgroundTerminationConfirmation,
+        finalizeThinkingSourceTracking,
+      ]
     )
   );
 
@@ -5122,12 +5200,12 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Track when streaming started for duration calculation
         streamingStartRef.current = Date.now();
         // Reset streaming metadata
-        streamingMetaRef.current = null;
-        setStreamingMeta(null);
+        resetThinkingSourceTracking();
         // Clear stale todo items from previous turn when not in /ralph
         resetTodoItemsForNewStream();
         // Reset tool tracking for the new stream
         hasRunningToolRef.current = false;
+        clearDeferredCompletion();
 
         // Create placeholder assistant message
         const assistantMessage = createMessage("assistant", "", true);
@@ -5140,14 +5218,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           if (!isStreamingRef.current) return;
           // Drop chunks from stale streams (round-robin replaced this stream)
           if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
+          if (pendingCompleteRef.current) {
+            clearDeferredCompletion();
+          }
           const messageId = streamingMessageIdRef.current;
           if (messageId) {
             setMessagesWindowed((prev: ChatMessage[]) =>
               prev.map((msg: ChatMessage) => {
                 if (msg.id === messageId) {
-                  // Dual population: update both legacy content and parts array
-                  const withParts = handleTextDelta(msg, chunk);
-                  return { ...msg, content: msg.content + chunk, parts: withParts.parts };
+                  return applyStreamPartEvent(msg, { type: "text-delta", delta: chunk });
                 }
                 return msg;
               })
@@ -5175,15 +5254,22 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               setMessagesWindowed((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
                   msg.id === messageId
-                    ? { ...msg, streaming: false, durationMs, modelId: currentModelRef.current, outputTokens: finalMeta?.outputTokens, thinkingMs: finalMeta?.thinkingMs, thinkingText: finalMeta?.thinkingText || undefined }
+                    ? {
+                      ...finalizeStreamingReasoningInMessage(msg),
+                      streaming: false,
+                      durationMs,
+                      modelId: currentModelRef.current,
+                      outputTokens: finalMeta?.outputTokens,
+                      thinkingMs: finalMeta?.thinkingMs,
+                      thinkingText: finalMeta?.thinkingText || undefined,
+                    }
                     : msg
                 )
               );
             }
             setParallelAgents([]);
             stopSharedStreamState();
-
-            continueQueuedConversation();
+            finalizeThinkingSourceTracking();
             return;
           }
 
@@ -5192,9 +5278,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           // Background agents are excluded — they must not block completion;
           // they continue running after the main stream ends and are tracked
           // separately via hasActiveBackgroundAgents.
-          const hasActiveAgents = parallelAgentsRef.current.some(
-            (a) => (a.status === "running" || a.status === "pending") && shouldFinalizeOnToolComplete(a)
-          );
+          const hasActiveAgents = hasActiveForegroundAgents(parallelAgentsRef.current);
           if (hasActiveAgents || hasRunningToolRef.current) {
             pendingCompleteRef.current = handleComplete;
             return;
@@ -5216,7 +5300,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 prev.map((msg: ChatMessage) =>
                   msg.id === messageId
                     ? {
-                      ...msg,
+                      ...finalizeStreamingReasoningInMessage(msg),
                       streaming: false,
                       durationMs,
                       modelId: currentModelRef.current,
@@ -5232,17 +5316,16 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               );
             }
             // Keep background agents in live state for post-stream completion tracking
-            const remaining = currentAgents.filter((a) => a.background && a.status === "background");
+            const remaining = getActiveBackgroundAgents(currentAgents);
             if (remaining.length > 0 && messageId) {
               backgroundAgentMessageIdRef.current = messageId;
             }
             return remaining;
           });
 
-          const hasRemainingBg = parallelAgentsRef.current.some(
-            (a) => a.background && a.status === "background"
-          );
+          const hasRemainingBg = getActiveBackgroundAgents(parallelAgentsRef.current).length > 0;
           stopSharedStreamState({ preserveStreamingStart: hasRemainingBg });
+          finalizeThinkingSourceTracking();
           continueQueuedConversation();
         };
 
@@ -5250,6 +5333,31 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         const handleMeta = (meta: StreamingMeta) => {
           streamingMetaRef.current = meta;
           setStreamingMeta(meta);
+          const messageId = streamingMessageIdRef.current;
+          if (!messageId) return;
+          const thinkingMetaEvent = resolveValidatedThinkingMetaEvent(
+            meta,
+            messageId,
+            currentGeneration,
+            closedThinkingSourcesRef.current,
+            thinkingDropDiagnosticsRef.current,
+          );
+          if (!thinkingMetaEvent) return;
+          setMessagesWindowed((prev: ChatMessage[]) =>
+            prev.map((msg: ChatMessage) =>
+              msg.id === messageId
+                ? applyStreamPartEvent(msg, {
+                    type: "thinking-meta",
+                    thinkingSourceKey: thinkingMetaEvent.thinkingSourceKey,
+                    targetMessageId: thinkingMetaEvent.targetMessageId,
+                    streamGeneration: thinkingMetaEvent.streamGeneration,
+                    thinkingMs: meta.thinkingMs,
+                    thinkingText: thinkingMetaEvent.thinkingText,
+                    includeReasoningPart: true,
+                  })
+                : msg
+            )
+          );
         };
 
         void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete, handleMeta)).catch((error) => {
@@ -5257,7 +5365,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         });
       }
     },
-    [onSendMessage, onStreamMessage, continueQueuedConversation, handleStreamStartupError, stopSharedStreamState]
+    [onSendMessage, onStreamMessage, continueQueuedConversation, handleStreamStartupError, stopSharedStreamState, finalizeThinkingSourceTracking, resetThinkingSourceTracking]
   );
 
   // Keep the sendMessageRef in sync with sendMessage callback
@@ -5460,9 +5568,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           isAgentOnlyStreamRef.current = true;
           isStreamingRef.current = true;
           streamingStartRef.current = Date.now();
-          streamingMetaRef.current = null;
+          resetThinkingSourceTracking();
           setIsStreaming(true);
-          setStreamingMeta(null);
           resetTodoItemsForNewStream();
           setMessagesWindowed((prev) => [...prev, assistantMsg]);
 
@@ -5481,9 +5588,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       if (isStreamingRef.current) {
         // Defer interrupt if sub-agents are actively working — fires when they finish
         // Background agents are excluded — they must not block interrupt.
-        const hasActiveSubagents = parallelAgentsRef.current.some(
-          (a) => (a.status === "running" || a.status === "pending") && shouldFinalizeOnToolComplete(a)
-        );
+        const hasActiveSubagents = hasActiveForegroundAgents(parallelAgentsRef.current);
         if (hasActiveSubagents) {
           emitMessageSubmitTelemetry({
             messageLength: trimmedValue.length,
@@ -5506,7 +5611,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             prev.map((msg: ChatMessage) =>
               msg.id === interruptedId
                 ? {
-                  ...msg,
+                  ...finalizeStreamingReasoningInMessage(msg),
                   streaming: false,
                   durationMs,
                   modelId: currentModelRef.current,
@@ -5523,6 +5628,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Invalidate callbacks for the interrupted stream before aborting.
         streamGenerationRef.current = invalidateActiveStreamGeneration(streamGenerationRef.current);
         stopSharedStreamState();
+        finalizeThinkingSourceTracking();
 
         const streamResolver = streamCompletionResolverRef.current;
         if (streamResolver) {
@@ -5535,6 +5641,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           hideStreamContentRef.current = false;
           streamResolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
         }
+
 
         // Abort the SDK stream (stale handleComplete is a no-op via generation guard)
         onInterrupt?.();
@@ -5560,11 +5667,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       });
       sendMessage(processedValue);
     },
-    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt, emitMessageSubmitTelemetry, finalizeTaskItemsOnInterrupt, stopSharedStreamState]
+    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt, emitMessageSubmitTelemetry, finalizeTaskItemsOnInterrupt, stopSharedStreamState, finalizeThinkingSourceTracking, resetThinkingSourceTracking]
   );
 
   // All messages are kept in memory; no windowing/eviction.
   const renderMessages = messages;
+  const footerBackgroundAgents = useMemo(
+    () => resolveBackgroundAgentsForFooter(parallelAgents, messages),
+    [parallelAgents, messages],
+  );
 
   // Auto-collapse boundary: messages before this index render as single-line summaries
   const collapseBoundaryIndex = Math.max(0, renderMessages.length - EXPANDED_MESSAGE_COUNT);
@@ -5574,10 +5685,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
     <>
       {/* Collapsed messages (older, auto-collapsed to single-line summaries) */}
       {renderMessages.slice(0, collapseBoundaryIndex).map((msg) => {
-        const msgHasActiveBg = (msg.parallelAgents ?? []).some(
-          (a) => a.background && a.status === "background"
-        );
-        const showLive = msg.streaming || msgHasActiveBg;
+        const liveTaskItems = msg.streaming ? todoItems : undefined;
+        const showLive = shouldShowMessageLoadingIndicator(msg, liveTaskItems);
         return (
         <MessageBubble
           key={msg.id}
@@ -5607,10 +5716,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       )}
       {/* Expanded messages (recent, full rendering) */}
       {renderMessages.slice(collapseBoundaryIndex).map((msg, index) => {
-        const msgHasActiveBg = (msg.parallelAgents ?? []).some(
-          (a) => a.background && a.status === "background"
-        );
-        const showLive = msg.streaming || msgHasActiveBg;
+        const liveTaskItems = msg.streaming ? todoItems : undefined;
+        const showLive = shouldShowMessageLoadingIndicator(msg, liveTaskItems);
         return (
         <MessageBubble
           key={msg.id}
@@ -5811,6 +5918,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 <text style={{ fg: themeColors.muted }}>
                   {enqueueShortcutLabel} enqueue
                 </text>
+                {footerBackgroundAgents.length > 0 && (
+                  <>
+                    <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
+                    <text style={{ fg: themeColors.accent }}>
+                      {formatBackgroundAgentFooterStatus(footerBackgroundAgents)}
+                    </text>
+                    <text style={{ fg: themeColors.dim }}>{MISC.separator} {BACKGROUND_FOOTER_CONTRACT.terminateHintText}</text>
+                  </>
+                )}
               </box>
             ) : null}
             {/* Workflow mode label with hints - shown when workflow is active */}
@@ -5831,6 +5947,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 <text style={{ fg: themeColors.muted }}>
                   ctrl+c twice to exit workflow
                 </text>
+                {footerBackgroundAgents.length > 0 && (
+                  <>
+                    <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
+                    <text style={{ fg: themeColors.accent }}>
+                      {formatBackgroundAgentFooterStatus(footerBackgroundAgents)}
+                    </text>
+                    <text style={{ fg: themeColors.dim }}>{MISC.separator} {BACKGROUND_FOOTER_CONTRACT.terminateHintText}</text>
+                  </>
+                )}
               </box>
             )}
           </>
@@ -5859,9 +5984,18 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             </text>
           </box>
         )}
+        {ctrlFPressed && (
+          <box paddingLeft={1} flexShrink={0}>
+            <text style={{ fg: themeColors.muted }}>
+              Press Ctrl-F again to terminate background agents
+            </text>
+          </box>
+        )}
       </scrollbox>
       </box>
       )}
+
+      {!isStreaming && <BackgroundAgentFooter agents={footerBackgroundAgents} />}
 
     </box>
   );

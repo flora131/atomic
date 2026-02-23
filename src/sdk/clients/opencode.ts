@@ -110,6 +110,15 @@ const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
 
 /**
+ * Debug logging helper gated behind ATOMIC_DEBUG environment variable
+ * Used to verify event emission at runtime during development
+ */
+const debugLog = process.env.ATOMIC_DEBUG
+  ? (label: string, data: Record<string, unknown>) =>
+      console.debug(`[opencode:${label}]`, JSON.stringify(data, null, 2))
+  : () => {};
+
+/**
  * Part types accepted by OpenCode SDK's session.prompt().
  * These mirror the SDK's TextPartInput and AgentPartInput types.
  */
@@ -665,6 +674,7 @@ export class OpenCodeClient implements CodingAgentClient {
           this.emitEvent("message.delta", partSessionId, {
             delta,
             contentType: "reasoning",
+            thinkingSourceKey: (part?.id as string) ?? undefined,
           });
         } else if (part?.type === "tool") {
           const toolState = part?.state as Record<string, unknown> | undefined;
@@ -676,6 +686,11 @@ export class OpenCodeClient implements CodingAgentClient {
           // Include the tool part ID so the UI can deduplicate events for
           // the same logical tool call (pending → running transitions).
           if (toolState?.status === "pending" || toolState?.status === "running") {
+            debugLog("tool.start", {
+              toolName,
+              toolId: part?.id as string,
+              hasToolInput: !!toolInput && Object.keys(toolInput).length > 0,
+            });
             this.emitEvent("tool.start", partSessionId, {
               toolName,
               toolInput,
@@ -709,9 +724,16 @@ export class OpenCodeClient implements CodingAgentClient {
         } else if (part?.type === "agent") {
           // AgentPart: { type: "agent", name, id, sessionID, messageID }
           // Map agent parts to subagent.start events
+          debugLog("subagent.start", {
+            partType: "agent",
+            subagentId: (part?.id as string) ?? "",
+            subagentType: (part?.name as string) ?? "",
+            toolCallId: (part?.callID as string) ?? (part?.id as string),
+          });
           this.emitEvent("subagent.start", partSessionId, {
             subagentId: (part?.id as string) ?? "",
             subagentType: (part?.name as string) ?? "",
+            toolCallId: (part?.callID as string) ?? (part?.id as string),
           });
         } else if (part?.type === "subtask") {
           // SubtaskPart: { type: "subtask", prompt, description, agent, ... }
@@ -720,6 +742,11 @@ export class OpenCodeClient implements CodingAgentClient {
           const subtaskPrompt = (part?.prompt as string) ?? "";
           const subtaskDescription = (part?.description as string) ?? "";
           const subtaskAgent = (part?.agent as string) ?? "";
+          debugLog("subagent.start", {
+            partType: "subtask",
+            subagentId: (part?.id as string) ?? "",
+            subagentType: subtaskAgent,
+          });
           this.emitEvent("subagent.start", partSessionId, {
             subagentId: (part?.id as string) ?? "",
             subagentType: subtaskAgent,
@@ -1145,6 +1172,7 @@ export class OpenCodeClient implements CodingAgentClient {
 
               const delta = event.data?.delta as string | undefined;
               const contentType = event.data?.contentType as string | undefined;
+              const thinkingSourceKey = event.data?.thinkingSourceKey as string | undefined;
               if (delta) {
                 deltaQueue.push({
                   type: contentType === "reasoning" ? "thinking" as const : "text" as const,
@@ -1152,6 +1180,8 @@ export class OpenCodeClient implements CodingAgentClient {
                   role: "assistant" as const,
                   ...(contentType === "reasoning" ? {
                     metadata: {
+                      provider: "opencode",
+                      thinkingSourceKey,
                       streamingStats: {
                         thinkingMs: 0,
                         outputTokens: 0,
@@ -1223,11 +1253,14 @@ export class OpenCodeClient implements CodingAgentClient {
                     if (reasoningStartMs === null) {
                       reasoningStartMs = Date.now();
                     }
+                    const reasoningPartId = (part as { id?: string }).id;
                     yield {
                       type: "thinking" as const,
                       content: part.text,
                       role: "assistant" as const,
                       metadata: {
+                        provider: "opencode",
+                        thinkingSourceKey: reasoningPartId,
                         streamingStats: {
                           thinkingMs: reasoningDurationMs + (Date.now() - reasoningStartMs),
                           outputTokens: 0,
@@ -1331,7 +1364,9 @@ export class OpenCodeClient implements CodingAgentClient {
                         reasoningStartMs = Date.now();
                       }
                       const currentMs = reasoningDurationMs + (Date.now() - reasoningStartMs);
+                      const existingMetadata = (msg.metadata ?? {}) as Record<string, unknown>;
                       msg.metadata = {
+                        ...existingMetadata,
                         streamingStats: { thinkingMs: currentMs, outputTokens: 0 },
                       };
                     } else if (reasoningStartMs !== null) {

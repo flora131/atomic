@@ -35,10 +35,6 @@ import {
   clearHistoryBuffer,
 } from "./utils/conversation-history-buffer.ts";
 import {
-  computeMessageWindow as computeMessageWindowInternal,
-  applyMessageWindow,
-} from "./utils/message-window.ts";
-import {
   SubagentGraphBridge,
   setSubagentBridge,
   type CreateSessionFn,
@@ -138,6 +134,7 @@ import type {
   TaskListPart,
   SkillLoadPart,
   McpSnapshotPart,
+  CompactionPart,
   PartId,
 } from "./parts/index.ts";
 import { createPartId, upsertPart, findLastPartIndex, handleTextDelta, shouldFinalizeOnToolComplete } from "./parts/index.ts";
@@ -816,30 +813,11 @@ export function formatTimestamp(isoString: string): string {
 // ============================================================================
 
 /**
- * Maximum number of messages to display in the chat UI.
- * Older messages are evicted from in-memory state and persisted to
- * the temp-file transcript buffer for Ctrl+O.
- */
-export const MAX_VISIBLE_MESSAGES = 50;
-
-/**
  * Number of most-recent messages to keep fully expanded in the chat view.
  * Older messages are auto-collapsed to single-line summaries.
  * Default: 4 (approximately two user-assistant exchanges).
  */
 export const EXPANDED_MESSAGE_COUNT = 4;
-
-/**
- * Compute the visible in-memory message window and hidden transcript count.
- * Hidden count includes both already-trimmed messages and any transient overflow.
- */
-export function computeMessageWindow(
-  messages: ChatMessage[],
-  trimmedMessageCount: number,
-  maxVisible = MAX_VISIBLE_MESSAGES
-): { visibleMessages: ChatMessage[]; hiddenMessageCount: number } {
-  return computeMessageWindowInternal(messages, trimmedMessageCount, maxVisible);
-}
 
 // ============================================================================
 // LOADING INDICATOR COMPONENT
@@ -1507,6 +1485,23 @@ function getRenderableAssistantParts(
     }
   }
 
+  // Detect compaction summary messages (created by appendCompactionSummary)
+  if (message.id.startsWith("compact_")) {
+    const existingCompactionIdx = parts.findIndex((p) => p.type === "compaction");
+    const compactionPart: CompactionPart = {
+      id: existingCompactionIdx >= 0 ? parts[existingCompactionIdx]!.id : `compaction-${message.id}`,
+      type: "compaction",
+      summary: message.content,
+      createdAt: existingCompactionIdx >= 0 ? parts[existingCompactionIdx]!.createdAt : message.timestamp,
+    };
+    if (existingCompactionIdx >= 0) {
+      parts[existingCompactionIdx] = compactionPart;
+    } else {
+      parts.unshift(compactionPart);
+    }
+    return parts;
+  }
+
   const hasTextPart = parts.some((p) => p.type === "text");
   if (!hasTextPart && message.content.trim()) {
     const textPart: TextPart = {
@@ -1738,7 +1733,6 @@ export function ChatApp({
 
   // Core message state
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
-  const [trimmedMessageCount, setTrimmedMessageCount] = useState(0);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingElapsedMs, setStreamingElapsedMs] = useState(0);
   const [streamingMeta, setStreamingMeta] = useState<StreamingMeta | null>(null);
@@ -1954,11 +1948,6 @@ export function ChatApp({
   // Counter to trigger effect when tools complete (used for deferred completion logic)
   const [toolCompletionVersion, setToolCompletionVersion] = useState(0);
   // Incremented when message-window overflow eviction happens.
-  // Used to remount the scrollbox and prevent stale renderables in long sessions.
-  const [messageWindowEpoch, setMessageWindowEpoch] = useState(0);
-  // Accumulates eviction data from the pure state updater so the useEffect
-  // below can perform side-effects (file I/O, counter bump) outside the updater.
-  const pendingEvictionsRef = useRef<Array<{ messages: ChatMessage[], count: number }>>([]);
   // Tracks which skills have been loaded in the current session to avoid duplicate indicators.
   const loadedSkillsRef = useRef<Set<string>>(new Set());
   // Ref for scrollbox to enable programmatic scrolling
@@ -1985,45 +1974,11 @@ export function ChatApp({
   const scrollAcceleration = useMemo(() => new MacOSScrollAccel(), []);
 
   /**
-   * Update chat messages and enforce the in-memory window cap atomically.
-   * The state updater is kept pure — side-effects (history buffer writes,
-   * trimmed-count and epoch bumps) are deferred to the useEffect below.
+   * Update chat messages. Alias for setMessages kept to minimise call-site churn.
    */
   const setMessagesWindowed = useCallback((next: React.SetStateAction<ChatMessage[]>) => {
-    setMessages((prev) => {
-      const nextMessages = typeof next === "function"
-        ? (next as (prevState: ChatMessage[]) => ChatMessage[])(prev)
-        : next;
-      const { inMemoryMessages, evictedMessages, evictedCount } = applyMessageWindow(
-        nextMessages,
-        MAX_VISIBLE_MESSAGES
-      );
-      if (evictedCount > 0) {
-        pendingEvictionsRef.current.push({ messages: evictedMessages, count: evictedCount });
-      }
-      return inMemoryMessages;
-    });
+    setMessages(next);
   }, []);
-
-  // Process pending evictions after state commits — keeps the state updater pure.
-  useEffect(() => {
-    if (pendingEvictionsRef.current.length === 0) return;
-    const evictions = pendingEvictionsRef.current;
-    pendingEvictionsRef.current = [];
-    // Accumulate all evicted messages into a single batch to minimize disk I/O.
-    const allEvicted: ChatMessage[] = [];
-    let totalEvicted = 0;
-    for (const { messages: evicted, count } of evictions) {
-      allEvicted.push(...evicted);
-      totalEvicted += count;
-    }
-    if (totalEvicted > 0) {
-      appendToHistoryBuffer(allEvicted);
-      setTrimmedMessageCount((c) => c + totalEvicted);
-      setMessageWindowEpoch((e) => e + 1);
-      console.debug(`[eviction] flushed ${totalEvicted} messages in ${evictions.length} batch(es), epoch incremented`);
-    }
-  }, [messages]);
 
   // Live elapsed time counter for streaming indicator
   // Also keeps running while background agents are active (stream ended but work continues)
@@ -2145,7 +2100,9 @@ export function ChatApp({
     isAgentOnlyStreamRef.current = next.isAgentOnlyStream;
     isStreamingRef.current = next.isStreaming;
     hasRunningToolRef.current = next.hasRunningTool;
-    runningAskQuestionToolIdsRef.current.clear();
+    if (options?.resetStreamingStateHook !== false) {
+      runningAskQuestionToolIdsRef.current.clear();
+    }
     setIsStreaming(next.isStreaming);
     setStreamingMeta(null);
 
@@ -2391,6 +2348,7 @@ export function ChatApp({
 
     if (
       completedAskQuestion
+      && !pendingCompleteRef.current
       && shouldDispatchQueuedMessage({
         isStreaming: isStreamingRef.current,
         runningAskQuestionToolCount: runningAskQuestionToolIdsRef.current.size,
@@ -3287,6 +3245,17 @@ export function ChatApp({
   }, [dispatchQueuedMessage]);
 
   /**
+   * Check if a character is a valid word boundary for @ mentions.
+   * Includes whitespace and common punctuation that can precede mentions.
+   */
+  const isAtMentionBoundary = useCallback((char: string): boolean => {
+    return char === " " || char === "\n" || char === "\t" ||
+           char === "(" || char === "[" || char === "{" ||
+           char === "," || char === ";" || char === ":" ||
+           char === "." || char === "!" || char === "?";
+  }, []);
+
+  /**
    * Handle input changes to detect slash command prefix or @ mentions.
    * Shows autocomplete when input starts with "/" and has no space,
    * or when "@" appears at any position near the cursor.
@@ -3319,10 +3288,9 @@ export function ChatApp({
         const atIndex = textBeforeCursor.lastIndexOf("@");
 
         if (atIndex !== -1 && atIndex > spaceIndex + 1) {
-          const charBefore = atIndex > 0 ? rawValue[atIndex - 1] : " ";
-          const isWordBoundary = charBefore === " " || charBefore === "\n" || charBefore === "\t";
+          const charBefore = atIndex > 0 ? (rawValue[atIndex - 1] ?? " ") : " ";
 
-          if (isWordBoundary || atIndex === 0) {
+          if (isAtMentionBoundary(charBefore) || atIndex === 0) {
             const mentionToken = rawValue.slice(atIndex + 1, cursorOffset);
             if (!mentionToken.includes(" ")) {
               updateWorkflowState({
@@ -3351,11 +3319,10 @@ export function ChatApp({
       const atIndex = textBeforeCursor.lastIndexOf("@");
 
       if (atIndex !== -1) {
-        // Check that the @ is either at position 0 or preceded by a space/newline
-        const charBefore = atIndex > 0 ? rawValue[atIndex - 1] : " ";
-        const isWordBoundary = charBefore === " " || charBefore === "\n" || charBefore === "\t";
+        // Check that the @ is either at position 0 or preceded by a valid boundary
+        const charBefore = atIndex > 0 ? (rawValue[atIndex - 1] ?? " ") : " ";
 
-        if (isWordBoundary || atIndex === 0) {
+        if (isAtMentionBoundary(charBefore) || atIndex === 0) {
           // Extract the mention token between @ and cursor (no spaces allowed in mention)
           const mentionToken = rawValue.slice(atIndex + 1, cursorOffset);
           const hasSpace = mentionToken.includes(" ");
@@ -3385,7 +3352,7 @@ export function ChatApp({
         });
       }
     }
-  }, [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState]);
+  }, [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, isAtMentionBoundary]);
 
   const handleTextareaContentChange = useCallback(() => {
     const textarea = textareaRef.current;
@@ -3801,7 +3768,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           appendToHistoryBuffer(prev);
           return [];
         });
-        setTrimmedMessageCount(0);
         setCompactionSummary(null);
         setShowCompactionHistory(false);
         setParallelAgents([]);
@@ -3910,7 +3876,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         setParallelAgents([]);
         setTranscriptMode(false);
         clearHistoryBuffer();
-        setTrimmedMessageCount(0);
         loadedSkillsRef.current.clear();
         // Reset ralph state on /clear (Copilot only)
         if (agentType === "copilot") {
@@ -3922,9 +3887,9 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           todoItemsRef.current = [];
           setTodoItems([]);
         }
-        // /clear postcondition contract: messages=[], trimmedMessageCount=0,
+        // /clear postcondition contract: messages=[],
         // transcriptMode=false, historyBuffer=[], compactionSummary=null
-        console.debug("[lifecycle] /clear postconditions: messages=[], trimmedMessageCount=0, transcriptMode=false, historyBuffer=[], compactionSummary=null");
+        console.debug("[lifecycle] /clear postconditions: messages=[], transcriptMode=false, historyBuffer=[], compactionSummary=null");
       }
 
       // Handle clearMessages flag — persist history before clearing
@@ -3939,16 +3904,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           appendToHistoryBuffer(messages);
         }
         setMessagesWindowed([]);
-        setTrimmedMessageCount(0);
       }
 
       // Store compaction summary if present (from /compact command)
       if (result.compactionSummary) {
         setCompactionSummary(result.compactionSummary);
         setShowCompactionHistory(false);
-        // /compact postcondition contract: messages=[], trimmedMessageCount=0,
+        // /compact postcondition contract: messages=[],
         // historyBuffer=[summary marker only], compactionSummary=<summary text>
-        console.debug(`[lifecycle] /compact postconditions: messages=[], trimmedMessageCount=0, historyBuffer=[summary], compactionSummary=${result.compactionSummary?.slice(0, 50)}...`);
+        console.debug(`[lifecycle] /compact postconditions: messages=[], historyBuffer=[summary], compactionSummary=${result.compactionSummary?.slice(0, 50)}...`);
       }
 
       // Apply state updates if present
@@ -5599,30 +5563,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
     [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt, emitMessageSubmitTelemetry, finalizeTaskItemsOnInterrupt, stopSharedStreamState]
   );
 
-  // Get the visible messages and hidden transcript count for UI rendering.
-  // Include pending (not yet flushed) eviction count so the indicator is
-  // accurate even before the eviction useEffect commits.
-  const pendingEvictionCount = pendingEvictionsRef.current.reduce((sum, e) => sum + e.count, 0);
-  const { visibleMessages, hiddenMessageCount } = computeMessageWindow(
-    messages,
-    trimmedMessageCount + pendingEvictionCount
-  );
-  const renderMessages = visibleMessages;
+  // All messages are kept in memory; no windowing/eviction.
+  const renderMessages = messages;
 
   // Auto-collapse boundary: messages before this index render as single-line summaries
   const collapseBoundaryIndex = Math.max(0, renderMessages.length - EXPANDED_MESSAGE_COUNT);
 
   // Render message list (no empty state text)
-  const messageContent = renderMessages.length > 0 || hiddenMessageCount > 0 ? (
+  const messageContent = renderMessages.length > 0 ? (
     <>
-      {/* Truncation indicator - shows how many messages are hidden */}
-      {hiddenMessageCount > 0 && (
-        <box marginBottom={SPACING.ELEMENT} paddingLeft={SPACING.CONTAINER_PAD}>
-          <text style={{ fg: themeColors.muted }}>
-            ↑ {hiddenMessageCount} earlier message{hiddenMessageCount !== 1 ? "s" : ""} in transcript (ctrl+o)
-          </text>
-        </box>
-      )}
       {/* Collapsed messages (older, auto-collapsed to single-line summaries) */}
       {renderMessages.slice(0, collapseBoundaryIndex).map((msg) => {
         const msgHasActiveBg = (msg.parallelAgents ?? []).some(
@@ -5714,7 +5663,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       {/* Message display area - scrollable chat history */}
       {/* Text can be selected with mouse and copied with Ctrl+C */}
       <scrollbox
-        key={`chat-window-${messageWindowEpoch}`}
+        key="chat-window"
         ref={scrollboxRef}
         flexGrow={1}
         stickyScroll={true}

@@ -30,29 +30,23 @@ describe("background-agent termination keybinding", () => {
 
   test("requires two presses only when active background agents exist", () => {
     expect(getBackgroundTerminationDecision(0, 0)).toEqual({
-      shouldWarn: false,
-      shouldTerminate: false,
-      nextPressCount: 0,
+      action: "none",
     });
 
     expect(getBackgroundTerminationDecision(0, 2)).toEqual({
-      shouldWarn: true,
-      shouldTerminate: false,
-      nextPressCount: 1,
+      action: "warn",
+      message: "Press Ctrl-F again to terminate background agents",
     });
 
     expect(getBackgroundTerminationDecision(1, 2)).toEqual({
-      shouldWarn: false,
-      shouldTerminate: true,
-      nextPressCount: 0,
+      action: "terminate",
+      message: "All background agents killed",
     });
   });
 
   test("resets stale press counters when no active background agents remain", () => {
     expect(getBackgroundTerminationDecision(5, 0)).toEqual({
-      shouldWarn: false,
-      shouldTerminate: false,
-      nextPressCount: 0,
+      action: "none",
     });
   });
 });

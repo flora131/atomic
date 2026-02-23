@@ -4514,12 +4514,12 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             activeBackgroundAgents.length,
           );
 
-          if (!decision.shouldWarn && !decision.shouldTerminate) {
+          if (decision.action === "none") {
             clearBackgroundTerminationConfirmation();
             return;
           }
 
-          if (decision.shouldTerminate) {
+          if (decision.action === "terminate") {
             clearBackgroundTerminationConfirmation();
 
             const { agents: interruptedAgents, interruptedIds } = interruptActiveBackgroundAgents(currentAgents);
@@ -4551,11 +4551,11 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             clearDeferredCompletion();
 
             void Promise.resolve(onTerminateBackgroundAgents?.());
-            addMessage("assistant", `${STATUS.active} All background agents killed`);
+            addMessage("assistant", `${STATUS.active} ${decision.message}`);
             return;
           }
 
-          setBackgroundTerminationCount(decision.nextPressCount);
+          setBackgroundTerminationCount(1);
           setCtrlFPressed(true);
           if (backgroundTerminationTimeoutRef.current) {
             clearTimeout(backgroundTerminationTimeoutRef.current);

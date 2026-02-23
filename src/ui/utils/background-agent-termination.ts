@@ -1,5 +1,6 @@
 import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
 import { getActiveBackgroundAgents } from "./background-agent-footer.ts";
+import type { BackgroundTerminationDecision } from "./background-agent-contracts.ts";
 
 export interface BackgroundTerminationKeyEvent {
   name?: string | null;
@@ -8,11 +9,8 @@ export interface BackgroundTerminationKeyEvent {
   meta?: boolean;
 }
 
-export interface BackgroundTerminationDecision {
-  shouldWarn: boolean;
-  shouldTerminate: boolean;
-  nextPressCount: number;
-}
+// Re-export the canonical BackgroundTerminationDecision type
+export type { BackgroundTerminationDecision };
 
 export interface InterruptBackgroundAgentsResult {
   agents: ParallelAgent[];
@@ -31,26 +29,19 @@ export function getBackgroundTerminationDecision(
   activeBackgroundAgentCount: number,
 ): BackgroundTerminationDecision {
   if (activeBackgroundAgentCount <= 0) {
-    return {
-      shouldWarn: false,
-      shouldTerminate: false,
-      nextPressCount: 0,
-    };
+    return { action: "none" };
   }
 
-  const nextPressCount = currentPressCount + 1;
-  if (nextPressCount >= 2) {
+  if (currentPressCount >= 1) {
     return {
-      shouldWarn: false,
-      shouldTerminate: true,
-      nextPressCount: 0,
+      action: "terminate",
+      message: "All background agents killed",
     };
   }
 
   return {
-    shouldWarn: true,
-    shouldTerminate: false,
-    nextPressCount,
+    action: "warn",
+    message: "Press Ctrl-F again to terminate background agents",
   };
 }
 

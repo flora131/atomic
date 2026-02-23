@@ -22,7 +22,6 @@ Submit commits to Phabricator for code review using `jf submit` (Meta).
 ## Commands to Use
 
 - `sl status` - Check for uncommitted changes
-- `sl ssl` - View commits with diff status
 - `jf submit --draft` - Submit commits to Phabricator in DRAFT mode
 - `sl diff --since-last-submit` - View changes since last submission
 
@@ -32,9 +31,6 @@ Submit commits to Phabricator for code review using `jf submit` (Meta).
 | ----------------------- | --------------------------------- |
 | Submit current commit   | `jf submit --draft`               |
 | Update diff after amend | `sl amend && jf submit --draft`   |
-| View diff status        | `sl ssl`                          |
-| Check sync status       | `sl log -T '{syncstatus}\n' -r .` |
-| Get diff ID             | `sl log -T '{phabdiff}\n' -r .`   |
 
 ## Diff Status Values
 

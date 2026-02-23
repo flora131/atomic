@@ -713,6 +713,7 @@ export class OpenCodeClient implements CodingAgentClient {
           this.emitEvent("subagent.start", partSessionId, {
             subagentId: (part?.id as string) ?? "",
             subagentType: (part?.name as string) ?? "",
+            toolCallId: (part?.callID as string) ?? (part?.id as string),
           });
         } else if (part?.type === "subtask") {
           // SubtaskPart: { type: "subtask", prompt, description, agent, ... }

@@ -5,6 +5,7 @@ import {
   getActiveBackgroundAgents,
   resolveBackgroundAgentsForFooter,
 } from "./background-agent-footer.ts";
+import { BACKGROUND_FOOTER_CONTRACT } from "./background-agent-contracts.ts";
 
 function createAgent(overrides: Partial<ParallelAgent> = {}): ParallelAgent {
   return {
@@ -126,5 +127,20 @@ describe("background agent footer helpers", () => {
         createAgent({ id: "two", background: true, status: "background" }),
       ]),
     ).toBe("2 background agents running");
+  });
+
+  test("footer contract defines expected canonical values", () => {
+    expect(BACKGROUND_FOOTER_CONTRACT.showWhenAgentCountAtLeast).toBe(1);
+    expect(BACKGROUND_FOOTER_CONTRACT.includeTerminateHint).toBe(true);
+    expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f terminate");
+    expect(BACKGROUND_FOOTER_CONTRACT.countFormat).toBe("agents");
+  });
+
+  test("footer shows status when agent count meets contract threshold", () => {
+    const agents = Array.from(
+      { length: BACKGROUND_FOOTER_CONTRACT.showWhenAgentCountAtLeast },
+      (_, i) => createAgent({ id: `agent-${i}`, background: true, status: "background" }),
+    );
+    expect(formatBackgroundAgentFooterStatus(agents)).not.toBe("");
   });
 });

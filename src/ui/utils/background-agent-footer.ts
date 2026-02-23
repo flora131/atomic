@@ -1,4 +1,5 @@
 import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
+import { BACKGROUND_FOOTER_CONTRACT } from "./background-agent-contracts.ts";
 
 export interface BackgroundAgentFooterMessage {
   parallelAgents?: readonly ParallelAgent[];

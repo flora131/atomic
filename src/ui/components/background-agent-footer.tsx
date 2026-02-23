@@ -4,6 +4,7 @@ import { useTheme } from "../theme.tsx";
 import { SPACING } from "../constants/spacing.ts";
 import { MISC, STATUS } from "../constants/icons.ts";
 import { formatBackgroundAgentFooterStatus } from "../utils/background-agent-footer.ts";
+import { BACKGROUND_FOOTER_CONTRACT } from "../utils/background-agent-contracts.ts";
 
 export interface BackgroundAgentFooterProps {
   agents: readonly ParallelAgent[];
@@ -29,7 +30,7 @@ export function BackgroundAgentFooter({
     >
       <text style={{ fg: theme.colors.muted }}>
         <span style={{ fg: theme.colors.dim }}>{STATUS.background}</span> {label}
-        <span style={{ fg: theme.colors.dim }}> {MISC.separator} ctrl+f terminate</span>
+        <span style={{ fg: theme.colors.dim }}> {MISC.separator} {BACKGROUND_FOOTER_CONTRACT.terminateHintText}</span>
       </text>
     </box>
   );

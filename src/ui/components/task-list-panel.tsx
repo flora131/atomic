@@ -20,6 +20,7 @@ import { useThemeColors, useTheme, getCatppuccinPalette } from "../theme.tsx";
 import { TaskListIndicator, type TaskItem } from "./task-list-indicator.tsx";
 import { sortTasksTopologically } from "./task-order.ts";
 import { normalizeTaskItem } from "../utils/task-status.ts";
+import { shouldAutoClearTaskPanel } from "../utils/task-list-lifecycle.ts";
 import { SPACING } from "../constants/spacing.ts";
 
 // ============================================================================
@@ -168,7 +169,7 @@ export function TaskListPanel({
     return cleanup;
   }, [sessionDir]);
 
-  if (tasks.length === 0) return null;
+  if (tasks.length === 0 || shouldAutoClearTaskPanel(tasks)) return null;
 
   return (
     <box flexDirection="column" paddingLeft={SPACING.INDENT} paddingRight={SPACING.INDENT} marginTop={SPACING.ELEMENT} flexShrink={0}>

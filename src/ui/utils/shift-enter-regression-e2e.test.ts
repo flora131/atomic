@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { getNextKittyKeyboardDetectionState } from "./kitty-keyboard-detection.ts";
 import {
   shouldApplyBackslashLineContinuation,
+  shouldEnqueueMessageFromKeyEvent,
   shouldInsertNewlineFromKeyEvent,
   type NewlineKeyEventLike,
 } from "./newline-strategies.ts";
@@ -14,20 +15,30 @@ interface SimulatedKeyEvent extends NewlineKeyEventLike {
 interface InputHarness {
   value: string;
   submitted: string[];
+  enqueued: string[];
   executedCommands: string[];
   kittyKeyboardDetected: boolean;
   autocompleteVisible: boolean;
+  isStreaming: boolean;
   typeText: (text: string) => void;
   pressKey: (event: SimulatedKeyEvent) => void;
 }
 
-function createInputHarness(): InputHarness {
+interface InputHarnessOptions {
+  platform?: NodeJS.Platform | string;
+  isStreaming?: boolean;
+}
+
+function createInputHarness(options: InputHarnessOptions = {}): InputHarness {
   const state = {
+    platform: options.platform ?? "linux",
     value: "",
     submitted: [] as string[],
+    enqueued: [] as string[],
     executedCommands: [] as string[],
     kittyKeyboardDetected: false,
     autocompleteVisible: false,
+    isStreaming: options.isStreaming ?? false,
   };
 
   const pressKey = (event: SimulatedKeyEvent): void => {
@@ -40,6 +51,15 @@ function createInputHarness(): InputHarness {
       if (state.value.length > 0) {
         state.value = state.value.slice(0, -1);
       }
+      return;
+    }
+
+    if (state.isStreaming && shouldEnqueueMessageFromKeyEvent(event, state.platform)) {
+      const trimmed = state.value.trim();
+      if (trimmed) {
+        state.enqueued.push(trimmed);
+      }
+      state.value = "";
       return;
     }
 
@@ -92,6 +112,9 @@ function createInputHarness(): InputHarness {
     get submitted() {
       return state.submitted;
     },
+    get enqueued() {
+      return state.enqueued;
+    },
     get executedCommands() {
       return state.executedCommands;
     },
@@ -100,6 +123,9 @@ function createInputHarness(): InputHarness {
     },
     get autocompleteVisible() {
       return state.autocompleteVisible;
+    },
+    get isStreaming() {
+      return state.isStreaming;
     },
     typeText,
     pressKey,
@@ -184,5 +210,41 @@ describe("Shift+Enter repeated newline regression E2E", () => {
     expect(input.executedCommands).toEqual(["/help"]);
     expect(input.submitted).toHaveLength(0);
     expect(input.value).toBe("");
+  });
+
+  test("Cmd+Shift+Enter enqueues while streaming on macOS", () => {
+    const input = createInputHarness({ platform: "darwin", isStreaming: true });
+
+    input.typeText("queued from mac");
+    input.pressKey({ name: "return", shift: true, meta: true, raw: "\r" });
+
+    expect(input.enqueued).toEqual(["queued from mac"]);
+    expect(input.submitted).toHaveLength(0);
+    expect(input.value).toBe("");
+  });
+
+  test("Ctrl+Shift+Enter enqueues while streaming on Linux/Windows", () => {
+    const input = createInputHarness({ platform: "linux", isStreaming: true });
+
+    input.typeText("queued from ctrl");
+    input.pressKey({ name: "return", shift: true, ctrl: true, raw: "\r" });
+
+    expect(input.enqueued).toEqual(["queued from ctrl"]);
+    expect(input.submitted).toHaveLength(0);
+    expect(input.value).toBe("");
+  });
+
+  test("Cmd/Ctrl+Shift+Enter keeps newline behavior when not streaming", () => {
+    const macInput = createInputHarness({ platform: "darwin", isStreaming: false });
+    macInput.typeText("mac line");
+    macInput.pressKey({ name: "return", shift: true, meta: true, raw: "\r" });
+    expect(macInput.enqueued).toEqual([]);
+    expect(macInput.value).toBe("mac line\n");
+
+    const linuxInput = createInputHarness({ platform: "linux", isStreaming: false });
+    linuxInput.typeText("linux line");
+    linuxInput.pressKey({ name: "return", shift: true, ctrl: true, raw: "\r" });
+    expect(linuxInput.enqueued).toEqual([]);
+    expect(linuxInput.value).toBe("linux line\n");
   });
 });

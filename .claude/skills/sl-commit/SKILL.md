@@ -24,9 +24,7 @@ Create well-formatted commits following the Conventional Commits specification u
 ## Commands to Use
 
 - `sl status` - Check repository state
-- `sl bookmark` - Get current bookmark
-- `sl smartlog -l 5` - View recent commits with graphical history
-- `sl diff --stat` - View pending changes
+- `sl diff` - View pending changes
 - `sl add <files>` - Add untracked files
 - `sl commit -m "<message>"` - Create commit
 
@@ -34,8 +32,6 @@ Create well-formatted commits following the Conventional Commits specification u
 
 - **No staging area**: Sapling commits all pending changes directly
 - **Amend with auto-restack**: `sl amend` automatically rebases descendant commits
-- **Smartlog**: Use `sl smartlog` or `sl ssl` for graphical commit history
-- **Absorb**: Use `sl absorb` to intelligently integrate pending changes
 - **Stacked Diffs**: Each commit becomes a separate Phabricator diff
 
 ## Sapling Commit Commands Reference
@@ -46,17 +42,7 @@ Create well-formatted commits following the Conventional Commits specification u
 | `sl commit -A`           | Add untracked files and commit                  |
 | `sl amend`               | Amend current commit (auto-rebases descendants) |
 | `sl amend --to COMMIT`   | Amend changes to a specific commit in stack     |
-| `sl absorb`              | Intelligently absorb changes into stack commits |
 
-## Conventional Commits Format
-
-```
-<type>[optional scope]: <description>
-
-[optional body]
-
-[optional footer(s)]
-```
 
 **Types:**
 

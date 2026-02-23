@@ -1526,9 +1526,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
     };
 
     // Detect active background agents on this message
-    const hasActiveBackgroundAgents = (message.parallelAgents ?? []).some(
-      (a) => a.background && a.status === "background"
-    );
+    const hasActiveBackgroundAgents = getActiveBackgroundAgents(message.parallelAgents ?? []).length > 0;
     const liveTaskItems = message.streaming ? todoItems : message.taskItems;
     const showLoadingIndicator = shouldShowMessageLoadingIndicator(message, liveTaskItems);
 
@@ -2165,17 +2163,8 @@ export function ChatApp({
       });
     }
 
-<<<<<<< HEAD
     stopSharedStreamState();
-=======
-    streamingMessageIdRef.current = null;
-    streamingStartRef.current = null;
-    clearDeferredCompletion();
-    isStreamingRef.current = false;
-    setIsStreaming(false);
     finalizeThinkingSourceTracking();
-    hasRunningToolRef.current = false;
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
 
     const resolver = streamCompletionResolverRef.current;
     streamCompletionResolverRef.current = null;
@@ -2183,13 +2172,9 @@ export function ChatApp({
     if (resolver) {
       resolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
     }
-<<<<<<< HEAD
-  }, [setMessagesWindowed, stopSharedStreamState]);
+  }, [setMessagesWindowed, stopSharedStreamState, finalizeThinkingSourceTracking]);
 
   const enqueueShortcutLabel = useMemo(() => getEnqueueShortcutLabel(), []);
-=======
-  }, [clearDeferredCompletion, finalizeThinkingSourceTracking, setMessagesWindowed]);
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
 
   // Dynamic placeholder based on queue state
   const dynamicPlaceholder = useMemo(() => {
@@ -2583,16 +2568,8 @@ export function ChatApp({
                 });
                 return currentAgents;
               });
-<<<<<<< HEAD
               stopSharedStreamState();
-=======
-              streamingMessageIdRef.current = null;
-              streamingStartRef.current = null;
-              isStreamingRef.current = false;
-              setIsStreaming(false);
               finalizeThinkingSourceTracking();
-              hasRunningToolRef.current = false;
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
             },
             // onMeta: update streaming metadata
             (meta: StreamingMeta) => {
@@ -2630,33 +2607,15 @@ export function ChatApp({
           } catch (error) {
             // Prevent unhandled errors from crashing the TUI
             console.error("[workflow auto-start] Error during context clear or streaming:", error);
-<<<<<<< HEAD
             stopSharedStreamState();
-=======
-            isStreamingRef.current = false;
-            setIsStreaming(false);
             finalizeThinkingSourceTracking();
-            hasRunningToolRef.current = false;
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
           }
         })();
       }, 100);
 
       return () => clearTimeout(timeoutId);
     }
-<<<<<<< HEAD
-  }, [workflowState.workflowActive, workflowState.initialPrompt, isStreaming, onStreamMessage, handleStreamStartupError, stopSharedStreamState]);
-=======
-  }, [
-    finalizeThinkingSourceTracking,
-    handleStreamStartupError,
-    isStreaming,
-    onStreamMessage,
-    resetThinkingSourceTracking,
-    workflowState.workflowActive,
-    workflowState.initialPrompt,
-  ]);
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
+  }, [workflowState.workflowActive, workflowState.initialPrompt, isStreaming, onStreamMessage, handleStreamStartupError, stopSharedStreamState, finalizeThinkingSourceTracking, resetThinkingSourceTracking]);
 
   // Reset workflow started ref when workflow becomes inactive
   useEffect(() => {
@@ -2896,9 +2855,7 @@ export function ChatApp({
         })
       );
       // Clear refs once all background agents have reached terminal state
-      const hasActiveBg = parallelAgents.some(
-        (a) => a.background && a.status === "background"
-      );
+      const hasActiveBg = getActiveBackgroundAgents(parallelAgents).length > 0;
       if (!hasActiveBg) {
         backgroundAgentMessageIdRef.current = null;
         streamingStartRef.current = null;
@@ -2993,17 +2950,9 @@ export function ChatApp({
             : msg
         )
       );
-<<<<<<< HEAD
-=======
-      streamingMessageIdRef.current = null;
-      isStreamingRef.current = false;
-      isAgentOnlyStreamRef.current = false;
-      setIsStreaming(false);
       finalizeThinkingSourceTracking();
-      hasRunningToolRef.current = false;
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
       // Keep background agents in live state for post-stream completion tracking
-      const remainingBg = parallelAgents.filter((a) => a.background && a.status === "background");
+      const remainingBg = getActiveBackgroundAgents(parallelAgents);
       if (remainingBg.length > 0 && messageId) {
         stopSharedStreamState({ preserveStreamingStart: true });
         backgroundAgentMessageIdRef.current = messageId;
@@ -3019,17 +2968,7 @@ export function ChatApp({
       // the SDK handleComplete callback, so we must dequeue here.
       continueQueuedConversation();
     }
-<<<<<<< HEAD
-  }, [parallelAgents, continueQueuedConversation, toolCompletionVersion, messages, stopSharedStreamState]);
-=======
-  }, [
-    continueQueuedConversation,
-    finalizeThinkingSourceTracking,
-    messages,
-    parallelAgents,
-    toolCompletionVersion,
-  ]);
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
+  }, [parallelAgents, continueQueuedConversation, toolCompletionVersion, messages, stopSharedStreamState, finalizeThinkingSourceTracking]);
 
   // Initialize SubagentGraphBridge when createSubagentSession is available
   useEffect(() => {
@@ -3603,18 +3542,8 @@ export function ChatApp({
                 );
               }
               setParallelAgents([]);
-<<<<<<< HEAD
               stopSharedStreamState();
-=======
-              streamingMessageIdRef.current = null;
-              streamingStartRef.current = null;
-              isStreamingRef.current = false;
-              setIsStreaming(false);
               finalizeThinkingSourceTracking();
-              hasRunningToolRef.current = false;
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
-
-              // Resolve streamAndWait promise with interrupted flag
               const resolver = streamCompletionResolverRef.current;
               if (resolver) {
                 streamCompletionResolverRef.current = null;
@@ -3674,7 +3603,7 @@ export function ChatApp({
                 );
               }
               // Keep background agents in live state for post-stream completion tracking
-              const remaining = currentAgents.filter((a) => a.background && a.status === "background");
+              const remaining = getActiveBackgroundAgents(currentAgents);
               if (remaining.length > 0 && messageId) {
                 backgroundAgentMessageIdRef.current = messageId;
               }
@@ -3683,20 +3612,9 @@ export function ChatApp({
 
             // Preserve streamingStartRef when background agents are still running
             // so the elapsed timer continues tracking total work duration
-            const hasRemainingBg = parallelAgentsRef.current.some(
-              (a) => a.background && a.status === "background"
-            );
-<<<<<<< HEAD
+            const hasRemainingBg = getActiveBackgroundAgents(parallelAgentsRef.current).length > 0;
             stopSharedStreamState({ preserveStreamingStart: hasRemainingBg });
-=======
-            if (!hasRemainingBg) {
-              streamingStartRef.current = null;
-            }
-            isStreamingRef.current = false;
-            setIsStreaming(false);
             finalizeThinkingSourceTracking();
-            hasRunningToolRef.current = false;
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
 
             // If a streamAndWait call is pending, resolve its promise
             // instead of processing the message queue.
@@ -4370,23 +4288,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             // Stop streaming state immediately so UI reflects interrupted state
             wasInterruptedRef.current = false;
-<<<<<<< HEAD
             stopSharedStreamState();
-=======
-            streamingMessageIdRef.current = null;
-            streamingStartRef.current = null;
-            isAgentOnlyStreamRef.current = false;
-            isStreamingRef.current = false;
-            setIsStreaming(false);
             finalizeThinkingSourceTracking();
-            hasRunningToolRef.current = false;
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
-
-            // Sub-agent cancellation handled by SDK session interrupt
-
-            // Clear any pending ask-user question so dialog dismisses
-            setActiveQuestion(null);
-            askUserQuestionRequestIdRef.current = null;
             activeHitlToolCallIdRef.current = null;
 
             // Resolve streamAndWait promise with interrupted flag so workflow can react
@@ -4479,6 +4382,16 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               parallelAgentsRef.current = remainingLiveAgents;
               setParallelAgents(remainingLiveAgents);
               clearDeferredCompletion();
+              wasInterruptedRef.current = false;
+              stopSharedStreamState();
+              finalizeThinkingSourceTracking();
+              continueQueuedConversation();
+              return;
+            }
+          }
+
+          // Not streaming: if textarea has content, clear it first
+          if (textarea?.plainText) {
             textarea.gotoBufferHome();
             textarea.gotoBufferEnd({ select: true });
             textarea.deleteChar();
@@ -4629,37 +4542,10 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           return;
         }
 
-<<<<<<< HEAD
         // Skip other keyboard handling when a dialog is active
         // The dialog components handle their own keyboard events via their own useKeyboard hooks
         if (activeQuestion || showModelSelector) {
           // Don't call stopPropagation - let the event continue to the dialog's handler
-=======
-        // Ctrl+Q - enqueue message (round-robin) during streaming
-        if (event.ctrl && event.name === "q") {
-          if (isStreamingRef.current) {
-            const textarea = textareaRef.current;
-            const value = textarea?.plainText?.trim() ?? "";
-            if (value) {
-              const hasAgentMentions = parseAtMentions(value).length > 0;
-              const hasAnyMentionToken = /@([\w./_-]+)/.test(value);
-              emitMessageSubmitTelemetry({
-                messageLength: value.length,
-                queued: true,
-                fromInitialPrompt: false,
-                hasFileMentions: hasAnyMentionToken && !hasAgentMentions,
-                hasAgentMentions,
-              });
-              messageQueue.enqueue(value);
-              // Clear textarea
-              if (textarea) {
-                textarea.gotoBufferHome();
-                textarea.gotoBufferEnd({ select: true });
-                textarea.deleteChar();
-              }
-            }
-          }
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
           return;
         }
 
@@ -4726,21 +4612,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             // Stop streaming state immediately so UI reflects interrupted state
             wasInterruptedRef.current = false;
-<<<<<<< HEAD
             stopSharedStreamState();
-=======
-            streamingMessageIdRef.current = null;
-            streamingStartRef.current = null;
-            isAgentOnlyStreamRef.current = false;
-            isStreamingRef.current = false;
-            setIsStreaming(false);
             finalizeThinkingSourceTracking();
-            hasRunningToolRef.current = false;
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
-
-            // Sub-agent cancellation handled by SDK session interrupt
-
-            // Clear any pending ask-user question so dialog dismisses on ESC
             setActiveQuestion(null);
             askUserQuestionRequestIdRef.current = null;
             activeHitlToolCallIdRef.current = null;
@@ -5395,18 +5268,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               );
             }
             setParallelAgents([]);
-<<<<<<< HEAD
             stopSharedStreamState();
-=======
-            streamingMessageIdRef.current = null;
-            streamingStartRef.current = null;
-            isStreamingRef.current = false;
-            setIsStreaming(false);
             finalizeThinkingSourceTracking();
-            hasRunningToolRef.current = false;
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
-
-            continueQueuedConversation();
             return;
           }
 
@@ -5453,28 +5316,16 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               );
             }
             // Keep background agents in live state for post-stream completion tracking
-            const remaining = currentAgents.filter((a) => a.background && a.status === "background");
+            const remaining = getActiveBackgroundAgents(currentAgents);
             if (remaining.length > 0 && messageId) {
               backgroundAgentMessageIdRef.current = messageId;
             }
             return remaining;
           });
 
-          const hasRemainingBg = parallelAgentsRef.current.some(
-            (a) => a.background && a.status === "background"
-          );
-<<<<<<< HEAD
+          const hasRemainingBg = getActiveBackgroundAgents(parallelAgentsRef.current).length > 0;
           stopSharedStreamState({ preserveStreamingStart: hasRemainingBg });
-=======
-          if (!hasRemainingBg) {
-            streamingStartRef.current = null;
-          }
-          // Clear ref immediately (synchronous) before state update
-          isStreamingRef.current = false;
-          setIsStreaming(false);
           finalizeThinkingSourceTracking();
-          hasRunningToolRef.current = false;
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
           continueQueuedConversation();
         };
 
@@ -5514,18 +5365,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         });
       }
     },
-<<<<<<< HEAD
-    [onSendMessage, onStreamMessage, continueQueuedConversation, handleStreamStartupError, stopSharedStreamState]
-=======
-    [
-      continueQueuedConversation,
-      finalizeThinkingSourceTracking,
-      handleStreamStartupError,
-      onSendMessage,
-      onStreamMessage,
-      resetThinkingSourceTracking,
-    ]
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
+    [onSendMessage, onStreamMessage, continueQueuedConversation, handleStreamStartupError, stopSharedStreamState, finalizeThinkingSourceTracking, resetThinkingSourceTracking]
   );
 
   // Keep the sendMessageRef in sync with sendMessage callback
@@ -5787,8 +5627,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         }
         // Invalidate callbacks for the interrupted stream before aborting.
         streamGenerationRef.current = invalidateActiveStreamGeneration(streamGenerationRef.current);
-<<<<<<< HEAD
         stopSharedStreamState();
+        finalizeThinkingSourceTracking();
 
         const streamResolver = streamCompletionResolverRef.current;
         if (streamResolver) {
@@ -5803,16 +5643,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         }
 
 
-=======
-        clearDeferredCompletion();
-        // Clear streaming state before starting new stream
-        streamingMessageIdRef.current = null;
-        streamingStartRef.current = null;
-        isStreamingRef.current = false;
-        setIsStreaming(false);
-        finalizeThinkingSourceTracking();
-        hasRunningToolRef.current = false;
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
         // Abort the SDK stream (stale handleComplete is a no-op via generation guard)
         onInterrupt?.();
         // Send immediately — starts a new stream generation
@@ -5837,24 +5667,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       });
       sendMessage(processedValue);
     },
-<<<<<<< HEAD
-    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt, emitMessageSubmitTelemetry, finalizeTaskItemsOnInterrupt, stopSharedStreamState]
-=======
-    [
-      addMessage,
-      emitMessageSubmitTelemetry,
-      executeCommand,
-      finalizeThinkingSourceTracking,
-      messageQueue,
-      model,
-      onInterrupt,
-      resetThinkingSourceTracking,
-      sendMessage,
-      updateWorkflowState,
-      workflowState.argumentHint,
-      workflowState.showAutocomplete,
-    ]
->>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
+    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt, emitMessageSubmitTelemetry, finalizeTaskItemsOnInterrupt, stopSharedStreamState, finalizeThinkingSourceTracking, resetThinkingSourceTracking]
   );
 
   // All messages are kept in memory; no windowing/eviction.

@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import {
+  applyTaskSnapshotToLatestAssistantMessage,
   hasRalphTaskIdOverlap,
   normalizeInterruptedTasks,
+  preferTerminalTaskItems,
   snapshotTaskItems,
   type RalphTaskStateItem,
 } from "./utils/ralph-task-state.ts";
@@ -192,5 +194,49 @@ describe("ralph task state helpers", () => {
     ];
 
     expect(hasRalphTaskIdOverlap(mixed, knownIds, previous)).toBe(false);
+  });
+
+  test("preferTerminalTaskItems drops stale in_progress last-item snapshots", () => {
+    const inMemory: RalphTaskStateItem[] = [
+      { id: "#1", content: "prep", status: "completed" },
+      { id: "#2", content: "finalize", status: "in_progress" },
+    ];
+    const fromDisk: RalphTaskStateItem[] = [
+      { id: "#1", content: "prep", status: "completed" },
+      { id: "#2", content: "finalize", status: "completed" },
+    ];
+
+    expect(preferTerminalTaskItems(inMemory, fromDisk)).toEqual(fromDisk);
+  });
+
+  test("applyTaskSnapshotToLatestAssistantMessage refreshes final assistant task state", () => {
+    const messages: Array<{ id: string; role: string; taskItems?: RalphTaskStateItem[] }> = [
+      {
+        id: "m-user",
+        role: "user",
+      },
+      {
+        id: "m-assistant",
+        role: "assistant",
+        taskItems: [
+          { id: "#1", content: "prep", status: "completed" },
+          { id: "#2", content: "finalize", status: "in_progress" },
+        ],
+      },
+    ];
+
+    const nextTasks: RalphTaskStateItem[] = [
+      { id: "#1", content: "prep", status: "completed" },
+      { id: "#2", content: "finalize", status: "completed" },
+    ];
+
+    const updated = applyTaskSnapshotToLatestAssistantMessage(messages, nextTasks);
+    expect(updated[1]).toMatchObject({
+      role: "assistant",
+      taskItems: [
+        { id: "#1", content: "prep", status: "completed" },
+        { id: "#2", content: "finalize", status: "completed" },
+      ],
+    });
   });
 });

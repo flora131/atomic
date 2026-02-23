@@ -101,7 +101,6 @@ describe("startChatUI protocol escape ordering", () => {
       CompletionSummary: () => null,
       LoadingIndicator: () => null,
       StreamingBullet: () => null,
-      MAX_VISIBLE_MESSAGES: 100,
       defaultWorkflowChatState: {},
     }));
 

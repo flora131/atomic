@@ -1,8 +1,8 @@
 /**
  * Message Eviction with Parts Model Tests
  *
- * These tests verify that the parts model works correctly with message window
- * eviction (MAX_VISIBLE_MESSAGES = 50 with messageWindowEpoch remount).
+ * These tests verify that the parts model works correctly when messages
+ * are cleared via compaction or clear.
  * Tests focus on data model resilience, not React component lifecycle.
  */
 

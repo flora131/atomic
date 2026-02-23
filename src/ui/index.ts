@@ -1930,7 +1930,6 @@ export {
   CompletionSummary,
   LoadingIndicator,
   StreamingBullet,
-  MAX_VISIBLE_MESSAGES,
   type ChatAppProps,
   type ChatMessage,
   type MessageToolCall,

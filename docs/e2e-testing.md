@@ -346,7 +346,7 @@ tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGEN
 - Streaming metadata visible: elapsed time, token count, spinner animation
 - On completion: summary line shows total time + tokens
 
-#### 3.3 — Message Queuing (Ctrl+Q)
+#### 3.3 — Message Queuing (Cmd/Ctrl+Shift+Enter)
 
 While the agent is still streaming from the previous step (or send a new long prompt), test message queuing:
 
@@ -356,12 +356,14 @@ POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 10-message-queue)
 # Send a prompt that will trigger a long response
 tmux-cli send "Add a high score system that persists to a file called highscores.txt, and add a pause feature with the P key." --pane=<WINDOW_ID>
 
-# Immediately queue a follow-up message (Ctrl+Q = \x11)
+# Immediately queue a follow-up message
+# - macOS: Cmd+Shift+Enter (typically \x1b[13;10u in modifyOtherKeys terminals)
+# - Linux/Windows: Ctrl+Shift+Enter (typically \x1b[13;6u)
 sleep 2
-tmux-cli send $'\x11' --pane=<WINDOW_ID> --enter=False
+tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
 sleep 0.5
 tmux-cli send "Also add a speed increase every 5 points to make the game progressively harder." --pane=<WINDOW_ID>
-tmux-cli send $'\x11' --pane=<WINDOW_ID> --enter=False
+tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
 
 tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=15.0
 stop_polling $POLL_PID
@@ -691,7 +693,7 @@ Every feature below MUST be verified during the test run. Check each one as you 
 - [ ] `Ctrl+C` twice — exits application
 - [ ] `Ctrl+O` — toggles verbose/compact transcript mode
 - [ ] `Ctrl+T` — toggles task list panel
-- [ ] `Ctrl+Q` — queues message during streaming
+- [ ] `Cmd+Shift+Enter` (macOS) / `Ctrl+Shift+Enter` (Linux/Windows) — queues message during streaming
 - [ ] `Enter` — submits message
 - [ ] `Shift+Enter` — inserts newline (multi-line input)
 - [ ] `ESC` — dismisses dialogs/autocomplete
@@ -715,7 +717,7 @@ Every feature below MUST be verified during the test run. Check each one as you 
 
 ### Message Queuing
 
-- [ ] `Ctrl+Q` enqueues message during streaming
+- [ ] `Cmd+Shift+Enter` (macOS) / `Ctrl+Shift+Enter` (Linux/Windows) enqueues message during streaming
 - [ ] Queue count shown in footer
 - [ ] Queued messages process sequentially after response
 - [ ] `Up/Down` arrows edit queued messages

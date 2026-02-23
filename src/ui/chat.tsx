@@ -86,6 +86,7 @@ import {
   interruptActiveBackgroundAgents,
   isBackgroundTerminationKey,
 } from "./utils/background-agent-termination.ts";
+import { BACKGROUND_FOOTER_CONTRACT } from "./utils/background-agent-contracts.ts";
 import { loadCommandHistory, appendCommandHistory } from "./utils/command-history.ts";
 import { getRandomVerb, getRandomCompletionVerb } from "./constants/index.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "./utils/mcp-output.ts";
@@ -1660,9 +1661,11 @@ export function ChatApp({
   const [backgroundTerminationCount, setBackgroundTerminationCount] = useState(0);
   const [ctrlFPressed, setCtrlFPressed] = useState(false);
   const backgroundTerminationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const backgroundTerminationInFlightRef = useRef(false);
   const clearBackgroundTerminationConfirmation = useCallback(() => {
     setBackgroundTerminationCount(0);
     setCtrlFPressed(false);
+    backgroundTerminationInFlightRef.current = false;
     if (backgroundTerminationTimeoutRef.current) {
       clearTimeout(backgroundTerminationTimeoutRef.current);
       backgroundTerminationTimeoutRef.current = null;
@@ -4514,18 +4517,33 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             activeBackgroundAgents.length,
           );
 
+          console.debug("[background-termination] decision:", decision.action, {
+            pressCount: backgroundTerminationCount,
+            activeAgents: activeBackgroundAgents.length,
+          });
+
           if (decision.action === "none") {
+            console.debug("[background-termination] noop: no active background agents");
             clearBackgroundTerminationConfirmation();
             return;
           }
 
           if (decision.action === "terminate") {
+            if (backgroundTerminationInFlightRef.current) {
+              return;
+            }
+            backgroundTerminationInFlightRef.current = true;
             clearBackgroundTerminationConfirmation();
 
             const { agents: interruptedAgents, interruptedIds } = interruptActiveBackgroundAgents(currentAgents);
             if (interruptedIds.length === 0) {
               return;
             }
+
+            console.debug("[background-termination] executing termination", {
+              interruptedIds,
+              remainingCount: currentAgents.filter((agent) => !new Set(interruptedIds).has(agent.id)).length,
+            });
 
             const interruptedIdSet = new Set(interruptedIds);
             const remainingLiveAgents = currentAgents.filter((agent) => !interruptedIdSet.has(agent.id));
@@ -4552,9 +4570,11 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             void Promise.resolve(onTerminateBackgroundAgents?.());
             addMessage("assistant", `${STATUS.active} ${decision.message}`);
+            backgroundTerminationInFlightRef.current = false;
             return;
           }
 
+          console.debug("[background-termination] armed: awaiting confirmation");
           setBackgroundTerminationCount(1);
           setCtrlFPressed(true);
           if (backgroundTerminationTimeoutRef.current) {

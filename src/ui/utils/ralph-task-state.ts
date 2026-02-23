@@ -11,6 +11,11 @@ export interface RalphTaskStateItem {
   blockedBy?: string[];
 }
 
+export interface RalphTaskSnapshotMessage {
+  role: string;
+  taskItems?: RalphTaskStateItem[];
+}
+
 export interface TaskIdValidationResult {
   valid: boolean;
   matchedIds: string[];

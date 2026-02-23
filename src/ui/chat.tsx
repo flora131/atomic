@@ -51,7 +51,12 @@ import {
 import type { Model } from "../models/model-transform.ts";
 import type { TaskItem } from "./components/task-list-indicator.tsx";
 import { TaskListPanel } from "./components/task-list-panel.tsx";
-import { saveTasksToActiveSession } from "./commands/workflow-commands.ts";
+import { PhaseEventList } from "./components/phase-event-list.tsx";
+import { WorkflowPhaseSection } from "./components/workflow-phase-section.tsx";
+import {
+  saveTasksToActiveSession,
+  type PhaseData,
+} from "./commands/workflow-commands.ts";
 import {
   useStreamingState,
   type ToolExecutionStatus,
@@ -144,6 +149,7 @@ import {
   normalizeInterruptedTasks,
   preferTerminalTaskItems,
   snapshotTaskItems,
+  applyTaskSnapshotToLatestAssistantMessage,
 } from "./utils/ralph-task-state.ts";
 import { buildHiddenPhaseSummary } from "./utils/hidden-phase-summary.ts";
 import type {
@@ -153,7 +159,6 @@ import type {
   SkillLoadPart,
   McpSnapshotPart,
   CompactionPart,
-  PartId,
   ToolPart,
 } from "./parts/index.ts";
 import {
@@ -622,6 +627,8 @@ export interface ChatMessage {
   isCollapsed?: boolean;
   /** Full hidden phase output for future expand-on-demand interactions */
   hiddenPhaseContent?: string;
+  /** Structured workflow phases captured from workflow execution */
+  workflowPhases?: PhaseData[];
 }
 
 /**
@@ -940,6 +947,10 @@ export interface MessageBubbleProps {
   collapsed?: boolean;
   /** Live streaming metadata (tokens, thinking duration) */
   streamingMeta?: StreamingMeta | null;
+  /** Expanded workflow phase keys for toggles */
+  expandedWorkflowPhases?: Set<string>;
+  /** Handler for toggling workflow phase expansion */
+  onToggleWorkflowPhase?: (phaseKey: string) => void;
 }
 
 // ============================================================================
@@ -1000,6 +1011,47 @@ export function formatTimestamp(isoString: string): string {
   return date.toLocaleTimeString(undefined, {
     hour: "2-digit",
     minute: "2-digit",
+  });
+}
+
+export function getWorkflowPhaseKey(messageId: string, phase: PhaseData, index: number): string {
+  return `${messageId}:${phase.nodeId}:${phase.startedAt}:${index}`;
+}
+
+export function toggleExpandedWorkflowPhase(
+  expandedPhases: ReadonlySet<string>,
+  phaseKey: string,
+): Set<string> {
+  const next = new Set(expandedPhases);
+  if (next.has(phaseKey)) {
+    next.delete(phaseKey);
+  } else {
+    next.add(phaseKey);
+  }
+  return next;
+}
+
+export interface WorkflowPhaseRenderItem {
+  key: string;
+  phase: PhaseData;
+  expanded: boolean;
+  onToggle?: () => void;
+}
+
+export function getWorkflowPhaseRenderItems(
+  messageId: string,
+  phases: PhaseData[],
+  expandedWorkflowPhases?: ReadonlySet<string>,
+  onToggleWorkflowPhase?: (phaseKey: string) => void,
+): WorkflowPhaseRenderItem[] {
+  return phases.map((phase, index) => {
+    const key = getWorkflowPhaseKey(messageId, phase, index);
+    return {
+      key,
+      phase,
+      expanded: expandedWorkflowPhases?.has(key) ?? false,
+      onToggle: onToggleWorkflowPhase ? () => onToggleWorkflowPhase(key) : undefined,
+    };
   });
 }
 
@@ -1448,7 +1500,23 @@ function getRenderableAssistantParts(
 
   return parts;
 }
-export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, ralphSessionDir, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({
+  message,
+  isLast,
+  syntaxStyle,
+  hideAskUserQuestion: _hideAskUserQuestion = false,
+  hideLoading = false,
+  todoItems,
+  tasksExpanded = false,
+  inlineTasksEnabled = true,
+  ralphSessionDir,
+  showTodoPanel = true,
+  elapsedMs,
+  collapsed = false,
+  streamingMeta,
+  expandedWorkflowPhases,
+  onToggleWorkflowPhase,
+}: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
   if (message.isCollapsed && !message.streaming) {
@@ -1487,11 +1555,14 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
       const toolLabel = toolCount > 0
         ? ` ${MISC.separator} ${toolCount} tool${toolCount !== 1 ? "s" : ""}`
         : "";
+      const phaseSummary = message.workflowPhases && message.workflowPhases.length > 0
+        ? message.workflowPhases[message.workflowPhases.length - 1]?.message ?? ""
+        : "";
       return (
         <box paddingLeft={SPACING.CONTAINER_PAD} paddingRight={SPACING.CONTAINER_PAD} marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}>
           <text wrapMode="char">
             <span style={{ fg: themeColors.dim }}>  {CONNECTOR.subStatus} </span>
-            <span style={{ fg: themeColors.muted }}>{truncate(message.content, 74)}</span>
+            <span style={{ fg: themeColors.muted }}>{truncate(message.content || phaseSummary, 74)}</span>
             <span style={{ fg: themeColors.dim }}>{toolLabel}</span>
           </text>
         </box>
@@ -1540,6 +1611,13 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
       ? (message.streaming ? todoItems : message.taskItems)
       : undefined;
     const inlineTaskExpansion = shouldRenderInlineTasks ? (tasksExpanded || undefined) : false;
+    const workflowPhases = message.workflowPhases ?? [];
+    const workflowPhaseItems = getWorkflowPhaseRenderItems(
+      message.id,
+      workflowPhases,
+      expandedWorkflowPhases,
+      onToggleWorkflowPhase,
+    );
     const renderableMessage = {
       ...message,
       parts: getRenderableAssistantParts(
@@ -1547,7 +1625,7 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
         taskItemsToShow,
         inlineTaskExpansion,
         Boolean(isLast),
-        hideAskUserQuestion,
+        _hideAskUserQuestion,
       ),
     };
 
@@ -1564,6 +1642,30 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
         paddingRight={SPACING.CONTAINER_PAD}
       >
         <MessageBubbleParts message={renderableMessage} syntaxStyle={syntaxStyle} />
+        {workflowPhaseItems.length > 0 && (
+          <box flexDirection="column">
+            {workflowPhaseItems.map(({ key, phase, expanded, onToggle }) => {
+              return (
+                <WorkflowPhaseSection
+                  key={key}
+                  phase={phase}
+                  expanded={expanded}
+                  onToggle={onToggle}
+                >
+                  <PhaseEventList
+                    events={phase.events}
+                    themeColors={{
+                      border: themeColors.border,
+                      dim: themeColors.dim,
+                      error: themeColors.error,
+                      muted: themeColors.muted,
+                    }}
+                  />
+                </WorkflowPhaseSection>
+              );
+            })}
+          </box>
+        )}
 
         {/* Ralph persistent task list - pinned above streaming text in last message */}
         {isLast && ralphSessionDir && showTodoPanel && (
@@ -1832,6 +1934,10 @@ export function ChatApp({
   const [showTodoPanel, setShowTodoPanel] = useState(true);
   // Whether task list items are expanded (full content, no truncation)
   const [tasksExpanded, _setTasksExpanded] = useState(false);
+  const [expandedWorkflowPhases, setExpandedWorkflowPhases] = useState<Set<string>>(new Set());
+  const toggleWorkflowPhase = useCallback((phaseKey: string) => {
+    setExpandedWorkflowPhases((prev) => toggleExpandedWorkflowPhase(prev, phaseKey));
+  }, []);
   // Ralph workflow persistent task list
   const [ralphSessionDir, setRalphSessionDir] = useState<string | null>(null);
   const ralphSessionDirRef = useRef<string | null>(null);
@@ -1917,6 +2023,9 @@ export function ChatApp({
   // Counter to trigger effect when tools complete (used for deferred completion logic)
   const [toolCompletionVersion, setToolCompletionVersion] = useState(0);
   // Incremented when message-window overflow eviction happens.
+  const pendingEvictionsRef = useRef<Array<{ messages: ChatMessage[]; count: number }>>([]);
+  const [, setTrimmedMessageCount] = useState(0);
+  const [, setMessageWindowEpoch] = useState(0);
   // Tracks which skills have been loaded in the current session to avoid duplicate indicators.
   const loadedSkillsRef = useRef<Set<string>>(new Set());
   // Ref for scrollbox to enable programmatic scrolling
@@ -2014,17 +2123,19 @@ export function ChatApp({
   const injectHiddenPhaseSummary = useCallback((messageId: string, content: string) => {
     const summary = buildHiddenPhaseSummary(content);
     setMessagesWindowed((prev: ChatMessage[]) =>
-      prev.map((msg: ChatMessage) =>
-        msg.id === messageId
-          ? {
-              ...msg,
-              streaming: false,
-              content: summary,
-              isCollapsed: true,
-              hiddenPhaseContent: content,
-            }
-          : msg,
-      ),
+      summary === null
+        ? prev.filter((msg: ChatMessage) => msg.id !== messageId)
+        : prev.map((msg: ChatMessage) =>
+            msg.id === messageId
+              ? {
+                  ...msg,
+                  streaming: false,
+                  content: summary,
+                  isCollapsed: true,
+                  hiddenPhaseContent: content,
+                }
+              : msg,
+          ),
     );
   }, [setMessagesWindowed]);
 
@@ -2047,12 +2158,6 @@ export function ChatApp({
       console.debug(`[eviction] flushed ${totalEvicted} messages in ${evictions.length} batch(es), epoch incremented`);
     }
   }, [messages]);
-
-  // Live elapsed time counter for streaming indicator
-  // Also keeps running while background agents are active (stream ended but work continues)
-  const hasActiveBackgroundAgentsGlobal = parallelAgents.some(
-    (a) => a.background && a.status === "background"
-  );
 
   // Live elapsed time counter for the visible loading indicator.
   useEffect(() => {
@@ -3975,6 +4080,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         setParallelAgents([]);
         setTranscriptMode(false);
         clearHistoryBuffer();
+        setTrimmedMessageCount(0);
+        setExpandedWorkflowPhases(new Set());
         loadedSkillsRef.current.clear();
         // Reset ralph state on /clear (Copilot only)
         if (agentType === "copilot") {
@@ -4003,6 +4110,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           appendToHistoryBuffer(messages);
         }
         setMessagesWindowed([]);
+        setTrimmedMessageCount(0);
+        setExpandedWorkflowPhases(new Set());
       }
 
       // Store compaction summary if present (from /compact command)
@@ -4048,6 +4157,25 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       // Skip if the delayed spinner already placed the message (and messages weren't cleared)
       if (result.message && (!commandSpinnerShown || result.clearMessages)) {
         addMessage("assistant", result.message);
+      }
+
+      if (result.workflowPhases && result.workflowPhases.length > 0) {
+        const commandPhases = result.workflowPhases;
+        setMessagesWindowed((prev) => {
+          const lastMsg = prev[prev.length - 1];
+          if (lastMsg && lastMsg.role === "assistant") {
+            return [
+              ...prev.slice(0, -1),
+              {
+                ...lastMsg,
+                workflowPhases: [...(lastMsg.workflowPhases ?? []), ...commandPhases],
+              },
+            ];
+          }
+          const msg = createMessage("assistant", "");
+          msg.workflowPhases = commandPhases;
+          return [...prev, msg];
+        });
       }
 
       // Track MCP snapshot in message for UI indicator
@@ -4122,7 +4250,9 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       if (commandSpinnerShown && commandSpinnerMsgId) {
         const msgId = commandSpinnerMsgId;
         const hasStructuredPayload = Boolean(
-          result.mcpSnapshot || result.skillLoaded
+          result.mcpSnapshot
+          || result.skillLoaded
+          || (result.workflowPhases && result.workflowPhases.length > 0)
         );
         if ((result.message || hasStructuredPayload) && !result.clearMessages) {
           // Preserve the spinner placeholder when command data is attached to it.
@@ -5836,6 +5966,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           inlineTasksEnabled={!ralphSessionDir}
           ralphSessionDir={ralphSessionDir}
           showTodoPanel={showTodoPanel}
+          expandedWorkflowPhases={expandedWorkflowPhases}
+          onToggleWorkflowPhase={toggleWorkflowPhase}
         />
         );
       })}
@@ -5867,6 +5999,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           inlineTasksEnabled={!ralphSessionDir}
           ralphSessionDir={ralphSessionDir}
           showTodoPanel={showTodoPanel}
+          expandedWorkflowPhases={expandedWorkflowPhases}
+          onToggleWorkflowPhase={toggleWorkflowPhase}
         />
         );
       })}

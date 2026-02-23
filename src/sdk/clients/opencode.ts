@@ -665,6 +665,7 @@ export class OpenCodeClient implements CodingAgentClient {
           this.emitEvent("message.delta", partSessionId, {
             delta,
             contentType: "reasoning",
+            thinkingSourceKey: (part?.id as string) ?? undefined,
           });
         } else if (part?.type === "tool") {
           const toolState = part?.state as Record<string, unknown> | undefined;
@@ -1145,6 +1146,7 @@ export class OpenCodeClient implements CodingAgentClient {
 
               const delta = event.data?.delta as string | undefined;
               const contentType = event.data?.contentType as string | undefined;
+              const thinkingSourceKey = event.data?.thinkingSourceKey as string | undefined;
               if (delta) {
                 deltaQueue.push({
                   type: contentType === "reasoning" ? "thinking" as const : "text" as const,
@@ -1152,6 +1154,8 @@ export class OpenCodeClient implements CodingAgentClient {
                   role: "assistant" as const,
                   ...(contentType === "reasoning" ? {
                     metadata: {
+                      provider: "opencode",
+                      thinkingSourceKey,
                       streamingStats: {
                         thinkingMs: 0,
                         outputTokens: 0,
@@ -1223,11 +1227,14 @@ export class OpenCodeClient implements CodingAgentClient {
                     if (reasoningStartMs === null) {
                       reasoningStartMs = Date.now();
                     }
+                    const reasoningPartId = (part as { id?: string }).id;
                     yield {
                       type: "thinking" as const,
                       content: part.text,
                       role: "assistant" as const,
                       metadata: {
+                        provider: "opencode",
+                        thinkingSourceKey: reasoningPartId,
                         streamingStats: {
                           thinkingMs: reasoningDurationMs + (Date.now() - reasoningStartMs),
                           outputTokens: 0,
@@ -1331,7 +1338,9 @@ export class OpenCodeClient implements CodingAgentClient {
                         reasoningStartMs = Date.now();
                       }
                       const currentMs = reasoningDurationMs + (Date.now() - reasoningStartMs);
+                      const existingMetadata = (msg.metadata ?? {}) as Record<string, unknown>;
                       msg.metadata = {
+                        ...existingMetadata,
                         streamingStats: { thinkingMs: currentMs, outputTokens: 0 },
                       };
                     } else if (reasoningStartMs !== null) {

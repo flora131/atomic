@@ -241,6 +241,9 @@ async function createStreamHarnessFromClient(client: CodingAgentClient): Promise
     CompletionSummary: () => null,
     LoadingIndicator: () => null,
     StreamingBullet: () => null,
+    traceThinkingSourceLifecycle: () => {
+      return;
+    },
     MAX_VISIBLE_MESSAGES: 100,
     defaultWorkflowChatState: {},
   }));
@@ -582,7 +585,7 @@ describe("startChatUI thinking source key contract", () => {
     }
   });
 
-  test("aggregates interleaved thinking chunks from two sources without cross-source bleed", async () => {
+  test("regression: aggregates interleaved thinking chunks per source without concatenation bleed", async () => {
     const sourceA = "claude:block-0";
     const sourceB = "opencode:reasoning_1";
     const harness = await createStreamHarness([
@@ -665,6 +668,8 @@ describe("startChatUI thinking source key contract", () => {
 
       expect(latest.thinkingTextBySource?.[sourceA]).toBe("alpha-1 alpha-2");
       expect(latest.thinkingTextBySource?.[sourceB]).toBe("beta-1 beta-2");
+      expect(latest.thinkingTextBySource?.[sourceA]).not.toContain("beta");
+      expect(latest.thinkingTextBySource?.[sourceB]).not.toContain("alpha");
       expect(latest.thinkingGenerationBySource?.[sourceA]).toBe(9);
       expect(latest.thinkingGenerationBySource?.[sourceB]).toBe(10);
       expect(latest.thinkingMessageBySource?.[sourceA]).toBe("msg-a");

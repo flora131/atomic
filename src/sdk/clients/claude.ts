@@ -143,9 +143,10 @@ function mapEventTypeToHookEvent(eventType: EventType): HookEvent | null {
  * streaming layer can accurately count tool invocations even when the
  * model emits thinking or text blocks before the tool_use block).
  */
-function extractMessageContent(message: SDKAssistantMessage): {
+export function extractMessageContent(message: SDKAssistantMessage): {
     type: MessageContentType;
     content: string | unknown;
+    thinkingSourceKey?: string;
 } {
     const betaMessage = message.message;
     if (betaMessage.content.length === 0) {
@@ -155,8 +156,10 @@ function extractMessageContent(message: SDKAssistantMessage): {
     // Scan all blocks — prioritize tool_use, then text, then thinking
     let textContent: string | null = null;
     let thinkingContent: string | null = null;
+    let thinkingSourceKey: string | undefined;
 
-    for (const block of betaMessage.content) {
+    for (let blockIndex = 0; blockIndex < betaMessage.content.length; blockIndex++) {
+        const block = betaMessage.content[blockIndex]!;
         if (block.type === "tool_use") {
             // Return immediately — tool_use has highest priority.
             // Include toolUseId so the UI can deduplicate partial messages
@@ -175,6 +178,7 @@ function extractMessageContent(message: SDKAssistantMessage): {
         }
         if (block.type === "thinking" && thinkingContent === null) {
             thinkingContent = (block as { thinking: string }).thinking;
+            thinkingSourceKey = String(blockIndex);
         }
     }
 
@@ -183,10 +187,31 @@ function extractMessageContent(message: SDKAssistantMessage): {
     }
 
     if (thinkingContent !== null) {
-        return { type: "thinking", content: thinkingContent };
+        return {
+            type: "thinking",
+            content: thinkingContent,
+            thinkingSourceKey,
+        };
     }
 
     return { type: "text", content: "" };
+}
+
+function getClaudeContentBlockIndex(event: Record<string, unknown>): number | null {
+    const directIndex = event.index;
+    if (typeof directIndex === "number") {
+        return directIndex;
+    }
+
+    const contentBlock = event.content_block;
+    if (contentBlock && typeof contentBlock === "object") {
+        const blockIndex = (contentBlock as Record<string, unknown>).index;
+        if (typeof blockIndex === "number") {
+            return blockIndex;
+        }
+    }
+
+    return null;
 }
 
 function mapAuthStatusFromMcpServerStatus(
@@ -630,7 +655,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     }
 
                     if (sdkMessage.type === "assistant") {
-                        const { type, content } =
+                        const { type, content, thinkingSourceKey } =
                             extractMessageContent(sdkMessage);
                         lastAssistantMessage = {
                             type,
@@ -648,6 +673,12 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                 model: sdkMessage.message.model,
                                 stopReason:
                                     sdkMessage.message.stop_reason ?? undefined,
+                                ...(type === "thinking"
+                                    ? {
+                                          provider: "claude",
+                                          thinkingSourceKey,
+                                      }
+                                    : {}),
                             },
                         };
                     }
@@ -714,6 +745,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         let thinkingStartMs: number | null = null;
                         let thinkingDurationMs = 0;
                         let currentBlockIsThinking = false;
+                        let activeThinkingSourceKey: string | null = null;
                         // Output token tracking from message_delta events
                         let outputTokens = 0;
                         let sawTerminalEvent = false;
@@ -729,6 +761,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
                                 // Track thinking block boundaries
                                 if (event.type === "content_block_start") {
+                                    const blockIndex = getClaudeContentBlockIndex(
+                                        event as Record<string, unknown>,
+                                    );
                                     const blockType = (
                                         event as Record<string, unknown>
                                     ).content_block
@@ -744,12 +779,26 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                         blockType === "thinking";
                                     if (currentBlockIsThinking) {
                                         thinkingStartMs = Date.now();
+                                        activeThinkingSourceKey =
+                                            blockIndex !== null
+                                                ? String(blockIndex)
+                                                : null;
                                     }
                                 }
                                 if (
                                     event.type === "content_block_stop" &&
                                     currentBlockIsThinking
                                 ) {
+                                    if (activeThinkingSourceKey === null) {
+                                        const blockIndex =
+                                            getClaudeContentBlockIndex(
+                                                event as Record<string, unknown>,
+                                            );
+                                        if (blockIndex !== null) {
+                                            activeThinkingSourceKey =
+                                                String(blockIndex);
+                                        }
+                                    }
                                     if (thinkingStartMs !== null) {
                                         thinkingDurationMs +=
                                             Date.now() - thinkingStartMs;
@@ -761,12 +810,17 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                         content: "",
                                         role: "assistant",
                                         metadata: {
+                                            provider: "claude",
+                                            thinkingSourceKey:
+                                                activeThinkingSourceKey ??
+                                                undefined,
                                             streamingStats: {
                                                 thinkingMs: thinkingDurationMs,
                                                 outputTokens,
                                             },
                                         },
                                     };
+                                    activeThinkingSourceKey = null;
                                 }
 
                                 // Track output tokens from message_delta usage
@@ -793,6 +847,18 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                         event.delta.type === "thinking_delta"
                                     ) {
                                         hasYieldedDeltas = true;
+                                        const blockIndex =
+                                            getClaudeContentBlockIndex(
+                                                event as Record<string, unknown>,
+                                            );
+                                        const resolvedThinkingSourceKey: string | null =
+                                            blockIndex !== null
+                                                ? String(blockIndex)
+                                                : activeThinkingSourceKey;
+                                        if (resolvedThinkingSourceKey !== null) {
+                                            activeThinkingSourceKey =
+                                                resolvedThinkingSourceKey;
+                                        }
                                         const currentThinkingMs =
                                             thinkingDurationMs +
                                             (thinkingStartMs !== null
@@ -808,6 +874,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                             ).thinking as string,
                                             role: "assistant",
                                             metadata: {
+                                                provider: "claude",
+                                                thinkingSourceKey:
+                                                    resolvedThinkingSourceKey ??
+                                                    undefined,
                                                 streamingStats: {
                                                     thinkingMs:
                                                         currentThinkingMs,
@@ -818,7 +888,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                     }
                                 }
                             } else if (sdkMessage.type === "assistant") {
-                                const { type, content } =
+                                const { type, content, thinkingSourceKey } =
                                     extractMessageContent(sdkMessage);
 
                                 // Always yield tool_use messages so callers can track tool
@@ -861,6 +931,12 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                             stopReason:
                                                 sdkMessage.message
                                                     .stop_reason ?? undefined,
+                                            ...(type === "thinking"
+                                                ? {
+                                                      provider: "claude",
+                                                      thinkingSourceKey,
+                                                  }
+                                                : {}),
                                         },
                                     };
                                 }

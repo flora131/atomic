@@ -46,8 +46,13 @@ interface TextDeltaEvent {
   delta: string;
 }
 
-interface ThinkingMetaEvent {
+export type ThinkingProvider = "claude" | "opencode" | "copilot" | "unknown";
+
+export interface ThinkingMetaEvent {
   type: "thinking-meta";
+  thinkingSourceKey: string;
+  targetMessageId: string;
+  streamGeneration: number;
   thinkingText: string;
   thinkingMs: number;
   /**
@@ -55,6 +60,7 @@ interface ThinkingMetaEvent {
    * reasoning rendering task is complete.
    */
   includeReasoningPart?: boolean;
+  provider?: ThinkingProvider;
 }
 
 interface HitlRequestEvent {
@@ -90,6 +96,8 @@ export type StreamPartEvent =
   | HitlRequestEvent
   | HitlResponseEvent
   | ParallelAgentsEvent;
+
+const reasoningPartIdBySourceRegistry = new WeakMap<ChatMessage, Map<string, PartId>>();
 
 function isHitlToolName(toolName: string): boolean {
   return toolName === "AskUserQuestion" || toolName === "question" || toolName === "ask_user";
@@ -416,23 +424,42 @@ function upsertThinkingMeta(
   event: ThinkingMetaEvent,
 ): ChatMessage {
   if (!event.includeReasoningPart) {
-    return {
+    const nextMessage: ChatMessage = {
       ...message,
       thinkingMs: event.thinkingMs,
       thinkingText: event.thinkingText || undefined,
     };
+    return carryReasoningPartRegistry(message, nextMessage);
   }
 
   const parts = [...(message.parts ?? [])];
-  const existingIdx = findLastPartIndex(
-    parts,
-    (part) => part.type === "reasoning" && (part as ReasoningPart).isStreaming,
-  );
+  const registry = cloneReasoningPartRegistry(message);
+
+  let existingIdx = -1;
+  const existingPartId = registry.get(event.thinkingSourceKey);
+  if (existingPartId) {
+    existingIdx = parts.findIndex(
+      (part) => part.id === existingPartId && part.type === "reasoning",
+    );
+    if (existingIdx < 0) {
+      registry.delete(event.thinkingSourceKey);
+    }
+  }
+
+  if (existingIdx < 0) {
+    existingIdx = parts.findIndex(
+      (part) => part.type === "reasoning" && (part as ReasoningPart).thinkingSourceKey === event.thinkingSourceKey,
+    );
+    if (existingIdx >= 0) {
+      registry.set(event.thinkingSourceKey, parts[existingIdx]!.id);
+    }
+  }
 
   if (existingIdx >= 0) {
     const existing = parts[existingIdx] as ReasoningPart;
     parts[existingIdx] = {
       ...existing,
+      thinkingSourceKey: event.thinkingSourceKey,
       content: event.thinkingText,
       durationMs: event.thinkingMs,
       isStreaming: true,
@@ -441,6 +468,7 @@ function upsertThinkingMeta(
     const reasoningPart: ReasoningPart = {
       id: createPartId(),
       type: "reasoning",
+      thinkingSourceKey: event.thinkingSourceKey,
       content: event.thinkingText,
       durationMs: event.thinkingMs,
       isStreaming: true,
@@ -452,14 +480,45 @@ function upsertThinkingMeta(
     } else {
       parts.push(reasoningPart);
     }
+    registry.set(event.thinkingSourceKey, reasoningPart.id);
   }
 
-  return {
+  const nextMessage: ChatMessage = {
     ...message,
     parts,
     thinkingMs: event.thinkingMs,
     thinkingText: event.thinkingText || undefined,
   };
+
+  reasoningPartIdBySourceRegistry.set(nextMessage, registry);
+  return nextMessage;
+}
+
+function cloneReasoningPartRegistry(message: ChatMessage): Map<string, PartId> {
+  const existing = reasoningPartIdBySourceRegistry.get(message);
+  if (existing) {
+    return new Map(existing);
+  }
+
+  const rebuilt = new Map<string, PartId>();
+  for (const part of message.parts ?? []) {
+    if (part.type !== "reasoning") {
+      continue;
+    }
+    const sourceKey = (part as ReasoningPart).thinkingSourceKey;
+    if (sourceKey && sourceKey.trim().length > 0) {
+      rebuilt.set(sourceKey, part.id);
+    }
+  }
+  return rebuilt;
+}
+
+function carryReasoningPartRegistry(from: ChatMessage, to: ChatMessage): ChatMessage {
+  const existing = reasoningPartIdBySourceRegistry.get(from);
+  if (existing) {
+    reasoningPartIdBySourceRegistry.set(to, new Map(existing));
+  }
+  return to;
 }
 
 function isActiveParallelAgent(agent: ParallelAgent): boolean {
@@ -757,10 +816,11 @@ export function applyStreamPartEvent(
   switch (event.type) {
     case "text-delta": {
       const withParts = handleTextDelta(message, event.delta);
-      return {
+      const nextMessage: ChatMessage = {
         ...withParts,
         content: message.content + event.delta,
       };
+      return carryReasoningPartRegistry(message, nextMessage);
     }
 
     case "thinking-meta":
@@ -769,33 +829,36 @@ export function applyStreamPartEvent(
     case "tool-start": {
       const nextToolCalls = upsertToolCallStart(message.toolCalls, event);
       const nextParts = upsertToolPartStart(message.parts ?? [], event);
-      return {
+      const nextMessage: ChatMessage = {
         ...message,
         toolCalls: nextToolCalls,
         parts: nextParts,
       };
+      return carryReasoningPartRegistry(message, nextMessage);
     }
 
     case "tool-complete": {
       const nextToolCalls = upsertToolCallComplete(message.toolCalls, event);
       const nextParts = upsertToolPartComplete(message.parts ?? [], event);
-      return {
+      const nextMessage: ChatMessage = {
         ...message,
         toolCalls: nextToolCalls,
         parts: nextParts,
       };
+      return carryReasoningPartRegistry(message, nextMessage);
     }
 
     case "tool-hitl-request": {
       const nextParts = upsertHitlRequest(message.parts ?? [], event);
-      return {
+      const nextMessage: ChatMessage = {
         ...message,
         parts: nextParts,
       };
+      return carryReasoningPartRegistry(message, nextMessage);
     }
 
     case "tool-hitl-response":
-      return applyHitlResponse(message, event);
+      return carryReasoningPartRegistry(message, applyHitlResponse(message, event));
 
     case "parallel-agents": {
       const normalizedAgents = normalizeParallelAgents(event.agents);
@@ -805,11 +868,12 @@ export function applyStreamPartEvent(
         message.timestamp,
         shouldGroupSubagentTrees({ ...message, parallelAgents: normalizedAgents }, event.isLastMessage),
       );
-      return {
+      const nextMessage: ChatMessage = {
         ...message,
         parallelAgents: normalizedAgents,
         parts: nextParts,
       };
+      return carryReasoningPartRegistry(message, nextMessage);
     }
   }
 }

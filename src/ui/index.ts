@@ -12,6 +12,7 @@ import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { createRoot, type Root } from "@opentui/react";
 import {
   ChatApp,
+  type StreamingMeta,
   type OnToolStart,
   type OnToolComplete,
   type OnSkillInvoked,
@@ -21,6 +22,7 @@ import {
   type OnAskUserQuestion,
   type CommandExecutionTelemetry,
   type MessageSubmitTelemetry,
+  traceThinkingSourceLifecycle,
 } from "./chat.tsx";
 import type { ParallelAgent } from "./components/parallel-agents-tree.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
@@ -1298,7 +1300,7 @@ export async function startChatUI(
     content: string,
     onChunk: (chunk: string) => void,
     onComplete: () => void,
-    onMeta?: (meta: { outputTokens: number; thinkingMs: number; thinkingText: string }) => void,
+    onMeta?: (meta: StreamingMeta) => void,
     options?: { agent?: string }
   ): Promise<void> {
     // Single-owner stream model: any new stream handoff resets previous
@@ -1319,6 +1321,38 @@ export async function startChatUI(
     state.streamAbortController = new AbortController();
     state.currentRunId = ++state.runCounter;
     state.isStreaming = true;
+    const thinkingTextBySourceMap = new Map<string, string>();
+    const thinkingGenerationBySourceMap = new Map<string, number>();
+    const thinkingMessageBySourceMap = new Map<string, string>();
+    const activeThinkingSources = new Set<string>();
+    const closedThinkingSources = new Set<string>();
+
+    const closeThinkingSourcesAndClearMaps = (): void => {
+      const finalizedSources = new Set<string>();
+      for (const sourceKey of thinkingTextBySourceMap.keys()) {
+        finalizedSources.add(sourceKey);
+      }
+      for (const sourceKey of thinkingGenerationBySourceMap.keys()) {
+        finalizedSources.add(sourceKey);
+      }
+      for (const sourceKey of thinkingMessageBySourceMap.keys()) {
+        finalizedSources.add(sourceKey);
+      }
+      for (const sourceKey of activeThinkingSources) {
+        finalizedSources.add(sourceKey);
+      }
+      for (const sourceKey of finalizedSources) {
+        if (!closedThinkingSources.has(sourceKey)) {
+          traceThinkingSourceLifecycle("finalize", sourceKey, "stream finalize");
+        }
+        closedThinkingSources.add(sourceKey);
+      }
+
+      thinkingTextBySourceMap.clear();
+      thinkingGenerationBySourceMap.clear();
+      thinkingMessageBySourceMap.clear();
+      activeThinkingSources.clear();
+    };
 
     try {
       // Stream the response, wrapped so abort takes effect immediately
@@ -1335,7 +1369,6 @@ export async function startChatUI(
       // Map SDK tool use IDs to internal tool IDs for stream-path deduplication
       const streamToolIdMap = new Map<string, string>();
       const allowStreamToolEvents = !state.toolEventsViaHooks || agentType === "opencode";
-      let thinkingText = "";
 
       // Reset the suppress state at the start of each stream
       state.suppressPostTaskResult = null;
@@ -1346,6 +1379,72 @@ export async function startChatUI(
       // vs. generating genuine follow-up content.
       let suppressAccumulator = "";
       let suppressTarget: string | null = null;
+
+      const toStringRecord = (sourceMap: Map<string, string>): Record<string, string> => {
+        const record: Record<string, string> = {};
+        for (const [source, value] of sourceMap) {
+          record[source] = value;
+        }
+        return record;
+      };
+
+      const toNumberRecord = (sourceMap: Map<string, number>): Record<string, number> => {
+        const record: Record<string, number> = {};
+        for (const [source, value] of sourceMap) {
+          record[source] = value;
+        }
+        return record;
+      };
+
+      const resolveThinkingSourceKey = (message: AgentMessage): string => {
+        const metadata = message.metadata as Record<string, unknown> | undefined;
+        const sourceFromMetadata = typeof metadata?.thinkingSourceKey === "string"
+          ? metadata.thinkingSourceKey.trim()
+          : "";
+        if (sourceFromMetadata.length > 0) {
+          return sourceFromMetadata;
+        }
+        const contractError = new Error(
+          "Contract violation: thinking stream message is missing required metadata.thinkingSourceKey"
+        );
+        contractError.name = "ThinkingSourceContractViolationError";
+        throw contractError;
+      };
+
+      const bindThinkingSource = (sourceKey: string, message: AgentMessage): void => {
+        const metadata = message.metadata as Record<string, unknown> | undefined;
+        const generationFromMetadata = metadata?.streamGeneration;
+        const resolvedGeneration = typeof generationFromMetadata === "number"
+          && Number.isFinite(generationFromMetadata)
+          ? generationFromMetadata
+          : (state.currentRunId ?? state.runCounter);
+        thinkingGenerationBySourceMap.set(sourceKey, resolvedGeneration);
+
+        const targetMessageId = typeof metadata?.targetMessageId === "string"
+          ? metadata.targetMessageId
+          : (typeof metadata?.messageId === "string" ? metadata.messageId : undefined);
+        if (targetMessageId && targetMessageId.length > 0) {
+          thinkingMessageBySourceMap.set(sourceKey, targetMessageId);
+        }
+      };
+
+      const getThinkingTextSnapshot = (): string => {
+        let combined = "";
+        for (const text of thinkingTextBySourceMap.values()) {
+          combined += text;
+        }
+        return combined;
+      };
+
+      const createStreamingMetaSnapshot = (thinkingSourceKey?: string): StreamingMeta => ({
+        outputTokens: sdkOutputTokens,
+        thinkingMs,
+        thinkingText: getThinkingTextSnapshot(),
+        thinkingSourceKey,
+        thinkingTextBySource: toStringRecord(thinkingTextBySourceMap),
+        thinkingGenerationBySource: toNumberRecord(thinkingGenerationBySourceMap),
+        thinkingMessageBySource: toStringRecord(thinkingMessageBySourceMap),
+      });
 
       for await (const message of abortableStream) {
         // Handle text content
@@ -1412,10 +1511,24 @@ export async function startChatUI(
             sdkOutputTokens = stats.outputTokens;
           }
 
-          onMeta?.({ outputTokens: sdkOutputTokens, thinkingMs, thinkingText });
+          onMeta?.(createStreamingMetaSnapshot());
         }
         // Handle thinking metadata from SDK
         else if (message.type === "thinking") {
+          const thinkingSourceKey = resolveThinkingSourceKey(message);
+          if (closedThinkingSources.has(thinkingSourceKey)) {
+            traceThinkingSourceLifecycle("drop", thinkingSourceKey, "index closed-source rejection");
+            continue;
+          }
+          const isNewSource = !activeThinkingSources.has(thinkingSourceKey);
+          if (isNewSource) {
+            activeThinkingSources.add(thinkingSourceKey);
+            traceThinkingSourceLifecycle("create", thinkingSourceKey, "index first-seen thinking event");
+          } else {
+            traceThinkingSourceLifecycle("update", thinkingSourceKey, "index thinking event update");
+          }
+          bindThinkingSource(thinkingSourceKey, message);
+
           // Start local wall-clock timer on first thinking message
           if (thinkingStartLocal === null) {
             thinkingStartLocal = Date.now();
@@ -1423,7 +1536,8 @@ export async function startChatUI(
 
           // Capture thinking text content
           if (typeof message.content === "string") {
-            thinkingText += message.content;
+            const previous = thinkingTextBySourceMap.get(thinkingSourceKey) ?? "";
+            thinkingTextBySourceMap.set(thinkingSourceKey, previous + message.content);
           }
 
           const stats = message.metadata?.streamingStats as
@@ -1443,7 +1557,7 @@ export async function startChatUI(
           if (stats?.outputTokens && stats.outputTokens > 0) {
             sdkOutputTokens = stats.outputTokens;
           }
-          onMeta?.({ outputTokens: sdkOutputTokens, thinkingMs, thinkingText });
+          onMeta?.(createStreamingMetaSnapshot(thinkingSourceKey));
         }
         // Handle tool_use content - notify UI of tool invocation
         // OpenCode can complete the stream before hook events flush; keep a
@@ -1496,12 +1610,19 @@ export async function startChatUI(
         }
       }
 
+      closeThinkingSourcesAndClearMaps();
       state.messageCount++;
       onComplete();
     } catch (error) {
+      closeThinkingSourcesAndClearMaps();
       // Ignore AbortError - this is expected when user interrupts
       if (error instanceof Error && error.name === "AbortError") {
         // Stream was intentionally aborted
+      } else if (error instanceof Error && error.name === "ThinkingSourceContractViolationError") {
+        state.currentRunId = null;
+        state.resetParallelTracking?.("stream_error");
+        onComplete();
+        throw error;
       }
       state.currentRunId = null;
       state.resetParallelTracking?.("stream_error");

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { ChatMessage } from "../chat.tsx";
 import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
-import { _resetPartCounter } from "./id.ts";
+import { _resetPartCounter, createPartId } from "./id.ts";
 import {
   applyStreamPartEvent,
   finalizeStreamingReasoningInMessage,
@@ -18,6 +18,12 @@ function createAssistantMessage(): ChatMessage {
     parts: [],
     toolCalls: [],
   };
+}
+
+function findReasoningPartBySource(message: ChatMessage, sourceKey: string) {
+  return (message.parts ?? []).find(
+    (part) => part.type === "reasoning" && part.thinkingSourceKey === sourceKey,
+  );
 }
 
 beforeEach(() => {
@@ -38,6 +44,9 @@ describe("applyStreamPartEvent", () => {
     const msg = createAssistantMessage();
     const next = applyStreamPartEvent(msg, {
       type: "thinking-meta",
+      thinkingSourceKey: "source:test",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
       thinkingMs: 1200,
       thinkingText: "analyzing",
     });
@@ -51,6 +60,9 @@ describe("applyStreamPartEvent", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
       type: "thinking-meta",
+      thinkingSourceKey: "source:test",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
       thinkingMs: 1200,
       thinkingText: "analyzing options",
       includeReasoningPart: true,
@@ -82,6 +94,9 @@ describe("applyStreamPartEvent", () => {
 
     msg = applyStreamPartEvent(msg, {
       type: "thinking-meta",
+      thinkingSourceKey: "source:test",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
       thinkingMs: 800,
       thinkingText: "initial thought",
       includeReasoningPart: true,
@@ -89,6 +104,9 @@ describe("applyStreamPartEvent", () => {
 
     msg = applyStreamPartEvent(msg, {
       type: "thinking-meta",
+      thinkingSourceKey: "source:test",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
       thinkingMs: 1250,
       thinkingText: "initial thought with refinement",
       includeReasoningPart: true,
@@ -111,6 +129,172 @@ describe("applyStreamPartEvent", () => {
     if (textPart?.type === "text") {
       expect(textPart.content).toBe("Answer continues");
     }
+  });
+
+  test("upserts reasoning parts by thinking source key without cross-source overwrite", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "source:a",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 200,
+      thinkingText: "alpha draft",
+      includeReasoningPart: true,
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "source:b",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 300,
+      thinkingText: "beta draft",
+      includeReasoningPart: true,
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "source:a",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 420,
+      thinkingText: "alpha refined",
+      includeReasoningPart: true,
+    });
+
+    const next = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "source:b",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 560,
+      thinkingText: "beta refined",
+      includeReasoningPart: true,
+    });
+
+    const reasoningParts = (next.parts ?? []).filter((part) => part.type === "reasoning");
+    expect(reasoningParts).toHaveLength(2);
+
+    const sourceA = reasoningParts.find(
+      (part) => part.type === "reasoning" && part.thinkingSourceKey === "source:a",
+    );
+    expect(sourceA?.type).toBe("reasoning");
+    if (sourceA?.type === "reasoning") {
+      expect(sourceA.content).toBe("alpha refined");
+      expect(sourceA.durationMs).toBe(420);
+      expect(sourceA.isStreaming).toBe(true);
+    }
+
+    const sourceB = reasoningParts.find(
+      (part) => part.type === "reasoning" && part.thinkingSourceKey === "source:b",
+    );
+    expect(sourceB?.type).toBe("reasoning");
+    if (sourceB?.type === "reasoning") {
+      expect(sourceB.content).toBe("beta refined");
+      expect(sourceB.durationMs).toBe(560);
+      expect(sourceB.isStreaming).toBe(true);
+    }
+  });
+
+  test("re-syncs per-source registry from reasoning parts when mapping is missing", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "source:a",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 200,
+      thinkingText: "alpha draft",
+      includeReasoningPart: true,
+    });
+    msg = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "source:b",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 300,
+      thinkingText: "beta draft",
+      includeReasoningPart: true,
+    });
+
+    const sourceABefore = findReasoningPartBySource(msg, "source:a");
+    const sourceBBefore = findReasoningPartBySource(msg, "source:b");
+    expect(sourceABefore?.type).toBe("reasoning");
+    expect(sourceBBefore?.type).toBe("reasoning");
+
+    const messageWithoutRegistry: ChatMessage = {
+      ...msg,
+      parts: [...(msg.parts ?? [])],
+    };
+
+    const next = applyStreamPartEvent(messageWithoutRegistry, {
+      type: "thinking-meta",
+      thinkingSourceKey: "source:b",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 560,
+      thinkingText: "beta refined after clone",
+      includeReasoningPart: true,
+    });
+
+    const sourceAAfter = findReasoningPartBySource(next, "source:a");
+    expect(sourceAAfter?.type).toBe("reasoning");
+    if (sourceAAfter?.type === "reasoning" && sourceABefore?.type === "reasoning") {
+      expect(sourceAAfter.id).toBe(sourceABefore.id);
+      expect(sourceAAfter.content).toBe("alpha draft");
+      expect(sourceAAfter.durationMs).toBe(200);
+    }
+
+    const sourceBAfter = findReasoningPartBySource(next, "source:b");
+    expect(sourceBAfter?.type).toBe("reasoning");
+    if (sourceBAfter?.type === "reasoning" && sourceBBefore?.type === "reasoning") {
+      expect(sourceBAfter.id).toBe(sourceBBefore.id);
+      expect(sourceBAfter.content).toBe("beta refined after clone");
+      expect(sourceBAfter.durationMs).toBe(560);
+    }
+
+    expect((next.parts ?? []).filter((part) => part.type === "reasoning")).toHaveLength(2);
+  });
+
+  test("re-syncs per-source registry when mapping points to a stale part id", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "source:a",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 200,
+      thinkingText: "alpha draft",
+      includeReasoningPart: true,
+    });
+
+    const sourceAInitial = findReasoningPartBySource(msg, "source:a");
+    expect(sourceAInitial?.type).toBe("reasoning");
+    if (sourceAInitial?.type === "reasoning") {
+      sourceAInitial.id = createPartId();
+    }
+
+    const next = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "source:a",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 420,
+      thinkingText: "alpha refined after stale mapping",
+      includeReasoningPart: true,
+    });
+
+    const sourceAAfter = findReasoningPartBySource(next, "source:a");
+    expect(sourceAAfter?.type).toBe("reasoning");
+    if (sourceAAfter?.type === "reasoning" && sourceAInitial?.type === "reasoning") {
+      expect(sourceAAfter.id).toBe(sourceAInitial.id);
+      expect(sourceAAfter.content).toBe("alpha refined after stale mapping");
+      expect(sourceAAfter.durationMs).toBe(420);
+      expect(sourceAAfter.isStreaming).toBe(true);
+    }
+
+    expect((next.parts ?? []).filter((part) => part.type === "reasoning")).toHaveLength(1);
   });
 
   test("handles tool start by finalizing text and inserting a tool part", () => {
@@ -197,6 +381,9 @@ describe("applyStreamPartEvent", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
       type: "thinking-meta",
+      thinkingSourceKey: "source:test",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
       thinkingMs: 640,
       thinkingText: "break problem into steps",
       includeReasoningPart: true,
@@ -534,6 +721,9 @@ describe("reasoning streaming finalizers", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
       type: "thinking-meta",
+      thinkingSourceKey: "source:test",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
       thinkingMs: 300,
       thinkingText: "inspect",
       includeReasoningPart: true,
@@ -557,6 +747,9 @@ describe("reasoning streaming finalizers", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
       type: "thinking-meta",
+      thinkingSourceKey: "source:test",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
       thinkingMs: 450,
       thinkingText: "plan",
       includeReasoningPart: true,
@@ -575,6 +768,9 @@ describe("reasoning streaming finalizers", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
       type: "thinking-meta",
+      thinkingSourceKey: "source:test",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
       thinkingMs: 600,
       thinkingText: "analyzing",
       includeReasoningPart: true,
@@ -598,6 +794,9 @@ describe("reasoning streaming finalizers", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
       type: "thinking-meta",
+      thinkingSourceKey: "source:test",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
       thinkingMs: 700,
       thinkingText: "checking constraints",
       includeReasoningPart: true,

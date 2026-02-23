@@ -380,6 +380,8 @@ export class CopilotClient implements CodingAgentClient {
                   content: event.data.deltaContent,
                   role: "assistant",
                   metadata: {
+                    provider: "copilot",
+                    thinkingSourceKey: event.data.reasoningId,
                     streamingStats: {
                       thinkingMs: reasoningDurationMs + (Date.now() - reasoningStartMs),
                       outputTokens: 0,

@@ -154,4 +154,52 @@ describe("OpenCodeClient event mapping", () => {
       },
     ]);
   });
+
+  test("emits thinking source identity for reasoning deltas", () => {
+    const client = new OpenCodeClient();
+    const deltas: Array<{
+      sessionId: string;
+      delta?: string;
+      contentType?: string;
+      thinkingSourceKey?: string;
+    }> = [];
+
+    const unsubscribe = client.on("message.delta", (event) => {
+      const data = event.data as {
+        delta?: string;
+        contentType?: string;
+        thinkingSourceKey?: string;
+      };
+      deltas.push({
+        sessionId: event.sessionId,
+        delta: data.delta,
+        contentType: data.contentType,
+        thinkingSourceKey: data.thinkingSourceKey,
+      });
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "reasoning_part_1",
+          sessionID: "ses_reasoning",
+          messageID: "msg_reasoning",
+          type: "reasoning",
+        },
+        delta: "inspect constraints",
+      },
+    });
+
+    unsubscribe();
+
+    expect(deltas).toEqual([
+      {
+        sessionId: "ses_reasoning",
+        delta: "inspect constraints",
+        contentType: "reasoning",
+        thinkingSourceKey: "reasoning_part_1",
+      },
+    ]);
+  });
 });

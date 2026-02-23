@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, mock, test } from "bun:test";
 import { ClaudeAgentClient, OpenCodeClient, CopilotClient } from "./clients/index.ts";
+import { extractMessageContent } from "./clients/claude.ts";
 import type { EventType } from "./types.ts";
 
 const PARITY_EVENTS: EventType[] = [
@@ -122,5 +123,159 @@ describe("Unified provider event parity", () => {
 
       expect(calls).toBe(1);
     }
+  });
+
+  test("reasoning-capable paths emit stable thinkingSourceKey identity", async () => {
+    const claudeFirst = extractMessageContent({
+      message: {
+        content: [
+          { type: "metadata" },
+          { type: "thinking", thinking: "first thought" },
+          { type: "thinking", thinking: "other source" },
+        ],
+      },
+    } as unknown as Parameters<typeof extractMessageContent>[0]);
+    const claudeSecond = extractMessageContent({
+      message: {
+        content: [
+          { type: "metadata" },
+          { type: "thinking", thinking: "second thought" },
+        ],
+      },
+    } as unknown as Parameters<typeof extractMessageContent>[0]);
+
+    const claudeSourceKeys = [claudeFirst.thinkingSourceKey, claudeSecond.thinkingSourceKey];
+    expect(claudeSourceKeys).toEqual(["1", "1"]);
+
+    const openCodeClient = new OpenCodeClient();
+    const openCodeSourceKeys: string[] = [];
+    const unsubscribeOpenCode = openCodeClient.on("message.delta", (event) => {
+      const data = event.data as { contentType?: string; thinkingSourceKey?: string };
+      if (data.contentType === "reasoning" && data.thinkingSourceKey) {
+        openCodeSourceKeys.push(data.thinkingSourceKey);
+      }
+    });
+
+    (
+      openCodeClient as unknown as {
+        handleSdkEvent: (event: Record<string, unknown>) => void;
+      }
+    ).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "reasoning_part_a",
+          sessionID: "ses_reasoning",
+          messageID: "msg_reasoning",
+          type: "reasoning",
+        },
+        delta: "alpha",
+      },
+    });
+
+    (
+      openCodeClient as unknown as {
+        handleSdkEvent: (event: Record<string, unknown>) => void;
+      }
+    ).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "reasoning_part_a",
+          sessionID: "ses_reasoning",
+          messageID: "msg_reasoning",
+          type: "reasoning",
+        },
+        delta: "beta",
+      },
+    });
+
+    unsubscribeOpenCode();
+
+    expect(openCodeSourceKeys).toEqual(["reasoning_part_a", "reasoning_part_a"]);
+
+    const copilotListeners: Array<(event: { type: string; data: Record<string, unknown> }) => void> =
+      [];
+    const mockCopilotSession = {
+      sessionId: "copilot-thinking-session",
+      on: mock((handler: (event: { type: string; data: Record<string, unknown> }) => void) => {
+        copilotListeners.push(handler);
+        return () => {
+          const index = copilotListeners.indexOf(handler);
+          if (index >= 0) {
+            copilotListeners.splice(index, 1);
+          }
+        };
+      }),
+      send: mock(async () => {
+        for (const listener of [...copilotListeners]) {
+          listener({
+            type: "assistant.reasoning_delta",
+            data: {
+              reasoningId: "reasoning_123",
+              deltaContent: "step-1",
+            },
+          });
+        }
+        for (const listener of [...copilotListeners]) {
+          listener({
+            type: "assistant.reasoning_delta",
+            data: {
+              reasoningId: "reasoning_123",
+              deltaContent: "step-2",
+            },
+          });
+        }
+        for (const listener of [...copilotListeners]) {
+          listener({
+            type: "session.idle",
+            data: {},
+          });
+        }
+      }),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+    };
+
+    const copilotClient = new CopilotClient({});
+    const wrapCopilotSession = (
+      copilotClient as unknown as {
+        wrapSession: (
+          sdkSession: {
+            sessionId: string;
+            on: (
+              handler: (event: { type: string; data: Record<string, unknown> }) => void,
+            ) => () => void;
+            send: (args: { prompt: string }) => Promise<void>;
+            sendAndWait: (args: { prompt: string }) => Promise<{ data: { content: string } }>;
+            destroy: () => Promise<void>;
+            abort: () => Promise<void>;
+          },
+          config: Record<string, unknown>,
+        ) => {
+          stream: (message: string, options?: { agent?: string }) => AsyncIterable<{
+            type: string;
+            content: unknown;
+            metadata?: Record<string, unknown>;
+          }>;
+        };
+      }
+    ).wrapSession.bind(copilotClient);
+
+    const wrappedCopilotSession = wrapCopilotSession(mockCopilotSession, {});
+    const copilotSourceKeys: string[] = [];
+
+    for await (const chunk of wrappedCopilotSession.stream("hello")) {
+      if (chunk.type !== "thinking") {
+        continue;
+      }
+      const sourceKey = chunk.metadata?.thinkingSourceKey;
+      if (typeof sourceKey === "string") {
+        copilotSourceKeys.push(sourceKey);
+      }
+    }
+
+    expect(copilotSourceKeys).toEqual(["reasoning_123", "reasoning_123"]);
   });
 });

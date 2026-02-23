@@ -75,4 +75,84 @@ describe("CopilotClient abort support", () => {
     await session.abort!();
     expect(mockSdkSession.abort).toHaveBeenCalled();
   });
+
+  test("streams reasoning deltas with provider-native thinking source metadata", async () => {
+    const listeners: Array<(event: {
+      type: string;
+      data: Record<string, unknown>;
+    }) => void> = [];
+
+    const mockSdkSession = {
+      sessionId: "copilot-thinking-session",
+      on: mock((handler: (event: { type: string; data: Record<string, unknown> }) => void) => {
+        listeners.push(handler);
+        return () => {
+          const idx = listeners.indexOf(handler);
+          if (idx >= 0) listeners.splice(idx, 1);
+        };
+      }),
+      send: mock(async () => {
+        for (const listener of [...listeners]) {
+          listener({
+            type: "assistant.reasoning_delta",
+            data: {
+              reasoningId: "reasoning_123",
+              deltaContent: "planning",
+            },
+          });
+        }
+        for (const listener of [...listeners]) {
+          listener({
+            type: "session.idle",
+            data: {},
+          });
+        }
+      }),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+    };
+
+    const client = new CopilotClient({});
+    const wrapSession = (client as unknown as {
+      wrapSession: (
+        sdkSession: {
+          sessionId: string;
+          on: (handler: (event: { type: string; data: Record<string, unknown> }) => void) => () => void;
+          send: (args: { prompt: string }) => Promise<void>;
+          sendAndWait: (args: { prompt: string }) => Promise<{ data: { content: string } }>;
+          destroy: () => Promise<void>;
+          abort: () => Promise<void>;
+        },
+        config: Record<string, unknown>,
+      ) => {
+        stream: (message: string, options?: { agent?: string }) => AsyncIterable<{
+          type: string;
+          content: unknown;
+          metadata?: Record<string, unknown>;
+        }>;
+      };
+    }).wrapSession.bind(client);
+
+    const session = wrapSession(mockSdkSession, {});
+    const streamed: Array<{
+      type: string;
+      content: unknown;
+      metadata?: Record<string, unknown>;
+    }> = [];
+    for await (const chunk of session.stream("hello")) {
+      streamed.push(chunk);
+    }
+
+    expect(streamed).toHaveLength(1);
+    const thinkingChunk = streamed[0]!;
+    expect(thinkingChunk.type).toBe("thinking");
+    expect(thinkingChunk.content).toBe("planning");
+    expect(thinkingChunk.metadata?.provider).toBe("copilot");
+    expect(thinkingChunk.metadata?.thinkingSourceKey).toBe("reasoning_123");
+    expect(
+      (thinkingChunk.metadata?.streamingStats as { outputTokens?: number } | undefined)
+        ?.outputTokens,
+    ).toBe(0);
+  });
 });

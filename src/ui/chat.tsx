@@ -148,6 +148,7 @@ import type {
   McpSnapshotPart,
   CompactionPart,
   PartId,
+  ToolPart,
 } from "./parts/index.ts";
 import {
   createPartId,
@@ -423,6 +424,148 @@ export interface StreamingMeta {
   outputTokens: number;
   thinkingMs: number;
   thinkingText: string;
+  /** Source key that produced the latest thinking-meta emission. */
+  thinkingSourceKey?: string;
+  /** Snapshot of accumulated thinking text keyed by source identity. */
+  thinkingTextBySource?: Record<string, string>;
+  /** Stream generation/run association keyed by source identity. */
+  thinkingGenerationBySource?: Record<string, number>;
+  /** Message binding keyed by source identity when metadata is available. */
+  thinkingMessageBySource?: Record<string, string>;
+}
+
+export interface ThinkingDropDiagnostics {
+  droppedStaleOrClosedThinkingEvents: number;
+  droppedMissingBindingThinkingEvents: number;
+}
+
+type ThinkingSourceLifecycleAction = "create" | "update" | "finalize" | "drop";
+
+const THINKING_SOURCE_DIAGNOSTICS_DEBUG = process.env.ATOMIC_THINKING_DIAGNOSTICS_DEBUG === "1";
+
+function createThinkingDropDiagnostics(): ThinkingDropDiagnostics {
+  return {
+    droppedStaleOrClosedThinkingEvents: 0,
+    droppedMissingBindingThinkingEvents: 0,
+  };
+}
+
+export function traceThinkingSourceLifecycle(
+  action: ThinkingSourceLifecycleAction,
+  sourceKey: string,
+  detail?: string,
+): void {
+  if (!THINKING_SOURCE_DIAGNOSTICS_DEBUG) {
+    return;
+  }
+  const suffix = detail ? ` ${detail}` : "";
+  console.debug(`[thinking-source] ${action} ${sourceKey}${suffix}`);
+}
+
+function addThinkingSourceKey(sourceKeys: Set<string>, key: unknown): void {
+  if (typeof key !== "string") {
+    return;
+  }
+  const normalized = key.trim();
+  if (normalized.length === 0) {
+    return;
+  }
+  sourceKeys.add(normalized);
+}
+
+function addThinkingSourceKeysFromRecord(
+  sourceKeys: Set<string>,
+  sourceRecord: Record<string, unknown> | undefined,
+): void {
+  if (!sourceRecord) {
+    return;
+  }
+  for (const key of Object.keys(sourceRecord)) {
+    addThinkingSourceKey(sourceKeys, key);
+  }
+}
+
+export function mergeClosedThinkingSources(
+  closedSources: ReadonlySet<string>,
+  meta: StreamingMeta | null | undefined,
+): Set<string> {
+  const merged = new Set(closedSources);
+  if (!meta) {
+    return merged;
+  }
+
+  addThinkingSourceKey(merged, meta.thinkingSourceKey);
+  addThinkingSourceKeysFromRecord(merged, meta.thinkingTextBySource);
+  addThinkingSourceKeysFromRecord(merged, meta.thinkingGenerationBySource);
+  addThinkingSourceKeysFromRecord(merged, meta.thinkingMessageBySource);
+
+  return merged;
+}
+
+export function resolveValidatedThinkingMetaEvent(
+  meta: StreamingMeta,
+  expectedMessageId: string,
+  currentGeneration: number,
+  closedSources?: ReadonlySet<string>,
+  diagnostics?: ThinkingDropDiagnostics,
+): {
+  thinkingSourceKey: string;
+  targetMessageId: string;
+  streamGeneration: number;
+  thinkingText: string;
+} | null {
+  const recordDrop = (
+    category: "stale_or_closed" | "missing_binding",
+    sourceKey: string,
+    detail: string,
+  ): null => {
+    if (category === "stale_or_closed") {
+      if (diagnostics) {
+        diagnostics.droppedStaleOrClosedThinkingEvents += 1;
+      }
+      traceThinkingSourceLifecycle("drop", sourceKey, `(stale/closed) ${detail}`);
+      return null;
+    }
+
+    if (diagnostics) {
+      diagnostics.droppedMissingBindingThinkingEvents += 1;
+    }
+    traceThinkingSourceLifecycle("drop", sourceKey, `(missing-binding) ${detail}`);
+    return null;
+  };
+
+  const sourceKey = typeof meta.thinkingSourceKey === "string"
+    ? meta.thinkingSourceKey.trim()
+    : "";
+  if (sourceKey.length === 0) {
+    return null;
+  }
+  if (closedSources?.has(sourceKey)) {
+    return recordDrop("stale_or_closed", sourceKey, "source already finalized");
+  }
+
+  const sourceTargetMessageId = meta.thinkingMessageBySource?.[sourceKey];
+  if (typeof sourceTargetMessageId !== "string" || sourceTargetMessageId.length === 0) {
+    return recordDrop("missing_binding", sourceKey, "missing targetMessageId binding");
+  }
+  if (sourceTargetMessageId !== expectedMessageId) {
+    return recordDrop("stale_or_closed", sourceKey, "targetMessageId mismatch");
+  }
+
+  const sourceGeneration = meta.thinkingGenerationBySource?.[sourceKey];
+  if (typeof sourceGeneration !== "number" || !Number.isFinite(sourceGeneration)) {
+    return recordDrop("missing_binding", sourceKey, "missing streamGeneration binding");
+  }
+  if (sourceGeneration !== currentGeneration) {
+    return recordDrop("stale_or_closed", sourceKey, "streamGeneration mismatch");
+  }
+
+  return {
+    thinkingSourceKey: sourceKey,
+    targetMessageId: sourceTargetMessageId,
+    streamGeneration: sourceGeneration,
+    thinkingText: meta.thinkingTextBySource?.[sourceKey] ?? meta.thinkingText,
+  };
 }
 
 /**
@@ -1159,6 +1302,7 @@ function getRenderableAssistantParts(
   taskItemsToShow: TaskItem[] | undefined,
   inlineTaskExpansion: boolean | undefined,
   isLastMessage: boolean,
+  hideAskUserQuestion: boolean,
 ): Part[] {
   let parts = [...(message.parts ?? [])];
 
@@ -1267,9 +1411,20 @@ function getRenderableAssistantParts(
     }
   }
 
+  if (hideAskUserQuestion) {
+    parts = parts.filter((part) => {
+      if (part.type !== "tool") return true;
+      const toolPart = part as ToolPart;
+      const isHitlTool = toolPart.toolName === "AskUserQuestion"
+        || toolPart.toolName === "question"
+        || toolPart.toolName === "ask_user";
+      return !(isHitlTool && toolPart.pendingQuestion);
+    });
+  }
+
   return parts;
 }
-export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion: _hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, ralphSessionDir, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, ralphSessionDir, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
   // Collapsed mode: show compact single-line summary for each message
@@ -1352,7 +1507,13 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
     const inlineTaskExpansion = shouldRenderInlineTasks ? (tasksExpanded || undefined) : false;
     const renderableMessage = {
       ...message,
-      parts: getRenderableAssistantParts(message, taskItemsToShow, inlineTaskExpansion, Boolean(isLast)),
+      parts: getRenderableAssistantParts(
+        message,
+        taskItemsToShow,
+        inlineTaskExpansion,
+        Boolean(isLast),
+        hideAskUserQuestion,
+      ),
     };
 
     // Detect active background agents on this message
@@ -1685,6 +1846,11 @@ export function ChatApp({
   const isStreamingRef = useRef(false);
   // Ref to keep a synchronous copy of streaming meta for baking into message on completion
   const streamingMetaRef = useRef<StreamingMeta | null>(null);
+  // Source keys closed by stream finalize/interrupt/error.
+  // Used to drop late thinking events that arrive after stream teardown.
+  const closedThinkingSourcesRef = useRef<Set<string>>(new Set());
+  // Cumulative drop counters for rejected thinking-meta events.
+  const thinkingDropDiagnosticsRef = useRef<ThinkingDropDiagnostics>(createThinkingDropDiagnostics());
   // Ref to track whether an interrupt (ESC/Ctrl+C) already finalized agents.
   // Prevents handleComplete from overwriting interrupted agents with "completed".
   const wasInterruptedRef = useRef(false);
@@ -1726,6 +1892,28 @@ export function ChatApp({
       clearTimeout(deferredCompleteTimeoutRef.current);
       deferredCompleteTimeoutRef.current = null;
     }
+  }, []);
+
+  const resetThinkingSourceTracking = useCallback(() => {
+    closedThinkingSourcesRef.current = new Set();
+    streamingMetaRef.current = null;
+    setStreamingMeta(null);
+  }, []);
+
+  const finalizeThinkingSourceTracking = useCallback(() => {
+    const previousClosedSources = closedThinkingSourcesRef.current;
+    const mergedClosedSources = mergeClosedThinkingSources(
+      previousClosedSources,
+      streamingMetaRef.current,
+    );
+    for (const sourceKey of mergedClosedSources) {
+      if (!previousClosedSources.has(sourceKey)) {
+        traceThinkingSourceLifecycle("finalize", sourceKey, "chat stream teardown");
+      }
+    }
+    closedThinkingSourcesRef.current = mergedClosedSources;
+    streamingMetaRef.current = null;
+    setStreamingMeta(null);
   }, []);
 
   const continueQueuedConversation = useCallback(() => {
@@ -1940,7 +2128,17 @@ export function ChatApp({
       });
     }
 
+<<<<<<< HEAD
     stopSharedStreamState();
+=======
+    streamingMessageIdRef.current = null;
+    streamingStartRef.current = null;
+    clearDeferredCompletion();
+    isStreamingRef.current = false;
+    setIsStreaming(false);
+    finalizeThinkingSourceTracking();
+    hasRunningToolRef.current = false;
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
 
     const resolver = streamCompletionResolverRef.current;
     streamCompletionResolverRef.current = null;
@@ -1948,9 +2146,13 @@ export function ChatApp({
     if (resolver) {
       resolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
     }
+<<<<<<< HEAD
   }, [setMessagesWindowed, stopSharedStreamState]);
 
   const enqueueShortcutLabel = useMemo(() => getEnqueueShortcutLabel(), []);
+=======
+  }, [clearDeferredCompletion, finalizeThinkingSourceTracking, setMessagesWindowed]);
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
 
   // Dynamic placeholder based on queue state
   const dynamicPlaceholder = useMemo(() => {
@@ -2264,8 +2466,7 @@ export function ChatApp({
           // Set streaming BEFORE calling onStreamMessage to prevent race conditions
           setIsStreaming(true);
           isStreamingRef.current = true;
-          streamingMetaRef.current = null;
-          setStreamingMeta(null);
+          resetThinkingSourceTracking();
 
           // Call the stream handler - this is async but we don't await it
           // The callbacks will handle state updates
@@ -2345,7 +2546,16 @@ export function ChatApp({
                 });
                 return currentAgents;
               });
+<<<<<<< HEAD
               stopSharedStreamState();
+=======
+              streamingMessageIdRef.current = null;
+              streamingStartRef.current = null;
+              isStreamingRef.current = false;
+              setIsStreaming(false);
+              finalizeThinkingSourceTracking();
+              hasRunningToolRef.current = false;
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
             },
             // onMeta: update streaming metadata
             (meta: StreamingMeta) => {
@@ -2353,13 +2563,24 @@ export function ChatApp({
               setStreamingMeta(meta);
               const messageId = streamingMessageIdRef.current;
               if (!messageId) return;
+              const thinkingMetaEvent = resolveValidatedThinkingMetaEvent(
+                meta,
+                messageId,
+                currentGeneration,
+                closedThinkingSourcesRef.current,
+                thinkingDropDiagnosticsRef.current,
+              );
+              if (!thinkingMetaEvent) return;
               setMessagesWindowed((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
                   msg.id === messageId
                     ? applyStreamPartEvent(msg, {
                         type: "thinking-meta",
+                        thinkingSourceKey: thinkingMetaEvent.thinkingSourceKey,
+                        targetMessageId: thinkingMetaEvent.targetMessageId,
+                        streamGeneration: thinkingMetaEvent.streamGeneration,
                         thinkingMs: meta.thinkingMs,
-                        thinkingText: meta.thinkingText,
+                        thinkingText: thinkingMetaEvent.thinkingText,
                         includeReasoningPart: true,
                       })
                     : msg
@@ -2372,14 +2593,33 @@ export function ChatApp({
           } catch (error) {
             // Prevent unhandled errors from crashing the TUI
             console.error("[workflow auto-start] Error during context clear or streaming:", error);
+<<<<<<< HEAD
             stopSharedStreamState();
+=======
+            isStreamingRef.current = false;
+            setIsStreaming(false);
+            finalizeThinkingSourceTracking();
+            hasRunningToolRef.current = false;
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
           }
         })();
       }, 100);
 
       return () => clearTimeout(timeoutId);
     }
+<<<<<<< HEAD
   }, [workflowState.workflowActive, workflowState.initialPrompt, isStreaming, onStreamMessage, handleStreamStartupError, stopSharedStreamState]);
+=======
+  }, [
+    finalizeThinkingSourceTracking,
+    handleStreamStartupError,
+    isStreaming,
+    onStreamMessage,
+    resetThinkingSourceTracking,
+    workflowState.workflowActive,
+    workflowState.initialPrompt,
+  ]);
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
 
   // Reset workflow started ref when workflow becomes inactive
   useEffect(() => {
@@ -2716,6 +2956,15 @@ export function ChatApp({
             : msg
         )
       );
+<<<<<<< HEAD
+=======
+      streamingMessageIdRef.current = null;
+      isStreamingRef.current = false;
+      isAgentOnlyStreamRef.current = false;
+      setIsStreaming(false);
+      finalizeThinkingSourceTracking();
+      hasRunningToolRef.current = false;
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
       // Keep background agents in live state for post-stream completion tracking
       const remainingBg = parallelAgents.filter((a) => a.background && a.status === "background");
       if (remainingBg.length > 0 && messageId) {
@@ -2733,7 +2982,17 @@ export function ChatApp({
       // the SDK handleComplete callback, so we must dequeue here.
       continueQueuedConversation();
     }
+<<<<<<< HEAD
   }, [parallelAgents, continueQueuedConversation, toolCompletionVersion, messages, stopSharedStreamState]);
+=======
+  }, [
+    continueQueuedConversation,
+    finalizeThinkingSourceTracking,
+    messages,
+    parallelAgents,
+    toolCompletionVersion,
+  ]);
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
 
   // Initialize SubagentGraphBridge when createSubagentSession is available
   useEffect(() => {
@@ -2927,9 +3186,8 @@ export function ChatApp({
       isAgentOnlyStreamRef.current = true;
       isStreamingRef.current = true;
       streamingStartRef.current = Date.now();
-      streamingMetaRef.current = null;
+      resetThinkingSourceTracking();
       setIsStreaming(true);
-      setStreamingMeta(null);
       resetTodoItemsForNewStream();
       setMessagesWindowed((prev: ChatMessage[]) => [...prev, assistantMsg]);
 
@@ -2945,7 +3203,7 @@ export function ChatApp({
         queuedMessage.skipUserMessage ? { skipUserMessage: true } : undefined
       );
     }
-  }, []);
+  }, [resetThinkingSourceTracking, resetTodoItemsForNewStream]);
 
   useEffect(() => {
     dispatchQueuedMessageRef.current = dispatchQueuedMessage;
@@ -3234,8 +3492,7 @@ export function ChatApp({
           isStreamingRef.current = true;
           setIsStreaming(true);
           streamingStartRef.current = Date.now();
-          streamingMetaRef.current = null;
-          setStreamingMeta(null);
+          resetThinkingSourceTracking();
           // Clear stale todo items from previous turn when not in /ralph
           resetTodoItemsForNewStream();
           // Reset streaming content accumulator for step 1 → step 2 task parsing
@@ -3309,7 +3566,16 @@ export function ChatApp({
                 );
               }
               setParallelAgents([]);
+<<<<<<< HEAD
               stopSharedStreamState();
+=======
+              streamingMessageIdRef.current = null;
+              streamingStartRef.current = null;
+              isStreamingRef.current = false;
+              setIsStreaming(false);
+              finalizeThinkingSourceTracking();
+              hasRunningToolRef.current = false;
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
 
               // Resolve streamAndWait promise with interrupted flag
               const resolver = streamCompletionResolverRef.current;
@@ -3383,7 +3649,17 @@ export function ChatApp({
             const hasRemainingBg = parallelAgentsRef.current.some(
               (a) => a.background && a.status === "background"
             );
+<<<<<<< HEAD
             stopSharedStreamState({ preserveStreamingStart: hasRemainingBg });
+=======
+            if (!hasRemainingBg) {
+              streamingStartRef.current = null;
+            }
+            isStreamingRef.current = false;
+            setIsStreaming(false);
+            finalizeThinkingSourceTracking();
+            hasRunningToolRef.current = false;
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
 
             // If a streamAndWait call is pending, resolve its promise
             // instead of processing the message queue.
@@ -3407,13 +3683,24 @@ export function ChatApp({
             setStreamingMeta(meta);
             const messageId = streamingMessageIdRef.current;
             if (!messageId) return;
+            const thinkingMetaEvent = resolveValidatedThinkingMetaEvent(
+              meta,
+              messageId,
+              currentGeneration,
+              closedThinkingSourcesRef.current,
+              thinkingDropDiagnosticsRef.current,
+            );
+            if (!thinkingMetaEvent) return;
             setMessagesWindowed((prev: ChatMessage[]) =>
               prev.map((msg: ChatMessage) =>
                 msg.id === messageId
                   ? applyStreamPartEvent(msg, {
                       type: "thinking-meta",
+                      thinkingSourceKey: thinkingMetaEvent.thinkingSourceKey,
+                      targetMessageId: thinkingMetaEvent.targetMessageId,
+                      streamGeneration: thinkingMetaEvent.streamGeneration,
                       thinkingMs: meta.thinkingMs,
-                      thinkingText: meta.thinkingText,
+                      thinkingText: thinkingMetaEvent.thinkingText,
                       includeReasoningPart: true,
                     })
                   : msg
@@ -4052,7 +4339,17 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             // Stop streaming state immediately so UI reflects interrupted state
             wasInterruptedRef.current = false;
+<<<<<<< HEAD
             stopSharedStreamState();
+=======
+            streamingMessageIdRef.current = null;
+            streamingStartRef.current = null;
+            isAgentOnlyStreamRef.current = false;
+            isStreamingRef.current = false;
+            setIsStreaming(false);
+            finalizeThinkingSourceTracking();
+            hasRunningToolRef.current = false;
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
 
             // Sub-agent cancellation handled by SDK session interrupt
 
@@ -4197,6 +4494,12 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           return;
         }
 
+        // While a dialog is active, it owns keyboard input exclusively.
+        // Keep Ctrl+C handling above for copy/interrupt semantics.
+        if (activeQuestion || showModelSelector) {
+          return;
+        }
+
         // Ctrl+F - terminate active background agents (double press confirmation)
         if (isBackgroundTerminationKey(event)) {
           // Keep foreground stream interruption on ESC/Ctrl+C only.
@@ -4277,10 +4580,37 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           return;
         }
 
+<<<<<<< HEAD
         // Skip other keyboard handling when a dialog is active
         // The dialog components handle their own keyboard events via their own useKeyboard hooks
         if (activeQuestion || showModelSelector) {
           // Don't call stopPropagation - let the event continue to the dialog's handler
+=======
+        // Ctrl+Q - enqueue message (round-robin) during streaming
+        if (event.ctrl && event.name === "q") {
+          if (isStreamingRef.current) {
+            const textarea = textareaRef.current;
+            const value = textarea?.plainText?.trim() ?? "";
+            if (value) {
+              const hasAgentMentions = parseAtMentions(value).length > 0;
+              const hasAnyMentionToken = /@([\w./_-]+)/.test(value);
+              emitMessageSubmitTelemetry({
+                messageLength: value.length,
+                queued: true,
+                fromInitialPrompt: false,
+                hasFileMentions: hasAnyMentionToken && !hasAgentMentions,
+                hasAgentMentions,
+              });
+              messageQueue.enqueue(value);
+              // Clear textarea
+              if (textarea) {
+                textarea.gotoBufferHome();
+                textarea.gotoBufferEnd({ select: true });
+                textarea.deleteChar();
+              }
+            }
+          }
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
           return;
         }
 
@@ -4353,7 +4683,17 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             // Stop streaming state immediately so UI reflects interrupted state
             wasInterruptedRef.current = false;
+<<<<<<< HEAD
             stopSharedStreamState();
+=======
+            streamingMessageIdRef.current = null;
+            streamingStartRef.current = null;
+            isAgentOnlyStreamRef.current = false;
+            isStreamingRef.current = false;
+            setIsStreaming(false);
+            finalizeThinkingSourceTracking();
+            hasRunningToolRef.current = false;
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
 
             // Sub-agent cancellation handled by SDK session interrupt
 
@@ -4895,6 +5235,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         finalizeTaskItemsOnInterrupt,
         stopSharedStreamState,
         clearBackgroundTerminationConfirmation,
+        finalizeThinkingSourceTracking,
       ]
     )
   );
@@ -4945,8 +5286,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Track when streaming started for duration calculation
         streamingStartRef.current = Date.now();
         // Reset streaming metadata
-        streamingMetaRef.current = null;
-        setStreamingMeta(null);
+        resetThinkingSourceTracking();
         // Clear stale todo items from previous turn when not in /ralph
         resetTodoItemsForNewStream();
         // Reset tool tracking for the new stream
@@ -5014,7 +5354,16 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               );
             }
             setParallelAgents([]);
+<<<<<<< HEAD
             stopSharedStreamState();
+=======
+            streamingMessageIdRef.current = null;
+            streamingStartRef.current = null;
+            isStreamingRef.current = false;
+            setIsStreaming(false);
+            finalizeThinkingSourceTracking();
+            hasRunningToolRef.current = false;
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
 
             continueQueuedConversation();
             return;
@@ -5073,7 +5422,18 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           const hasRemainingBg = parallelAgentsRef.current.some(
             (a) => a.background && a.status === "background"
           );
+<<<<<<< HEAD
           stopSharedStreamState({ preserveStreamingStart: hasRemainingBg });
+=======
+          if (!hasRemainingBg) {
+            streamingStartRef.current = null;
+          }
+          // Clear ref immediately (synchronous) before state update
+          isStreamingRef.current = false;
+          setIsStreaming(false);
+          finalizeThinkingSourceTracking();
+          hasRunningToolRef.current = false;
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
           continueQueuedConversation();
         };
 
@@ -5083,13 +5443,24 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           setStreamingMeta(meta);
           const messageId = streamingMessageIdRef.current;
           if (!messageId) return;
+          const thinkingMetaEvent = resolveValidatedThinkingMetaEvent(
+            meta,
+            messageId,
+            currentGeneration,
+            closedThinkingSourcesRef.current,
+            thinkingDropDiagnosticsRef.current,
+          );
+          if (!thinkingMetaEvent) return;
           setMessagesWindowed((prev: ChatMessage[]) =>
             prev.map((msg: ChatMessage) =>
               msg.id === messageId
                 ? applyStreamPartEvent(msg, {
                     type: "thinking-meta",
+                    thinkingSourceKey: thinkingMetaEvent.thinkingSourceKey,
+                    targetMessageId: thinkingMetaEvent.targetMessageId,
+                    streamGeneration: thinkingMetaEvent.streamGeneration,
                     thinkingMs: meta.thinkingMs,
-                    thinkingText: meta.thinkingText,
+                    thinkingText: thinkingMetaEvent.thinkingText,
                     includeReasoningPart: true,
                   })
                 : msg
@@ -5102,7 +5473,18 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         });
       }
     },
+<<<<<<< HEAD
     [onSendMessage, onStreamMessage, continueQueuedConversation, handleStreamStartupError, stopSharedStreamState]
+=======
+    [
+      continueQueuedConversation,
+      finalizeThinkingSourceTracking,
+      handleStreamStartupError,
+      onSendMessage,
+      onStreamMessage,
+      resetThinkingSourceTracking,
+    ]
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
   );
 
   // Keep the sendMessageRef in sync with sendMessage callback
@@ -5305,9 +5687,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           isAgentOnlyStreamRef.current = true;
           isStreamingRef.current = true;
           streamingStartRef.current = Date.now();
-          streamingMetaRef.current = null;
+          resetThinkingSourceTracking();
           setIsStreaming(true);
-          setStreamingMeta(null);
           resetTodoItemsForNewStream();
           setMessagesWindowed((prev) => [...prev, assistantMsg]);
 
@@ -5365,6 +5746,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         }
         // Invalidate callbacks for the interrupted stream before aborting.
         streamGenerationRef.current = invalidateActiveStreamGeneration(streamGenerationRef.current);
+<<<<<<< HEAD
         stopSharedStreamState();
 
         const streamResolver = streamCompletionResolverRef.current;
@@ -5380,6 +5762,16 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         }
 
 
+=======
+        clearDeferredCompletion();
+        // Clear streaming state before starting new stream
+        streamingMessageIdRef.current = null;
+        streamingStartRef.current = null;
+        isStreamingRef.current = false;
+        setIsStreaming(false);
+        finalizeThinkingSourceTracking();
+        hasRunningToolRef.current = false;
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
         // Abort the SDK stream (stale handleComplete is a no-op via generation guard)
         onInterrupt?.();
         // Send immediately — starts a new stream generation
@@ -5404,7 +5796,24 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       });
       sendMessage(processedValue);
     },
+<<<<<<< HEAD
     [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt, emitMessageSubmitTelemetry, finalizeTaskItemsOnInterrupt, stopSharedStreamState]
+=======
+    [
+      addMessage,
+      emitMessageSubmitTelemetry,
+      executeCommand,
+      finalizeThinkingSourceTracking,
+      messageQueue,
+      model,
+      onInterrupt,
+      resetThinkingSourceTracking,
+      sendMessage,
+      updateWorkflowState,
+      workflowState.argumentHint,
+      workflowState.showAutocomplete,
+    ]
+>>>>>>> ce40c21 (feat(sdk,ui): add thinking source identity tracking to streaming pipeline)
   );
 
   // All messages are kept in memory; no windowing/eviction.

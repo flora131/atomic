@@ -202,4 +202,171 @@ describe("OpenCodeClient event mapping", () => {
       },
     ]);
   });
+
+  test("maps agent part to subagent.start with toolCallId from callID", () => {
+    const client = new OpenCodeClient();
+    const starts: Array<{
+      sessionId: string;
+      subagentId?: string;
+      subagentType?: string;
+      toolCallId?: string;
+    }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as {
+        subagentId?: string;
+        subagentType?: string;
+        toolCallId?: string;
+      };
+      starts.push({
+        sessionId: event.sessionId,
+        subagentId: data.subagentId,
+        subagentType: data.subagentType,
+        toolCallId: data.toolCallId,
+      });
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "agent-1",
+          sessionID: "ses_agent",
+          messageID: "msg_1",
+          type: "agent",
+          name: "explorer",
+          callID: "call-123",
+        },
+      },
+    });
+
+    unsubStart();
+
+    expect(starts).toEqual([
+      {
+        sessionId: "ses_agent",
+        subagentId: "agent-1",
+        subagentType: "explorer",
+        toolCallId: "call-123",
+      },
+    ]);
+  });
+
+  test("maps agent part to subagent.start with toolCallId fallback to id when callID is missing", () => {
+    const client = new OpenCodeClient();
+    const starts: Array<{
+      sessionId: string;
+      subagentId?: string;
+      subagentType?: string;
+      toolCallId?: string;
+    }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as {
+        subagentId?: string;
+        subagentType?: string;
+        toolCallId?: string;
+      };
+      starts.push({
+        sessionId: event.sessionId,
+        subagentId: data.subagentId,
+        subagentType: data.subagentType,
+        toolCallId: data.toolCallId,
+      });
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "agent-2",
+          sessionID: "ses_agent_no_callid",
+          messageID: "msg_2",
+          type: "agent",
+          name: "worker",
+          // callID is missing/undefined
+        },
+      },
+    });
+
+    unsubStart();
+
+    expect(starts).toEqual([
+      {
+        sessionId: "ses_agent_no_callid",
+        subagentId: "agent-2",
+        subagentType: "worker",
+        toolCallId: "agent-2", // Falls back to id
+      },
+    ]);
+  });
+
+  test("maps step-finish part to subagent.complete", () => {
+    const client = new OpenCodeClient();
+    const completes: Array<{
+      sessionId: string;
+      subagentId?: string;
+      success?: boolean;
+      result?: string;
+    }> = [];
+
+    const unsubComplete = client.on("subagent.complete", (event) => {
+      const data = event.data as {
+        subagentId?: string;
+        success?: boolean;
+        result?: string;
+      };
+      completes.push({
+        sessionId: event.sessionId,
+        subagentId: data.subagentId,
+        success: data.success,
+        result: data.result,
+      });
+    });
+
+    // Test successful completion
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "step-1",
+          sessionID: "ses_step",
+          messageID: "msg_step",
+          type: "step-finish",
+          reason: "success",
+        },
+      },
+    });
+
+    // Test error completion
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "step-2",
+          sessionID: "ses_step",
+          messageID: "msg_step_2",
+          type: "step-finish",
+          reason: "error",
+        },
+      },
+    });
+
+    unsubComplete();
+
+    expect(completes).toEqual([
+      {
+        sessionId: "ses_step",
+        subagentId: "step-1",
+        success: true,
+        result: "success",
+      },
+      {
+        sessionId: "ses_step",
+        subagentId: "step-2",
+        success: false,
+        result: "error",
+      },
+    ]);
+  });
 });

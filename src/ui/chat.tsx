@@ -86,7 +86,6 @@ import {
   interruptActiveBackgroundAgents,
   isBackgroundTerminationKey,
 } from "./utils/background-agent-termination.ts";
-import { BACKGROUND_FOOTER_CONTRACT } from "./utils/background-agent-contracts.ts";
 import { loadCommandHistory, appendCommandHistory } from "./utils/command-history.ts";
 import { getRandomVerb, getRandomCompletionVerb } from "./constants/index.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "./utils/mcp-output.ts";
@@ -1665,7 +1664,6 @@ export function ChatApp({
   const clearBackgroundTerminationConfirmation = useCallback(() => {
     setBackgroundTerminationCount(0);
     setCtrlFPressed(false);
-    backgroundTerminationInFlightRef.current = false;
     if (backgroundTerminationTimeoutRef.current) {
       clearTimeout(backgroundTerminationTimeoutRef.current);
       backgroundTerminationTimeoutRef.current = null;
@@ -4537,6 +4535,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             const { agents: interruptedAgents, interruptedIds } = interruptActiveBackgroundAgents(currentAgents);
             if (interruptedIds.length === 0) {
+              backgroundTerminationInFlightRef.current = false;
               return;
             }
 
@@ -4568,7 +4567,9 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             streamingStartRef.current = null;
             clearDeferredCompletion();
 
-            void Promise.resolve(onTerminateBackgroundAgents?.());
+            void Promise.resolve(onTerminateBackgroundAgents?.()).catch((error) => {
+              console.error("[background-termination] parent callback failed:", error);
+            });
             addMessage("assistant", `${STATUS.active} ${decision.message}`);
             backgroundTerminationInFlightRef.current = false;
             return;

@@ -1068,7 +1068,9 @@ export async function startChatUI(
       if (!sessionOwned && !pendingTaskEntry && !hasSdkCorrelationMatch) return;
       // Fail closed for uncorrelated events to prevent cross-run leakage,
       // but allow flows with SDK correlation IDs even if no Task entry exists.
-      if (!pendingTaskEntry && !hasSdkCorrelationMatch) return;
+      // Also allow session-owned events during active streaming — this supports
+      // SDKs like Copilot that dispatch custom agents without a Task tool.
+      if (!pendingTaskEntry && !hasSdkCorrelationMatch && !sessionOwned) return;
 
       // Use task from event data, or dequeue a pending Task tool prompt
       const fallbackInput = data.toolInput as Record<string, unknown> | undefined;

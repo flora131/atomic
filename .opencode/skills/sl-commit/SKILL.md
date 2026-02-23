@@ -43,18 +43,6 @@ Create well-formatted commits following the Conventional Commits specification u
 | `sl amend`               | Amend current commit (auto-rebases descendants) |
 | `sl amend --to COMMIT`   | Amend changes to a specific commit in stack     |
 
-
-**Types:**
-
-- `feat:` - New feature (MINOR version bump)
-- `fix:` - Bug fix (PATCH version bump)
-- `docs:` - Documentation changes
-- `style:` - Code style changes
-- `refactor:` - Code refactoring
-- `perf:` - Performance improvements
-- `test:` - Adding or updating tests
-- `chore:` - Maintenance tasks
-
 ## Important Notes
 
 - Follow pre-commit checks if configured

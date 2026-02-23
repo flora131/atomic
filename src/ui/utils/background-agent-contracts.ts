@@ -4,6 +4,17 @@
  * Canonical behavior contracts for background-agent footer, termination flow,
  * and tree hint wording. These contracts eliminate UX ambiguity and provide
  * a stable specification for parity tests across providers and runtime modes.
+ *
+ * **CI Enforcement:**
+ * These contracts are enforced automatically in CI via parity tests that verify:
+ * - Provider matrix parity (Claude, OpenCode, Copilot) — background-agent-provider-parity.test.ts
+ * - Dev/prod runtime invariance — background-agent-runtime-parity.test.ts
+ * - Issue #258 acceptance criteria — background-agent-acceptance.test.ts
+ * - Ctrl+F integration behavior — background-agent-termination-integration.test.ts
+ * - Keybinding non-conflict — background-agent-keybinding-nonconflict.test.ts
+ * - Parent callback integration — background-agent-parent-callback.test.ts
+ *
+ * All contract parity tests can be run via: `bun run test:contracts`
  */
 
 // ---------------------------------------------------------------------------

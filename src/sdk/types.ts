@@ -351,6 +351,8 @@ export interface MessageDeltaEventData extends BaseEventData {
   delta: string;
   /** Content type of the delta */
   contentType?: MessageContentType;
+  /** Provider-native thinking source identity (for reasoning/thinking deltas) */
+  thinkingSourceKey?: string;
 }
 
 /**

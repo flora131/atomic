@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { shouldShowCompletionSummary } from "./chat.tsx";
+import { shouldShowCompletionSummary } from "./utils/loading-state.ts";
 
 describe("shouldShowCompletionSummary", () => {
   test("returns true for completed assistant messages >= 1s with no active background agents", () => {

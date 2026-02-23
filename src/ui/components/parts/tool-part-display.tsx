@@ -8,7 +8,6 @@
 
 import React from "react";
 import { ToolResult } from "../tool-result.tsx";
-import { UserQuestionInline } from "./user-question-inline.tsx";
 import { useThemeColors } from "../../theme.tsx";
 import { CONNECTOR, STATUS, TREE } from "../../constants/icons.ts";
 import type { ToolPart, ToolState } from "../../parts/types.ts";
@@ -110,15 +109,7 @@ export function ToolPartDisplay({ part }: ToolPartDisplayProps): React.ReactNode
   if (isHitlTool) {
     return (
       <box flexDirection="column">
-        {/* Active HITL: dialog handles rendering, show nothing here */}
-        {part.pendingQuestion && (
-          <UserQuestionInline
-            question={part.pendingQuestion}
-            onAnswer={(answer) => {
-              part.pendingQuestion?.respond(answer);
-            }}
-          />
-        )}
+        {/* Active HITL: rendered by the dedicated dialog in chat.tsx */}
 
         {/* Completed HITL: transparent record with question + answer */}
         {part.hitlResponse && !part.pendingQuestion && (

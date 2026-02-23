@@ -641,7 +641,7 @@ export async function startChatUI(
       if (isTaskToolName && data.toolInput && !isUpdate) {
         const input = data.toolInput as Record<string, unknown>;
         const prompt = (input.prompt as string) ?? (input.description as string) ?? "";
-        const isBackground = input.run_in_background === true;
+        const isBackground = input.run_in_background === true || input.mode === "background";
         pendingTaskEntries.push({ toolId, prompt: prompt || undefined, isBackground, runId: activeRunId });
 
         // Eagerly create a ParallelAgent so the tree appears immediately
@@ -701,7 +701,7 @@ export async function startChatUI(
           ?? "Sub-agent task"
         );
         const taskDesc = taskDescRaw.trim() || "Sub-agent task";
-        const isBackground = input.run_in_background === true;
+        const isBackground = input.run_in_background === true || input.mode === "background";
         const mappedAgentId = toolCallToAgentMap.get(toolId) ?? toolId;
 
         state.parallelAgents = state.parallelAgents.map((a) =>
@@ -1089,7 +1089,8 @@ export async function startChatUI(
         ?? "agent"
       ).trim() || "agent";
       const isBackground = pendingTaskEntry?.isBackground
-        ?? (fallbackInput?.run_in_background === true);
+        ?? ((fallbackInput?.run_in_background === true)
+        || (fallbackInput?.mode === "background"));
 
       // Check if an eager agent was already created from tool.start.
       // If so, update it in-place with the real subagentId instead of
@@ -1828,10 +1829,13 @@ export async function startChatUI(
     };
 
     const handleTerminateBackgroundAgentsFromUI: OnTerminateBackgroundAgents = () => {
-      if (getActiveBackgroundAgents(state.parallelAgents).length === 0) {
+      const activeAgents = getActiveBackgroundAgents(state.parallelAgents);
+      if (activeAgents.length === 0) {
+        state.telemetryTracker?.trackBackgroundTermination("noop", 0);
         return;
       }
 
+      const activeCount = activeAgents.length;
       state.currentRunId = null;
       state.isStreaming = false;
       if (state.streamAbortController && !state.streamAbortController.signal.aborted) {
@@ -1845,6 +1849,8 @@ export async function startChatUI(
           console.error("Failed to abort session during background-agent termination:", error);
         });
       }
+
+      state.telemetryTracker?.trackBackgroundTermination("execute", activeCount, activeCount);
     };
 
     /**

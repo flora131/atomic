@@ -15,6 +15,7 @@ import { getOrCreateTelemetryState, isTelemetryEnabledSync } from "./telemetry";
 import type {
   AgentType,
   TelemetryEventBase,
+  TuiBackgroundTerminationEvent,
   TuiCommandCategory,
   TuiCommandExecutionEvent,
   TuiCommandTrigger,
@@ -50,6 +51,9 @@ export interface TrackTuiCommandExecutionOptions {
 export interface TuiSessionSummary {
   durationMs: number;
   messageCount: number;
+  backgroundTerminationWarnCount?: number;
+  backgroundTerminationExecuteCount?: number;
+  backgroundTerminationNoopCount?: number;
 }
 
 function createCommonBaseEvent(anonymousId: string): TelemetryEventBase {
@@ -76,6 +80,9 @@ export class TuiTelemetrySessionTracker {
   private commandCount: number;
   private toolCallCount: number;
   private interruptCount: number;
+  private backgroundTerminationWarnCount: number;
+  private backgroundTerminationExecuteCount: number;
+  private backgroundTerminationNoopCount: number;
 
   constructor(options: CreateTuiTelemetrySessionOptions) {
     this.agentType = options.agentType;
@@ -85,6 +92,9 @@ export class TuiTelemetrySessionTracker {
     this.commandCount = 0;
     this.toolCallCount = 0;
     this.interruptCount = 0;
+    this.backgroundTerminationWarnCount = 0;
+    this.backgroundTerminationExecuteCount = 0;
+    this.backgroundTerminationNoopCount = 0;
     this.enabled = isTelemetryEnabledSync();
     this.anonymousId = this.enabled ? getOrCreateTelemetryState().anonymousId : null;
 
@@ -209,6 +219,33 @@ export class TuiTelemetrySessionTracker {
     appendEvent(event, this.agentType);
   }
 
+  trackBackgroundTermination(action: "noop" | "warn" | "execute", activeAgentCount: number, interruptedCount?: number): void {
+    if (!this.enabled || !this.anonymousId || this.ended) {
+      return;
+    }
+
+    if (action === "noop") {
+      this.backgroundTerminationNoopCount++;
+    } else if (action === "warn") {
+      this.backgroundTerminationWarnCount++;
+    } else if (action === "execute") {
+      this.backgroundTerminationExecuteCount++;
+    }
+
+    const event: TuiBackgroundTerminationEvent = {
+      ...createCommonBaseEvent(this.anonymousId),
+      eventType: "tui_background_termination",
+      source: "tui",
+      sessionId: this.sessionId,
+      agentType: this.agentType,
+      action,
+      activeAgentCount,
+      interruptedCount,
+    };
+
+    appendEvent(event, this.agentType);
+  }
+
   end(summary: TuiSessionSummary): void {
     if (!this.enabled || !this.anonymousId || this.ended) {
       return;
@@ -227,6 +264,9 @@ export class TuiTelemetrySessionTracker {
       commandCount: this.commandCount,
       toolCallCount: this.toolCallCount,
       interruptCount: this.interruptCount,
+      backgroundTerminationWarnCount: this.backgroundTerminationWarnCount || summary.backgroundTerminationWarnCount,
+      backgroundTerminationExecuteCount: this.backgroundTerminationExecuteCount || summary.backgroundTerminationExecuteCount,
+      backgroundTerminationNoopCount: this.backgroundTerminationNoopCount || summary.backgroundTerminationNoopCount,
     };
 
     appendEvent(event, this.agentType);

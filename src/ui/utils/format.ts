@@ -139,7 +139,22 @@ export function formatTimestamp(date: Date | string): FormattedTimestamp {
  * @returns Content trimmed at both ends, with internal newlines preserved
  */
 export function normalizeMarkdownNewlines(content: string): string {
-  return content.trim();
+  const normalized = content.replace(/\r\n?/g, "\n").trim();
+  if (!normalized) {
+    return normalized;
+  }
+
+  // OpenTUI's markdown renderer has partial GFM checkbox support.
+  // Convert markdown checkboxes to unicode to preserve readable list rendering.
+  return normalized
+    .replace(
+      /^(\s*(?:[-*+]|\d+[.)])\s+)\[ \]\s+/gm,
+      "$1☐ ",
+    )
+    .replace(
+      /^(\s*(?:[-*+]|\d+[.)])\s+)\[(?:x|X)\]\s+/gm,
+      "$1☑ ",
+    );
 }
 
 // ============================================================================

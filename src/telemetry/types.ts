@@ -131,6 +131,9 @@ export interface TuiSessionEndEvent extends TelemetryEventBase {
   commandCount: number;
   toolCallCount: number;
   interruptCount: number;
+  backgroundTerminationWarnCount?: number;
+  backgroundTerminationExecuteCount?: number;
+  backgroundTerminationNoopCount?: number;
 }
 
 /**
@@ -187,6 +190,19 @@ export interface TuiInterruptEvent extends TelemetryEventBase {
   sourceType: "ui" | "signal";
 }
 
+/**
+ * Event logged when a user attempts background termination with Ctrl+F.
+ */
+export interface TuiBackgroundTerminationEvent extends TelemetryEventBase {
+  eventType: "tui_background_termination";
+  source: "tui";
+  sessionId: string;
+  agentType: AgentType;
+  action: "noop" | "warn" | "execute";
+  activeAgentCount: number;
+  interruptedCount?: number;
+}
+
 export type TelemetryEvent =
   | AtomicCommandEvent
   | CliCommandEvent
@@ -196,4 +212,5 @@ export type TelemetryEvent =
   | TuiMessageSubmitEvent
   | TuiCommandExecutionEvent
   | TuiToolLifecycleEvent
-  | TuiInterruptEvent;
+  | TuiInterruptEvent
+  | TuiBackgroundTerminationEvent;

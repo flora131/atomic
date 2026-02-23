@@ -10,6 +10,7 @@
 import React from "react";
 import { useTheme, getCatppuccinPalette } from "../theme.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "../utils/format.ts";
+import { buildParallelAgentsHeaderHint } from "../utils/background-agent-tree-hints.ts";
 import { STATUS, TREE, CONNECTOR } from "../constants/icons.ts";
 import { SPACING } from "../constants/spacing.ts";
 
@@ -195,7 +196,6 @@ export function buildAgentHeaderLabel(count: number, dominantType: string): stri
 
   return `${count} ${normalized} agent${plural ? "s" : ""}`;
 }
-
 
 /**
  * Get elapsed time since start.
@@ -547,6 +547,8 @@ export function ParallelAgentsTree({
       ? `${buildAgentHeaderLabel(completedCount, dominantType)} finished`
       : `${buildAgentHeaderLabel(pendingCount, dominantType)} pending`;
 
+  const headerHint = buildParallelAgentsHeaderHint(agents, runningCount === 0);
+
   return (
     <box
       flexDirection="column"
@@ -557,9 +559,7 @@ export function ParallelAgentsTree({
       <box flexDirection="row">
         <text style={{ fg: headerColor }}>{headerIcon}</text>
         <text style={{ fg: headerColor }}> {headerText}</text>
-        {runningCount === 0 && (
-          <text style={{ fg: themeColors.muted }}> (ctrl+o to expand)</text>
-        )}
+        {headerHint && <text style={{ fg: themeColors.muted }}> ({headerHint})</text>}
       </box>
 
       {/* Agent tree */}

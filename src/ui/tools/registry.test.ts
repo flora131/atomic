@@ -223,6 +223,16 @@ describe("parseTaskToolResult", () => {
     expect(result.tokens).toBe(1500);
   });
 
+  test("normalizes whitespace and line endings in extracted text", () => {
+    const output = {
+      content: [
+        { type: "text", text: "\r\n  line one\r\nline two\r\n" },
+      ],
+    };
+    const result = parseTaskToolResult(output);
+    expect(result.text).toBe("line one\nline two");
+  });
+
   test("extracts text from documented TaskOutput format", () => {
     const output = {
       result: "Task completed",
@@ -242,6 +252,10 @@ describe("parseTaskToolResult", () => {
   test("returns undefined for null or undefined input", () => {
     expect(parseTaskToolResult(null).text).toBeUndefined();
     expect(parseTaskToolResult(undefined).text).toBeUndefined();
+  });
+
+  test("returns undefined for whitespace-only text output", () => {
+    expect(parseTaskToolResult("\n\r\n  ").text).toBeUndefined();
   });
 
   test("converts non-object types to string", () => {

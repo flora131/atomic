@@ -56,6 +56,7 @@ export interface TextPart extends BasePart {
 
 export interface ReasoningPart extends BasePart {
   type: "reasoning";
+  thinkingSourceKey?: string;
   content: string;
   durationMs: number;
   isStreaming: boolean;

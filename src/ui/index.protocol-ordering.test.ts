@@ -102,6 +102,9 @@ describe("startChatUI protocol escape ordering", () => {
       LoadingIndicator: () => null,
       StreamingBullet: () => null,
       defaultWorkflowChatState: {},
+      traceThinkingSourceLifecycle: () => {
+        return;
+      },
     }));
 
     mock.module("./theme.tsx", () => ({

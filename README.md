@@ -96,10 +96,9 @@ atomic chat -a claude "/research-codebase Research implementing GraphRAG using \
 ## Table of Contents
 
 - [What Engineers Use Atomic For](#what-engineers-use-atomic-for)
-- [Set up Atomic](#set-up-atomic)
+- [Quick Start Guide](#quick-start-guide)
 - [The Flywheel](#the-flywheel)
 - [How It Works](#how-it-works)
-- [The Workflow](#the-workflow)
 - [Commands, Agents, and Skills](#commands-agents-and-skills)
 - [TUI Features](#tui-features)
 - [Supported Coding Agents](#supported-coding-agents)
@@ -116,31 +115,19 @@ atomic chat -a claude "/research-codebase Research implementing GraphRAG using \
 
 ---
 
-## Set up Atomic
+## Quick Start Guide
 
-> Install Atomic and start using it with your preferred AI coding agent.
-
-### System requirements
+### Prerequisites
 
 - **Operating Systems**: macOS, Linux, or Windows (with PowerShell)
-- **Hardware**: Minimal requirements
-- **Network**: Internet connection required for installation
-- **Coding agent installed** (at least one):
+- **At least one coding agent installed**:
     - [Claude Code](https://code.claude.com/docs/en/quickstart)
     - [OpenCode](https://opencode.ai)
     - [GitHub Copilot CLI](https://github.com/features/copilot/cli)
 
-#### Additional dependencies
+### Step 1: Install Atomic
 
-- **Bun**: Only required for [bun installation](#bun-installation)
-
-### Installation
-
-To install Atomic, use one of the following methods:
-
-#### Native install (Recommended)
-
-**macOS, Linux:**
+**macOS / Linux:**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
@@ -152,22 +139,80 @@ curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | b
 irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 ```
 
-#### bun installation
+### Step 2: Initialize Your Project
 
 ```bash
-# Using bun
-bun add -g @bastani/atomic
+cd your-awesome-project
+atomic init
 ```
 
-**Without installation (one-time use):**
+Select your coding agent when prompted. The CLI configures your project automatically.
+
+### Step 3: Generate Context Files
+
+Start a chat session and run `/init` to generate `CLAUDE.md` and `AGENTS.md`:
 
 ```bash
-bunx @bastani/atomic
+atomic chat -a <claude|opencode|copilot>
 ```
 
-### Install a specific version
+```
+/init
+```
 
-**macOS, Linux:**
+The `/init` command explores your codebase using sub-agents and generates documentation tailored to your project. These files give coding agents the context they need to work effectively.
+
+### Step 4: Ship Features
+
+```
+Research → Spec → Implement → (Debug) → PR
+```
+
+**Research the codebase:**
+
+```
+/research-codebase [Describe your feature or question]
+/clear
+```
+
+Review: Confirm the agent understood your codebase and requirements.
+
+**Create a specification:**
+
+```
+/create-spec [research-path]
+/clear
+```
+
+Review (**critical**): This is your main decision point. The spec becomes the contract.
+
+**Implement features:**
+
+```
+/ralph "<prompt-or-spec-path>"
+```
+
+**Commit and ship:**
+
+```
+/gh-commit
+/gh-create-pr
+```
+
+**Debugging:** If something breaks during implementation, use the debugging agent:
+
+```
+Use the debugging agent to create a debugging report for [insert error message here].
+```
+
+Then follow the debugging report to resolve the issue.
+
+### Advanced Installation
+
+<details>
+<summary>Install a specific version</summary>
+
+**macOS / Linux:**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash -s -- v1.0.0
@@ -179,55 +224,12 @@ curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | b
 iex "& { $(irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1) } -Version v1.0.0"
 ```
 
-### Getting started
+</details>
 
-After installation, navigate to your project and set up Atomic:
+<details>
+<summary>Custom install directory</summary>
 
-```bash
-cd your-awesome-project
-atomic init
-```
-
-Select your agent. The CLI configures your project automatically.
-
-`atomic init` configures source-control-specific skills in your project (GitHub/Git or Sapling), while Atomic's baseline agents/skills are installed globally under `~/.atomic/.claude`, `~/.atomic/.opencode`, and `~/.atomic/.copilot` during install/update (including `bun install` for editable/package installs).
-
-Then start a chat session and run `/init` to generate `CLAUDE.md` and `AGENTS.md`:
-
-```bash
-atomic chat -a claude
-```
-
-```
-/init
-```
-
-The `/init` command explores your codebase using sub-agents and generates populated `CLAUDE.md` and `AGENTS.md` files tailored to your project. These files give coding agents the context they need to work effectively in your repository.
-
-### Source Control Selection
-
-During `atomic init`, you'll be prompted to select your source control system:
-
-| SCM Type              | CLI Tool | Code Review       | Use Case                     |
-| --------------------- | -------- | ----------------- | ---------------------------- |
-| GitHub / Git          | `git`    | Pull Requests     | Most open-source projects    |
-| Sapling + Phabricator | `sl`     | Phabricator Diffs | Meta-style stacked workflows |
-
-The selection is saved to `.atomic/settings.json` in your project and configures the appropriate commit and code review commands for your workflow.
-
-#### Sapling + Phabricator Setup
-
-If you select Sapling + Phabricator:
-
-1. Ensure `.arcconfig` exists in your repository root (required for Phabricator)
-2. Use `/sl-commit` for creating commits with `sl commit`
-3. Use `/sl-submit-diff` for submitting to Phabricator for code review
-
-**Note for Windows users:** Sapling templates use the full path `& 'C:\Program Files\Sapling\sl.exe'` to avoid conflicts with PowerShell's built-in `sl` alias for `Set-Location`.
-
-### Custom install directory
-
-**macOS, Linux:**
+**macOS / Linux:**
 
 ```bash
 ATOMIC_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/flora131/atomic/main/install.sh | bash
@@ -238,6 +240,29 @@ ATOMIC_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/f
 ```powershell
 $env:ATOMIC_INSTALL_DIR = "C:\tools"; irm https://raw.githubusercontent.com/flora131/atomic/main/install.ps1 | iex
 ```
+
+</details>
+
+<details>
+<summary>Source control selection</summary>
+
+During `atomic init`, you'll be prompted to select your source control system:
+
+| SCM Type              | CLI Tool | Code Review       | Use Case                     |
+| --------------------- | -------- | ----------------- | ---------------------------- |
+| GitHub / Git          | `git`    | Pull Requests     | Most open-source projects    |
+| Sapling + Phabricator | `sl`     | Phabricator Diffs | Meta-style stacked workflows |
+
+The selection is saved to `.atomic/settings.json` and configures the appropriate commit and code review commands.
+
+**Sapling + Phabricator:**
+
+1. Ensure `.arcconfig` exists in your repository root
+2. Use `/sl-commit` for commits and `/sl-submit-diff` for code review
+
+**Note for Windows users:** Sapling templates use the full path `& 'C:\Program Files\Sapling\sl.exe'` to avoid conflicts with PowerShell's built-in `sl` alias.
+
+</details>
 
 ---
 
@@ -256,82 +281,6 @@ Every feature follows this cycle. Specs and research become memory for future se
 ## How It Works
 
 [![Architecture](assets/architecture.svg)](assets/architecture.svg)
-
----
-
-## The Workflow
-
-```
-Research → Plan (Spec) → Implement (Ralph) → (Debug) → PR
-```
-
-### 1. Research the Codebase
-
-Start a chat session and use the `/research-codebase` command:
-
-```bash
-atomic chat -a <claude|opencode|copilot>
-```
-
-Then type in the chat:
-
-```
-/research-codebase [Describe your feature or question]
-```
-
-```
-/clear
-```
-
-**You review:** Confirm the agent understood your codebase and requirements.
-
-### 2. Create a Specification
-
-```
-/create-spec [research-path]
-```
-
-```
-/clear
-```
-
-**You review (CRITICAL):** This is your main decision point. The spec becomes the contract.
-
-### 3. Implement Features
-
-Use the Ralph workflow to autonomously implement features from the task list. More in [Ralph Section](#autonomous-execution-ralph):
-
-```
-/ralph "<prompt-or-spec-path>"
-```
-
-### 4. Commit Changes
-
-```
-/gh-commit
-```
-
-### 5. Debugging
-
-Software engineering is highly non-linear. You are bound to need to debug along the way.
-
-If something breaks during implementation that the agent did not catch, you can manually debug. Type in the chat:
-
-```
-Use the debugging agent to create a debugging report for [insert error message here].
-```
-
-Then, use the debugging report to guide your agent:
-
-```
-Follow the debugging report above to resolve the issue.
-```
-
-### 6. Create Pull Request
-
-```
-/gh-create-pr
-```
 
 ---
 

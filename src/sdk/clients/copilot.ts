@@ -628,6 +628,8 @@ export class CopilotClient implements CodingAgentClient {
           eventData = {
             subagentId: data.toolCallId,
             subagentType: data.agentName,
+            toolCallId: data.toolCallId,
+            task: data.description ?? data.prompt ?? data.agentName,
           };
           break;
         case "skill.invoked":

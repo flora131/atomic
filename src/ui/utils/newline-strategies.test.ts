@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  getEnqueueShortcutLabel,
   shouldApplyBackslashLineContinuation,
+  shouldEnqueueMessageFromKeyEvent,
   shouldInsertNewlineFromKeyEvent,
 } from "./newline-strategies.ts";
 
@@ -35,5 +37,64 @@ describe("backslash fallback gating", () => {
 
   test("does not activate when kitty protocol is detected", () => {
     expect(shouldApplyBackslashLineContinuation("line one\\", true)).toBe(false);
+  });
+});
+
+describe("enqueue shortcut handling", () => {
+  test("uses Cmd+Shift+Enter on macOS", () => {
+    expect(
+      shouldEnqueueMessageFromKeyEvent(
+        { name: "return", shift: true, meta: true, ctrl: false },
+        "darwin",
+      ),
+    ).toBe(true);
+    expect(
+      shouldEnqueueMessageFromKeyEvent(
+        { name: "return", shift: true, ctrl: true, meta: false },
+        "darwin",
+      ),
+    ).toBe(false);
+  });
+
+  test("uses Ctrl+Shift+Enter on non-mac platforms", () => {
+    expect(
+      shouldEnqueueMessageFromKeyEvent(
+        { name: "return", shift: true, ctrl: true, meta: false },
+        "linux",
+      ),
+    ).toBe(true);
+    expect(
+      shouldEnqueueMessageFromKeyEvent(
+        { name: "return", shift: true, meta: true, ctrl: false },
+        "linux",
+      ),
+    ).toBe(false);
+  });
+
+  test("supports linefeed Enter variants for platform shortcuts", () => {
+    expect(
+      shouldEnqueueMessageFromKeyEvent(
+        { name: "linefeed", shift: true, meta: true, ctrl: false },
+        "darwin",
+      ),
+    ).toBe(true);
+    expect(
+      shouldEnqueueMessageFromKeyEvent(
+        { name: "linefeed", shift: true, ctrl: true, meta: false },
+        "win32",
+      ),
+    ).toBe(true);
+    expect(
+      shouldEnqueueMessageFromKeyEvent(
+        { name: "linefeed", shift: true, meta: false, ctrl: false },
+        "linux",
+      ),
+    ).toBe(false);
+  });
+
+  test("renders platform-aware shortcut labels", () => {
+    expect(getEnqueueShortcutLabel("darwin")).toBe("cmd+shift+enter");
+    expect(getEnqueueShortcutLabel("linux")).toBe("ctrl+shift+enter");
+    expect(getEnqueueShortcutLabel("win32")).toBe("ctrl+shift+enter");
   });
 });

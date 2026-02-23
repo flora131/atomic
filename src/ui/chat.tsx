@@ -35,10 +35,6 @@ import {
   clearHistoryBuffer,
 } from "./utils/conversation-history-buffer.ts";
 import {
-  computeMessageWindow as computeMessageWindowInternal,
-  applyMessageWindow,
-} from "./utils/message-window.ts";
-import {
   SubagentGraphBridge,
   setSubagentBridge,
   type CreateSessionFn,
@@ -68,7 +64,7 @@ import {
   type CommandContextState,
   type CommandCategory,
 } from "./commands/index.ts";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AskUserQuestionEventData } from "../graph/index.ts";
 import type { AgentType, ModelOperations } from "../models";
@@ -89,18 +85,44 @@ import {
   type NormalizedTodoItem,
 } from "./utils/task-status.ts";
 import {
+  AUTO_COMPACTION_INDICATOR_IDLE_STATE,
+  AUTO_COMPACTION_RESULT_VISIBILITY_MS,
+  clearRunningAutoCompactionIndicator,
+  completeAutoCompactionIndicator,
+  getAutoCompactionIndicatorLabel,
+  shouldShowAutoCompactionIndicator,
+  startAutoCompactionIndicator,
+  type AutoCompactionIndicatorState,
+} from "./utils/auto-compaction-lifecycle.ts";
+import {
+  createStartedStreamControlState,
+  createStoppedStreamControlState,
   dispatchNextQueuedMessage,
+  interruptRunningToolCalls,
+  isAskQuestionToolName,
   isCurrentStreamCallback,
+  shouldDispatchQueuedMessage,
+  shouldDeferComposerSubmit,
   invalidateActiveStreamGeneration,
 } from "./utils/stream-continuation.ts";
 import { getNextKittyKeyboardDetectionState } from "./utils/kitty-keyboard-detection.ts";
 import {
+  getEnqueueShortcutLabel,
   shouldApplyBackslashLineContinuation,
+  shouldEnqueueMessageFromKeyEvent,
   shouldInsertNewlineFromKeyEvent,
 } from "./utils/newline-strategies.ts";
 import {
+  hasAnyAtReferenceToken,
+  parseAtMentions,
+  processFileMentions,
+  type FileReadInfo,
+} from "./utils/mention-parsing.ts";
+import {
+  applyTaskSnapshotToLatestAssistantMessage,
   hasRalphTaskIdOverlap,
   normalizeInterruptedTasks,
+  preferTerminalTaskItems,
   snapshotTaskItems,
 } from "./utils/ralph-task-state.ts";
 import type {
@@ -112,53 +134,11 @@ import type {
   TaskListPart,
   SkillLoadPart,
   McpSnapshotPart,
+  CompactionPart,
   PartId,
 } from "./parts/index.ts";
 import { createPartId, upsertPart, findLastPartIndex, handleTextDelta, shouldFinalizeOnToolComplete } from "./parts/index.ts";
 import { MessageBubbleParts } from "./components/parts/message-bubble-parts.tsx";
-
-// ============================================================================
-// @ MENTION HELPERS
-// ============================================================================
-
-interface ParsedAtMention {
-  agentName: string;
-  args: string;
-}
-
-/**
- * Parse @mentions in a message and extract agent invocations.
- * Returns an array of { agentName, args } for each agent mention found.
- */
-function parseAtMentions(message: string): ParsedAtMention[] {
-  const atMentions: ParsedAtMention[] = [];
-  const atRegex = /@(\S+)/g;
-  let atMatch: RegExpExecArray | null;
-  const agentPositions: Array<{ name: string; start: number; end: number }> = [];
-
-  while ((atMatch = atRegex.exec(message)) !== null) {
-    const candidateName = atMatch[1] ?? "";
-    const cmd = globalRegistry.get(candidateName);
-    if (cmd && cmd.category === "agent") {
-      agentPositions.push({
-        name: candidateName,
-        start: atMatch.index,
-        end: atMatch.index + atMatch[0].length,
-      });
-    }
-  }
-
-  for (let i = 0; i < agentPositions.length; i++) {
-    const pos = agentPositions[i]!;
-    const nextPos = agentPositions[i + 1];
-    const argsStart = pos.end;
-    const argsEnd = nextPos ? nextPos.start : message.length;
-    const args = message.slice(argsStart, argsEnd).trim();
-    atMentions.push({ agentName: pos.name, args });
-  }
-
-  return atMentions;
-}
 
 /**
  * Get autocomplete suggestions for @ mentions (agents and files).
@@ -249,69 +229,6 @@ export function getMentionSuggestions(input: string): CommandDefinition[] {
   }
 
   return suggestions;
-}
-
-interface FileReadInfo {
-  path: string;
-  sizeBytes: number;
-  lineCount: number;
-  isImage: boolean;
-  isDirectory: boolean;
-}
-
-interface ProcessedMention {
-  message: string;
-  filesRead: FileReadInfo[];
-}
-
-/**
- * Process file @mentions in a message. Resolves @filepath references and collects
- * metadata about mentioned files without loading their content into the context window.
- */
-function processFileMentions(message: string): ProcessedMention {
-  const mentionRegex = /@([\w./_-]+)/g;
-  const filesRead: FileReadInfo[] = [];
-  const cleanedMessage = message.replace(mentionRegex, (match, filePath: string) => {
-    const cmd = globalRegistry.get(filePath);
-    if (cmd && cmd.category === "agent") return match;
-
-    try {
-      const fullPath = join(process.cwd(), filePath);
-      const stats = statSync(fullPath);
-
-      if (stats.isDirectory()) {
-        const entries = readdirSync(fullPath, { withFileTypes: true });
-
-        filesRead.push({
-          path: filePath.endsWith("/") ? filePath : `${filePath}/`,
-          sizeBytes: stats.size,
-          lineCount: entries.length,
-          isImage: false,
-          isDirectory: true,
-        });
-
-        return filePath;
-      }
-
-      const content = readFileSync(fullPath, "utf-8");
-      const lineCount = content.split("\n").length;
-      const isImage = /\.(png|jpg|jpeg|gif|webp|svg|bmp|ico)$/i.test(filePath);
-
-      filesRead.push({
-        path: filePath,
-        sizeBytes: stats.size,
-        lineCount,
-        isImage,
-        isDirectory: false,
-      });
-
-      return filePath;
-    } catch {
-      return match;
-    }
-  });
-
-  return { message: cleanedMessage, filesRead };
 }
 
 // ============================================================================
@@ -896,30 +813,11 @@ export function formatTimestamp(isoString: string): string {
 // ============================================================================
 
 /**
- * Maximum number of messages to display in the chat UI.
- * Older messages are evicted from in-memory state and persisted to
- * the temp-file transcript buffer for Ctrl+O.
- */
-export const MAX_VISIBLE_MESSAGES = 50;
-
-/**
  * Number of most-recent messages to keep fully expanded in the chat view.
  * Older messages are auto-collapsed to single-line summaries.
  * Default: 4 (approximately two user-assistant exchanges).
  */
 export const EXPANDED_MESSAGE_COUNT = 4;
-
-/**
- * Compute the visible in-memory message window and hidden transcript count.
- * Hidden count includes both already-trimmed messages and any transient overflow.
- */
-export function computeMessageWindow(
-  messages: ChatMessage[],
-  trimmedMessageCount: number,
-  maxVisible = MAX_VISIBLE_MESSAGES
-): { visibleMessages: ChatMessage[]; hiddenMessageCount: number } {
-  return computeMessageWindowInternal(messages, trimmedMessageCount, maxVisible);
-}
 
 // ============================================================================
 // LOADING INDICATOR COMPONENT
@@ -1587,6 +1485,23 @@ function getRenderableAssistantParts(
     }
   }
 
+  // Detect compaction summary messages (created by appendCompactionSummary)
+  if (message.id.startsWith("compact_")) {
+    const existingCompactionIdx = parts.findIndex((p) => p.type === "compaction");
+    const compactionPart: CompactionPart = {
+      id: existingCompactionIdx >= 0 ? parts[existingCompactionIdx]!.id : `compaction-${message.id}`,
+      type: "compaction",
+      summary: message.content,
+      createdAt: existingCompactionIdx >= 0 ? parts[existingCompactionIdx]!.createdAt : message.timestamp,
+    };
+    if (existingCompactionIdx >= 0) {
+      parts[existingCompactionIdx] = compactionPart;
+    } else {
+      parts.unshift(compactionPart);
+    }
+    return parts;
+  }
+
   const hasTextPart = parts.some((p) => p.type === "text");
   if (!hasTextPart && message.content.trim()) {
     const textPart: TextPart = {
@@ -1818,7 +1733,6 @@ export function ChatApp({
 
   // Core message state
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages);
-  const [trimmedMessageCount, setTrimmedMessageCount] = useState(0);
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingElapsedMs, setStreamingElapsedMs] = useState(0);
   const [streamingMeta, setStreamingMeta] = useState<StreamingMeta | null>(null);
@@ -1936,6 +1850,13 @@ export function ChatApp({
   // Compaction state: stores summary text after /compact for Ctrl+O history
   const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
   const [showCompactionHistory, setShowCompactionHistory] = useState(false);
+  const [autoCompactionIndicator, setAutoCompactionIndicator] = useState<AutoCompactionIndicatorState>(
+    AUTO_COMPACTION_INDICATOR_IDLE_STATE
+  );
+  const autoCompactionIndicatorRef = useRef<AutoCompactionIndicatorState>(
+    AUTO_COMPACTION_INDICATOR_IDLE_STATE
+  );
+  const autoCompactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // TodoWrite persistent state
   const [todoItems, setTodoItems] = useState<NormalizedTodoItem[]>([]);
   const todoItemsRef = useRef<NormalizedTodoItem[]>([]);
@@ -2022,14 +1943,11 @@ export function ChatApp({
   // Ref to track whether any tool call is currently running (synchronous check
   // for keyboard handler to avoid stale closure issues with React state).
   const hasRunningToolRef = useRef(false);
+  // Track active ask_question tools so Enter can defer submit without clearing input.
+  const runningAskQuestionToolIdsRef = useRef<Set<string>>(new Set());
   // Counter to trigger effect when tools complete (used for deferred completion logic)
   const [toolCompletionVersion, setToolCompletionVersion] = useState(0);
   // Incremented when message-window overflow eviction happens.
-  // Used to remount the scrollbox and prevent stale renderables in long sessions.
-  const [messageWindowEpoch, setMessageWindowEpoch] = useState(0);
-  // Accumulates eviction data from the pure state updater so the useEffect
-  // below can perform side-effects (file I/O, counter bump) outside the updater.
-  const pendingEvictionsRef = useRef<Array<{ messages: ChatMessage[], count: number }>>([]);
   // Tracks which skills have been loaded in the current session to avoid duplicate indicators.
   const loadedSkillsRef = useRef<Set<string>>(new Set());
   // Ref for scrollbox to enable programmatic scrolling
@@ -2044,7 +1962,10 @@ export function ChatApp({
         dispatchQueuedMessageRef.current(queuedMessage);
       },
       {
-        shouldDispatch: () => !isStreamingRef.current,
+        shouldDispatch: () => shouldDispatchQueuedMessage({
+          isStreaming: isStreamingRef.current,
+          runningAskQuestionToolCount: runningAskQuestionToolIdsRef.current.size,
+        }),
       },
     );
   }, [messageQueue]);
@@ -2053,45 +1974,11 @@ export function ChatApp({
   const scrollAcceleration = useMemo(() => new MacOSScrollAccel(), []);
 
   /**
-   * Update chat messages and enforce the in-memory window cap atomically.
-   * The state updater is kept pure — side-effects (history buffer writes,
-   * trimmed-count and epoch bumps) are deferred to the useEffect below.
+   * Update chat messages. Alias for setMessages kept to minimise call-site churn.
    */
   const setMessagesWindowed = useCallback((next: React.SetStateAction<ChatMessage[]>) => {
-    setMessages((prev) => {
-      const nextMessages = typeof next === "function"
-        ? (next as (prevState: ChatMessage[]) => ChatMessage[])(prev)
-        : next;
-      const { inMemoryMessages, evictedMessages, evictedCount } = applyMessageWindow(
-        nextMessages,
-        MAX_VISIBLE_MESSAGES
-      );
-      if (evictedCount > 0) {
-        pendingEvictionsRef.current.push({ messages: evictedMessages, count: evictedCount });
-      }
-      return inMemoryMessages;
-    });
+    setMessages(next);
   }, []);
-
-  // Process pending evictions after state commits — keeps the state updater pure.
-  useEffect(() => {
-    if (pendingEvictionsRef.current.length === 0) return;
-    const evictions = pendingEvictionsRef.current;
-    pendingEvictionsRef.current = [];
-    // Accumulate all evicted messages into a single batch to minimize disk I/O.
-    const allEvicted: ChatMessage[] = [];
-    let totalEvicted = 0;
-    for (const { messages: evicted, count } of evictions) {
-      allEvicted.push(...evicted);
-      totalEvicted += count;
-    }
-    if (totalEvicted > 0) {
-      appendToHistoryBuffer(allEvicted);
-      setTrimmedMessageCount((c) => c + totalEvicted);
-      setMessageWindowEpoch((e) => e + 1);
-      console.debug(`[eviction] flushed ${totalEvicted} messages in ${evictions.length} batch(es), epoch incremented`);
-    }
-  }, [messages]);
 
   // Live elapsed time counter for streaming indicator
   // Also keeps running while background agents are active (stream ended but work continues)
@@ -2168,6 +2055,69 @@ export function ChatApp({
     return snapshotTaskItems(updated) as TaskItem[] | undefined;
   }, [isRalphTaskUpdate]);
 
+  const clearAutoCompactionTimeout = useCallback(() => {
+    if (autoCompactionTimeoutRef.current) {
+      clearTimeout(autoCompactionTimeoutRef.current);
+      autoCompactionTimeoutRef.current = null;
+    }
+  }, []);
+
+  const applyAutoCompactionIndicator = useCallback((next: AutoCompactionIndicatorState) => {
+    clearAutoCompactionTimeout();
+    autoCompactionIndicatorRef.current = next;
+    setAutoCompactionIndicator(next);
+
+    if (next.status === "completed" || next.status === "error") {
+      autoCompactionTimeoutRef.current = setTimeout(() => {
+        autoCompactionIndicatorRef.current = AUTO_COMPACTION_INDICATOR_IDLE_STATE;
+        setAutoCompactionIndicator(AUTO_COMPACTION_INDICATOR_IDLE_STATE);
+        autoCompactionTimeoutRef.current = null;
+      }, AUTO_COMPACTION_RESULT_VISIBILITY_MS);
+    }
+  }, [clearAutoCompactionTimeout]);
+
+  const stopSharedStreamState = useCallback((options?: {
+    preserveStreamingStart?: boolean;
+    resetStreamingStateHook?: boolean;
+  }) => {
+    const next = createStoppedStreamControlState(
+      {
+        isStreaming: isStreamingRef.current,
+        streamingMessageId: streamingMessageIdRef.current,
+        streamingStart: streamingStartRef.current,
+        hasStreamingMeta: streamingMetaRef.current !== null,
+        hasRunningTool: hasRunningToolRef.current,
+        isAgentOnlyStream: isAgentOnlyStreamRef.current,
+        hasPendingCompletion: pendingCompleteRef.current !== null,
+      },
+      { preserveStreamingStart: options?.preserveStreamingStart },
+    );
+
+    streamingMessageIdRef.current = next.streamingMessageId;
+    streamingStartRef.current = next.streamingStart;
+    streamingMetaRef.current = null;
+    pendingCompleteRef.current = null;
+    isAgentOnlyStreamRef.current = next.isAgentOnlyStream;
+    isStreamingRef.current = next.isStreaming;
+    hasRunningToolRef.current = next.hasRunningTool;
+    if (options?.resetStreamingStateHook !== false) {
+      runningAskQuestionToolIdsRef.current.clear();
+    }
+    setIsStreaming(next.isStreaming);
+    setStreamingMeta(null);
+
+    const nextCompactionState = clearRunningAutoCompactionIndicator(
+      autoCompactionIndicatorRef.current,
+    );
+    if (nextCompactionState !== autoCompactionIndicatorRef.current) {
+      applyAutoCompactionIndicator(nextCompactionState);
+    }
+
+    if (options?.resetStreamingStateHook !== false) {
+      streamingState.reset();
+    }
+  }, [streamingState, applyAutoCompactionIndicator]);
+
   const handleStreamStartupError = useCallback((error: unknown, expectedGeneration: number) => {
     // Ignore stale failures from an older stream generation.
     if (streamGenerationRef.current !== expectedGeneration) {
@@ -2196,14 +2146,7 @@ export function ChatApp({
       });
     }
 
-    streamingMessageIdRef.current = null;
-    streamingStartRef.current = null;
-    streamingMetaRef.current = null;
-    pendingCompleteRef.current = null;
-    isStreamingRef.current = false;
-    setIsStreaming(false);
-    setStreamingMeta(null);
-    hasRunningToolRef.current = false;
+    stopSharedStreamState();
 
     const resolver = streamCompletionResolverRef.current;
     streamCompletionResolverRef.current = null;
@@ -2211,18 +2154,20 @@ export function ChatApp({
     if (resolver) {
       resolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
     }
-  }, [setMessagesWindowed]);
+  }, [setMessagesWindowed, stopSharedStreamState]);
+
+  const enqueueShortcutLabel = useMemo(() => getEnqueueShortcutLabel(), []);
 
   // Dynamic placeholder based on queue state
   const dynamicPlaceholder = useMemo(() => {
     if (messageQueue.count > 0) {
       return "Press ↑ to edit queued messages...";
     } else if (isStreaming) {
-      return "Type a message (enter to interrupt, ctrl+q to enqueue)...";
+      return `Type a message (enter to interrupt, ${enqueueShortcutLabel} to enqueue)...`;
     } else {
       return "Enter a message...";
     }
-  }, [messageQueue.count, isStreaming]);
+  }, [enqueueShortcutLabel, messageQueue.count, isStreaming]);
 
   /**
    * Update workflow state with partial values.
@@ -2245,12 +2190,23 @@ export function ChatApp({
     toolName: string,
     input: Record<string, unknown>
   ) => {
+    const nextCompactionState = startAutoCompactionIndicator(
+      autoCompactionIndicatorRef.current,
+      toolName,
+    );
+    if (nextCompactionState !== autoCompactionIndicatorRef.current) {
+      applyAutoCompactionIndicator(nextCompactionState);
+    }
+
     toolNameByIdRef.current.set(toolId, toolName);
 
     // Update streaming state
     streamingState.handleToolStart(toolId, toolName, input);
     // Track that a tool is running (synchronous ref for keyboard handler)
     hasRunningToolRef.current = true;
+    if (isAskQuestionToolName(toolName)) {
+      runningAskQuestionToolIdsRef.current.add(toolId);
+    }
 
     // Add tool call to current streaming message.
     // If a tool call with the same ID already exists, update its input
@@ -2353,7 +2309,7 @@ export function ChatApp({
         );
       }
     }
-  }, [streamingState, isRalphTaskUpdate]);
+  }, [streamingState, isRalphTaskUpdate, applyAutoCompactionIndicator]);
 
   /**
    * Handle tool execution complete event.
@@ -2369,7 +2325,36 @@ export function ChatApp({
   ) => {
     const completedToolName = toolNameByIdRef.current.get(toolId);
     if (completedToolName) {
+      const nextCompactionState = completeAutoCompactionIndicator(
+        autoCompactionIndicatorRef.current,
+        completedToolName,
+        success,
+        error,
+      );
+      if (nextCompactionState !== autoCompactionIndicatorRef.current) {
+        applyAutoCompactionIndicator(nextCompactionState);
+      }
+    }
+
+    const completedAskQuestion = completedToolName
+      ? isAskQuestionToolName(completedToolName)
+      : false;
+    if (completedToolName) {
       toolNameByIdRef.current.delete(toolId);
+      if (completedAskQuestion) {
+        runningAskQuestionToolIdsRef.current.delete(toolId);
+      }
+    }
+
+    if (
+      completedAskQuestion
+      && !pendingCompleteRef.current
+      && shouldDispatchQueuedMessage({
+        isStreaming: isStreamingRef.current,
+        runningAskQuestionToolCount: runningAskQuestionToolIdsRef.current.size,
+      })
+    ) {
+      continueQueuedConversation();
     }
 
     // Update streaming state
@@ -2517,7 +2502,7 @@ export function ChatApp({
         );
       }
     }
-  }, [streamingState, isRalphTaskUpdate]);
+  }, [streamingState, isRalphTaskUpdate, continueQueuedConversation, applyAutoCompactionIndicator]);
 
   /**
    * Handle skill invoked event from SDK.
@@ -2558,8 +2543,9 @@ export function ChatApp({
       if (interruptTimeoutRef.current) {
         clearTimeout(interruptTimeoutRef.current);
       }
+      clearAutoCompactionTimeout();
     };
-  }, []);
+  }, [clearAutoCompactionTimeout]);
 
   // Auto-start workflow when workflowActive becomes true with an initialPrompt.
   // This handles non-context-clear workflow starts (e.g., generic workflow commands).
@@ -2664,13 +2650,7 @@ export function ChatApp({
                 });
                 return currentAgents;
               });
-              streamingMessageIdRef.current = null;
-              streamingStartRef.current = null;
-              streamingMetaRef.current = null;
-              isStreamingRef.current = false;
-              setIsStreaming(false);
-              setStreamingMeta(null);
-              hasRunningToolRef.current = false;
+              stopSharedStreamState();
             },
             // onMeta: update streaming metadata
             (meta: StreamingMeta) => {
@@ -2683,17 +2663,14 @@ export function ChatApp({
           } catch (error) {
             // Prevent unhandled errors from crashing the TUI
             console.error("[workflow auto-start] Error during context clear or streaming:", error);
-            isStreamingRef.current = false;
-            setIsStreaming(false);
-            setStreamingMeta(null);
-            hasRunningToolRef.current = false;
+            stopSharedStreamState();
           }
         })();
       }, 100);
 
       return () => clearTimeout(timeoutId);
     }
-  }, [workflowState.workflowActive, workflowState.initialPrompt, isStreaming, onStreamMessage, handleStreamStartupError]);
+  }, [workflowState.workflowActive, workflowState.initialPrompt, isStreaming, onStreamMessage, handleStreamStartupError, stopSharedStreamState]);
 
   // Reset workflow started ref when workflow becomes inactive
   useEffect(() => {
@@ -2703,12 +2680,34 @@ export function ChatApp({
   }, [workflowState.workflowActive]);
 
   // Auto-hide task list panel when workflow ends naturally
+  const syncTerminalTaskStateFromSession = useCallback((sessionDir: string) => {
+    let diskTasks: NormalizedTodoItem[] = [];
+    try {
+      const content = readFileSync(join(sessionDir, "tasks.json"), "utf-8");
+      diskTasks = normalizeTodoItems(JSON.parse(content));
+    } catch {
+      // best effort: tasks.json may be absent during teardown
+    }
+
+    const terminalTasks = preferTerminalTaskItems(todoItemsRef.current, diskTasks);
+    if (terminalTasks.length === 0) return;
+
+    todoItemsRef.current = terminalTasks;
+    setTodoItems(terminalTasks);
+    setMessagesWindowed((prev: ChatMessage[]) =>
+      applyTaskSnapshotToLatestAssistantMessage(prev, terminalTasks)
+    );
+  }, [setMessagesWindowed]);
+
   useEffect(() => {
     if (!workflowState.workflowActive && ralphSessionDir) {
+      syncTerminalTaskStateFromSession(ralphSessionDir);
       setRalphSessionDir(null);
       setRalphSessionId(null);
+      ralphSessionDirRef.current = null;
+      ralphSessionIdRef.current = null;
     }
-  }, [workflowState.workflowActive, ralphSessionDir]);
+  }, [workflowState.workflowActive, ralphSessionDir, syncTerminalTaskStateFromSession]);
 
   /**
    * Handle human_input_required signal.
@@ -2973,21 +2972,15 @@ export function ChatApp({
             : msg
         )
       );
-      streamingMessageIdRef.current = null;
-      streamingMetaRef.current = null;
-      isStreamingRef.current = false;
-      isAgentOnlyStreamRef.current = false;
-      setIsStreaming(false);
-      setStreamingMeta(null);
-      hasRunningToolRef.current = false;
       // Keep background agents in live state for post-stream completion tracking
       const remainingBg = parallelAgents.filter((a) => a.background && a.status === "background");
       if (remainingBg.length > 0 && messageId) {
+        stopSharedStreamState({ preserveStreamingStart: true });
         backgroundAgentMessageIdRef.current = messageId;
         setParallelAgents(remainingBg);
         parallelAgentsRef.current = remainingBg;
       } else {
-        streamingStartRef.current = null;
+        stopSharedStreamState();
         setParallelAgents([]);
         parallelAgentsRef.current = [];
       }
@@ -2996,7 +2989,7 @@ export function ChatApp({
       // the SDK handleComplete callback, so we must dequeue here.
       continueQueuedConversation();
     }
-  }, [parallelAgents, continueQueuedConversation, toolCompletionVersion, messages]);
+  }, [parallelAgents, continueQueuedConversation, toolCompletionVersion, messages, stopSharedStreamState]);
 
   // Initialize SubagentGraphBridge when createSubagentSession is available
   useEffect(() => {
@@ -3252,6 +3245,17 @@ export function ChatApp({
   }, [dispatchQueuedMessage]);
 
   /**
+   * Check if a character is a valid word boundary for @ mentions.
+   * Includes whitespace and common punctuation that can precede mentions.
+   */
+  const isAtMentionBoundary = useCallback((char: string): boolean => {
+    return char === " " || char === "\n" || char === "\t" ||
+           char === "(" || char === "[" || char === "{" ||
+           char === "," || char === ";" || char === ":" ||
+           char === "." || char === "!" || char === "?";
+  }, []);
+
+  /**
    * Handle input changes to detect slash command prefix or @ mentions.
    * Shows autocomplete when input starts with "/" and has no space,
    * or when "@" appears at any position near the cursor.
@@ -3284,10 +3288,9 @@ export function ChatApp({
         const atIndex = textBeforeCursor.lastIndexOf("@");
 
         if (atIndex !== -1 && atIndex > spaceIndex + 1) {
-          const charBefore = atIndex > 0 ? rawValue[atIndex - 1] : " ";
-          const isWordBoundary = charBefore === " " || charBefore === "\n" || charBefore === "\t";
+          const charBefore = atIndex > 0 ? (rawValue[atIndex - 1] ?? " ") : " ";
 
-          if (isWordBoundary || atIndex === 0) {
+          if (isAtMentionBoundary(charBefore) || atIndex === 0) {
             const mentionToken = rawValue.slice(atIndex + 1, cursorOffset);
             if (!mentionToken.includes(" ")) {
               updateWorkflowState({
@@ -3316,11 +3319,10 @@ export function ChatApp({
       const atIndex = textBeforeCursor.lastIndexOf("@");
 
       if (atIndex !== -1) {
-        // Check that the @ is either at position 0 or preceded by a space/newline
-        const charBefore = atIndex > 0 ? rawValue[atIndex - 1] : " ";
-        const isWordBoundary = charBefore === " " || charBefore === "\n" || charBefore === "\t";
+        // Check that the @ is either at position 0 or preceded by a valid boundary
+        const charBefore = atIndex > 0 ? (rawValue[atIndex - 1] ?? " ") : " ";
 
-        if (isWordBoundary || atIndex === 0) {
+        if (isAtMentionBoundary(charBefore) || atIndex === 0) {
           // Extract the mention token between @ and cursor (no spaces allowed in mention)
           const mentionToken = rawValue.slice(atIndex + 1, cursorOffset);
           const hasSpace = mentionToken.includes(" ");
@@ -3350,7 +3352,7 @@ export function ChatApp({
         });
       }
     }
-  }, [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState]);
+  }, [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, isAtMentionBoundary]);
 
   const handleTextareaContentChange = useCallback(() => {
     const textarea = textareaRef.current;
@@ -3587,13 +3589,7 @@ export function ChatApp({
                 );
               }
               setParallelAgents([]);
-              streamingMessageIdRef.current = null;
-              streamingStartRef.current = null;
-              streamingMetaRef.current = null;
-              isStreamingRef.current = false;
-              setIsStreaming(false);
-              setStreamingMeta(null);
-              hasRunningToolRef.current = false;
+              stopSharedStreamState();
 
               // Resolve streamAndWait promise with interrupted flag
               const resolver = streamCompletionResolverRef.current;
@@ -3648,9 +3644,7 @@ export function ChatApp({
                         outputTokens: finalMeta?.outputTokens,
                         thinkingMs: finalMeta?.thinkingMs,
                         thinkingText: finalMeta?.thinkingText || undefined,
-                        toolCalls: msg.toolCalls?.map((tc) =>
-                          tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                        ),
+                        toolCalls: interruptRunningToolCalls(msg.toolCalls),
                         parallelAgents: finalizedAgents,
                         taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
                       }
@@ -3666,20 +3660,12 @@ export function ChatApp({
               return remaining;
             });
 
-            streamingMessageIdRef.current = null;
             // Preserve streamingStartRef when background agents are still running
             // so the elapsed timer continues tracking total work duration
             const hasRemainingBg = parallelAgentsRef.current.some(
               (a) => a.background && a.status === "background"
             );
-            if (!hasRemainingBg) {
-              streamingStartRef.current = null;
-            }
-            streamingMetaRef.current = null;
-            isStreamingRef.current = false;
-            setIsStreaming(false);
-            setStreamingMeta(null);
-            hasRunningToolRef.current = false;
+            stopSharedStreamState({ preserveStreamingStart: hasRemainingBg });
 
             // If a streamAndWait call is pending, resolve its promise
             // instead of processing the message queue.
@@ -3782,7 +3768,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           appendToHistoryBuffer(prev);
           return [];
         });
-        setTrimmedMessageCount(0);
         setCompactionSummary(null);
         setShowCompactionHistory(false);
         setParallelAgents([]);
@@ -3841,13 +3826,33 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       // Don't show spinner if command already set streaming (e.g., /compact)
       if (!isStreamingRef.current) {
         commandSpinnerShown = true;
-        streamingStartRef.current = Date.now();
-        isStreamingRef.current = true;
         const msg = createMessage("assistant", "", true);
         msg.spinnerVerb = getSpinnerVerbForCommand(commandName);
         commandSpinnerMsgId = msg.id;
+        const next = createStartedStreamControlState(
+          {
+            isStreaming: isStreamingRef.current,
+            streamingMessageId: streamingMessageIdRef.current,
+            streamingStart: streamingStartRef.current,
+            hasStreamingMeta: streamingMetaRef.current !== null,
+            hasRunningTool: hasRunningToolRef.current,
+            isAgentOnlyStream: isAgentOnlyStreamRef.current,
+            hasPendingCompletion: pendingCompleteRef.current !== null,
+          },
+          { messageId: msg.id, startedAt: Date.now() },
+        );
+
+        streamingMessageIdRef.current = next.streamingMessageId;
+        streamingStartRef.current = next.streamingStart;
+        streamingMetaRef.current = null;
+        pendingCompleteRef.current = null;
+        isAgentOnlyStreamRef.current = next.isAgentOnlyStream;
+        isStreamingRef.current = next.isStreaming;
+        hasRunningToolRef.current = next.hasRunningTool;
+        runningAskQuestionToolIdsRef.current.clear();
         flushSync(() => {
-          setIsStreaming(true);
+          setIsStreaming(next.isStreaming);
+          setStreamingMeta(null);
           setMessagesWindowed((prev) => [...prev, msg]);
         });
       }
@@ -3867,10 +3872,10 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Reset UI state on session destroy (/clear)
         setCompactionSummary(null);
         setShowCompactionHistory(false);
+        applyAutoCompactionIndicator(AUTO_COMPACTION_INDICATOR_IDLE_STATE);
         setParallelAgents([]);
         setTranscriptMode(false);
         clearHistoryBuffer();
-        setTrimmedMessageCount(0);
         loadedSkillsRef.current.clear();
         // Reset ralph state on /clear (Copilot only)
         if (agentType === "copilot") {
@@ -3882,9 +3887,9 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           todoItemsRef.current = [];
           setTodoItems([]);
         }
-        // /clear postcondition contract: messages=[], trimmedMessageCount=0,
+        // /clear postcondition contract: messages=[],
         // transcriptMode=false, historyBuffer=[], compactionSummary=null
-        console.debug("[lifecycle] /clear postconditions: messages=[], trimmedMessageCount=0, transcriptMode=false, historyBuffer=[], compactionSummary=null");
+        console.debug("[lifecycle] /clear postconditions: messages=[], transcriptMode=false, historyBuffer=[], compactionSummary=null");
       }
 
       // Handle clearMessages flag — persist history before clearing
@@ -3899,16 +3904,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           appendToHistoryBuffer(messages);
         }
         setMessagesWindowed([]);
-        setTrimmedMessageCount(0);
       }
 
       // Store compaction summary if present (from /compact command)
       if (result.compactionSummary) {
         setCompactionSummary(result.compactionSummary);
         setShowCompactionHistory(false);
-        // /compact postcondition contract: messages=[], trimmedMessageCount=0,
+        // /compact postcondition contract: messages=[],
         // historyBuffer=[summary marker only], compactionSummary=<summary text>
-        console.debug(`[lifecycle] /compact postconditions: messages=[], trimmedMessageCount=0, historyBuffer=[summary], compactionSummary=${result.compactionSummary?.slice(0, 50)}...`);
+        console.debug(`[lifecycle] /compact postconditions: messages=[], historyBuffer=[summary], compactionSummary=${result.compactionSummary?.slice(0, 50)}...`);
       }
 
       // Apply state updates if present
@@ -4037,10 +4041,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         
         // Only reset streaming state if the current stream is still the spinner stream
         if (streamingMessageIdRef.current === msgId) {
-          isStreamingRef.current = false;
-          setIsStreaming(false);
-          streamingStartRef.current = null;
-          hasRunningToolRef.current = false;
+          stopSharedStreamState({ resetStreamingStateHook: false });
         }
       }
 
@@ -4062,10 +4063,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         
         // Only reset streaming state if the current stream is still the spinner stream
         if (streamingMessageIdRef.current === msgId) {
-          isStreamingRef.current = false;
-          setIsStreaming(false);
-          hasRunningToolRef.current = false;
-          streamingStartRef.current = null;
+          stopSharedStreamState({ resetStreamingStateHook: false });
         }
       }
       // Handle execution error (as assistant message, not system)
@@ -4080,7 +4078,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       });
       return false;
     }
-  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model, onModelChange, onSessionMcpServersChange, onCommandExecutionTelemetry, mcpServerToggles, handleStreamStartupError]);
+  }, [isStreaming, messages.length, workflowState, addMessage, updateWorkflowState, toggleTheme, setTheme, onSendMessage, onStreamMessage, getSession, model, onModelChange, onSessionMcpServersChange, onCommandExecutionTelemetry, mcpServerToggles, handleStreamStartupError, stopSharedStreamState, applyAutoCompactionIndicator]);
 
   /**
    * Handle autocomplete selection (Tab for complete, Enter for execute).
@@ -4313,9 +4311,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                       streaming: false,
                       parallelAgents: interruptedAgents,
                       taskItems: interruptedTaskItems,
-                      toolCalls: msg.toolCalls?.map((tc) =>
-                        tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                      ),
+                      toolCalls: interruptRunningToolCalls(msg.toolCalls),
                     }
                     : msg
                 )
@@ -4324,14 +4320,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             // Stop streaming state immediately so UI reflects interrupted state
             wasInterruptedRef.current = false;
-            streamingMessageIdRef.current = null;
-            streamingStartRef.current = null;
-            streamingMetaRef.current = null;
-            isAgentOnlyStreamRef.current = false;
-            isStreamingRef.current = false;
-            setIsStreaming(false);
-            setStreamingMeta(null);
-            hasRunningToolRef.current = false;
+            stopSharedStreamState();
 
             // Sub-agent cancellation handled by SDK session interrupt
 
@@ -4423,9 +4412,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                         ...msg,
                         parallelAgents: interruptedAgents,
                         taskItems: interruptedTaskItems,
-                        toolCalls: msg.toolCalls?.map((tc) =>
-                          tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                        ),
+                        toolCalls: interruptRunningToolCalls(msg.toolCalls),
                       }
                       : msg
                   )
@@ -4433,8 +4420,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               }
               parallelAgentsRef.current = [];
               setParallelAgents([]);
-              pendingCompleteRef.current = null;
               wasInterruptedRef.current = false;
+              stopSharedStreamState();
               continueQueuedConversation();
               return;
             }
@@ -4495,33 +4482,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Ctrl+T - toggle todo list panel visibility
         if (event.ctrl && !event.shift && event.name === "t") {
           setShowTodoPanel(prev => !prev);
-          return;
-        }
-
-        // Ctrl+Q - enqueue message (round-robin) during streaming
-        if (event.ctrl && event.name === "q") {
-          if (isStreamingRef.current) {
-            const textarea = textareaRef.current;
-            const value = textarea?.plainText?.trim() ?? "";
-            if (value) {
-              const hasAgentMentions = parseAtMentions(value).length > 0;
-              const hasAnyMentionToken = /@([\w./_-]+)/.test(value);
-              emitMessageSubmitTelemetry({
-                messageLength: value.length,
-                queued: true,
-                fromInitialPrompt: false,
-                hasFileMentions: hasAnyMentionToken && !hasAgentMentions,
-                hasAgentMentions,
-              });
-              messageQueue.enqueue(value);
-              // Clear textarea
-              if (textarea) {
-                textarea.gotoBufferHome();
-                textarea.gotoBufferEnd({ select: true });
-                textarea.deleteChar();
-              }
-            }
-          }
           return;
         }
 
@@ -4592,9 +4552,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                       streaming: false,
                       parallelAgents: interruptedAgents,
                       taskItems: interruptedTaskItems,
-                      toolCalls: msg.toolCalls?.map((tc) =>
-                        tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                      ),
+                      toolCalls: interruptRunningToolCalls(msg.toolCalls),
                     }
                     : msg
                 )
@@ -4603,14 +4561,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             // Stop streaming state immediately so UI reflects interrupted state
             wasInterruptedRef.current = false;
-            streamingMessageIdRef.current = null;
-            streamingStartRef.current = null;
-            streamingMetaRef.current = null;
-            isAgentOnlyStreamRef.current = false;
-            isStreamingRef.current = false;
-            setIsStreaming(false);
-            setStreamingMeta(null);
-            hasRunningToolRef.current = false;
+            stopSharedStreamState();
 
             // Sub-agent cancellation handled by SDK session interrupt
 
@@ -4662,9 +4613,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                         ...msg,
                         parallelAgents: interruptedAgents,
                         taskItems: interruptedTaskItems,
-                        toolCalls: msg.toolCalls?.map((tc) =>
-                          tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                        ),
+                        toolCalls: interruptRunningToolCalls(msg.toolCalls),
                       }
                       : msg
                   )
@@ -4672,8 +4621,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               }
               parallelAgentsRef.current = [];
               setParallelAgents([]);
-              pendingCompleteRef.current = null;
               wasInterruptedRef.current = false;
+              stopSharedStreamState();
               continueQueuedConversation();
               return;
             }
@@ -4789,7 +4738,12 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Rule 1: first line + not index 0 → move cursor to index 0
         // Rule 3: index 0 → navigate older history; down just moves in chatbox
         // Rule 4: at last index, up just moves up in chatbox (no history)
-        if (event.name === "up" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0) {
+        if (
+          event.name === "up"
+          && !workflowState.showAutocomplete
+          && !isEditingQueue
+          && (isStreaming || messageQueue.count === 0)
+        ) {
           const textarea = textareaRef.current;
           if (textarea) {
             const cursorOffset = textarea.cursorOffset;
@@ -4841,7 +4795,12 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Rule 2: last line + not last index → move cursor to last index
         // Rule 3: at index 0, down just moves down in chatbox (no history)
         // Rule 4: at last index → navigate newer history
-        if (event.name === "down" && !workflowState.showAutocomplete && !isEditingQueue && !isStreaming && messageQueue.count === 0) {
+        if (
+          event.name === "down"
+          && !workflowState.showAutocomplete
+          && !isEditingQueue
+          && (isStreaming || messageQueue.count === 0)
+        ) {
           const textarea = textareaRef.current;
           if (textarea) {
             const cursorOffset = textarea.cursorOffset;
@@ -4906,6 +4865,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         }
 
         // Shift+Enter or Alt+Enter - insert newline
+        // (unless streaming + enqueue shortcut is used)
         // Must be handled here (before autocomplete Enter handler) with stopPropagation
         // to prevent the textarea's built-in "return → submit" key binding from firing.
         // Ctrl+J (linefeed without shift) also inserts newline as a universal fallback
@@ -4913,6 +4873,30 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Fallback: some terminals send Shift+Enter as a Kitty-protocol escape sequence
         // that gets misinterpreted (e.g., "/" extracted from the CSI sequence).
         // Detect by checking event.raw for Enter codepoint (13/10) with a modifier.
+        if (isStreamingRef.current && shouldEnqueueMessageFromKeyEvent(event)) {
+          const textarea = textareaRef.current;
+          const value = textarea?.plainText?.trim() ?? "";
+          if (value) {
+            const hasAgentMentions = parseAtMentions(value).length > 0;
+            const hasAnyMentionToken = hasAnyAtReferenceToken(value);
+            emitMessageSubmitTelemetry({
+              messageLength: value.length,
+              queued: true,
+              fromInitialPrompt: false,
+              hasFileMentions: hasAnyMentionToken && !hasAgentMentions,
+              hasAgentMentions,
+            });
+            messageQueue.enqueue(value);
+            if (textarea) {
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+            }
+          }
+          event.stopPropagation();
+          return;
+        }
+
         if (shouldInsertNewlineFromKeyEvent(event)) {
           const textarea = textareaRef.current;
           if (textarea) {
@@ -5088,7 +5072,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           syncInputScrollbar();
         }, 0);
       },
-      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer, emitMessageSubmitTelemetry]
+      [onExit, onInterrupt, isStreaming, interruptCount, handleCopy, workflowState.showAutocomplete, workflowState.selectedSuggestionIndex, workflowState.autocompleteInput, workflowState.autocompleteMode, autocompleteSuggestions, updateWorkflowState, handleInputChange, syncInputScrollbar, executeCommand, activeQuestion, showModelSelector, ctrlCPressed, messageQueue, setIsEditingQueue, parallelAgents, compactionSummary, addMessage, renderer, emitMessageSubmitTelemetry, finalizeTaskItemsOnInterrupt, stopSharedStreamState]
     )
   );
 
@@ -5197,13 +5181,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               );
             }
             setParallelAgents([]);
-            streamingMessageIdRef.current = null;
-            streamingStartRef.current = null;
-            streamingMetaRef.current = null;
-            isStreamingRef.current = false;
-            setIsStreaming(false);
-            setStreamingMeta(null);
-            hasRunningToolRef.current = false;
+            stopSharedStreamState();
 
             continueQueuedConversation();
             return;
@@ -5245,9 +5223,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                       outputTokens: finalMeta?.outputTokens,
                       thinkingMs: finalMeta?.thinkingMs,
                       thinkingText: finalMeta?.thinkingText || undefined,
-                      toolCalls: msg.toolCalls?.map((tc) =>
-                        tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                      ),
+                      toolCalls: interruptRunningToolCalls(msg.toolCalls),
                       parallelAgents: finalizedAgents,
                       taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
                     }
@@ -5263,19 +5239,10 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             return remaining;
           });
 
-          streamingMessageIdRef.current = null;
           const hasRemainingBg = parallelAgentsRef.current.some(
             (a) => a.background && a.status === "background"
           );
-          if (!hasRemainingBg) {
-            streamingStartRef.current = null;
-          }
-          streamingMetaRef.current = null;
-          // Clear ref immediately (synchronous) before state update
-          isStreamingRef.current = false;
-          setIsStreaming(false);
-          setStreamingMeta(null);
-          hasRunningToolRef.current = false;
+          stopSharedStreamState({ preserveStreamingStart: hasRemainingBg });
           continueQueuedConversation();
         };
 
@@ -5290,7 +5257,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         });
       }
     },
-    [onSendMessage, onStreamMessage, continueQueuedConversation, handleStreamStartupError]
+    [onSendMessage, onStreamMessage, continueQueuedConversation, handleStreamStartupError, stopSharedStreamState]
   );
 
   // Keep the sendMessageRef in sync with sendMessage callback
@@ -5378,6 +5345,13 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         return;
       }
 
+      if (shouldDeferComposerSubmit({
+        isStreaming: isStreamingRef.current,
+        runningAskQuestionToolCount: runningAskQuestionToolIdsRef.current.size,
+      })) {
+        return;
+      }
+
       // Add to prompt history (avoid duplicates of last entry)
       setPromptHistory(prev => {
         if (prev[prev.length - 1] === trimmedValue) return prev;
@@ -5454,7 +5428,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
         if (atMentions.length > 0) {
           // @mention invocations queue while streaming so they stay in the
-          // same round-robin queue UI as Ctrl+Q inputs.
+          // same round-robin queue UI as keyboard enqueue inputs.
           if (isStreamingRef.current) {
             emitMessageSubmitTelemetry({
               messageLength: trimmedValue.length,
@@ -5524,6 +5498,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
         // Round-robin inject: finalize current stream and send new message immediately
         const interruptedId = streamingMessageIdRef.current;
+        const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
         if (interruptedId) {
           const durationMs = streamingStartRef.current ? Date.now() - streamingStartRef.current : undefined;
           const finalMeta = streamingMetaRef.current;
@@ -5538,9 +5513,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                   outputTokens: finalMeta?.outputTokens,
                   thinkingMs: finalMeta?.thinkingMs,
                   thinkingText: finalMeta?.thinkingText || undefined,
-                  toolCalls: msg.toolCalls?.map((tc) =>
-                    tc.status === "running" ? { ...tc, status: "interrupted" as const } : tc
-                  ),
+                  toolCalls: interruptRunningToolCalls(msg.toolCalls),
+                  taskItems: interruptedTaskItems,
                 }
                 : msg
             )
@@ -5548,15 +5522,20 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         }
         // Invalidate callbacks for the interrupted stream before aborting.
         streamGenerationRef.current = invalidateActiveStreamGeneration(streamGenerationRef.current);
-        pendingCompleteRef.current = null;
-        // Clear streaming state before starting new stream
-        streamingMessageIdRef.current = null;
-        streamingStartRef.current = null;
-        streamingMetaRef.current = null;
-        isStreamingRef.current = false;
-        setIsStreaming(false);
-        setStreamingMeta(null);
-        hasRunningToolRef.current = false;
+        stopSharedStreamState();
+
+        const streamResolver = streamCompletionResolverRef.current;
+        if (streamResolver) {
+          streamCompletionResolverRef.current = null;
+          if (hideStreamContentRef.current && interruptedId) {
+            setMessagesWindowed((prev: ChatMessage[]) =>
+              prev.filter((msg: ChatMessage) => msg.id !== interruptedId)
+            );
+          }
+          hideStreamContentRef.current = false;
+          streamResolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
+        }
+
         // Abort the SDK stream (stale handleComplete is a no-op via generation guard)
         onInterrupt?.();
         // Send immediately — starts a new stream generation
@@ -5581,33 +5560,18 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       });
       sendMessage(processedValue);
     },
-    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt, emitMessageSubmitTelemetry]
+    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt, emitMessageSubmitTelemetry, finalizeTaskItemsOnInterrupt, stopSharedStreamState]
   );
 
-  // Get the visible messages and hidden transcript count for UI rendering.
-  // Include pending (not yet flushed) eviction count so the indicator is
-  // accurate even before the eviction useEffect commits.
-  const pendingEvictionCount = pendingEvictionsRef.current.reduce((sum, e) => sum + e.count, 0);
-  const { visibleMessages, hiddenMessageCount } = computeMessageWindow(
-    messages,
-    trimmedMessageCount + pendingEvictionCount
-  );
-  const renderMessages = visibleMessages;
+  // All messages are kept in memory; no windowing/eviction.
+  const renderMessages = messages;
 
   // Auto-collapse boundary: messages before this index render as single-line summaries
   const collapseBoundaryIndex = Math.max(0, renderMessages.length - EXPANDED_MESSAGE_COUNT);
 
   // Render message list (no empty state text)
-  const messageContent = renderMessages.length > 0 || hiddenMessageCount > 0 ? (
+  const messageContent = renderMessages.length > 0 ? (
     <>
-      {/* Truncation indicator - shows how many messages are hidden */}
-      {hiddenMessageCount > 0 && (
-        <box marginBottom={SPACING.ELEMENT} paddingLeft={SPACING.CONTAINER_PAD}>
-          <text style={{ fg: themeColors.muted }}>
-            ↑ {hiddenMessageCount} earlier message{hiddenMessageCount !== 1 ? "s" : ""} in transcript (ctrl+o)
-          </text>
-        </box>
-      )}
       {/* Collapsed messages (older, auto-collapsed to single-line summaries) */}
       {renderMessages.slice(0, collapseBoundaryIndex).map((msg) => {
         const msgHasActiveBg = (msg.parallelAgents ?? []).some(
@@ -5699,7 +5663,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       {/* Message display area - scrollable chat history */}
       {/* Text can be selected with mouse and copied with Ctrl+C */}
       <scrollbox
-        key={`chat-window-${messageWindowEpoch}`}
+        key="chat-window"
         ref={scrollboxRef}
         flexGrow={1}
         stickyScroll={true}
@@ -5818,6 +5782,25 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 </box>
               )}
             </box>
+            {shouldShowAutoCompactionIndicator(autoCompactionIndicator) && (
+              <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
+                <text style={{ fg: themeColors.muted }}>
+                  auto-compaction
+                </text>
+                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
+                <text
+                  style={{
+                    fg: autoCompactionIndicator.status === "running"
+                      ? themeColors.accent
+                      : autoCompactionIndicator.status === "completed"
+                        ? themeColors.success
+                        : themeColors.error,
+                  }}
+                >
+                  {getAutoCompactionIndicatorLabel(autoCompactionIndicator)}
+                </text>
+              </box>
+            )}
             {/* Streaming/workflow hints */}
             {isStreaming && !workflowState.workflowActive ? (
               <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
@@ -5826,7 +5809,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 </text>
                 <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
                 <text style={{ fg: themeColors.muted }}>
-                  ctrl+q enqueue
+                  {enqueueShortcutLabel} enqueue
                 </text>
               </box>
             ) : null}
@@ -5842,7 +5825,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 </text>
                 <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
                 <text style={{ fg: themeColors.muted }}>
-                  ctrl+q enqueue
+                  {enqueueShortcutLabel} enqueue
                 </text>
                 <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
                 <text style={{ fg: themeColors.muted }}>

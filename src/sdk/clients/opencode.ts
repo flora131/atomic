@@ -110,6 +110,15 @@ const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
 
 /**
+ * Debug logging helper gated behind ATOMIC_DEBUG environment variable
+ * Used to verify event emission at runtime during development
+ */
+const debugLog = process.env.ATOMIC_DEBUG
+  ? (label: string, data: Record<string, unknown>) =>
+      console.debug(`[opencode:${label}]`, JSON.stringify(data, null, 2))
+  : () => {};
+
+/**
  * Part types accepted by OpenCode SDK's session.prompt().
  * These mirror the SDK's TextPartInput and AgentPartInput types.
  */
@@ -677,6 +686,11 @@ export class OpenCodeClient implements CodingAgentClient {
           // Include the tool part ID so the UI can deduplicate events for
           // the same logical tool call (pending → running transitions).
           if (toolState?.status === "pending" || toolState?.status === "running") {
+            debugLog("tool.start", {
+              toolName,
+              toolId: part?.id as string,
+              hasToolInput: !!toolInput && Object.keys(toolInput).length > 0,
+            });
             this.emitEvent("tool.start", partSessionId, {
               toolName,
               toolInput,
@@ -710,6 +724,12 @@ export class OpenCodeClient implements CodingAgentClient {
         } else if (part?.type === "agent") {
           // AgentPart: { type: "agent", name, id, sessionID, messageID }
           // Map agent parts to subagent.start events
+          debugLog("subagent.start", {
+            partType: "agent",
+            subagentId: (part?.id as string) ?? "",
+            subagentType: (part?.name as string) ?? "",
+            toolCallId: (part?.callID as string) ?? (part?.id as string),
+          });
           this.emitEvent("subagent.start", partSessionId, {
             subagentId: (part?.id as string) ?? "",
             subagentType: (part?.name as string) ?? "",
@@ -722,6 +742,11 @@ export class OpenCodeClient implements CodingAgentClient {
           const subtaskPrompt = (part?.prompt as string) ?? "";
           const subtaskDescription = (part?.description as string) ?? "";
           const subtaskAgent = (part?.agent as string) ?? "";
+          debugLog("subagent.start", {
+            partType: "subtask",
+            subagentId: (part?.id as string) ?? "",
+            subagentType: subtaskAgent,
+          });
           this.emitEvent("subagent.start", partSessionId, {
             subagentId: (part?.id as string) ?? "",
             subagentType: subtaskAgent,

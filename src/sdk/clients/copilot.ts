@@ -380,6 +380,8 @@ export class CopilotClient implements CodingAgentClient {
                   content: event.data.deltaContent,
                   role: "assistant",
                   metadata: {
+                    provider: "copilot",
+                    thinkingSourceKey: event.data.reasoningId,
                     streamingStats: {
                       thinkingMs: reasoningDurationMs + (Date.now() - reasoningStartMs),
                       outputTokens: 0,
@@ -626,6 +628,8 @@ export class CopilotClient implements CodingAgentClient {
           eventData = {
             subagentId: data.toolCallId,
             subagentType: data.agentName,
+            toolCallId: data.toolCallId,
+            task: data.description ?? data.prompt ?? data.agentName,
           };
           break;
         case "skill.invoked":

@@ -20,6 +20,20 @@ export {
   type Part,
 } from "./types.ts";
 export { binarySearchById, upsertPart, findLastPartIndex } from "./store.ts";
-export { shouldFinalizeOnToolComplete } from "./guards.ts";
+export {
+  shouldFinalizeOnToolComplete,
+  hasActiveForegroundAgents,
+  shouldFinalizeDeferredStream,
+} from "./guards.ts";
 export { getMessageText } from "./helpers.ts";
 export { handleTextDelta } from "./handlers.ts";
+export {
+  type StreamPartEvent,
+  applyStreamPartEvent,
+  toToolState,
+  shouldGroupSubagentTrees,
+  mergeParallelAgentsIntoParts,
+  syncToolCallsIntoParts,
+  finalizeStreamingReasoningParts,
+  finalizeStreamingReasoningInMessage,
+} from "./stream-pipeline.ts";

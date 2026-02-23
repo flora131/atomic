@@ -8,12 +8,51 @@
 import React from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import type { ChatMessage } from "../../chat.tsx";
+import type { Part } from "../../parts/types.ts";
 import { PART_REGISTRY } from "./registry.tsx";
 import { SPACING } from "../../constants/spacing.ts";
 
 export interface MessageBubblePartsProps {
   message: ChatMessage;
   syntaxStyle?: SyntaxStyle;
+}
+
+function getReasoningSourceKey(part: Part): string {
+  if (part.type !== "reasoning") {
+    return "";
+  }
+
+  const sourceKey = part.thinkingSourceKey;
+  if (typeof sourceKey !== "string") {
+    return "";
+  }
+
+  return sourceKey.trim();
+}
+
+function getPartRenderKeyBase(part: Part): string {
+  const sourceKey = getReasoningSourceKey(part);
+  if (sourceKey.length > 0) {
+    return `reasoning-source:${sourceKey}`;
+  }
+
+  return part.id;
+}
+
+export function buildPartRenderKeys(parts: ReadonlyArray<Part>): string[] {
+  const seen = new Map<string, number>();
+
+  return parts.map((part) => {
+    const baseKey = getPartRenderKeyBase(part);
+    const existingCount = seen.get(baseKey) ?? 0;
+    seen.set(baseKey, existingCount + 1);
+
+    if (existingCount === 0) {
+      return baseKey;
+    }
+
+    return `${baseKey}#${existingCount}`;
+  });
 }
 
 /**
@@ -27,6 +66,7 @@ export interface MessageBubblePartsProps {
  */
 export function MessageBubbleParts({ message, syntaxStyle }: MessageBubblePartsProps): React.ReactNode {
   const parts = message.parts ?? [];
+  const renderKeys = buildPartRenderKeys(parts);
 
   if (parts.length === 0) {
     return null;
@@ -39,7 +79,7 @@ export function MessageBubbleParts({ message, syntaxStyle }: MessageBubblePartsP
         if (!Renderer) return null;
         return (
           <Renderer
-            key={part.id}
+            key={renderKeys[index] ?? part.id}
             part={part}
             isLast={index === parts.length - 1}
             syntaxStyle={syntaxStyle}

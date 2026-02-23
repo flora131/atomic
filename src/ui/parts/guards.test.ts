@@ -1,5 +1,9 @@
 import { test, expect, describe } from "bun:test";
-import { shouldFinalizeOnToolComplete } from "./guards.ts";
+import {
+  shouldFinalizeOnToolComplete,
+  hasActiveForegroundAgents,
+  shouldFinalizeDeferredStream,
+} from "./guards.ts";
 import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
 
 // Create minimal ParallelAgent objects for testing
@@ -54,5 +58,47 @@ describe("shouldFinalizeOnToolComplete", () => {
   test("returns true for interrupted status agent", () => {
     const agent = createMockAgent({ background: false, status: "interrupted" });
     expect(shouldFinalizeOnToolComplete(agent)).toBe(true);
+  });
+});
+
+describe("hasActiveForegroundAgents", () => {
+  test("returns true for running foreground agent", () => {
+    const agents = [createMockAgent({ status: "running", background: false })];
+    expect(hasActiveForegroundAgents(agents)).toBe(true);
+  });
+
+  test("returns true for pending foreground agent", () => {
+    const agents = [createMockAgent({ status: "pending", background: false })];
+    expect(hasActiveForegroundAgents(agents)).toBe(true);
+  });
+
+  test("returns false for running background-only agents", () => {
+    const agents = [createMockAgent({ status: "running", background: true })];
+    expect(hasActiveForegroundAgents(agents)).toBe(false);
+  });
+
+  test("returns false when all agents are terminal", () => {
+    const agents = [
+      createMockAgent({ status: "completed", background: false }),
+      createMockAgent({ id: "agent-2", status: "error", background: false }),
+    ];
+    expect(hasActiveForegroundAgents(agents)).toBe(false);
+  });
+});
+
+describe("shouldFinalizeDeferredStream", () => {
+  test("returns false while foreground agents are active", () => {
+    const agents = [createMockAgent({ status: "running", background: false })];
+    expect(shouldFinalizeDeferredStream(agents, false)).toBe(false);
+  });
+
+  test("returns false while tools are still running", () => {
+    const agents = [createMockAgent({ status: "completed", background: false })];
+    expect(shouldFinalizeDeferredStream(agents, true)).toBe(false);
+  });
+
+  test("returns true when only background agents remain", () => {
+    const agents = [createMockAgent({ status: "background", background: true })];
+    expect(shouldFinalizeDeferredStream(agents, false)).toBe(true);
   });
 });

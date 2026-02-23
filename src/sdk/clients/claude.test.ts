@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { ClaudeAgentClient } from "./index.ts";
+import { extractMessageContent } from "./claude.ts";
 
 describe("ClaudeAgentClient.getModelDisplayInfo", () => {
   test("normalizes default to opus", async () => {
@@ -86,6 +87,25 @@ describe("ClaudeAgentClient.setActiveSessionModel", () => {
     await expect(client.setActiveSessionModel("default")).rejects.toThrow(
       "Model 'default' is not supported for Claude. Use one of: opus, sonnet, haiku.",
     );
+  });
+});
+
+describe("extractMessageContent thinking source identity", () => {
+  test("returns thinking content with provider-native block index source key", () => {
+    const message = {
+      message: {
+        content: [
+          { type: "metadata" },
+          { type: "thinking", thinking: "check invariants" },
+        ],
+      },
+    } as unknown as Parameters<typeof extractMessageContent>[0];
+
+    const extracted = extractMessageContent(message);
+
+    expect(extracted.type).toBe("thinking");
+    expect(extracted.content).toBe("check invariants");
+    expect(extracted.thinkingSourceKey).toBe("1");
   });
 });
 

@@ -13,7 +13,7 @@ export const STATUS = {
   pending: "○", // U+25CB White Circle
   active: "●", // U+25CF Black Circle
   error: "✗", // U+2717 Ballot X
-  background: "◌", // U+25CC Dotted Circle
+  background: "●", // U+25CF Black Circle (same as active, colored via theme)
   selected: "◉", // U+25C9 Fisheye
   success: "✓", // U+2713 Check Mark
 } as const;

@@ -12,6 +12,7 @@ import type { SyntaxStyle } from "@opentui/core";
 import type { ReasoningPart } from "../../parts/types.ts";
 import { createDimmedSyntaxStyle, createMarkdownSyntaxStyle, useTheme, useThemeColors } from "../../theme.tsx";
 import { SPACING } from "../../constants/spacing.ts";
+import { MISC } from "../../constants/icons.ts";
 import { normalizeMarkdownNewlines } from "../../utils/format.ts";
 
 export interface ReasoningPartDisplayProps {
@@ -20,13 +21,16 @@ export interface ReasoningPartDisplayProps {
   syntaxStyle?: SyntaxStyle;
 }
 
+export function formatReasoningDurationSeconds(durationMs: number): string {
+  if (durationMs <= 0) return "";
+  return `${Math.max(1, Math.round(durationMs / 1000))}s`;
+}
+
 export function ReasoningPartDisplay({ part, syntaxStyle }: ReasoningPartDisplayProps): React.ReactNode {
   const colors = useThemeColors();
   const { isDark } = useTheme();
   const normalizedContent = normalizeMarkdownNewlines(part.content);
-  const durationLabel = part.durationMs > 0
-    ? `${(part.durationMs / 1000).toFixed(1)}s`
-    : "";
+  const durationLabel = formatReasoningDurationSeconds(part.durationMs);
 
   const fallbackSyntaxStyle = useMemo(
     () => createMarkdownSyntaxStyle(colors, isDark),
@@ -42,7 +46,9 @@ export function ReasoningPartDisplay({ part, syntaxStyle }: ReasoningPartDisplay
   return (
     <box flexDirection="column">
       <text style={{ fg: colors.muted }}>
-        {part.isStreaming ? "💭 Thinking..." : `💭 Thought${durationLabel ? ` (${durationLabel})` : ""}`}
+        {part.isStreaming
+          ? `${MISC.thinking} Thinking...`
+          : `${MISC.thinking} Thought${durationLabel ? ` (${durationLabel})` : ""}`}
       </text>
       {normalizedContent && (
         <box marginLeft={SPACING.INDENT}>

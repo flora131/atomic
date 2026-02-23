@@ -35,10 +35,7 @@ export {
 
 // Message window utilities
 export {
-  computeMessageWindow,
-  applyMessageWindow,
-  type MessageWindowResult,
-  type AppliedMessageWindow,
+  shouldCollapseMessage,
 } from "./message-window.ts";
 
 // Tool preview truncation utilities

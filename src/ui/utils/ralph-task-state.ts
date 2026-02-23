@@ -11,6 +11,11 @@ export interface RalphTaskStateItem {
   blockedBy?: string[];
 }
 
+export interface RalphTaskSnapshotMessage {
+  role: string;
+  taskItems?: RalphTaskStateItem[];
+}
+
 function normalizeRalphTaskId(id: string): string {
   const trimmed = id.trim().toLowerCase();
   return trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
@@ -130,4 +135,61 @@ export function snapshotTaskItems(
     status: task.status,
     blockedBy: task.blockedBy,
   }));
+}
+
+function hasInProgressTasks(tasks: readonly RalphTaskStateItem[]): boolean {
+  return tasks.some((task) => task.status === "in_progress");
+}
+
+/**
+ * Prefer the more terminal task set when lifecycle cleanup races with file-watch updates.
+ *
+ * If one source still reports in_progress tasks while the other does not, prefer the
+ * source without in_progress so stale last-item snapshots do not survive cleanup.
+ */
+export function preferTerminalTaskItems<T extends RalphTaskStateItem>(
+  inMemoryTasks: readonly T[],
+  diskTasks: readonly T[],
+): T[] {
+  const memoryHasInProgress = hasInProgressTasks(inMemoryTasks);
+  const diskHasInProgress = hasInProgressTasks(diskTasks);
+
+  if (memoryHasInProgress !== diskHasInProgress) {
+    return memoryHasInProgress ? [...diskTasks] : [...inMemoryTasks];
+  }
+
+  if (diskTasks.length > 0) {
+    return [...diskTasks];
+  }
+
+  return [...inMemoryTasks];
+}
+
+/**
+ * Apply a terminal task snapshot to the latest assistant message so stale
+ * in_progress rows do not remain visible after workflow cleanup.
+ */
+export function applyTaskSnapshotToLatestAssistantMessage<
+  TMessage extends RalphTaskSnapshotMessage,
+  TTask extends RalphTaskStateItem,
+>(
+  messages: readonly TMessage[],
+  tasks: readonly TTask[],
+): TMessage[] {
+  const snapshot = snapshotTaskItems(tasks);
+  if (!snapshot) return [...messages];
+
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (!message || message.role !== "assistant") continue;
+
+    const nextMessages = [...messages];
+    nextMessages[index] = {
+      ...message,
+      taskItems: snapshot,
+    } as TMessage;
+    return nextMessages;
+  }
+
+  return [...messages];
 }

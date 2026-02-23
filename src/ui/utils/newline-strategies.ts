@@ -6,6 +6,26 @@ export interface NewlineKeyEventLike {
   raw?: string;
 }
 
+export function getEnqueueShortcutLabel(platform: NodeJS.Platform | string = process.platform): string {
+  return platform === "darwin" ? "cmd+shift+enter" : "ctrl+shift+enter";
+}
+
+export function shouldEnqueueMessageFromKeyEvent(
+  event: NewlineKeyEventLike,
+  platform: NodeJS.Platform | string = process.platform,
+): boolean {
+  const isEnterKey = event.name === "return" || event.name === "linefeed";
+  if (!isEnterKey || !event.shift) {
+    return false;
+  }
+
+  if (platform === "darwin") {
+    return Boolean(event.meta) && !event.ctrl;
+  }
+
+  return Boolean(event.ctrl) && !event.meta;
+}
+
 export function shouldInsertNewlineFromKeyEvent(event: NewlineKeyEventLike): boolean {
   return (
     ((event.name === "return" || event.name === "linefeed") && (event.shift || event.meta)) ||

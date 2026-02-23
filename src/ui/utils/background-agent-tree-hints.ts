@@ -1,3 +1,5 @@
+import { BACKGROUND_TREE_HINT_CONTRACT } from "./background-agent-contracts.ts";
+
 export type BackgroundAgentHintStatus =
   | "pending"
   | "running"
@@ -26,15 +28,15 @@ export function buildParallelAgentsHeaderHint(
   const backgroundAgents = agents.filter(isBackgroundAgent);
 
   if (backgroundAgents.some((agent) => isActiveBackgroundStatus(agent.status))) {
-    return "background running · ctrl+f terminate";
+    return BACKGROUND_TREE_HINT_CONTRACT.whenRunning;
   }
 
   if (showExpandHint && backgroundAgents.length > 0) {
-    return "background complete · ctrl+o to expand";
+    return BACKGROUND_TREE_HINT_CONTRACT.whenComplete;
   }
 
   if (showExpandHint) {
-    return "ctrl+o to expand";
+    return BACKGROUND_TREE_HINT_CONTRACT.defaultHint;
   }
 
   return "";

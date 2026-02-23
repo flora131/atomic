@@ -156,3 +156,276 @@ describe("CopilotClient abort support", () => {
     ).toBe(0);
   });
 });
+
+describe("CopilotClient subagent event mapping", () => {
+  test("maps subagent.started to subagent.start with enriched data", async () => {
+    const events: Array<{ type: string; sessionId: string; data: Record<string, unknown> }> = [];
+    
+    const mockSdkSession = {
+      sessionId: "test-session",
+      on: mock(() => () => {}),
+      send: mock(() => Promise.resolve()),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "test" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+    };
+
+    const mockSdkClient = {
+      start: mock(() => Promise.resolve()),
+      stop: mock(() => Promise.resolve()),
+      createSession: mock(() => Promise.resolve(mockSdkSession)),
+      listModels: mock(() => Promise.resolve([
+        {
+          id: "test-model",
+          capabilities: {
+            limits: { max_context_window_tokens: 128000 },
+            supports: {},
+          },
+        },
+      ])),
+    };
+
+    const client = new CopilotClient({});
+    (client as any).sdkClient = mockSdkClient;
+    (client as any).isRunning = true;
+
+    // Register event listener
+    client.on("subagent.start", (event) => {
+      events.push({ type: "subagent.start", sessionId: event.sessionId, data: event.data });
+    });
+
+    // Trigger the internal event handler
+    const handleSdkEvent = (client as any).handleSdkEvent.bind(client);
+    handleSdkEvent("test-session", {
+      type: "subagent.started",
+      data: {
+        toolCallId: "tc-123",
+        agentName: "worker",
+        description: "Fix bug",
+      },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.type).toBe("subagent.start");
+    expect(events[0]!.sessionId).toBe("test-session");
+    expect(events[0]!.data).toEqual({
+      subagentId: "tc-123",
+      subagentType: "worker",
+      toolCallId: "tc-123",
+      task: "Fix bug",
+    });
+  });
+
+  test("maps subagent.started with prompt fallback when description is missing", async () => {
+    const events: Array<{ type: string; sessionId: string; data: Record<string, unknown> }> = [];
+    
+    const mockSdkSession = {
+      sessionId: "test-session",
+      on: mock(() => () => {}),
+      send: mock(() => Promise.resolve()),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "test" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+    };
+
+    const mockSdkClient = {
+      start: mock(() => Promise.resolve()),
+      stop: mock(() => Promise.resolve()),
+      createSession: mock(() => Promise.resolve(mockSdkSession)),
+      listModels: mock(() => Promise.resolve([
+        {
+          id: "test-model",
+          capabilities: {
+            limits: { max_context_window_tokens: 128000 },
+            supports: {},
+          },
+        },
+      ])),
+    };
+
+    const client = new CopilotClient({});
+    (client as any).sdkClient = mockSdkClient;
+    (client as any).isRunning = true;
+
+    client.on("subagent.start", (event) => {
+      events.push({ type: "subagent.start", sessionId: event.sessionId, data: event.data });
+    });
+
+    const handleSdkEvent = (client as any).handleSdkEvent.bind(client);
+    handleSdkEvent("test-session", {
+      type: "subagent.started",
+      data: {
+        toolCallId: "tc-456",
+        agentName: "debugger",
+        prompt: "Debug the error",
+      },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.data).toEqual({
+      subagentId: "tc-456",
+      subagentType: "debugger",
+      toolCallId: "tc-456",
+      task: "Debug the error",
+    });
+  });
+
+  test("maps subagent.started with agentName fallback when description and prompt are missing", async () => {
+    const events: Array<{ type: string; sessionId: string; data: Record<string, unknown> }> = [];
+    
+    const mockSdkSession = {
+      sessionId: "test-session",
+      on: mock(() => () => {}),
+      send: mock(() => Promise.resolve()),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "test" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+    };
+
+    const mockSdkClient = {
+      start: mock(() => Promise.resolve()),
+      stop: mock(() => Promise.resolve()),
+      createSession: mock(() => Promise.resolve(mockSdkSession)),
+      listModels: mock(() => Promise.resolve([
+        {
+          id: "test-model",
+          capabilities: {
+            limits: { max_context_window_tokens: 128000 },
+            supports: {},
+          },
+        },
+      ])),
+    };
+
+    const client = new CopilotClient({});
+    (client as any).sdkClient = mockSdkClient;
+    (client as any).isRunning = true;
+
+    client.on("subagent.start", (event) => {
+      events.push({ type: "subagent.start", sessionId: event.sessionId, data: event.data });
+    });
+
+    const handleSdkEvent = (client as any).handleSdkEvent.bind(client);
+    handleSdkEvent("test-session", {
+      type: "subagent.started",
+      data: {
+        toolCallId: "tc-789",
+        agentName: "explorer",
+      },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.data).toEqual({
+      subagentId: "tc-789",
+      subagentType: "explorer",
+      toolCallId: "tc-789",
+      task: "explorer",
+    });
+  });
+
+  test("maps subagent.completed to subagent.complete with success: true", async () => {
+    const events: Array<{ type: string; sessionId: string; data: Record<string, unknown> }> = [];
+    
+    const mockSdkSession = {
+      sessionId: "test-session",
+      on: mock(() => () => {}),
+      send: mock(() => Promise.resolve()),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "test" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+    };
+
+    const mockSdkClient = {
+      start: mock(() => Promise.resolve()),
+      stop: mock(() => Promise.resolve()),
+      createSession: mock(() => Promise.resolve(mockSdkSession)),
+      listModels: mock(() => Promise.resolve([
+        {
+          id: "test-model",
+          capabilities: {
+            limits: { max_context_window_tokens: 128000 },
+            supports: {},
+          },
+        },
+      ])),
+    };
+
+    const client = new CopilotClient({});
+    (client as any).sdkClient = mockSdkClient;
+    (client as any).isRunning = true;
+
+    client.on("subagent.complete", (event) => {
+      events.push({ type: "subagent.complete", sessionId: event.sessionId, data: event.data });
+    });
+
+    const handleSdkEvent = (client as any).handleSdkEvent.bind(client);
+    handleSdkEvent("test-session", {
+      type: "subagent.completed",
+      data: {
+        toolCallId: "tc-123",
+      },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.type).toBe("subagent.complete");
+    expect(events[0]!.sessionId).toBe("test-session");
+    expect(events[0]!.data).toEqual({
+      subagentId: "tc-123",
+      success: true,
+    });
+  });
+
+  test("maps subagent.failed to subagent.complete with success: false and error", async () => {
+    const events: Array<{ type: string; sessionId: string; data: Record<string, unknown> }> = [];
+    
+    const mockSdkSession = {
+      sessionId: "test-session",
+      on: mock(() => () => {}),
+      send: mock(() => Promise.resolve()),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "test" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+    };
+
+    const mockSdkClient = {
+      start: mock(() => Promise.resolve()),
+      stop: mock(() => Promise.resolve()),
+      createSession: mock(() => Promise.resolve(mockSdkSession)),
+      listModels: mock(() => Promise.resolve([
+        {
+          id: "test-model",
+          capabilities: {
+            limits: { max_context_window_tokens: 128000 },
+            supports: {},
+          },
+        },
+      ])),
+    };
+
+    const client = new CopilotClient({});
+    (client as any).sdkClient = mockSdkClient;
+    (client as any).isRunning = true;
+
+    client.on("subagent.complete", (event) => {
+      events.push({ type: "subagent.complete", sessionId: event.sessionId, data: event.data });
+    });
+
+    const handleSdkEvent = (client as any).handleSdkEvent.bind(client);
+    handleSdkEvent("test-session", {
+      type: "subagent.failed",
+      data: {
+        toolCallId: "tc-456",
+        error: "Task execution failed",
+      },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.type).toBe("subagent.complete");
+    expect(events[0]!.sessionId).toBe("test-session");
+    expect(events[0]!.data).toEqual({
+      subagentId: "tc-456",
+      success: false,
+      error: "Task execution failed",
+    });
+  });
+});

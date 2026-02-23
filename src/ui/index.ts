@@ -42,7 +42,7 @@ import {
   type TuiTelemetrySessionTracker,
 } from "../telemetry/index.ts";
 import { shouldFinalizeOnToolComplete } from "./parts/index.ts";
-import { getActiveBackgroundAgents } from "./utils/background-agent-footer.ts";
+import { getActiveBackgroundAgents, isBackgroundAgent } from "./utils/background-agent-footer.ts";
 
 /**
  * Build a system prompt section describing all registered capabilities.
@@ -1667,17 +1667,21 @@ export async function startChatUI(
       // don't flow through and overwrite React state after interrupt
       state.isStreaming = false;
       state.currentRunId = null;
+
+      // Preserve background agents across the reset — resetParallelTracking
+      // calls clearParallelAgents() which wipes ALL agents from state.
+      const backgroundAgents = state.parallelAgents.filter(isBackgroundAgent);
       state.resetParallelTracking?.("interrupt");
-      state.streamAbortController?.abort();
-      // If the session supports abort (e.g., Copilot), call it to cancel
-      // in-flight agent work including sub-agent invocations.
-      // This prevents cancelled sub-agent requests from being queued and
-      // executing when the next prompt is submitted.
-      if (state.session?.abort) {
-        void state.session.abort().catch((error) => {
-          console.error("Failed to abort session:", error);
-        });
+      // Restore background agents that were cleared by resetParallelTracking
+      if (backgroundAgents.length > 0) {
+        state.parallelAgents = backgroundAgents;
+        state.parallelAgentHandler?.(state.parallelAgents);
       }
+
+      state.streamAbortController?.abort();
+      // NOTE: Do NOT call session.abort() here — it aborts the entire SDK
+      // session which kills ALL agents including background ones. The stream
+      // abort controller above is sufficient to cancel the foreground stream.
       state.telemetryTracker?.trackInterrupt(sourceType);
       // Reset interrupt state
       state.interruptCount = 0;
@@ -1838,14 +1842,15 @@ export async function startChatUI(
       }
 
       const activeCount = activeAgents.length;
-      state.currentRunId = null;
-      state.isStreaming = false;
-      if (state.streamAbortController && !state.streamAbortController.signal.aborted) {
-        state.streamAbortController.abort();
-      }
-      state.streamAbortController = null;
-      state.resetParallelTracking?.("background_terminate");
 
+      // Clear background agents from state tracking
+      state.parallelAgents = state.parallelAgents.filter(a => !isBackgroundAgent(a));
+      state.parallelAgentHandler?.(state.parallelAgents);
+
+      // Abort the SDK session to actually kill background agent processes.
+      // This is safe because ctrl+f only fires when NOT streaming (guarded
+      // by isStreamingRef.current check in chat.tsx), so no foreground work
+      // will be affected.
       if (state.session?.abort) {
         void state.session.abort().catch((error) => {
           console.error("Failed to abort session during background-agent termination:", error);

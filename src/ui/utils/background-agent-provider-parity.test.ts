@@ -117,7 +117,7 @@ describe("Background agent provider parity matrix", () => {
         expect(BACKGROUND_FOOTER_CONTRACT).toEqual({
           showWhenAgentCountAtLeast: 1,
           includeTerminateHint: true,
-          terminateHintText: "ctrl+f terminate",
+          terminateHintText: "ctrl+f to kill agents",
           countFormat: "agents",
         });
       },
@@ -134,8 +134,8 @@ describe("Background agent provider parity matrix", () => {
         ];
 
         expect(formatBackgroundAgentFooterStatus([])).toBe("");
-        expect(formatBackgroundAgentFooterStatus([agents[0]!])).toBe("1 background agent running");
-        expect(formatBackgroundAgentFooterStatus(agents)).toBe("2 background agents running");
+        expect(formatBackgroundAgentFooterStatus([agents[0]!])).toBe("1 local agent");
+        expect(formatBackgroundAgentFooterStatus(agents)).toBe("2 local agents");
       },
     );
 
@@ -177,7 +177,7 @@ describe("Background agent provider parity matrix", () => {
 
         // All providers see the same contract instance
         expect(BACKGROUND_TREE_HINT_CONTRACT).toEqual({
-          whenRunning: "background running · ctrl+f terminate",
+          whenRunning: "background running · ctrl+f to kill agents",
           whenComplete: "background complete · ctrl+o to expand",
           defaultHint: "ctrl+o to expand",
         });
@@ -199,7 +199,7 @@ describe("Background agent provider parity matrix", () => {
 
         // When running
         expect(buildParallelAgentsHeaderHint(runningAgents, true)).toBe(
-          "background running · ctrl+f terminate",
+          "background running · ctrl+f to kill agents",
         );
 
         // When complete
@@ -352,8 +352,8 @@ describe("Background agent provider parity matrix", () => {
         expect(treeHintRunning).toContain("ctrl+f");
 
         // Both should reference termination
-        expect(footerHint).toContain("terminate");
-        expect(treeHintRunning).toContain("terminate");
+        expect(footerHint).toContain("kill");
+        expect(treeHintRunning).toContain("kill");
 
         // Tree hint complete should reference Ctrl+O
         expect(BACKGROUND_TREE_HINT_CONTRACT.whenComplete).toContain("ctrl+o");
@@ -398,7 +398,7 @@ describe("Background agent provider parity matrix", () => {
         expect(activeBackground.map((a) => a.id).sort()).toEqual(["bg-1", "bg-2"]);
 
         const hint = buildParallelAgentsHeaderHint(agents, true);
-        expect(hint).toBe("background running · ctrl+f terminate");
+        expect(hint).toBe("background running · ctrl+f to kill agents");
 
         const result = interruptActiveBackgroundAgents(agents);
         expect(result.interruptedIds.length).toBe(2);

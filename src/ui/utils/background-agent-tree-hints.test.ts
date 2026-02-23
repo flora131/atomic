@@ -100,7 +100,7 @@ describe("background agent tree hints", () => {
   });
 
   test("contract constants define expected canonical hint strings", () => {
-    expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toBe("background running · ctrl+f terminate");
+    expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toBe("background running · ctrl+f to kill agents");
     expect(BACKGROUND_TREE_HINT_CONTRACT.whenComplete).toBe("background complete · ctrl+o to expand");
     expect(BACKGROUND_TREE_HINT_CONTRACT.defaultHint).toBe("ctrl+o to expand");
   });

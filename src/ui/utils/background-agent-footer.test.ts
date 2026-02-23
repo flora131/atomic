@@ -119,20 +119,20 @@ describe("background agent footer helpers", () => {
       formatBackgroundAgentFooterStatus([
         createAgent({ id: "one", background: true, status: "background" }),
       ]),
-    ).toBe("1 background agent running");
+    ).toBe("1 local agent");
 
     expect(
       formatBackgroundAgentFooterStatus([
         createAgent({ id: "one", background: true, status: "background" }),
         createAgent({ id: "two", background: true, status: "background" }),
       ]),
-    ).toBe("2 background agents running");
+    ).toBe("2 local agents");
   });
 
   test("footer contract defines expected canonical values", () => {
     expect(BACKGROUND_FOOTER_CONTRACT.showWhenAgentCountAtLeast).toBe(1);
     expect(BACKGROUND_FOOTER_CONTRACT.includeTerminateHint).toBe(true);
-    expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f terminate");
+    expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f to kill agents");
     expect(BACKGROUND_FOOTER_CONTRACT.countFormat).toBe("agents");
   });
 

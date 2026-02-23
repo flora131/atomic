@@ -2,7 +2,7 @@ import React from "react";
 import type { ParallelAgent } from "./parallel-agents-tree.tsx";
 import { useTheme } from "../theme.tsx";
 import { SPACING } from "../constants/spacing.ts";
-import { MISC, STATUS } from "../constants/icons.ts";
+import { MISC } from "../constants/icons.ts";
 import { formatBackgroundAgentFooterStatus } from "../utils/background-agent-footer.ts";
 import { BACKGROUND_FOOTER_CONTRACT } from "../utils/background-agent-contracts.ts";
 
@@ -28,9 +28,9 @@ export function BackgroundAgentFooter({
       paddingRight={SPACING.CONTAINER_PAD}
       marginTop={SPACING.NONE}
     >
-      <text style={{ fg: theme.colors.muted }}>
-        <span style={{ fg: theme.colors.dim }}>{STATUS.background}</span> {label}
-        <span style={{ fg: theme.colors.dim }}> {MISC.separator} {BACKGROUND_FOOTER_CONTRACT.terminateHintText}</span>
+      <text style={{ fg: theme.colors.dim }}>
+        <span style={{ fg: theme.colors.accent }}>{label}</span>
+        {" "}{MISC.separator} {BACKGROUND_FOOTER_CONTRACT.terminateHintText}
       </text>
     </box>
   );

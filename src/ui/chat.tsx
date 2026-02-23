@@ -80,7 +80,10 @@ import {
 import {
   getActiveBackgroundAgents,
   resolveBackgroundAgentsForFooter,
+  formatBackgroundAgentFooterStatus,
+  isBackgroundAgent,
 } from "./utils/background-agent-footer.ts";
+import { BACKGROUND_FOOTER_CONTRACT } from "./utils/background-agent-contracts.ts";
 import {
   getBackgroundTerminationDecision,
   interruptActiveBackgroundAgents,
@@ -1309,13 +1312,19 @@ function getRenderableAssistantParts(
   // Keep ToolPart state synchronized with the source toolCalls array.
   parts = syncToolCallsIntoParts(parts, message.toolCalls ?? [], message.timestamp, message.id);
 
+  // Only merge parallel agents into parts if agent parts don't already exist.
+  // During streaming, agents are already added to parts via applyStreamPartEvent.
+  // This check prevents duplicate agent trees from being rendered.
   if (message.parallelAgents && message.parallelAgents.length > 0) {
-    parts = mergeParallelAgentsIntoParts(
-      parts,
-      message.parallelAgents,
-      message.timestamp,
-      shouldGroupSubagentTrees(message, isLastMessage),
-    );
+    const hasExistingAgentParts = parts.some((part) => part.type === "agent");
+    if (!hasExistingAgentParts) {
+      parts = mergeParallelAgentsIntoParts(
+        parts,
+        message.parallelAgents,
+        message.timestamp,
+        shouldGroupSubagentTrees(message, isLastMessage),
+      );
+    }
   }
 
   const shouldRenderInlineTasks = taskItemsToShow && taskItemsToShow.length > 0 && inlineTaskExpansion !== false;
@@ -1915,6 +1924,33 @@ export function ChatApp({
     closedThinkingSourcesRef.current = mergedClosedSources;
     streamingMetaRef.current = null;
     setStreamingMeta(null);
+  }, []);
+
+  /**
+   * Helper function to separate and interrupt agents.
+   * Ctrl+C should ONLY interrupt foreground agents, preserving background agents.
+   * Returns { interruptedAgents: all agents with foreground ones marked as interrupted,
+   *           remainingLiveAgents: only background agents that should stay in refs }
+   */
+  const separateAndInterruptAgents = useCallback((agents: ParallelAgent[]) => {
+    const backgroundAgents = agents.filter(isBackgroundAgent);
+    const foregroundAgents = agents.filter(a => !isBackgroundAgent(a));
+    
+    // Only interrupt foreground agents
+    const interruptedAgents = [
+      ...foregroundAgents.map((a) =>
+        a.status === "running" || a.status === "pending"
+          ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+          : a
+      ),
+      // Keep background agents as-is
+      ...backgroundAgents,
+    ];
+    
+    return {
+      interruptedAgents,
+      remainingLiveAgents: backgroundAgents,
+    };
   }, []);
 
   const continueQueuedConversation = useCallback(() => {
@@ -4304,17 +4340,11 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             // Read agents synchronously from ref (avoids nested dispatch issues)
             const currentAgents = parallelAgentsRef.current;
-            const interruptedAgents = currentAgents.length > 0
-              ? currentAgents.map((a) =>
-                a.status === "running" || a.status === "pending"
-                  ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                  : a
-              )
-              : undefined;
+            const { interruptedAgents, remainingLiveAgents } = separateAndInterruptAgents(currentAgents);
 
-            // Clear live agents and update ref immediately
-            parallelAgentsRef.current = [];
-            setParallelAgents([]);
+            // Keep background agents alive in refs
+            parallelAgentsRef.current = remainingLiveAgents;
+            setParallelAgents(remainingLiveAgents);
 
             // Finalize in_progress task items -> pending and bake into message
             const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
@@ -4419,17 +4449,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           // If not streaming but subagents are still running, mark them interrupted
           {
             const currentAgents = parallelAgentsRef.current;
-            const hasRunningAgents = currentAgents.some(
+            // Only check for foreground agents - background agents should continue running
+            const foregroundAgents = currentAgents.filter(a => !isBackgroundAgent(a));
+            const hasRunningForegroundAgents = foregroundAgents.some(
               (a) => a.status === "running" || a.status === "pending"
             );
-            if (hasRunningAgents) {
+            if (hasRunningForegroundAgents) {
               // Inform parent integration so SDK-side run/correlation state is reset too.
               onInterrupt?.();
-              const interruptedAgents = currentAgents.map((a) =>
-                a.status === "running" || a.status === "pending"
-                  ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                  : a
-              );
+              const { interruptedAgents, remainingLiveAgents } = separateAndInterruptAgents(currentAgents);
               // Finalize in_progress task items -> pending and bake into message
               const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
 
@@ -4448,8 +4476,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                   )
                 );
               }
-              parallelAgentsRef.current = [];
-              setParallelAgents([]);
+              parallelAgentsRef.current = remainingLiveAgents;
+              setParallelAgents(remainingLiveAgents);
               clearDeferredCompletion();
             textarea.gotoBufferHome();
             textarea.gotoBufferEnd({ select: true });
@@ -4570,7 +4598,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             void Promise.resolve(onTerminateBackgroundAgents?.()).catch((error) => {
               console.error("[background-termination] parent callback failed:", error);
             });
-            addMessage("assistant", `${STATUS.active} ${decision.message}`);
+            addMessage("assistant", `${STATUS.error} ${decision.message}`);
             backgroundTerminationInFlightRef.current = false;
             return;
           }
@@ -4668,17 +4696,11 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             // Read agents synchronously from ref (avoids nested dispatch issues)
             const currentAgents = parallelAgentsRef.current;
-            const interruptedAgents = currentAgents.length > 0
-              ? currentAgents.map((a) =>
-                a.status === "running" || a.status === "pending"
-                  ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                  : a
-              )
-              : undefined;
+            const { interruptedAgents, remainingLiveAgents } = separateAndInterruptAgents(currentAgents);
 
-            // Clear live agents and update ref immediately
-            parallelAgentsRef.current = [];
-            setParallelAgents([]);
+            // Keep background agents alive in refs
+            parallelAgentsRef.current = remainingLiveAgents;
+            setParallelAgents(remainingLiveAgents);
 
             // Finalize in_progress task items -> pending and bake into message
             const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
@@ -4743,17 +4765,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           // If not streaming but subagents are still running, mark them interrupted
           {
             const currentAgents = parallelAgentsRef.current;
-            const hasRunningAgents = currentAgents.some(
+            // Only check for foreground agents - background agents should continue running
+            const foregroundAgents = currentAgents.filter(a => !isBackgroundAgent(a));
+            const hasRunningForegroundAgents = foregroundAgents.some(
               (a) => a.status === "running" || a.status === "pending"
             );
-            if (hasRunningAgents) {
+            if (hasRunningForegroundAgents) {
               // Inform parent integration so SDK-side run/correlation state is reset too.
               onInterrupt?.();
-              const interruptedAgents = currentAgents.map((a) =>
-                a.status === "running" || a.status === "pending"
-                  ? { ...a, status: "interrupted" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-                  : a
-              );
+              const { interruptedAgents, remainingLiveAgents } = separateAndInterruptAgents(currentAgents);
               // Finalize in_progress task items -> pending and bake into message
               const interruptedTaskItems = finalizeTaskItemsOnInterrupt();
 
@@ -4772,8 +4792,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                   )
                 );
               }
-              parallelAgentsRef.current = [];
-              setParallelAgents([]);
+              parallelAgentsRef.current = remainingLiveAgents;
+              setParallelAgents(remainingLiveAgents);
               clearDeferredCompletion();
               wasInterruptedRef.current = false;
               stopSharedStreamState();
@@ -6085,6 +6105,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 <text style={{ fg: themeColors.muted }}>
                   {enqueueShortcutLabel} enqueue
                 </text>
+                {footerBackgroundAgents.length > 0 && (
+                  <>
+                    <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
+                    <text style={{ fg: themeColors.accent }}>
+                      {formatBackgroundAgentFooterStatus(footerBackgroundAgents)}
+                    </text>
+                    <text style={{ fg: themeColors.dim }}>{MISC.separator} {BACKGROUND_FOOTER_CONTRACT.terminateHintText}</text>
+                  </>
+                )}
               </box>
             ) : null}
             {/* Workflow mode label with hints - shown when workflow is active */}
@@ -6105,6 +6134,15 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 <text style={{ fg: themeColors.muted }}>
                   ctrl+c twice to exit workflow
                 </text>
+                {footerBackgroundAgents.length > 0 && (
+                  <>
+                    <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
+                    <text style={{ fg: themeColors.accent }}>
+                      {formatBackgroundAgentFooterStatus(footerBackgroundAgents)}
+                    </text>
+                    <text style={{ fg: themeColors.dim }}>{MISC.separator} {BACKGROUND_FOOTER_CONTRACT.terminateHintText}</text>
+                  </>
+                )}
               </box>
             )}
           </>
@@ -6144,7 +6182,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       </box>
       )}
 
-      <BackgroundAgentFooter agents={footerBackgroundAgents} />
+      {!isStreaming && <BackgroundAgentFooter agents={footerBackgroundAgents} />}
 
     </box>
   );

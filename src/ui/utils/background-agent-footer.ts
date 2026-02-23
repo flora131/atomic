@@ -4,7 +4,7 @@ export interface BackgroundAgentFooterMessage {
   parallelAgents?: readonly ParallelAgent[];
 }
 
-function isBackgroundAgent(agent: ParallelAgent): boolean {
+export function isBackgroundAgent(agent: ParallelAgent): boolean {
   return agent.background === true || agent.status === "background";
 }
 
@@ -47,6 +47,6 @@ export function formatBackgroundAgentFooterStatus(
 ): string {
   const count = agents.length;
   if (count === 0) return "";
-  if (count === 1) return "1 background agent running";
-  return `${count} background agents running`;
+  if (count === 1) return "1 local agent";
+  return `${count} local agents`;
 }

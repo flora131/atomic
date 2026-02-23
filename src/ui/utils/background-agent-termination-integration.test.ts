@@ -329,11 +329,11 @@ describe("Ctrl+F double-press lifecycle integration", () => {
 
     // Verify footer contract includes terminate hint
     expect(BACKGROUND_FOOTER_CONTRACT.includeTerminateHint).toBe(true);
-    expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f terminate");
+    expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f to kill agents");
 
     // Verify tree hint contract includes termination hint for running agents
     expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toContain("ctrl+f");
-    expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toContain("terminate");
+    expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toContain("kill");
 
     // Verify decision messages reference the same key combination
     const press1 = simulateCtrlFPress(0, agents);

@@ -46,9 +46,9 @@ function createAgent(overrides: Partial<ParallelAgent>): ParallelAgent {
 describe("Issue #258 acceptance: background agent UX behavior", () => {
   
   describe("Acceptance: Footer behavior", () => {
-    test("footer shows terminate hint matching 'ctrl+f terminate'", () => {
+    test("footer shows terminate hint matching 'ctrl+f to kill agents'", () => {
       // This is the exact text shown in the footer per issue #258
-      expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f terminate");
+      expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f to kill agents");
     });
     
     test("footer becomes visible with 1+ active agents", () => {
@@ -76,7 +76,7 @@ describe("Issue #258 acceptance: background agent UX behavior", () => {
       
       const status = formatBackgroundAgentFooterStatus(agents);
       expect(status).toContain("3");
-      expect(status).toContain("background");
+      expect(status).toContain("local");
       expect(status).toContain("agent");
     });
   });
@@ -139,9 +139,9 @@ describe("Issue #258 acceptance: background agent UX behavior", () => {
   });
   
   describe("Acceptance: Tree hint behavior", () => {
-    test("running agents hint contains 'background running' and 'ctrl+f terminate'", () => {
+    test("running agents hint contains 'background running' and 'ctrl+f to kill agents'", () => {
       // Exact wording for running state hint per issue #258
-      expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toBe("background running · ctrl+f terminate");
+      expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toBe("background running · ctrl+f to kill agents");
     });
     
     test("completed agents hint contains 'background complete' and 'ctrl+o to expand'", () => {
@@ -212,10 +212,10 @@ describe("Issue #258 acceptance: background agent UX behavior", () => {
       }
     });
     
-    test("footer and tree hints use matching 'terminate' keyword", () => {
-      // Confirms both surfaces use "terminate" (not "kill", "stop", etc.)
-      expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toContain("terminate");
-      expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toContain("terminate");
+    test("footer and tree hints use matching 'kill' keyword", () => {
+      // Confirms both surfaces use "kill" (not "terminate", "stop", etc.)
+      expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toContain("kill");
+      expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toContain("kill");
     });
   });
   
@@ -240,8 +240,8 @@ describe("Issue #258 acceptance: background agent UX behavior", () => {
         createAgent({ id: "bg-1", background: true }),
       ];
       const singleStatus = formatBackgroundAgentFooterStatus(singleAgent);
-      expect(singleStatus).toContain("1 background agent");
-      expect(singleStatus).not.toContain("agents running"); // Should be singular
+      expect(singleStatus).toContain("1 local agent");
+      expect(singleStatus).not.toContain("agents"); // Should be singular
       
       // Multiple agents
       const multipleAgents = [
@@ -249,8 +249,8 @@ describe("Issue #258 acceptance: background agent UX behavior", () => {
         createAgent({ id: "bg-2", background: true }),
       ];
       const multipleStatus = formatBackgroundAgentFooterStatus(multipleAgents);
-      expect(multipleStatus).toContain("2 background agents");
-      expect(multipleStatus).toContain("running");
+      expect(multipleStatus).toContain("2 local agents");
+      expect(multipleStatus).not.toContain("running");
     });
     
     test("empty agent list produces empty footer status", () => {

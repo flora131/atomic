@@ -215,6 +215,7 @@ describe("isNodeResult", () => {
       stateUpdate: { outputs: {} },
       goto: "nextNode",
       signals: [{ type: "checkpoint" }],
+      message: "[Phase] Completed.",
     };
     
     expect(isNodeResult(result)).toBe(true);
@@ -237,6 +238,12 @@ describe("isNodeResult", () => {
     expect(isNodeResult({ signals: "not-array" })).toBe(false);
     expect(isNodeResult({ signals: {} })).toBe(false);
     expect(isNodeResult({ signals: 123 })).toBe(false);
+  });
+
+  test("returns false for invalid message type", () => {
+    expect(isNodeResult({ message: 123 })).toBe(false);
+    expect(isNodeResult({ message: {} })).toBe(false);
+    expect(isNodeResult({ message: true })).toBe(false);
   });
 
   test("returns false for null and undefined", () => {

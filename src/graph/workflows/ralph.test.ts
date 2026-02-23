@@ -117,6 +117,112 @@ describe("createRalphWorkflow", () => {
     await rm(sessionDir, { recursive: true, force: true });
   });
 
+  test("emits dynamic phase metadata and messages", async () => {
+    const sessionDir = await mkdtemp(join(tmpdir(), "ralph-workflow-phase-metadata-"));
+
+    setClientProvider(() => ({
+      createSession: async () => ({
+        id: "session-phase-metadata",
+        send: async () => ({ type: "text", content: "" }),
+        stream: async function* () {
+          yield {
+            type: "text",
+            content: JSON.stringify([
+              {
+                id: "#1",
+                content: "Single task",
+                status: "pending",
+                activeForm: "Working single task",
+                blockedBy: [],
+              },
+            ]),
+          };
+        },
+        summarize: async () => {},
+        getContextUsage: async () => ({
+          inputTokens: 0,
+          outputTokens: 0,
+          maxTokens: 200000,
+          usagePercentage: 0,
+        }),
+        getSystemToolsTokens: () => 0,
+        destroy: async () => {},
+      }),
+    }) as unknown as import("../../sdk/types.ts").CodingAgentClient);
+
+    setSubagentBridge({
+      spawn: async () => ({
+        agentId: "review-1",
+        success: true,
+        output: JSON.stringify({
+          findings: [],
+          overall_correctness: "patch is correct",
+          overall_explanation: "No findings",
+          overall_confidence_score: 0.95,
+        }),
+        toolUses: 0,
+        durationMs: 1,
+      }),
+      spawnParallel: async (agents: Array<{ agentId: string }>) =>
+        agents.map((agent) => ({
+          agentId: agent.agentId,
+          success: true,
+          output: "ok",
+          toolUses: 0,
+          durationMs: 1,
+        })),
+    } as unknown as import("../subagent-bridge.ts").SubagentGraphBridge);
+
+    const compiled = createRalphWorkflow({ agentType: "claude" });
+    const executor = createExecutor(compiled);
+    const steps: Array<{
+      nodeId: string;
+      phaseName?: string;
+      phaseIcon?: string;
+      phaseMessage?: string;
+    }> = [];
+
+    for await (const step of executor.stream({
+      initialState: createRalphState("exec-phase-metadata", {
+        ralphSessionId: "session-phase-metadata",
+        ralphSessionDir: sessionDir,
+        userPrompt: "Emit phase metadata",
+        yoloPrompt: "Emit phase metadata",
+      }),
+      workflowName: "ralph",
+    })) {
+      steps.push({
+        nodeId: step.nodeId,
+        phaseName: step.phaseName,
+        phaseIcon: step.phaseIcon,
+        phaseMessage: step.phaseMessage,
+      });
+    }
+
+    const byNodeId = new Map(steps.map((step) => [step.nodeId, step]));
+
+    expect(byNodeId.get("taskDecomposition")?.phaseName).toBe("Task Decomposition");
+    expect(byNodeId.get("taskDecomposition")?.phaseIcon).toBe("📋");
+    expect(byNodeId.get("taskDecomposition")?.phaseMessage).toBe(
+      "[Task Decomposition] Decomposed into 1 task.",
+    );
+    expect(byNodeId.get("implementationLoop")?.phaseMessage).toBe(
+      "[Implementation] Completed 1/1 tasks.",
+    );
+    expect(byNodeId.get("review")?.phaseMessage).toBe(
+      "[Code Review] No actionable issues found.",
+    );
+    expect(byNodeId.get("complete")?.phaseName).toBe("Workflow");
+    expect(byNodeId.get("complete")?.phaseIcon).toBe("✓");
+    expect(byNodeId.get("complete")?.phaseMessage).toBe(
+      "[Workflow] Ralph workflow completed.",
+    );
+
+    setSubagentBridge(null);
+    setClientProvider(() => null);
+    await rm(sessionDir, { recursive: true, force: true });
+  });
+
   test("re-enters decomposition when review finds actionable issues", async () => {
     const sessionDir = await mkdtemp(join(tmpdir(), "ralph-workflow-fix-cycle-"));
     const decompositionPrompts: string[] = [];

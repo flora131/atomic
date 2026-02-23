@@ -255,6 +255,8 @@ export interface CommandResult {
   mcpServers?: import("../../sdk/types.ts").McpServerConfig[];
   /** Rich MCP snapshot display payload for Codex-style /mcp output */
   mcpSnapshot?: McpSnapshotView;
+  /** Structured workflow phase payload for rendering collapsible phase sections */
+  workflowPhases?: import("./workflow-commands.ts").PhaseData[];
   /** Display name for the model (used to update the header after /model command) */
   modelDisplayName?: string;
 }

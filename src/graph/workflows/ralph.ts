@@ -96,6 +96,26 @@ function hasActionableTasks(tasks: TaskItem[]): boolean {
   });
 }
 
+function formatTaskCount(count: number): string {
+  return `${count} ${count === 1 ? "task" : "tasks"}`;
+}
+
+function buildImplementationMessage(tasks: TaskItem[]): string {
+  const total = tasks.length;
+  const completed = tasks.filter(
+    (task) => normalizeDependencyStatus(task.status) === "completed",
+  ).length;
+  const errors = tasks.filter(
+    (task) => normalizeDependencyStatus(task.status) === "error",
+  ).length;
+
+  if (errors > 0) {
+    return `[Implementation] Completed ${completed}/${total} tasks with ${errors} error${errors === 1 ? "" : "s"}.`;
+  }
+
+  return `[Implementation] Completed ${completed}/${total} tasks.`;
+}
+
 function parseTasksFromContent(content: string): TaskItem[] {
   const trimmed = content.trim();
   let parsed: unknown = null;
@@ -319,6 +339,8 @@ export function createRalphWorkflow(
     id: "initSession",
     type: "tool",
     name: "Initialize Ralph Session",
+    phaseName: "Initialization",
+    phaseIcon: "🚀",
     execute: async (ctx) => ({
       stateUpdate: {
         iteration: 0,
@@ -327,6 +349,7 @@ export function createRalphWorkflow(
         shouldContinue: true,
         fixSpec: ctx.state.fixSpec ?? "",
       },
+      message: "[Initialization] Ralph workflow initialized.",
     }),
   };
 
@@ -341,6 +364,8 @@ export function createRalphWorkflow(
     id: "prepareFixCycle",
     type: "tool",
     name: "Prepare Fix Cycle",
+    phaseName: "Fix Cycle",
+    phaseIcon: "🔁",
     execute: async (ctx) => ({
       stateUpdate: {
         reviewIteration: ctx.state.reviewIteration + 1,
@@ -348,6 +373,7 @@ export function createRalphWorkflow(
         iteration: 0,
         shouldContinue: false,
       },
+      message: `[Fix Cycle] Starting fix cycle ${ctx.state.reviewIteration + 1}.`,
     }),
   };
 
@@ -355,18 +381,26 @@ export function createRalphWorkflow(
     id: "reenterDecomposition",
     type: "tool",
     name: "Re-enter Decomposition",
-    execute: async () => ({ goto: "taskDecomposition" }),
+    phaseName: "Fix Cycle",
+    phaseIcon: "🔁",
+    execute: async () => ({
+      goto: "taskDecomposition",
+      message: "[Fix Cycle] Returning to task decomposition.",
+    }),
   };
 
   const completeNode: NodeDefinition<RalphWorkflowState> = {
     id: "complete",
     type: "tool",
     name: "Complete Workflow",
+    phaseName: "Workflow",
+    phaseIcon: "✓",
     execute: async () => ({
       stateUpdate: {
         shouldContinue: false,
         fixSpec: "",
       },
+      message: "[Workflow] Ralph workflow completed.",
     }),
   };
 
@@ -374,6 +408,8 @@ export function createRalphWorkflow(
     id: "review",
     type: "agent",
     name: "Code Review",
+    phaseName: "Code Review",
+    phaseIcon: "🔍",
     execute: async (ctx) => {
       const bridge = getSubagentBridge();
       if (!bridge) {
@@ -401,6 +437,7 @@ export function createRalphWorkflow(
             fixSpec: "",
             shouldContinue: false,
           },
+          message: "[Code Review] Review completed, but no structured findings were parsed.",
         };
       }
 
@@ -416,6 +453,9 @@ export function createRalphWorkflow(
           fixSpec,
           shouldContinue: fixSpec.trim().length > 0,
         },
+        message: fixSpec.trim().length > 0
+          ? `[Code Review] Found ${reviewResult.findings.length} actionable issue${reviewResult.findings.length === 1 ? "" : "s"}.`
+          : "[Code Review] No actionable issues found.",
       };
     },
   };
@@ -424,16 +464,22 @@ export function createRalphWorkflow(
     id: "ensureDecompositionTasks",
     type: "tool",
     name: "Ensure Decomposition Tasks",
+    phaseName: "Task Decomposition",
+    phaseIcon: "📋",
     execute: async (ctx) => {
       const tasks = ctx.state.tasks ?? [];
       if (tasks.length > 0) {
         if (ctx.state.decompositionRetryCount === 0) {
-          return { stateUpdate: {} };
+          return {
+            stateUpdate: {},
+            message: `[Task Decomposition] Decomposed into ${formatTaskCount(tasks.length)}.`,
+          };
         }
         return {
           stateUpdate: {
             decompositionRetryCount: 0,
           },
+          message: `[Task Decomposition] Recovered with ${formatTaskCount(tasks.length)}.`,
         };
       }
 
@@ -444,6 +490,7 @@ export function createRalphWorkflow(
             decompositionRetryCount: retryCount + 1,
           },
           goto: "taskDecomposition",
+          message: `[Task Decomposition] No valid tasks parsed; retrying (${retryCount + 2}/${MAX_DECOMPOSITION_RETRIES + 1}).`,
         };
       }
 
@@ -453,64 +500,105 @@ export function createRalphWorkflow(
     },
   };
 
+  const taskDecompositionBase = agentNode<RalphWorkflowState>({
+    id: "taskDecomposition",
+    name: "Task Decomposition",
+    phaseName: "Task Decomposition",
+    phaseIcon: "📋",
+    agentType: options.agentType,
+    buildMessage: (state) => {
+      const prompt = state.fixSpec.trim().length > 0
+        ? state.fixSpec
+        : (state.userPrompt || state.yoloPrompt || "");
+      return buildSpecToTasksPrompt(prompt);
+    },
+    outputMapper: (messages) => {
+      const content = messages
+        .map((message) =>
+          typeof message.content === "string" ? message.content : "",
+        )
+        .join("");
+      const tasks = parseTasksFromContent(content);
+
+      return {
+        tasks,
+        taskIds: new Set(
+          tasks
+            .map((task) => task.id)
+            .filter(
+              (id): id is string => typeof id === "string" && id.length > 0,
+            ),
+        ),
+        iteration: 0,
+      };
+    },
+  });
+
+  const taskDecompositionNode: NodeDefinition<RalphWorkflowState> = {
+    ...taskDecompositionBase,
+    execute: async (ctx) => {
+      const result = await taskDecompositionBase.execute(ctx);
+      const tasks = result.stateUpdate?.tasks ?? ctx.state.tasks;
+      const count = tasks?.length ?? 0;
+
+      return {
+        ...result,
+        message: `[Task Decomposition] Decomposed into ${formatTaskCount(count)}.`,
+      };
+    },
+  };
+
+  const implementationLoopBase = taskLoopNode<RalphWorkflowState>({
+    id: "implementationLoop",
+    phaseName: "Implementation",
+    phaseIcon: "⚙",
+    taskNodes: dagOrchestratorNode,
+    detectDeadlocks: false,
+    taskSelector: getReadyTasksForRalph,
+    until: (_state, tasks) =>
+      (tasks.length > 0 &&
+        tasks.every(
+          (task) => normalizeDependencyStatus(task.status) === "completed",
+        )) ||
+      !hasActionableTasks(tasks),
+    maxIterations: MAX_IMPL_ITERATIONS,
+  });
+
+  const implementationLoopNode: NodeDefinition<RalphWorkflowState> = {
+    ...implementationLoopBase,
+    execute: async (ctx) => {
+      const result = await implementationLoopBase.execute(ctx);
+      const tasks = result.stateUpdate?.tasks ?? ctx.state.tasks ?? [];
+
+      return {
+        ...result,
+        message: buildImplementationMessage(tasks),
+      };
+    },
+  };
+
+  const clearBeforeReviewBase = clearContextNode<RalphWorkflowState>({
+    id: "clearBeforeReview",
+    name: "Clear Context Before Review",
+    phaseName: "Context Management",
+    phaseIcon: "🧹",
+    message: "Clearing context before review phase",
+  });
+
+  const clearBeforeReviewNode: NodeDefinition<RalphWorkflowState> = {
+    ...clearBeforeReviewBase,
+    execute: async (ctx) => ({
+      ...(await clearBeforeReviewBase.execute(ctx)),
+      message: "[Context Management] Clearing context before review phase.",
+    }),
+  };
+
   return graph<RalphWorkflowState>()
     .start(initSessionNode)
-    .then(
-      agentNode<RalphWorkflowState>({
-        id: "taskDecomposition",
-        name: "Task Decomposition",
-        agentType: options.agentType,
-        buildMessage: (state) => {
-          const prompt = state.fixSpec.trim().length > 0
-            ? state.fixSpec
-            : (state.userPrompt || state.yoloPrompt || "");
-          return buildSpecToTasksPrompt(prompt);
-        },
-        outputMapper: (messages) => {
-          const content = messages
-            .map((message) =>
-              typeof message.content === "string" ? message.content : "",
-            )
-            .join("");
-          const tasks = parseTasksFromContent(content);
-
-          return {
-            tasks,
-            taskIds: new Set(
-              tasks
-                .map((task) => task.id)
-                .filter(
-                  (id): id is string => typeof id === "string" && id.length > 0,
-                ),
-            ),
-            iteration: 0,
-          };
-        },
-      }),
-    )
+    .then(taskDecompositionNode)
     .then(ensureDecompositionTasksNode)
-    .then(
-      taskLoopNode<RalphWorkflowState>({
-        id: "implementationLoop",
-        taskNodes: dagOrchestratorNode,
-        detectDeadlocks: false,
-        taskSelector: getReadyTasksForRalph,
-        until: (_state, tasks) =>
-          (tasks.length > 0 &&
-            tasks.every(
-              (task) => normalizeDependencyStatus(task.status) === "completed",
-            )) ||
-          !hasActionableTasks(tasks),
-        maxIterations: MAX_IMPL_ITERATIONS,
-      }),
-    )
-    .then(
-      clearContextNode<RalphWorkflowState>({
-        id: "clearBeforeReview",
-        name: "Clear Context Before Review",
-        message: "Clearing context before review phase",
-      }),
-    )
+    .then(implementationLoopNode)
+    .then(clearBeforeReviewNode)
     .then(reviewNode)
     .if(
       (state) =>

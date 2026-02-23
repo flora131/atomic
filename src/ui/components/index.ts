@@ -130,3 +130,29 @@ export {
   FooterStatus,
   type FooterStatusComponentProps,
 } from "./footer-status.tsx";
+
+// ============================================================================
+// WORKFLOW PHASE SECTION COMPONENT
+// ============================================================================
+
+export {
+  WorkflowPhaseSection,
+  getPhaseStatusIcon,
+  getPhaseStatusColorKey,
+  getPhaseToggleIcon,
+  getCollapsedEventSummary,
+  type WorkflowPhaseSectionProps,
+} from "./workflow-phase-section.tsx";
+
+// ============================================================================
+// PHASE EVENT LIST COMPONENT
+// ============================================================================
+
+export {
+  PhaseEventList,
+  getEffectiveMaxEvents,
+  getVisiblePhaseEvents,
+  getHiddenEventCount,
+  getEventConnector,
+  type PhaseEventListProps,
+} from "./phase-event-list.tsx";

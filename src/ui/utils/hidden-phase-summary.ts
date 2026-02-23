@@ -1,22 +1,11 @@
-export function buildHiddenPhaseSummary(content: string): string {
+export function buildHiddenPhaseSummary(content: string): string | null {
   const trimmed = content.trim();
   const looksLikeTaskList =
     trimmed.includes('"status"') && trimmed.includes('"content"');
   const looksLikeReview = /review|finding|overall_correctness/i.test(trimmed);
 
   if (looksLikeTaskList) {
-    try {
-      const match = trimmed.match(/\[[\s\S]*\]/);
-      if (match) {
-        const parsed = JSON.parse(match[0]);
-        if (Array.isArray(parsed)) {
-          return `[Task Decomposition] Decomposed into ${parsed.length} tasks.`;
-        }
-      }
-    } catch {
-      // Fall through to generic decomposition summary.
-    }
-    return "[Task Decomposition] Completed.";
+    return null;
   }
 
   if (looksLikeReview) {

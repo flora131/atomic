@@ -3,7 +3,12 @@ import { mkdtemp, writeFile as fsWriteFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { CommandContext } from "./registry.ts";
-import { getWorkflowCommands, parseRalphArgs, watchTasksJson } from "./workflow-commands.ts";
+import {
+  getWorkflowCommands,
+  parseRalphArgs,
+  PhaseEventAccumulator,
+  watchTasksJson,
+} from "./workflow-commands.ts";
 
 function createMockContext(overrides?: Partial<CommandContext>): CommandContext {
   return {
@@ -43,6 +48,77 @@ describe("parseRalphArgs", () => {
   test("trims whitespace from prompt", () => {
     const result = parseRalphArgs("  Build a feature  ");
     expect(result).toEqual({ prompt: "Build a feature" });
+  });
+});
+
+describe("PhaseEventAccumulator", () => {
+  test("accumulates events from helper methods", () => {
+    const accumulator = new PhaseEventAccumulator("taskDecomposition");
+
+    accumulator.addToolCall("Read", "{path: 'src/index.ts'}");
+    accumulator.addToolResult("ok");
+    accumulator.addText("streamed token");
+    accumulator.addAgentSpawn("worker", "Implement task");
+    accumulator.addAgentComplete("worker", 42);
+    accumulator.addError("failed");
+    accumulator.addProgress("50%", { step: 1 });
+
+    const events = accumulator.getEvents();
+    expect(events).toHaveLength(7);
+    expect(events.map((event) => event.type)).toEqual([
+      "tool_call",
+      "tool_result",
+      "text",
+      "agent_spawn",
+      "agent_complete",
+      "error",
+      "progress",
+    ]);
+    expect(events[0]?.content).toBe("Read: {path: 'src/index.ts'}");
+    expect(events[4]?.metadata).toEqual({ durationMs: 42 });
+    expect(events[6]?.metadata).toEqual({ step: 1 });
+  });
+
+  test("returns a defensive copy of event list and tracks duration", () => {
+    const accumulator = new PhaseEventAccumulator("review");
+    accumulator.addText("first");
+
+    const events = accumulator.getEvents();
+    events.push({
+      type: "text",
+      timestamp: new Date().toISOString(),
+      content: "external",
+    });
+
+    expect(accumulator.getEvents()).toHaveLength(1);
+    expect(accumulator.getDurationMs()).toBeGreaterThanOrEqual(0);
+  });
+
+  test("uses first event timestamp for phase lifecycle timing", () => {
+    const accumulator = new PhaseEventAccumulator("implementation");
+    const startedAt = Date.now() - 250;
+    accumulator.addEvent({
+      type: "text",
+      timestamp: new Date(startedAt).toISOString(),
+      content: "event from earlier in phase",
+    });
+
+    expect(accumulator.getStartedAt()).toBe(new Date(startedAt).toISOString());
+    expect(accumulator.getDurationMs(startedAt + 400)).toBe(400);
+  });
+
+  test("prefers explicit phase start before delayed streamed events", () => {
+    const phaseStart = Date.now() - 500;
+    const firstEventAt = phaseStart + 250;
+    const accumulator = new PhaseEventAccumulator("implementation", phaseStart);
+    accumulator.addEvent({
+      type: "text",
+      timestamp: new Date(firstEventAt).toISOString(),
+      content: "first streamed token",
+    });
+
+    expect(accumulator.getStartedAt()).toBe(new Date(phaseStart).toISOString());
+    expect(accumulator.getDurationMs(phaseStart + 600)).toBe(600);
   });
 });
 

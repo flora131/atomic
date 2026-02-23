@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { buildHiddenPhaseSummary } from "./utils/hidden-phase-summary.ts";
 
 describe("buildHiddenPhaseSummary", () => {
-  test("summarizes task decomposition payloads with task count", () => {
+  test("returns null for task decomposition payloads", () => {
     const summary = buildHiddenPhaseSummary(
       JSON.stringify([
         {
@@ -22,7 +22,7 @@ describe("buildHiddenPhaseSummary", () => {
       ]),
     );
 
-    expect(summary).toBe("[Task Decomposition] Decomposed into 2 tasks.");
+    expect(summary).toBeNull();
   });
 
   test("summarizes review phase output", () => {

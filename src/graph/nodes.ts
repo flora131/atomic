@@ -92,6 +92,12 @@ export interface AgentNodeConfig<TState extends BaseState = BaseState> {
   /** Description of what the node does */
   description?: string;
 
+  /** Optional human-readable workflow phase name for UI display */
+  phaseName?: string;
+
+  /** Optional icon for workflow phase display in UI */
+  phaseIcon?: string;
+
   /**
    * Function to build the user message from state.
    * @param state - Current workflow state
@@ -180,6 +186,8 @@ export function agentNode<TState extends BaseState = BaseState>(
     retry = AGENT_NODE_RETRY_CONFIG,
     name,
     description,
+    phaseName,
+    phaseIcon,
     buildMessage,
   } = config;
 
@@ -188,6 +196,8 @@ export function agentNode<TState extends BaseState = BaseState>(
     type: "agent",
     name: name ?? `${agentType} agent`,
     description,
+    phaseName,
+    phaseIcon,
     retry,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
       const client = globalClientProvider?.(agentType);
@@ -342,6 +352,12 @@ export interface ToolNodeConfig<
 
   /** Description of the tool */
   description?: string;
+
+  /** Optional human-readable workflow phase name for UI display */
+  phaseName?: string;
+
+  /** Optional icon for workflow phase display in UI */
+  phaseIcon?: string;
 }
 
 /**
@@ -381,6 +397,8 @@ export function toolNode<
     retry = DEFAULT_RETRY_CONFIG,
     name,
     description,
+    phaseName,
+    phaseIcon,
   } = config;
 
   if (!execute) {
@@ -392,6 +410,8 @@ export function toolNode<
     type: "tool",
     name: name ?? toolName,
     description,
+    phaseName,
+    phaseIcon,
     retry,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
       // Build arguments
@@ -460,6 +480,12 @@ export interface ClearContextNodeConfig<TState extends BaseState = BaseState> {
    * Can be a string or function that receives current state.
    */
   message?: string | ((state: TState) => string);
+
+  /** Optional human-readable workflow phase name for UI display */
+  phaseName?: string;
+
+  /** Optional icon for workflow phase display in UI */
+  phaseIcon?: string;
 }
 
 /**
@@ -494,13 +520,15 @@ export interface ClearContextNodeConfig<TState extends BaseState = BaseState> {
 export function clearContextNode<TState extends BaseState = BaseState>(
   config: ClearContextNodeConfig<TState>
 ): NodeDefinition<TState> {
-  const { id, name, description, message } = config;
+  const { id, name, description, message, phaseName, phaseIcon } = config;
 
   return {
     id,
     type: "tool",
     name: name ?? "clear-context",
     description: description ?? "Clears the context window",
+    phaseName,
+    phaseIcon,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
       const resolvedMessage = typeof message === "function" ? message(ctx.state) : message;
 
@@ -566,6 +594,12 @@ export interface DecisionNodeConfig<TState extends BaseState = BaseState> {
 
   /** Description of the decision logic */
   description?: string;
+
+  /** Optional human-readable workflow phase name for UI display */
+  phaseName?: string;
+
+  /** Optional icon for workflow phase display in UI */
+  phaseIcon?: string;
 }
 
 /**
@@ -593,13 +627,15 @@ export interface DecisionNodeConfig<TState extends BaseState = BaseState> {
 export function decisionNode<TState extends BaseState = BaseState>(
   config: DecisionNodeConfig<TState>
 ): NodeDefinition<TState> {
-  const { id, routes, fallback, name, description } = config;
+  const { id, routes, fallback, name, description, phaseName, phaseIcon } = config;
 
   return {
     id,
     type: "decision",
     name: name ?? "decision",
     description,
+    phaseName,
+    phaseIcon,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
       // Evaluate routes in order
       for (const route of routes) {
@@ -657,6 +693,12 @@ export interface WaitNodeConfig<TState extends BaseState = BaseState> {
 
   /** Description */
   description?: string;
+
+  /** Optional human-readable workflow phase name for UI display */
+  phaseName?: string;
+
+  /** Optional icon for workflow phase display in UI */
+  phaseIcon?: string;
 }
 
 /**
@@ -683,13 +725,15 @@ export interface WaitNodeConfig<TState extends BaseState = BaseState> {
 export function waitNode<TState extends BaseState = BaseState>(
   config: WaitNodeConfig<TState>
 ): NodeDefinition<TState> {
-  const { id, prompt, autoApprove = false, inputMapper, name, description } = config;
+  const { id, prompt, autoApprove = false, inputMapper, name, description, phaseName, phaseIcon } = config;
 
   return {
     id,
     type: "wait",
     name: name ?? "wait",
     description,
+    phaseName,
+    phaseIcon,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
       // Build prompt
       const resolvedPrompt = typeof prompt === "function" ? prompt(ctx.state) : prompt;
@@ -763,6 +807,12 @@ export interface AskUserNodeConfig<TState extends BaseState = BaseState> {
 
   /** Description */
   description?: string;
+
+  /** Optional human-readable workflow phase name for UI display */
+  phaseName?: string;
+
+  /** Optional icon for workflow phase display in UI */
+  phaseIcon?: string;
 }
 
 /**
@@ -840,13 +890,15 @@ export interface AskUserQuestionEventData {
 export function askUserNode<TState extends BaseState & AskUserWaitState = BaseState & AskUserWaitState>(
   config: AskUserNodeConfig<TState>
 ): NodeDefinition<TState> {
-  const { id, options, name, description } = config;
+  const { id, options, name, description, phaseName, phaseIcon } = config;
 
   return {
     id,
     type: "ask_user",
     name: name ?? "ask-user",
     description,
+    phaseName,
+    phaseIcon,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
       // Resolve options (can be static or function of state)
       const resolvedOptions: AskUserOptions =
@@ -946,6 +998,12 @@ export interface ParallelNodeConfig<TState extends BaseState = BaseState> {
 
   /** Description */
   description?: string;
+
+  /** Optional human-readable workflow phase name for UI display */
+  phaseName?: string;
+
+  /** Optional icon for workflow phase display in UI */
+  phaseIcon?: string;
 }
 
 /**
@@ -988,7 +1046,7 @@ export interface ParallelExecutionContext<TState extends BaseState = BaseState> 
 export function parallelNode<TState extends BaseState = BaseState>(
   config: ParallelNodeConfig<TState>
 ): NodeDefinition<TState> {
-  const { id, branches, strategy = "all", merge, name, description } = config;
+  const { id, branches, strategy = "all", merge, name, description, phaseName, phaseIcon } = config;
 
   if (branches.length === 0) {
     throw new Error(`Parallel node "${id}" requires at least one branch`);
@@ -999,6 +1057,8 @@ export function parallelNode<TState extends BaseState = BaseState>(
     type: "parallel",
     name: name ?? "parallel",
     description,
+    phaseName,
+    phaseIcon,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
       // Store parallel execution context for the execution engine
       const parallelContext: ParallelExecutionContext<TState> = {
@@ -1095,6 +1155,12 @@ export interface SubgraphNodeConfig<
 
   /** Description */
   description?: string;
+
+  /** Optional human-readable workflow phase name for UI display */
+  phaseName?: string;
+
+  /** Optional icon for workflow phase display in UI */
+  phaseIcon?: string;
 }
 
 /**
@@ -1167,13 +1233,15 @@ export function subgraphNode<
   TState extends BaseState = BaseState,
   TSubState extends BaseState = BaseState,
 >(config: SubgraphNodeConfig<TState, TSubState>): NodeDefinition<TState> {
-  const { id, subgraph, inputMapper, outputMapper, name, description } = config;
+  const { id, subgraph, inputMapper, outputMapper, name, description, phaseName, phaseIcon } = config;
 
   return {
     id,
     type: "subgraph",
     name: name ?? "subgraph",
     description,
+    phaseName,
+    phaseIcon,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
       // Resolve subgraph reference
       let resolvedSubgraph: CompiledSubgraph<TSubState>;
@@ -1297,6 +1365,12 @@ export interface ContextMonitorNodeConfig<TState extends BaseState = BaseState> 
 
   /** Description */
   description?: string;
+
+  /** Optional human-readable workflow phase name for UI display */
+  phaseName?: string;
+
+  /** Optional icon for workflow phase display in UI */
+  phaseIcon?: string;
 }
 
 /**
@@ -1384,6 +1458,8 @@ export function contextMonitorNode<TState extends ContextMonitoringState = Conte
     onCompaction,
     name,
     description,
+    phaseName,
+    phaseIcon,
   } = config;
 
   return {
@@ -1391,6 +1467,8 @@ export function contextMonitorNode<TState extends ContextMonitoringState = Conte
     type: "tool",
     name: name ?? "context-monitor",
     description: description ?? `Monitor context window usage (threshold: ${threshold}%)`,
+    phaseName,
+    phaseIcon,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
       // Get context usage
       let usage: ContextUsage | null = null;
@@ -1574,6 +1652,8 @@ export interface CustomToolNodeConfig<TState extends BaseState, TArgs = Record<s
   toolName: string;
   name?: string;
   description?: string;
+  phaseName?: string;
+  phaseIcon?: string;
   /** Zod schema enforcing the contract between the previous node's output and this tool's input.
    *  On validation failure, SchemaValidationError triggers ancestor agent retry. */
   inputSchema?: z.ZodType<TArgs>;
@@ -1607,6 +1687,8 @@ export function customToolNode<
     type: "tool",
     name: config.name ?? config.toolName,
     description: config.description ?? `Execute custom tool: ${config.toolName}`,
+    phaseName: config.phaseName,
+    phaseIcon: config.phaseIcon,
     retry: config.retry,
     async execute(ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> {
       const registry = getToolRegistry();
@@ -1685,6 +1767,8 @@ export interface SubagentNodeConfig<TState extends BaseState> {
   id: string;
   name?: string;
   description?: string;
+  phaseName?: string;
+  phaseIcon?: string;
   /** Agent name resolved from SubagentTypeRegistry. Can reference config-defined
    *  agents (e.g., "codebase-analyzer"), user-global, or project-local agents. */
   agentName: string;
@@ -1715,6 +1799,8 @@ export function subagentNode<TState extends BaseState>(
     type: "agent",
     name: config.name ?? config.agentName,
     description: config.description ?? `Sub-agent: ${config.agentName}`,
+    phaseName: config.phaseName,
+    phaseIcon: config.phaseIcon,
     retry: config.retry,
     async execute(ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> {
       const bridge = getSubagentBridge();
@@ -1777,6 +1863,8 @@ export interface ParallelSubagentNodeConfig<TState extends BaseState> {
   id: string;
   name?: string;
   description?: string;
+  phaseName?: string;
+  phaseIcon?: string;
   agents: Array<{
     agentName: string;
     task: string | ((state: TState) => string);
@@ -1807,6 +1895,8 @@ export function parallelSubagentNode<TState extends BaseState>(
     type: "parallel",
     name: config.name ?? `Parallel sub-agents (${config.agents.length})`,
     description: config.description,
+    phaseName: config.phaseName,
+    phaseIcon: config.phaseIcon,
     retry: config.retry,
     async execute(ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> {
       const bridge = getSubagentBridge();

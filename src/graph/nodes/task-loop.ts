@@ -80,6 +80,8 @@ export interface TaskLoopState extends BaseState {
 
 export interface TaskLoopConfig<TState extends TaskLoopState> {
   id?: NodeId;
+  phaseName?: string;
+  phaseIcon?: string;
   tasksPath?: string | ((state: TState) => string);
   taskNodes: NodeDefinition<TState> | NodeDefinition<TState>[];
   preIterationNode?: NodeDefinition<TState>;
@@ -106,12 +108,16 @@ export function taskLoopNode<TState extends TaskLoopState>(
     taskSelector = (tasks) => getReadyLoopTasks(tasks),
     detectDeadlocks = true,
     onDeadlock,
+    phaseName,
+    phaseIcon,
   } = config;
 
   return {
     id,
     type: "tool",
     name: "Task Loop",
+    phaseName,
+    phaseIcon,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
       let workingState = ctx.state;
       let iteration = Math.max(workingState.iteration ?? 0, 0);
@@ -246,6 +252,8 @@ export function taskLoopNode<TState extends TaskLoopState>(
 
 export interface CriteriaLoopConfig<TState extends BaseState> {
   id?: NodeId;
+  phaseName?: string;
+  phaseIcon?: string;
   taskNodes: NodeDefinition<TState>[];
   completionSignal?: string;
   maxIterations?: number;
@@ -259,12 +267,16 @@ export function criteriaLoopNode<TState extends BaseState>(
     taskNodes,
     completionSignal = "ALL_TASKS_COMPLETE",
     maxIterations = 100,
+    phaseName,
+    phaseIcon,
   } = config;
 
   return {
     id,
     type: "tool",
     name: "Criteria Loop",
+    phaseName,
+    phaseIcon,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
       let state = ctx.state;
 

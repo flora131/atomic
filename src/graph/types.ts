@@ -242,6 +242,11 @@ export interface NodeResult<TState extends BaseState = BaseState> {
    * Signals to emit that affect execution flow.
    */
   signals?: SignalData[];
+
+  /**
+   * Optional UI message for this node result.
+   */
+  message?: string;
 }
 
 /**
@@ -324,6 +329,12 @@ export interface NodeDefinition<TState extends BaseState = BaseState> {
 
   /** Description of what the node does */
   description?: string;
+
+  /** Optional human-readable workflow phase name for UI display */
+  phaseName?: string;
+
+  /** Optional icon for workflow phase display in UI */
+  phaseIcon?: string;
 
   /**
    * Model specification for this node.
@@ -588,6 +599,9 @@ export function isNodeResult(value: unknown): value is NodeResult {
     return false;
   }
   if (obj.signals !== undefined && !Array.isArray(obj.signals)) {
+    return false;
+  }
+  if (obj.message !== undefined && typeof obj.message !== "string") {
     return false;
   }
   return true;

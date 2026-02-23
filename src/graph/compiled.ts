@@ -85,8 +85,20 @@ export interface StepResult<TState extends BaseState = BaseState> {
   /** Current execution status */
   status: ExecutionStatus;
 
+  /** ISO timestamp when this node execution started */
+  startedAt?: string;
+
   /** Any error that occurred */
   error?: ExecutionError;
+
+  /** Resolved phase message for UI display */
+  phaseMessage?: string;
+
+  /** Human-readable phase name from node metadata */
+  phaseName?: string;
+
+  /** Phase icon from node metadata */
+  phaseIcon?: string;
 }
 
 /**
@@ -345,6 +357,7 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
 
       // Track node enter
       const nodeStartTime = Date.now();
+      const nodeStartedAt = new Date(nodeStartTime).toISOString();
       if (tracker) {
         tracker.nodeEnter(currentNodeId, node.type);
       }
@@ -381,6 +394,7 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
           state,
           result: {},
           status: "failed",
+          startedAt: nodeStartedAt,
           error: nodeError,
         };
         return;
@@ -409,11 +423,17 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
           (s) => s.type === "human_input_required"
         );
         if (humanInputSignal) {
+          const phaseMessage =
+            result.message ?? (node.phaseName ? `[${node.phaseName}] Completed.` : undefined);
           yield {
             nodeId: currentNodeId,
             state,
             result,
             status: "paused",
+            startedAt: nodeStartedAt,
+            phaseMessage,
+            phaseName: node.phaseName,
+            phaseIcon: node.phaseIcon,
           };
           return;
         }
@@ -466,11 +486,18 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
         tracker.complete(true, Date.now() - workflowStartTime);
       }
 
+      const phaseMessage =
+        result.message ?? (node.phaseName ? `[${node.phaseName}] Completed.` : undefined);
+
       yield {
         nodeId: currentNodeId,
         state,
         result,
         status: isEndNode ? "completed" : "running",
+        startedAt: nodeStartedAt,
+        phaseMessage,
+        phaseName: node.phaseName,
+        phaseIcon: node.phaseIcon,
       };
 
       if (isEndNode) {

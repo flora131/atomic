@@ -20,6 +20,12 @@ import type {
 } from "./registry.ts";
 import { globalRegistry } from "./registry.ts";
 import type { TodoItem } from "../../sdk/tools/todo-write.ts";
+import type {
+    AgentMessage,
+    CodingAgentClient,
+    Session,
+    SessionConfig,
+} from "../../sdk/types.ts";
 
 import {
     normalizeTodoItem,
@@ -42,6 +48,9 @@ import { createRalphWorkflow } from "../../graph/workflows/ralph.ts";
 import {
     getSubagentBridge,
     setSubagentBridge,
+    type SubagentGraphBridge,
+    type SubagentResult,
+    type SubagentSpawnOptions,
 } from "../../graph/subagent-bridge.ts";
 
 // ============================================================================
@@ -88,6 +97,109 @@ export interface WorkflowMetadata {
     source?: "builtin" | "global" | "local";
     /** Hint text showing expected arguments (e.g., "PROMPT [--yolo]") */
     argumentHint?: string;
+}
+
+export interface PhaseEvent {
+    type:
+        | "tool_call"
+        | "tool_result"
+        | "text"
+        | "agent_spawn"
+        | "agent_complete"
+        | "error"
+        | "progress";
+    timestamp: string;
+    content: string;
+    metadata?: Record<string, unknown>;
+}
+
+export interface PhaseData {
+    nodeId: string;
+    phaseName: string;
+    phaseIcon: string;
+    message: string;
+    events: PhaseEvent[];
+    startedAt: string;
+    completedAt?: string;
+    durationMs?: number;
+    status: "running" | "completed" | "error";
+}
+
+export class PhaseEventAccumulator {
+    private events: PhaseEvent[] = [];
+    private readonly startTime: number;
+    private firstEventTimestampMs?: number;
+
+    constructor(public readonly nodeId: string, startTimeMs = Date.now()) {
+        this.startTime = startTimeMs;
+    }
+
+    private pushEvent(
+        type: PhaseEvent["type"],
+        content: string,
+        metadata?: Record<string, unknown>,
+    ): void {
+        this.addEvent({
+            type,
+            timestamp: new Date().toISOString(),
+            content,
+            metadata,
+        });
+    }
+
+    addEvent(event: PhaseEvent): void {
+        this.events.push(event);
+        if (this.firstEventTimestampMs != null) return;
+        const timestampMs = Date.parse(event.timestamp);
+        if (!Number.isNaN(timestampMs)) {
+            this.firstEventTimestampMs = timestampMs;
+        }
+    }
+
+    addToolCall(toolName: string, input: string): void {
+        this.pushEvent("tool_call", `${toolName}: ${input}`);
+    }
+
+    addToolResult(result: string): void {
+        this.pushEvent("tool_result", result);
+    }
+
+    addText(text: string): void {
+        this.pushEvent("text", text);
+    }
+
+    addAgentSpawn(name: string, task: string): void {
+        this.pushEvent("agent_spawn", `Spawned ${name}: ${task}`);
+    }
+
+    addAgentComplete(name: string, durationMs: number): void {
+        this.pushEvent("agent_complete", `${name} completed`, { durationMs });
+    }
+
+    addError(error: string): void {
+        this.pushEvent("error", error);
+    }
+
+    addProgress(content: string, metadata?: Record<string, unknown>): void {
+        this.pushEvent("progress", content, metadata);
+    }
+
+    getEvents(): PhaseEvent[] {
+        return [...this.events];
+    }
+
+    private getStartTimestampMs(): number {
+        if (this.firstEventTimestampMs == null) return this.startTime;
+        return Math.min(this.startTime, this.firstEventTimestampMs);
+    }
+
+    getStartedAt(): string {
+        return new Date(this.getStartTimestampMs()).toISOString();
+    }
+
+    getDurationMs(nowMs = Date.now()): number {
+        return Math.max(0, nowMs - this.getStartTimestampMs());
+    }
 }
 
 // ============================================================================
@@ -555,30 +667,6 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
         return "claude";
     };
 
-    const getPhaseSummary = (
-        nodeId: string,
-        state: {
-            tasks?: Array<{
-                id?: string;
-                content: string;
-                status: string;
-                activeForm: string;
-                blockedBy?: string[];
-            }>;
-        },
-    ): string | null => {
-        if (nodeId === "taskDecomposition") {
-            return `[Task Decomposition] Decomposed into ${state.tasks?.length ?? 0} tasks.`;
-        }
-        if (nodeId === "review") {
-            return "[Code Review] Review completed.";
-        }
-        if (nodeId === "complete") {
-            return "[Workflow] Ralph workflow completed.";
-        }
-        return null;
-    };
-
     return {
         name: metadata.name,
         description: metadata.description,
@@ -626,128 +714,304 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
             const executor = createExecutor(compiled);
 
             const previousClientProvider = getClientProvider();
-            const resolvedAgentType = toAgentNodeType(context.agentType);
-            const hasUsableClientProvider = (() => {
-                if (!previousClientProvider) return false;
-                try {
-                    return previousClientProvider(resolvedAgentType) != null;
-                } catch {
-                    return false;
-                }
-            })();
-            let installedFallbackClientProvider = false;
-            if (!hasUsableClientProvider) {
-                setClientProvider(() => ({
-                    createSession: async () => ({
-                        id: `ralph-fallback-${crypto.randomUUID()}`,
-                        send: async (message: string) => ({
-                            type: "text",
-                            content: (await context.streamAndWait(message, { hideContent: true })).content,
-                        }),
-                        stream: async function* (message: string): AsyncIterable<{
-                            type: "text";
-                            content: string;
-                        }> {
-                            const streamResult = await context.streamAndWait(message, {
-                                hideContent: true,
-                            });
-
-                            if (streamResult.wasCancelled) {
-                                throw new Error("Workflow cancelled");
-                            }
-
-                            if (streamResult.wasInterrupted) {
-                                const userPrompt = await context.waitForUserInput();
-                                const resumed = await context.streamAndWait(userPrompt, {
-                                    hideContent: true,
-                                });
-                                if (resumed.wasCancelled) {
-                                    throw new Error("Workflow cancelled");
-                                }
-                                yield { type: "text", content: resumed.content };
-                                return;
-                            }
-
-                            yield { type: "text", content: streamResult.content };
-                        },
-                        summarize: async () => {},
-                        getContextUsage: async () => ({
-                            inputTokens: 0,
-                            outputTokens: 0,
-                            maxTokens: 200000,
-                            usagePercentage: 0,
-                        }),
-                        getSystemToolsTokens: () => 0,
-                        destroy: async () => {},
-                    }),
-                }) as unknown as import("../../sdk/types.ts").CodingAgentClient);
-                installedFallbackClientProvider = true;
-            }
-
             const previousBridge = getSubagentBridge();
-            let installedFallbackBridge = false;
-            if (!previousBridge) {
-                const fallbackBridge = {
-                    spawn: async (options: {
-                        agentId: string;
-                        agentName: string;
-                        task: string;
-                    }) => {
-                        const startedAt = Date.now();
-                        const result = await context.spawnSubagent({
-                            name: options.agentName,
-                            message: options.task,
+            const pendingPhaseEvents: PhaseEvent[] = [];
+            const stringifyEventPayload = (value: unknown): string => {
+                if (typeof value === "string") return value;
+                if (value == null) return "";
+                return Bun.inspect(value);
+            };
+            const pushPendingPhaseEvent = (
+                type: PhaseEvent["type"],
+                content: string,
+                metadata?: Record<string, unknown>,
+            ): void => {
+                pendingPhaseEvents.push({
+                    type,
+                    timestamp: new Date().toISOString(),
+                    content,
+                    metadata,
+                });
+            };
+            const takePendingPhaseEvents = (): PhaseEvent[] => {
+                if (pendingPhaseEvents.length === 0) return [];
+                return pendingPhaseEvents.splice(0, pendingPhaseEvents.length);
+            };
+            const captureAgentMessage = (message: AgentMessage): void => {
+                if (message.type === "text" && typeof message.content === "string") {
+                    pushPendingPhaseEvent("text", message.content);
+                    return;
+                }
+                if (message.type === "tool_use") {
+                    const metadata = message.metadata ?? {};
+                    const payload = (
+                        typeof message.content === "object" && message.content !== null
+                            ? message.content
+                            : {}
+                    ) as Record<string, unknown>;
+                    const toolName = typeof metadata.toolName === "string"
+                        ? metadata.toolName
+                        : typeof payload.name === "string"
+                            ? payload.name
+                            : "tool";
+                    const toolInput = metadata.toolInput ?? payload.input;
+                    pushPendingPhaseEvent(
+                        "tool_call",
+                        `${toolName}: ${stringifyEventPayload(toolInput)}`,
+                    );
+                    return;
+                }
+                if (message.type === "tool_result") {
+                    pushPendingPhaseEvent("tool_result", stringifyEventPayload(message.content));
+                }
+            };
+            const wrapSession = (session: Session): Session => {
+                const getMcpSnapshot = session.getMcpSnapshot?.bind(session);
+                const abort = session.abort?.bind(session);
+                return {
+                    id: session.id,
+                    send: async (message: string) => {
+                        const result = await session.send(message);
+                        captureAgentMessage(result);
+                        return result;
+                    },
+                    stream: async function* (
+                        message: string,
+                        options?: { agent?: string },
+                    ): AsyncIterable<AgentMessage> {
+                        for await (const chunk of session.stream(message, options)) {
+                            captureAgentMessage(chunk);
+                            yield chunk;
+                        }
+                    },
+                    summarize: async () => session.summarize(),
+                    getContextUsage: async () => session.getContextUsage(),
+                    getSystemToolsTokens: () => session.getSystemToolsTokens(),
+                    getMcpSnapshot: getMcpSnapshot
+                        ? async () => getMcpSnapshot()
+                        : undefined,
+                    destroy: async () => session.destroy(),
+                    abort: abort ? async () => abort() : undefined,
+                };
+            };
+            const wrapClient = (client: CodingAgentClient): CodingAgentClient => {
+                const setActiveSessionModel = client.setActiveSessionModel?.bind(client);
+                return {
+                    agentType: client.agentType,
+                    createSession: async (config?: SessionConfig) =>
+                        wrapSession(await client.createSession(config)),
+                    resumeSession: async (sessionId: string) => {
+                        const resumed = await client.resumeSession(sessionId);
+                        return resumed ? wrapSession(resumed) : null;
+                    },
+                    on: (eventType, handler) => client.on(eventType, handler),
+                    registerTool: (tool) => client.registerTool(tool),
+                    start: async () => client.start(),
+                    stop: async () => client.stop(),
+                    getModelDisplayInfo: async (modelHint?: string) =>
+                        client.getModelDisplayInfo(modelHint),
+                    setActiveSessionModel: setActiveSessionModel
+                        ? async (model: string, options?: { reasoningEffort?: string }) =>
+                            setActiveSessionModel(model, options)
+                        : undefined,
+                    getSystemToolsTokens: () => client.getSystemToolsTokens(),
+                };
+            };
+
+            const fallbackClientProvider = (): CodingAgentClient => ({
+                agentType: "claude",
+                createSession: async () => ({
+                    id: `ralph-fallback-${crypto.randomUUID()}`,
+                    send: async (message: string) => ({
+                        type: "text",
+                        content: (await context.streamAndWait(message, { hideContent: true })).content,
+                    }),
+                    stream: async function* (message: string): AsyncIterable<AgentMessage> {
+                        const streamResult = await context.streamAndWait(message, {
+                            hideContent: true,
                         });
 
-                        return {
-                            agentId: options.agentId,
-                            success: result.success,
-                            output: result.output ?? "",
-                            error: result.error,
-                            toolUses: 0,
-                            durationMs: Date.now() - startedAt,
-                        };
-                    },
-                    spawnParallel: async (agents: Array<{
-                        agentId: string;
-                        agentName: string;
-                        task: string;
-                    }>) => {
-                        const results: Array<{
-                            agentId: string;
-                            success: boolean;
-                            output: string;
-                            error?: string;
-                            toolUses: number;
-                            durationMs: number;
-                        }> = [];
+                        if (streamResult.wasCancelled) {
+                            throw new Error("Workflow cancelled");
+                        }
 
-                        for (const agent of agents) {
+                        if (streamResult.wasInterrupted) {
+                            const userPrompt = await context.waitForUserInput();
+                            const resumed = await context.streamAndWait(userPrompt, {
+                                hideContent: true,
+                            });
+                            if (resumed.wasCancelled) {
+                                throw new Error("Workflow cancelled");
+                            }
+                            yield { type: "text", content: resumed.content };
+                            return;
+                        }
+
+                        yield { type: "text", content: streamResult.content };
+                    },
+                    summarize: async () => {},
+                    getContextUsage: async () => ({
+                        inputTokens: 0,
+                        outputTokens: 0,
+                        maxTokens: 200000,
+                        usagePercentage: 0,
+                    }),
+                    getSystemToolsTokens: () => 0,
+                    destroy: async () => {},
+                }),
+                resumeSession: async () => null,
+                on: () => () => {},
+                registerTool: () => {},
+                start: async () => {},
+                stop: async () => {},
+                getModelDisplayInfo: async () => ({
+                    model: "fallback",
+                    tier: "fallback",
+                }),
+                getSystemToolsTokens: () => 0,
+            });
+
+            const fallbackBridge = {
+                spawn: async (options: SubagentSpawnOptions): Promise<SubagentResult> => {
+                    const startedAt = Date.now();
+                    const result = await context.spawnSubagent({
+                        name: options.agentName,
+                        message: options.task,
+                    });
+
+                    return {
+                        agentId: options.agentId,
+                        success: result.success,
+                        output: result.output ?? "",
+                        error: result.error,
+                        toolUses: 0,
+                        durationMs: Date.now() - startedAt,
+                    };
+                },
+                spawnParallel: async (
+                    agents: SubagentSpawnOptions[],
+                ): Promise<SubagentResult[]> => {
+                    const settled = await Promise.allSettled(
+                        agents.map(async (agent) => {
                             const startedAt = Date.now();
                             const result = await context.spawnSubagent({
                                 name: agent.agentName,
                                 message: agent.task,
                             });
-
-                            results.push({
+                            return {
                                 agentId: agent.agentId,
                                 success: result.success,
                                 output: result.output ?? "",
                                 error: result.error,
                                 toolUses: 0,
                                 durationMs: Date.now() - startedAt,
-                            });
+                            };
+                        }),
+                    );
+
+                    return settled.map((outcome, i) => {
+                        if (outcome.status === "fulfilled") {
+                            return outcome.value;
                         }
+                        const agent = agents[i];
+                        return {
+                            agentId: agent?.agentId ?? `unknown-${i}`,
+                            success: false,
+                            output: "",
+                            error: outcome.reason instanceof Error
+                                ? outcome.reason.message
+                                : String(outcome.reason ?? "Unknown error"),
+                            toolUses: 0,
+                            durationMs: 0,
+                        };
+                    });
+                },
+            };
 
-                        return results;
-                    },
-                };
+            const resolvedAgentType = toAgentNodeType(context.agentType);
+            const baseClientProvider = (() => {
+                if (!previousClientProvider) {
+                    return fallbackClientProvider;
+                }
+                try {
+                    if (previousClientProvider(resolvedAgentType) != null) {
+                        return previousClientProvider;
+                    }
+                } catch {
+                    // Fall through to local fallback provider.
+                }
+                return fallbackClientProvider;
+            })();
 
-                setSubagentBridge(
-                    fallbackBridge as unknown as import("../../graph/subagent-bridge.ts").SubagentGraphBridge,
-                );
-                installedFallbackBridge = true;
-            }
+            const baseBridge = previousBridge ?? fallbackBridge;
+
+            setClientProvider((agentType) => {
+                const client = baseClientProvider(agentType);
+                return client ? wrapClient(client) : null;
+            });
+
+            setSubagentBridge({
+                setSessionDir: (dir: string) => {
+                    if ("setSessionDir" in baseBridge && typeof baseBridge.setSessionDir === "function") {
+                        baseBridge.setSessionDir(dir);
+                    }
+                },
+                spawn: async (options: SubagentSpawnOptions): Promise<SubagentResult> => {
+                    pushPendingPhaseEvent("agent_spawn", `Spawned ${options.agentName}: ${options.task}`);
+                    const startedAt = Date.now();
+                    const result = await baseBridge.spawn(options);
+                    const durationMs = result.durationMs > 0
+                        ? result.durationMs
+                        : Date.now() - startedAt;
+                    if (result.success) {
+                        pushPendingPhaseEvent("agent_complete", `${options.agentName} completed`, {
+                            durationMs,
+                            agentId: result.agentId,
+                        });
+                    } else {
+                        pushPendingPhaseEvent(
+                            "error",
+                            `${options.agentName} failed: ${result.error ?? "Unknown error"}`,
+                            { agentId: result.agentId },
+                        );
+                    }
+                    return result;
+                },
+                spawnParallel: async (
+                    agents: SubagentSpawnOptions[],
+                ): Promise<SubagentResult[]> => {
+                    for (const agent of agents) {
+                        pushPendingPhaseEvent(
+                            "agent_spawn",
+                            `Spawned ${agent.agentName}: ${agent.task}`,
+                        );
+                    }
+
+                    const results = await baseBridge.spawnParallel(agents);
+                    for (let i = 0; i < results.length; i += 1) {
+                        const result = results[i];
+                        const agent = agents[i];
+                        if (!result || !agent) continue;
+                        if (result.success) {
+                            pushPendingPhaseEvent(
+                                "agent_complete",
+                                `${agent.agentName} completed`,
+                                {
+                                    durationMs: result.durationMs,
+                                    agentId: result.agentId,
+                                },
+                            );
+                        } else {
+                            pushPendingPhaseEvent(
+                                "error",
+                                `${agent.agentName} failed: ${result.error ?? "Unknown error"}`,
+                                { agentId: result.agentId },
+                            );
+                        }
+                    }
+                    return results;
+                },
+            } as unknown as SubagentGraphBridge);
 
             const abortController = new AbortController();
             context.onCancel?.(() => {
@@ -768,12 +1032,15 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 shouldContinue: true,
             });
 
+            const phases: PhaseData[] = [];
             try {
                 for await (const step of executor.stream({
                     initialState,
                     abortSignal: abortController.signal,
                     workflowName: "ralph",
                 })) {
+                    const phaseCompletedAtMs = Date.now();
+                    const stepStartedAtMs = Date.parse(step.startedAt ?? "");
                     const tasks = step.state.tasks ?? [];
                     if (tasks.length > 0) {
                         context.setTodoItems(tasks as TodoItem[]);
@@ -790,17 +1057,57 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                         );
                     }
 
-                    const phaseSummary = getPhaseSummary(step.nodeId, {
-                        tasks,
-                    });
-                    if (phaseSummary) {
-                        context.addMessage("assistant", phaseSummary);
+                    const phaseAccumulator = new PhaseEventAccumulator(
+                        step.nodeId,
+                        Number.isNaN(stepStartedAtMs)
+                            ? undefined
+                            : stepStartedAtMs,
+                    );
+                    for (const event of takePendingPhaseEvents()) {
+                        phaseAccumulator.addEvent(event);
                     }
+
+                    if (step.error?.error) {
+                        phaseAccumulator.addError(
+                            step.error.error instanceof Error
+                                ? step.error.error.message
+                                : String(step.error.error),
+                        );
+                    }
+
+                    const phaseSummary = step.phaseMessage;
+                    const fallbackStartedAtMs = Date.parse(
+                        phaseAccumulator.getStartedAt(),
+                    );
+                    const startedAtMs = Number.isNaN(stepStartedAtMs)
+                        ? (Number.isNaN(fallbackStartedAtMs)
+                            ? phaseCompletedAtMs
+                            : fallbackStartedAtMs)
+                        : stepStartedAtMs;
+                    const completedAtMs = Math.max(
+                        phaseCompletedAtMs,
+                        startedAtMs,
+                    );
+                    const completedAt = new Date(completedAtMs).toISOString();
+                    phases.push({
+                        nodeId: step.nodeId,
+                        phaseName: step.phaseName ?? step.nodeId,
+                        phaseIcon: step.phaseIcon ?? "",
+                        message:
+                            phaseSummary ??
+                            `[${step.phaseName ?? step.nodeId}] Completed.`,
+                        events: phaseAccumulator.getEvents(),
+                        startedAt: new Date(startedAtMs).toISOString(),
+                        completedAt,
+                        durationMs: completedAtMs - startedAtMs,
+                        status: step.status === "failed" ? "error" : "completed",
+                    });
 
                     if (step.status === "completed") {
                         completeSession(sessionId);
                         return {
                             success: true,
+                            workflowPhases: phases,
                             stateUpdate: {
                                 workflowActive: false,
                                 workflowType: null,
@@ -815,6 +1122,7 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                             success: false,
                             message:
                                 "Workflow paused for human input, but resume is not yet supported.",
+                            workflowPhases: phases,
                             stateUpdate: {
                                 workflowActive: false,
                                 workflowType: null,
@@ -832,6 +1140,7 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                                     ? step.error.error.message
                                     : String(step.error?.error ?? "Unknown error")
                             }`,
+                            workflowPhases: phases,
                             stateUpdate: {
                                 workflowActive: false,
                                 workflowType: null,
@@ -844,6 +1153,7 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                         completeSession(sessionId);
                         return {
                             success: true,
+                            workflowPhases: phases,
                             stateUpdate: {
                                 workflowActive: false,
                                 workflowType: null,
@@ -856,6 +1166,7 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 completeSession(sessionId);
                 return {
                     success: true,
+                    workflowPhases: phases,
                     stateUpdate: {
                         workflowActive: false,
                         workflowType: null,
@@ -869,6 +1180,7 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                     message: `Workflow failed: ${
                         error instanceof Error ? error.message : String(error)
                     }`,
+                    workflowPhases: phases,
                     stateUpdate: {
                         workflowActive: false,
                         workflowType: null,
@@ -876,12 +1188,8 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                     },
                 };
             } finally {
-                if (installedFallbackClientProvider) {
-                    setClientProvider(previousClientProvider ?? (() => null));
-                }
-                if (installedFallbackBridge) {
-                    setSubagentBridge(previousBridge);
-                }
+                setClientProvider(previousClientProvider ?? (() => null));
+                setSubagentBridge(previousBridge);
             }
         },
     };

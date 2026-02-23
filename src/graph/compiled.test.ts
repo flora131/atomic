@@ -473,6 +473,41 @@ describe("GraphExecutor - Signal Handling", () => {
     expect(result.state.counter).toBe(1);
   });
 
+  test("emits resolved phase metadata when paused during stream", async () => {
+    const pauseNode = createNode<TestState>("pause", "tool", async () => ({
+      stateUpdate: { counter: 1 },
+      signals: [{ type: "human_input_required", message: "Need input" }],
+    }));
+    pauseNode.phaseName = "Human Input";
+    pauseNode.phaseIcon = "🧑";
+
+    const workflow = graph<TestState>()
+      .start(pauseNode)
+      .end()
+      .compile();
+
+    const steps: Array<{
+      status: string;
+      phaseName?: string;
+      phaseIcon?: string;
+      phaseMessage?: string;
+    }> = [];
+    for await (const step of streamGraph(workflow)) {
+      steps.push({
+        status: step.status,
+        phaseName: step.phaseName,
+        phaseIcon: step.phaseIcon,
+        phaseMessage: step.phaseMessage,
+      });
+    }
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]?.status).toBe("paused");
+    expect(steps[0]?.phaseName).toBe("Human Input");
+    expect(steps[0]?.phaseIcon).toBe("🧑");
+    expect(steps[0]?.phaseMessage).toBe("[Human Input] Completed.");
+  });
+
   test("collects signals during execution", async () => {
     const signalNode = createNode<TestState>("signal", "tool", async () => {
       return {
@@ -570,6 +605,77 @@ describe("GraphExecutor - Streaming Execution", () => {
     }
 
     expect(statuses).toEqual(["running", "completed"]);
+  });
+
+  test("emits default phase metadata from node definition", async () => {
+    const node = createNode<TestState>("phase-node", "tool", async () => ({}));
+    node.phaseName = "Task Decomposition";
+    node.phaseIcon = "📋";
+
+    const workflow = graph<TestState>()
+      .start(node)
+      .end()
+      .compile();
+
+    const steps: Array<{ phaseName?: string; phaseIcon?: string; phaseMessage?: string }> = [];
+    for await (const step of streamGraph(workflow)) {
+      steps.push(step);
+    }
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]?.phaseName).toBe("Task Decomposition");
+    expect(steps[0]?.phaseIcon).toBe("📋");
+    expect(steps[0]?.phaseMessage).toBe("[Task Decomposition] Completed.");
+  });
+
+  test("uses node result message for phase metadata when provided", async () => {
+    const node = createNode<TestState>("phase-message-node", "tool", async () => ({
+      message: "[Code Review] Review completed.",
+    }));
+    node.phaseName = "Code Review";
+    node.phaseIcon = "🔍";
+
+    const workflow = graph<TestState>()
+      .start(node)
+      .end()
+      .compile();
+
+    const messages: Array<{ phaseMessage?: string; phaseName?: string; phaseIcon?: string }> = [];
+    for await (const step of streamGraph(workflow)) {
+      messages.push({
+        phaseMessage: step.phaseMessage,
+        phaseName: step.phaseName,
+        phaseIcon: step.phaseIcon,
+      });
+    }
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.phaseName).toBe("Code Review");
+    expect(messages[0]?.phaseIcon).toBe("🔍");
+    expect(messages[0]?.phaseMessage).toBe("[Code Review] Review completed.");
+  });
+
+  test("leaves phase metadata undefined when node has no phase or message", async () => {
+    const node = createNode<TestState>("plain-node", "tool", async () => ({}));
+
+    const workflow = graph<TestState>()
+      .start(node)
+      .end()
+      .compile();
+
+    const steps: Array<{ phaseMessage?: string; phaseName?: string; phaseIcon?: string }> = [];
+    for await (const step of streamGraph(workflow)) {
+      steps.push({
+        phaseMessage: step.phaseMessage,
+        phaseName: step.phaseName,
+        phaseIcon: step.phaseIcon,
+      });
+    }
+
+    expect(steps).toHaveLength(1);
+    expect(steps[0]?.phaseName).toBeUndefined();
+    expect(steps[0]?.phaseIcon).toBeUndefined();
+    expect(steps[0]?.phaseMessage).toBeUndefined();
   });
 });
 

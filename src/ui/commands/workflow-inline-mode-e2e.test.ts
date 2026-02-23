@@ -106,6 +106,18 @@ describe("Workflow inline mode E2E", () => {
     // Run workflow
     const result = await ralphCommand!.execute("Build feature", context);
 
+    const workflowPhases = result.workflowPhases ?? [];
+    expect(workflowPhases.length).toBeGreaterThan(0);
+    expect(workflowPhases.some((phase) => phase.phaseName === "Task Decomposition")).toBe(true);
+    expect(workflowPhases.some((phase) => phase.phaseName === "Implementation")).toBe(true);
+    expect(workflowPhases.some((phase) => phase.phaseName === "Code Review")).toBe(true);
+    expect(workflowPhases.some((phase) => phase.message.startsWith("[Workflow]"))).toBe(true);
+    expect(workflowPhases.every((phase) => phase.status === "completed")).toBe(true);
+    const eventTypes = workflowPhases.flatMap((phase) => phase.events.map((event) => event.type));
+    expect(eventTypes).toContain("text");
+    expect(eventTypes).toContain("agent_spawn");
+    expect(eventTypes).toContain("agent_complete");
+
     // Assert: updateWorkflowState was called with workflowActive: true at some point
     const hasWorkflowActive = workflowStateUpdates.some(
       (update) => update.workflowActive === true,

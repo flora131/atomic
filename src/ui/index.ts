@@ -1097,16 +1097,27 @@ export async function startChatUI(
       // Check if an eager agent was already created from tool.start.
       // If so, update it in-place with the real subagentId instead of
       // creating a duplicate entry.
-      const eagerToolId = pendingTaskEntry?.toolId;
-      const hasEagerAgent = eagerToolId
+      // Fall back to correlatedToolId when pendingTaskEntry was already
+      // consumed by a prior merge, and also check taskToolCallId for
+      // agents whose id was already changed by a previous merge.
+      const eagerToolId = pendingTaskEntry?.toolId ?? correlatedToolId;
+      let hasEagerAgent = eagerToolId
         ? state.parallelAgents.some(a => a.id === eagerToolId)
         : false;
+      let eagerMatchField: "id" | "taskToolCallId" = "id";
+      if (!hasEagerAgent && eagerToolId) {
+        hasEagerAgent = state.parallelAgents.some(a => a.taskToolCallId === eagerToolId);
+        if (hasEagerAgent) eagerMatchField = "taskToolCallId";
+      }
 
       if (hasEagerAgent && eagerToolId) {
         // Merge: update existing eager agent with real subagentId.
         // Preserve background status and other fields from the eager agent.
+        const matchFn = eagerMatchField === "id"
+          ? (a: ParallelAgent) => a.id === eagerToolId
+          : (a: ParallelAgent) => a.taskToolCallId === eagerToolId;
         state.parallelAgents = state.parallelAgents.map(a =>
-          a.id === eagerToolId
+          matchFn(a)
             ? {
                 ...a,
                 id: data.subagentId!,
@@ -1139,7 +1150,7 @@ export async function startChatUI(
         // Use stored background status from pendingTaskEntry
         const newAgent: ParallelAgent = {
           id: data.subagentId,
-          taskToolCallId: pendingTaskEntry?.toolId,
+          taskToolCallId: pendingTaskEntry?.toolId ?? correlatedToolId,
           name: agentTypeName,
           task,
           status: isBackground ? "background" : "running",

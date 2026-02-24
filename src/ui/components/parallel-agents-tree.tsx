@@ -72,6 +72,8 @@ export interface ParallelAgentsTreeProps {
   maxVisible?: number;
   /** Remove top margin (useful when the tree is the first element in a container) */
   noTopMargin?: boolean;
+  /** Render in background-agent mode (green header, "launched", background sub-status) */
+  background?: boolean;
 }
 
 // ============================================================================
@@ -181,6 +183,92 @@ export function getAgentTaskLabel(agent: Pick<ParallelAgent, "task" | "name">): 
   return isGenericSubagentTask(agent.task) ? agent.name : agent.task;
 }
 
+/**
+ * Status priority for deduplication: higher value wins.
+ */
+const STATUS_PRIORITY: Record<AgentStatus, number> = {
+  pending: 0,
+  running: 1,
+  background: 2,
+  completed: 3,
+  interrupted: 4,
+  error: 5,
+};
+
+/**
+ * Deduplicate agents that share the same `taskToolCallId`.
+ *
+ * When eager agent creation (at tool.start) and real agent creation
+ * (at subagent.start) fail to merge, two entries appear for one
+ * logical sub-agent. This function merges them into a single entry,
+ * taking the best data from each (task description, tool uses, status).
+ */
+export function deduplicateAgents(agents: ParallelAgent[]): ParallelAgent[] {
+  if (agents.length <= 1) return agents;
+
+  const byToolCallId = new Map<string, ParallelAgent[]>();
+  const ungrouped: ParallelAgent[] = [];
+
+  for (const agent of agents) {
+    if (agent.taskToolCallId) {
+      const group = byToolCallId.get(agent.taskToolCallId) ?? [];
+      group.push(agent);
+      byToolCallId.set(agent.taskToolCallId, group);
+    } else {
+      ungrouped.push(agent);
+    }
+  }
+
+  let anyMerged = false;
+  const merged: ParallelAgent[] = [];
+
+  for (const group of byToolCallId.values()) {
+    if (group.length === 1) {
+      merged.push(group[0]!);
+      continue;
+    }
+
+    anyMerged = true;
+    // Merge all entries in the group into one
+    let best = group[0]!;
+    for (let i = 1; i < group.length; i++) {
+      const other = group[i]!;
+      best = mergeAgentPair(best, other);
+    }
+    merged.push(best);
+  }
+
+  if (!anyMerged) return agents;
+  return [...merged, ...ungrouped];
+}
+
+function mergeAgentPair(a: ParallelAgent, b: ParallelAgent): ParallelAgent {
+  // Prefer the entry with a real task description
+  const aHasTask = !isGenericSubagentTask(a.task);
+  const bHasTask = !isGenericSubagentTask(b.task);
+  const primary = bHasTask && !aHasTask ? b : a;
+  const secondary = primary === a ? b : a;
+
+  // Take the higher-priority status
+  const statusA = STATUS_PRIORITY[a.status] ?? 0;
+  const statusB = STATUS_PRIORITY[b.status] ?? 0;
+  const statusWinner = statusB > statusA ? b : a;
+
+  return {
+    ...primary,
+    // Use the real subagentId if available (non-toolId format)
+    id: primary.id.startsWith("tool_") ? secondary.id : primary.id,
+    task: aHasTask ? a.task : bHasTask ? b.task : primary.task,
+    status: statusWinner.status,
+    toolUses: Math.max(a.toolUses ?? 0, b.toolUses ?? 0) || undefined,
+    currentTool: a.currentTool ?? b.currentTool,
+    result: a.result ?? b.result,
+    error: a.error ?? b.error,
+    durationMs: a.durationMs ?? b.durationMs,
+    tokens: Math.max(a.tokens ?? 0, b.tokens ?? 0) || undefined,
+  };
+}
+
 export function buildAgentHeaderLabel(count: number, dominantType: string): string {
   const normalized = dominantType.trim();
   const lower = normalized.toLowerCase();
@@ -215,9 +303,11 @@ export function getSubStatusText(agent: ParallelAgent): string | null {
     return agent.currentTool;
   }
   switch (agent.status) {
+    case "background":
+      return "Running in the background (↓ to manage)";
     case "running":
     case "pending":
-      return "Initializing...";
+      return "Initializing…";
     case "completed":
       return "Done";
     case "error":
@@ -271,6 +361,43 @@ function formatTokens(tokens: number | undefined): string {
     return `${(tokens / 1000).toFixed(1)}k tokens`;
   }
   return `${tokens} tokens`;
+}
+
+/**
+ * Props for AgentRow component.
+ */
+interface BackgroundAgentRowProps {
+  agent: ParallelAgent;
+  isLast: boolean;
+  themeColors: ThemeColors;
+}
+
+/**
+ * Agent row for background-mode tree.
+ * Shows task name and "Running in the background" sub-status without metrics or status dots.
+ */
+function BackgroundAgentRow({ agent, isLast, themeColors }: BackgroundAgentRowProps): React.ReactNode {
+  const treeChar = isLast ? TREE.lastBranch : TREE.branch;
+  const continuationPrefix = isLast ? TREE.space : TREE.vertical;
+  const subStatus = getSubStatusText(agent);
+
+  return (
+    <box flexDirection="column">
+      <box flexDirection="row">
+        <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
+        <text style={{ fg: themeColors.foreground, attributes: 1 }}>
+          {getAgentTaskLabel(agent)}
+        </text>
+      </box>
+      {subStatus && (
+        <box flexDirection="row">
+          <text style={{ fg: themeColors.muted }}>
+            {continuationPrefix}{SUB_STATUS_PAD}{CONNECTOR.subStatus}  {subStatus}
+          </text>
+        </box>
+      )}
+    </box>
+  );
 }
 
 /**
@@ -482,6 +609,7 @@ export function ParallelAgentsTree({
   compact = false,
   maxVisible = 5,
   noTopMargin = false,
+  background = false,
 }: ParallelAgentsTreeProps): React.ReactNode {
   const { theme } = useTheme();
 
@@ -490,8 +618,11 @@ export function ParallelAgentsTree({
     return null;
   }
 
+  // Deduplicate agents that share the same taskToolCallId (eager + real entries)
+  const dedupedAgents = deduplicateAgents(agents);
+
   // Sort agents: running first, then pending, then completed, then error
-  const sortedAgents = [...agents].sort((a, b) => {
+  const sortedAgents = [...dedupedAgents].sort((a, b) => {
     const order: Record<AgentStatus, number> = {
       running: 0,
       pending: 1,
@@ -508,12 +639,13 @@ export function ParallelAgentsTree({
   const hiddenCount = sortedAgents.length - visibleAgents.length;
 
   // Count agents by status
-  const runningCount = agents.filter(a => a.status === "running" || a.status === "background").length;
-  const completedCount = agents.filter(a => a.status === "completed").length;
-  const pendingCount = agents.filter(a => a.status === "pending").length;
+  const backgroundCount = dedupedAgents.filter(a => a.status === "background" || a.background === true).length;
+  const runningCount = dedupedAgents.filter(a => a.status === "running" || a.status === "background").length;
+  const completedCount = dedupedAgents.filter(a => a.status === "completed").length;
+  const pendingCount = dedupedAgents.filter(a => a.status === "pending").length;
 
   // Get the dominant agent type for the header
-  const agentTypes = [...new Set(agents.map(a => a.name))];
+  const agentTypes = [...new Set(dedupedAgents.map(a => a.name))];
   const dominantType = agentTypes.length === 1 ? (agentTypes[0] ?? "agents") : "agents";
 
   // Theme colors
@@ -532,6 +664,47 @@ export function ParallelAgentsTree({
   // Count interrupted agents
   const interruptedCount = agents.filter(a => a.status === "interrupted").length;
 
+  // Background mode: green dot header with "N Task agents launched"
+  if (background) {
+    const bgHeaderColor = themeColors.success;
+    const bgHeaderText = `${agents.length} ${dominantType === "agents" ? "Task" : dominantType} agent${agents.length !== 1 ? "s" : ""} launched`;
+    const bgHeaderHint = buildParallelAgentsHeaderHint(agents, false);
+
+    return (
+      <box
+        flexDirection="column"
+        paddingLeft={SPACING.CONTAINER_PAD}
+        marginTop={noTopMargin ? SPACING.NONE : SPACING.ELEMENT}
+      >
+        {/* Background header */}
+        <box flexDirection="row">
+          <text style={{ fg: bgHeaderColor }}>●</text>
+          <text style={{ fg: themeColors.foreground }}> {bgHeaderText}</text>
+          {bgHeaderHint && <text style={{ fg: themeColors.muted }}> ({bgHeaderHint})</text>}
+        </box>
+
+        {/* Background agent tree */}
+        {visibleAgents.map((agent, index) => (
+          <BackgroundAgentRow
+            key={agent.id}
+            agent={agent}
+            isLast={index === visibleAgents.length - 1 && hiddenCount === 0}
+            themeColors={themeColors}
+          />
+        ))}
+
+        {/* Hidden count indicator */}
+        {hiddenCount > 0 && (
+          <box flexDirection="row">
+            <text style={{ fg: themeColors.muted }}>
+              {TREE.lastBranch} ...and {hiddenCount} more
+            </text>
+          </box>
+        )}
+      </box>
+    );
+  }
+
   // Build header text - Claude Code style: "● Running N {Type} agents…"
   const headerIcon = runningCount > 0 ? "●" : completedCount > 0 ? "●" : "○";
   const headerColor = runningCount > 0
@@ -547,7 +720,7 @@ export function ParallelAgentsTree({
       ? `${buildAgentHeaderLabel(completedCount, dominantType)} finished`
       : `${buildAgentHeaderLabel(pendingCount, dominantType)} pending`;
 
-  const headerHint = buildParallelAgentsHeaderHint(agents, runningCount === 0);
+  const headerHint = buildParallelAgentsHeaderHint(dedupedAgents, runningCount === 0);
 
   return (
     <box

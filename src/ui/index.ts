@@ -1033,6 +1033,7 @@ export async function startChatUI(
         toolInput?: unknown;
         toolUseID?: string; // Claude: parent Task tool's use ID
         toolCallId?: string; // Copilot: same as subagentId
+        subagentSessionId?: string; // OpenCode: sub-agent's own session ID
       };
 
       // Skip if stream already ended — late events should not revive cleared agents
@@ -1164,6 +1165,13 @@ export async function startChatUI(
       }
       state.parallelAgentHandler(state.parallelAgents);
       agentIdToRunMap.set(data.subagentId, activeRunId);
+
+      // Register sub-agent session ID so subsequent tool events from the
+      // sub-agent pass the eventBelongsToOwnedSession check (OpenCode SDK
+      // emits sub-agent tool events with the sub-agent's own session ID).
+      if (data.subagentSessionId) {
+        state.ownedSessionIds.add(data.subagentSessionId);
+      }
 
       // Build correlation mapping: SDK-level ID → agentId
       // This allows tool.complete to attribute results to the correct agent.

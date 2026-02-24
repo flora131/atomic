@@ -35,6 +35,17 @@ export function hasActiveForegroundTreeAgents(
   );
 }
 
+export type AgentTreeDisplayMode = "foreground" | "background" | "mixed";
+
+export function getAgentTreeDisplayMode(
+  foregroundAgents: readonly ParallelAgent[],
+  backgroundAgents: readonly ParallelAgent[],
+): AgentTreeDisplayMode {
+  if (foregroundAgents.length === 0) return "background";
+  if (backgroundAgents.length === 0) return "foreground";
+  return "mixed";
+}
+
 export function AgentPartDisplay({ part }: AgentPartDisplayProps): React.ReactNode {
   // Deduplicate before splitting so eager+real entries merge and
   // the `background` flag is preserved on the winner.
@@ -44,14 +55,14 @@ export function AgentPartDisplay({ part }: AgentPartDisplayProps): React.ReactNo
     return null;
   }
 
-  // If any agent is background, show only the background "launched" tree;
-  // otherwise show the foreground "Running …" tree.
-  const isBackground = allAgents.some((agent) => isBackgroundAgent(agent));
+  const foregroundAgents = getForegroundTreeAgents(allAgents);
+  const backgroundAgents = getBackgroundTreeAgents(allAgents);
+  const displayMode = getAgentTreeDisplayMode(foregroundAgents, backgroundAgents);
 
-  if (isBackground) {
+  if (displayMode === "background") {
     return (
       <ParallelAgentsTree
-        agents={allAgents}
+        agents={backgroundAgents}
         background
         maxVisible={5}
         noTopMargin
@@ -59,11 +70,29 @@ export function AgentPartDisplay({ part }: AgentPartDisplayProps): React.ReactNo
     );
   }
 
-  const hasActiveAgents = hasActiveForegroundTreeAgents(allAgents);
+  const hasActiveAgents = hasActiveForegroundTreeAgents(foregroundAgents);
+
+  if (displayMode === "mixed") {
+    return (
+      <box flexDirection="column">
+        <ParallelAgentsTree
+          agents={foregroundAgents}
+          compact={!hasActiveAgents}
+          maxVisible={5}
+          noTopMargin
+        />
+        <ParallelAgentsTree
+          agents={backgroundAgents}
+          background
+          maxVisible={5}
+        />
+      </box>
+    );
+  }
 
   return (
     <ParallelAgentsTree
-      agents={allAgents}
+      agents={foregroundAgents}
       compact={!hasActiveAgents}
       maxVisible={5}
       noTopMargin

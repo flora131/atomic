@@ -495,6 +495,7 @@ export async function startChatUI(
     // ctrl+o transcript to avoid duplicate display.
     const subagentToolIds = new Set<string>();
     const useStableSdkToolIds = agentType === "opencode";
+    const subagentSessionToAgentId = new Map<string, string>();
 
     // Internal run ownership tracking for hook events.
     const toolIdToRunMap = new Map<string, number>();
@@ -536,6 +537,7 @@ export async function startChatUI(
       toolCallToAgentMap.clear();
       sdkToolIdMap.clear();
       subagentToolIds.clear();
+      subagentSessionToAgentId.clear();
       toolIdToRunMap.clear();
       sdkCorrelationToRunMap.clear();
       agentIdToRunMap.clear();
@@ -573,6 +575,7 @@ export async function startChatUI(
         toolUseId?: string;
         toolUseID?: string;
         toolCallId?: string;
+        parentId?: string; // Copilot: links tool to parent sub-agent
       };
       if (data.toolName) {
         state.telemetryTracker?.trackToolStart(data.toolName);
@@ -729,23 +732,58 @@ export async function startChatUI(
       // Propagate tool progress to running subagents in the parallel agents tree.
       // SDK events (subagent.start / subagent.complete) don't carry intermediate
       // tool-use updates, so we bridge that gap here by attributing each tool.start
-      // to the most recently started running subagent.
+      // to the correct running subagent.
+      //
+      // Priority order:
+      // 1. Use parentId (Copilot: parentToolCallId) to find the parent sub-agent
+      // 2. Use sub-agent session correlation (OpenCode: subagentSessionId/sessionID)
+      // 3. Fall back to most recently started active subagent (OpenCode/Claude)
       const isTaskTool = isTaskToolName;
       let isSubagentTool = false;
       if (!isTaskTool && state.parallelAgentHandler && state.parallelAgents.length > 0) {
-        const runningAgent = [...state.parallelAgents]
-          .reverse()
-          .find((a) => a.status === "running");
+        const isAttributionCandidate = (agent: ParallelAgent): boolean =>
+          agent.status === "running" || agent.status === "pending" || isBackgroundAgent(agent);
+        let runningAgent: ParallelAgent | undefined;
+
+        // Try to find the parent sub-agent using parentId
+        if (data.parentId) {
+          // parentId could match the subagentId directly, or a taskToolCallId
+          runningAgent = state.parallelAgents.find(
+            (a) => isAttributionCandidate(a)
+              && (a.id === data.parentId || a.taskToolCallId === data.parentId)
+          );
+        }
+
+        // OpenCode sub-agent tool events run on the sub-agent session ID.
+        // Correlate sessionID -> agent id when parent IDs are unavailable.
+        if (!runningAgent) {
+          const correlatedAgentId = subagentSessionToAgentId.get(event.sessionId);
+          if (correlatedAgentId) {
+            runningAgent = state.parallelAgents.find(
+              (a) => isAttributionCandidate(a) && a.id === correlatedAgentId
+            );
+          }
+        }
+
+        // Fallback to most recently started active subagent (for OpenCode/Claude)
+        if (!runningAgent) {
+          runningAgent = [...state.parallelAgents]
+            .reverse()
+            .find((a) => isAttributionCandidate(a));
+        }
+
         if (runningAgent) {
           isSubagentTool = true;
           subagentToolIds.add(toolId);
-          const updatedToolUses = (runningAgent.toolUses ?? 0) + 1;
-          state.parallelAgents = state.parallelAgents.map((a) =>
-            a.id === runningAgent.id
-              ? { ...a, currentTool: data.toolName!, toolUses: updatedToolUses }
-              : a
-          );
-          state.parallelAgentHandler(state.parallelAgents);
+          if (!isBackgroundAgent(runningAgent)) {
+            const updatedToolUses = (runningAgent.toolUses ?? 0) + 1;
+            state.parallelAgents = state.parallelAgents.map((a) =>
+              a.id === runningAgent.id
+                ? { ...a, currentTool: data.toolName!, toolUses: updatedToolUses }
+                : a
+            );
+            state.parallelAgentHandler(state.parallelAgents);
+          }
         }
       }
 
@@ -763,7 +801,17 @@ export async function startChatUI(
 
     // Subscribe to tool.complete events
     const unsubComplete = client.on("tool.complete", (event) => {
-      const data = event.data as { toolName?: string; toolResult?: unknown; success?: boolean; error?: string; toolInput?: Record<string, unknown>; toolUseID?: string; toolCallId?: string; toolUseId?: string };
+      const data = event.data as { 
+        toolName?: string; 
+        toolResult?: unknown; 
+        success?: boolean; 
+        error?: string; 
+        toolInput?: Record<string, unknown>; 
+        toolUseID?: string; 
+        toolCallId?: string; 
+        toolUseId?: string;
+        parentId?: string; // Copilot: links tool to parent sub-agent
+      };
       if (data.toolName) {
         state.telemetryTracker?.trackToolComplete(data.toolName, data.success ?? true);
       }
@@ -1065,7 +1113,7 @@ export async function startChatUI(
           pendingTaskEntry = pendingTaskEntries.splice(entryIdx, 1)[0];
         }
       }
-      if (!pendingTaskEntry && !sdkCorrelationId) {
+      if (!pendingTaskEntry && (!sdkCorrelationId || !correlatedToolId)) {
         const firstActiveIdx = pendingTaskEntries.findIndex(
           (entry) => entry.runId === activeRunId
         );
@@ -1090,8 +1138,7 @@ export async function startChatUI(
       const task = data.task
         || pendingTaskEntry?.prompt
         || fallbackPrompt
-        || data.subagentType
-        || "Sub-agent";
+        || "Sub-agent task";
       const agentTypeName = (
         data.subagentType
         ?? (fallbackInput?.subagent_type as string | undefined)
@@ -1180,6 +1227,7 @@ export async function startChatUI(
       // emits sub-agent tool events with the sub-agent's own session ID).
       if (data.subagentSessionId) {
         state.ownedSessionIds.add(data.subagentSessionId);
+        subagentSessionToAgentId.set(data.subagentSessionId, data.subagentId);
       }
 
       // Build correlation mapping: SDK-level ID → agentId
@@ -1250,6 +1298,11 @@ export async function startChatUI(
         for (const [correlationId, mappedAgentId] of toolCallToAgentMap) {
           if (mappedAgentId === data.subagentId) {
             toolCallToAgentMap.delete(correlationId);
+          }
+        }
+        for (const [sessionId, mappedAgentId] of subagentSessionToAgentId) {
+          if (mappedAgentId === data.subagentId) {
+            subagentSessionToAgentId.delete(sessionId);
           }
         }
         tryFinalizeParallelTracking();

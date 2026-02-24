@@ -49,7 +49,7 @@ export interface BackgroundFooterContract {
 export const BACKGROUND_FOOTER_CONTRACT: BackgroundFooterContract = {
   showWhenAgentCountAtLeast: 1,
   includeTerminateHint: true,
-  terminateHintText: "ctrl+f to kill agents",
+  terminateHintText: "ctrl+f to kill all background tasks",
   countFormat: "agents",
 };
 
@@ -68,7 +68,7 @@ export interface BackgroundTreeHintContract {
 
 /** Canonical tree hint contract instance used at runtime. */
 export const BACKGROUND_TREE_HINT_CONTRACT: BackgroundTreeHintContract = {
-  whenRunning: "background running · ctrl+f to kill agents",
+  whenRunning: "background running · ctrl+f to kill all background tasks",
   whenComplete: "background complete · ctrl+o to expand",
   defaultHint: "ctrl+o to expand",
 };

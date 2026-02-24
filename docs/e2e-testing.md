@@ -18,8 +18,10 @@ Tip: This guide is window-based. In `REMOTE` mode, `tmux-cli launch` creates a n
 
 2. **Set environment variables:**
 
+These env vars come from the parent session, not the `tmux-cli` session:
+
     ```bash
-    export ATOMIC_PROJECT_DIR=~/Documents/projects/atomic
+    export ATOMIC_PROJECT_DIR=$PWD
     ```
 
 3. **Create a screenshots directory:**
@@ -42,17 +44,44 @@ Tip: This guide is window-based. In `REMOTE` mode, `tmux-cli launch` creates a n
 
     - If it prints `MODE: REMOTE ...`, create windows with:
 
-      ```bash
-      tmux-cli launch "zsh"
-      ```
+        ```bash
+        tmux-cli launch "zsh"
+        ```
 
     - If it prints `MODE: LOCAL ...`, create windows with:
 
-      ```bash
-      tmux new-window -P -F '#S:#I.0' -n atomic-e2e "zsh"
-      ```
+        ```bash
+        tmux new-window -P -F '#S:#I.0' -n atomic-e2e "zsh"
+        ```
 
-      Use the returned pane target (for example, `dev:3.0`) as `WINDOW_ID` for all `tmux-cli send/capture/wait_idle/kill` commands.
+        Use the returned pane target (for example, `dev:3.0`) as `WINDOW_ID` for all `tmux-cli send/capture/wait_idle/kill` commands.
+
+6. **Initialize atomic-e2e project directory:**
+
+    ```bash
+    mkdir -p /tmp/snake_game/claude
+    mkdir -p /tmp/snake_game/opencode
+    mkdir -p /tmp/snake_game/copilot
+    ```
+
+    Note: when you first run the TUI, it will prompt you for configuration. Use `GitHub / Git` as the source control system and confirm with `Yes` to configure in the agent's directory (e.g., `/tmp/snake_game/claude`). This is required to enable source control tool calls that the agents rely on for file editing and creation. You only need to do this once per agent; the configuration will be saved for future runs in the same local folder:
+
+    ```
+    ┌  Atomic: Automated Procedures and Memory for AI Coding Agents
+    │
+    │  Enable multi-hour autonomous coding sessions with the Ralph Wiggum
+    │  Method using research, plan, implement methodology.
+    │
+    ●  Source control skills are not configured for Claude. Starting interactive setup...
+    │
+    ●  Configuring Claude Code...
+    │
+    ◇  Select your source control system:
+    │  GitHub / Git
+    │
+    ◇  Configure Claude Code source control skills in /tmp/snake_game/claude?
+    │  Yes
+    ```
 
 ---
 
@@ -162,19 +191,19 @@ The polling captures transient UI states (tool status transitions, spinner anima
 
 ### `tmux-cli` Command Reference
 
-| Command                                            | Description                                                    |
-| -------------------------------------------------- | -------------------------------------------------------------- |
-| `tmux-cli launch "cmd"`                            | Launches in a new window when `MODE: REMOTE`. **Always launch `zsh` first.** |
-| `tmux new-window -P -F '#S:#I.0' -n name "cmd"`   | Creates a new window when `MODE: LOCAL`; use the returned `session:window.pane` as `WINDOW_ID`. |
-| `tmux-cli send "text" --pane=ID`                   | Send text + Enter to a window's main pane                      |
-| `tmux-cli send "text" --pane=ID --enter=False`     | Send text without pressing Enter                               |
-| `tmux-cli send "text" --pane=ID --delay-enter=0.5` | Custom delay before Enter (seconds)                            |
-| `tmux-cli capture --pane=ID`                       | Capture output from a window's main pane                       |
-| `tmux-cli wait_idle --pane=ID --idle-time=3.0`     | Wait until output is idle for N seconds                        |
-| `tmux-cli status`                                  | Show current tmux location and targets                         |
-| `tmux-cli list_windows`                            | List windows in the managed remote session                     |
-| `tmux-cli kill --pane=ID`                          | Kill a window by targeting its `WINDOW_ID`                     |
-| `tmux-cli help`                                    | Show full help documentation                                   |
+| Command                                            | Description                                                                                     |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `tmux-cli launch "[cmd]"`                          | Launches in a new window when `MODE: REMOTE`. **Always launch `zsh` first.**                    |
+| `tmux new-window -P -F '#S:#I.0' -n name "[cmd]"`  | Creates a new window when `MODE: LOCAL`; use the returned `session:window.pane` as `WINDOW_ID`. |
+| `tmux-cli send "text" --pane=ID`                   | Send text + Enter to a window's main pane                                                       |
+| `tmux-cli send "text" --pane=ID --enter=False`     | Send text without pressing Enter                                                                |
+| `tmux-cli send "text" --pane=ID --delay-enter=0.5` | Custom delay before Enter (seconds)                                                             |
+| `tmux-cli capture --pane=ID`                       | Capture output from a window's main pane                                                        |
+| `tmux-cli wait_idle --pane=ID --idle-time=3.0`     | Wait until output is idle for N seconds                                                         |
+| `tmux-cli status`                                  | Show current tmux location and targets                                                          |
+| `tmux-cli list_windows`                            | List windows in the managed remote session                                                      |
+| `tmux-cli kill --pane=ID`                          | Kill a window by targeting its `WINDOW_ID`                                                      |
+| `tmux-cli help`                                    | Show full help documentation                                                                    |
 
 ### When You Find a Bug
 
@@ -348,7 +377,7 @@ tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGEN
 
 #### 3.3 — Message Queuing (Cmd/Ctrl+Shift+Enter)
 
-While the agent is still streaming from the previous step (or send a new long prompt), test message queuing:
+While the agent is still streaming from the previous step (or send a new long prompt), test message queuing. The queue enqueue shortcut is **Cmd+Shift+Enter** on macOS and **Ctrl+Shift+Enter** on Linux/Windows.
 
 ```bash
 POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 10-message-queue)
@@ -356,13 +385,21 @@ POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 10-message-queue)
 # Send a prompt that will trigger a long response
 tmux-cli send "Add a high score system that persists to a file called highscores.txt, and add a pause feature with the P key." --pane=<WINDOW_ID>
 
-# Immediately queue a follow-up message
-# - macOS: Cmd+Shift+Enter (typically \x1b[13;10u in modifyOtherKeys terminals)
-# - Linux/Windows: Ctrl+Shift+Enter (typically \x1b[13;6u)
+# Wait for streaming to start, then type a follow-up and enqueue it
+# Ctrl+Shift+Enter escape sequence: \x1b[13;6u (Linux/Windows)
+# Cmd+Shift+Enter escape sequence: \x1b[13;10u (macOS)
 sleep 2
+tmux-cli send "Also add a speed increase every 5 points to make the game progressively harder." --pane=<WINDOW_ID> --enter=False
+sleep 0.3
 tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
-sleep 0.5
-tmux-cli send "Also add a speed increase every 5 points to make the game progressively harder." --pane=<WINDOW_ID>
+
+# Capture while streaming to verify queue indicator
+sleep 2
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-10-message-queue-during-stream.txt
+
+# Queue a second message
+tmux-cli send "And add a game-over animation when the snake dies." --pane=<WINDOW_ID> --enter=False
+sleep 0.3
 tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
 
 tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=15.0
@@ -372,9 +409,60 @@ tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGEN
 
 **Verify:**
 
-- Queue indicator appears in footer (e.g., "1 queued")
-- Input placeholder changes to streaming mode text
-- Queued message processes automatically after the first response completes
+- **Queue indicator** appears above the chatbox showing queue icon, count text ("1 message queued" / "2 messages queued"), and a preview of the first queued message
+- **Footer during streaming** shows: `esc to interrupt · ctrl+shift+enter enqueue`
+- **Chatbox placeholder** changes to `"Type a message (enter to interrupt, ctrl+shift+enter to enqueue)..."` while streaming
+- **Auto-dispatch**: After the first response completes, the next queued message is automatically dispatched (50ms delay) without user intervention
+- **Sequential processing**: All queued messages process one-by-one in FIFO order
+
+#### 3.3.1 — Queue Editing (Up/Down Arrows)
+
+After queuing messages, test editing them before they dispatch:
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 10b-queue-edit)
+
+# Send a long prompt to start streaming
+tmux-cli send "Write unit tests for every function in the snake game module." --pane=<WINDOW_ID>
+sleep 2
+
+# Queue two messages
+tmux-cli send "Fix any compilation warnings." --pane=<WINDOW_ID> --enter=False
+sleep 0.3
+tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
+tmux-cli send "Run cargo clippy." --pane=<WINDOW_ID> --enter=False
+sleep 0.3
+tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
+
+# Wait for streaming to complete so we can edit the queue
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
+
+# Press Up arrow to enter queue edit mode (loads last queued message into textarea)
+tmux-cli send $'\x1b[A' --pane=<WINDOW_ID> --enter=False
+sleep 1
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-10b-queue-edit-last.txt
+
+# Press Up again to navigate to the previous queued message
+tmux-cli send $'\x1b[A' --pane=<WINDOW_ID> --enter=False
+sleep 1
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-10b-queue-edit-first.txt
+
+# Press Down past last message to exit edit mode
+tmux-cli send $'\x1b[B\x1b[B' --pane=<WINDOW_ID> --enter=False
+sleep 1
+
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-10b-queue-edit-final.txt
+```
+
+**Verify:**
+
+- **Up arrow** with queued messages enters edit mode — last queued message content loads into textarea
+- **Queue indicator expands** to non-compact mode: shows numbered list of queued messages, currently editing message highlighted with `›` prefix and accent color
+- **Up/Down arrows** navigate between queued messages, auto-saving edits on navigation
+- **Down past last message** exits edit mode and clears the textarea
+- **Placeholder** shows `"Press ↑ to edit queued messages..."` when queue is non-empty and not streaming
 
 #### 3.4 — Build & Compile (Bash Tool Verification)
 
@@ -460,7 +548,7 @@ tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGEN
 
 ### Phase 5: Agent & Skill Invocation
 
-#### 5.1 — Sub-Agent Invocation (`@agent`)
+#### 5.1 — Foreground Sub-Agent Invocation (`@agent`)
 
 ```bash
 POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 19-agent-debugger)
@@ -470,11 +558,98 @@ stop_polling $POLL_PID
 tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-19-agent-debugger-final.txt
 ```
 
+Spawn parallel sub-agents as well:
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 20-parallel-agents)
+tmux-cli send "@debugger run cargo check and fix any issues. @reviewer run cargo test and report results." --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=30.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-20-parallel-agents-final.txt
+```
+
 **Verify:**
 
 - Agent part renders with agent name and status
 - Parallel agent tree shows live status updates (pending → running → completed)
-- Sub-agent result displayed inline
+- Sub-agent state displayed inline in sub-agent tree:
+    - Tools and tool counts are streamed in the single agent case
+    - Tools and tool counts are streamed in ALL branches of parallel agent case
+- The parallel agent tree should look roughly like this during initialization:
+
+**Foreground Sub-agent Invocation**
+
+1. During initialization (no tool calls or streaming started)
+
+    ```
+    ● Running 2 agents…
+    ├─● Locate sub-agent message handling
+    │    ╰  Initializing codebase-locator… (2s)
+    └─● Find sub-agent text rendering code
+         ╰  Initializing codebase-pattern-finder… (5s)
+    ```
+
+2. During execution (tools and tool counts stream for each branch):
+
+    Here's how a correct UI looks during execution:
+
+    ```
+    ● Running 2 agents…
+    ├─● Locate sub-agent message handling
+    │    ╰ codebase-locator: (10 tool uses)
+    │      · rg
+    └─● Find sub-agent text rendering code
+         ╰ codebase-pattern-finder: (5 tool uses)
+           · ls
+    ```
+
+    Here's how an incorrect UI looks:
+
+    ```
+    ● Running 2 codebase-analyzer agents…
+    ├─● codebase-analyzer
+    · 39 tool uses
+    │    ╰  bash (2m 22s)
+    └─● codebase-analyzer
+    · 35 tool uses
+        ╰  view (2m 22s)
+    ```
+
+#### 5.1.1 — Background Sub-Agent Invocation
+
+Similar procedure for background agents, but verify the sub-agent tree renders **without** tool counts or streaming metadata:
+
+**Background Sub-agent Invocation**
+
+1. During initialization (no tool calls or streaming started)
+
+```
+● 2 Task agents launched…
+├─● Locate OpenCode SDK integration
+│    ╰  Running codebase-locator in background…
+└─● Analyze SDK tool display patterns
+      ╰  Running codebase-analyzer in background…
+```
+
+Background agent progress is shown via the footer status text below the chatbox:
+
+```
+
+[CHATBOX]
+[N] local agents · ctrl+f to kill all background tasks
+
+```
+
+When the chatbox is streaming AND background agents are running, the footer combines both:
+
+```
+
+[CHATBOX]
+esc to interrupt · ctrl+shift+enter enqueue · [N] local agents · ctrl+f to kill all background tasks
+
+```
+
+2. During execution: N/A, under the chatbox ui contains status and should be updated
 
 #### 5.2 — Skill Invocation (`/research-codebase`)
 
@@ -494,6 +669,10 @@ tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGEN
 
 ### Phase 6: HITL / Ask-Question Dialog
 
+The `ask_question` tool renders an **inline dialog** within the chat scrollbox (not a modal overlay). When the dialog is active, the chatbox textarea is hidden and replaced by the dialog.
+
+#### 6.1 — Basic ask_question
+
 ```bash
 POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 21-ask-question)
 tmux-cli send "I want to refactor the game. Should I split it into multiple files (game.rs, snake.rs, food.rs, renderer.rs) or keep it in a single file? Ask me which approach I prefer before proceeding." --pane=<WINDOW_ID>
@@ -506,10 +685,12 @@ If the ask_question dialog appears:
 
 ```bash
 POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 22-ask-answer)
-# Select an option (e.g., press 1 for first option)
+# Select an option with a number key (1-9 for model-provided options)
 tmux-cli send "1" --pane=<WINDOW_ID> --enter=False
-sleep 0.5
-tmux-cli send "" --pane=<WINDOW_ID>  # Enter to confirm
+sleep 1
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-22-ask-question-selected.txt
+
+# Wait for agent to continue with the selected choice
 tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=15.0
 stop_polling $POLL_PID
 tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-22-ask-question-answered-final.txt
@@ -517,10 +698,138 @@ tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGEN
 
 **Verify:**
 
-- Modal dialog renders with numbered options
-- Keyboard selection works (number keys, Up/Down arrows)
-- Response is captured and agent continues with the selected choice
-- HITL response rendered inline with the tool call
+- Dialog renders **inline** within the chat scrollbox with a header badge, question text, and numbered options
+- The chatbox textarea is **hidden** while the dialog is active
+- Number keys (1-9) directly select and submit a model-provided option (single-select mode)
+- Up/Down arrows navigate the option list with a highlighted cursor
+- Footer hint line shows: `Enter to select · ↑/↓ to navigate · Esc to cancel`
+- After answering, the HITL response is rendered inline with the tool call, and the agent continues
+
+#### 6.2 — ask_question Custom Input ("Type something" / "Chat about this")
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 22b-ask-custom-input)
+tmux-cli send "What color should the snake be? Ask me before changing anything." --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
+
+# Navigate to the "Type something." option (last model option + 1)
+# Use Down arrow to reach it, then Enter to activate custom input mode
+tmux-cli send $'\x1b[B\x1b[B\x1b[B\x1b[B\x1b[B\x1b[B\x1b[B\x1b[B\x1b[B' --pane=<WINDOW_ID> --enter=False
+sleep 0.5
+# Press Enter to activate custom input textarea
+tmux-cli send "" --pane=<WINDOW_ID>
+sleep 1
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-22b-custom-input-active.txt
+
+# Type custom text and submit
+tmux-cli send "Bright green with a darker green tail" --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=15.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-22b-custom-input-final.txt
+```
+
+**Verify:**
+
+- Every dialog includes two special options at the bottom: **"Type something."** and **"Chat about this"**
+- Selecting "Type something." opens a textarea within the dialog for freeform input
+- Selecting "Chat about this" also opens a textarea (with a different placeholder)
+- Pressing ESC while in the custom input textarea **exits the textarea back to the option list** (does not dismiss the dialog)
+- A second ESC press from the option list **dismisses the entire dialog**
+
+#### 6.3 — ask_question Dismissal with ESC
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 22c-ask-esc-dismiss)
+tmux-cli send "Ask me what difficulty level I want for the snake game before making any changes." --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-22c-ask-esc-dialog.txt
+
+# Dismiss the dialog with ESC
+tmux-cli send $'\x1b' --pane=<WINDOW_ID> --enter=False
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=5.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-22c-ask-esc-dismissed-final.txt
+```
+
+**Verify:**
+
+- ESC sends a **cancellation response** (`cancelled: true`, `responseMode: "declined"`) — not an empty string
+- The agent receives the cancellation and either stops or adjusts its behavior
+- The chatbox textarea **reappears** after the dialog is dismissed
+- The HITL tool call is marked as cancelled in the message
+
+#### 6.4 — ask_question with Queued Messages (Edge Case)
+
+This tests that queued messages **do not** auto-respond to an ask_question dialog. The queue is blocked while any ask_question tool is running.
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 22d-ask-with-queue)
+
+# Send a prompt that will trigger streaming
+tmux-cli send "Refactor the game rendering. Ask me whether to use double buffering or direct rendering before you start. Also add comments to all functions." --pane=<WINDOW_ID>
+sleep 2
+
+# Queue a follow-up message while streaming
+tmux-cli send "After refactoring, run cargo check to verify." --pane=<WINDOW_ID> --enter=False
+sleep 0.3
+tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
+
+# Wait for ask_question dialog to appear
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-22d-ask-with-queue-dialog.txt
+
+# Answer the dialog
+tmux-cli send "1" --pane=<WINDOW_ID> --enter=False
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=15.0
+
+# After the agent finishes, the queued message should auto-dispatch
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=15.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-22d-ask-with-queue-final.txt
+```
+
+**Verify:**
+
+- The queue indicator still shows the queued message count while the dialog is active
+- The queued message does **NOT** auto-respond to the ask_question dialog — the user must manually answer
+- Queue dispatch guard blocks: `!isStreaming && runningAskQuestionToolCount === 0` must both be true
+- After the dialog is answered and the agent completes its response, the queued message auto-dispatches
+
+#### 6.5 — ask_question with Text in Chatbox (Edge Case)
+
+This tests that text typed into the chatbox is **preserved** when an ask_question dialog fires.
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 22e-ask-with-chatbox-text)
+
+# Type something into the chatbox but DON'T submit
+tmux-cli send "This is my draft message" --pane=<WINDOW_ID> --enter=False
+sleep 1
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-22e-chatbox-with-text.txt
+
+# Now send a prompt that triggers ask_question (use a second terminal or queue)
+# For this test, submit a prompt that will trigger ask_question
+# First clear the draft by selecting all and deleting
+tmux-cli send $'\x01' --pane=<WINDOW_ID> --enter=False  # Ctrl+A select all
+tmux-cli send $'\x1b[3~' --pane=<WINDOW_ID> --enter=False  # Delete
+tmux-cli send "Ask me what board size I want for the snake game." --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-22e-ask-dialog-active.txt
+
+# Verify: chatbox textarea is hidden, replaced by the dialog
+# Answer the dialog
+tmux-cli send "1" --pane=<WINDOW_ID> --enter=False
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-22e-ask-with-chatbox-final.txt
+```
+
+**Verify:**
+
+- When `ask_question` fires, the chatbox textarea is **hidden** (not rendered) and replaced by the inline dialog
+- Any text in the textarea state is **preserved in memory** — the React state is not cleared
+- After the dialog is answered, the chatbox textarea **reappears** with the preserved text (if any was in state)
+- The dialog does **not** overlay the chatbox — it **replaces** it in the render tree
 
 ### Phase 7: Autocomplete
 
@@ -575,12 +884,14 @@ stop_polling $POLL_PID
 
 **Verify:** Task list panel toggles visibility. Shows tasks with checkboxes and status indicators.
 
-### Phase 9: Interrupt & Multi-line Input
+### Phase 9: Interruption, Cancellation & Exit
 
-#### 9.1 — Interrupt Streaming (Ctrl+C)
+#### 9.1 — Ctrl+C Interrupt + Follow-up Message
+
+Verify that after interrupting a stream with Ctrl+C, the chatbox returns to an input-ready state and a new message can be sent immediately.
 
 ```bash
-POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 26-interrupt)
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 26-interrupt-ctrlc)
 # Send a prompt that will generate a long response
 tmux-cli send "Write comprehensive documentation for every function in the snake game. Include parameter descriptions, return values, examples, and edge cases for each function." --pane=<WINDOW_ID>
 sleep 3
@@ -588,25 +899,163 @@ sleep 3
 # Interrupt with Ctrl+C
 tmux-cli send $'\x03' --pane=<WINDOW_ID> --enter=False
 tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=3.0
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-26-interrupt-ctrlc.txt
+
+# Immediately send a follow-up message to confirm cancellation was applied
+tmux-cli send "Just say hello." --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
 stop_polling $POLL_PID
-tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-26-interrupt-final.txt
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-26-interrupt-ctrlc-followup-final.txt
 ```
 
-**Verify:** Streaming stops. Interrupted tool shows `●` yellow indicator. Partial response preserved.
+**Verify:**
 
-#### 9.2 — Multi-line Input (Shift+Enter)
+- Streaming stops immediately when Ctrl+C is pressed
+- The interrupted message is preserved with `wasInterrupted: true` — partial response is visible
+- Tool calls in progress show interrupted status indicator
+- The chatbox textarea is **immediately** input-ready (no blocking state)
+- The follow-up message sends successfully, confirming the stream was fully cancelled
+- Background agents (if any) are **not** affected — only foreground agents are interrupted
+- A "Press Ctrl-C again to exit" warning briefly appears in the footer (1000ms timeout)
+
+#### 9.2 — ESC Interrupt + Follow-up Message
+
+ESC also interrupts streaming, but with key differences from Ctrl+C.
 
 ```bash
-POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 27-multiline)
-# Send multi-line input using Shift+Enter (sends newline without submitting)
-# Note: Shift+Enter may need to be sent as a literal newline without Enter
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 27-interrupt-esc)
+# Send a prompt that will generate a long response
+tmux-cli send "List all possible improvements to the snake game with detailed implementation plans for each one. Be extremely thorough." --pane=<WINDOW_ID>
+sleep 3
+
+# Interrupt with ESC
+tmux-cli send $'\x1b' --pane=<WINDOW_ID> --enter=False
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=3.0
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-27-interrupt-esc.txt
+
+# Send a follow-up message to confirm cancellation
+tmux-cli send "Just say hi." --pane=<WINDOW_ID>
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=10.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-27-interrupt-esc-followup-final.txt
+```
+
+**Verify:**
+
+- Streaming stops (same mechanism as Ctrl+C)
+- The chatbox is immediately input-ready
+- Follow-up message sends successfully
+- **Unlike Ctrl+C**: ESC does **not** show a "Press again to exit" warning
+- **Unlike Ctrl+C**: ESC does **not** support double-press exit — it always interrupts only
+- ESC first dismisses autocomplete or queue editing if either is active, then interrupts on the next press
+
+#### 9.3 — Ctrl+C Interrupt with Queued Messages
+
+Verify that the message queue is **preserved** on Ctrl+C interrupt and queued messages auto-dispatch after interruption.
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 28-interrupt-with-queue)
+
+# Send a long prompt
+tmux-cli send "Write a complete README.md for the snake game project with installation instructions, gameplay guide, and screenshots placeholder." --pane=<WINDOW_ID>
+sleep 2
+
+# Queue a follow-up message during streaming
+tmux-cli send "Also add a CHANGELOG.md file." --pane=<WINDOW_ID> --enter=False
+sleep 0.3
+tmux-cli send $'\x1b[13;6u' --pane=<WINDOW_ID> --enter=False
+sleep 1
+
+# Verify queue indicator shows "1 message queued"
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-28-interrupt-queue-during.txt
+
+# Interrupt with Ctrl+C
+tmux-cli send $'\x03' --pane=<WINDOW_ID> --enter=False
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=3.0
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-28-interrupt-queue-after-ctrlc.txt
+
+# The queued message should auto-dispatch after the interrupt
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=15.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-28-interrupt-queue-final.txt
+```
+
+**Verify:**
+
+- The queue is **NOT cleared** on Ctrl+C — `messageQueue.clear()` is never called in the interrupt handler
+- After the stream is interrupted, `continueQueuedConversation()` is called automatically
+- The next queued message auto-dispatches after a 50ms delay
+- The queued message's response streams normally as if it were a fresh user message
+
+#### 9.4 — Double Ctrl+C to Exit (Idle State)
+
+When not streaming, double Ctrl+C within 1000ms exits the TUI application.
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 29-double-ctrlc-exit)
+
+# First Ctrl+C — shows warning
+tmux-cli send $'\x03' --pane=<WINDOW_ID> --enter=False
+sleep 0.3
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-29-double-ctrlc-warning.txt
+
+# Second Ctrl+C within 1000ms — exits the application
+tmux-cli send $'\x03' --pane=<WINDOW_ID> --enter=False
+sleep 2
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-29-double-ctrlc-exited.txt
+```
+
+**Verify:**
+
+- First Ctrl+C shows `"Press Ctrl-C again to exit"` in the footer
+- The warning auto-clears after **1000ms** if a second press doesn't come
+- Second Ctrl+C within the 1000ms window triggers `onExit()` and the TUI process exits cleanly
+- If the second Ctrl+C comes **after** 1000ms, it is treated as a new first press (timer restarts)
+
+#### 9.5 — Double Ctrl+C to Exit Workflow
+
+During an active workflow (e.g., `/ralph`), double Ctrl+C terminates the workflow.
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 30-workflow-double-ctrlc)
+
+# Start a workflow
+tmux-cli send "/ralph Add a splash screen to the snake game." --pane=<WINDOW_ID>
+sleep 5
+
+# First Ctrl+C — interrupts current stream, workflow enters waitForUserInput
+tmux-cli send $'\x03' --pane=<WINDOW_ID> --enter=False
+sleep 1
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-30-workflow-first-ctrlc.txt
+
+# Second Ctrl+C — terminates the workflow entirely
+tmux-cli send $'\x03' --pane=<WINDOW_ID> --enter=False
+tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=5.0
+stop_polling $POLL_PID
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-30-workflow-double-ctrlc-final.txt
+```
+
+**Verify:**
+
+- First Ctrl+C during workflow: interrupts the stream, sets `wasInterrupted: true`, workflow pauses
+- Footer shows: `workflow · esc to interrupt · ctrl+shift+enter enqueue · ctrl+c twice to exit workflow`
+- Second Ctrl+C: sets `wasCancelled: true`, terminates the workflow, rejects `waitForUserInputResolver`
+- After termination, the chatbox returns to normal (non-workflow) mode
+- **Note**: ESC in a workflow only interrupts (single behavior) — it does **not** support double-press workflow termination
+
+#### 9.6 — Multi-line Input (Shift+Enter)
+
+```bash
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 31-multiline)
+# Send multi-line input using Shift+Enter (inserts newline without submitting)
 tmux-cli send "Add these features:" --pane=<WINDOW_ID> --enter=False
 tmux-cli send $'\x1b[13;2u' --pane=<WINDOW_ID> --enter=False  # Shift+Enter
 tmux-cli send "1. Color the snake green" --pane=<WINDOW_ID> --enter=False
 tmux-cli send $'\x1b[13;2u' --pane=<WINDOW_ID> --enter=False  # Shift+Enter
 tmux-cli send "2. Color the food red" --pane=<WINDOW_ID> --enter=False
 sleep 2
-tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-27-multiline-final.txt
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-31-multiline-final.txt
 
 # Submit with Enter
 tmux-cli send "" --pane=<WINDOW_ID>
@@ -614,16 +1063,16 @@ tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=15.0
 stop_polling $POLL_PID
 ```
 
-**Verify:** Input box expands to show multiple lines before submission.
+**Verify:** Input box expands to show multiple lines before submission. Shift+Enter inserts a newline without submitting.
 
 ### Phase 10: Workflow — `/ralph`
 
 ```bash
-POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 28-ralph)
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 32-ralph)
 tmux-cli send "/ralph Add a main menu screen with Play, High Scores, and Quit options. The menu should render in the terminal with arrow key navigation." --pane=<WINDOW_ID>
 tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=60.0
 stop_polling $POLL_PID
-tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-28-ralph-final.txt
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-32-ralph-final.txt
 ```
 
 **Verify:**
@@ -638,11 +1087,11 @@ tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGEN
 #### 11.1 — Verify the Game Builds
 
 ```bash
-POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 29-final-build)
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 33-final-build)
 tmux-cli send "Run cargo build --release and confirm the snake game compiles successfully." --pane=<WINDOW_ID>
 tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=20.0
 stop_polling $POLL_PID
-tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-29-final-build-final.txt
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-33-final-build-final.txt
 ```
 
 **Verify:** `cargo build --release` succeeds. Binary produced.
@@ -651,18 +1100,18 @@ tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGEN
 
 ```bash
 # Clear session
-POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 30-clear)
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 34-clear)
 tmux-cli send "/clear" --pane=<WINDOW_ID>
 tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=3.0
 stop_polling $POLL_PID
-tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-30-clear-final.txt
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-34-clear-final.txt
 
 # Exit
-POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 31-exit)
+POLL_PID=$(start_polling <WINDOW_ID> <AGENT> 35-exit)
 tmux-cli send "/exit" --pane=<WINDOW_ID>
 tmux-cli wait_idle --pane=<WINDOW_ID> --idle-time=3.0
 stop_polling $POLL_PID
-tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-31-exit-final.txt
+tmux-cli capture --pane=<WINDOW_ID> > $ATOMIC_PROJECT_DIR/tmux-screenshots/<AGENT>-35-exit-final.txt
 
 # Kill the window
 tmux-cli kill --pane=<WINDOW_ID>
@@ -689,15 +1138,21 @@ Every feature below MUST be verified during the test run. Check each one as you 
 
 ### Keyboard Shortcuts
 
-- [ ] `Ctrl+C` — interrupts streaming response
-- [ ] `Ctrl+C` twice — exits application
+- [ ] `Ctrl+C` — interrupts streaming response (foreground agents only, background agents preserved)
+- [ ] `Ctrl+C` + follow-up message — chatbox is immediately input-ready after interrupt
+- [ ] `Ctrl+C` twice (idle, within 1000ms) — exits application
+- [ ] `Ctrl+C` twice (workflow) — terminates workflow entirely
+- [ ] `Ctrl+C` with queued messages — queue is preserved and auto-dispatches after interrupt
+- [ ] `ESC` — interrupts streaming (same as Ctrl+C but no double-press exit support)
+- [ ] `ESC` + follow-up message — chatbox is immediately input-ready after interrupt
+- [ ] `ESC` — dismisses autocomplete or queue editing before interrupting stream
 - [ ] `Ctrl+O` — toggles verbose/compact transcript mode
 - [ ] `Ctrl+T` — toggles task list panel
+- [ ] `Ctrl+F` — double-press to terminate all background agents
 - [ ] `Cmd+Shift+Enter` (macOS) / `Ctrl+Shift+Enter` (Linux/Windows) — queues message during streaming
 - [ ] `Enter` — submits message
 - [ ] `Shift+Enter` — inserts newline (multi-line input)
-- [ ] `ESC` — dismisses dialogs/autocomplete
-- [ ] `Up/Down` arrows — scrolls messages or navigates history
+- [ ] `Up/Down` arrows — scrolls messages, navigates history, or edits queued messages
 - [ ] `PageUp/PageDown` — half-screen scroll
 - [ ] `Tab` — completes autocomplete suggestion
 
@@ -718,18 +1173,29 @@ Every feature below MUST be verified during the test run. Check each one as you 
 ### Message Queuing
 
 - [ ] `Cmd+Shift+Enter` (macOS) / `Ctrl+Shift+Enter` (Linux/Windows) enqueues message during streaming
-- [ ] Queue count shown in footer
-- [ ] Queued messages process sequentially after response
-- [ ] `Up/Down` arrows edit queued messages
+- [ ] Queue indicator appears above chatbox with icon, count, and first message preview
+- [ ] Queued messages process sequentially (FIFO) after response completes (50ms dispatch delay)
+- [ ] Queue is preserved on Ctrl+C interrupt — auto-dispatches after interruption
+- [ ] `Up/Down` arrows edit queued messages (loads content into textarea, auto-saves on navigation)
+- [ ] Queue indicator expands to non-compact mode during editing (shows numbered list)
+- [ ] Footer shows enqueue shortcut hint during streaming
+- [ ] Placeholder changes to `"Press ↑ to edit queued messages..."` when queue is non-empty and not streaming
 
 ### Ask-Question / HITL Dialog
 
-- [ ] Modal dialog renders with numbered options
-- [ ] Number keys select options (1-9, 0)
-- [ ] Up/Down navigates options
+- [ ] Inline dialog renders within chat scrollbox (not a modal overlay)
+- [ ] Chatbox textarea is hidden while dialog is active
+- [ ] Number keys (1-9) directly select and submit model-provided options (single-select)
+- [ ] Up/Down navigates options with highlighted cursor
 - [ ] Enter confirms selection
-- [ ] ESC dismisses dialog
-- [ ] Custom text input option works
+- [ ] "Type something." and "Chat about this" special options appear at bottom of every dialog
+- [ ] Custom input mode: selecting "Type something." opens textarea within dialog
+- [ ] ESC in custom input mode exits textarea back to option list (first ESC), then dismisses dialog (second ESC)
+- [ ] ESC on option list sends cancellation response (`cancelled: true`, `responseMode: "declined"`)
+- [ ] Multi-select mode uses Ctrl+Enter / Cmd+Enter to submit selected items
+- [ ] ask_question with queued messages: queue is blocked, does NOT auto-respond to dialog
+- [ ] ask_question with text in chatbox: text preserved in state, chatbox hidden during dialog
+- [ ] Queue resumes after ask_question completes: dispatch guard requires `runningAskQuestionToolCount === 0`
 
 ### Session Management
 
@@ -785,10 +1251,13 @@ Every feature below MUST be verified during the test run. Check each one as you 
 ### Footer Status Bar
 
 - [ ] Model ID displayed
-- [ ] Streaming indicator shown
+- [ ] Streaming footer shows: `esc to interrupt · ctrl+shift+enter enqueue`
+- [ ] Workflow footer shows: `workflow · esc to interrupt · ctrl+shift+enter enqueue · ctrl+c twice to exit workflow`
+- [ ] Background agents: `[N] local agents · ctrl+f to kill all background tasks`
 - [ ] Verbose/compact mode shown
-- [ ] Queue count displayed
+- [ ] Queue count displayed (in queue indicator above chatbox, not in footer)
 - [ ] Agent type displayed
+- [ ] "Press Ctrl-C again to exit" warning on first Ctrl+C when idle (clears after 1000ms)
 
 ---
 

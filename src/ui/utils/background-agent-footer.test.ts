@@ -132,7 +132,7 @@ describe("background agent footer helpers", () => {
   test("footer contract defines expected canonical values", () => {
     expect(BACKGROUND_FOOTER_CONTRACT.showWhenAgentCountAtLeast).toBe(1);
     expect(BACKGROUND_FOOTER_CONTRACT.includeTerminateHint).toBe(true);
-    expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f to kill agents");
+    expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f to kill all background tasks");
     expect(BACKGROUND_FOOTER_CONTRACT.countFormat).toBe("agents");
   });
 

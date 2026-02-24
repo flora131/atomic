@@ -600,10 +600,13 @@ export class CopilotClient implements CodingAgentClient {
           if (state && toolCallId && toolName) {
             state.toolCallIdToName.set(toolCallId, toolName);
           }
+          // Extract parentToolCallId to link tool calls to their parent sub-agent
+          const parentToolCallId = data.parentToolCallId as string | undefined;
           eventData = {
             toolName: toolName,
             toolInput: data.arguments,
             toolCallId,
+            parentId: parentToolCallId,
           };
           break;
         }
@@ -615,12 +618,15 @@ export class CopilotClient implements CodingAgentClient {
           state?.toolCallIdToName.delete(toolCallId);
           const resultData = data.result as Record<string, unknown> | undefined;
           const errorData = data.error as Record<string, unknown> | undefined;
+          // Extract parentToolCallId to link tool calls to their parent sub-agent
+          const parentToolCallId = data.parentToolCallId as string | undefined;
           eventData = {
             toolName,
             success: data.success,
             toolResult: resultData?.content,
             error: errorData?.message,
             toolCallId: data.toolCallId,
+            parentId: parentToolCallId,
           };
           break;
         }

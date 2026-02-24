@@ -34,10 +34,6 @@ export {
 } from "./task-status.ts";
 
 // Message window utilities
-export {
-  shouldCollapseMessage,
-} from "./message-window.ts";
-
 // Tool preview truncation utilities
 export {
   MAIN_CHAT_TOOL_PREVIEW_LIMITS,

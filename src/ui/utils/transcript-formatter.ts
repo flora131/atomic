@@ -197,21 +197,26 @@ export function formatTranscript(options: FormatTranscriptOptions): TranscriptLi
         lines.push(line("agent-header", headerText));
 
         for (const agent of agents) {
-          const taskText = truncateText(agent.task, 60);
-          const metricsParts: string[] = [];
-          if (agent.toolUses !== undefined) metricsParts.push(`${agent.toolUses} tool uses`);
-          if (agent.durationMs !== undefined) metricsParts.push(formatDuration(agent.durationMs));
-          const metrics = metricsParts.length > 0 ? ` · ${metricsParts.join(" · ")}` : "";
+          const taskText = truncateText(agent.task || agent.name, 60);
 
           const agentIcon = agent.status === "completed" ? STATUS.active : agent.status === "running" ? STATUS.active : STATUS.pending;
-          lines.push(line("agent-row", `${TREE.branch} ${agentIcon} ${taskText}${metrics}`));
+          lines.push(line("agent-row", `${TREE.branch}${agentIcon} ${taskText}`));
 
           // Sub-status
           if (agent.status === "completed") {
             const resultText = agent.result ? truncateText(agent.result, 60) : "Done";
-            lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${resultText}${metrics ? ` (${metricsParts.join(" · ")})` : ""}`));
-          } else if (agent.status === "running" && agent.currentTool) {
-            lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${truncateText(agent.currentTool, 50)}`));
+            lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${resultText}`));
+          } else if (agent.status === "running") {
+            if (agent.toolUses !== undefined && agent.toolUses > 0) {
+              lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${agent.name}: (${agent.toolUses} tool use${agent.toolUses !== 1 ? "s" : ""})`));
+              if (agent.currentTool) {
+                lines.push(line("agent-substatus", `${TREE.vertical}   · ${truncateText(agent.currentTool, 50)}`));
+              }
+            } else if (agent.currentTool) {
+              lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  Initializing ${agent.name}…`));
+            } else {
+              lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  Initializing ${agent.name}…`));
+            }
           } else if (agent.status === "error" && agent.error) {
             lines.push(line("agent-substatus", `${TREE.vertical} ${CONNECTOR.subStatus}  ${truncateText(agent.error, 60)}`));
           }

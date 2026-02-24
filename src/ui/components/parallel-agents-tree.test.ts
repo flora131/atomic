@@ -3,6 +3,7 @@ import {
   buildAgentHeaderLabel,
   deduplicateAgents,
   getAgentTaskLabel,
+  getBackgroundSubStatusText,
   getStatusIndicatorColor,
 } from "./parallel-agents-tree.tsx";
 import type { ParallelAgent } from "./parallel-agents-tree.tsx";
@@ -119,5 +120,47 @@ describe("deduplicateAgents", () => {
     const result = deduplicateAgents(agents);
     expect(result[0]!.result).toBe("All good");
     expect(result[0]!.error).toBe("Oops");
+  });
+});
+
+describe("getBackgroundSubStatusText", () => {
+  test("always returns background status text while active", () => {
+    const running: ParallelAgent = {
+      id: "bg-1",
+      name: "codebase-locator",
+      task: "Locate APIs",
+      status: "background",
+      background: true,
+      startedAt: "2026-01-01T00:00:00.000Z",
+      currentTool: "rg",
+      toolUses: 12,
+    };
+    expect(getBackgroundSubStatusText(running)).toBe("Running codebase-locator in background…");
+  });
+
+  test("returns terminal status text for completed, error, interrupted", () => {
+    const completed: ParallelAgent = {
+      id: "bg-2",
+      name: "debugger",
+      task: "Investigate",
+      status: "completed",
+      background: true,
+      startedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const errored: ParallelAgent = {
+      ...completed,
+      id: "bg-3",
+      status: "error",
+      error: "Failed",
+    };
+    const interrupted: ParallelAgent = {
+      ...completed,
+      id: "bg-4",
+      status: "interrupted",
+    };
+
+    expect(getBackgroundSubStatusText(completed)).toBe("Done");
+    expect(getBackgroundSubStatusText(errored)).toBe("Failed");
+    expect(getBackgroundSubStatusText(interrupted)).toBe("Interrupted");
   });
 });

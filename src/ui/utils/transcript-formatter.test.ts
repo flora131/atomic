@@ -648,8 +648,6 @@ describe("formatTranscript - Parallel Agents", () => {
     expect(rowLine).toBeDefined();
     expect(rowLine!.type).toBe("agent-row");
     expect(rowLine!.content).toContain("Searching for files");
-    expect(rowLine!.content).toContain("10 tool uses");
-    expect(rowLine!.content).toContain("5s");
   });
 
   test("renders agent-substatus with result text for completed agents", () => {
@@ -688,6 +686,7 @@ describe("formatTranscript - Parallel Agents", () => {
         status: "running",
         startedAt: new Date().toISOString(),
         currentTool: "Bash: Finding files...",
+        toolUses: 3,
       },
     ];
     const msg: ChatMessage = {
@@ -700,10 +699,10 @@ describe("formatTranscript - Parallel Agents", () => {
 
     const lines = formatTranscript({ messages: [msg], isStreaming: false });
 
-    const substatusLine = findFirstLineByType(lines, "agent-substatus");
-    expect(substatusLine).toBeDefined();
-    expect(substatusLine!.type).toBe("agent-substatus");
-    expect(substatusLine!.content).toContain("Bash: Finding files...");
+    const substatusLines = lines.filter(l => l.type === "agent-substatus");
+    expect(substatusLines.length).toBeGreaterThanOrEqual(1);
+    expect(substatusLines[0]!.content).toContain("Explore: (3 tool uses)");
+    expect(substatusLines[1]!.content).toContain("Bash: Finding files...");
   });
 
   test("renders agent-substatus with error message for errored agents", () => {

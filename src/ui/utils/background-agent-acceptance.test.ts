@@ -46,9 +46,9 @@ function createAgent(overrides: Partial<ParallelAgent>): ParallelAgent {
 describe("Issue #258 acceptance: background agent UX behavior", () => {
   
   describe("Acceptance: Footer behavior", () => {
-    test("footer shows terminate hint matching 'ctrl+f to kill agents'", () => {
+    test("footer shows terminate hint matching 'ctrl+f to kill all background tasks'", () => {
       // This is the exact text shown in the footer per issue #258
-      expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f to kill agents");
+      expect(BACKGROUND_FOOTER_CONTRACT.terminateHintText).toBe("ctrl+f to kill all background tasks");
     });
     
     test("footer becomes visible with 1+ active agents", () => {
@@ -139,9 +139,9 @@ describe("Issue #258 acceptance: background agent UX behavior", () => {
   });
   
   describe("Acceptance: Tree hint behavior", () => {
-    test("running agents hint contains 'background running' and 'ctrl+f to kill agents'", () => {
+    test("running agents hint contains 'background running' and 'ctrl+f to kill all background tasks'", () => {
       // Exact wording for running state hint per issue #258
-      expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toBe("background running · ctrl+f to kill agents");
+      expect(BACKGROUND_TREE_HINT_CONTRACT.whenRunning).toBe("background running · ctrl+f to kill all background tasks");
     });
     
     test("completed agents hint contains 'background complete' and 'ctrl+o to expand'", () => {

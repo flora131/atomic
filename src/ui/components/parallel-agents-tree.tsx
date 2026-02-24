@@ -10,8 +10,7 @@
 import React from "react";
 import { useTheme, getCatppuccinPalette } from "../theme.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "../utils/format.ts";
-import { buildParallelAgentsHeaderHint } from "../utils/background-agent-tree-hints.ts";
-import { STATUS, TREE, CONNECTOR } from "../constants/icons.ts";
+import { STATUS, TREE, CONNECTOR, MISC } from "../constants/icons.ts";
 import { SPACING } from "../constants/spacing.ts";
 
 // Re-export for backward compatibility
@@ -320,6 +319,13 @@ export function getSubStatusText(agent: ParallelAgent): string | null {
   }
 }
 
+export function getBackgroundSubStatusText(agent: ParallelAgent): string {
+  if (agent.status === "completed") return "Done";
+  if (agent.status === "error") return agent.error ?? "Error";
+  if (agent.status === "interrupted") return "Interrupted";
+  return `Running ${agent.name} in background…`;
+}
+
 // ============================================================================
 // CLAUDE CODE COLOR CONSTANTS (ANSI 256 compatible)
 // ============================================================================
@@ -354,17 +360,6 @@ interface AgentRowProps {
 }
 
 /**
- * Format token count with k suffix.
- */
-function formatTokens(tokens: number | undefined): string {
-  if (tokens === undefined) return "";
-  if (tokens >= 1000) {
-    return `${(tokens / 1000).toFixed(1)}k tokens`;
-  }
-  return `${tokens} tokens`;
-}
-
-/**
  * Props for AgentRow component.
  */
 interface BackgroundAgentRowProps {
@@ -375,19 +370,22 @@ interface BackgroundAgentRowProps {
 
 /**
  * Agent row for background-mode tree.
- * Shows task name and "Running in the background" sub-status without metrics or status dots.
+ * Shows task name with ● indicator and "Running in the background" sub-status.
  */
 function BackgroundAgentRow({ agent, isLast, themeColors }: BackgroundAgentRowProps): React.ReactNode {
   const treeChar = isLast ? TREE.lastBranch : TREE.branch;
   const continuationPrefix = isLast ? TREE.space : TREE.vertical;
-  const subStatus = getSubStatusText(agent);
+  const subStatus = getBackgroundSubStatusText(agent);
 
   return (
     <box flexDirection="column">
       <box flexDirection="row">
-        <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
+        <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar}</text></box>
+        <box flexShrink={0}>
+          <text style={{ fg: themeColors.success }}>●</text>
+        </box>
         <text style={{ fg: themeColors.foreground, attributes: 1 }}>
-          {getAgentTaskLabel(agent)}
+          {" "}{getAgentTaskLabel(agent)}
         </text>
       </box>
       {subStatus && (
@@ -403,177 +401,70 @@ function BackgroundAgentRow({ agent, isLast, themeColors }: BackgroundAgentRowPr
 
 /**
  * Single agent row in the tree view.
- * Follows Claude Code's parallel agent display style.
+ *
+ * Layout:
+ *   ├─● {task}
+ *   │    ╰  {agent-name}: ({N} tool uses)   — during execution
+ *   │      · {currentTool}                   — active tool on separate line
+ *
+ *   ├─● {task}
+ *   │    ╰  Initializing {agent-name}… (Ns)  — during initialization
  */
 function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React.ReactNode {
   const treeChar = isLast ? TREE.lastBranch : TREE.branch;
+  const continuationPrefix = isLast ? TREE.space : TREE.vertical;
+  const isRunning = agent.status === "running" || agent.status === "pending";
 
-  // Build metrics text (tool uses and tokens) - Claude Code style
-  const metricsText = [
-    agent.toolUses !== undefined ? `${agent.toolUses} tool uses` : "",
-    agent.tokens !== undefined ? formatTokens(agent.tokens) : "",
-  ].filter(Boolean).join(" · ");
+  const rowIndicatorColor = getStatusIndicatorColor(agent.status, themeColors);
+  const displayTask = truncateText(getAgentTaskLabel(agent), compact ? 40 : 50);
 
-  // Compute sub-status text (currentTool or default based on status)
-  const subStatus = getSubStatusText(agent);
-
-  if (compact) {
-    // Compact mode: Claude Code style - task · metrics
-    const isRunning = agent.status === "running" || agent.status === "pending";
-    const hasTask = agent.task.trim().length > 0;
-    // For running agents, append elapsed time to sub-status
-    const elapsedSuffix = isRunning ? ` (${getElapsedTime(agent.startedAt)})` : "";
-    const displaySubStatus = subStatus ? `${subStatus}${elapsedSuffix}` : null;
-
-    // Status indicator for the tree row
-    const rowIndicatorColor = getStatusIndicatorColor(agent.status, themeColors);
-
-    // Continuation line prefix for sub-status and hints
-    const continuationPrefix = isLast ? TREE.space : TREE.vertical;
-
-    if (!hasTask && displaySubStatus) {
-      // Empty task: show agent name + sub-status inline on the tree line
-      return (
-        <box flexDirection="column">
-          <box flexDirection="row">
-            <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
-            <box flexShrink={0}>
-              <text style={{ fg: rowIndicatorColor }}>●</text>
-            </box>
-            <text style={{ fg: themeColors.foreground }}> {agent.name} </text>
-            <text style={{ fg: themeColors.muted }}>
-              {truncateText(displaySubStatus, 50)}
-            </text>
-          </box>
-          {isRunning && agent.toolUses !== undefined && agent.toolUses > 0 && (
-            <box flexDirection="row">
-              <text style={{ fg: themeColors.muted }}>
-                {continuationPrefix}{SUB_STATUS_PAD}+{agent.toolUses} more tool use{agent.toolUses !== 1 ? "s" : ""}
-              </text>
-            </box>
-          )}
-        </box>
-      );
+  // Build sub-status text based on agent state
+  let subStatusText: string | null = null;
+  if (isRunning) {
+    if (agent.toolUses !== undefined && agent.toolUses > 0) {
+      subStatusText = `${agent.name}: (${agent.toolUses} tool use${agent.toolUses !== 1 ? "s" : ""})`;
+    } else {
+      const elapsed = getElapsedTime(agent.startedAt);
+      subStatusText = `Initializing ${agent.name}…${elapsed ? ` (${elapsed})` : ""}`;
     }
-
-    const displayTask = truncateText(getAgentTaskLabel(agent), 40);
-
-    return (
-      <box flexDirection="column">
-        <box flexDirection="row">
-          <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
-          <box flexShrink={0}>
-            <text style={{ fg: rowIndicatorColor }}>●</text>
-          </box>
-          <text style={{ fg: themeColors.foreground }}>
-            {" "}{displayTask}
-          </text>
-          {metricsText && (
-            <text style={{ fg: themeColors.muted }}> · {metricsText}</text>
-          )}
-        </box>
-        {/* Sub-status: current tool or default status text */}
-        {displaySubStatus && (
-          <box flexDirection="row">
-            <text style={{ fg: themeColors.muted }}>
-              {continuationPrefix}{SUB_STATUS_PAD}{CONNECTOR.subStatus}  {truncateText(displaySubStatus, 50)}
-            </text>
-          </box>
-        )}
-        {/* Collapsed tool uses hint */}
-        {isRunning && agent.toolUses !== undefined && agent.toolUses > 0 && (
-          <box flexDirection="row">
-            <text style={{ fg: themeColors.muted }}>
-              {continuationPrefix}{SUB_STATUS_PAD}+{agent.toolUses} more tool use{agent.toolUses !== 1 ? "s" : ""}
-            </text>
-          </box>
-        )}
-      </box>
-    );
+  } else if (agent.status === "completed") {
+    subStatusText = agent.result ? truncateText(agent.result, 60) : "Done";
+  } else if (agent.status === "error") {
+    subStatusText = agent.error ?? "Error";
+  } else if (agent.status === "interrupted") {
+    subStatusText = "Interrupted";
+  } else if (agent.status === "background") {
+    subStatusText = `Running ${agent.name} in background…`;
   }
 
-  // Full mode: includes more details
-  const isRunningFull = agent.status === "running" || agent.status === "pending";
-  const isCompletedFull = agent.status === "completed";
-  const isErrorFull = agent.status === "error";
-  const isInterruptedFull = agent.status === "interrupted";
-  const hasTaskFull = agent.task.trim().length > 0;
-  const elapsedSuffixFull = isRunningFull ? ` (${getElapsedTime(agent.startedAt)})` : "";
-  const displaySubStatusFull = subStatus ? `${subStatus}${elapsedSuffixFull}` : null;
-
-  // Status indicator color for the tree row
-  const fullRowIndicatorColor = getStatusIndicatorColor(agent.status, themeColors);
-
-  // Continuation line prefix for sub-status lines
-  const fullContinuationPrefix = isLast ? TREE.space : TREE.vertical;
-
-  // If task is empty, show agent name + sub-status inline on the tree line
-  if (!hasTaskFull && displaySubStatusFull) {
-    return (
-      <box flexDirection="column">
-        <box flexDirection="row">
-          <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
-          <box flexShrink={0}>
-            <text style={{ fg: fullRowIndicatorColor }}>●</text>
-          </box>
-          <text style={{ fg: themeColors.foreground }}> {agent.name} </text>
-          <text style={{ fg: themeColors.muted }}>
-            {displaySubStatusFull}
-          </text>
-        </box>
-      </box>
-    );
-  }
+  // Current tool shown on separate line only during active execution
+  const showCurrentTool = isRunning && agent.currentTool && agent.toolUses !== undefined && agent.toolUses > 0;
 
   return (
     <box flexDirection="column">
+      {/* Tree row: ├─● task */}
       <box flexDirection="row">
-        <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar} </text></box>
+        <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar}</text></box>
         <box flexShrink={0}>
-          <text style={{ fg: fullRowIndicatorColor }}>●</text>
+          <text style={{ fg: rowIndicatorColor }}>●</text>
         </box>
-          <text style={{ fg: themeColors.foreground, attributes: 1 }}>
-            {" "}{getAgentTaskLabel(agent)}
-          </text>
-        {metricsText && (
-          <text style={{ fg: themeColors.muted }}> · {metricsText}</text>
-        )}
+        <text style={{ fg: themeColors.foreground, attributes: 1 }}>
+          {" "}{displayTask}
+        </text>
       </box>
-      {/* Sub-status: current tool or default status text */}
-      {displaySubStatusFull && (
+      {/* Sub-status line */}
+      {subStatusText && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {fullContinuationPrefix}{SUB_STATUS_PAD}{CONNECTOR.subStatus}  {displaySubStatusFull}
+            {continuationPrefix}{SUB_STATUS_PAD}{CONNECTOR.subStatus}  {subStatusText}
           </text>
         </box>
       )}
-      {/* Result summary for completed agents */}
-      {isCompletedFull && agent.result && (
+      {/* Current tool on separate line */}
+      {showCurrentTool && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {fullContinuationPrefix}{SUB_STATUS_PAD}</text>
-          <text style={{ fg: themeColors.success }}>
-            {CONNECTOR.subStatus}  {truncateText(agent.result, 60)}
-          </text>
-        </box>
-      )}
-      {/* Error message for failed agents */}
-      {isErrorFull && agent.error && (
-        <box flexDirection="row">
-          <text style={{ fg: themeColors.muted }}>
-            {fullContinuationPrefix}{SUB_STATUS_PAD}</text>
-          <text style={{ fg: themeColors.error }}>
-            {CONNECTOR.subStatus}  {truncateText(agent.error, 60)}
-          </text>
-        </box>
-      )}
-      {/* Interrupted message for cancelled agents */}
-      {isInterruptedFull && (
-        <box flexDirection="row">
-          <text style={{ fg: themeColors.muted }}>
-            {fullContinuationPrefix}{SUB_STATUS_PAD}</text>
-          <text style={{ fg: themeColors.warning }}>
-            {CONNECTOR.subStatus}  Interrupted
+            {continuationPrefix}{SUB_STATUS_PAD}  {MISC.separator} {agent.currentTool}
           </text>
         </box>
       )}
@@ -640,14 +531,11 @@ export function ParallelAgentsTree({
   const hiddenCount = sortedAgents.length - visibleAgents.length;
 
   // Count agents by status
-  const backgroundCount = dedupedAgents.filter(a => a.status === "background" || a.background === true).length;
   const runningCount = dedupedAgents.filter(a => a.status === "running" || a.status === "background").length;
   const completedCount = dedupedAgents.filter(a => a.status === "completed").length;
   const pendingCount = dedupedAgents.filter(a => a.status === "pending").length;
 
-  // Get the dominant agent type for the header
-  const agentTypes = [...new Set(dedupedAgents.map(a => a.name))];
-  const dominantType = agentTypes.length === 1 ? (agentTypes[0] ?? "agents") : "agents";
+  // Dominant type removed — header always says "Task" for background, "agents" for foreground
 
   // Theme colors
   const themeColors: ThemeColors = {
@@ -668,8 +556,7 @@ export function ParallelAgentsTree({
   // Background mode: green dot header with "N Task agents launched"
   if (background) {
     const bgHeaderColor = themeColors.success;
-    const bgHeaderText = `${agents.length} ${dominantType === "agents" ? "Task" : dominantType} agent${agents.length !== 1 ? "s" : ""} launched`;
-    const bgHeaderHint = buildParallelAgentsHeaderHint(agents, false);
+    const bgHeaderText = `${agents.length} Task agent${agents.length !== 1 ? "s" : ""} launched…`;
 
     return (
       <box
@@ -681,7 +568,6 @@ export function ParallelAgentsTree({
         <box flexDirection="row">
           <text style={{ fg: bgHeaderColor }}>●</text>
           <text style={{ fg: themeColors.foreground }}> {bgHeaderText}</text>
-          {bgHeaderHint && <text style={{ fg: themeColors.muted }}> ({bgHeaderHint})</text>}
         </box>
 
         {/* Background agent tree */}
@@ -716,12 +602,10 @@ export function ParallelAgentsTree({
         ? themeColors.success
         : themeColors.muted;
   const headerText = runningCount > 0
-    ? `Running ${buildAgentHeaderLabel(runningCount, dominantType)}…`
+    ? `Running ${runningCount} agent${runningCount !== 1 ? "s" : ""}…`
     : completedCount > 0
-      ? `${buildAgentHeaderLabel(completedCount, dominantType)} finished`
-      : `${buildAgentHeaderLabel(pendingCount, dominantType)} pending`;
-
-  const headerHint = buildParallelAgentsHeaderHint(dedupedAgents, runningCount === 0);
+      ? `${completedCount} agent${completedCount !== 1 ? "s" : ""} finished`
+      : `${pendingCount} agent${pendingCount !== 1 ? "s" : ""} pending`;
 
   return (
     <box
@@ -733,7 +617,6 @@ export function ParallelAgentsTree({
       <box flexDirection="row">
         <text style={{ fg: headerColor }}>{headerIcon}</text>
         <text style={{ fg: headerColor }}> {headerText}</text>
-        {headerHint && <text style={{ fg: themeColors.muted }}> ({headerHint})</text>}
       </box>
 
       {/* Agent tree */}

@@ -213,6 +213,11 @@ export function getMentionSuggestions(input: string): CommandDefinition[] {
           // Skip hidden files and common ignore patterns
           if (entry.name.startsWith(".")) continue;
           if (entry.name === "node_modules") continue;
+          if (entry.name === "target") continue;
+          if (entry.name === "build") continue;
+          if (entry.name === "dist") continue;
+          if (entry.name === "out") continue;
+          if (entry.name === "coverage") continue;
 
           const relPath = relativeBase ? `${relativeBase}/${entry.name}` : entry.name;
           const isDir = entry.isDirectory();
@@ -996,12 +1001,6 @@ export function formatTimestamp(isoString: string): string {
 // DISPLAY CONSTANTS
 // ============================================================================
 
-/**
- * Number of most-recent messages to keep fully expanded in the chat view.
- * Older messages are auto-collapsed to single-line summaries.
- * Default: 4 (approximately two user-assistant exchanges).
- */
-export const EXPANDED_MESSAGE_COUNT = 4;
 
 // ============================================================================
 // LOADING INDICATOR COMPONENT
@@ -5677,52 +5676,17 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
     [parallelAgents, messages],
   );
 
-  // Auto-collapse boundary: messages before this index render as single-line summaries
-  const collapseBoundaryIndex = Math.max(0, renderMessages.length - EXPANDED_MESSAGE_COUNT);
-
   // Render message list (no empty state text)
   const messageContent = renderMessages.length > 0 ? (
     <>
-      {/* Collapsed messages (older, auto-collapsed to single-line summaries) */}
-      {renderMessages.slice(0, collapseBoundaryIndex).map((msg) => {
+      {renderMessages.map((msg, index) => {
         const liveTaskItems = msg.streaming ? todoItems : undefined;
         const showLive = shouldShowMessageLoadingIndicator(msg, liveTaskItems);
         return (
         <MessageBubble
           key={msg.id}
           message={msg}
-          isLast={false}
-          syntaxStyle={markdownSyntaxStyle}
-          hideAskUserQuestion={activeQuestion !== null}
-          hideLoading={activeQuestion !== null}
-          todoItems={msg.streaming ? todoItems : undefined}
-          elapsedMs={showLive ? streamingElapsedMs : undefined}
-          streamingMeta={msg.streaming ? streamingMeta : null}
-          collapsed={!showLive}
-          tasksExpanded={tasksExpanded}
-          inlineTasksEnabled={!ralphSessionDir}
-          ralphSessionDir={ralphSessionDir}
-          showTodoPanel={showTodoPanel}
-        />
-        );
-      })}
-      {/* Separator between collapsed and expanded sections */}
-      {collapseBoundaryIndex > 0 && (
-        <box paddingLeft={SPACING.CONTAINER_PAD} marginBottom={SPACING.ELEMENT}>
-          <text style={{ fg: themeColors.dim }}>
-            {"─".repeat(3)} {collapseBoundaryIndex} earlier {"─".repeat(3)}
-          </text>
-        </box>
-      )}
-      {/* Expanded messages (recent, full rendering) */}
-      {renderMessages.slice(collapseBoundaryIndex).map((msg, index) => {
-        const liveTaskItems = msg.streaming ? todoItems : undefined;
-        const showLive = shouldShowMessageLoadingIndicator(msg, liveTaskItems);
-        return (
-        <MessageBubble
-          key={msg.id}
-          message={msg}
-          isLast={collapseBoundaryIndex + index === renderMessages.length - 1}
+          isLast={index === renderMessages.length - 1}
           syntaxStyle={markdownSyntaxStyle}
           hideAskUserQuestion={activeQuestion !== null}
           hideLoading={activeQuestion !== null}

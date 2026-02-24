@@ -195,12 +195,16 @@ function handleThemeCommand(args: string): { newTheme: "dark" | "light"; message
  */
 export async function chatCommand(options: ChatCommandOptions = {}): Promise<number> {
   const {
-    agentType = "claude",
+    agentType,
     theme = "dark",
     model,
     workflow = false,
     initialPrompt,
   } = options;
+
+  if (!agentType) {
+    throw new Error("agentType is required — resolve via saved config or init before calling chatCommand");
+  }
 
   // CLI flag takes precedence, then persisted preference
   const effectiveModel = model ?? getModelPreference(agentType);

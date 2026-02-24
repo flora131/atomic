@@ -25,13 +25,45 @@ describe("handleTextDelta", () => {
     expect((result.parts![0] as TextPart).content).toBe("Hello World");
   });
 
-  test("creates new TextPart when last TextPart is not streaming", () => {
-    // Simulate finalized TextPart (after tool boundary)
+  test("merges continuation into finalized TextPart when no paragraph break", () => {
+    // Simulate finalized TextPart (after tool boundary) with mid-sentence continuation
     const msg = {
       parts: [{
         id: "part_000000000001_0001" as any,
         type: "text",
         content: "Before tool",
+        isStreaming: false,
+        createdAt: new Date().toISOString(),
+      }],
+    } as unknown as ChatMessage;
+    const result = handleTextDelta(msg, " continuation");
+    expect(result.parts).toHaveLength(1);
+    expect((result.parts![0] as TextPart).content).toBe("Before tool continuation");
+    expect((result.parts![0] as TextPart).isStreaming).toBe(false);
+  });
+
+  test("creates new TextPart when delta starts with paragraph break", () => {
+    const msg = {
+      parts: [{
+        id: "part_000000000001_0001" as any,
+        type: "text",
+        content: "Before tool",
+        isStreaming: false,
+        createdAt: new Date().toISOString(),
+      }],
+    } as unknown as ChatMessage;
+    const result = handleTextDelta(msg, "\n\nAfter tool");
+    expect(result.parts).toHaveLength(2);
+    expect((result.parts![1] as TextPart).content).toBe("\n\nAfter tool");
+    expect((result.parts![1] as TextPart).isStreaming).toBe(true);
+  });
+
+  test("creates new TextPart when previous ends with paragraph break", () => {
+    const msg = {
+      parts: [{
+        id: "part_000000000001_0001" as any,
+        type: "text",
+        content: "Before tool\n\n",
         isStreaming: false,
         createdAt: new Date().toISOString(),
       }],

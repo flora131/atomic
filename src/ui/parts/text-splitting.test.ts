@@ -82,8 +82,8 @@ describe("Tool-boundary text splitting", () => {
     expect((msg.parts![0] as TextPart).content).toBe("Hello ");
   });
 
-  test("text after tool becomes new TextPart", () => {
-    // Simulate: text → tool.start → tool.complete → new text
+  test("text after tool creates new TextPart when tool part between", () => {
+    // When tool parts separate text, new TextPart is created for correct visual ordering
     let msg = createMockMessage();
     
     // Stream "Hello "
@@ -99,27 +99,42 @@ describe("Tool-boundary text splitting", () => {
     expect(msg.parts).toHaveLength(2);
     expect((msg.parts![0] as TextPart).isStreaming).toBe(false);
     
-    // Tool completes - now stream new text
+    // Text after tool creates new TextPart (tool between prevents merge)
     msg = handleTextDelta(msg, " World");
     
-    // Verify new TextPart was created
+    expect(msg.parts).toHaveLength(3);
+    expect(msg.parts![0]!.type).toBe("text");
+    expect(msg.parts![1]!.type).toBe("tool");
+    expect(msg.parts![2]!.type).toBe("text");
+    expect((msg.parts![0] as TextPart).content).toBe("Hello ");
+    expect((msg.parts![2] as TextPart).content).toBe(" World");
+  });
+
+  test("new paragraph after tool creates new TextPart", () => {
+    // Simulate: text → tool.start → tool.complete → new paragraph
+    let msg = createMockMessage();
+    
+    msg = handleTextDelta(msg, "Hello ");
+    msg = finalizeLastTextPart(msg);
+    const toolPart = createToolPart("tool_123", "bash");
+    msg.parts = upsertPart(msg.parts!, toolPart);
+    
+    // New paragraph starts with \n\n → creates new TextPart
+    msg = handleTextDelta(msg, "\n\nNew section");
+    
     expect(msg.parts).toHaveLength(3);
     expect(msg.parts![2]!.type).toBe("text");
-    const newTextPart = msg.parts![2] as TextPart;
-    expect(newTextPart.content).toBe(" World");
-    expect(newTextPart.isStreaming).toBe(true);
-    
-    // Verify old TextPart is still finalized
-    expect((msg.parts![0] as TextPart).isStreaming).toBe(false);
+    expect((msg.parts![2] as TextPart).content).toBe("\n\nNew section");
+    expect((msg.parts![2] as TextPart).isStreaming).toBe(true);
     expect((msg.parts![0] as TextPart).content).toBe("Hello ");
   });
 
-  test("multiple tool interruptions create multiple TextParts", () => {
-    // Simulate: text1 → tool1 → text2 → tool2 → text3
+  test("paragraph breaks between tools create separate TextParts", () => {
+    // Simulate: text1\n\n → tool1 → text2\n\n → tool2 → text3
     let msg = createMockMessage();
     
-    // Text 1
-    msg = handleTextDelta(msg, "First");
+    // Text 1 (ends with paragraph break)
+    msg = handleTextDelta(msg, "First\n\n");
     expect(msg.parts).toHaveLength(1);
     
     // Tool 1
@@ -128,8 +143,8 @@ describe("Tool-boundary text splitting", () => {
     msg.parts = upsertPart(msg.parts!, tool1);
     expect(msg.parts).toHaveLength(2);
     
-    // Text 2
-    msg = handleTextDelta(msg, "Second");
+    // Text 2 (new paragraph after tool → creates new TextPart)
+    msg = handleTextDelta(msg, "\n\nSecond\n\n");
     expect(msg.parts).toHaveLength(3);
     
     // Tool 2
@@ -138,19 +153,48 @@ describe("Tool-boundary text splitting", () => {
     msg.parts = upsertPart(msg.parts!, tool2);
     expect(msg.parts).toHaveLength(4);
     
-    // Text 3
-    msg = handleTextDelta(msg, "Third");
+    // Text 3 (new paragraph after tool → creates new TextPart)
+    msg = handleTextDelta(msg, "\n\nThird");
     expect(msg.parts).toHaveLength(5);
     
     // Verify 3 separate TextParts
     const textParts = msg.parts!.filter(p => p.type === "text") as TextPart[];
     expect(textParts).toHaveLength(3);
+    expect(textParts[0]!.content).toBe("First\n\n");
+    expect(textParts[1]!.content).toBe("\n\nSecond\n\n");
+    expect(textParts[2]!.content).toBe("\n\nThird");
+  });
+
+  test("continuations after tool boundaries create separate TextParts", () => {
+    // When tool parts intervene, continuations get their own TextParts for ordering
+    let msg = createMockMessage();
+    
+    // Text 1
+    msg = handleTextDelta(msg, "First");
+    
+    // Tool 1
+    msg = finalizeLastTextPart(msg);
+    const tool1 = createToolPart("tool_1", "bash");
+    msg.parts = upsertPart(msg.parts!, tool1);
+    
+    // New TextPart (tool between prevents merge)
+    msg = handleTextDelta(msg, " Second");
+    expect(msg.parts).toHaveLength(3);
+    expect((msg.parts![2] as TextPart).content).toBe(" Second");
+    
+    // Tool 2
+    msg = finalizeLastTextPart(msg);
+    const tool2 = createToolPart("tool_2", "view");
+    msg.parts = upsertPart(msg.parts!, tool2);
+    
+    // New TextPart (tool between prevents merge)
+    msg = handleTextDelta(msg, " Third");
+    
+    const textParts = msg.parts!.filter(p => p.type === "text") as TextPart[];
+    expect(textParts).toHaveLength(3);
     expect(textParts[0]!.content).toBe("First");
-    expect(textParts[0]!.isStreaming).toBe(false);
-    expect(textParts[1]!.content).toBe("Second");
-    expect(textParts[1]!.isStreaming).toBe(false);
-    expect(textParts[2]!.content).toBe("Third");
-    expect(textParts[2]!.isStreaming).toBe(true);
+    expect(textParts[1]!.content).toBe(" Second");
+    expect(textParts[2]!.content).toBe(" Third");
   });
 
   test("empty text before tool doesn't create empty TextPart", () => {
@@ -175,20 +219,20 @@ describe("Tool-boundary text splitting", () => {
     expect((textParts[0] as TextPart).content).toBe("After tool");
   });
 
-  test("tool part preserves order between text parts", () => {
-    // Simulate: text1 → tool → text2
+  test("tool part preserves order between text parts with paragraph breaks", () => {
+    // Simulate: text1\n\n → tool → \n\ntext2
     let msg = createMockMessage();
     
-    // Text 1
-    msg = handleTextDelta(msg, "Before");
+    // Text 1 (ends with paragraph break)
+    msg = handleTextDelta(msg, "Before\n\n");
     
     // Tool
     msg = finalizeLastTextPart(msg);
     const toolPart = createToolPart("tool_123", "bash");
     msg.parts = upsertPart(msg.parts!, toolPart);
     
-    // Text 2
-    msg = handleTextDelta(msg, "After");
+    // Text 2 (starts with paragraph break → new TextPart)
+    msg = handleTextDelta(msg, "\n\nAfter");
     
     // Verify order: [TextPart, ToolPart, TextPart]
     expect(msg.parts).toHaveLength(3);
@@ -197,9 +241,9 @@ describe("Tool-boundary text splitting", () => {
     expect(msg.parts![2]!.type).toBe("text");
     
     // Verify content
-    expect((msg.parts![0] as TextPart).content).toBe("Before");
+    expect((msg.parts![0] as TextPart).content).toBe("Before\n\n");
     expect((msg.parts![1] as ToolPart).toolCallId).toBe("tool_123");
-    expect((msg.parts![2] as TextPart).content).toBe("After");
+    expect((msg.parts![2] as TextPart).content).toBe("\n\nAfter");
   });
 
   test("streaming text accumulates in same TextPart", () => {
@@ -260,8 +304,26 @@ describe("Tool-boundary text splitting", () => {
     expect(finalizedContent).toBe("Test content 12345!@#$%");
   });
 
-  test("finalized TextPart cannot be streamed to", () => {
-    // Verify that once finalized, new deltas create a new TextPart
+  test("finalized TextPart merges continuations without paragraph break", () => {
+    // Verify that once finalized, continuations merge if no paragraph break
+    let msg = createMockMessage();
+    
+    // Stream and finalize
+    msg = handleTextDelta(msg, "First part");
+    msg = finalizeLastTextPart(msg);
+    
+    expect((msg.parts![0] as TextPart).isStreaming).toBe(false);
+    
+    // Continuation merges back (no paragraph break)
+    msg = handleTextDelta(msg, " Second part");
+    
+    // Verify merged into existing TextPart
+    expect(msg.parts).toHaveLength(1);
+    expect((msg.parts![0] as TextPart).content).toBe("First part Second part");
+  });
+
+  test("finalized TextPart creates new TextPart with paragraph break", () => {
+    // Verify that paragraph break after finalized TextPart creates new one
     let msg = createMockMessage();
     
     // Stream and finalize
@@ -269,16 +331,14 @@ describe("Tool-boundary text splitting", () => {
     msg = finalizeLastTextPart(msg);
     
     const firstPartId = msg.parts![0]!.id;
-    expect((msg.parts![0] as TextPart).isStreaming).toBe(false);
     
-    // Try to stream more text
-    msg = handleTextDelta(msg, " Second part");
+    // New paragraph creates new TextPart
+    msg = handleTextDelta(msg, "\n\nSecond part");
     
-    // Verify a new TextPart was created
     expect(msg.parts).toHaveLength(2);
-    expect(msg.parts![0]!.id).toBe(firstPartId); // Original part unchanged
+    expect(msg.parts![0]!.id).toBe(firstPartId);
     expect((msg.parts![0] as TextPart).content).toBe("First part");
-    expect((msg.parts![1] as TextPart).content).toBe(" Second part");
+    expect((msg.parts![1] as TextPart).content).toBe("\n\nSecond part");
   });
 
   test("empty string delta adds to streaming TextPart", () => {

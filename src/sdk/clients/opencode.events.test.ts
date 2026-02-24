@@ -301,6 +301,57 @@ describe("OpenCodeClient event mapping", () => {
     ]);
   });
 
+  test("emits tool.complete when tool status is completed but output is undefined", () => {
+    const client = new OpenCodeClient();
+    const completes: Array<{
+      sessionId: string;
+      toolName?: string;
+      toolResult?: unknown;
+      success?: boolean;
+    }> = [];
+
+    const unsubComplete = client.on("tool.complete", (event) => {
+      const data = event.data as {
+        toolName?: string;
+        toolResult?: unknown;
+        success?: boolean;
+      };
+      completes.push({
+        sessionId: event.sessionId,
+        toolName: data.toolName,
+        toolResult: data.toolResult,
+        success: data.success,
+      });
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "prt_task_1",
+          callID: "call_task_1",
+          sessionID: "ses_task",
+          messageID: "msg_1",
+          type: "tool",
+          tool: "Task",
+          state: {
+            status: "completed",
+            input: { prompt: "Do something" },
+            // output is intentionally omitted (undefined)
+          },
+        },
+      },
+    });
+
+    unsubComplete();
+
+    expect(completes).toHaveLength(1);
+    expect(completes[0]!.sessionId).toBe("ses_task");
+    expect(completes[0]!.toolName).toBe("Task");
+    expect(completes[0]!.toolResult).toBeUndefined();
+    expect(completes[0]!.success).toBe(true);
+  });
+
   test("maps step-finish part to subagent.complete", () => {
     const client = new OpenCodeClient();
     const completes: Array<{

@@ -698,19 +698,18 @@ export class OpenCodeClient implements CodingAgentClient {
               toolCallId: part?.callID as string,
             });
           } else if (toolState?.status === "completed") {
-            // Only emit complete if output is available
-            // The output field contains the formatted file content
-            const output = toolState?.output;
-            if (output !== undefined) {
-              this.emitEvent("tool.complete", partSessionId, {
-                toolName,
-                toolResult: output,
-                toolInput,
-                success: true,
-                toolUseId: part?.id as string,
-                toolCallId: part?.callID as string,
-              });
-            }
+            // Always emit tool.complete when status is "completed", even
+            // if output is undefined.  Sub-agent Task tools may finish
+            // without producing output; gating on output prevented the
+            // event from firing and left agents stuck in "running" status.
+            this.emitEvent("tool.complete", partSessionId, {
+              toolName,
+              toolResult: toolState?.output,
+              toolInput,
+              success: true,
+              toolUseId: part?.id as string,
+              toolCallId: part?.callID as string,
+            });
           } else if (toolState?.status === "error") {
             this.emitEvent("tool.complete", partSessionId, {
               toolName,

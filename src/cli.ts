@@ -25,6 +25,7 @@ import { configCommand } from "./commands/config";
 import { updateCommand } from "./commands/update";
 import { uninstallCommand } from "./commands/uninstall";
 import { chatCommand } from "./commands/chat";
+import { readAtomicConfig } from "./utils/atomic-config";
 import { cleanupWindowsLeftoverFiles } from "./utils/cleanup";
 import { handleTelemetryUpload, isTelemetryEnabledSync } from "./telemetry";
 
@@ -95,8 +96,7 @@ export function createProgram() {
     .description("Start an interactive chat session with a coding agent")
     .option(
       "-a, --agent <name>",
-      `Agent to chat with (${agentChoices})`,
-      "claude"
+      `Agent to chat with (${agentChoices})`
     )
     .option("-w, --workflow", "Enable graph workflow mode", false)
     .option(
@@ -111,7 +111,7 @@ export function createProgram() {
       "after",
       `
 Examples:
-  $ atomic chat                              Start chat with Claude (default)
+  $ atomic chat                              Start chat (uses saved agent or runs init)
   $ atomic chat -a opencode                  Start chat with OpenCode
   $ atomic chat -a copilot --workflow        Start workflow-enabled chat with Copilot
   $ atomic chat --theme light                Start chat with light theme
@@ -125,10 +125,29 @@ Slash Commands (in workflow mode):
   /help     - Show available commands`
     )
     .action(async (promptParts: string[], localOpts) => {
-      // Validate agent choice
       const validAgents = Object.keys(AGENT_CONFIG);
-      if (!validAgents.includes(localOpts.agent)) {
-        console.error(`${COLORS.red}Error: Unknown agent '${localOpts.agent}'${COLORS.reset}`);
+      let agentType = localOpts.agent;
+
+      // If no agent flag provided, check saved config
+      if (!agentType) {
+        const config = await readAtomicConfig(process.cwd());
+        agentType = config?.agent;
+      }
+
+      // If still no agent (first run), run init which prompts for selection
+      if (!agentType) {
+        await initCommand({ showBanner: true });
+        const config = await readAtomicConfig(process.cwd());
+        agentType = config?.agent;
+        if (!agentType) {
+          console.error(`${COLORS.red}No agent selected. Run 'atomic init' to configure.${COLORS.reset}`);
+          process.exit(1);
+        }
+      }
+
+      // Validate agent choice
+      if (!validAgents.includes(agentType)) {
+        console.error(`${COLORS.red}Error: Unknown agent '${agentType}'${COLORS.reset}`);
         console.error(`Valid agents: ${agentChoices}`);
         process.exit(1);
       }
@@ -142,7 +161,7 @@ Slash Commands (in workflow mode):
 
       const prompt = promptParts.length > 0 ? promptParts.join(" ") : undefined;
       const exitCode = await chatCommand({
-        agentType: localOpts.agent as "claude" | "opencode" | "copilot",
+        agentType: agentType as "claude" | "opencode" | "copilot",
         workflow: localOpts.workflow,
         theme: localOpts.theme as "dark" | "light",
         model: localOpts.model,

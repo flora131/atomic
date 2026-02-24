@@ -8,9 +8,43 @@
 import React from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import type { ChatMessage } from "../../chat.tsx";
-import type { Part } from "../../parts/types.ts";
+import type { Part, ToolPart, AgentPart } from "../../parts/types.ts";
 import { PART_REGISTRY } from "./registry.tsx";
 import { SPACING } from "../../constants/spacing.ts";
+
+function isTaskToolName(name: string): boolean {
+  return name === "Task" || name === "task";
+}
+
+/**
+ * Build a set of Task-tool toolCallIds that are represented by an AgentPart.
+ * These ToolParts should be hidden because the agent tree already displays
+ * the same information (task description, status, tool uses, result).
+ */
+export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<string> {
+  const hasAgentPart = parts.some((p) => p.type === "agent");
+  if (!hasAgentPart) return new Set();
+
+  const agentTaskToolCallIds = new Set<string>();
+  for (const part of parts) {
+    if (part.type !== "agent") continue;
+    for (const agent of (part as AgentPart).agents) {
+      if (agent.taskToolCallId) {
+        agentTaskToolCallIds.add(agent.taskToolCallId);
+      }
+    }
+  }
+
+  const consumed = new Set<string>();
+  for (const part of parts) {
+    if (part.type !== "tool") continue;
+    const toolPart = part as ToolPart;
+    if (isTaskToolName(toolPart.toolName) && agentTaskToolCallIds.has(toolPart.toolCallId)) {
+      consumed.add(toolPart.toolCallId);
+    }
+  }
+  return consumed;
+}
 
 export interface MessageBubblePartsProps {
   message: ChatMessage;
@@ -72,9 +106,22 @@ export function MessageBubbleParts({ message, syntaxStyle }: MessageBubblePartsP
     return null;
   }
 
+  // Task tool ToolParts that are represented by an AgentPart tree should be
+  // hidden to avoid redundant display (the tree already shows task
+  // description, status, tool uses, and result).
+  const consumedTaskIds = getConsumedTaskToolCallIds(parts);
+
   return (
     <box flexDirection="column" gap={SPACING.ELEMENT}>
       {parts.map((part, index) => {
+        // Skip Task ToolParts consumed by the agent tree
+        if (
+          part.type === "tool" &&
+          isTaskToolName((part as ToolPart).toolName) &&
+          consumedTaskIds.has((part as ToolPart).toolCallId)
+        ) {
+          return null;
+        }
         const Renderer = PART_REGISTRY[part.type];
         if (!Renderer) return null;
         return (

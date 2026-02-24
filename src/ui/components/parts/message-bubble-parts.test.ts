@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { Part, ReasoningPart, TextPart } from "../../parts/types.ts";
-import { buildPartRenderKeys } from "./message-bubble-parts.tsx";
+import type { Part, ReasoningPart, TextPart, ToolPart, AgentPart } from "../../parts/types.ts";
+import type { ParallelAgent } from "../parallel-agents-tree.tsx";
+import { buildPartRenderKeys, getConsumedTaskToolCallIds } from "./message-bubble-parts.tsx";
 
 function createReasoningPart(id: string, thinkingSourceKey: string): ReasoningPart {
   return {
@@ -57,5 +58,97 @@ describe("buildPartRenderKeys", () => {
       "reasoning-source:source:a",
       "reasoning-source:source:a#1",
     ]);
+  });
+});
+
+// ============================================================================
+// getConsumedTaskToolCallIds
+// ============================================================================
+
+function createToolPart(toolCallId: string, toolName: string): ToolPart {
+  return {
+    id: `part_${toolCallId}`,
+    type: "tool",
+    toolCallId,
+    toolName,
+    input: { prompt: "test" },
+    state: { status: "running", startedAt: "2026-01-01T00:00:00.000Z" },
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function createAgent(taskToolCallId: string, name: string): ParallelAgent {
+  return {
+    id: `agent-${taskToolCallId}`,
+    taskToolCallId,
+    name,
+    task: `Task for ${name}`,
+    status: "running",
+    startedAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function createAgentPart(agents: ParallelAgent[], parentToolPartId?: string): AgentPart {
+  return {
+    id: "agent-part-1",
+    type: "agent",
+    agents,
+    parentToolPartId,
+    createdAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+describe("getConsumedTaskToolCallIds", () => {
+  test("returns empty set when no AgentParts exist", () => {
+    const parts: Part[] = [
+      createToolPart("tool-1", "task"),
+      createToolPart("tool-2", "task"),
+    ];
+    expect(getConsumedTaskToolCallIds(parts).size).toBe(0);
+  });
+
+  test("returns Task toolCallIds that have corresponding agents", () => {
+    const parts: Part[] = [
+      createToolPart("tool-1", "task"),
+      createToolPart("tool-2", "task"),
+      createAgentPart([
+        createAgent("tool-1", "explorer"),
+        createAgent("tool-2", "analyzer"),
+      ]),
+    ];
+    const consumed = getConsumedTaskToolCallIds(parts);
+    expect(consumed.size).toBe(2);
+    expect(consumed.has("tool-1")).toBe(true);
+    expect(consumed.has("tool-2")).toBe(true);
+  });
+
+  test("does not consume non-Task ToolParts", () => {
+    const parts: Part[] = [
+      createToolPart("tool-1", "bash"),
+      createAgentPart([createAgent("tool-1", "explorer")]),
+    ];
+    const consumed = getConsumedTaskToolCallIds(parts);
+    expect(consumed.size).toBe(0);
+  });
+
+  test("does not consume Task ToolParts without matching agents", () => {
+    const parts: Part[] = [
+      createToolPart("tool-1", "task"),
+      createToolPart("tool-2", "task"),
+      createAgentPart([createAgent("tool-1", "explorer")]),
+    ];
+    const consumed = getConsumedTaskToolCallIds(parts);
+    expect(consumed.size).toBe(1);
+    expect(consumed.has("tool-1")).toBe(true);
+    expect(consumed.has("tool-2")).toBe(false);
+  });
+
+  test("handles PascalCase Task tool name", () => {
+    const parts: Part[] = [
+      createToolPart("tool-1", "Task"),
+      createAgentPart([createAgent("tool-1", "explorer")]),
+    ];
+    const consumed = getConsumedTaskToolCallIds(parts);
+    expect(consumed.has("tool-1")).toBe(true);
   });
 });

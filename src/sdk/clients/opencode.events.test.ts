@@ -369,4 +369,89 @@ describe("OpenCodeClient event mapping", () => {
       },
     ]);
   });
+
+  test("includes subagentSessionId in agent part subagent.start events", () => {
+    const client = new OpenCodeClient();
+    const starts: Array<{
+      sessionId: string;
+      subagentId?: string;
+      subagentSessionId?: string;
+    }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as {
+        subagentId?: string;
+        subagentSessionId?: string;
+      };
+      starts.push({
+        sessionId: event.sessionId,
+        subagentId: data.subagentId,
+        subagentSessionId: data.subagentSessionId,
+      });
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        sessionID: "ses_parent",
+        part: {
+          id: "agent_1",
+          sessionID: "ses_subagent",
+          messageID: "msg_1",
+          type: "agent",
+          name: "explore",
+          callID: "call_1",
+        },
+      },
+    });
+
+    unsubStart();
+
+    expect(starts).toHaveLength(1);
+    expect(starts[0]!.sessionId).toBe("ses_parent");
+    expect(starts[0]!.subagentId).toBe("agent_1");
+    expect(starts[0]!.subagentSessionId).toBe("ses_subagent");
+  });
+
+  test("includes subagentSessionId in subtask part subagent.start events", () => {
+    const client = new OpenCodeClient();
+    const starts: Array<{
+      sessionId: string;
+      subagentId?: string;
+      subagentSessionId?: string;
+    }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as {
+        subagentId?: string;
+        subagentSessionId?: string;
+      };
+      starts.push({
+        sessionId: event.sessionId,
+        subagentId: data.subagentId,
+        subagentSessionId: data.subagentSessionId,
+      });
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "subtask_2",
+          sessionID: "ses_subtask_session",
+          messageID: "msg_1",
+          type: "subtask",
+          prompt: "Find files",
+          description: "Locate relevant source files",
+          agent: "codebase-locator",
+        },
+      },
+    });
+
+    unsubStart();
+
+    expect(starts).toHaveLength(1);
+    expect(starts[0]!.subagentId).toBe("subtask_2");
+    expect(starts[0]!.subagentSessionId).toBe("ses_subtask_session");
+  });
 });

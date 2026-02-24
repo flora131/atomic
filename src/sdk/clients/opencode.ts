@@ -734,6 +734,7 @@ export class OpenCodeClient implements CodingAgentClient {
             subagentId: (part?.id as string) ?? "",
             subagentType: (part?.name as string) ?? "",
             toolCallId: (part?.callID as string) ?? (part?.id as string),
+            subagentSessionId: (part?.sessionID as string) ?? undefined,
           });
         } else if (part?.type === "subtask") {
           // SubtaskPart: { type: "subtask", prompt, description, agent, ... }
@@ -756,6 +757,7 @@ export class OpenCodeClient implements CodingAgentClient {
               description: subtaskDescription,
               agent: subtaskAgent,
             },
+            subagentSessionId: (part?.sessionID as string) ?? undefined,
           });
         } else if (part?.type === "step-finish") {
           // StepFinishPart signals the end of a sub-agent step

@@ -260,6 +260,7 @@ function mergeAgentPair(a: ParallelAgent, b: ParallelAgent): ParallelAgent {
     id: primary.id.startsWith("tool_") ? secondary.id : primary.id,
     task: aHasTask ? a.task : bHasTask ? b.task : primary.task,
     status: statusWinner.status,
+    background: a.background || b.background,
     toolUses: Math.max(a.toolUses ?? 0, b.toolUses ?? 0) || undefined,
     currentTool: a.currentTool ?? b.currentTool,
     result: a.result ?? b.result,

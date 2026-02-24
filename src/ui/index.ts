@@ -935,7 +935,16 @@ export async function startChatUI(
         // The SDK model may echo back the raw tool_response JSON as
         // streaming text — we suppress text that matches the result but
         // allow the model's real follow-up response through.
-        state.suppressPostTaskResult = resultStr ?? null;
+        // Skip suppression for background agents — their Task tool returns
+        // immediately with {isAsync: true} and the model does not echo the
+        // result, so activating the suppress mechanism would only eat
+        // legitimate whitespace/newlines from the model's own text.
+        const agentForSuppress = agentId
+          ? state.parallelAgents.find(a => a.id === agentId)
+          : undefined;
+        if (!agentForSuppress || shouldFinalizeOnToolComplete(agentForSuppress)) {
+          state.suppressPostTaskResult = resultStr ?? null;
+        }
       } else if (
         isTaskTool &&
         state.parallelAgentHandler &&
@@ -1401,6 +1410,12 @@ export async function startChatUI(
       // vs. generating genuine follow-up content.
       let suppressAccumulator = "";
       let suppressTarget: string | null = null;
+      // Tracks the leading whitespace accumulated before any text started
+      // matching the echo prefix. This whitespace is recovered (emitted via
+      // onChunk) when suppression clears, since it likely represents genuine
+      // formatting (paragraph breaks / newlines) from the model's output.
+      let suppressWhitespacePrefix = "";
+      let suppressHasTextMatch = false;
 
       const toStringRecord = (sourceMap: Map<string, string>): Record<string, string> => {
         const record: Record<string, string> = {};
@@ -1487,12 +1502,17 @@ export async function startChatUI(
           if (cachedResult !== suppressTarget) {
             suppressAccumulator = "";
             suppressTarget = cachedResult;
+            suppressWhitespacePrefix = "";
+            suppressHasTextMatch = false;
           }
           if (cachedResult !== null) {
             const trimmed = message.content.trim();
             if (trimmed.length === 0) {
               // Accumulate whitespace while suppression is active
               suppressAccumulator += message.content;
+              if (!suppressHasTextMatch) {
+                suppressWhitespacePrefix += message.content;
+              }
               continue;
             }
             const isJsonEcho = trimmed.startsWith("{") || trimmed.startsWith("[");
@@ -1509,13 +1529,20 @@ export async function startChatUI(
             const candidate = (suppressAccumulator + message.content).trimStart();
             if ((cachedResult as string).startsWith(candidate)) {
               suppressAccumulator += message.content;
+              suppressHasTextMatch = true;
               continue;
             }
             // Not an echo — clear suppression, let this chunk through.
-            // Accumulated text was part of the echo prefix and stays suppressed.
+            // Recover leading whitespace that was provisionally suppressed
+            // before any echo text matched (likely genuine paragraph breaks).
+            if (suppressWhitespacePrefix.length > 0) {
+              onChunk(suppressWhitespacePrefix);
+            }
             state.suppressPostTaskResult = null;
             suppressTarget = null;
             suppressAccumulator = "";
+            suppressWhitespacePrefix = "";
+            suppressHasTextMatch = false;
           }
 
           if (message.content.length > 0) {

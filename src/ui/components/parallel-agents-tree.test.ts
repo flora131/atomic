@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildAgentHeaderLabel,
+  deduplicateAgents,
   getAgentTaskLabel,
   getStatusIndicatorColor,
 } from "./parallel-agents-tree.tsx";
+import type { ParallelAgent } from "./parallel-agents-tree.tsx";
 
 describe("ParallelAgentsTree status indicator colors", () => {
   const colors = {
@@ -51,5 +53,71 @@ describe("ParallelAgentsTree labeling", () => {
         task: "Research Rust TUI stacks",
       })
     ).toBe("Research Rust TUI stacks");
+  });
+});
+
+describe("deduplicateAgents", () => {
+  function makeAgent(overrides: Partial<ParallelAgent> & { id: string }): ParallelAgent {
+    return {
+      name: "reviewer",
+      task: "Sub-agent task",
+      status: "running",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      ...overrides,
+    };
+  }
+
+  test("returns same array when no duplicates exist", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({ id: "a1", taskToolCallId: "t1", task: "Review code" }),
+      makeAgent({ id: "a2", taskToolCallId: "t2", task: "Find bugs" }),
+    ];
+    expect(deduplicateAgents(agents)).toBe(agents);
+  });
+
+  test("merges two agents sharing the same taskToolCallId", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({ id: "tool_1", taskToolCallId: "tool_1", task: "", toolUses: 7, currentTool: "read" }),
+      makeAgent({ id: "sub_1", taskToolCallId: "tool_1", task: "Review snake TUI", status: "completed" }),
+    ];
+    const result = deduplicateAgents(agents);
+    expect(result.length).toBe(1);
+    expect(result[0]!.task).toBe("Review snake TUI");
+    expect(result[0]!.toolUses).toBe(7);
+    expect(result[0]!.status).toBe("completed");
+    expect(result[0]!.id).toBe("sub_1");
+  });
+
+  test("prefers non-tool_ id format", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({ id: "tool_123", taskToolCallId: "tool_123", task: "" }),
+      makeAgent({ id: "ses_abc", taskToolCallId: "tool_123", task: "Real task" }),
+    ];
+    const result = deduplicateAgents(agents);
+    expect(result[0]!.id).toBe("ses_abc");
+  });
+
+  test("preserves agents without taskToolCallId", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({ id: "a1", task: "Orphan task" }),
+      makeAgent({ id: "a2", taskToolCallId: "t1", task: "Grouped task" }),
+    ];
+    const result = deduplicateAgents(agents);
+    expect(result.length).toBe(2);
+  });
+
+  test("returns same array when only one agent", () => {
+    const agents = [makeAgent({ id: "a1", taskToolCallId: "t1" })];
+    expect(deduplicateAgents(agents)).toBe(agents);
+  });
+
+  test("takes result and error from either entry", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({ id: "tool_1", taskToolCallId: "tool_1", result: "All good" }),
+      makeAgent({ id: "sub_1", taskToolCallId: "tool_1", error: "Oops", status: "error" }),
+    ];
+    const result = deduplicateAgents(agents);
+    expect(result[0]!.result).toBe("All good");
+    expect(result[0]!.error).toBe("Oops");
   });
 });

@@ -781,7 +781,7 @@ describe("formatTranscript - Streaming Indicators", () => {
     expect(streamingLine).toBeDefined();
     expect(streamingLine!.type).toBe("separator");
     expect(streamingLine!.content).toContain("100 tokens");
-    expect(streamingLine!.content).toContain("thinking 500ms");
+    expect(streamingLine!.content).toContain("thinking 1s");
   });
 
   test("renders streaming separator without thinking label when thinkingMs is 0", () => {

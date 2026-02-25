@@ -1,10 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildSpecToTasksPrompt,
-  buildTaskListPreamble,
   buildWorkerAssignment,
-  buildBootstrappedTaskContext,
-  buildDagDispatchPrompt,
   buildReviewPrompt,
   buildFixSpecFromReview,
   type TaskItem,
@@ -36,36 +33,6 @@ describe("buildSpecToTasksPrompt", () => {
     const prompt = buildSpecToTasksPrompt("test spec");
     
     expect(prompt).toContain("Output ONLY the JSON array");
-  });
-});
-
-describe("buildTaskListPreamble", () => {
-  test("includes task list as JSON", () => {
-    const tasks = [
-      { id: "#1", content: "Task 1", status: "pending", activeForm: "Doing task 1", blockedBy: [] },
-      { id: "#2", content: "Task 2", status: "completed", activeForm: "Doing task 2" },
-    ];
-    
-    const preamble = buildTaskListPreamble(tasks);
-    
-    expect(preamble).toContain('"id": "#1"');
-    expect(preamble).toContain('"content": "Task 1"');
-    expect(preamble).toContain('"status": "pending"');
-  });
-
-  test("instructs to call TodoWrite first", () => {
-    const tasks = [{ id: "#1", content: "Test", status: "pending", activeForm: "Testing" }];
-    const preamble = buildTaskListPreamble(tasks);
-    
-    expect(preamble).toContain("TodoWrite");
-    expect(preamble).toContain("FIRST action MUST be");
-  });
-
-  test("handles empty task list", () => {
-    const preamble = buildTaskListPreamble([]);
-    
-    expect(preamble).toContain("[]");
-    expect(preamble).toContain("TodoWrite");
   });
 });
 
@@ -424,59 +391,6 @@ describe("buildWorkerAssignment", () => {
   });
 });
 
-describe("buildBootstrappedTaskContext", () => {
-  test("includes session ID", () => {
-    const tasks: TaskItem[] = [
-      { id: "#1", content: "Task 1", status: "pending", activeForm: "Doing task 1" },
-    ];
-    const result = buildBootstrappedTaskContext(tasks, "abc-123");
-
-    expect(result).toContain("abc-123");
-  });
-
-  test("includes task list as JSON", () => {
-    const tasks: TaskItem[] = [
-      { id: "#1", content: "Setup project", status: "pending", activeForm: "Setting up", blockedBy: [] },
-      { id: "#2", content: "Add feature", status: "pending", activeForm: "Adding feature", blockedBy: ["#1"] },
-    ];
-    const result = buildBootstrappedTaskContext(tasks, "session-1");
-
-    expect(result).toContain('"id": "#1"');
-    expect(result).toContain('"content": "Setup project"');
-    expect(result).toContain('"id": "#2"');
-    expect(result).toContain('"blockedBy"');
-  });
-
-  test("includes implementation instructions", () => {
-    const tasks: TaskItem[] = [
-      { id: "#1", content: "Task", status: "pending", activeForm: "Doing" },
-    ];
-    const result = buildBootstrappedTaskContext(tasks, "session-1");
-
-    expect(result).toContain("Instructions");
-    expect(result).toContain("dependency order");
-    expect(result).toContain("blockedBy");
-  });
-
-  test("handles empty task list", () => {
-    const result = buildBootstrappedTaskContext([], "session-1");
-
-    expect(result).toContain("[]");
-    expect(result).toContain("session-1");
-  });
-
-  test("produces deterministic output", () => {
-    const tasks: TaskItem[] = [
-      { id: "#1", content: "Task 1", status: "pending", activeForm: "Doing 1" },
-      { id: "#2", content: "Task 2", status: "pending", activeForm: "Doing 2", blockedBy: ["#1"] },
-    ];
-    const result1 = buildBootstrappedTaskContext(tasks, "session-x");
-    const result2 = buildBootstrappedTaskContext(tasks, "session-x");
-
-    expect(result1).toBe(result2);
-  });
-});
-
 describe("buildReviewPrompt", () => {
   test("includes user prompt in review request", () => {
     const tasks: TaskItem[] = [
@@ -798,7 +712,7 @@ describe("buildFixSpecFromReview", () => {
     expect(spec).toContain("minimal changes");
   });
 
-  test("includes rubric for each finding", () => {
+    test("includes rubric for each finding", () => {
     const review: ReviewResult = {
       findings: [
         {
@@ -815,86 +729,5 @@ describe("buildFixSpecFromReview", () => {
 
     expect(spec).toContain("Rubric");
     expect(spec).toContain("fix is complete when");
-  });
-});
-
-describe("buildDagDispatchPrompt", () => {
-  test("includes session ID and progress", () => {
-    const allTasks: TaskItem[] = [
-      { id: "#1", content: "Task A", status: "completed", activeForm: "Working" },
-      { id: "#2", content: "Task B", status: "pending", activeForm: "Working" },
-    ];
-    const readyTasks: TaskItem[] = [
-      { id: "#2", content: "Task B", status: "pending", activeForm: "Working" },
-    ];
-    const prompt = buildDagDispatchPrompt(allTasks, readyTasks, "test-session");
-
-    expect(prompt).toContain("test-session");
-    expect(prompt).toContain("1/2 tasks completed");
-  });
-
-  test("lists all ready tasks explicitly", () => {
-    const allTasks: TaskItem[] = [
-      { id: "#1", content: "Task A", status: "pending", activeForm: "Doing A" },
-      { id: "#2", content: "Task B", status: "pending", activeForm: "Doing B" },
-      { id: "#3", content: "Task C", status: "pending", activeForm: "Doing C" },
-    ];
-    const readyTasks = allTasks;
-    const prompt = buildDagDispatchPrompt(allTasks, readyTasks, "s1");
-
-    expect(prompt).toContain("- #1: Task A");
-    expect(prompt).toContain("- #2: Task B");
-    expect(prompt).toContain("- #3: Task C");
-    expect(prompt).toContain("3 task(s)");
-  });
-
-  test("instructs parallel dispatch", () => {
-    const allTasks: TaskItem[] = [
-      { id: "#1", content: "Task A", status: "pending", activeForm: "Working" },
-    ];
-    const prompt = buildDagDispatchPrompt(allTasks, allTasks, "s1");
-
-    expect(prompt).toContain("parallel");
-    expect(prompt).toContain("simultaneously");
-  });
-
-  test("handles empty ready tasks", () => {
-    const allTasks: TaskItem[] = [
-      { id: "#1", content: "Task A", status: "pending", activeForm: "Working", blockedBy: ["#2"] },
-      { id: "#2", content: "Task B", status: "error", activeForm: "Working" },
-    ];
-    const prompt = buildDagDispatchPrompt(allTasks, [], "s1");
-
-    expect(prompt).toContain("0 task(s)");
-    expect(prompt).toContain("No tasks are currently ready");
-  });
-
-  test("includes task list JSON", () => {
-    const allTasks: TaskItem[] = [
-      { id: "#1", content: "Task A", status: "completed", activeForm: "Working" },
-      { id: "#2", content: "Task B", status: "pending", activeForm: "Working" },
-    ];
-    const prompt = buildDagDispatchPrompt(allTasks, [allTasks[1]!], "s1");
-
-    expect(prompt).toContain('"#1"');
-    expect(prompt).toContain('"completed"');
-    expect(prompt).toContain('"#2"');
-    expect(prompt).toContain('"pending"');
-  });
-
-  test("only lists ready tasks in dispatch section, not all tasks", () => {
-    const allTasks: TaskItem[] = [
-      { id: "#1", content: "Done task", status: "completed", activeForm: "Done" },
-      { id: "#2", content: "Ready task", status: "pending", activeForm: "Ready" },
-      { id: "#3", content: "Blocked task", status: "pending", activeForm: "Blocked", blockedBy: ["#2"] },
-    ];
-    const readyTasks: TaskItem[] = [allTasks[1]!];
-    const prompt = buildDagDispatchPrompt(allTasks, readyTasks, "s1");
-
-    // Ready Tasks section should list #2 but not #1 or #3
-    const readySection = prompt.split("# Ready Tasks")[1]?.split("# Instructions")[0] ?? "";
-    expect(readySection).toContain("- #2: Ready task");
-    expect(readySection).not.toContain("- #1:");
-    expect(readySection).not.toContain("- #3:");
   });
 });

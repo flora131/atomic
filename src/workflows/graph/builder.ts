@@ -26,6 +26,7 @@ import type {
   NodeType,
 } from "./types.ts";
 import type { SubagentResult } from "./subagent-bridge.ts";
+import { subagentNode, toolNode } from "./nodes.ts";
 
 // ============================================================================
 // LOOP CONFIGURATION
@@ -370,32 +371,126 @@ export class GraphBuilder<TState extends BaseState = BaseState> {
    * @param condition - Function that returns true if the if-branch should be taken
    * @returns this for chaining
    */
-  if(condition: EdgeCondition<TState>): this {
-    if (this.currentNodeId === null) {
-      throw new Error("Cannot use if() without a preceding node. Use start() first.");
+  if(condition: EdgeCondition<TState>): this;
+
+  /**
+   * Begin a conditional branch using config-based syntax.
+   *
+   * @param config - Configuration object with condition, then, else_if, and else branches
+   * @returns this for chaining
+   */
+  if(config: IfConfig<TState>): this;
+
+  /**
+   * Begin a conditional branch (implementation).
+   *
+   * Supports two modes:
+   * 1. Function-based: .if(condition).then(...).else().then(...).endif()
+   * 2. Config-based: .if({ condition, then: [...], else_if: [...], else: [...] })
+   *
+   * @param conditionOrConfig - Either a condition function or a config object
+   * @returns this for chaining
+   */
+  if(conditionOrConfig: EdgeCondition<TState> | IfConfig<TState>): this {
+    // Check if it's a function (existing behavior) or object (config-based)
+    if (typeof conditionOrConfig === "function") {
+      // Function-based: existing implementation
+      if (this.currentNodeId === null) {
+        throw new Error("Cannot use if() without a preceding node. Use start() first.");
+      }
+
+      // Create a decision node
+      const decisionNodeId = this.generateNodeId("decision");
+      const decisionNode = this.createNode(decisionNodeId, "decision", async (_ctx) => {
+        // Decision nodes just mark decision points
+        // The actual routing is handled by edges with conditions
+        return {};
+      });
+
+      this.addNode(decisionNode);
+      this.addEdge(this.currentNodeId, decisionNodeId);
+
+      // Push branch state
+      this.conditionalStack.push({
+        decisionNodeId,
+        condition: conditionOrConfig,
+        inElseBranch: false,
+      });
+
+      // Current node is now the decision node, but we don't connect directly
+      // The first then() in the if branch will set ifBranchStart
+      this.currentNodeId = null;
+
+      return this;
     }
 
-    // Create a decision node
-    const decisionNodeId = this.generateNodeId("decision");
-    const decisionNode = this.createNode(decisionNodeId, "decision", async (_ctx) => {
-      // Decision nodes just mark decision points
-      // The actual routing is handled by edges with conditions
-      return {};
-    });
+    // Config-based: build conditional structure from config
+    const config = conditionOrConfig as IfConfig<TState>;
 
-    this.addNode(decisionNode);
-    this.addEdge(this.currentNodeId, decisionNodeId);
+    // Start the if statement with the main condition
+    this.if(config.condition);
 
-    // Push branch state
-    this.conditionalStack.push({
-      decisionNodeId,
-      condition,
-      inElseBranch: false,
-    });
+    // Add nodes from the 'then' branch
+    for (const node of config.then) {
+      this.then(node);
+    }
 
-    // Current node is now the decision node, but we don't connect directly
-    // The first then() in the if branch will set ifBranchStart
-    this.currentNodeId = null;
+    // Handle else_if chains and else branch
+    if (config.else_if && config.else_if.length > 0) {
+      // Start else branch of main if
+      this.else();
+
+      // Build nested if-else chain for else_if conditions
+      // Each else_if becomes: else { pass-through; if (cond) { ... } else { ... } }
+      
+      for (let i = 0; i < config.else_if.length; i++) {
+        const elseIf = config.else_if[i];
+        if (!elseIf) continue;
+        
+        // Add a pass-through node to set currentNodeId (needed before .if())
+        const passThroughId = this.generateNodeId("pass");
+        const passThroughNode = this.createNode(passThroughId, "decision", async () => ({}));
+        this.then(passThroughNode);
+        
+        // Start nested if for this else_if condition
+        this.if(elseIf.condition);
+        
+        // Add nodes from this else_if's then branch
+        for (const node of elseIf.then) {
+          this.then(node);
+        }
+        
+        // Check if there are more else_if entries or a final else
+        const hasMore = i < config.else_if.length - 1 || (config.else && config.else.length > 0);
+        
+        if (hasMore) {
+          // More conditions to check - start else branch for next iteration
+          this.else();
+        }
+      }
+      
+      // Handle final else branch (after all else_if conditions)
+      if (config.else && config.else.length > 0) {
+        // We're already in the else branch from the last iteration
+        for (const node of config.else) {
+          this.then(node);
+        }
+      }
+      
+      // Close all the nested if statements (one for each else_if)
+      for (let i = 0; i < config.else_if.length; i++) {
+        this.endif();
+      }
+    } else if (config.else && config.else.length > 0) {
+      // No else_if, just handle else
+      this.else();
+      for (const node of config.else) {
+        this.then(node);
+      }
+    }
+
+    // Close the main conditional
+    this.endif();
 
     return this;
   }
@@ -667,6 +762,92 @@ export class GraphBuilder<TState extends BaseState = BaseState> {
     }
 
     return this.then(waitNode);
+  }
+
+  /**
+   * Add a subagent node using config object.
+   *
+   * This method creates a subagent node from the provided config and adds it to the chain.
+   * The config's `agent` field is mapped to `agentName` in SubagentNodeConfig.
+   *
+   * @param config - Configuration for the subagent node
+   * @returns this for chaining
+   *
+   * @example
+   * ```typescript
+   * builder.subagent({
+   *   id: "analyze-code",
+   *   agent: "codebase-analyzer",
+   *   task: "Analyze the current codebase structure",
+   *   outputMapper: (result, state) => ({ analysis: result.output })
+   * });
+   * ```
+   */
+  subagent(config: SubAgentConfig<TState>): this {
+    // Convert SubAgentConfig to SubagentNodeConfig
+    // Key mapping: config.agent → agentName
+    const nodeConfig = {
+      id: config.id,
+      agentName: config.agent,
+      task: config.task,
+      systemPrompt: config.systemPrompt,
+      model: config.model,
+      tools: config.tools,
+      outputMapper: config.outputMapper,
+      retry: config.retry,
+      name: config.name,
+      description: config.description,
+    };
+
+    // Create the node using subagentNode factory
+    const node = subagentNode(nodeConfig);
+
+    // Delegate to then() to add the node and connect edges
+    return this.then(node);
+  }
+
+  /**
+   * Add a tool node using config object.
+   *
+   * This method creates a tool node from the provided config and adds it to the chain.
+   * If toolName is not provided in config, it defaults to the node id.
+   *
+   * @param config - Configuration for the tool node
+   * @returns this for chaining
+   *
+   * @example
+   * ```typescript
+   * builder.tool({
+   *   id: "fetch-data",
+   *   toolName: "http_fetch",
+   *   execute: async (args) => fetch(args.url),
+   *   args: (state) => ({ url: state.targetUrl }),
+   *   outputMapper: (result, state) => ({ data: result })
+   * });
+   * ```
+   */
+  tool<TArgs = unknown, TResult = unknown>(
+    config: ToolBuilderConfig<TState, TArgs, TResult>
+  ): this {
+    // Convert ToolBuilderConfig to ToolNodeConfig
+    // Add toolName: config.toolName ?? config.id
+    const nodeConfig = {
+      id: config.id,
+      toolName: config.toolName ?? config.id,
+      execute: config.execute,
+      args: config.args,
+      outputMapper: config.outputMapper,
+      timeout: config.timeout,
+      retry: config.retry,
+      name: config.name,
+      description: config.description,
+    };
+
+    // Create the node using toolNode factory
+    const node = toolNode(nodeConfig);
+
+    // Delegate to then() to add the node and connect edges
+    return this.then(node);
   }
 
   /**

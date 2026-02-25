@@ -1,0 +1,91 @@
+name: Installer Validation
+
+on:
+    pull_request:
+        branches: [main]
+        paths:
+            - "install.sh"
+            - "install.ps1"
+            - ".github/workflows/installer-validation.yml"
+    workflow_dispatch:
+
+jobs:
+    validate-install-sh:
+        name: Validate install.sh (${{ matrix.os }})
+        runs-on: ${{ matrix.os }}
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest]
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
+
+            - name: Setup Bun
+              uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version: latest
+
+            - name: Run installer in isolated home
+              shell: bash
+              run: |
+                  set -euo pipefail
+
+                  TMP_HOME="$(mktemp -d)"
+                  export HOME="$TMP_HOME"
+                  export ATOMIC_INSTALL_DIR="$TMP_HOME/bin"
+                  export XDG_DATA_HOME="$TMP_HOME/share"
+
+                  bash ./install.sh
+
+                  test -x "$ATOMIC_INSTALL_DIR/atomic"
+                  "$ATOMIC_INSTALL_DIR/atomic" --version
+
+                  test -d "$HOME/.atomic/.claude"
+                  test -d "$HOME/.atomic/.opencode"
+                  test -d "$HOME/.atomic/.copilot"
+
+                  bun pm ls -g | grep "@playwright/cli@"
+
+    validate-install-ps1:
+        name: Validate install.ps1 (windows-latest)
+        runs-on: windows-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v6
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v6
+              with:
+                  node-version: "lts/*"
+
+            - name: Run installer in isolated directories
+              shell: pwsh
+              run: |
+                  $tmpRoot = Join-Path $env:RUNNER_TEMP "atomic-installer-$([Guid]::NewGuid())"
+                  $installDir = Join-Path $tmpRoot "bin"
+                  $env:LOCALAPPDATA = Join-Path $tmpRoot "localappdata"
+
+                  .\install.ps1 -InstallDir $installDir -NoPathUpdate
+
+                  $binaryPath = Join-Path $installDir "atomic.exe"
+                  if (-not (Test-Path $binaryPath)) {
+                      throw "Expected binary not found at $binaryPath"
+                  }
+
+                  & $binaryPath --version
+
+                  $atomicHome = Join-Path $HOME ".atomic"
+                  if (-not (Test-Path (Join-Path $atomicHome ".claude"))) {
+                      throw "Expected Claude config not found in $atomicHome"
+                  }
+                  if (-not (Test-Path (Join-Path $atomicHome ".opencode"))) {
+                      throw "Expected OpenCode config not found in $atomicHome"
+                  }
+                  if (-not (Test-Path (Join-Path $atomicHome ".copilot"))) {
+                      throw "Expected Copilot config not found in $atomicHome"
+                  }
+
+                  npm list -g @playwright/cli --depth=0

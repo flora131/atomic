@@ -201,7 +201,8 @@ describe("CopilotClient subagent event mapping", () => {
       data: {
         toolCallId: "tc-123",
         agentName: "worker",
-        description: "Fix bug",
+        agentDisplayName: "Worker",
+        agentDescription: "Fix bug",
       },
     });
 
@@ -216,7 +217,7 @@ describe("CopilotClient subagent event mapping", () => {
     });
   });
 
-  test("maps subagent.started with prompt fallback when description is missing", async () => {
+  test("maps subagent.started with empty task when agentDescription is missing", async () => {
     const events: Array<{ type: string; sessionId: string; data: Record<string, unknown> }> = [];
     
     const mockSdkSession = {
@@ -257,7 +258,8 @@ describe("CopilotClient subagent event mapping", () => {
       data: {
         toolCallId: "tc-456",
         agentName: "debugger",
-        prompt: "Debug the error",
+        agentDisplayName: "Debugger",
+        agentDescription: "",
       },
     });
 
@@ -266,11 +268,11 @@ describe("CopilotClient subagent event mapping", () => {
       subagentId: "tc-456",
       subagentType: "debugger",
       toolCallId: "tc-456",
-      task: "Debug the error",
+      task: "",
     });
   });
 
-  test("maps subagent.started with agentName fallback when description and prompt are missing", async () => {
+  test("maps subagent.started with agentDescription when available, empty when not", async () => {
     const events: Array<{ type: string; sessionId: string; data: Record<string, unknown> }> = [];
     
     const mockSdkSession = {
@@ -311,6 +313,8 @@ describe("CopilotClient subagent event mapping", () => {
       data: {
         toolCallId: "tc-789",
         agentName: "explorer",
+        agentDisplayName: "Explorer",
+        agentDescription: "",
       },
     });
 
@@ -319,7 +323,7 @@ describe("CopilotClient subagent event mapping", () => {
       subagentId: "tc-789",
       subagentType: "explorer",
       toolCallId: "tc-789",
-      task: "explorer",
+      task: "",
     });
   });
 

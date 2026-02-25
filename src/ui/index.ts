@@ -1180,7 +1180,7 @@ export async function startChatUI(
                 id: data.subagentId!,
                 taskToolCallId: a.taskToolCallId ?? eagerToolId,
                 name: agentTypeName,
-                task: data.task || a.task,
+                task: a.task && a.task !== "Sub-agent task" ? a.task : (data.task || a.task),
                 currentTool: `Running ${agentTypeName}…`,
               }
             : a
@@ -1195,7 +1195,7 @@ export async function startChatUI(
             ? {
                 ...a,
                 name: agentTypeName,
-                task: data.task || a.task,
+                task: a.task && a.task !== "Sub-agent task" ? a.task : (data.task || a.task),
                 currentTool: isBackground
                   ? `Running ${agentTypeName} in background…`
                   : `Running ${agentTypeName}…`,

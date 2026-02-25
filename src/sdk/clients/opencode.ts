@@ -1482,6 +1482,14 @@ export class OpenCodeClient implements CodingAgentClient {
         return client.buildOpenCodeMcpSnapshot();
       },
 
+      abort: async (): Promise<void> => {
+        if (sessionState.isClosed || !client.sdkClient) return;
+        await client.sdkClient.session.abort({
+          sessionID: sessionId,
+          directory: client.clientOptions.directory,
+        });
+      },
+
       destroy: async (): Promise<void> => {
         if (sessionState.isClosed) {
           return;

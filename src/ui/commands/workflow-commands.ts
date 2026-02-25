@@ -33,12 +33,12 @@ import {
 } from "../../workflows/session.ts";
 import {
     buildSpecToTasksPrompt,
-    buildBootstrappedTaskContext,
-    buildContinuePrompt,
+    buildDagDispatchPrompt,
     buildReviewPrompt,
     parseReviewResult,
     buildFixSpecFromReview,
 } from "../../graph/nodes/ralph.ts";
+import { getReadyTasks } from "../components/task-order.ts";
 
 // ============================================================================
 // CONSTANTS
@@ -686,13 +686,15 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
 
                 while (iteration < MAX_RALPH_ITERATIONS) {
                     iteration++;
-                    const prompt =
-                        iteration === 1
-                            ? buildBootstrappedTaskContext(
-                                  currentTasks,
-                                  sessionId,
-                              )
-                            : buildContinuePrompt(currentTasks, sessionId);
+
+                    // Use DAG-aware dispatch: identify ALL ready tasks and
+                    // instruct the agent to dispatch workers in parallel.
+                    const readyTasks = getReadyTasks(currentTasks);
+                    const prompt = buildDagDispatchPrompt(
+                        currentTasks,
+                        readyTasks,
+                        sessionId,
+                    );
 
                     const result = await streamWithInterruptRecovery(
                         context,
@@ -810,16 +812,15 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
 
                         while (fixIteration < MAX_RALPH_ITERATIONS) {
                             fixIteration++;
-                            const prompt =
-                                fixIteration === 1
-                                    ? buildBootstrappedTaskContext(
-                                          currentFixTasks,
-                                          sessionId,
-                                      )
-                                    : buildContinuePrompt(
-                                          currentFixTasks,
-                                          sessionId,
-                                      );
+
+                            const readyFixTasks = getReadyTasks(
+                                currentFixTasks,
+                            );
+                            const prompt = buildDagDispatchPrompt(
+                                currentFixTasks,
+                                readyFixTasks,
+                                sessionId,
+                            );
 
                             const result = await streamWithInterruptRecovery(
                                 context,

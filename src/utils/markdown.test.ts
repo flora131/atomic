@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseMarkdownFrontmatter } from "./markdown";
 
 describe("parseMarkdownFrontmatter", () => {
@@ -568,6 +570,39 @@ Body`;
       // nor isObjectItem matches, falling through to the if(value) check which is false
       expect(result?.frontmatter.emptykey).toBeUndefined();
       expect(result?.frontmatter.nextkey).toBe("hello");
+    });
+  });
+
+  describe("playwright-cli skill frontmatter", () => {
+    const expectedDescription =
+      "Automate browser interactions for navigation, form filling, testing, screenshots, and structured page inspection.";
+
+    const skillPaths = [
+      join(process.cwd(), ".claude", "skills", "playwright-cli", "SKILL.md"),
+      join(process.cwd(), ".opencode", "skills", "playwright-cli", "SKILL.md"),
+      join(process.cwd(), ".github", "skills", "playwright-cli", "SKILL.md"),
+    ];
+
+    test("parses required frontmatter fields in all SDK skill files", () => {
+      for (const skillPath of skillPaths) {
+        const content = readFileSync(skillPath, "utf-8");
+        const parsed = parseMarkdownFrontmatter(content);
+
+        expect(parsed).not.toBeNull();
+        expect(parsed?.frontmatter.name).toBe("playwright-cli");
+        expect(parsed?.frontmatter.description).toBe(expectedDescription);
+      }
+    });
+
+    test("keeps the skill body content after frontmatter", () => {
+      for (const skillPath of skillPaths) {
+        const content = readFileSync(skillPath, "utf-8");
+        const parsed = parseMarkdownFrontmatter(content);
+
+        expect(parsed).not.toBeNull();
+        expect(parsed?.body).toContain("# Browser Automation with playwright-cli");
+        expect(parsed?.body).toContain("playwright-cli open https://example.com");
+      }
     });
   });
 });

@@ -7,6 +7,7 @@ import {
   isAskQuestionToolName,
   invalidateActiveStreamGeneration,
   isCurrentStreamCallback,
+  shouldTrackToolAsBlocking,
   shouldDispatchQueuedMessage,
   shouldDeferComposerSubmit,
 } from "./stream-continuation.ts";
@@ -271,6 +272,19 @@ describe("stream continuation helpers", () => {
     expect(isAskQuestionToolName("mcp__deepwiki__ask_question")).toBe(true);
     expect(isAskQuestionToolName("question")).toBe(false);
     expect(isAskQuestionToolName("read_page")).toBe(false);
+  });
+
+  test("shouldTrackToolAsBlocking skips skill lifecycle tools", () => {
+    expect(shouldTrackToolAsBlocking("Skill")).toBe(false);
+    expect(shouldTrackToolAsBlocking("skill")).toBe(false);
+    expect(shouldTrackToolAsBlocking("deepwiki/skill")).toBe(false);
+    expect(shouldTrackToolAsBlocking("mcp__core__skill")).toBe(false);
+  });
+
+  test("shouldTrackToolAsBlocking keeps normal tools as blocking", () => {
+    expect(shouldTrackToolAsBlocking("Bash")).toBe(true);
+    expect(shouldTrackToolAsBlocking("Read")).toBe(true);
+    expect(shouldTrackToolAsBlocking("ask_question")).toBe(true);
   });
 
   test("shouldDeferComposerSubmit keeps composer text during ask_question", () => {

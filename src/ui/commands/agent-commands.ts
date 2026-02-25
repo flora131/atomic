@@ -316,13 +316,13 @@ export function createAgentCommand(agent: AgentInfo): CommandDefinition {
         // OpenCode SDK dispatches sub-agents via AgentPartInput parts.
         // Pass the agent name structurally so the client can construct
         // the correct prompt parts without string encoding.
-        context.sendSilentMessage(task, { agent: agent.name });
+        context.sendSilentMessage(task, { agent: agent.name, isAgentOnlyStream: true });
       } else {
         // Claude SDK and Copilot SDK use the Task tool for sub-agent dispatch.
         // Strongly steer the model to use Task-tool sub-agent dispatch so
         // sub-agent lifecycle events (and tree rendering) are emitted.
         const instruction = `Use the Task tool to invoke the ${agent.name} sub-agent for this exact task: ${task}`;
-        context.sendSilentMessage(instruction);
+        context.sendSilentMessage(instruction, { isAgentOnlyStream: true });
       }
 
       return { success: true };

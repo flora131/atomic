@@ -36,6 +36,8 @@ export interface StreamResult {
 export interface StreamMessageOptions {
   /** Sub-agent name for OpenCode dispatch via AgentPartInput. Ignored by Claude/Copilot. */
   agent?: string;
+  /** Marks this stream as @agent-only so completion can be finalized without SDK onComplete. */
+  isAgentOnlyStream?: boolean;
 }
 
 /**

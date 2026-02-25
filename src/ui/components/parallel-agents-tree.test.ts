@@ -153,6 +153,53 @@ describe("deduplicateAgents", () => {
     const result = deduplicateAgents(agents);
     expect(result).toHaveLength(2);
   });
+
+  test("merges mixed-correlation eager placeholder with descriptive SDK row", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({
+        id: "tool_42",
+        taskToolCallId: "tool_42",
+        name: "debugger",
+        task: "Sub-agent task",
+        toolUses: 12,
+        currentTool: "glob",
+      }),
+      makeAgent({
+        id: "subagent-42",
+        name: "debugger",
+        task: "Debug stuck spinner",
+        toolUses: 12,
+        currentTool: "glob",
+      }),
+    ];
+
+    const result = deduplicateAgents(agents);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe("subagent-42");
+    expect(result[0]!.task).toBe("Debug stuck spinner");
+    expect(result[0]!.toolUses).toBe(12);
+  });
+
+  test("does not merge mixed-correlation rows without eager placeholder shape", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({
+        id: "agent-tracked",
+        taskToolCallId: "external-call-1",
+        name: "debugger",
+        task: "Sub-agent task",
+        toolUses: 12,
+      }),
+      makeAgent({
+        id: "agent-untracked",
+        name: "debugger",
+        task: "Debug stuck spinner",
+        toolUses: 12,
+      }),
+    ];
+
+    const result = deduplicateAgents(agents);
+    expect(result).toHaveLength(2);
+  });
 });
 
 describe("getBackgroundSubStatusText", () => {

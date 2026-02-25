@@ -198,8 +198,10 @@ const STATUS_PRIORITY: Record<AgentStatus, number> = {
  * Deduplicate duplicate logical sub-agents.
  *
  * Primary path: merge entries that share a `taskToolCallId`.
- * Fallback path: merge uncorrelated duplicates when one row still carries
- * the generic placeholder task and another row has the real task text.
+ * Fallback path: merge near-duplicates when one row still carries the
+ * generic placeholder task and another row has the real task text.
+ * This also handles mixed-correlation rows (e.g. eager Task row + SDK row)
+ * when they clearly represent the same logical sub-agent.
  */
 export function deduplicateAgents(agents: ParallelAgent[]): ParallelAgent[] {
   if (agents.length <= 1) return agents;
@@ -236,10 +238,12 @@ export function deduplicateAgents(agents: ParallelAgent[]): ParallelAgent[] {
     merged.push(best);
   }
 
-  const dedupedUngrouped = deduplicateUncorrelatedAgents(ungrouped);
+  const fallbackDeduped = deduplicateUncorrelatedAgents([...merged, ...ungrouped]);
 
-  if (!anyMerged && !dedupedUngrouped.merged) return agents;
-  return [...merged, ...dedupedUngrouped.agents];
+  if (!anyMerged && !fallbackDeduped.merged) return agents;
+  return anyMerged && !fallbackDeduped.merged
+    ? [...merged, ...ungrouped]
+    : fallbackDeduped.agents;
 }
 
 function mergeAgentPair(a: ParallelAgent, b: ParallelAgent): ParallelAgent {
@@ -270,8 +274,33 @@ function mergeAgentPair(a: ParallelAgent, b: ParallelAgent): ParallelAgent {
   };
 }
 
+function isLikelyEagerPlaceholder(agent: ParallelAgent): boolean {
+  if (!agent.taskToolCallId) return false;
+  return (
+    agent.id === agent.taskToolCallId
+    || agent.id.startsWith("tool_")
+    || agent.taskToolCallId.startsWith("tool_")
+  );
+}
+
+function canMergeByTaskCorrelation(a: ParallelAgent, b: ParallelAgent): boolean {
+  const aTaskId = a.taskToolCallId;
+  const bTaskId = b.taskToolCallId;
+
+  if (aTaskId && bTaskId) {
+    return aTaskId === bTaskId;
+  }
+
+  if (!aTaskId && !bTaskId) {
+    return true;
+  }
+
+  const withTaskId = aTaskId ? a : b;
+  return isLikelyEagerPlaceholder(withTaskId);
+}
+
 function canMergeUncorrelatedDuplicate(a: ParallelAgent, b: ParallelAgent): boolean {
-  if (a.taskToolCallId || b.taskToolCallId) return false;
+  if (!canMergeByTaskCorrelation(a, b)) return false;
   if (a.name !== b.name) return false;
 
   const aGenericTask = isGenericSubagentTask(a.task);

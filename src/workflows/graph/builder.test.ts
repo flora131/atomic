@@ -12,6 +12,7 @@ import {
   createWaitNode,
   type LoopConfig,
   type ParallelConfig,
+  type IfConfig,
 } from "./builder.ts";
 import type { BaseState, NodeDefinition } from "./types.ts";
 
@@ -214,6 +215,225 @@ describe("GraphBuilder - conditional branches", () => {
           .then(testNode3)
         .else(); // Duplicate else
     }).toThrow("Already in else branch");
+  });
+});
+
+// ============================================================================
+// GRAPH BUILDER: CONFIG-BASED CONDITIONAL
+// ============================================================================
+
+describe("GraphBuilder - config-based conditional", () => {
+  test("creates if config with then and else branches", () => {
+    const builder = graph<TestState>()
+      .start(testNode1)
+      .if({
+        condition: (state) => state.flag === true,
+        then: [testNode2],
+        else: [testNode3],
+      })
+      .end();
+    
+    const compiled = builder.compile();
+
+    // Should have: test1, decision, test2, test3, merge
+    expect(compiled.nodes.size).toBe(5);
+    
+    // Check that both branch nodes exist
+    expect(compiled.nodes.has("test2")).toBe(true);
+    expect(compiled.nodes.has("test3")).toBe(true);
+    
+    // Check edges to both branches
+    const edgeToTest2 = compiled.edges.find(e => e.to === "test2");
+    const edgeToTest3 = compiled.edges.find(e => e.to === "test3");
+    
+    expect(edgeToTest2?.label).toBe("if-true");
+    expect(edgeToTest3?.label).toBe("if-false");
+  });
+
+  test("creates if config with only then branch", () => {
+    const builder = graph<TestState>()
+      .start(testNode1)
+      .if({
+        condition: (state) => state.flag === true,
+        then: [testNode2],
+      })
+      .end();
+    
+    const compiled = builder.compile();
+
+    // Should have: test1, decision node, test2, merge node
+    expect(compiled.nodes.size).toBe(4);
+    
+    // Find the decision and merge nodes
+    const nodeIds = Array.from(compiled.nodes.keys());
+    const decisionNode = nodeIds.find(id => id.startsWith("decision_"));
+    const mergeNode = nodeIds.find(id => id.startsWith("merge_"));
+    
+    expect(decisionNode).toBeDefined();
+    expect(mergeNode).toBeDefined();
+    
+    // Check edges
+    const edgeToTest2 = compiled.edges.find(e => e.to === "test2");
+    expect(edgeToTest2?.from).toBe(decisionNode);
+    expect(edgeToTest2?.label).toBe("if-true");
+  });
+
+  test("creates if config with else_if branch", () => {
+    const testNode4: NodeDefinition<TestState> = {
+      id: "test4",
+      type: "tool",
+      execute: async () => ({ stateUpdate: { count: 4 } }),
+    };
+
+    const builder = graph<TestState>()
+      .start(testNode1)
+      .if({
+        condition: (state) => state.count > 10,
+        then: [testNode2],
+        else_if: [
+          {
+            condition: (state) => state.count > 5,
+            then: [testNode3],
+          },
+        ],
+        else: [testNode4],
+      })
+      .end();
+    
+    const compiled = builder.compile();
+
+    // Should have: test1, multiple decision/merge nodes, test2, test3, test4
+    expect(compiled.nodes.has("test1")).toBe(true);
+    expect(compiled.nodes.has("test2")).toBe(true);
+    expect(compiled.nodes.has("test3")).toBe(true);
+    expect(compiled.nodes.has("test4")).toBe(true);
+    
+    // Check that all branch nodes exist
+    const edgeToTest2 = compiled.edges.find(e => e.to === "test2");
+    const edgeToTest3 = compiled.edges.find(e => e.to === "test3");
+    const edgeToTest4 = compiled.edges.find(e => e.to === "test4");
+    
+    expect(edgeToTest2).toBeDefined();
+    expect(edgeToTest3).toBeDefined();
+    expect(edgeToTest4).toBeDefined();
+  });
+
+  test("creates if config with multiple else_if branches", () => {
+    const testNode4: NodeDefinition<TestState> = {
+      id: "test4",
+      type: "tool",
+      execute: async () => ({ stateUpdate: { count: 4 } }),
+    };
+
+    const testNode5: NodeDefinition<TestState> = {
+      id: "test5",
+      type: "tool",
+      execute: async () => ({ stateUpdate: { count: 5 } }),
+    };
+
+    const builder = graph<TestState>()
+      .start(testNode1)
+      .if({
+        condition: (state) => state.count > 20,
+        then: [testNode2],
+        else_if: [
+          {
+            condition: (state) => state.count > 15,
+            then: [testNode3],
+          },
+          {
+            condition: (state) => state.count > 10,
+            then: [testNode4],
+          },
+        ],
+        else: [testNode5],
+      })
+      .end();
+    
+    const compiled = builder.compile();
+
+    // All branch nodes should exist
+    expect(compiled.nodes.has("test1")).toBe(true);
+    expect(compiled.nodes.has("test2")).toBe(true);
+    expect(compiled.nodes.has("test3")).toBe(true);
+    expect(compiled.nodes.has("test4")).toBe(true);
+    expect(compiled.nodes.has("test5")).toBe(true);
+    
+    // Check that all branches are connected
+    expect(compiled.edges.find(e => e.to === "test2")).toBeDefined();
+    expect(compiled.edges.find(e => e.to === "test3")).toBeDefined();
+    expect(compiled.edges.find(e => e.to === "test4")).toBeDefined();
+    expect(compiled.edges.find(e => e.to === "test5")).toBeDefined();
+  });
+
+  test("creates if config with multiple nodes per branch", () => {
+    const testNode4: NodeDefinition<TestState> = {
+      id: "test4",
+      type: "tool",
+      execute: async () => ({ stateUpdate: { count: 4 } }),
+    };
+
+    const testNode5: NodeDefinition<TestState> = {
+      id: "test5",
+      type: "tool",
+      execute: async () => ({ stateUpdate: { count: 5 } }),
+    };
+
+    const builder = graph<TestState>()
+      .start(testNode1)
+      .if({
+        condition: (state) => state.flag === true,
+        then: [testNode2, testNode3],
+        else: [testNode4, testNode5],
+      })
+      .end();
+    
+    const compiled = builder.compile();
+
+    // All nodes should exist
+    expect(compiled.nodes.has("test2")).toBe(true);
+    expect(compiled.nodes.has("test3")).toBe(true);
+    expect(compiled.nodes.has("test4")).toBe(true);
+    expect(compiled.nodes.has("test5")).toBe(true);
+    
+    // test2 should be followed by test3
+    const edgeTest2ToTest3 = compiled.edges.find(e => e.from === "test2" && e.to === "test3");
+    expect(edgeTest2ToTest3).toBeDefined();
+    
+    // test4 should be followed by test5
+    const edgeTest4ToTest5 = compiled.edges.find(e => e.from === "test4" && e.to === "test5");
+    expect(edgeTest4ToTest5).toBeDefined();
+  });
+
+  test("can chain after config-based if", () => {
+    const testNode4: NodeDefinition<TestState> = {
+      id: "test4",
+      type: "tool",
+      execute: async () => ({ stateUpdate: { count: 4 } }),
+    };
+
+    const builder = graph<TestState>()
+      .start(testNode1)
+      .if({
+        condition: (state) => state.flag === true,
+        then: [testNode2],
+        else: [testNode3],
+      })
+      .then(testNode4)
+      .end();
+    
+    const compiled = builder.compile();
+
+    // test4 should be connected after the merge node
+    expect(compiled.nodes.has("test4")).toBe(true);
+    
+    // Find merge node and check it connects to test4
+    const nodeIds = Array.from(compiled.nodes.keys());
+    const mergeNode = nodeIds.find(id => id.startsWith("merge_"));
+    
+    expect(mergeNode).toBeDefined();
+    const edgeMergeToTest4 = compiled.edges.find(e => e.from === mergeNode && e.to === "test4");
+    expect(edgeMergeToTest4).toBeDefined();
   });
 });
 

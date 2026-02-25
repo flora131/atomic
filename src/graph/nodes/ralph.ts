@@ -12,16 +12,20 @@
  */
 
 export interface TaskItem {
-  id?: string;
-  content: string;
-  status: string;
-  activeForm: string;
-  blockedBy?: string[];
+    id?: string;
+    content: string;
+    status: string;
+    activeForm: string;
+    blockedBy?: string[];
 }
 
 function isCompletedStatus(status: string): boolean {
-  const normalized = status.trim().toLowerCase();
-  return normalized === "completed" || normalized === "complete" || normalized === "done";
+    const normalized = status.trim().toLowerCase();
+    return (
+        normalized === "completed" ||
+        normalized === "complete" ||
+        normalized === "done"
+    );
 }
 
 // ============================================================================
@@ -30,7 +34,7 @@ function isCompletedStatus(status: string): boolean {
 
 /** Build the spec-to-tasks prompt for decomposing a spec into TodoItem[] */
 export function buildSpecToTasksPrompt(specContent: string): string {
-  return `You are tasked with decomposing a feature specification into an ordered task list.
+    return `You are tasked with decomposing a feature specification into an ordered task list.
 
 Read the following specification and create a comprehensive and structured JSON array of tasks to be implemented in order of highest to lowest priority.
 
@@ -77,8 +81,8 @@ Produce a JSON array where each element follows this exact schema:
 
 /** Build a preamble that includes the task list JSON for step 2 after context clearing */
 export function buildTaskListPreamble(tasks: TaskItem[]): string {
-  const taskListJson = JSON.stringify(tasks, null, 2);
-  return `# Task List from Planning Phase
+    const taskListJson = JSON.stringify(tasks, null, 2);
+    return `# Task List from Planning Phase
 
 The following task list was created during the planning phase. Your FIRST action MUST be to call the TodoWrite tool with this exact task list to load it into the system.
 
@@ -94,38 +98,45 @@ After calling TodoWrite with the above tasks, proceed with the implementation in
 }
 
 /** Build a prompt for assigning a single task to a worker sub-agent. */
-export function buildWorkerAssignment(task: TaskItem, allTasks: TaskItem[]): string {
-  const taskId = task.id ?? "unknown";
+export function buildWorkerAssignment(
+    task: TaskItem,
+    allTasks: TaskItem[],
+): string {
+    const taskId = task.id ?? "unknown";
 
-  const dependencies = (task.blockedBy ?? []).map((dependencyId) => {
-    const dependency = allTasks.find((candidate) => candidate.id === dependencyId);
-    if (!dependency) {
-      return `- ${dependencyId}: (not found)`;
-    }
-    return `- ${dependencyId}: ${dependency.content}`;
-  });
+    const dependencies = (task.blockedBy ?? []).map((dependencyId) => {
+        const dependency = allTasks.find(
+            (candidate) => candidate.id === dependencyId,
+        );
+        if (!dependency) {
+            return `- ${dependencyId}: (not found)`;
+        }
+        return `- ${dependencyId}: ${dependency.content}`;
+    });
 
-  const completedTasks = allTasks
-    .filter((candidate) => isCompletedStatus(candidate.status))
-    .map((candidate) => `- ${candidate.id ?? "?"}: ${candidate.content}`);
+    const completedTasks = allTasks
+        .filter((candidate) => isCompletedStatus(candidate.status))
+        .map((candidate) => `- ${candidate.id ?? "?"}: ${candidate.content}`);
 
-  const dependencySection = dependencies.length > 0
-    ? `# Dependencies
+    const dependencySection =
+        dependencies.length > 0
+            ? `# Dependencies
 
 ${dependencies.join("\n")}
 
 `
-    : "";
+            : "";
 
-  const completedSection = completedTasks.length > 0
-    ? `# Completed Tasks
+    const completedSection =
+        completedTasks.length > 0
+            ? `# Completed Tasks
 
 ${completedTasks.join("\n")}
 
 `
-    : "";
+            : "";
 
-  return `# Task Assignment
+    return `# Task Assignment
 
 **Task ID:** ${taskId}
 **Task:** ${task.content}
@@ -140,9 +151,12 @@ Begin implementation.`;
 }
 
 /** Build a bootstrap context for the main agent after the planning phase. */
-export function buildBootstrappedTaskContext(tasks: TaskItem[], sessionId: string): string {
-  const taskListJson = JSON.stringify(tasks, null, 2);
-  return `# Ralph Session Bootstrap
+export function buildBootstrappedTaskContext(
+    tasks: TaskItem[],
+    sessionId: string,
+): string {
+    const taskListJson = JSON.stringify(tasks, null, 2);
+    return `# Ralph Session Bootstrap
 
 Session ID: ${sessionId}
 
@@ -161,11 +175,14 @@ ${taskListJson}
 }
 
 /** Build a prompt to continue processing remaining tasks after a previous iteration. */
-export function buildContinuePrompt(tasks: TaskItem[], sessionId: string): string {
-  const taskListJson = JSON.stringify(tasks, null, 2);
-  const completed = tasks.filter((t) => isCompletedStatus(t.status)).length;
-  const total = tasks.length;
-  return `# Ralph Session Continue
+export function buildContinuePrompt(
+    tasks: TaskItem[],
+    sessionId: string,
+): string {
+    const taskListJson = JSON.stringify(tasks, null, 2);
+    const completed = tasks.filter((t) => isCompletedStatus(t.status)).length;
+    const total = tasks.length;
+    return `# Ralph Session Continue
 
 Session ID: ${sessionId}
 Progress: ${completed}/${total} tasks completed
@@ -191,19 +208,29 @@ Some tasks are still incomplete. Continue processing tasks in dependency order. 
  * workers for every independent task in a single turn using parallel tool calls.
  */
 export function buildDagDispatchPrompt(
-  allTasks: readonly { id?: string; content: string; status: string; blockedBy?: string[] }[],
-  readyTasks: readonly { id?: string; content: string }[],
-  sessionId: string,
+    allTasks: readonly {
+        id?: string;
+        content: string;
+        status: string;
+        blockedBy?: string[];
+    }[],
+    readyTasks: readonly { id?: string; content: string }[],
+    sessionId: string,
 ): string {
-  const taskListJson = JSON.stringify(allTasks, null, 2);
-  const completed = allTasks.filter((t) => isCompletedStatus(t.status)).length;
-  const total = allTasks.length;
+    const taskListJson = JSON.stringify(allTasks, null, 2);
+    const completed = allTasks.filter((t) =>
+        isCompletedStatus(t.status),
+    ).length;
+    const total = allTasks.length;
 
-  const readySection = readyTasks.length > 0
-    ? readyTasks.map((task) => `- ${task.id ?? "?"}: ${task.content}`).join("\n")
-    : "No tasks are currently ready (all pending tasks have unmet dependencies).";
+    const readySection =
+        readyTasks.length > 0
+            ? readyTasks
+                  .map((task) => `- ${task.id ?? "?"}: ${task.content}`)
+                  .join("\n")
+            : "No tasks are currently ready (all pending tasks have unmet dependencies).";
 
-  return `# Ralph Session — DAG Dispatch
+    return `# Ralph Session — DAG Dispatch
 
 Session ID: ${sessionId}
 Progress: ${completed}/${total} tasks completed
@@ -234,32 +261,36 @@ ${readySection}
 
 /** Represents a single finding from the code review */
 export interface ReviewFinding {
-  title: string;
-  body: string;
-  confidence_score?: number;
-  priority?: number;
-  code_location?: {
-    absolute_file_path: string;
-    line_range: { start: number; end: number };
-  };
+    title: string;
+    body: string;
+    confidence_score?: number;
+    priority?: number;
+    code_location?: {
+        absolute_file_path: string;
+        line_range: { start: number; end: number };
+    };
 }
 
 /** Represents the complete review result from the reviewer sub-agent */
 export interface ReviewResult {
-  findings: ReviewFinding[];
-  overall_correctness: string;
-  overall_explanation: string;
-  overall_confidence_score?: number;
+    findings: ReviewFinding[];
+    overall_correctness: string;
+    overall_explanation: string;
+    overall_confidence_score?: number;
 }
 
 /** Build a prompt for the reviewer sub-agent to review completed implementation */
-export function buildReviewPrompt(tasks: TaskItem[], userPrompt: string): string {
-  const completedTasks = tasks
-    .filter((t) => isCompletedStatus(t.status))
-    .map((t) => `- ${t.id ?? "?"}: ${t.content}`)
-    .join("\n");
+export function buildReviewPrompt(
+    tasks: TaskItem[],
+    userPrompt: string,
+    progressFilePath: string,
+): string {
+    const completedTasks = tasks
+        .filter((t) => isCompletedStatus(t.status))
+        .map((t) => `- ${t.id ?? "?"}: ${t.content}`)
+        .join("\n");
 
-  return `# Code Review Request
+    return `# Code Review Request
 
 ## Implementation Summary
 
@@ -277,7 +308,7 @@ ${completedTasks}
 
 ## Review Instructions
 
-Your task is to conduct a thorough code review of the changes made during this implementation. Use \`git diff\` to examine the actual code changes that were made.
+Your task is to conduct a thorough code review of the changes made during this implementation. Analyze the progress file in ${progressFilePath} to understand the changes that were made.
 
 ### Review Focus Areas
 
@@ -339,80 +370,83 @@ Begin your review now.`;
 
 /** Parse the reviewer's JSON output, handling various formats */
 export function parseReviewResult(content: string): ReviewResult | null {
-  try {
-    // First try: direct JSON parsing
-    const parsed = JSON.parse(content);
-    if (parsed.findings && parsed.overall_correctness) {
-      // Filter out low-priority findings (P3)
-      const actionableFindings = (parsed.findings as ReviewFinding[]).filter(
-        (f) => f.priority === undefined || f.priority <= 2
-      );
-      return {
-        ...parsed,
-        findings: actionableFindings,
-      };
+    try {
+        // First try: direct JSON parsing
+        const parsed = JSON.parse(content);
+        if (parsed.findings && parsed.overall_correctness) {
+            // Filter out low-priority findings (P3)
+            const actionableFindings = (
+                parsed.findings as ReviewFinding[]
+            ).filter((f) => f.priority === undefined || f.priority <= 2);
+            return {
+                ...parsed,
+                findings: actionableFindings,
+            };
+        }
+    } catch {
+        // Continue to next attempt
     }
-  } catch {
-    // Continue to next attempt
-  }
 
-  try {
-    // Second try: extract from markdown code fence
-    const codeBlockMatch = content.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-    if (codeBlockMatch?.[1]) {
-      const parsed = JSON.parse(codeBlockMatch[1]);
-      if (parsed.findings && parsed.overall_correctness) {
-        const actionableFindings = (parsed.findings as ReviewFinding[]).filter(
-          (f) => f.priority === undefined || f.priority <= 2
+    try {
+        // Second try: extract from markdown code fence
+        const codeBlockMatch = content.match(
+            /```(?:json)?\s*\n([\s\S]*?)\n```/,
         );
-        return {
-          ...parsed,
-          findings: actionableFindings,
-        };
-      }
+        if (codeBlockMatch?.[1]) {
+            const parsed = JSON.parse(codeBlockMatch[1]);
+            if (parsed.findings && parsed.overall_correctness) {
+                const actionableFindings = (
+                    parsed.findings as ReviewFinding[]
+                ).filter((f) => f.priority === undefined || f.priority <= 2);
+                return {
+                    ...parsed,
+                    findings: actionableFindings,
+                };
+            }
+        }
+    } catch {
+        // Continue to next attempt
     }
-  } catch {
-    // Continue to next attempt
-  }
 
-  try {
-    // Third try: extract JSON object from surrounding prose
-    const jsonObjectMatch = content.match(/\{[\s\S]*"findings"[\s\S]*\}/);
-    if (jsonObjectMatch) {
-      const parsed = JSON.parse(jsonObjectMatch[0]);
-      if (parsed.findings && parsed.overall_correctness) {
-        const actionableFindings = (parsed.findings as ReviewFinding[]).filter(
-          (f) => f.priority === undefined || f.priority <= 2
-        );
-        return {
-          ...parsed,
-          findings: actionableFindings,
-        };
-      }
+    try {
+        // Third try: extract JSON object from surrounding prose
+        const jsonObjectMatch = content.match(/\{[\s\S]*"findings"[\s\S]*\}/);
+        if (jsonObjectMatch) {
+            const parsed = JSON.parse(jsonObjectMatch[0]);
+            if (parsed.findings && parsed.overall_correctness) {
+                const actionableFindings = (
+                    parsed.findings as ReviewFinding[]
+                ).filter((f) => f.priority === undefined || f.priority <= 2);
+                return {
+                    ...parsed,
+                    findings: actionableFindings,
+                };
+            }
+        }
+    } catch {
+        // All attempts failed
     }
-  } catch {
-    // All attempts failed
-  }
 
-  return null;
+    return null;
 }
 
 /** Build a fix specification document from review findings */
 export function buildFixSpecFromReview(
-  review: ReviewResult,
-  tasks: TaskItem[],
-  userPrompt: string
+    review: ReviewResult,
+    tasks: TaskItem[],
+    userPrompt: string,
 ): string {
-  // If no actionable findings or patch is correct, return empty string
-  if (
-    review.findings.length === 0 ||
-    (review.overall_correctness === "patch is correct" && review.findings.length === 0)
-  ) {
-    return "";
-  }
+    // If no actionable findings or patch is correct, return empty string
+    if (
+        review.findings.length === 0 ||
+        (review.overall_correctness === "patch is correct" &&
+            review.findings.length === 0)
+    ) {
+        return "";
+    }
 
-  // Build the fix specification
-  let fixSpec = `# Review Fix Specification
+    // Build the fix specification
+    let fixSpec = `# Review Fix Specification
 
 ## Original Implementation
 
@@ -428,21 +462,22 @@ ${review.overall_explanation}
 
 `;
 
-  // Sort findings by priority (P0 first, then P1, then P2)
-  const sortedFindings = [...review.findings].sort((a, b) => {
-    const priorityA = a.priority ?? 3;
-    const priorityB = b.priority ?? 3;
-    return priorityA - priorityB;
-  });
+    // Sort findings by priority (P0 first, then P1, then P2)
+    const sortedFindings = [...review.findings].sort((a, b) => {
+        const priorityA = a.priority ?? 3;
+        const priorityB = b.priority ?? 3;
+        return priorityA - priorityB;
+    });
 
-  // Add each finding as a section
-  sortedFindings.forEach((finding, index) => {
-    const priorityLabel = finding.priority !== undefined ? `P${finding.priority}` : "P2";
-    const location = finding.code_location
-      ? `${finding.code_location.absolute_file_path}:${finding.code_location.line_range.start}-${finding.code_location.line_range.end}`
-      : "Location not specified";
+    // Add each finding as a section
+    sortedFindings.forEach((finding, index) => {
+        const priorityLabel =
+            finding.priority !== undefined ? `P${finding.priority}` : "P2";
+        const location = finding.code_location
+            ? `${finding.code_location.absolute_file_path}:${finding.code_location.line_range.start}-${finding.code_location.line_range.end}`
+            : "Location not specified";
 
-    fixSpec += `### Finding ${index + 1}: ${finding.title}
+        fixSpec += `### Finding ${index + 1}: ${finding.title}
 
 - **Priority:** ${priorityLabel}
 - **Location:** ${location}
@@ -450,10 +485,10 @@ ${review.overall_explanation}
 - **Rubric:** The fix is complete when the issue described above is resolved, the code correctly handles this case, and existing tests continue to pass.
 
 `;
-  });
+    });
 
-  // Add fix guidelines
-  fixSpec += `## Fix Guidelines
+    // Add fix guidelines
+    fixSpec += `## Fix Guidelines
 
 - Address each finding in priority order (P0 first, then P1, then P2).
 - Run existing tests after each fix to verify no regressions.
@@ -461,5 +496,5 @@ ${review.overall_explanation}
 - If a finding cannot be addressed, document why and mark the task as blocked.
 `;
 
-  return fixSpec;
+    return fixSpec;
 }

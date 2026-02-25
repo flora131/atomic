@@ -33,12 +33,13 @@ import {
 } from "../../workflows/session.ts";
 import {
     buildSpecToTasksPrompt,
-    buildDagDispatchPrompt,
+    buildWorkerAssignment,
     buildReviewPrompt,
     parseReviewResult,
     buildFixSpecFromReview,
 } from "../../graph/nodes/ralph.ts";
 import { getReadyTasks } from "../components/task-order.ts";
+import type { SubagentSpawnOptions } from "../../graph/subagent-bridge.ts";
 
 // ============================================================================
 // CONSTANTS
@@ -676,10 +677,9 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
             );
             context.setRalphTaskIds(taskIds);
 
-            // Step 2: Execute tasks in a loop until all are completed.
-            // The agent's context is blank after Step 1 (hideContent suppressed the JSON),
-            // so inject the task list and instructions for worker dispatch, then loop
-            // until tasks.json shows all items completed.
+            // Step 2: Execute tasks via deterministic parallel dispatch.
+            // Instead of asking the LLM to dispatch workers, directly spawn
+            // sub-agents for all ready tasks using SubagentGraphBridge.
             if (tasks.length > 0) {
                 let iteration = 0;
                 let currentTasks: NormalizedTodoItem[] = tasks;
@@ -687,36 +687,68 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 while (iteration < MAX_RALPH_ITERATIONS) {
                     iteration++;
 
-                    // Use DAG-aware dispatch: identify ALL ready tasks and
-                    // instruct the agent to dispatch workers in parallel.
+                    // Identify all tasks whose dependencies are satisfied
                     const readyTasks = getReadyTasks(currentTasks);
-                    const prompt = buildDagDispatchPrompt(
-                        currentTasks,
-                        readyTasks,
-                        sessionId,
+                    if (readyTasks.length === 0) break;
+
+                    // Resolve ready task IDs back to full NormalizedTodoItem objects
+                    const readyIds = new Set(readyTasks.map((t) => t.id));
+                    const readyFull = currentTasks.filter(
+                        (t) => t.id != null && readyIds.has(t.id),
                     );
 
-                    const result = await streamWithInterruptRecovery(
-                        context,
-                        prompt,
+                    // Mark ready tasks as in_progress
+                    currentTasks = currentTasks.map((t) =>
+                        readyIds.has(t.id)
+                            ? { ...t, status: "in_progress" }
+                            : t,
                     );
-                    if (result.wasCancelled) break;
+                    await saveTasksToActiveSession(currentTasks, sessionId);
+                    context.setTodoItems(currentTasks as TodoItem[]);
 
-                    // Read latest task state from disk after agent response
-                    const diskTasks = await readTasksFromDisk(sessionDir);
-                    if (diskTasks.length === 0) break;
+                    // Build spawn options for each ready task
+                    const agents: SubagentSpawnOptions[] = readyFull.map(
+                        (task) => ({
+                            agentId: `worker-${task.id ?? `iter${iteration}`}`,
+                            agentName: "worker",
+                            task: buildWorkerAssignment(task, currentTasks),
+                        }),
+                    );
 
-                    // Check if all tasks are completed
-                    const allCompleted = diskTasks.every(
+                    // Spawn all workers in parallel
+                    const results = await context.spawnSubagentParallel!(
+                        agents,
+                    );
+
+                    // Update task status based on worker results
+                    const resultByAgentId = new Map(
+                        results.map((r) => [r.agentId, r]),
+                    );
+                    currentTasks = currentTasks.map((t) => {
+                        const agentId = `worker-${t.id ?? "?"}`;
+                        const result = resultByAgentId.get(agentId);
+                        if (result) {
+                            return {
+                                ...t,
+                                status: result.success
+                                    ? "completed"
+                                    : "error",
+                            };
+                        }
+                        return t;
+                    });
+                    await saveTasksToActiveSession(currentTasks, sessionId);
+                    context.setTodoItems(currentTasks as TodoItem[]);
+
+                    // Check completion
+                    const allCompleted = currentTasks.every(
                         (t) => t.status === "completed",
                     );
                     if (allCompleted) break;
 
-                    // Check if remaining tasks are all stuck (including dependency deadlocks)
-                    const hasActionable = hasActionableTasks(diskTasks);
+                    // Check if remaining tasks are all stuck
+                    const hasActionable = hasActionableTasks(currentTasks);
                     if (!hasActionable) break;
-
-                    currentTasks = diskTasks;
                 }
 
                 // Step 3: Review & Fix phase
@@ -816,34 +848,73 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                             const readyFixTasks = getReadyTasks(
                                 currentFixTasks,
                             );
-                            const prompt = buildDagDispatchPrompt(
+                            if (readyFixTasks.length === 0) break;
+
+                            const readyFixIds = new Set(
+                                readyFixTasks.map((t) => t.id),
+                            );
+                            const readyFixFull = currentFixTasks.filter(
+                                (t) =>
+                                    t.id != null && readyFixIds.has(t.id),
+                            );
+
+                            // Mark as in_progress
+                            currentFixTasks = currentFixTasks.map((t) =>
+                                readyFixIds.has(t.id)
+                                    ? { ...t, status: "in_progress" }
+                                    : t,
+                            );
+                            await saveTasksToActiveSession(
                                 currentFixTasks,
-                                readyFixTasks,
                                 sessionId,
                             );
+                            context.setTodoItems(currentFixTasks as TodoItem[]);
 
-                            const result = await streamWithInterruptRecovery(
-                                context,
-                                prompt,
+                            const fixAgents: SubagentSpawnOptions[] =
+                                readyFixFull.map((task) => ({
+                                    agentId: `fix-worker-${task.id ?? `iter${fixIteration}`}`,
+                                    agentName: "worker",
+                                    task: buildWorkerAssignment(
+                                        task,
+                                        currentFixTasks,
+                                    ),
+                                }));
+
+                            const fixResults =
+                                await context.spawnSubagentParallel!(
+                                    fixAgents,
+                                );
+
+                            const fixResultMap = new Map(
+                                fixResults.map((r) => [r.agentId, r]),
                             );
-                            if (result.wasCancelled) break;
+                            currentFixTasks = currentFixTasks.map((t) => {
+                                const agentId = `fix-worker-${t.id ?? "?"}`;
+                                const result = fixResultMap.get(agentId);
+                                if (result) {
+                                    return {
+                                        ...t,
+                                        status: result.success
+                                            ? "completed"
+                                            : "error",
+                                    };
+                                }
+                                return t;
+                            });
+                            await saveTasksToActiveSession(
+                                currentFixTasks,
+                                sessionId,
+                            );
+                            context.setTodoItems(currentFixTasks as TodoItem[]);
 
-                            // Read latest task state from disk after agent response
-                            const diskTasks =
-                                await readTasksFromDisk(sessionDir);
-                            if (diskTasks.length === 0) break;
-
-                            // Check if all fix tasks are completed
-                            const allFixCompleted = diskTasks.every(
+                            const allFixCompleted = currentFixTasks.every(
                                 (t) => t.status === "completed",
                             );
                             if (allFixCompleted) break;
 
-                            // Check if remaining fix tasks are all stuck (including dependency deadlocks)
-                            const hasActionable = hasActionableTasks(diskTasks);
+                            const hasActionable =
+                                hasActionableTasks(currentFixTasks);
                             if (!hasActionable) break;
-
-                            currentFixTasks = diskTasks;
                         }
                     }
                 }

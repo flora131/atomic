@@ -26,6 +26,14 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
     sendMessage: () => {},
     sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "" }),
+    spawnSubagentParallel: async (agents) =>
+      agents.map((a) => ({
+        agentId: a.agentId,
+        success: true,
+        output: "Done",
+        toolUses: 1,
+        durationMs: 100,
+      })),
     streamAndWait: async () => ({ content: "", wasInterrupted: false }),
     waitForUserInput: async () => "",
     clearContext: async () => {},
@@ -55,7 +63,7 @@ describe("Workflow inline mode E2E", () => {
         }
       },
       streamAndWait: async (prompt: string) => {
-        // Call 1: Return task JSON
+        // Step 1: Return task JSON
         if (prompt.includes("task list")) {
           return {
             content: JSON.stringify([
@@ -69,23 +77,7 @@ describe("Workflow inline mode E2E", () => {
             wasInterrupted: false,
           };
         }
-
-        // Call 2: Write tasks.json completed, return content
-        if (sessionDir) {
-          const tasksPath = join(sessionDir, "tasks.json");
-          await fsWriteFile(
-            tasksPath,
-            JSON.stringify([
-              {
-                id: "#1",
-                content: "Task 1",
-                status: "completed",
-                activeForm: "Working on task 1",
-              },
-            ]),
-          );
-        }
-        return { content: "Task completed", wasInterrupted: false };
+        return { content: "", wasInterrupted: false };
       },
       spawnSubagent: async () => ({
         success: true,
@@ -153,8 +145,13 @@ describe("Workflow inline mode E2E", () => {
       streamAndWait: async (prompt: string) => {
         streamAndWaitCalls.push(prompt);
 
-        // Call 1: return 2 tasks JSON (step1 decomposition)
+        // Call 1: return wasInterrupted (Ctrl+C during step1 decomposition)
         if (streamAndWaitCalls.length === 1) {
+          return { content: "", wasInterrupted: true };
+        }
+
+        // Call 2: after user provides follow-up, retry step1 decomposition
+        if (streamAndWaitCalls.length === 2) {
           return {
             content: JSON.stringify([
               {
@@ -172,61 +169,6 @@ describe("Workflow inline mode E2E", () => {
             ]),
             wasInterrupted: false,
           };
-        }
-
-        // Call 2: return wasInterrupted: true (Ctrl+C during task 1)
-        if (streamAndWaitCalls.length === 2) {
-          return { content: "", wasInterrupted: true };
-        }
-
-        // Call 3: should receive prompt containing user's follow-up text, write task 1 completed to tasks.json
-        if (streamAndWaitCalls.length === 3) {
-          if (sessionDir) {
-            const tasksPath = join(sessionDir, "tasks.json");
-            await fsWriteFile(
-              tasksPath,
-              JSON.stringify([
-                {
-                  id: "#1",
-                  content: "Task 1",
-                  status: "completed",
-                  activeForm: "Working on task 1",
-                },
-                {
-                  id: "#2",
-                  content: "Task 2",
-                  status: "pending",
-                  activeForm: "Working on task 2",
-                },
-              ]),
-            );
-          }
-          return { content: "Task 1 completed with alignment fix", wasInterrupted: false };
-        }
-
-        // Call 4: write task 2 completed to tasks.json, return content
-        if (streamAndWaitCalls.length === 4) {
-          if (sessionDir) {
-            const tasksPath = join(sessionDir, "tasks.json");
-            await fsWriteFile(
-              tasksPath,
-              JSON.stringify([
-                {
-                  id: "#1",
-                  content: "Task 1",
-                  status: "completed",
-                  activeForm: "Working on task 1",
-                },
-                {
-                  id: "#2",
-                  content: "Task 2",
-                  status: "completed",
-                  activeForm: "Working on task 2",
-                },
-              ]),
-            );
-          }
-          return { content: "Task 2 completed", wasInterrupted: false };
         }
 
         return { content: "", wasInterrupted: false };
@@ -257,8 +199,8 @@ describe("Workflow inline mode E2E", () => {
     // Assert: waitForUserInput was called exactly once
     expect(waitForUserInputCallCount).toBe(1);
 
-    // Assert: streamAndWait call 3 prompt includes user's follow-up text
-    expect(streamAndWaitCalls[2]).toContain("fix the alignment issue");
+    // Assert: streamAndWait call 2 prompt includes user's follow-up text
+    expect(streamAndWaitCalls[1]).toContain("fix the alignment issue");
 
     // Assert: result.success is true
     expect(result.success).toBe(true);
@@ -323,59 +265,8 @@ describe("Workflow inline mode E2E", () => {
           };
         }
 
-        // Call 2: return wasInterrupted: true (Ctrl+C)
-        if (!sessionDir) {
-          return { content: "", wasInterrupted: true };
-        }
-
-        // Call 3: write task 1 completed to tasks.json, return content
-        const tasksPath = join(sessionDir, "tasks.json");
-        const currentTasks = existsSync(tasksPath)
-          ? JSON.parse(readFileSync(tasksPath, "utf-8"))
-          : [];
-
-        if (currentTasks.length === 2 && currentTasks[0].status === "pending") {
-          await fsWriteFile(
-            tasksPath,
-            JSON.stringify([
-              {
-                id: "#1",
-                content: "Task 1",
-                status: "completed",
-                activeForm: "Working on task 1",
-              },
-              {
-                id: "#2",
-                content: "Task 2",
-                status: "pending",
-                activeForm: "Working on task 2",
-              },
-            ]),
-          );
-          return { content: "Task 1 completed", wasInterrupted: false };
-        }
-
-        // Call 4: write task 2 completed to tasks.json, return content
-        await fsWriteFile(
-          tasksPath,
-          JSON.stringify([
-            {
-              id: "#1",
-              content: "Task 1",
-              status: "completed",
-              activeForm: "Working on task 1",
-            },
-            {
-              id: "#2",
-              content: "Task 2",
-              status: "completed",
-              activeForm: "Working on task 2",
-            },
-          ]),
-        );
-        return { content: "Task 2 completed", wasInterrupted: false };
+        return { content: "", wasInterrupted: false };
       },
-      waitForUserInput: async () => "keep going",
       spawnSubagent: async () => ({
         success: true,
         output: JSON.stringify({

@@ -18,6 +18,14 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
     sendMessage: () => {},
     sendSilentMessage: () => {},
     spawnSubagent: async () => ({ success: true, output: "" }),
+    spawnSubagentParallel: async (agents) =>
+      agents.map((a) => ({
+        agentId: a.agentId,
+        success: true,
+        output: "Done",
+        toolUses: 1,
+        durationMs: 100,
+      })),
     streamAndWait: async () => ({ content: "", wasInterrupted: false }),
     waitForUserInput: async () => "",
     clearContext: async () => {},
@@ -312,25 +320,16 @@ describe("review step in /ralph", () => {
           };
         }
 
-        if (streamCallCount === 2 && sessionDir) {
-          await fsWriteFile(
-            join(sessionDir, "tasks.json"),
-            JSON.stringify([
-              { id: "#1", content: "Failing root task", status: "error", activeForm: "Working" },
-              {
-                id: "#2",
-                content: "Blocked follow-up",
-                status: "pending",
-                activeForm: "Waiting",
-                blockedBy: ["#1"],
-              },
-            ])
-          );
-          return { content: "", wasInterrupted: false };
-        }
-
-        throw new Error("Implementation loop did not stop on dependency deadlock");
+        return { content: "", wasInterrupted: false };
       },
+      spawnSubagentParallel: async (agents) =>
+        agents.map((a) => ({
+          agentId: a.agentId,
+          success: false,
+          output: "Error: task failed",
+          toolUses: 0,
+          durationMs: 100,
+        })),
       setRalphSessionDir: (dir: string | null) => {
         sessionDir = dir;
         if (dir) {
@@ -346,7 +345,7 @@ describe("review step in /ralph", () => {
     const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
     const result = await ralphCommand!.execute("Build a feature", context);
     expect(result.success).toBe(true);
-    expect(streamCallCount).toBe(2);
+    expect(streamCallCount).toBe(1);
 
     if (sessionDir) {
       await rm(sessionDir, { recursive: true, force: true });
@@ -356,6 +355,7 @@ describe("review step in /ralph", () => {
   test("continues implementation loop when blockedBy uses non-prefixed IDs", async () => {
     let streamCallCount = 0;
     let sessionDir: string | null = null;
+    let parallelCallCount = 0;
 
     const context = createMockContext({
       streamAndWait: async () => {
@@ -377,41 +377,17 @@ describe("review step in /ralph", () => {
           };
         }
 
-        if (streamCallCount === 2 && sessionDir) {
-          await fsWriteFile(
-            join(sessionDir, "tasks.json"),
-            JSON.stringify([
-              { id: "#1", content: "Root task", status: "completed", activeForm: "Working" },
-              {
-                id: "#2",
-                content: "Dependent task",
-                status: "pending",
-                activeForm: "Waiting",
-                blockedBy: ["1"],
-              },
-            ]),
-          );
-          return { content: "", wasInterrupted: false };
-        }
-
-        if (streamCallCount === 3 && sessionDir) {
-          await fsWriteFile(
-            join(sessionDir, "tasks.json"),
-            JSON.stringify([
-              { id: "#1", content: "Root task", status: "completed", activeForm: "Working" },
-              {
-                id: "#2",
-                content: "Dependent task",
-                status: "completed",
-                activeForm: "Waiting",
-                blockedBy: ["1"],
-              },
-            ]),
-          );
-          return { content: "", wasInterrupted: false };
-        }
-
-        throw new Error("Implementation loop stopped before dependency became actionable");
+        return { content: "", wasInterrupted: false };
+      },
+      spawnSubagentParallel: async (agents) => {
+        parallelCallCount++;
+        return agents.map((a) => ({
+          agentId: a.agentId,
+          success: true,
+          output: "Done",
+          toolUses: 1,
+          durationMs: 100,
+        }));
       },
       setRalphSessionDir: (dir: string | null) => {
         sessionDir = dir;
@@ -428,7 +404,9 @@ describe("review step in /ralph", () => {
     const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
     const result = await ralphCommand!.execute("Build a feature", context);
     expect(result.success).toBe(true);
-    expect(streamCallCount).toBe(3);
+    expect(streamCallCount).toBe(1);
+    // Two iterations: first dispatches #1, second dispatches #2
+    expect(parallelCallCount).toBe(2);
 
     if (sessionDir) {
       await rm(sessionDir, { recursive: true, force: true });
@@ -437,35 +415,25 @@ describe("review step in /ralph", () => {
 
   test("does not spawn reviewer when tasks are not all completed", async () => {
     const spawnCalls: Array<{ name?: string }> = [];
-    let streamCallCount = 0;
     let sessionDir: string | null = null;
 
     const context = createMockContext({
       streamAndWait: async () => {
-        streamCallCount++;
-        if (streamCallCount === 1) {
-          return {
-            content: JSON.stringify([
-              { id: "#1", content: "Test task", status: "pending", activeForm: "Testing" },
-            ]),
-            wasInterrupted: false,
-          };
-        }
-        // Write tasks with one still pending (not all completed)
-        if (sessionDir) {
-          await fsWriteFile(
-            join(sessionDir, "tasks.json"),
-            JSON.stringify([
-              { id: "#1", content: "Test task", status: "pending", activeForm: "Testing" },
-            ])
-          );
-        }
-        // After first iteration, return cancelled to stop loop
-        if (streamCallCount > 2) {
-          return { content: "", wasInterrupted: true, wasCancelled: true };
-        }
-        return { content: "", wasInterrupted: false };
+        return {
+          content: JSON.stringify([
+            { id: "#1", content: "Test task", status: "pending", activeForm: "Testing" },
+          ]),
+          wasInterrupted: false,
+        };
       },
+      spawnSubagentParallel: async (agents) =>
+        agents.map((a) => ({
+          agentId: a.agentId,
+          success: false,
+          output: "Error: failed",
+          toolUses: 0,
+          durationMs: 100,
+        })),
       spawnSubagent: async (options) => {
         spawnCalls.push({ name: options.name });
         return { success: true, output: "" };
@@ -499,6 +467,7 @@ describe("review step in /ralph", () => {
     let sessionDir: string | null = null;
     const spawnCalls: Array<{ name?: string; message: string }> = [];
     let fixTasksDecomposed = false;
+    let reviewCallCount = 0;
 
     const context = createMockContext({
       streamAndWait: async (prompt: string, options?: { hideContent?: boolean }) => {
@@ -514,21 +483,8 @@ describe("review step in /ralph", () => {
           };
         }
         
-        if (streamCallCount === 2) {
-          // Step 2: Implementation loop - write completed tasks
-          if (sessionDir) {
-            await fsWriteFile(
-              join(sessionDir, "tasks.json"),
-              JSON.stringify([
-                { id: "#1", content: "Initial task", status: "completed", activeForm: "Working" },
-              ])
-            );
-          }
-          return { content: "", wasInterrupted: false };
-        }
-        
-        if (streamCallCount === 3 && options?.hideContent) {
-          // Step 3: Fix task decomposition (after review)
+        if (streamCallCount === 2 && options?.hideContent) {
+          // Fix task decomposition (after review)
           fixTasksDecomposed = true;
           return {
             content: JSON.stringify([
@@ -538,42 +494,42 @@ describe("review step in /ralph", () => {
           };
         }
         
-        if (streamCallCount === 4) {
-          // Step 4: Fix implementation loop
-          if (sessionDir) {
-            await fsWriteFile(
-              join(sessionDir, "tasks.json"),
-              JSON.stringify([
-                { id: "#fix-1", content: "Fix error handling", status: "completed", activeForm: "Fixing" },
-              ])
-            );
-          }
-          return { content: "", wasInterrupted: false };
-        }
-        
         return { content: "", wasInterrupted: true };
       },
       spawnSubagent: async (options) => {
         spawnCalls.push({ name: options.name, message: options.message });
-        // Return review with actionable P1 finding
+        reviewCallCount++;
+        if (reviewCallCount === 1) {
+          // First review: actionable P1 finding
+          return {
+            success: true,
+            output: JSON.stringify({
+              findings: [
+                {
+                  title: "[P1] Missing error handling",
+                  body: "The function does not handle errors properly",
+                  priority: 1,
+                  confidence_score: 0.9,
+                  code_location: {
+                    absolute_file_path: "/src/test.ts",
+                    line_range: { start: 10, end: 15 },
+                  },
+                },
+              ],
+              overall_correctness: "patch is incorrect",
+              overall_explanation: "Missing error handling in critical path",
+              overall_confidence_score: 0.85,
+            }),
+          };
+        }
+        // Second review: LGTM
         return {
           success: true,
           output: JSON.stringify({
-            findings: [
-              {
-                title: "[P1] Missing error handling",
-                body: "The function does not handle errors properly",
-                priority: 1,
-                confidence_score: 0.9,
-                code_location: {
-                  absolute_file_path: "/src/test.ts",
-                  line_range: { start: 10, end: 15 },
-                },
-              },
-            ],
-            overall_correctness: "patch is incorrect",
-            overall_explanation: "Missing error handling in critical path",
-            overall_confidence_score: 0.85,
+            findings: [],
+            overall_correctness: "correct",
+            overall_explanation: "All good",
+            overall_confidence_score: 1.0,
           }),
         };
       },
@@ -595,7 +551,7 @@ describe("review step in /ralph", () => {
     expect(result.success).toBe(true);
     
     // Verify reviewer was spawned
-    expect(spawnCalls.length).toBe(1);
+    expect(spawnCalls.length).toBeGreaterThanOrEqual(1);
     expect(spawnCalls[0]?.name).toBe("reviewer");
     
     // Verify fix tasks were decomposed (re-invocation happened)
@@ -614,6 +570,7 @@ describe("review step in /ralph", () => {
   test("stops fix loop when fix tasks are dependency-blocked", async () => {
     let streamCallCount = 0;
     let sessionDir: string | null = null;
+    let reviewCallCount = 0;
 
     const context = createMockContext({
       streamAndWait: async (_prompt: string, options?: { hideContent?: boolean }) => {
@@ -628,17 +585,8 @@ describe("review step in /ralph", () => {
           };
         }
 
-        if (streamCallCount === 2 && sessionDir) {
-          await fsWriteFile(
-            join(sessionDir, "tasks.json"),
-            JSON.stringify([
-              { id: "#1", content: "Initial task", status: "completed", activeForm: "Working" },
-            ])
-          );
-          return { content: "", wasInterrupted: false };
-        }
-
-        if (streamCallCount === 3 && options?.hideContent) {
+        if (streamCallCount === 2 && options?.hideContent) {
+          // Fix task decomposition with dependencies
           return {
             content: JSON.stringify([
               { id: "#fix-1", content: "Fix root issue", status: "pending", activeForm: "Fixing" },
@@ -654,40 +602,58 @@ describe("review step in /ralph", () => {
           };
         }
 
-        if (streamCallCount === 4 && sessionDir) {
-          await fsWriteFile(
-            join(sessionDir, "tasks.json"),
-            JSON.stringify([
-              { id: "#fix-1", content: "Fix root issue", status: "error", activeForm: "Fixing" },
-              {
-                id: "#fix-2",
-                content: "Fix dependent issue",
-                status: "pending",
-                activeForm: "Waiting",
-                blockedBy: ["#fix-1"],
-              },
-            ])
-          );
-          return { content: "", wasInterrupted: false };
-        }
-
-        throw new Error("Fix loop did not stop on dependency deadlock");
+        return { content: "", wasInterrupted: false };
       },
-      spawnSubagent: async () => ({
-        success: true,
-        output: JSON.stringify({
-          findings: [
-            {
-              title: "[P1] Issue requiring fix",
-              body: "Needs follow-up task",
-              priority: 1,
-            },
-          ],
-          overall_correctness: "patch is incorrect",
-          overall_explanation: "Fix required",
-          overall_confidence_score: 0.9,
-        }),
-      }),
+      spawnSubagent: async () => {
+        reviewCallCount++;
+        if (reviewCallCount === 1) {
+          return {
+            success: true,
+            output: JSON.stringify({
+              findings: [
+                {
+                  title: "[P1] Issue requiring fix",
+                  body: "Needs follow-up task",
+                  priority: 1,
+                },
+              ],
+              overall_correctness: "patch is incorrect",
+              overall_explanation: "Fix required",
+              overall_confidence_score: 0.9,
+            }),
+          };
+        }
+        // Second review: LGTM
+        return {
+          success: true,
+          output: JSON.stringify({
+            findings: [],
+            overall_correctness: "correct",
+            overall_explanation: "All good",
+            overall_confidence_score: 1.0,
+          }),
+        };
+      },
+      spawnSubagentParallel: async (agents) => {
+        // Fix workers fail, causing dependency deadlock
+        if (agents.some((a) => a.agentId.startsWith("fix-worker-"))) {
+          return agents.map((a) => ({
+            agentId: a.agentId,
+            success: false,
+            output: "Error: fix failed",
+            toolUses: 0,
+            durationMs: 100,
+          }));
+        }
+        // Main workers succeed
+        return agents.map((a) => ({
+          agentId: a.agentId,
+          success: true,
+          output: "Done",
+          toolUses: 1,
+          durationMs: 100,
+        }));
+      },
       clearContext: async () => {},
       setRalphSessionDir: (dir: string | null) => {
         sessionDir = dir;
@@ -704,7 +670,7 @@ describe("review step in /ralph", () => {
     const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
     const result = await ralphCommand!.execute("Build a feature", context);
     expect(result.success).toBe(true);
-    expect(streamCallCount).toBe(4);
+    expect(streamCallCount).toBe(2);
 
     if (sessionDir) {
       await rm(sessionDir, { recursive: true, force: true });
@@ -822,6 +788,7 @@ describe("workflow inline mode integration", () => {
     let streamCallCount = 0;
     let sessionDir: string | null = null;
     const spawnCalls: Array<{ name?: string; message: string }> = [];
+    let reviewCallCount = 0;
 
     const context = createMockContext({
       streamAndWait: async (prompt: string, options?: { hideContent?: boolean }) => {
@@ -837,20 +804,7 @@ describe("workflow inline mode integration", () => {
           };
         }
 
-        if (streamCallCount === 2) {
-          // Step 2: Implementation - write completed tasks
-          if (sessionDir) {
-            await fsWriteFile(
-              join(sessionDir, "tasks.json"),
-              JSON.stringify([
-                { id: "#1", content: "Task 1", status: "completed", activeForm: "Working" },
-              ])
-            );
-          }
-          return { content: "Task completed", wasInterrupted: false };
-        }
-
-        if (streamCallCount === 3 && options?.hideContent) {
+        if (streamCallCount === 2 && options?.hideContent) {
           // Step 3: Fix task decomposition (after review finds issues)
           return {
             content: JSON.stringify([
@@ -860,37 +814,37 @@ describe("workflow inline mode integration", () => {
           };
         }
 
-        if (streamCallCount === 4) {
-          // Step 4: Fix implementation
-          if (sessionDir) {
-            await fsWriteFile(
-              join(sessionDir, "tasks.json"),
-              JSON.stringify([
-                { id: "#fix-1", content: "Fix this", status: "completed", activeForm: "Fixing" },
-              ])
-            );
-          }
-          return { content: "Fix completed", wasInterrupted: false };
-        }
-
         return { content: "", wasInterrupted: false };
       },
       spawnSubagent: async (options) => {
         spawnCalls.push({ name: options.name, message: options.message });
-        // Return reviewer output with findings
+        reviewCallCount++;
+        if (reviewCallCount === 1) {
+          // First review: return findings
+          return {
+            success: true,
+            output: JSON.stringify({
+              findings: [
+                {
+                  title: "[P1] Fix this",
+                  body: "Details",
+                  priority: 1,
+                },
+              ],
+              overall_correctness: "patch is incorrect",
+              overall_explanation: "Fix needed",
+              overall_confidence_score: 0.9,
+            }),
+          };
+        }
+        // Second review: LGTM
         return {
           success: true,
           output: JSON.stringify({
-            findings: [
-              {
-                title: "[P1] Fix this",
-                body: "Details",
-                priority: 1,
-              },
-            ],
-            overall_correctness: "patch is incorrect",
-            overall_explanation: "Fix needed",
-            overall_confidence_score: 0.9,
+            findings: [],
+            overall_correctness: "correct",
+            overall_explanation: "LGTM",
+            overall_confidence_score: 1.0,
           }),
         };
       },
@@ -945,7 +899,15 @@ describe("workflow inline mode integration", () => {
         streamPrompts.push(prompt);
 
         if (streamCallCount === 1) {
-          // Step 1: Initial decomposition with 2 tasks
+          // Step 1: Initial decomposition - Ctrl+C interruption
+          return {
+            content: "",
+            wasInterrupted: true,
+          };
+        }
+
+        if (streamCallCount === 2) {
+          // Step 1 retry: should contain user's prompt
           return {
             content: JSON.stringify([
               { id: "#1", content: "Task 1", status: "pending", activeForm: "Working" },
@@ -953,34 +915,6 @@ describe("workflow inline mode integration", () => {
             ]),
             wasInterrupted: false,
           };
-        }
-
-        if (streamCallCount === 2) {
-          // Step 2: First task implementation - simulates Ctrl+C
-          if (sessionDir) {
-            await fsWriteFile(
-              join(sessionDir, "tasks.json"),
-              JSON.stringify([
-                { id: "#1", content: "Task 1", status: "completed", activeForm: "Working" },
-                { id: "#2", content: "Task 2", status: "pending", activeForm: "Working" },
-              ])
-            );
-          }
-          return { content: "Task 1 done", wasInterrupted: true };
-        }
-
-        if (streamCallCount === 3) {
-          // Step 3: Continue after user input - should contain user's prompt
-          if (sessionDir) {
-            await fsWriteFile(
-              join(sessionDir, "tasks.json"),
-              JSON.stringify([
-                { id: "#1", content: "Task 1", status: "completed", activeForm: "Working" },
-                { id: "#2", content: "Task 2", status: "completed", activeForm: "Working" },
-              ])
-            );
-          }
-          return { content: "Task 2 done", wasInterrupted: false };
         }
 
         return { content: "", wasInterrupted: false };
@@ -1017,9 +951,9 @@ describe("workflow inline mode integration", () => {
     // Verify waitForUserInput was called
     expect(waitForUserInputCalled).toBe(true);
 
-    // Verify the third streamAndWait call's prompt contains the user's input
-    expect(streamPrompts.length).toBeGreaterThanOrEqual(3);
-    expect(streamPrompts[2]).toContain("please fix the button color");
+    // Verify the second streamAndWait call's prompt contains the user's input
+    expect(streamPrompts.length).toBeGreaterThanOrEqual(2);
+    expect(streamPrompts[1]).toContain("please fix the button color");
 
     // Verify result.success is true
     expect(result.success).toBe(true);
@@ -1049,32 +983,6 @@ describe("workflow inline mode integration", () => {
             ]),
             wasInterrupted: false,
           };
-        }
-
-        if (streamCallCount === 2) {
-          // Step 2: Ctrl+C during implementation
-          if (sessionDir) {
-            await fsWriteFile(
-              join(sessionDir, "tasks.json"),
-              JSON.stringify([
-                { id: "#1", content: "Task 1", status: "in_progress", activeForm: "Working" },
-              ])
-            );
-          }
-          return { content: "Working...", wasInterrupted: true };
-        }
-
-        if (streamCallCount === 3) {
-          // Step 3: Continue after user input
-          if (sessionDir) {
-            await fsWriteFile(
-              join(sessionDir, "tasks.json"),
-              JSON.stringify([
-                { id: "#1", content: "Task 1", status: "completed", activeForm: "Working" },
-              ])
-            );
-          }
-          return { content: "Task completed", wasInterrupted: false };
         }
 
         return { content: "", wasInterrupted: false };

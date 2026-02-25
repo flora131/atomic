@@ -48,6 +48,23 @@ function Sync-GlobalAgentConfigs {
 
     Remove-Item -Recurse -Force (Join-Path $copilotDir "workflows") -ErrorAction SilentlyContinue
     Remove-Item -Force (Join-Path $copilotDir "dependabot.yml") -ErrorAction SilentlyContinue
+
+    # Install @playwright/cli globally if a package manager is available.
+    # Do not install Chromium browsers here; defer to first use.
+    Write-Info "Installing @playwright/cli globally (if available)..."
+    if (Get-Command bun -ErrorAction SilentlyContinue) {
+        bun install -g @playwright/cli@latest 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Failed to install @playwright/cli with bun. Continuing without it."
+        }
+    } elseif (Get-Command npm -ErrorAction SilentlyContinue) {
+        npm install -g @playwright/cli@latest 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "Failed to install @playwright/cli with npm. Continuing without it."
+        }
+    } else {
+        Write-Warn "Neither bun nor npm found. Install @playwright/cli manually for web browsing capabilities."
+    }
 }
 
 # Colors for output

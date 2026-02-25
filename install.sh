@@ -162,6 +162,17 @@ sync_global_agent_configs() {
     # Keep Copilot global config focused on skills/agents/instructions/MCP.
     rm -rf "$ATOMIC_HOME/.copilot/workflows" 2>/dev/null || true
     rm -f "$ATOMIC_HOME/.copilot/dependabot.yml" 2>/dev/null || true
+
+    # Install @playwright/cli globally if a package manager is available.
+    # Do not install Chromium browsers here; defer to first use.
+    info "Installing @playwright/cli globally (if available)..."
+    if command -v bun >/dev/null 2>&1; then
+        bun install -g @playwright/cli@latest 2>/dev/null || true
+    elif command -v npm >/dev/null 2>&1; then
+        npm install -g @playwright/cli@latest 2>/dev/null || true
+    else
+        warn "Neither bun nor npm found. Install @playwright/cli manually for web browsing capabilities."
+    fi
 }
 
 # Get latest version

@@ -58,6 +58,7 @@
         "@opentelemetry/api-logs": "^0.212.0",
         "@opentui/core": "^0.1.81",
         "@opentui/react": "^0.1.81",
+        "@playwright/cli": "^0.0.60",
         "ci-info": "^4.4.0",
         "commander": "^14.0.3"
     }

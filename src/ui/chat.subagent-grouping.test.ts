@@ -54,7 +54,7 @@ describe("shouldGroupSubagentTrees", () => {
     ).toBe(true);
   });
 
-  test("does not force grouping for completed trees without grouped history", () => {
+  test("groups completed trees even without grouped history", () => {
     const splitPart: AgentPart = {
       id: "agent-part-split",
       type: "agent",
@@ -72,6 +72,24 @@ describe("shouldGroupSubagentTrees", () => {
         },
         true,
       ),
-    ).toBe(false);
+    ).toBe(true);
+  });
+
+  test("groups sub-agents on non-last messages too", () => {
+    const activeAgent: ParallelAgent = {
+      ...createCompletedAgent(),
+      status: "running",
+    };
+
+    expect(
+      shouldGroupSubagentTrees(
+        {
+          parallelAgents: [activeAgent],
+          toolCalls: [{ id: "task-1", toolName: "Task", input: {}, status: "running" }],
+          parts: [],
+        },
+        false,
+      ),
+    ).toBe(true);
   });
 });

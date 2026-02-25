@@ -527,14 +527,6 @@ function carryReasoningPartRegistry(from: ChatMessage, to: ChatMessage): ChatMes
   return to;
 }
 
-function isActiveParallelAgent(agent: ParallelAgent): boolean {
-  return (
-    agent.status === "running"
-    || agent.status === "pending"
-    || agent.status === "background"
-  );
-}
-
 function hasSubagentCall(message: Pick<ChatMessage, "parallelAgents" | "toolCalls">): boolean {
   if ((message.parallelAgents?.length ?? 0) > 0) return true;
   return (message.toolCalls ?? []).some(
@@ -570,38 +562,14 @@ function normalizeParallelAgents(agents: ParallelAgent[]): ParallelAgent[] {
   return changed ? normalizedAgents : agents;
 }
 
-function isGroupedAgentPart(part: Part): part is AgentPart {
-  return part.type === "agent" && part.parentToolPartId === undefined;
-}
-
 export function shouldGroupSubagentTrees(
   message: Pick<ChatMessage, "parallelAgents" | "toolCalls" | "parts">,
-  isLastMessage: boolean,
+  _isLastMessage: boolean,
 ): boolean {
-  if (!isLastMessage) return false;
   const agents = message.parallelAgents ?? [];
   if (agents.length === 0) return false;
   if (!hasSubagentCall(message)) return false;
-
-  const parts = message.parts ?? [];
-  let hasSeenTask = false;
-  for (const part of parts) {
-    if (part.type === "tool") {
-      const toolName = part.toolName;
-      if (toolName === "Task" || toolName === "task") {
-        hasSeenTask = true;
-      } else {
-        return false;
-      }
-    } else if (part.type === "text") {
-      if (hasSeenTask && part.content.trim().length > 0) {
-        return false;
-      }
-    }
-  }
-
-  if (agents.some(isActiveParallelAgent)) return true;
-  return (message.parts ?? []).some(isGroupedAgentPart);
+  return true;
 }
 
 function getAgentInsertIndex(parts: Part[]): number {

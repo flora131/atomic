@@ -1499,9 +1499,10 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
     }
 
     // System message collapsed
+    const collapsedSysMsgColor = message.content.includes("Successfully completed") ? themeColors.success : message.content.includes("Error") ? themeColors.error : themeColors.foreground;
     return (
       <box paddingLeft={SPACING.CONTAINER_PAD} paddingRight={SPACING.CONTAINER_PAD} marginBottom={isLast ? SPACING.NONE : SPACING.ELEMENT}>
-        <text wrapMode="char" style={{ fg: themeColors.error }}>{truncate(message.content, 80)}</text>
+        <text wrapMode="char" style={{ fg: collapsedSysMsgColor }}>{truncate(message.content, 80)}</text>
       </box>
     );
   }
@@ -1599,7 +1600,8 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
     );
   }
 
-  // System message: inline red text (no separate header/modal)
+  // System message: contextual coloring (success = green, error = red, default = foreground)
+  const sysMsgColor = message.content.includes("Successfully completed") ? themeColors.success : message.content.includes("Error") ? themeColors.error : themeColors.foreground;
   return (
     <box
       flexDirection="column"
@@ -1607,7 +1609,13 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
       paddingLeft={SPACING.CONTAINER_PAD}
       paddingRight={SPACING.CONTAINER_PAD}
     >
-      <text wrapMode="char" style={{ fg: themeColors.error }}>{message.content}</text>
+      <text wrapMode="char" style={{ fg: sysMsgColor }}>{message.content}</text>
+      {isLast && ralphSessionDir && showTodoPanel && (
+        <TaskListPanel
+          sessionDir={ralphSessionDir}
+          expanded={tasksExpanded}
+        />
+      )}
     </box>
   );
 }

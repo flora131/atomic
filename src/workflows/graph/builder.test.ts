@@ -3,6 +3,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import {
   GraphBuilder,
   graph,
@@ -23,6 +24,15 @@ interface TestState extends BaseState {
   flag: boolean;
   message: string;
 }
+
+const testStateSchema: z.ZodType<TestState> = z.object({
+  executionId: z.string(),
+  lastUpdated: z.string(),
+  outputs: z.record(z.string(), z.unknown()),
+  count: z.number(),
+  flag: z.boolean(),
+  message: z.string(),
+});
 
 // ============================================================================
 // TEST HELPER NODES
@@ -443,13 +453,19 @@ describe("createNode helper", () => {
       {
         name: "My Node",
         description: "Test node",
+        inputSchema: testStateSchema,
+        outputSchema: testStateSchema,
         retry: { maxAttempts: 5, backoffMs: 500, backoffMultiplier: 2 },
+        isRecoveryNode: true,
       }
     );
 
     expect(node.name).toBe("My Node");
     expect(node.description).toBe("Test node");
+    expect(node.inputSchema).toBe(testStateSchema);
+    expect(node.outputSchema).toBe(testStateSchema);
     expect(node.retry?.maxAttempts).toBe(5);
+    expect(node.isRecoveryNode).toBe(true);
   });
 });
 

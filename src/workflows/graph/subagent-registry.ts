@@ -5,16 +5,18 @@
  * name-based lookup. Enables workflow authors to reference config-defined
  * agents by name within subagentNode() and parallelSubagentNode().
  *
- * Follows the existing setClientProvider() / setWorkflowResolver() global setter pattern.
  */
 
-import type { AgentInfo, AgentSource } from "../ui/commands/agent-commands.ts";
-import { discoverAgentInfos } from "../ui/commands/agent-commands.ts";
+import type { AgentInfo, AgentSource } from "../../ui/commands/agent-commands.ts";
+import { discoverAgentInfos } from "../../ui/commands/agent-commands.ts";
 
 // ============================================================================
 // Types
 // ============================================================================
 
+/**
+ * Registry entry for a discovered sub-agent.
+ */
 export interface SubagentEntry {
   name: string;
   info: AgentInfo;
@@ -25,6 +27,9 @@ export interface SubagentEntry {
 // Registry
 // ============================================================================
 
+/**
+ * In-memory registry for sub-agent definitions keyed by name.
+ */
 export class SubagentTypeRegistry {
   private agents = new Map<string, SubagentEntry>();
 
@@ -49,36 +54,14 @@ export class SubagentTypeRegistry {
   }
 }
 
-// ============================================================================
-// Singleton
-// ============================================================================
-
-let globalSubagentRegistry: SubagentTypeRegistry | null = null;
-
-export function getSubagentRegistry(): SubagentTypeRegistry {
-  if (!globalSubagentRegistry) {
-    globalSubagentRegistry = new SubagentTypeRegistry();
-  }
-  return globalSubagentRegistry;
-}
-
-export function setSubagentRegistry(registry: SubagentTypeRegistry): void {
-  globalSubagentRegistry = registry;
-}
-
-// ============================================================================
-// Population
-// ============================================================================
-
 /**
  * Populate the SubagentTypeRegistry with discovered agents from config directories.
  * Project-local agents overwrite user-global on name conflict.
  *
+ * @param registry - Registry instance to populate
  * @returns Number of agents in the registry after population
  */
-export async function populateSubagentRegistry(): Promise<number> {
-  const registry = getSubagentRegistry();
-
+export async function populateSubagentRegistry(registry: SubagentTypeRegistry): Promise<number> {
   const discovered = discoverAgentInfos();
   for (const agent of discovered) {
     registry.register({

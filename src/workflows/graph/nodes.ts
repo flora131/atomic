@@ -25,13 +25,11 @@ import type {
   ContextWindowUsage,
   WorkflowToolContext,
 } from "./types.ts";
-import type { SessionConfig, AgentMessage, CodingAgentClient, Session, ContextUsage } from "../sdk/types.ts";
+import type { SessionConfig, AgentMessage, CodingAgentClient, Session, ContextUsage } from "../../sdk/types.ts";
 import { DEFAULT_RETRY_CONFIG, BACKGROUND_COMPACTION_THRESHOLD, BUFFER_EXHAUSTION_THRESHOLD } from "./types.ts";
 import type { z } from "zod";
-import { getToolRegistry } from "../sdk/tools/registry.ts";
+import { getToolRegistry } from "../../sdk/tools/registry.ts";
 import { SchemaValidationError, NodeExecutionError } from "./errors.ts";
-import { getSubagentBridge } from "./subagent-bridge.ts";
-import { getSubagentRegistry } from "./subagent-registry.ts";
 import type { SubagentResult, SubagentSpawnOptions } from "./subagent-bridge.ts";
 
 // ============================================================================
@@ -39,9 +37,9 @@ import type { SubagentResult, SubagentSpawnOptions } from "./subagent-bridge.ts"
 // ============================================================================
 
 /**
- * Agent types supported by the agent node factory.
+ * Agent type identifier resolved by the client/provider registry.
  */
-export type AgentNodeAgentType = "claude" | "opencode" | "copilot";
+export type AgentNodeAgentType = string;
 
 /**
  * Function to map agent output to state updates.
@@ -107,30 +105,6 @@ export interface AgentNodeConfig<TState extends BaseState = BaseState> {
 export type ClientProvider = (agentType: AgentNodeAgentType) => CodingAgentClient | null;
 
 /**
- * Global client provider for agent nodes.
- * Set this before executing agent nodes.
- */
-let globalClientProvider: ClientProvider | null = null;
-
-/**
- * Set the global client provider for agent nodes.
- *
- * @param provider - Function that returns a client for a given agent type
- */
-export function setClientProvider(provider: ClientProvider): void {
-  globalClientProvider = provider;
-}
-
-/**
- * Get the current global client provider.
- *
- * @returns The current client provider or null
- */
-export function getClientProvider(): ClientProvider | null {
-  return globalClientProvider;
-}
-
-/**
  * Default retry configuration for agent nodes.
  * Uses 3 attempts with 1 second initial backoff and 2x multiplier.
  * This results in delays of: 1s (first retry), 2s (second retry).
@@ -190,12 +164,12 @@ export function agentNode<TState extends BaseState = BaseState>(
     description,
     retry,
     execute: async (ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> => {
-      const client = globalClientProvider?.(agentType);
+      const client = ctx.config.runtime?.clientProvider?.(agentType);
 
       if (!client) {
         throw new Error(
-          `No client provider set for agent type "${agentType}". ` +
-            "Call setClientProvider() before executing agent nodes."
+          `No client provider configured for agent type "${agentType}". ` +
+            "Initialize WorkflowSDK with providers before executing agent nodes."
         );
       }
 
@@ -864,13 +838,9 @@ export function askUserNode<TState extends BaseState & AskUserWaitState = BaseSt
         nodeId: id,
       };
 
-      // Emit signal if emit function is available
+      // Emit custom event for stream consumers if emit function is available
       if (ctx.emit) {
-        ctx.emit({
-          type: "human_input_required",
-          message: resolvedOptions.question,
-          data: eventData as unknown as Record<string, unknown>,
-        });
+        ctx.emit("human_input_required", eventData as unknown as Record<string, unknown>);
       }
 
       // Return state update with wait flags and emit signal
@@ -936,8 +906,14 @@ export interface ParallelNodeConfig<TState extends BaseState = BaseState> {
   strategy?: ParallelMergeStrategy;
 
   /**
-   * Function to merge branch results into state.
+   * Function to map parallel branch results into state.
    * If not provided, results are stored in outputs[nodeId].
+   */
+  outputMapper?: ParallelMerger<TState>;
+
+  /**
+   * @deprecated Use outputMapper instead.
+   * Function to merge branch results into state.
    */
   merge?: ParallelMerger<TState>;
 
@@ -959,7 +935,10 @@ export interface ParallelExecutionContext<TState extends BaseState = BaseState> 
   /** Strategy for handling completion */
   strategy: ParallelMergeStrategy;
 
-  /** Optional merge function */
+  /** Optional output mapper function */
+  outputMapper?: ParallelMerger<TState>;
+
+  /** @deprecated Use outputMapper instead */
   merge?: ParallelMerger<TState>;
 }
 
@@ -979,7 +958,7 @@ export interface ParallelExecutionContext<TState extends BaseState = BaseState> 
  *   id: "gather-data",
  *   branches: ["fetch-api-1", "fetch-api-2", "fetch-api-3"],
  *   strategy: "all",
- *   merge: (results, state) => ({
+ *   outputMapper: (results, state) => ({
  *     allData: Array.from(results.values()),
  *   }),
  * });
@@ -988,7 +967,8 @@ export interface ParallelExecutionContext<TState extends BaseState = BaseState> 
 export function parallelNode<TState extends BaseState = BaseState>(
   config: ParallelNodeConfig<TState>
 ): NodeDefinition<TState> {
-  const { id, branches, strategy = "all", merge, name, description } = config;
+  const { id, branches, strategy = "all", outputMapper, merge, name, description } = config;
+  const resolvedOutputMapper = outputMapper ?? merge;
 
   if (branches.length === 0) {
     throw new Error(`Parallel node "${id}" requires at least one branch`);
@@ -1004,7 +984,8 @@ export function parallelNode<TState extends BaseState = BaseState>(
       const parallelContext: ParallelExecutionContext<TState> = {
         branches,
         strategy,
-        merge,
+        outputMapper: resolvedOutputMapper,
+        merge: resolvedOutputMapper,
       };
 
       // The execution engine will handle actual parallel execution
@@ -1104,39 +1085,13 @@ export interface SubgraphNodeConfig<
 export type WorkflowResolver = (name: string) => CompiledSubgraph<BaseState> | null;
 
 /**
- * Global workflow resolver function.
- * Set this before using subgraphNode with string workflow references.
- */
-let globalWorkflowResolver: WorkflowResolver | null = null;
-
-/**
- * Set the global workflow resolver for subgraph nodes.
- * This should be called during application initialization.
- *
- * @param resolver - Function that resolves workflow name to compiled graph
- */
-export function setWorkflowResolver(resolver: WorkflowResolver): void {
-  globalWorkflowResolver = resolver;
-}
-
-/**
- * Get the current global workflow resolver.
- *
- * @returns The current workflow resolver or null
- */
-export function getWorkflowResolver(): WorkflowResolver | null {
-  return globalWorkflowResolver;
-}
-
-/**
  * Create a subgraph node that executes a nested graph.
  *
  * The subgraph can be specified as:
  * - A CompiledGraph instance (direct execution)
- * - A workflow name string (resolved at runtime via the global workflow resolver)
+ * - A workflow name string (resolved at runtime via the WorkflowSDK resolver)
  *
- * When using a string workflow name, ensure setWorkflowResolver() has been called
- * during application initialization.
+ * When using a string workflow name, ensure the graph runs through WorkflowSDK.
  *
  * @template TState - The state type for the workflow
  * @template TSubState - The state type for the subgraph
@@ -1179,12 +1134,11 @@ export function subgraphNode<
       let resolvedSubgraph: CompiledSubgraph<TSubState>;
 
       if (typeof subgraph === "string") {
-        // Workflow name string - resolve via global resolver
-        const resolver = globalWorkflowResolver;
+        const resolver = ctx.config.runtime?.workflowResolver;
         if (!resolver) {
           throw new Error(
-            `Cannot resolve workflow "${subgraph}": No workflow resolver set. ` +
-              "Call setWorkflowResolver() during application initialization."
+            `Cannot resolve workflow "${subgraph}": No workflow resolver configured. ` +
+              "Execute this graph through WorkflowSDK.init()."
           );
         }
 
@@ -1717,15 +1671,21 @@ export function subagentNode<TState extends BaseState>(
     description: config.description ?? `Sub-agent: ${config.agentName}`,
     retry: config.retry,
     async execute(ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> {
-      const bridge = getSubagentBridge();
+      const bridge = ctx.config.runtime?.subagentBridge;
       if (!bridge) {
         throw new Error(
           "SubagentGraphBridge not initialized. " +
-          "Ensure setSubagentBridge() is called before graph execution."
+          "Execute this graph through WorkflowSDK.init()."
         );
       }
 
-      const registry = getSubagentRegistry();
+      const registry = ctx.config.runtime?.subagentRegistry;
+      if (!registry) {
+        throw new Error(
+          "SubagentTypeRegistry not initialized. " +
+          "Execute this graph through WorkflowSDK.init()."
+        );
+      }
       const entry = registry.get(config.agentName);
       if (!entry) {
         throw new Error(
@@ -1784,7 +1744,9 @@ export interface ParallelSubagentNodeConfig<TState extends BaseState> {
     model?: string;
     tools?: string[];
   }>;
-  merge: (results: Map<string, SubagentResult>, state: TState) => Partial<TState>;
+  outputMapper?: (results: Map<string, SubagentResult>, state: TState) => Partial<TState>;
+  /** @deprecated Use outputMapper instead */
+  merge?: (results: Map<string, SubagentResult>, state: TState) => Partial<TState>;
   retry?: RetryConfig;
 }
 
@@ -1802,6 +1764,13 @@ export interface ParallelSubagentNodeConfig<TState extends BaseState> {
 export function parallelSubagentNode<TState extends BaseState>(
   config: ParallelSubagentNodeConfig<TState>,
 ): NodeDefinition<TState> {
+  const resolvedOutputMapper = config.outputMapper ?? config.merge;
+  if (!resolvedOutputMapper) {
+    throw new Error(
+      `Parallel sub-agent node "${config.id}" requires outputMapper (or legacy merge)`,
+    );
+  }
+
   return {
     id: config.id,
     type: "parallel",
@@ -1809,9 +1778,11 @@ export function parallelSubagentNode<TState extends BaseState>(
     description: config.description,
     retry: config.retry,
     async execute(ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> {
-      const bridge = getSubagentBridge();
+      const bridge = ctx.config.runtime?.subagentBridge;
       if (!bridge) {
-        throw new Error("SubagentGraphBridge not initialized.");
+        throw new Error(
+          "SubagentGraphBridge not initialized. Execute this graph through WorkflowSDK.init().",
+        );
       }
 
       const spawnOptions: SubagentSpawnOptions[] = config.agents.map((agent, i) => ({
@@ -1831,7 +1802,7 @@ export function parallelSubagentNode<TState extends BaseState>(
         resultMap.set(key, result);
       });
 
-      const stateUpdate = config.merge(resultMap, ctx.state);
+      const stateUpdate = resolvedOutputMapper(resultMap, ctx.state);
       return { stateUpdate };
     },
   };

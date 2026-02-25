@@ -6,11 +6,11 @@ import {
   buildBootstrappedTaskContext,
   buildDagDispatchPrompt,
   buildReviewPrompt,
-  parseReviewResult,
   buildFixSpecFromReview,
   type TaskItem,
   type ReviewResult,
-} from "./ralph.ts";
+} from "../../ralph/prompts.ts";
+import { parseReviewResult } from "./ralph.ts";
 
 describe("buildSpecToTasksPrompt", () => {
   test("includes spec content in the prompt", () => {

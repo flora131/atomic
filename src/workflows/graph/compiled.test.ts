@@ -3,9 +3,11 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { z } from "zod";
 import { GraphExecutor, createExecutor, executeGraph, streamGraph, initializeExecutionState, mergeState } from "./compiled.ts";
 import { graph, createNode } from "./builder.ts";
 import type { BaseState, NodeResult, ExecutionContext } from "./types.ts";
+import { SchemaValidationError } from "./errors.ts";
 
 // Test state interface
 interface TestState extends BaseState {
@@ -14,6 +16,16 @@ interface TestState extends BaseState {
   flag?: boolean;
   errorCount?: number;
 }
+
+const testStateSchema: z.ZodType<TestState> = z.object({
+  executionId: z.string(),
+  lastUpdated: z.string(),
+  outputs: z.record(z.string(), z.unknown()),
+  counter: z.number().optional(),
+  messages: z.array(z.string()).optional(),
+  flag: z.boolean().optional(),
+  errorCount: z.number().optional(),
+});
 
 describe("initializeExecutionState", () => {
   test("creates a new state with executionId and timestamp", () => {
@@ -446,6 +458,361 @@ describe("GraphExecutor - Error Handling", () => {
     expect(result.status).toBe("failed");
     expect(attempts).toBe(1); // Should not retry non-retryable error
   });
+
+  test("handles node-level onError retry action", async () => {
+    let attempts = 0;
+
+    const retryWithHook = createNode<TestState>(
+      "retry_with_hook",
+      "tool",
+      async () => {
+        attempts++;
+        if (attempts < 2) {
+          throw new Error("retry once");
+        }
+        return { stateUpdate: { counter: attempts } };
+      },
+      {
+        retry: {
+          maxAttempts: 3,
+          backoffMs: 10,
+          backoffMultiplier: 1,
+        },
+        onError: async () => ({ action: "retry", delay: 1 }),
+      }
+    );
+
+    const workflow = graph<TestState>()
+      .start(retryWithHook)
+      .end()
+      .compile();
+
+    const result = await executeGraph(workflow);
+
+    expect(result.status).toBe("completed");
+    expect(result.state.counter).toBe(2);
+    expect(attempts).toBe(2);
+  });
+
+  test("handles node-level onError skip action", async () => {
+    const skipOnErrorNode = createNode<TestState>(
+      "skip_on_error",
+      "tool",
+      async () => {
+        throw new Error("skip this node");
+      },
+      {
+        onError: async () => ({ action: "skip", fallbackState: { errorCount: 1 } }),
+      }
+    );
+
+    const afterSkipNode = createNode<TestState>("after_skip", "tool", async (ctx) => {
+      return { stateUpdate: { counter: (ctx.state.counter ?? 0) + 1 } };
+    });
+
+    const workflow = graph<TestState>()
+      .start(skipOnErrorNode)
+      .then(afterSkipNode)
+      .end()
+      .compile();
+
+    const result = await executeGraph(workflow);
+
+    expect(result.status).toBe("completed");
+    expect(result.state.errorCount).toBe(1);
+    expect(result.state.counter).toBe(1);
+  });
+
+  test("handles node-level onError abort action", async () => {
+    const abortOnErrorNode = createNode<TestState>(
+      "abort_on_error",
+      "tool",
+      async () => {
+        throw new Error("original error");
+      },
+      {
+        onError: async () => ({ action: "abort", error: new Error("aborted by hook") }),
+      }
+    );
+
+    const workflow = graph<TestState>()
+      .start(abortOnErrorNode)
+      .end()
+      .compile();
+
+    const result = await executeGraph(workflow);
+
+    expect(result.status).toBe("failed");
+    expect(result.snapshot.errors).toHaveLength(1);
+    const executionError = result.snapshot.errors[0]?.error;
+    expect(executionError).toBeInstanceOf(Error);
+    if (executionError instanceof Error) {
+      expect(executionError.message).toBe("aborted by hook");
+    }
+  });
+
+  test("handles node-level onError goto action", async () => {
+    const failAndGotoRecovery = createNode<TestState>(
+      "fail_then_goto",
+      "tool",
+      async () => {
+        throw new Error("trigger recovery");
+      },
+      {
+        onError: async () => ({ action: "goto", nodeId: "recovery" }),
+      }
+    );
+
+    const skippedNode = createNode<TestState>("skipped", "tool", async () => {
+      return { stateUpdate: { messages: ["skipped"] } };
+    });
+
+    const recoveryNode = createNode<TestState>(
+      "recovery",
+      "tool",
+      async () => {
+        return { stateUpdate: { messages: ["recovery"] } };
+      },
+      { isRecoveryNode: true }
+    );
+
+    const workflow = graph<TestState>()
+      .start(failAndGotoRecovery)
+      .then(skippedNode)
+      .then(recoveryNode)
+      .end()
+      .compile();
+
+    const result = await executeGraph(workflow);
+
+    expect(result.status).toBe("completed");
+    expect(result.state.messages).toEqual(["recovery"]);
+  });
+
+  test("fails on node-level onError goto when target is not a recovery node", async () => {
+    const failAndGotoNonRecovery = createNode<TestState>(
+      "fail_then_goto_non_recovery",
+      "tool",
+      async () => {
+        throw new Error("trigger invalid recovery");
+      },
+      {
+        onError: async () => ({ action: "goto", nodeId: "non_recovery" }),
+      }
+    );
+
+    const nonRecoveryNode = createNode<TestState>("non_recovery", "tool", async () => {
+      return { stateUpdate: { messages: ["non-recovery"] } };
+    });
+
+    const workflow = graph<TestState>()
+      .start(failAndGotoNonRecovery)
+      .then(nonRecoveryNode)
+      .end()
+      .compile();
+
+    const result = await executeGraph(workflow);
+
+    expect(result.status).toBe("failed");
+    expect(result.snapshot.errors).toHaveLength(1);
+    const executionError = result.snapshot.errors[0]?.error;
+    expect(executionError).toBeInstanceOf(Error);
+    if (executionError instanceof Error) {
+      expect(executionError.message).toContain(
+        'onError goto target "non_recovery" must set isRecoveryNode: true'
+      );
+    }
+  });
+
+  test("fails on node-level onError goto when target node does not exist", async () => {
+    const failAndGotoMissing = createNode<TestState>(
+      "fail_then_goto_missing",
+      "tool",
+      async () => {
+        throw new Error("trigger missing recovery");
+      },
+      {
+        onError: async () => ({ action: "goto", nodeId: "missing_recovery" }),
+      }
+    );
+
+    const workflow = graph<TestState>()
+      .start(failAndGotoMissing)
+      .end()
+      .compile();
+
+    const result = await executeGraph(workflow);
+
+    expect(result.status).toBe("failed");
+    expect(result.snapshot.errors).toHaveLength(1);
+    const executionError = result.snapshot.errors[0]?.error;
+    expect(executionError).toBeInstanceOf(Error);
+    if (executionError instanceof Error) {
+      expect(executionError.message).toContain(
+        'onError goto target "missing_recovery" not found in graph'
+      );
+    }
+  });
+});
+
+describe("GraphExecutor - ErrorAction Routing", () => {
+  test("routes retry action back to the failing node before continuing", async () => {
+    let attempts = 0;
+
+    const retryActionNode = createNode<TestState>(
+      "retry_action",
+      "tool",
+      async () => {
+        attempts++;
+        if (attempts === 1) {
+          throw new Error("retry once");
+        }
+        return { stateUpdate: { counter: attempts } };
+      },
+      {
+        retry: {
+          maxAttempts: 2,
+          backoffMs: 1,
+          backoffMultiplier: 1,
+        },
+        onError: async () => ({ action: "retry", delay: 0 }),
+      }
+    );
+
+    const afterRetry = createNode<TestState>("after_retry", "tool", async (ctx) => {
+      return { stateUpdate: { counter: (ctx.state.counter ?? 0) + 1 } };
+    });
+
+    const workflow = graph<TestState>()
+      .start(retryActionNode)
+      .then(afterRetry)
+      .end()
+      .compile();
+
+    const visited: string[] = [];
+    let finalState: TestState | undefined;
+
+    for await (const step of streamGraph(workflow)) {
+      visited.push(step.nodeId);
+      finalState = step.state;
+    }
+
+    expect(visited).toEqual(["retry_action", "after_retry"]);
+    expect(finalState?.counter).toBe(3);
+    expect(attempts).toBe(2);
+  });
+
+  test("routes skip action to downstream edge with fallback state", async () => {
+    const skipActionNode = createNode<TestState>(
+      "skip_action",
+      "tool",
+      async () => {
+        throw new Error("skip this");
+      },
+      {
+        onError: async () => ({ action: "skip", fallbackState: { messages: ["skipped"] } }),
+      }
+    );
+
+    const afterSkipRoute = createNode<TestState>("after_skip_route", "tool", async (ctx) => {
+      return { stateUpdate: { messages: [...(ctx.state.messages ?? []), "after"] } };
+    });
+
+    const workflow = graph<TestState>()
+      .start(skipActionNode)
+      .then(afterSkipRoute)
+      .end()
+      .compile();
+
+    const visited: string[] = [];
+    let finalState: TestState | undefined;
+
+    for await (const step of streamGraph(workflow)) {
+      visited.push(step.nodeId);
+      finalState = step.state;
+    }
+
+    expect(visited).toEqual(["skip_action", "after_skip_route"]);
+    expect(finalState?.messages).toEqual(["skipped", "after"]);
+  });
+
+  test("routes abort action to terminal failed status", async () => {
+    const abortActionNode = createNode<TestState>(
+      "abort_action",
+      "tool",
+      async () => {
+        throw new Error("original");
+      },
+      {
+        onError: async () => ({ action: "abort", error: new Error("abort now") }),
+      }
+    );
+
+    const shouldNotRun = createNode<TestState>("should_not_run", "tool", async () => {
+      return { stateUpdate: { counter: 999 } };
+    });
+
+    const workflow = graph<TestState>()
+      .start(abortActionNode)
+      .then(shouldNotRun)
+      .end()
+      .compile();
+
+    const visited: string[] = [];
+    let finalStatus: string | undefined;
+
+    for await (const step of streamGraph(workflow)) {
+      visited.push(step.nodeId);
+      finalStatus = step.status;
+    }
+
+    expect(visited).toEqual(["abort_action"]);
+    expect(finalStatus).toBe("failed");
+  });
+
+  test("routes goto action directly to recovery node", async () => {
+    const gotoActionNode = createNode<TestState>(
+      "goto_action",
+      "tool",
+      async () => {
+        throw new Error("route to recovery");
+      },
+      {
+        onError: async () => ({ action: "goto", nodeId: "recovery_route" }),
+      }
+    );
+
+    const normalPathNode = createNode<TestState>("normal_path", "tool", async () => {
+      return { stateUpdate: { messages: ["normal"] } };
+    });
+
+    const recoveryRoute = createNode<TestState>(
+      "recovery_route",
+      "tool",
+      async () => {
+        return { stateUpdate: { messages: ["recovery"] } };
+      },
+      { isRecoveryNode: true }
+    );
+
+    const workflow = graph<TestState>()
+      .start(gotoActionNode)
+      .then(normalPathNode)
+      .then(recoveryRoute)
+      .end()
+      .compile();
+
+    const visited: string[] = [];
+    let finalState: TestState | undefined;
+
+    for await (const step of streamGraph(workflow)) {
+      visited.push(step.nodeId);
+      finalState = step.state;
+    }
+
+    expect(visited).toEqual(["goto_action", "recovery_route"]);
+    expect(finalState?.messages).toEqual(["recovery"]);
+  });
 });
 
 describe("GraphExecutor - Signal Handling", () => {
@@ -570,6 +937,45 @@ describe("GraphExecutor - Streaming Execution", () => {
     }
 
     expect(statuses).toEqual(["running", "completed"]);
+  });
+
+  test("routes updates mode through GraphExecutor.stream", async () => {
+    const node = createNode<TestState>("node1", "tool", async () => {
+      return { stateUpdate: { counter: 1 } };
+    });
+
+    const workflow = graph<TestState>().start(node).end().compile();
+    const executor = createExecutor(workflow);
+    const events = [];
+
+    for await (const event of executor.stream({ modes: ["updates"] })) {
+      events.push(event);
+    }
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.mode).toBe("updates");
+    if (events[0]?.mode === "updates") {
+      expect(events[0].update.counter).toBe(1);
+    }
+  });
+
+  test("routes values mode when modes key is undefined", async () => {
+    const node = createNode<TestState>("node1", "tool", async () => {
+      return { stateUpdate: { counter: 1 } };
+    });
+
+    const workflow = graph<TestState>().start(node).end().compile();
+    const events = [];
+
+    for await (const event of streamGraph(workflow, { modes: undefined })) {
+      events.push(event);
+    }
+
+    expect(events).toHaveLength(1);
+    expect(events[0]?.mode).toBe("values");
+    if (events[0]?.mode === "values") {
+      expect(events[0].state.counter).toBe(1);
+    }
   });
 });
 
@@ -770,5 +1176,147 @@ describe("GraphExecutor - Context Access", () => {
     const result = await executeGraph(workflow);
 
     expect(result.state.outputs.node2).toBe("received: result1");
+  });
+});
+
+describe("GraphExecutor - State Validation", () => {
+  test("accepts execution when node inputSchema is satisfied", async () => {
+    const node = createNode<TestState>(
+      "validated-input",
+      "tool",
+      async (ctx) => {
+        return { stateUpdate: { counter: (ctx.state.counter ?? 0) + 1 } };
+      },
+      {
+        inputSchema: testStateSchema.refine(
+          (state) => typeof state.counter === "number" && state.counter >= 1,
+          { message: "counter must be >= 1", path: ["counter"] }
+        ),
+      }
+    );
+
+    const workflow = graph<TestState>()
+      .start(node)
+      .end()
+      .compile();
+
+    const result = await executeGraph(workflow, { initialState: { counter: 1 } });
+
+    expect(result.status).toBe("completed");
+    expect(result.state.counter).toBe(2);
+  });
+
+  test("fails execution when node inputSchema is violated", async () => {
+    let executed = false;
+
+    const node = createNode<TestState>(
+      "invalid-input",
+      "tool",
+      async () => {
+        executed = true;
+        return { stateUpdate: { counter: 5 } };
+      },
+      {
+        inputSchema: testStateSchema.refine(
+          (state) => typeof state.counter === "number" && state.counter >= 1,
+          { message: "counter must be >= 1", path: ["counter"] }
+        ),
+        retry: {
+          maxAttempts: 1,
+          backoffMs: 1,
+          backoffMultiplier: 1,
+        },
+      }
+    );
+
+    const workflow = graph<TestState>()
+      .start(node)
+      .end()
+      .compile();
+
+    const result = await executeGraph(workflow);
+
+    expect(result.status).toBe("failed");
+    expect(executed).toBe(false);
+    expect(result.snapshot.errors[0]?.error).toBeInstanceOf(SchemaValidationError);
+  });
+
+  test("fails execution when node outputSchema is violated", async () => {
+    const node = createNode<TestState>(
+      "invalid-node-output",
+      "tool",
+      async () => {
+        return { stateUpdate: { counter: 1 } };
+      },
+      {
+        outputSchema: testStateSchema.refine(
+          (state) => state.counter === undefined || state.counter >= 2,
+          { message: "counter must be >= 2", path: ["counter"] }
+        ),
+        retry: {
+          maxAttempts: 1,
+          backoffMs: 1,
+          backoffMultiplier: 1,
+        },
+      }
+    );
+
+    const workflow = graph<TestState>()
+      .start(node)
+      .end()
+      .compile();
+
+    const result = await executeGraph(workflow);
+
+    expect(result.status).toBe("failed");
+    expect(result.snapshot.errors[0]?.error).toBeInstanceOf(SchemaValidationError);
+  });
+
+  test("accepts valid state updates when outputSchema is configured", async () => {
+    const node = createNode<TestState>("valid", "tool", async () => {
+      return { stateUpdate: { counter: 2 } };
+    });
+
+    const workflow = graph<TestState>()
+      .start(node)
+      .end()
+      .compile({ outputSchema: testStateSchema });
+
+    const result = await executeGraph(workflow);
+
+    expect(result.status).toBe("completed");
+    expect(result.state.counter).toBe(2);
+  });
+
+  test("fails execution when state update violates outputSchema", async () => {
+    const node = createNode<TestState>(
+      "invalid",
+      "tool",
+      async () => {
+        return { stateUpdate: { counter: 1 } };
+      },
+      {
+        retry: {
+          maxAttempts: 1,
+          backoffMs: 1,
+          backoffMultiplier: 1,
+        },
+      }
+    );
+
+    const workflow = graph<TestState>()
+      .start(node)
+      .end()
+      .compile({
+        outputSchema: testStateSchema.refine(
+          (state) => state.counter === undefined || state.counter >= 2,
+          { message: "counter must be >= 2", path: ["counter"] }
+        ),
+      });
+
+    const result = await executeGraph(workflow);
+
+    expect(result.status).toBe("failed");
+    expect(result.snapshot.errors[0]?.error).toBeInstanceOf(SchemaValidationError);
   });
 });

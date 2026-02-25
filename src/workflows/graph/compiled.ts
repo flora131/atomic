@@ -33,7 +33,10 @@ import {
   trackWorkflowExecution,
   type WorkflowTracker,
   type WorkflowTelemetryConfig,
-} from "../telemetry/graph-integration.ts";
+} from "../../telemetry/graph-integration.ts";
+import { StateValidator } from "./state-validator.ts";
+import type { StreamEvent, StreamMode } from "./stream.ts";
+import { routeStream } from "./stream.ts";
 
 // ============================================================================
 // EXECUTION TYPES
@@ -87,6 +90,27 @@ export interface StepResult<TState extends BaseState = BaseState> {
 
   /** Any error that occurred */
   error?: ExecutionError;
+
+  /** Total execution time for this node in milliseconds */
+  executionTime?: number;
+
+  /** Number of retries before this step succeeded */
+  retryCount?: number;
+
+  /** Resolved model used for this node execution */
+  modelUsed?: string;
+
+  /** Custom events emitted by the node during execution */
+  emittedEvents?: EmittedEvent[];
+}
+
+/**
+ * Custom event emitted by a node execution context.
+ */
+export interface EmittedEvent {
+  type: string;
+  data: Record<string, unknown>;
+  timestamp: number;
 }
 
 /**
@@ -103,6 +127,22 @@ export interface ExecutionResult<TState extends BaseState = BaseState> {
 
   /** Full execution snapshot for checkpointing */
   snapshot: ExecutionSnapshot<TState>;
+}
+
+interface NodeExecutionResult<TState extends BaseState = BaseState> {
+  result: NodeResult<TState>;
+  retryCount: number;
+  modelUsed?: string;
+  emittedEvents: EmittedEvent[];
+}
+
+type RoutedExecutionOptions<TState extends BaseState = BaseState> =
+  ExecutionOptions<TState> & { modes: StreamMode[] | undefined };
+
+function hasRoutedModes<TState extends BaseState = BaseState>(
+  options: ExecutionOptions<TState> | RoutedExecutionOptions<TState>
+): options is RoutedExecutionOptions<TState> {
+  return Object.prototype.hasOwnProperty.call(options, "modes");
 }
 
 // ============================================================================
@@ -213,6 +253,7 @@ export function mergeState<TState extends BaseState>(
 export class GraphExecutor<TState extends BaseState = BaseState> {
   private readonly graph: CompiledGraph<TState>;
   private readonly config: GraphConfig<TState>;
+  private readonly stateValidator: StateValidator<TState>;
 
   constructor(graph: CompiledGraph<TState>) {
     this.graph = graph;
@@ -221,6 +262,7 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
       ...DEFAULT_GRAPH_CONFIG,
       ...graph.config,
     } as GraphConfig<TState>;
+    this.stateValidator = StateValidator.fromGraphConfig(this.config);
   }
 
   /**
@@ -261,9 +303,25 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
    * Execute the graph as a stream, yielding after each node.
    *
    * @param options - Execution options
-   * @yields StepResult for each executed node
+   * @yields StepResult for each executed node by default
+   * @yields StreamEvent when stream modes are provided
    */
-  async *stream(options: ExecutionOptions<TState> = {}): AsyncGenerator<StepResult<TState>> {
+  stream(options?: ExecutionOptions<TState>): AsyncGenerator<StepResult<TState>>;
+  stream(options: RoutedExecutionOptions<TState>): AsyncGenerator<StreamEvent<TState>>;
+  async *stream(
+    options: ExecutionOptions<TState> | RoutedExecutionOptions<TState> = {}
+  ): AsyncGenerator<StepResult<TState> | StreamEvent<TState>> {
+    if (hasRoutedModes(options)) {
+      yield* routeStream(this.streamSteps(options), options.modes);
+      return;
+    }
+
+    yield* this.streamSteps(options);
+  }
+
+  private async *streamSteps(
+    options: ExecutionOptions<TState> = {}
+  ): AsyncGenerator<StepResult<TState>> {
     const executionId = options.executionId ?? generateExecutionId();
     const maxSteps = options.maxSteps ?? 1000;
     const workflowStartTime = Date.now();
@@ -350,11 +408,13 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
       }
 
       // Execute node with retry
+      let executionResult: NodeExecutionResult<TState>;
       let result: NodeResult<TState>;
       let nodeError: ExecutionError | undefined;
 
       try {
-        result = await this.executeWithRetry(node, state, errors, options.abortSignal);
+        executionResult = await this.executeWithRetry(node, state, errors, options.abortSignal);
+        result = executionResult.result;
       } catch (error) {
         nodeError = {
           nodeId: currentNodeId,
@@ -414,6 +474,10 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
             state,
             result,
             status: "paused",
+            executionTime: Date.now() - nodeStartTime,
+            retryCount: executionResult.retryCount,
+            modelUsed: executionResult.modelUsed,
+            emittedEvents: executionResult.emittedEvents,
           };
           return;
         }
@@ -471,6 +535,10 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
         state,
         result,
         status: isEndNode ? "completed" : "running",
+        executionTime: Date.now() - nodeStartTime,
+        retryCount: executionResult.retryCount,
+        modelUsed: executionResult.modelUsed,
+        emittedEvents: executionResult.emittedEvents,
       };
 
       if (isEndNode) {
@@ -550,7 +618,7 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
     errors: ExecutionError[],
     abortSignal?: AbortSignal,
     parentContext?: ExecutionContext<TState>
-  ): Promise<NodeResult<TState>> {
+  ): Promise<NodeExecutionResult<TState>> {
     const retryConfig = node.retry ?? DEFAULT_RETRY_CONFIG;
     let lastError: Error | undefined;
     let attempt = 0;
@@ -558,26 +626,39 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
     while (attempt < retryConfig.maxAttempts) {
       attempt++;
 
-      try {
-        // Resolve model for this node
-        const resolvedModel = this.resolveModel(node, parentContext);
+      // Resolve model for this node
+      const resolvedModel = this.resolveModel(node, parentContext);
+      const emittedEvents: EmittedEvent[] = [];
 
-        // Build execution context
-        const context: ExecutionContext<TState> = {
-          state,
-          // Cast config to non-generic type for ExecutionContext compatibility
-          config: this.config as unknown as GraphConfig,
-          errors,
-          abortSignal,
-          model: resolvedModel,
-          emit: (_signal) => {
-            // Signals are collected in the result
-          },
-          getNodeOutput: (nodeId) => state.outputs[nodeId],
-        };
+      // Build execution context
+      const context: ExecutionContext<TState> = {
+        state,
+        // Cast config to non-generic type for ExecutionContext compatibility
+        config: this.config as unknown as GraphConfig,
+        errors,
+        abortSignal,
+        model: resolvedModel,
+        emit: (type: string, data?: Record<string, unknown>) => {
+          emittedEvents.push({
+            type,
+            data: data ?? {},
+            timestamp: Date.now(),
+          });
+        },
+        getNodeOutput: (nodeId) => state.outputs[nodeId],
+      };
+
+      try {
+        this.stateValidator.validateNodeInput(node.id, state, node.inputSchema);
 
         // Execute node
         const result = await node.execute(context);
+
+        if (result.stateUpdate) {
+          const nextState = mergeState(state, result.stateUpdate);
+          this.stateValidator.validateNodeOutput(node.id, nextState, node.outputSchema);
+          this.stateValidator.validate(nextState);
+        }
 
         // Emit progress
         if (this.config.onProgress) {
@@ -589,9 +670,64 @@ export class GraphExecutor<TState extends BaseState = BaseState> {
           });
         }
 
-        return result;
+        return {
+          result,
+          retryCount: attempt - 1,
+          modelUsed: resolvedModel,
+          emittedEvents,
+        };
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
+
+        if (node.onError) {
+          const action = await node.onError(lastError, context);
+
+          if (action.action === "skip") {
+            return {
+              result: action.fallbackState ? { stateUpdate: action.fallbackState } : {},
+              retryCount: attempt - 1,
+              modelUsed: resolvedModel,
+              emittedEvents,
+            };
+          }
+
+          if (action.action === "abort") {
+            throw action.error ?? lastError;
+          }
+
+          if (action.action === "goto") {
+            const recoveryNode = this.graph.nodes.get(action.nodeId);
+            if (!recoveryNode) {
+              throw new Error(
+                `onError goto target "${action.nodeId}" not found in graph`
+              );
+            }
+            if (!recoveryNode.isRecoveryNode) {
+              throw new Error(
+                `onError goto target "${action.nodeId}" must set isRecoveryNode: true`
+              );
+            }
+            return {
+              result: { goto: action.nodeId },
+              retryCount: attempt - 1,
+              modelUsed: resolvedModel,
+              emittedEvents,
+            };
+          }
+
+          if (attempt >= retryConfig.maxAttempts) {
+            throw lastError;
+          }
+
+          const retryDelay =
+            action.delay ??
+            retryConfig.backoffMs *
+              Math.pow(retryConfig.backoffMultiplier, attempt - 1);
+          if (retryDelay > 0) {
+            await sleep(retryDelay);
+          }
+          continue;
+        }
 
         // Check if we should retry
         if (retryConfig.retryOn && !retryConfig.retryOn(lastError)) {
@@ -746,12 +882,21 @@ export async function executeGraph<TState extends BaseState = BaseState>(
  * @template TState - The state type
  * @param graph - The compiled graph
  * @param options - Execution options
- * @yields StepResult for each executed node
+ * @yields StepResult for each executed node by default
+ * @yields StreamEvent when stream modes are provided
  */
-export async function* streamGraph<TState extends BaseState = BaseState>(
+export function streamGraph<TState extends BaseState = BaseState>(
   graph: CompiledGraph<TState>,
   options?: ExecutionOptions<TState>
-): AsyncGenerator<StepResult<TState>> {
+): AsyncGenerator<StepResult<TState>>;
+export function streamGraph<TState extends BaseState = BaseState>(
+  graph: CompiledGraph<TState>,
+  options: RoutedExecutionOptions<TState>
+): AsyncGenerator<StreamEvent<TState>>;
+export async function* streamGraph<TState extends BaseState = BaseState>(
+  graph: CompiledGraph<TState>,
+  options?: ExecutionOptions<TState> | RoutedExecutionOptions<TState>
+): AsyncGenerator<StepResult<TState> | StreamEvent<TState>> {
   const executor = createExecutor(graph);
-  yield* executor.stream(options);
+  yield* executor.stream(options ?? {});
 }

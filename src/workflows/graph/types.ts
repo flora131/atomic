@@ -1,3 +1,8 @@
+import type { z } from "zod";
+import type { CodingAgentClient } from "../../sdk/types.ts";
+import type { SubagentResult, SubagentSpawnOptions } from "./subagent-bridge.ts";
+import type { SubagentEntry } from "./subagent-registry.ts";
+
 /**
  * Graph Execution Engine Types
  *
@@ -195,6 +200,15 @@ export interface RetryConfig {
 }
 
 /**
+ * Action returned by node-level error handlers.
+ */
+export type ErrorAction<TState extends BaseState = BaseState> =
+  | { action: "retry"; delay?: number }
+  | { action: "skip"; fallbackState?: Partial<TState> }
+  | { action: "abort"; error?: Error }
+  | { action: "goto"; nodeId: NodeId };
+
+/**
  * Debug report generated when an error occurs during execution.
  * Contains diagnostic information to help resolve the issue.
  */
@@ -270,10 +284,10 @@ export interface ExecutionContext<TState extends BaseState = BaseState> {
   contextWindowThreshold?: number;
 
   /**
-   * Emit a signal during execution.
-   * @param signal - The signal data to emit
+   * Emit a custom stream event during execution.
+   * - `emit(type, data)` emits a custom stream event payload.
    */
-  emit?: (signal: SignalData) => void;
+  emit?: (type: string, data?: Record<string, unknown>) => void;
 
   /**
    * Get the output from a previously executed node.
@@ -316,8 +330,27 @@ export interface NodeDefinition<TState extends BaseState = BaseState> {
   /** Function to execute when the node is visited */
   execute: NodeExecuteFn<TState>;
 
+  /** Optional schema for validating node input state before execution */
+  inputSchema?: z.ZodType<TState>;
+
+  /** Optional schema for validating node output state after execution */
+  outputSchema?: z.ZodType<TState>;
+
   /** Optional retry configuration for error handling */
   retry?: RetryConfig;
+
+  /**
+   * Optional node-level error hook for custom recovery behavior.
+   */
+  onError?: (
+    error: Error,
+    context: ExecutionContext<TState>
+  ) => ErrorAction<TState> | Promise<ErrorAction<TState>>;
+
+  /**
+   * Marks this node as a valid recovery target for `onError` goto actions.
+   */
+  isRecoveryNode?: boolean;
 
   /** Human-readable name for the node (used in logging/UI) */
   name?: string;
@@ -354,6 +387,23 @@ export interface ProgressEvent<TState extends BaseState = BaseState> {
   error?: ExecutionError;
   /** Timestamp of the event */
   timestamp: string;
+}
+
+export interface RuntimeSubgraph {
+  execute(state: BaseState): Promise<BaseState>;
+}
+
+export interface GraphRuntimeDependencies {
+  clientProvider?: (agentType: string) => CodingAgentClient | null;
+  workflowResolver?: (name: string) => RuntimeSubgraph | null;
+  subagentBridge?: {
+    spawn(agent: SubagentSpawnOptions, abortSignal?: AbortSignal): Promise<SubagentResult>;
+    spawnParallel(agents: SubagentSpawnOptions[], abortSignal?: AbortSignal): Promise<SubagentResult[]>;
+  };
+  subagentRegistry?: {
+    get(name: string): SubagentEntry | undefined;
+    getAll(): SubagentEntry[];
+  };
 }
 
 /**
@@ -410,6 +460,18 @@ export interface GraphConfig<TState extends BaseState = BaseState> {
    * Claude aliases (`opus`, `sonnet`, `haiku`) are also accepted.
    */
   defaultModel?: ModelSpec;
+
+  /**
+   * Optional runtime validation schema for workflow state.
+   * When provided, state updates are validated after each node execution.
+   */
+  outputSchema?: z.ZodType<TState>;
+
+  /**
+   * Runtime dependencies provided by WorkflowSDK.init().
+   * Used by node factories that require SDK services.
+   */
+  runtime?: GraphRuntimeDependencies;
 }
 
 // ============================================================================

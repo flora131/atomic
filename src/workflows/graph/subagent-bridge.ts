@@ -7,11 +7,10 @@
  *
  * Result persistence: ~/.atomic/workflows/sessions/{sessionId}/agents/
  *
- * Follows the existing setClientProvider() / setWorkflowResolver() global setter pattern.
  */
 
-import type { Session, SessionConfig } from "../sdk/types.ts";
-import { saveSubagentOutput } from "../workflows/session.ts";
+import type { Session, SessionConfig } from "../../sdk/types.ts";
+import { saveSubagentOutput } from "../session.ts";
 
 // ============================================================================
 // Helpers
@@ -302,18 +301,4 @@ export class SubagentGraphBridge {
       };
     });
   }
-}
-
-// ============================================================================
-// Singleton
-// ============================================================================
-
-let globalSubagentBridge: SubagentGraphBridge | null = null;
-
-export function setSubagentBridge(bridge: SubagentGraphBridge | null): void {
-  globalSubagentBridge = bridge;
-}
-
-export function getSubagentBridge(): SubagentGraphBridge | null {
-  return globalSubagentBridge;
 }

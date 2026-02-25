@@ -197,7 +197,11 @@ export class GraphBuilder<TState extends BaseState = BaseState> {
     options?: {
       name?: string;
       description?: string;
+      inputSchema?: NodeDefinition<TState>["inputSchema"];
+      outputSchema?: NodeDefinition<TState>["outputSchema"];
       retry?: RetryConfig;
+      onError?: NodeDefinition<TState>["onError"];
+      isRecoveryNode?: boolean;
     }
   ): NodeDefinition<TState> {
     return {
@@ -705,7 +709,7 @@ export function graph<TState extends BaseState = BaseState>(): GraphBuilder<TSta
  * @param id - Node ID
  * @param type - Node type
  * @param execute - Execution function
- * @param options - Optional name, description, retry config
+ * @param options - Optional metadata, schemas, retry config, error hook, and recovery marker
  * @returns A NodeDefinition
  */
 export function createNode<TState extends BaseState = BaseState>(
@@ -715,7 +719,11 @@ export function createNode<TState extends BaseState = BaseState>(
   options?: {
     name?: string;
     description?: string;
+    inputSchema?: NodeDefinition<TState>["inputSchema"];
+    outputSchema?: NodeDefinition<TState>["outputSchema"];
     retry?: RetryConfig;
+    onError?: NodeDefinition<TState>["onError"];
+    isRecoveryNode?: boolean;
   }
 ): NodeDefinition<TState> {
   return {

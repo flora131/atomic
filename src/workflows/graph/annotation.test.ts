@@ -11,17 +11,16 @@ import {
   applyReducer,
   applyStateUpdate,
   createAtomicState,
-  createRalphState,
   getDefaultValue,
   initializeState,
   isAtomicWorkflowState,
   isFeature,
-  isRalphWorkflowState,
   Reducers,
   updateAtomicState,
-  updateRalphState,
 } from "./annotation.ts";
-import type { AtomicWorkflowState, Feature, RalphWorkflowState } from "./annotation.ts";
+import { createRalphState, isRalphWorkflowState, updateRalphState } from "../ralph/state.ts";
+import type { AtomicWorkflowState, Feature } from "./annotation.ts";
+import type { RalphWorkflowState } from "../ralph/state.ts";
 import type { DebugReport } from "./types.ts";
 
 describe("Reducers", () => {

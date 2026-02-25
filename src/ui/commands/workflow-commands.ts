@@ -46,8 +46,6 @@ import { discoverAgentInfos } from "./agent-commands.ts";
 
 /** Maximum number of iterations for the main implementation loop to prevent infinite loops */
 const MAX_RALPH_ITERATIONS = 100;
-/** Maximum number of review-fix cycles to prevent infinite loops */
-const MAX_REVIEW_ITERATIONS = 1;
 
 // ============================================================================
 // RALPH COMMAND PARSING
@@ -573,98 +571,6 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
             };
         },
     };
-}
-
-/**
- * Parse a JSON task list from streaming content.
- * Handles both raw JSON arrays and content with markdown fences or extra text.
- */
-function parseTasks(content: string): NormalizedTodoItem[] {
-    const trimmed = content.trim();
-    let parsed: unknown = null;
-    try {
-        parsed = JSON.parse(trimmed);
-    } catch {
-        const match = trimmed.match(/\[[\s\S]*\]/);
-        if (match) {
-            try {
-                parsed = JSON.parse(match[0]);
-            } catch {
-                /* ignore */
-            }
-        }
-    }
-    if (!Array.isArray(parsed) || parsed.length === 0) return [];
-    return normalizeTodoItems(parsed);
-}
-
-function hasActionableTasks(tasks: NormalizedTodoItem[]): boolean {
-    const normalizeTaskId = (id: string): string => {
-        const trimmed = id.trim().toLowerCase();
-        return trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
-    };
-
-    const completedIds = new Set(
-        tasks
-            .filter((task) => task.status === "completed")
-            .map((task) => task.id)
-            .filter((id): id is string => Boolean(id))
-            .map((id) => normalizeTaskId(id))
-            .filter((id): id is string => Boolean(id)),
-    );
-
-    return tasks.some((task) => {
-        if (task.status === "in_progress") {
-            return true;
-        }
-        if (task.status !== "pending") {
-            return false;
-        }
-
-        const dependencies = (task.blockedBy ?? [])
-            .map((dependency) => normalizeTaskId(dependency))
-            .filter((dependency) => dependency.length > 0);
-
-        if (dependencies.length === 0) {
-            return true;
-        }
-
-        return dependencies.every((dependency) => completedIds.has(dependency));
-    });
-}
-
-type StreamAndWaitResult = Awaited<ReturnType<CommandContext["streamAndWait"]>>;
-
-async function streamWithInterruptRecovery(
-    context: CommandContext,
-    initialPrompt: string,
-    options?: { hideContent?: boolean },
-    onInterrupted?: (userPrompt: string) => {
-        prompt: string;
-        options?: { hideContent?: boolean };
-    },
-): Promise<StreamAndWaitResult> {
-    let prompt = initialPrompt;
-    let streamOptions = options;
-
-    while (true) {
-        const result = await context.streamAndWait(prompt, streamOptions);
-
-        if (result.wasCancelled || !result.wasInterrupted) {
-            return result;
-        }
-
-        const userPrompt = await context.waitForUserInput();
-
-        if (onInterrupted) {
-            const next = onInterrupted(userPrompt);
-            prompt = next.prompt;
-            streamOptions = next.options;
-        } else {
-            prompt = userPrompt;
-            streamOptions = undefined;
-        }
-    }
 }
 
 function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {

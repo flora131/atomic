@@ -38,6 +38,8 @@ export interface SubagentSpawnOptions {
   model?: string;
   /** Optional tool restrictions */
   tools?: string[];
+  /** Optional timeout in milliseconds. When exceeded, the session is aborted. */
+  timeout?: number;
 }
 
 /**
@@ -118,13 +120,40 @@ export class SubagentGraphBridge {
 
       session = await this.createSession(sessionConfig);
 
-      // Stream response
-      for await (const msg of session.stream(options.task)) {
-        if (msg.type === "tool_use") {
-          toolUses++;
-        } else if (msg.type === "text" && typeof msg.content === "string") {
-          summaryParts.push(msg.content);
+      // Set up abort controller for timeout
+      const abortController = new AbortController();
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      if (options.timeout) {
+        timeoutId = setTimeout(() => abortController.abort(), options.timeout);
+      }
+
+      try {
+        // Stream response with abort support
+        for await (const msg of session.stream(options.task)) {
+          if (abortController.signal.aborted) break;
+          if (msg.type === "tool_use") {
+            toolUses++;
+          } else if (msg.type === "text" && typeof msg.content === "string") {
+            summaryParts.push(msg.content);
+          }
         }
+      } finally {
+        if (timeoutId) clearTimeout(timeoutId);
+      }
+
+      if (abortController.signal.aborted) {
+        // Abort the session to cancel any in-flight SDK work
+        if (session.abort) {
+          await session.abort().catch(() => {});
+        }
+        return {
+          agentId: options.agentId,
+          success: false,
+          output: summaryParts.join(""),
+          error: `Sub-agent "${options.agentName}" timed out after ${options.timeout}ms`,
+          toolUses,
+          durationMs: Date.now() - startTime,
+        };
       }
 
       // Build truncated summary

@@ -49,7 +49,7 @@ export function isCurrentStreamCallback(
   activeGeneration: number,
   callbackGeneration: number,
 ): boolean {
-  return activeGeneration === callbackGeneration;
+  return callbackGeneration >= activeGeneration - 1;
 }
 
 export function createStoppedStreamControlState(

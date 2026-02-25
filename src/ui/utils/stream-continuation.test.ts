@@ -55,14 +55,17 @@ describe("stream continuation helpers", () => {
     expect(dispatched).toEqual([]);
   });
 
-  test("interrupt invalidation advances generation and makes old callback stale", () => {
+  test("interrupt invalidation advances generation with off-by-one tolerance", () => {
     const currentGeneration = 7;
     const interruptedGeneration = invalidateActiveStreamGeneration(currentGeneration);
 
     expect(interruptedGeneration).toBe(8);
     expect(interruptedGeneration).not.toBe(currentGeneration);
-    expect(isCurrentStreamCallback(interruptedGeneration, currentGeneration)).toBe(false);
+    // Off-by-one tolerance: immediately preceding generation is still accepted
+    expect(isCurrentStreamCallback(interruptedGeneration, currentGeneration)).toBe(true);
     expect(isCurrentStreamCallback(interruptedGeneration, interruptedGeneration)).toBe(true);
+    // But callbacks more than one generation old should be rejected
+    expect(isCurrentStreamCallback(interruptedGeneration, currentGeneration - 1)).toBe(false);
   });
 
   test("guarded dispatch does not dequeue when streaming resumed", () => {

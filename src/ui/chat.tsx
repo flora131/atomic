@@ -3643,6 +3643,20 @@ export function ChatApp({
             const hasActiveAgents = hasActiveForegroundAgents(parallelAgentsRef.current);
             if (hasActiveAgents || hasRunningToolRef.current) {
               pendingCompleteRef.current = handleComplete;
+              // Safety timeout: if no sub-agent was ever spawned within 30s,
+              // unblock the deferred completion to prevent TUI freeze.
+              const spawnTimeout = setTimeout(() => {
+                if (pendingCompleteRef.current === handleComplete
+                    && parallelAgentsRef.current.length === 0) {
+                  pendingCompleteRef.current = null;
+                  handleComplete();
+                }
+              }, 30_000);
+              const originalHandleComplete = handleComplete;
+              pendingCompleteRef.current = () => {
+                clearTimeout(spawnTimeout);
+                originalHandleComplete();
+              };
               return;
             }
 
@@ -5429,6 +5443,20 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           const hasActiveAgents = hasActiveForegroundAgents(parallelAgentsRef.current);
           if (hasActiveAgents || hasRunningToolRef.current) {
             pendingCompleteRef.current = handleComplete;
+            // Safety timeout: if no sub-agent was ever spawned within 30s,
+            // unblock the deferred completion to prevent TUI freeze.
+            const spawnTimeout = setTimeout(() => {
+              if (pendingCompleteRef.current === handleComplete
+                  && parallelAgentsRef.current.length === 0) {
+                pendingCompleteRef.current = null;
+                handleComplete();
+              }
+            }, 30_000);
+            const originalHandleComplete = handleComplete;
+            pendingCompleteRef.current = () => {
+              clearTimeout(spawnTimeout);
+              originalHandleComplete();
+            };
             return;
           }
 

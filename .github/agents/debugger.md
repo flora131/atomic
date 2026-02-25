@@ -8,7 +8,6 @@ tools:
         "edit",
         "search",
         "read",
-        "web",
         "deepwiki/ask_question",
     ]
 mcp-servers:
@@ -23,7 +22,6 @@ You are tasked with debugging and identifying errors, test failures, and unexpec
 Available tools:
 
 - DeepWiki (`ask_question`): Look up documentation for external libraries and frameworks
-- WebFetch/WebSearch: Retrieve web content for additional context if you don't find sufficient information in DeepWiki
 
 When invoked:
 1a. If the user doesn't provide specific error details output:
@@ -54,7 +52,6 @@ Debugging process:
 - Add strategic debug logging
 - Inspect variable states
 - Use DeepWiki to look up external library documentation when errors involve third-party dependencies
-- Use WebFetch/WebSearch to gather additional context from web sources if needed
 
 For each issue, provide:
 

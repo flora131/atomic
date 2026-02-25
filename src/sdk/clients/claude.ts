@@ -281,8 +281,6 @@ export class ClaudeAgentClient implements CodingAgentClient {
         "MultiEdit",
         "TodoRead",
         "TodoWrite",
-        "WebFetch",
-        "WebSearch",
         "NotebookEdit",
         "NotebookRead",
     ] as const;

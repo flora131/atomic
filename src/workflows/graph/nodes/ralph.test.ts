@@ -4,10 +4,10 @@ import {
   buildWorkerAssignment,
   buildReviewPrompt,
   buildFixSpecFromReview,
+  parseReviewResult,
   type TaskItem,
   type ReviewResult,
 } from "../../ralph/prompts.ts";
-import { parseReviewResult } from "./ralph.ts";
 
 describe("buildSpecToTasksPrompt", () => {
   test("includes spec content in the prompt", () => {

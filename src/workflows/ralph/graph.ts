@@ -12,15 +12,17 @@ import {
   subagentNode,
   toolNode,
 } from "../graph/index.ts";
+import type { NodeDefinition, ExecutionContext, NodeResult } from "../graph/types.ts";
+import type { SubagentSpawnOptions } from "../graph/subagent-bridge.ts";
 import type { RalphWorkflowState } from "./state.ts";
 import {
   buildSpecToTasksPrompt,
   buildWorkerAssignment,
   buildReviewPrompt,
   buildFixSpecFromReview,
+  parseReviewResult,
   type TaskItem,
 } from "./prompts.ts";
-import { parseReviewResult } from "../graph/nodes/ralph.ts";
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -134,27 +136,46 @@ export function createRalphWorkflow() {
           name: "Task Selector",
           description: "Select tasks ready for execution",
         }),
-        subagentNode<RalphWorkflowState>({
+        // Custom worker node: handles failures gracefully by setting task
+        // status to "error" instead of throwing (matches procedural handler).
+        {
           id: "worker",
-          agentName: "worker",
-          task: (state) => {
-            const ready = state.currentTasks;
-            if (ready.length === 0) return "No tasks ready";
-            return buildWorkerAssignment(ready[0]!, state.tasks);
-          },
-          outputMapper: (result, state) => ({
-            iteration: state.iteration + 1,
-            tasks: state.tasks.map((t) => {
-              const wasReady = state.currentTasks.some((ct) => ct.id === t.id);
-              if (wasReady && result.success) {
-                return { ...t, status: "completed" };
-              }
-              return t;
-            }),
-          }),
+          type: "agent",
           name: "Worker",
           description: "Implements assigned tasks",
-        }),
+          retry: { maxAttempts: 1, backoffMs: 0, backoffMultiplier: 1 },
+          async execute(ctx: ExecutionContext<RalphWorkflowState>): Promise<NodeResult<RalphWorkflowState>> {
+            const bridge = ctx.config.runtime?.subagentBridge;
+            if (!bridge) {
+              throw new Error("SubagentGraphBridge not initialized. Execute this graph through WorkflowSDK.init().");
+            }
+            const ready = ctx.state.currentTasks;
+            const task = ready[0];
+            const taskPrompt = task
+              ? buildWorkerAssignment(task, ctx.state.tasks)
+              : "No tasks ready";
+
+            const spawnOpts: SubagentSpawnOptions = {
+              agentId: `worker-${task?.id ?? ctx.state.executionId}`,
+              agentName: "worker",
+              task: taskPrompt,
+            };
+            const result = await bridge.spawn(spawnOpts, ctx.abortSignal);
+
+            return {
+              stateUpdate: {
+                iteration: ctx.state.iteration + 1,
+                tasks: ctx.state.tasks.map((t) => {
+                  const wasReady = ctx.state.currentTasks.some((ct) => ct.id === t.id);
+                  if (wasReady) {
+                    return { ...t, status: result.success ? "completed" : "error" };
+                  }
+                  return t;
+                }),
+              } as Partial<RalphWorkflowState>,
+            };
+          },
+        } satisfies NodeDefinition<RalphWorkflowState>,
       ],
       {
         until: (state) =>

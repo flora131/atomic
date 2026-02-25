@@ -37,6 +37,8 @@ import { createRalphWorkflow } from "../../workflows/ralph/graph.ts";
 import { createRalphState } from "../../workflows/ralph/state.ts";
 import { streamGraph } from "../../workflows/graph/compiled.ts";
 import type { SubagentSpawnOptions, SubagentResult } from "../../workflows/graph/subagent-bridge.ts";
+import { SubagentTypeRegistry } from "../../workflows/graph/subagent-registry.ts";
+import { discoverAgentInfos } from "./agent-commands.ts";
 
 // ============================================================================
 // CONSTANTS
@@ -729,9 +731,24 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                         context.spawnSubagentParallel!(agents, abortSignal),
                 };
 
-                // Get compiled graph and inject bridge
+                // Build subagent registry with discovered agents
+                const registry = new SubagentTypeRegistry();
+                const discoveredAgents = discoverAgentInfos();
+                for (const agent of discoveredAgents) {
+                    registry.register({
+                        name: agent.name,
+                        info: agent,
+                        source: agent.source,
+                    });
+                }
+
+                // Get compiled graph and inject bridge + registry
                 const compiled = createRalphWorkflow();
-                compiled.config.runtime = { ...compiled.config.runtime, subagentBridge: bridge };
+                compiled.config.runtime = { 
+                    ...compiled.config.runtime, 
+                    subagentBridge: bridge,
+                    subagentRegistry: registry,
+                };
 
                 // Track whether we've set up session tracking
                 let sessionTracked = false;

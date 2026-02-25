@@ -320,4 +320,140 @@ describe("Workflow inline mode E2E", () => {
       await rm(sessionDir, { recursive: true, force: true });
     }
   });
+
+  test("review with findings triggers fixer and completes without freeze", async () => {
+    // Track all spawnSubagentParallel calls
+    const spawnCalls: Array<{ agentName: string }> = [];
+    const workflowStateUpdates: Array<Partial<CommandContextState>> = [];
+    let sessionDir: string | null = null;
+    let todoItems: any[] = [];
+
+    const context = createMockContext({
+      updateWorkflowState: (update) => {
+        workflowStateUpdates.push(update);
+      },
+      setRalphSessionDir: (dir) => {
+        sessionDir = dir;
+        if (dir && !existsSync(dir)) {
+          mkdirSync(dir, { recursive: true });
+          // Create progress.txt file that reviewer needs
+          const progressPath = join(dir, "progress.txt");
+          fsWriteFile(progressPath, "Test workflow in progress\n", "utf-8").catch(() => {});
+        }
+      },
+      setRalphSessionId: () => {},
+      setRalphTaskIds: () => {},
+      setTodoItems: (items) => {
+        todoItems = items;
+      },
+      spawnSubagentParallel: async (agents) => {
+        return agents.map((a) => {
+          const agentName = a.agentName ?? a.agentId ?? "unknown";
+          spawnCalls.push({ agentName });
+          
+          // Planner: return task list
+          if (agentName === "planner") {
+            return {
+              agentId: a.agentId,
+              success: true,
+              output: JSON.stringify([
+                { id: "#1", content: "Add auth module", status: "pending", activeForm: "Adding auth", blockedBy: [] },
+              ]),
+              toolUses: 1,
+              durationMs: 100,
+            };
+          }
+          
+          // Worker: succeed
+          if (agentName === "worker") {
+            return {
+              agentId: a.agentId,
+              success: true,
+              output: "Implemented auth module",
+              toolUses: 3,
+              durationMs: 500,
+            };
+          }
+          
+          // Reviewer: return findings that trigger fixes
+          if (agentName === "reviewer") {
+            return {
+              agentId: a.agentId,
+              success: true,
+              output: JSON.stringify({
+                findings: [
+                  {
+                    file: "src/auth.ts",
+                    description: "Missing input validation",
+                    severity: "high",
+                    priority: 1,
+                  },
+                ],
+                overall_correctness: "needs fixes",
+                overall_explanation: "Missing input validation in auth handler",
+              }),
+              toolUses: 2,
+              durationMs: 200,
+            };
+          }
+          
+          // Fixer: succeed (agentName is "debugger" in the graph)
+          if (agentName === "debugger") {
+            return {
+              agentId: a.agentId,
+              success: true,
+              output: "Fixed input validation",
+              toolUses: 2,
+              durationMs: 300,
+            };
+          }
+          
+          // Default fallback
+          return {
+            agentId: a.agentId,
+            success: true,
+            output: "OK",
+            toolUses: 0,
+            durationMs: 10,
+          };
+        });
+      },
+    });
+
+    // Get the ralph command
+    const commands = getWorkflowCommands();
+    const ralphCommand = commands.find((cmd) => cmd.name === "ralph");
+    expect(ralphCommand).toBeDefined();
+
+    // Run workflow — should complete without hanging
+    const result = await ralphCommand!.execute("Build auth feature", context);
+
+    // Assert: workflow completed successfully
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.workflowActive).toBe(false);
+
+    // Assert: workflowActive was set to true at start
+    const hasWorkflowActive = workflowStateUpdates.some(
+      (update) => update.workflowActive === true,
+    );
+    expect(hasWorkflowActive).toBe(true);
+
+    // Assert: spawnSubagentParallel was called for planner, worker, reviewer, AND fixer
+    const agentNames = spawnCalls.map((c) => c.agentName);
+    expect(agentNames).toContain("planner");
+    expect(agentNames).toContain("worker");
+    expect(agentNames).toContain("reviewer");
+    expect(agentNames).toContain("debugger"); // fixer uses "debugger" agentName
+
+    // Assert: tasks were tracked
+    expect(todoItems.length).toBeGreaterThan(0);
+
+    // Assert: session dir was set
+    expect(sessionDir).not.toBeNull();
+
+    // Clean up temp dir
+    if (sessionDir && existsSync(sessionDir)) {
+      await rm(sessionDir, { recursive: true, force: true });
+    }
+  });
 });

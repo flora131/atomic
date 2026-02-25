@@ -416,7 +416,7 @@ The `parseAgentInfoLight()` function:
 
 Discovered agents are registered in a global singleton for name-based lookup.
 
-**`src/graph/subagent-registry.ts:28-50`**
+**`src/workflows/graph/subagent-registry.ts:28-50`**
 ```typescript
 export class SubagentTypeRegistry {
   private agents = new Map<string, SubagentEntry>();
@@ -504,7 +504,7 @@ Workflows can be nested within other workflows using `subgraphNode()`. The workf
 
 ### setWorkflowResolver() / getWorkflowResolver()
 
-**`src/graph/nodes.ts:1110-1129`**
+**`src/workflows/graph/nodes.ts:1110-1129`**
 
 Global workflow resolver for dependency injection:
 ```typescript
@@ -530,7 +530,7 @@ export function getWorkflowResolver(): WorkflowResolver | null {
 
 ### WorkflowResolver Type
 
-**`src/graph/nodes.ts:1104`**
+**`src/workflows/graph/nodes.ts:1104`**
 ```typescript
 export type WorkflowResolver = (name: string) => CompiledSubgraph<BaseState> | null;
 ```
@@ -541,7 +541,7 @@ A function that:
 
 ### CompiledSubgraph<TSubState>
 
-**`src/graph/nodes.ts:1039-1041`**
+**`src/workflows/graph/nodes.ts:1039-1041`**
 ```typescript
 export interface CompiledSubgraph<TSubState extends BaseState = BaseState> {
   execute: (state: TSubState) => Promise<TSubState>;
@@ -554,7 +554,7 @@ A compiled subgraph has a single `execute()` method that:
 
 ### SubgraphRef<TSubState>
 
-**`src/graph/nodes.ts:1049-1051`**
+**`src/workflows/graph/nodes.ts:1049-1051`**
 ```typescript
 export type SubgraphRef<TSubState extends BaseState = BaseState> =
   | CompiledSubgraph<TSubState>
@@ -567,7 +567,7 @@ A reference to a subgraph can be:
 
 ### subgraphNode() Factory
 
-**`src/graph/nodes.ts:1166-1223`**
+**`src/workflows/graph/nodes.ts:1166-1223`**
 
 Creates a node that executes a nested workflow:
 
@@ -973,8 +973,8 @@ To properly initialize the workflow discovery and resolver system:
 - **Builtin Commands**: `src/ui/commands/builtin-commands.ts`
 - **Agent Commands**: `src/ui/commands/agent-commands.ts`
 - **Command Registry**: `src/ui/commands/registry.ts`
-- **Graph Nodes**: `src/graph/nodes.ts`
-- **Sub-agent Registry**: `src/graph/subagent-registry.ts`
+- **Graph Nodes**: `src/workflows/graph/nodes.ts`
+- **Sub-agent Registry**: `src/workflows/graph/subagent-registry.ts`
 - **Copilot Config**: `src/config/copilot-manual.ts`
 - **Workflow Session**: `src/workflows/session.ts`
 

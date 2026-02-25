@@ -418,10 +418,10 @@ The [Ralph Wiggum Method](https://ghuntley.com/ralph/) enables multi-hour autono
 
 1. Create and approve your spec (`/create-spec`)
 2. Start the workflow (`/ralph "<prompt-or-spec-path>"`)
-3. Ralph executes a 3-step process:
-   - **Step 1 — Task Decomposition**: Breaks the spec/prompt into a structured task list
-   - **Step 2 — Implementation Loop**: Dispatches `worker` sub-agents to implement tasks one-by-one (up to 100 iterations)
-   - **Step 3 — Review & Fix**: Spawns a `reviewer` sub-agent to audit the implementation, generates fix specs if needed, and re-runs implementation for any issues found
+3. Ralph executes a 3-phase graph-based workflow:
+   - **Phase 1 — Task Decomposition**: A `planner` sub-agent breaks the spec/prompt into a structured task list with dependency tracking
+   - **Phase 2 — Worker Loop**: Dispatches `worker` sub-agents for ready tasks (those with no blocking dependencies), executing up to 100 iterations
+   - **Phase 3 — Review & Fix**: A `reviewer` sub-agent audits the implementation; if issues are found, a `fixer` sub-agent generates corrective tasks that re-enter the worker loop
 
 ### Usage
 

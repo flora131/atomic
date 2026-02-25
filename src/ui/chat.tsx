@@ -741,6 +741,8 @@ export interface ChatAppProps {
   onInterrupt?: OnInterrupt;
   /** Callback when user confirms Ctrl+F background-agent termination. */
   onTerminateBackgroundAgents?: OnTerminateBackgroundAgents;
+  /** Set the streaming state in the index.ts layer (for bridge streaming). */
+  setStreamingState?: (isStreaming: boolean) => void;
   /** Placeholder text for input */
   placeholder?: string;
   /** Title for the chat window (deprecated, use header props instead) */
@@ -1616,6 +1618,7 @@ export function ChatApp({
   onResetSession,
   onInterrupt,
   onTerminateBackgroundAgents,
+  setStreamingState,
   placeholder: _placeholder = "Type a message...",
   title: _title,
   syntaxStyle: _syntaxStyle,
@@ -2291,12 +2294,14 @@ export function ChatApp({
         setTodoItems(todos);
       }
 
-      // Persist to tasks.json only when the items are ralph task updates
-      // (share IDs with the planning-phase tasks). Sub-agent or independent
-      // TodoWrite lists must NOT overwrite ralph's persistent task state.
-      if (ralphSessionIdRef.current && isRalphUpdate) {
-        void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
-      }
+      // During /ralph workflow: do NOT persist TodoWrite calls to tasks.json.
+      // The ralph workflow (workflow-commands.ts) is the sole owner of tasks.json
+      // to prevent race conditions where sub-agent TodoWrite calls overwrite
+      // the workflow's status updates (e.g., marking a completed task back to in_progress).
+      // TodoWrite still updates in-memory UI state above for real-time display.
+      // 
+      // Before: if (ralphSessionIdRef.current && isRalphUpdate) { ... }
+      // Now: Never persist TodoWrite during active ralph workflow.
 
       if (messageId) {
         setMessagesWindowed((prev) =>
@@ -2416,10 +2421,14 @@ export function ChatApp({
         setTodoItems(todos);
       }
 
-      // Persist to tasks.json only when the items are ralph task updates
-      if (ralphSessionIdRef.current && isRalphUpdate) {
-        void saveTasksToActiveSession(todos, ralphSessionIdRef.current);
-      }
+      // During /ralph workflow: do NOT persist TodoWrite calls to tasks.json.
+      // The ralph workflow (workflow-commands.ts) is the sole owner of tasks.json
+      // to prevent race conditions where sub-agent TodoWrite calls overwrite
+      // the workflow's status updates (e.g., marking a completed task back to in_progress).
+      // TodoWrite still updates in-memory UI state above for real-time display.
+      // 
+      // Before: if (ralphSessionIdRef.current && isRalphUpdate) { ... }
+      // Now: Never persist TodoWrite during active ralph workflow.
 
       if (messageId) {
         setMessagesWindowed((prev) =>
@@ -3726,12 +3735,53 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           output: result.content,
         };
       },
-      spawnSubagentParallel: async (agents) => {
+      spawnSubagentParallel: async (agents, externalAbortSignal) => {
         const bridge = getSubagentBridge();
         if (!bridge) {
           throw new Error("SubagentGraphBridge not initialized. Cannot spawn parallel sub-agents.");
         }
-        return bridge.spawnParallel(agents);
+
+        // Create an AbortController so Ctrl+C can cancel the bridge sessions.
+        // Mark streaming as active so the Ctrl+C handler enters the abort path.
+        const parallelAbortController = new AbortController();
+        isStreamingRef.current = true;
+        setIsStreaming(true);
+        setStreamingState?.(true);
+
+        // Forward external abort signal if provided
+        if (externalAbortSignal) {
+          if (externalAbortSignal.aborted) {
+            parallelAbortController.abort();
+          } else {
+            externalAbortSignal.addEventListener(
+              "abort",
+              () => parallelAbortController.abort(),
+              { once: true },
+            );
+          }
+        }
+
+        // Register a stream completion resolver so Ctrl+C's streamResolver
+        // path can signal cancellation back to us.
+        const previousResolver = streamCompletionResolverRef.current;
+        streamCompletionResolverRef.current = (_result: import("./commands/registry.ts").StreamResult) => {
+          // Ctrl+C fires this resolver — abort all bridge sessions
+          parallelAbortController.abort();
+        };
+
+        try {
+          return await bridge.spawnParallel(agents, parallelAbortController.signal);
+        } finally {
+          // Restore previous resolver (if any) and reset streaming flags
+          if (streamCompletionResolverRef.current === null) {
+            // Ctrl+C already cleared it — don't restore
+          } else {
+            streamCompletionResolverRef.current = previousResolver ?? null;
+          }
+          isStreamingRef.current = false;
+          setIsStreaming(false);
+          setStreamingState?.(false);
+        }
       },
       streamAndWait: (prompt: string, options?: { hideContent?: boolean }) => {
         return new Promise<import("./commands/registry.ts").StreamResult>((resolve) => {

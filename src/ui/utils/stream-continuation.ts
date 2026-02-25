@@ -1,3 +1,5 @@
+import type { Part, ToolPart } from "../parts/types.ts";
+
 export interface QueueDispatchOptions {
   delayMs?: number;
   schedule?: (callback: () => void, delayMs: number) => void;
@@ -90,6 +92,25 @@ export function interruptRunningToolCalls<T extends { status: string }>(
       ? { ...toolCall, status: "interrupted" }
       : { ...toolCall },
   );
+}
+
+/**
+ * Freeze running tool parts by transitioning them to "interrupted" with
+ * their elapsed duration captured, so tool timers stop on Ctrl+C / ESC.
+ */
+export function interruptRunningToolParts(parts?: readonly Part[]): Part[] | undefined {
+  if (!parts) return undefined;
+  return parts.map((part) => {
+    if (part.type === "tool") {
+      const toolPart = part as ToolPart;
+      if (toolPart.state.status === "running") {
+        const startedAtMs = new Date(toolPart.state.startedAt).getTime();
+        const durationMs = Number.isFinite(startedAtMs) ? Math.max(0, Date.now() - startedAtMs) : undefined;
+        return { ...toolPart, state: { status: "interrupted" as const, durationMs } };
+      }
+    }
+    return part;
+  });
 }
 
 export function isAskQuestionToolName(toolName: string): boolean {

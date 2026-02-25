@@ -40,7 +40,7 @@ export type ToolState =
   | { status: "running"; startedAt: string }
   | { status: "completed"; output: unknown; durationMs: number }
   | { status: "error"; error: string; output?: unknown }
-  | { status: "interrupted"; partialOutput?: unknown };
+  | { status: "interrupted"; partialOutput?: unknown; durationMs?: number };
 
 // ============================================================================
 // CONCRETE PART TYPES

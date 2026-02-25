@@ -3,6 +3,7 @@ import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
 import {
   formatBackgroundAgentFooterStatus,
   getActiveBackgroundAgents,
+  isShadowForegroundAgent,
   resolveBackgroundAgentsForFooter,
 } from "./background-agent-footer.ts";
 import { BACKGROUND_FOOTER_CONTRACT } from "./background-agent-contracts.ts";
@@ -44,6 +45,37 @@ describe("background agent footer helpers", () => {
       "bg-pending",
       "legacy",
     ]);
+  });
+
+  test("detects uncorrelated foreground shadows when matching background agent exists", () => {
+    const startedAt = new Date("2026-01-01T12:00:00.000Z").toISOString();
+    const agents = [
+      createAgent({
+        id: "tool_1",
+        taskToolCallId: "tool_1",
+        name: "codebase-analyzer",
+        background: true,
+        status: "background",
+        startedAt,
+      }),
+      createAgent({ id: "real-subagent", name: "codebase-analyzer", status: "running", startedAt }),
+    ];
+
+    expect(isShadowForegroundAgent(agents[1]!, agents)).toBe(true);
+  });
+
+  test("does not treat correlated foreground agent with distinct taskToolCallId as shadow", () => {
+    const agents = [
+      createAgent({ id: "bg-1", name: "codebase-analyzer", background: true, status: "background" }),
+      createAgent({
+        id: "fg-1",
+        name: "codebase-analyzer",
+        status: "running",
+        taskToolCallId: "tool_fg_1",
+      }),
+    ];
+
+    expect(isShadowForegroundAgent(agents[1]!, agents)).toBe(false);
   });
 
   test("prefers live background state when available", () => {

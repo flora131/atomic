@@ -49,6 +49,36 @@ describe("AgentPartDisplay tree partitioning", () => {
     expect(getAgentTreeDisplayMode(foreground, [])).toBe("foreground");
   });
 
+  test("filters shadow foreground agents when mirrored background agents exist", () => {
+    const startedAt = "2026-01-01T00:00:00.000Z";
+    const agents: ParallelAgent[] = [
+      makeAgent({
+        id: "tool_1",
+        taskToolCallId: "tool_1",
+        name: "codebase-analyzer",
+        task: "Analyze Ctrl+C interrupt handling",
+        status: "background",
+        background: true,
+        startedAt,
+      }),
+      makeAgent({
+        id: "subagent_1",
+        name: "codebase-analyzer",
+        task: "Analyzes codebase implementation details. Call ...",
+        status: "running",
+        startedAt,
+      }),
+    ];
+
+    const foreground = getForegroundTreeAgents(agents);
+    const background = getBackgroundTreeAgents(agents);
+
+    expect(foreground).toHaveLength(0);
+    expect(background.map((a) => a.id)).toEqual(["tool_1"]);
+    expect(getAgentTreeDisplayMode(foreground, background)).toBe("background");
+    expect(hasActiveForegroundTreeAgents(agents)).toBe(false);
+  });
+
   test("foreground active check ignores background-only activity", () => {
     const backgroundOnly = [makeAgent({ id: "bg-1", status: "background", background: true })];
     expect(hasActiveForegroundTreeAgents(backgroundOnly)).toBe(false);

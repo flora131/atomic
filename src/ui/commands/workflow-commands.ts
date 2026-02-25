@@ -33,15 +33,10 @@ import {
 } from "../../workflows/session.ts";
 import type { BaseState } from "../../workflows/graph/types.ts";
 import { VERSION } from "../../version.ts";
-import {
-    buildSpecToTasksPrompt,
-    buildWorkerAssignment,
-    buildReviewPrompt,
-    buildFixSpecFromReview,
-} from "../../workflows/ralph/prompts.ts";
-import { parseReviewResult } from "../../workflows/graph/nodes/ralph.ts";
-import { getReadyTasks } from "../components/task-order.ts";
-import type { SubagentSpawnOptions } from "../../workflows/graph/subagent-bridge.ts";
+import { createRalphWorkflow } from "../../workflows/ralph/graph.ts";
+import { createRalphState } from "../../workflows/ralph/state.ts";
+import { streamGraph } from "../../workflows/graph/compiled.ts";
+import type { SubagentSpawnOptions, SubagentResult } from "../../workflows/graph/subagent-bridge.ts";
 
 // ============================================================================
 // CONSTANTS
@@ -717,310 +712,48 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
             });
 
             try {
-                // Step 1: Task decomposition (blocks until streaming completes)
-                // hideContent suppresses raw JSON rendering in the chat — content is still
-                // accumulated in StreamResult for parseTasks() and task-state persistence takes over.
-                const step1 = await streamWithInterruptRecovery(
-                    context,
-                    buildSpecToTasksPrompt(parsed.prompt),
-                    { hideContent: true },
-                    (userPrompt) => ({
-                        prompt: buildSpecToTasksPrompt(userPrompt),
-                        options: { hideContent: true },
-                    }),
-                );
-                if (step1.wasCancelled)
-                    return {
-                        success: true,
-                        stateUpdate: {
-                            workflowActive: false,
-                            workflowType: null,
-                            initialPrompt: null,
-                        },
-                    };
+                // Create initial state for the Ralph workflow
+                const initialState = createRalphState(sessionId, {
+                    yoloPrompt: parsed.prompt,
+                    ralphSessionDir: sessionDir,
+                    maxIterations: MAX_RALPH_ITERATIONS,
+                });
 
-                // Parse tasks from step 1 output and save to disk (file watcher handles UI)
-                const tasks = parseTasks(step1.content);
-                if (tasks.length > 0) {
-                    await saveTasksToActiveSession(tasks, sessionId);
-                    // Seed in-memory TodoWrite state so later payloads that omit IDs
-                    // can be reconciled against the planning-phase task list.
-                    context.setTodoItems(
-                        tasks.map((task) => ({
-                            ...task,
-                            status:
-                                task.status === "error"
-                                    ? "pending"
-                                    : task.status,
-                        })) as TodoItem[],
-                    );
-                }
+                // Build bridge adapter for sub-agent spawning
+                const bridge = {
+                    async spawn(agent: SubagentSpawnOptions, abortSignal?: AbortSignal): Promise<SubagentResult> {
+                        const [result] = await context.spawnSubagentParallel!([{ ...agent, abortSignal }], abortSignal);
+                        return result!;
+                    },
+                    spawnParallel: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal) => 
+                        context.spawnSubagentParallel!(agents, abortSignal),
+                };
 
-                // Track Ralph session metadata AFTER tasks.json exists on disk
-                context.setRalphSessionDir(sessionDir);
-                context.setRalphSessionId(sessionId);
+                // Get compiled graph and inject bridge
+                const compiled = createRalphWorkflow();
+                compiled.config.runtime = { ...compiled.config.runtime, subagentBridge: bridge };
 
-                // Register the planning-phase task IDs so the TodoWrite persistence
-                // guard can distinguish ralph task updates from sub-agent todo lists.
-                const taskIds = new Set(
-                    tasks
-                        .map((t) => t.id)
-                        .filter(
-                            (id): id is string => id != null && id.length > 0,
-                        ),
-                );
-                context.setRalphTaskIds(taskIds);
+                // Track whether we've set up session tracking
+                let sessionTracked = false;
 
-                // Step 2: Execute tasks via deterministic parallel dispatch.
-                // Instead of asking the LLM to dispatch workers, directly spawn
-                // sub-agents for all ready tasks using SubagentGraphBridge.
-                if (tasks.length > 0) {
-                    let iteration = 0;
-                    let currentTasks: NormalizedTodoItem[] = tasks;
+                // Execute workflow graph with streaming
+                for await (const step of streamGraph(compiled, { initialState })) {
+                    // Update tasks UI as nodes complete
+                    if (step.state.tasks && step.state.tasks.length > 0) {
+                        await saveTasksToActiveSession(step.state.tasks as NormalizedTodoItem[], sessionId);
+                        context.setTodoItems(step.state.tasks as TodoItem[]);
 
-                    while (iteration < MAX_RALPH_ITERATIONS) {
-                        iteration++;
-
-                        // Identify all tasks whose dependencies are satisfied
-                        const readyTasks = getReadyTasks(currentTasks);
-                        if (readyTasks.length === 0) break;
-
-                        // Resolve ready task IDs back to full NormalizedTodoItem objects
-                        const readyIds = new Set(readyTasks.map((t) => t.id));
-                        const readyFull = currentTasks.filter(
-                            (t) => t.id != null && readyIds.has(t.id),
-                        );
-
-                        // Mark ready tasks as in_progress
-                        currentTasks = currentTasks.map((t) =>
-                            readyIds.has(t.id)
-                                ? { ...t, status: "in_progress" }
-                                : t,
-                        );
-                        await saveTasksToActiveSession(currentTasks, sessionId);
-                        context.setTodoItems(currentTasks as TodoItem[]);
-
-                        // Build spawn options for each ready task
-                        const agents: SubagentSpawnOptions[] = readyFull.map(
-                            (task) => ({
-                                agentId: `worker-${task.id ?? `iter${iteration}`}`,
-                                agentName: "worker",
-                                task: buildWorkerAssignment(task, currentTasks),
-                            }),
-                        );
-
-                        // Spawn all workers in parallel
-                        const results =
-                            await context.spawnSubagentParallel!(agents);
-
-                        // Update task status based on worker results
-                        const resultByAgentId = new Map(
-                            results.map((r) => [r.agentId, r]),
-                        );
-                        currentTasks = currentTasks.map((t) => {
-                            const agentId = `worker-${t.id ?? "?"}`;
-                            const result = resultByAgentId.get(agentId);
-                            if (result) {
-                                return {
-                                    ...t,
-                                    status: result.success
-                                        ? "completed"
-                                        : "error",
-                                };
-                            }
-                            return t;
-                        });
-                        await saveTasksToActiveSession(currentTasks, sessionId);
-                        context.setTodoItems(currentTasks as TodoItem[]);
-
-                        // Check completion
-                        const allCompleted = currentTasks.every(
-                            (t) => t.status === "completed",
-                        );
-                        if (allCompleted) break;
-
-                        // Check if remaining tasks are all stuck
-                        const hasActionable = hasActionableTasks(currentTasks);
-                        if (!hasActionable) break;
-                    }
-
-                    // Step 3: Review & Fix phase
-                    // Re-read tasks from disk to confirm final state
-                    const finalTasks = await readTasksFromDisk(sessionDir);
-                    const allTasksCompleted =
-                        finalTasks.length > 0 &&
-                        finalTasks.every((t) => t.status === "completed");
-
-                    if (allTasksCompleted) {
-                        for (
-                            let reviewIteration = 0;
-                            reviewIteration < MAX_REVIEW_ITERATIONS;
-                            reviewIteration++
-                        ) {
-                            // Get current task state for review
-                            const reviewTasks =
-                                await readTasksFromDisk(sessionDir);
-                            const progressFilePath = join(
-                                sessionDir,
-                                "progress.txt",
+                        // Set up session tracking after first step with tasks
+                        if (!sessionTracked) {
+                            context.setRalphSessionDir(sessionDir);
+                            context.setRalphSessionId(sessionId);
+                            const taskIds = new Set(
+                                step.state.tasks
+                                    .map((t: { id?: string }) => t.id)
+                                    .filter((id): id is string => id != null && id.length > 0),
                             );
-                            const reviewPrompt = buildReviewPrompt(
-                                reviewTasks,
-                                parsed.prompt,
-                                progressFilePath,
-                            );
-
-                            // Spawn reviewer sub-agent
-                            const reviewResult = await context.spawnSubagent({
-                                name: "reviewer",
-                                message: reviewPrompt,
-                            });
-
-                            if (!reviewResult.success || !reviewResult.output)
-                                break;
-
-                            // Parse review findings from reviewer output
-                            const review = parseReviewResult(
-                                reviewResult.output,
-                            );
-                            if (!review) break;
-
-                            // Persist review artifacts to session directory
-                            const reviewArtifactPath = join(
-                                sessionDir,
-                                `review-${reviewIteration}.json`,
-                            );
-                            await writeFile(
-                                reviewArtifactPath,
-                                JSON.stringify(review, null, 2),
-                            );
-
-                            // Build fix specification from review findings
-                            const fixSpec = buildFixSpecFromReview(
-                                review,
-                                reviewTasks,
-                                parsed.prompt,
-                            );
-
-                            // If no actionable findings, we're done
-                            if (!fixSpec) break;
-
-                            // Persist fix spec to session directory
-                            const fixSpecPath = join(
-                                sessionDir,
-                                `fix-spec-${reviewIteration}.md`,
-                            );
-                            await writeFile(fixSpecPath, fixSpec);
-
-                            // Re-invoke ralph: decompose fix-spec into tasks (Step 1 again)
-                            const fixStep1 = await streamWithInterruptRecovery(
-                                context,
-                                buildSpecToTasksPrompt(fixSpec),
-                                { hideContent: true },
-                                (userPrompt) => ({
-                                    prompt: buildSpecToTasksPrompt(userPrompt),
-                                    options: { hideContent: true },
-                                }),
-                            );
-                            if (fixStep1.wasCancelled) break;
-
-                            const fixTasks = parseTasks(fixStep1.content);
-                            if (fixTasks.length === 0) break;
-
-                            // Save fix tasks and update tracking
-                            await saveTasksToActiveSession(fixTasks, sessionId);
-                            const fixTaskIds = new Set(
-                                fixTasks
-                                    .map((t) => t.id)
-                                    .filter(
-                                        (id): id is string =>
-                                            id != null && id.length > 0,
-                                    ),
-                            );
-                            context.setRalphTaskIds(fixTaskIds);
-
-                            // Re-run implementation loop for fix tasks (Step 2 again)
-                            let fixIteration = 0;
-                            let currentFixTasks: NormalizedTodoItem[] =
-                                fixTasks;
-
-                            while (fixIteration < MAX_RALPH_ITERATIONS) {
-                                fixIteration++;
-
-                                const readyFixTasks =
-                                    getReadyTasks(currentFixTasks);
-                                if (readyFixTasks.length === 0) break;
-
-                                const readyFixIds = new Set(
-                                    readyFixTasks.map((t) => t.id),
-                                );
-                                const readyFixFull = currentFixTasks.filter(
-                                    (t) =>
-                                        t.id != null && readyFixIds.has(t.id),
-                                );
-
-                                // Mark as in_progress
-                                currentFixTasks = currentFixTasks.map((t) =>
-                                    readyFixIds.has(t.id)
-                                        ? { ...t, status: "in_progress" }
-                                        : t,
-                                );
-                                await saveTasksToActiveSession(
-                                    currentFixTasks,
-                                    sessionId,
-                                );
-                                context.setTodoItems(
-                                    currentFixTasks as TodoItem[],
-                                );
-
-                                const fixAgents: SubagentSpawnOptions[] =
-                                    readyFixFull.map((task) => ({
-                                        agentId: `fix-debugger-${task.id ?? `iter${fixIteration}`}`,
-                                        agentName: "debugger",
-                                        task: buildWorkerAssignment(
-                                            task,
-                                            currentFixTasks,
-                                        ),
-                                    }));
-
-                                const fixResults =
-                                    await context.spawnSubagentParallel!(
-                                        fixAgents,
-                                    );
-
-                                const fixResultMap = new Map(
-                                    fixResults.map((r) => [r.agentId, r]),
-                                );
-                                currentFixTasks = currentFixTasks.map((t) => {
-                                    const agentId = `fix-debugger-${t.id ?? "?"}`;
-                                    const result = fixResultMap.get(agentId);
-                                    if (result) {
-                                        return {
-                                            ...t,
-                                            status: result.success
-                                                ? "completed"
-                                                : "error",
-                                        };
-                                    }
-                                    return t;
-                                });
-                                await saveTasksToActiveSession(
-                                    currentFixTasks,
-                                    sessionId,
-                                );
-                                context.setTodoItems(
-                                    currentFixTasks as TodoItem[],
-                                );
-
-                                const allFixCompleted = currentFixTasks.every(
-                                    (t) => t.status === "completed",
-                                );
-                                if (allFixCompleted) break;
-
-                                const hasActionable =
-                                    hasActionableTasks(currentFixTasks);
-                                if (!hasActionable) break;
-                            }
+                            context.setRalphTaskIds(taskIds);
+                            sessionTracked = true;
                         }
                     }
                 }

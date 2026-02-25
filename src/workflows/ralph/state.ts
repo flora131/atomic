@@ -4,6 +4,7 @@ import { homedir } from "os";
 import { applyStateUpdate, initializeState } from "../graph/annotation.ts";
 import type { Annotation, Feature, Reducer } from "../graph/annotation.ts";
 import type { ContextWindowUsage, DebugReport, NodeId } from "../graph/types.ts";
+import type { TaskItem, ReviewResult } from "./prompts.ts";
 
 function annotation<T>(defaultValue: T | (() => T), reducer?: Reducer<T>): Annotation<T> {
   return {
@@ -54,6 +55,10 @@ export interface RalphWorkflowState {
   researchDoc: string;
   specDoc: string;
   specApproved: boolean;
+  tasks: TaskItem[];
+  currentTasks: TaskItem[];
+  reviewResult: ReviewResult | null;
+  fixesApplied: boolean;
   featureList: Feature[];
   currentFeature: Feature | null;
   allFeaturesPassing: boolean;
@@ -82,6 +87,11 @@ export const RalphStateAnnotation = {
   researchDoc: annotation<string>(""),
   specDoc: annotation<string>(""),
   specApproved: annotation<boolean>(false),
+
+  tasks: annotation<TaskItem[]>([], mergeByIdReducer<TaskItem>("id")),
+  currentTasks: annotation<TaskItem[]>([], (current: TaskItem[], update: TaskItem[]) => update),
+  reviewResult: annotation<ReviewResult | null>(null),
+  fixesApplied: annotation<boolean>(false),
 
   featureList: annotation<Feature[]>([], mergeByIdReducer<Feature>("description")),
   currentFeature: annotation<Feature | null>(null),
@@ -126,6 +136,10 @@ export function createRalphState(
     ...state,
     executionId: executionId ?? crypto.randomUUID(),
     lastUpdated: new Date().toISOString(),
+    tasks: options?.tasks ?? [],
+    currentTasks: options?.currentTasks ?? [],
+    reviewResult: options?.reviewResult ?? null,
+    fixesApplied: options?.fixesApplied ?? false,
     ralphSessionId,
     ralphSessionDir: options?.ralphSessionDir ?? `${join(homedir(), ".atomic", "workflows", "sessions", ralphSessionId)}`,
     yolo: options?.yolo ?? false,
@@ -177,6 +191,9 @@ export function isRalphWorkflowState(value: unknown): value is RalphWorkflowStat
     typeof obj.researchDoc === "string" &&
     typeof obj.specDoc === "string" &&
     typeof obj.specApproved === "boolean" &&
+    Array.isArray(obj.tasks) &&
+    Array.isArray(obj.currentTasks) &&
+    typeof obj.fixesApplied === "boolean" &&
     Array.isArray(obj.featureList) &&
     typeof obj.allFeaturesPassing === "boolean" &&
     Array.isArray(obj.debugReports) &&

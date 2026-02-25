@@ -542,6 +542,11 @@ export async function startChatUI(
       }
     };
 
+    const isGenericSubagentTask = (task: string | undefined): boolean => {
+      const normalized = (task ?? "").trim().toLowerCase();
+      return normalized === "" || normalized === "sub-agent task" || normalized === "subagent task";
+    };
+
     const resetParallelTracking = (_reason: string): void => {
       pendingTaskEntries.splice(0, pendingTaskEntries.length);
       toolCallToAgentMap.clear();
@@ -704,22 +709,49 @@ export async function startChatUI(
             ?? "Sub-agent task"
           );
           const taskDesc = taskDescRaw.trim() || "Sub-agent task";
-          const newAgent: ParallelAgent = {
-            id: toolId,
-            taskToolCallId: toolId,
-            name: agentType,
-            task: taskDesc,
-            status: isBackground ? "background" : "running",
-            background: isBackground || undefined,
-            startedAt: new Date().toISOString(),
-            currentTool: isBackground
-              ? `Running ${agentType} in background…`
-              : `Starting ${agentType}…`,
-          };
-          state.parallelAgents = [...state.parallelAgents, newAgent];
+          const sdkMappedAgentId = sdkId ? toolCallToAgentMap.get(sdkId) : undefined;
+          const existingSdkMappedAgent = sdkMappedAgentId
+            ? state.parallelAgents.find((a) => a.id === sdkMappedAgentId)
+            : undefined;
+
+          if (existingSdkMappedAgent && sdkMappedAgentId) {
+            // Correlated subagent.start already created the logical row.
+            // Enrich it with Task metadata instead of creating a duplicate.
+            state.parallelAgents = state.parallelAgents.map((a) =>
+              a.id === sdkMappedAgentId
+                ? {
+                    ...a,
+                    taskToolCallId: a.taskToolCallId ?? toolId,
+                    name: agentType,
+                    task: isGenericSubagentTask(a.task) ? taskDesc : a.task,
+                    status: isBackground ? "background" : a.status,
+                    background: isBackground || a.background,
+                    currentTool: isBackground
+                      ? `Running ${agentType} in background…`
+                      : `Running ${agentType}…`,
+                  }
+                : a
+            );
+            toolCallToAgentMap.set(toolId, sdkMappedAgentId);
+            agentIdToRunMap.set(sdkMappedAgentId, activeRunId);
+          } else {
+            const newAgent: ParallelAgent = {
+              id: toolId,
+              taskToolCallId: toolId,
+              name: agentType,
+              task: taskDesc,
+              status: isBackground ? "background" : "running",
+              background: isBackground || undefined,
+              startedAt: new Date().toISOString(),
+              currentTool: isBackground
+                ? `Running ${agentType} in background…`
+                : `Starting ${agentType}…`,
+            };
+            state.parallelAgents = [...state.parallelAgents, newAgent];
+            toolCallToAgentMap.set(toolId, toolId);
+            agentIdToRunMap.set(toolId, activeRunId);
+          }
           state.parallelAgentHandler(state.parallelAgents);
-          toolCallToAgentMap.set(toolId, toolId);
-          agentIdToRunMap.set(toolId, activeRunId);
         }
       }
       if (isTaskToolName && data.toolInput && isUpdate && state.parallelAgentHandler) {
@@ -1222,6 +1254,9 @@ export async function startChatUI(
       // consumed by a prior merge, and also check taskToolCallId for
       // agents whose id was already changed by a previous merge.
       const eagerToolId = pendingTaskEntry?.toolId ?? correlatedToolId;
+      const sdkMappedAgentId = sdkCorrelationId
+        ? toolCallToAgentMap.get(sdkCorrelationId)
+        : undefined;
       let hasEagerAgent = eagerToolId
         ? state.parallelAgents.some(a => a.id === eagerToolId)
         : false;
@@ -1244,13 +1279,34 @@ export async function startChatUI(
                 id: data.subagentId!,
                 taskToolCallId: a.taskToolCallId ?? eagerToolId,
                 name: agentTypeName,
-                task: a.task && a.task !== "Sub-agent task" ? a.task : (data.task || a.task),
+                task: isGenericSubagentTask(a.task) ? (task || a.task) : a.task,
                 currentTool: `Running ${agentTypeName}…`,
               }
             : a
         );
         // Re-point correlation: toolId now maps to the real subagentId
         toolCallToAgentMap.set(eagerToolId, data.subagentId!);
+      } else if (sdkMappedAgentId && state.parallelAgents.some((a) => a.id === sdkMappedAgentId)) {
+        // SDK correlation already identifies an existing logical agent row.
+        // Update in-place so agent/subtask duplicate start events don't create
+        // a transient second tree node.
+        state.parallelAgents = state.parallelAgents.map((a) =>
+          a.id === sdkMappedAgentId
+            ? {
+                ...a,
+                id: data.subagentId!,
+                taskToolCallId: a.taskToolCallId ?? eagerToolId,
+                name: agentTypeName,
+                task: isGenericSubagentTask(a.task) ? (task || a.task) : a.task,
+                currentTool: isBackground
+                  ? `Running ${agentTypeName} in background…`
+                  : `Running ${agentTypeName}…`,
+              }
+            : a
+        );
+        if (eagerToolId) {
+          toolCallToAgentMap.set(eagerToolId, data.subagentId!);
+        }
       } else if (state.parallelAgents.some(a => a.id === data.subagentId)) {
         // Duplicate lifecycle event for an already-tracked agent (can happen
         // when SDKs emit both "subtask" and "agent" parts). Update in-place.
@@ -1259,7 +1315,7 @@ export async function startChatUI(
             ? {
                 ...a,
                 name: agentTypeName,
-                task: a.task && a.task !== "Sub-agent task" ? a.task : (data.task || a.task),
+                task: isGenericSubagentTask(a.task) ? (task || a.task) : a.task,
                 currentTool: isBackground
                   ? `Running ${agentTypeName} in background…`
                   : `Running ${agentTypeName}…`,

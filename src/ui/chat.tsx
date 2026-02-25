@@ -121,6 +121,7 @@ import {
   interruptRunningToolParts,
   isAskQuestionToolName,
   isCurrentStreamCallback,
+  shouldTrackToolAsBlocking,
   shouldDispatchQueuedMessage,
   shouldDeferComposerSubmit,
   invalidateActiveStreamGeneration,
@@ -981,6 +982,24 @@ export function createMessage(
     streaming,
     parts,
   };
+}
+
+/**
+ * Finalize and remove a previous empty streaming assistant placeholder.
+ */
+export function reconcilePreviousStreamingPlaceholder(
+  messages: ChatMessage[],
+  previousStreamingId: string | null,
+): ChatMessage[] {
+  if (!previousStreamingId) return messages;
+
+  return messages
+    .map((msg) =>
+      msg.id === previousStreamingId && msg.streaming
+        ? { ...finalizeStreamingReasoningInMessage(msg), streaming: false }
+        : msg
+    )
+    .filter((msg) => !(msg.id === previousStreamingId && !msg.content.trim()));
 }
 
 /**
@@ -1890,6 +1909,10 @@ export function ChatApp({
   // Ref to track whether any tool call is currently running (synchronous check
   // for keyboard handler to avoid stale closure issues with React state).
   const hasRunningToolRef = useRef(false);
+  // Set of blocking tool IDs currently running in this stream.
+  // Skill-loading tools are intentionally excluded because some SDKs do not
+  // emit a matching complete event for them.
+  const runningBlockingToolIdsRef = useRef<Set<string>>(new Set());
   // Track active ask_question tools so Enter can defer submit without clearing input.
   const runningAskQuestionToolIdsRef = useRef<Set<string>>(new Set());
   // Counter to trigger effect when tools complete (used for deferred completion logic)
@@ -2149,6 +2172,7 @@ export function ChatApp({
     isAgentOnlyStreamRef.current = next.isAgentOnlyStream;
     isStreamingRef.current = next.isStreaming;
     hasRunningToolRef.current = next.hasRunningTool;
+    runningBlockingToolIdsRef.current.clear();
     if (options?.resetStreamingStateHook !== false) {
       runningAskQuestionToolIdsRef.current.clear();
     }
@@ -2252,8 +2276,11 @@ export function ChatApp({
 
     // Update streaming state
     streamingState.handleToolStart(toolId, toolName, input);
-    // Track that a tool is running (synchronous ref for keyboard handler)
-    hasRunningToolRef.current = true;
+    // Track blocking tool lifecycles synchronously for stream finalization.
+    if (shouldTrackToolAsBlocking(toolName)) {
+      runningBlockingToolIdsRef.current.add(toolId);
+      hasRunningToolRef.current = runningBlockingToolIdsRef.current.size > 0;
+    }
     if (isAskQuestionToolName(toolName)) {
       runningAskQuestionToolIdsRef.current.add(toolId);
     }
@@ -2357,6 +2384,13 @@ export function ChatApp({
       }
     }
 
+    const hadBlockingTool = hasRunningToolRef.current;
+    runningBlockingToolIdsRef.current.delete(toolId);
+    hasRunningToolRef.current = runningBlockingToolIdsRef.current.size > 0;
+    if (hadBlockingTool && !hasRunningToolRef.current && pendingCompleteRef.current) {
+      setToolCompletionVersion(v => v + 1);
+    }
+
     if (
       completedAskQuestion
       && !pendingCompleteRef.current
@@ -2392,18 +2426,6 @@ export function ChatApp({
           }
           return msg;
         });
-
-        // Update hasRunningToolRef: check if any tool calls are still running
-        // in the current streaming message after this completion.
-        const streamMsg = updated.find((msg) => msg.id === messageId);
-        const stillRunning = streamMsg?.toolCalls?.some((tc) => tc.status === "running") ?? false;
-        const wasRunning = hasRunningToolRef.current;
-        hasRunningToolRef.current = stillRunning;
-
-        // If all tools completed and there's a pending complete, trigger effect
-        if (wasRunning && !stillRunning && pendingCompleteRef.current) {
-          setToolCompletionVersion(v => v + 1);
-        }
 
         return updated;
       });
@@ -2926,7 +2948,8 @@ export function ChatApp({
     if (
       streamingMessageIdRef.current &&
       isStreamingRef.current &&
-      isAgentOnlyStreamRef.current
+      isAgentOnlyStreamRef.current &&
+      parallelAgents.length > 0
     ) {
       const messageId = streamingMessageIdRef.current;
       const durationMs = streamingStartRef.current
@@ -2972,6 +2995,9 @@ export function ChatApp({
         )
       );
       finalizeThinkingSourceTracking();
+      // Invalidate the SDK handleComplete callback so it doesn't double-finalize
+      // this message after the agent-only path has already stopped the stream.
+      streamGenerationRef.current++;
       // Keep background agents in live state for post-stream completion tracking
       const remainingBg = getActiveBackgroundAgents(parallelAgents);
       if (remainingBg.length > 0 && messageId) {
@@ -3178,16 +3204,8 @@ export function ChatApp({
         setMessagesWindowed((prev: ChatMessage[]) => [...prev, createMessage("user", visibleContent)]);
       }
 
-      const assistantMsg = createMessage("assistant", "", true);
-      streamingMessageIdRef.current = assistantMsg.id;
-      isAgentOnlyStreamRef.current = true;
       isStreamingRef.current = true;
-      streamingStartRef.current = Date.now();
-      resetThinkingSourceTracking();
       setIsStreaming(true);
-      resetTodoItemsForNewStream();
-      setMessagesWindowed((prev: ChatMessage[]) => [...prev, assistantMsg]);
-
       for (const mention of atMentions) {
         void executeCommandRef.current(mention.agentName, mention.args, "mention");
       }
@@ -3200,7 +3218,7 @@ export function ChatApp({
         queuedMessage.skipUserMessage ? { skipUserMessage: true } : undefined
       );
     }
-  }, [resetThinkingSourceTracking, resetTodoItemsForNewStream]);
+  }, [setMessagesWindowed]);
 
   useEffect(() => {
     dispatchQueuedMessageRef.current = dispatchQueuedMessage;
@@ -3469,19 +3487,10 @@ export function ChatApp({
         if (onStreamMessage) {
           // Finalize any previous streaming message before starting a new one.
           // This prevents duplicate "Generating..." spinners when sendSilentMessage
-          // is called from an @mention handler that already created a placeholder.
+          // is called when a placeholder was already created by the caller.
           const prevStreamingId = streamingMessageIdRef.current;
           if (prevStreamingId) {
-            setMessagesWindowed((prev: ChatMessage[]) =>
-              prev.map((msg: ChatMessage) =>
-                msg.id === prevStreamingId && msg.streaming
-                  ? { ...finalizeStreamingReasoningInMessage(msg), streaming: false }
-                  : msg
-              ).filter((msg: ChatMessage) =>
-                // Remove the previous placeholder if it has no content
-                !(msg.id === prevStreamingId && !msg.content.trim())
-              )
-            );
+            setMessagesWindowed((prev: ChatMessage[]) => reconcilePreviousStreamingPlaceholder(prev, prevStreamingId));
           }
 
           // Increment stream generation so stale handleComplete callbacks become no-ops
@@ -3496,12 +3505,13 @@ export function ChatApp({
           lastStreamingContentRef.current = "";
           // Reset tool tracking for the new stream
           hasRunningToolRef.current = false;
+          runningBlockingToolIdsRef.current.clear();
           clearDeferredCompletion();
 
           // Create placeholder assistant message for the response
           const assistantMessage = createMessage("assistant", "", true);
           streamingMessageIdRef.current = assistantMessage.id;
-          isAgentOnlyStreamRef.current = false;
+          isAgentOnlyStreamRef.current = options?.isAgentOnlyStream ?? false;
           setMessagesWindowed((prev: ChatMessage[]) => [...prev, assistantMessage]);
 
           const handleChunk = (chunk: string) => {
@@ -5297,6 +5307,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         resetTodoItemsForNewStream();
         // Reset tool tracking for the new stream
         hasRunningToolRef.current = false;
+        runningBlockingToolIdsRef.current.clear();
         clearDeferredCompletion();
 
         // Create placeholder assistant message
@@ -5650,21 +5661,9 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             hasAgentMentions: true,
           });
           addMessage("user", trimmedValue);
-
-          // Create a streaming assistant message immediately so the parallel
-          // agents tree view renders right away instead of waiting for the
-          // next user message.  The message acts as a placeholder that is
-          // finalised when all spawned sub-agents complete (see the
-          // parallelAgents useEffect).
-          const assistantMsg = createMessage("assistant", "", true);
-          streamingMessageIdRef.current = assistantMsg.id;
-          isAgentOnlyStreamRef.current = true;
+          // Set streaming state immediately so loading hints render on submit.
           isStreamingRef.current = true;
-          streamingStartRef.current = Date.now();
-          resetThinkingSourceTracking();
           setIsStreaming(true);
-          resetTodoItemsForNewStream();
-          setMessagesWindowed((prev) => [...prev, assistantMsg]);
 
           for (const mention of atMentions) {
             void executeCommand(mention.agentName, mention.args, "mention");

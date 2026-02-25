@@ -39,6 +39,7 @@ export interface QueueResumeGuardState {
 const DEFAULT_QUEUE_DISPATCH_DELAY_MS = 50;
 
 const ASK_QUESTION_TOOL_SUFFIX = "ask_question";
+const NON_BLOCKING_TOOL_SUFFIX = "skill";
 
 export function invalidateActiveStreamGeneration(currentGeneration: number): number {
   return currentGeneration + 1;
@@ -118,6 +119,22 @@ export function isAskQuestionToolName(toolName: string): boolean {
   return normalized === ASK_QUESTION_TOOL_SUFFIX
     || normalized.endsWith(`/${ASK_QUESTION_TOOL_SUFFIX}`)
     || normalized.endsWith(`__${ASK_QUESTION_TOOL_SUFFIX}`);
+}
+
+/**
+ * Some lightweight lifecycle tools (for example Skill loaders) may emit start
+ * events without a matching complete event, depending on SDK/provider behavior.
+ * They should not block stream finalization.
+ */
+export function shouldTrackToolAsBlocking(toolName: string): boolean {
+  const normalized = toolName.trim().toLowerCase();
+  if (normalized.length === 0) {
+    return true;
+  }
+
+  return normalized !== NON_BLOCKING_TOOL_SUFFIX
+    && !normalized.endsWith(`/${NON_BLOCKING_TOOL_SUFFIX}`)
+    && !normalized.endsWith(`__${NON_BLOCKING_TOOL_SUFFIX}`);
 }
 
 export function shouldDeferComposerSubmit(state: ComposerSubmitGuardState): boolean {

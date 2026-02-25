@@ -131,8 +131,14 @@ export function toToolState(
           : (typeof output === "string" && output.trim() ? output : "Tool execution failed"),
         output,
       };
-    case "interrupted":
-      return { status: "interrupted", partialOutput: output };
+    case "interrupted": {
+      let durationMs: number | undefined;
+      if (existingState?.status === "running") {
+        const startedAtMs = new Date(existingState.startedAt).getTime();
+        durationMs = Number.isFinite(startedAtMs) ? Math.max(0, Date.now() - startedAtMs) : undefined;
+      }
+      return { status: "interrupted", partialOutput: output, durationMs };
+    }
   }
 }
 

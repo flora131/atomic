@@ -8,7 +8,7 @@ import React from "react";
 import type { AgentPart } from "../../parts/types.ts";
 import { ParallelAgentsTree, deduplicateAgents } from "../parallel-agents-tree.tsx";
 import type { ParallelAgent } from "../parallel-agents-tree.tsx";
-import { isBackgroundAgent } from "../../utils/background-agent-footer.ts";
+import { isBackgroundAgent, isShadowForegroundAgent } from "../../utils/background-agent-footer.ts";
 
 export interface AgentPartDisplayProps {
   part: AgentPart;
@@ -18,7 +18,9 @@ export interface AgentPartDisplayProps {
 export function getForegroundTreeAgents(
   agents: readonly ParallelAgent[],
 ): ParallelAgent[] {
-  return agents.filter((agent) => !isBackgroundAgent(agent));
+  return agents.filter(
+    (agent) => !isBackgroundAgent(agent) && !isShadowForegroundAgent(agent, agents),
+  );
 }
 
 export function getBackgroundTreeAgents(
@@ -31,7 +33,9 @@ export function hasActiveForegroundTreeAgents(
   agents: readonly ParallelAgent[],
 ): boolean {
   return agents.some(
-    (agent) => agent.status === "running" || agent.status === "pending",
+    (agent) =>
+      (agent.status === "running" || agent.status === "pending")
+      && !isShadowForegroundAgent(agent, agents),
   );
 }
 

@@ -421,7 +421,7 @@ describe("OpenCodeClient event mapping", () => {
     ]);
   });
 
-  test("includes subagentSessionId in agent part subagent.start events", () => {
+  test("omits subagentSessionId from initial agent part subagent.start (parent session != child)", () => {
     const client = new OpenCodeClient();
     const starts: Array<{
       sessionId: string;
@@ -447,7 +447,7 @@ describe("OpenCodeClient event mapping", () => {
         sessionID: "ses_parent",
         part: {
           id: "agent_1",
-          sessionID: "ses_subagent",
+          sessionID: "ses_parent",
           messageID: "msg_1",
           type: "agent",
           name: "explore",
@@ -461,10 +461,12 @@ describe("OpenCodeClient event mapping", () => {
     expect(starts).toHaveLength(1);
     expect(starts[0]!.sessionId).toBe("ses_parent");
     expect(starts[0]!.subagentId).toBe("agent_1");
-    expect(starts[0]!.subagentSessionId).toBe("ses_subagent");
+    // subagentSessionId is intentionally omitted from the initial emission
+    // because AgentPart.sessionID is the parent session, not the child.
+    expect(starts[0]!.subagentSessionId).toBeUndefined();
   });
 
-  test("includes subagentSessionId in subtask part subagent.start events", () => {
+  test("omits subagentSessionId from initial subtask part subagent.start", () => {
     const client = new OpenCodeClient();
     const starts: Array<{
       sessionId: string;
@@ -503,6 +505,133 @@ describe("OpenCodeClient event mapping", () => {
 
     expect(starts).toHaveLength(1);
     expect(starts[0]!.subagentId).toBe("subtask_2");
-    expect(starts[0]!.subagentSessionId).toBe("ses_subtask_session");
+    // subagentSessionId intentionally omitted — see AgentPart comment.
+    expect(starts[0]!.subagentSessionId).toBeUndefined();
+  });
+
+  test("discovers child session from tool part and re-emits subagent.start with correct subagentSessionId", () => {
+    const client = new OpenCodeClient();
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    // Set currentSessionId so the client knows the parent session.
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent";
+
+    const starts: Array<{
+      subagentId?: string;
+      subagentSessionId?: string;
+    }> = [];
+    const toolStarts: Array<{
+      sessionId: string;
+      toolName?: string;
+    }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as { subagentId?: string; subagentSessionId?: string };
+      starts.push({ subagentId: data.subagentId, subagentSessionId: data.subagentSessionId });
+    });
+    const unsubTool = client.on("tool.start", (event) => {
+      const data = event.data as { toolName?: string };
+      toolStarts.push({ sessionId: event.sessionId, toolName: data.toolName });
+    });
+
+    // 1. Agent part arrives (parent session)
+    handle({
+      type: "message.part.updated",
+      properties: {
+        sessionID: "ses_parent",
+        part: {
+          id: "agent_1",
+          sessionID: "ses_parent",
+          messageID: "msg_1",
+          type: "agent",
+          name: "explore",
+        },
+      },
+    });
+
+    // Initial subagent.start without subagentSessionId
+    expect(starts).toHaveLength(1);
+    expect(starts[0]!.subagentId).toBe("agent_1");
+    expect(starts[0]!.subagentSessionId).toBeUndefined();
+
+    // 2. First tool from child session arrives
+    handle({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "tool_child_1",
+          sessionID: "ses_child",
+          messageID: "msg_child_1",
+          type: "tool",
+          tool: "Read",
+          callID: "call_child_1",
+          state: { status: "pending", input: { file: "foo.ts" } },
+        },
+      },
+    });
+
+    unsubStart();
+    unsubTool();
+
+    // Re-emitted subagent.start with correct child session ID
+    expect(starts).toHaveLength(2);
+    expect(starts[1]!.subagentId).toBe("agent_1");
+    expect(starts[1]!.subagentSessionId).toBe("ses_child");
+
+    // Tool event emitted on the child session
+    expect(toolStarts).toHaveLength(1);
+    expect(toolStarts[0]!.sessionId).toBe("ses_child");
+    expect(toolStarts[0]!.toolName).toBe("Read");
+  });
+
+  test("does not re-emit subagent.start for subsequent tool events on same child session", () => {
+    const client = new OpenCodeClient();
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent";
+
+    const starts: Array<{ subagentId?: string; subagentSessionId?: string }> = [];
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as { subagentId?: string; subagentSessionId?: string };
+      starts.push({ subagentId: data.subagentId, subagentSessionId: data.subagentSessionId });
+    });
+
+    // Agent part
+    handle({
+      type: "message.part.updated",
+      properties: {
+        sessionID: "ses_parent",
+        part: { id: "agent_1", sessionID: "ses_parent", messageID: "msg_1", type: "agent", name: "explore" },
+      },
+    });
+
+    // First child tool → triggers re-emit
+    handle({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "tool_1", sessionID: "ses_child", messageID: "msg_c1", type: "tool",
+          tool: "Read", state: { status: "pending", input: {} },
+        },
+      },
+    });
+
+    // Second child tool → should NOT re-emit
+    handle({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "tool_2", sessionID: "ses_child", messageID: "msg_c2", type: "tool",
+          tool: "Write", state: { status: "pending", input: {} },
+        },
+      },
+    });
+
+    unsubStart();
+
+    // Only 2 subagent.start events: initial + one re-emit
+    expect(starts).toHaveLength(2);
   });
 });

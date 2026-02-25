@@ -14,6 +14,41 @@ import type { Session, SessionConfig } from "../sdk/types.ts";
 import { saveSubagentOutput } from "../workflows/session.ts";
 
 // ============================================================================
+// Helpers
+// ============================================================================
+
+/**
+ * Wraps an AsyncIterable so that it rejects immediately when the abort signal fires,
+ * rather than waiting for the next value from the underlying iterator.
+ */
+async function* abortableAsyncIterable<T>(
+  iterable: AsyncIterable<T>,
+  signal: AbortSignal,
+): AsyncGenerator<T> {
+  const iterator = iterable[Symbol.asyncIterator]();
+  const abortPromise = new Promise<never>((_, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException("The operation was aborted", "AbortError"));
+      return;
+    }
+    signal.addEventListener(
+      "abort",
+      () => reject(new DOMException("The operation was aborted", "AbortError")),
+      { once: true },
+    );
+  });
+  try {
+    while (true) {
+      const result = await Promise.race([iterator.next(), abortPromise]);
+      if (result.done) break;
+      yield result.value;
+    }
+  } finally {
+    void iterator.return?.();
+  }
+}
+
+// ============================================================================
 // Types (moved from subagent-session-manager.ts)
 // ============================================================================
 
@@ -40,6 +75,8 @@ export interface SubagentSpawnOptions {
   tools?: string[];
   /** Optional timeout in milliseconds. When exceeded, the session is aborted. */
   timeout?: number;
+  /** Optional external abort signal (e.g., from Ctrl+C) to cancel the sub-agent. */
+  abortSignal?: AbortSignal;
 }
 
 /**
@@ -120,22 +157,44 @@ export class SubagentGraphBridge {
 
       session = await this.createSession(sessionConfig);
 
-      // Set up abort controller for timeout
+      // Set up abort controller for timeout and external abort signal
       const abortController = new AbortController();
       let timeoutId: ReturnType<typeof setTimeout> | undefined;
       if (options.timeout) {
         timeoutId = setTimeout(() => abortController.abort(), options.timeout);
       }
+      // Forward external abort signal (e.g., Ctrl+C) to the internal controller
+      if (options.abortSignal) {
+        if (options.abortSignal.aborted) {
+          abortController.abort();
+        } else {
+          options.abortSignal.addEventListener(
+            "abort",
+            () => abortController.abort(),
+            { once: true },
+          );
+        }
+      }
 
       try {
-        // Stream response with abort support
-        for await (const msg of session.stream(options.task)) {
-          if (abortController.signal.aborted) break;
+        // Stream response with abort support — abortableAsyncIterable ensures
+        // we reject immediately when the signal fires, rather than blocking
+        // on the next iterator value.
+        const stream = abortableAsyncIterable(session.stream(options.task), abortController.signal);
+        for await (const msg of stream) {
           if (msg.type === "tool_use") {
             toolUses++;
           } else if (msg.type === "text" && typeof msg.content === "string") {
             summaryParts.push(msg.content);
           }
+        }
+      } catch (err) {
+        // AbortError is expected when the signal fires — treat it the same as
+        // the post-loop abort check below.
+        if (err instanceof DOMException && err.name === "AbortError") {
+          // fall through to the aborted-check below
+        } else {
+          throw err;
         }
       } finally {
         if (timeoutId) clearTimeout(timeoutId);
@@ -146,11 +205,14 @@ export class SubagentGraphBridge {
         if (session.abort) {
           await session.abort().catch(() => {});
         }
+        const wasExternalAbort = options.abortSignal?.aborted;
         return {
           agentId: options.agentId,
           success: false,
           output: summaryParts.join(""),
-          error: `Sub-agent "${options.agentName}" timed out after ${options.timeout}ms`,
+          error: wasExternalAbort
+            ? `Sub-agent "${options.agentName}" was cancelled`
+            : `Sub-agent "${options.agentName}" timed out after ${options.timeout}ms`,
           toolUses,
           durationMs: Date.now() - startTime,
         };
@@ -209,12 +271,17 @@ export class SubagentGraphBridge {
   /**
    * Spawn multiple sub-agents concurrently.
    * Uses Promise.allSettled() so one agent's failure doesn't cancel others.
+   * @param agents - Spawn options for each agent
+   * @param abortSignal - Optional signal to cancel all agents (e.g., from Ctrl+C)
    */
   async spawnParallel(
     agents: SubagentSpawnOptions[],
+    abortSignal?: AbortSignal,
   ): Promise<SubagentResult[]> {
     const results = await Promise.allSettled(
-      agents.map((agent) => this.spawn(agent))
+      agents.map((agent) => this.spawn(
+        abortSignal ? { ...agent, abortSignal } : agent,
+      ))
     );
 
     return results.map((result, i) => {

@@ -589,12 +589,41 @@ export async function startChatUI(
       // Resolve SDK-provided tool use ID (OpenCode: toolUseId, Claude: toolUseID)
       const sdkId = data.toolUseId ?? data.toolUseID ?? data.toolCallId;
       const isTaskToolName = data.toolName === "Task" || data.toolName === "task";
-      const sessionOwned = eventBelongsToOwnedSession(event.sessionId);
+      let sessionOwned = eventBelongsToOwnedSession(event.sessionId);
       if (!sessionOwned) {
         const sdkRunId = sdkId ? sdkCorrelationToRunMap.get(sdkId) : undefined;
         const correlatedToActiveRun =
           sdkRunId !== undefined && sdkRunId === activeRunId;
-        if (!correlatedToActiveRun) return;
+        if (!correlatedToActiveRun) {
+          // OpenCode sub-agent tools arrive on a child session ID that may
+          // not yet be registered in ownedSessionIds.  When there are active
+          // sub-agents, dynamically register the unknown session so the tool
+          // event flows through to the attribution logic (tiers 1-3).
+          //
+          // For parallel sub-agents we must avoid mapping every new child
+          // session to the same agent.  Exclude agents that already own a
+          // child session and pick in creation order (FIFO) — child sessions
+          // are created in the same order agents are spawned.
+          const agentsWithChildSessions = new Set(subagentSessionToAgentId.values());
+          const activeAgent = agentType === "opencode"
+            ? state.parallelAgents.find(
+                (a) => (a.status === "running" || a.status === "pending")
+                  && !agentsWithChildSessions.has(a.id)
+              )
+            : undefined;
+          if (activeAgent) {
+            state.ownedSessionIds.add(event.sessionId);
+            // Register session → agent mapping for tier-2 attribution
+            // so subsequent tool events on this child session are directly
+            // attributed to the correct sub-agent.
+            if (!subagentSessionToAgentId.has(event.sessionId)) {
+              subagentSessionToAgentId.set(event.sessionId, activeAgent.id);
+            }
+            sessionOwned = true;
+          } else {
+            return;
+          }
+        }
       }
       if (sdkId) {
         const sdkRunId = sdkCorrelationToRunMap.get(sdkId);
@@ -824,13 +853,32 @@ export async function startChatUI(
       // 1) Prefer SDK correlation IDs for deterministic attribution
       // 2) Fallback to tool-name FIFO for SDKs without stable IDs
       const sdkCorrelationId = data.toolUseID ?? data.toolCallId ?? data.toolUseId;
-      const sessionOwned = eventBelongsToOwnedSession(event.sessionId);
+      let sessionOwned = eventBelongsToOwnedSession(event.sessionId);
       if (!sessionOwned) {
         const sdkRunId = sdkCorrelationId
           ? sdkCorrelationToRunMap.get(sdkCorrelationId)
           : undefined;
         if (sdkRunId === undefined || sdkRunId !== activeRunId) {
-          return;
+          // OpenCode child session safety net — same rationale as tool.start.
+          if (agentType === "opencode" && state.ownedSessionIds.has(event.sessionId)) {
+            // Session was dynamically registered by tool.start — allow through.
+            sessionOwned = true;
+          } else if (agentType === "opencode") {
+            // Fallback: same parallel-safe FIFO heuristic as tool.start.
+            const agentsWithChildSessions = new Set(subagentSessionToAgentId.values());
+            const hasUnmappedAgent = state.parallelAgents.some(
+              (a) => (a.status === "running" || a.status === "pending")
+                && !agentsWithChildSessions.has(a.id)
+            );
+            if (hasUnmappedAgent) {
+              state.ownedSessionIds.add(event.sessionId);
+              sessionOwned = true;
+            } else {
+              return;
+            }
+          } else {
+            return;
+          }
         }
       }
       let toolId: string;
@@ -1778,9 +1826,12 @@ export async function startChatUI(
       }
 
       state.streamAbortController?.abort();
-      // NOTE: Do NOT call session.abort() here — it aborts the entire SDK
-      // session which kills ALL agents including background ones. The stream
-      // abort controller above is sufficient to cancel the foreground stream.
+      // Call session.abort() to fully cancel the in-flight SDK request,
+      // but only when no background agents are running (session.abort()
+      // kills ALL agents in the session including background ones).
+      if (backgroundAgents.length === 0 && state.session?.abort) {
+        void state.session.abort().catch(() => {});
+      }
       state.telemetryTracker?.trackInterrupt(sourceType);
       // Reset interrupt state
       state.interruptCount = 0;
@@ -1926,6 +1977,15 @@ export async function startChatUI(
     };
 
     /**
+     * Set the streaming state from the UI layer.
+     * Used by spawnSubagentParallel to flag that bridge sessions are
+     * streaming even though the main session is idle.
+     */
+    const setStreamingState = (isStreaming: boolean) => {
+      state.isStreaming = isStreaming;
+    };
+
+    /**
      * Handle interrupt request from the UI (Escape/Ctrl+C during streaming).
      * This is called by ChatApp when user presses interrupt keys.
      */
@@ -2049,6 +2109,7 @@ export async function startChatUI(
                 onResetSession: resetSession,
                 onInterrupt: handleInterruptFromUI,
                 onTerminateBackgroundAgents: handleTerminateBackgroundAgentsFromUI,
+                setStreamingState,
                 registerToolStartHandler,
                 registerToolCompleteHandler,
                 registerSkillInvokedHandler,

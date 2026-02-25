@@ -36,10 +36,11 @@ export interface FormattedTimestamp {
 // ============================================================================
 
 /**
- * Format a duration in milliseconds to a human-readable string.
+ * Format a duration in milliseconds to a human-readable string, always rounded to whole seconds.
  *
- * - Under 1000ms: Shows milliseconds (e.g., "500ms")
- * - Under 60000ms (1 minute): Shows seconds (e.g., "2.5s")
+ * - 0 or negative: Shows "0s"
+ * - Under 1000ms (but positive): Shows "1s" (rounds up)
+ * - Under 60000ms (1 minute): Shows seconds (e.g., "2s")
  * - 60000ms and above: Shows minutes and seconds (e.g., "1m 30s")
  *
  * @param ms - Duration in milliseconds
@@ -47,30 +48,25 @@ export interface FormattedTimestamp {
  *
  * @example
  * ```ts
- * formatDuration(500)    // { text: "500ms", ms: 500 }
- * formatDuration(2500)   // { text: "2.5s", ms: 2500 }
+ * formatDuration(500)    // { text: "1s", ms: 500 }
+ * formatDuration(2500)   // { text: "2s", ms: 2500 }
  * formatDuration(90000)  // { text: "1m 30s", ms: 90000 }
  * ```
  */
 export function formatDuration(ms: number): FormattedDuration {
-  // Handle negative values by treating as 0
-  if (ms < 0) {
-    return { text: "0ms", ms: 0 };
+  // Handle negative values and zero
+  if (ms <= 0) {
+    return { text: "0s", ms: 0 };
   }
 
-  // Under 1 second: show milliseconds
-  if (ms < 1000) {
-    return { text: `${Math.round(ms)}ms`, ms };
-  }
+  const totalSeconds = Math.max(1, Math.floor(ms / 1000));
 
   // Under 1 minute: show whole seconds
-  if (ms < 60000) {
-    const seconds = Math.floor(ms / 1000);
-    return { text: `${seconds}s`, ms };
+  if (totalSeconds < 60) {
+    return { text: `${totalSeconds}s`, ms };
   }
 
   // 1 minute and above: show minutes and seconds
-  const totalSeconds = Math.floor(ms / 1000);
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
 

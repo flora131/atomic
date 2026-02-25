@@ -7,6 +7,7 @@
  */
 
 import type { ParallelAgent } from "../components/parallel-agents-tree.tsx";
+import { isShadowForegroundAgent } from "../utils/background-agent-footer.ts";
 
 /**
  * Determines whether an agent should be finalized when a tool completes.
@@ -30,7 +31,8 @@ export function hasActiveForegroundAgents(agents: readonly ParallelAgent[]): boo
   return agents.some(
     (agent) =>
       (agent.status === "running" || agent.status === "pending")
-      && shouldFinalizeOnToolComplete(agent),
+      && shouldFinalizeOnToolComplete(agent)
+      && !isShadowForegroundAgent(agent, agents),
   );
 }
 

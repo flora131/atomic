@@ -105,7 +105,7 @@ export interface CommandContext {
    * @param agents - Array of sub-agent spawn configurations
    * @returns Promise with results for all agents (uses Promise.allSettled internally)
    */
-  spawnSubagentParallel?: (agents: SubagentSpawnOptions[]) => Promise<SubagentResult[]>;
+  spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal) => Promise<SubagentResult[]>;
   /**
    * Send a message and wait for the streaming response to complete.
    * Returns the accumulated content and whether it was interrupted.

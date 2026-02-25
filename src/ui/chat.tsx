@@ -37,10 +37,9 @@ import {
 } from "./utils/conversation-history-buffer.ts";
 import {
   SubagentGraphBridge,
-  setSubagentBridge,
-  getSubagentBridge,
   type CreateSessionFn,
-} from "../graph/subagent-bridge.ts";
+} from "../workflows/graph/subagent-bridge.ts";
+import { WorkflowSDK } from "../workflows/graph/sdk.ts";
 import {
   UserQuestionDialog,
   type UserQuestion,
@@ -52,6 +51,7 @@ import {
 import type { Model } from "../models/model-transform.ts";
 import type { TaskItem } from "./components/task-list-indicator.tsx";
 import { TaskListPanel } from "./components/task-list-panel.tsx";
+import { sortTasksTopologically } from "./components/task-order.ts";
 import { saveTasksToActiveSession } from "./commands/workflow-commands.ts";
 import {
   useStreamingState,
@@ -68,9 +68,17 @@ import {
 } from "./commands/index.ts";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { AskUserQuestionEventData } from "../graph/index.ts";
+import type { AskUserQuestionEventData } from "../workflows/graph/index.ts";
 import type { AgentType, ModelOperations } from "../models";
-import type { McpServerConfig } from "../sdk/types.ts";
+import type {
+  CodingAgentClient,
+  EventHandler,
+  EventType,
+  McpServerConfig,
+  ModelDisplayInfo,
+  Session,
+  ToolDefinition,
+} from "../sdk/types.ts";
 import { saveModelPreference, saveReasoningEffortPreference, clearReasoningEffortPreference } from "../utils/settings.ts";
 import { formatDuration, normalizeMarkdownNewlines } from "./utils/format.ts";
 import {
@@ -99,7 +107,7 @@ import {
 } from "./utils/hitl-response.ts";
 import {
   normalizeTodoItems,
-  mergeBlockedBy,
+  reconcileTodoWriteItems,
   isTodoWriteToolName,
   type NormalizedTodoItem,
 } from "./utils/task-status.ts";
@@ -924,7 +932,7 @@ export interface MessageBubbleProps {
   /** Whether to hide loading indicator (when question dialog is active) */
   hideLoading?: boolean;
   /** Todo items to show inline during streaming */
-  todoItems?: Array<{content: string; status: "pending" | "in_progress" | "completed" | "error"}>;
+  todoItems?: Array<{id?: string; content: string; status: "pending" | "in_progress" | "completed" | "error"; blockedBy?: string[]}>;
   /** Whether task items are expanded (no truncation) */
   tasksExpanded?: boolean;
   /** Whether task updates should be rendered inline for this message */
@@ -1356,10 +1364,11 @@ function getRenderableAssistantParts(
   const shouldRenderInlineTasks = taskItemsToShow && taskItemsToShow.length > 0 && inlineTaskExpansion !== false;
   const existingTaskIdx = parts.findIndex((p) => p.type === "task-list");
   if (shouldRenderInlineTasks) {
+    const sortedTaskItems = sortTasksTopologically(taskItemsToShow!);
     const taskPart: TaskListPart = {
       id: existingTaskIdx >= 0 ? parts[existingTaskIdx]!.id : `task-list-${message.id}`,
       type: "task-list",
-      items: taskItemsToShow!,
+      items: sortedTaskItems,
       expanded: inlineTaskExpansion ?? false,
       createdAt: existingTaskIdx >= 0 ? parts[existingTaskIdx]!.createdAt : message.timestamp,
     };
@@ -1891,6 +1900,8 @@ export function ChatApp({
   const wasInterruptedRef = useRef(false);
   // Ref to keep a synchronous copy of parallel agents (avoids nested dispatch issues)
   const parallelAgentsRef = useRef<ParallelAgent[]>([]);
+  const workflowSdkRef = useRef<WorkflowSDK | null>(null);
+  const subagentBridgeRef = useRef<SubagentGraphBridge | null>(null);
   // Ref to hold a deferred handleComplete when sub-agents are still running.
   // When the last agent finishes, the stored function is called to finalize
   // the message and process the next queued message.
@@ -2313,7 +2324,7 @@ export function ChatApp({
     // Update persistent todo panel when TodoWrite is called
     if (isTodoWriteToolName(toolName) && input.todos && Array.isArray(input.todos)) {
       const previousTodos = todoItemsRef.current;
-      const todos = mergeBlockedBy(normalizeTodoItems(input.todos), previousTodos);
+      const todos = reconcileTodoWriteItems(input.todos, previousTodos);
       const taskStreamPinned = Boolean(ralphSessionIdRef.current);
       const isRalphUpdate = isRalphTaskUpdate(todos, previousTodos);
 
@@ -2435,7 +2446,7 @@ export function ChatApp({
     const isTodoWriteCompletion = isTodoWriteToolName(completedToolName);
     if (isTodoWriteCompletion && input && input.todos && Array.isArray(input.todos)) {
       const previousTodos = todoItemsRef.current;
-      const todos = mergeBlockedBy(normalizeTodoItems(input.todos), previousTodos);
+      const todos = reconcileTodoWriteItems(input.todos, previousTodos);
       const taskStreamPinned = Boolean(ralphSessionIdRef.current);
       const isRalphUpdate = isRalphTaskUpdate(todos, previousTodos);
 
@@ -2694,7 +2705,9 @@ export function ChatApp({
       // best effort: tasks.json may be absent during teardown
     }
 
-    const terminalTasks = preferTerminalTaskItems(todoItemsRef.current, diskTasks);
+    const terminalTasks = sortTasksTopologically(
+      preferTerminalTaskItems(todoItemsRef.current, diskTasks),
+    );
     if (terminalTasks.length === 0) return;
 
     todoItemsRef.current = terminalTasks;
@@ -3020,17 +3033,48 @@ export function ChatApp({
   // Initialize SubagentGraphBridge when createSubagentSession is available
   useEffect(() => {
     if (!createSubagentSession) {
-      setSubagentBridge(null);
+      workflowSdkRef.current = null;
+      subagentBridgeRef.current = null;
       return;
     }
 
-    const bridge = new SubagentGraphBridge({ createSession: createSubagentSession });
-    setSubagentBridge(bridge);
+    const providerName = agentType ?? "claude";
+    const workflowClient: CodingAgentClient = {
+      agentType: providerName,
+      createSession: createSubagentSession,
+      async resumeSession(_sessionId: string): Promise<Session | null> {
+        return null;
+      },
+      on<T extends EventType>(_eventType: T, _handler: EventHandler<T>): () => void {
+        return () => {};
+      },
+      registerTool(_tool: ToolDefinition): void {},
+      async start(): Promise<void> {},
+      async stop(): Promise<void> {},
+      async getModelDisplayInfo(): Promise<ModelDisplayInfo> {
+        return {
+          model: providerName,
+          tier: "workflow-sdk",
+        };
+      },
+      getSystemToolsTokens(): number | null {
+        return null;
+      },
+    };
+
+    const sdk = WorkflowSDK.init({
+      providers: { [providerName]: workflowClient },
+      subagentProvider: providerName,
+    });
+    workflowSdkRef.current = sdk;
+    subagentBridgeRef.current = sdk.getSubagentBridge();
 
     return () => {
-      setSubagentBridge(null);
+      workflowSdkRef.current = null;
+      subagentBridgeRef.current = null;
+      void sdk.destroy();
     };
-  }, [createSubagentSession]);
+  }, [agentType, createSubagentSession]);
 
   /**
    * Handle user answering a question from UserQuestionDialog.
@@ -3750,7 +3794,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         };
       },
       spawnSubagentParallel: async (agents, externalAbortSignal) => {
-        const bridge = getSubagentBridge();
+        const bridge = subagentBridgeRef.current;
         if (!bridge) {
           throw new Error("SubagentGraphBridge not initialized. Cannot spawn parallel sub-agents.");
         }
@@ -3833,8 +3877,9 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         setRalphSessionId(ralphSessionIdRef.current);
       },
       setTodoItems: (items) => {
-        todoItemsRef.current = items;
-        setTodoItems(items);
+        const nextTodos = sortTasksTopologically(normalizeTodoItems(items));
+        todoItemsRef.current = nextTodos;
+        setTodoItems(nextTodos);
       },
       setRalphSessionDir: (dir: string | null) => {
         ralphSessionDirRef.current = dir;

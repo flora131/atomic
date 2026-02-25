@@ -31,15 +31,17 @@ import {
     getWorkflowSessionDir,
     type WorkflowSession,
 } from "../../workflows/session.ts";
+import type { BaseState } from "../../workflows/graph/types.ts";
+import { VERSION } from "../../version.ts";
 import {
     buildSpecToTasksPrompt,
     buildWorkerAssignment,
     buildReviewPrompt,
-    parseReviewResult,
     buildFixSpecFromReview,
-} from "../../graph/nodes/ralph.ts";
+} from "../../workflows/ralph/prompts.ts";
+import { parseReviewResult } from "../../workflows/graph/nodes/ralph.ts";
 import { getReadyTasks } from "../components/task-order.ts";
-import type { SubagentSpawnOptions } from "../../graph/subagent-bridge.ts";
+import type { SubagentSpawnOptions } from "../../workflows/graph/subagent-bridge.ts";
 
 // ============================================================================
 // CONSTANTS
@@ -79,6 +81,14 @@ export function parseRalphArgs(args: string): RalphCommandArgs {
 // ============================================================================
 
 /**
+ * State migration function exported by custom workflows.
+ */
+export type WorkflowStateMigrator = (
+    oldState: unknown,
+    fromVersion: number,
+) => BaseState;
+
+/**
  * Metadata for a workflow command definition.
  */
 export interface WorkflowMetadata {
@@ -90,6 +100,14 @@ export interface WorkflowMetadata {
     aliases?: string[];
     /** Optional default configuration */
     defaultConfig?: Record<string, unknown>;
+    /** Workflow definition version (semver) */
+    version?: string;
+    /** Minimum SDK version required to run this workflow */
+    minSDKVersion?: string;
+    /** Workflow state schema version for migrations */
+    stateVersion?: number;
+    /** Optional state migrator for loading persisted state from older versions */
+    migrateState?: WorkflowStateMigrator;
     /** Source: built-in, global (~/.atomic/workflows), or local (.atomic/workflows) */
     source?: "builtin" | "global" | "local";
     /** Hint text showing expected arguments (e.g., "PROMPT [--yolo]") */
@@ -258,6 +276,46 @@ function expandPath(path: string): string {
     return path;
 }
 
+const SEMVER_PATTERN =
+    /^v?\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
+
+function parseSemver(version: string): [number, number, number] | null {
+    const normalized = version.trim();
+
+    if (!SEMVER_PATTERN.test(normalized)) {
+        return null;
+    }
+
+    const coreVersion =
+        normalized.replace(/^v/i, "").split(/[+-]/, 1)[0] ?? "0.0.0";
+    const [major = "0", minor = "0", patch = "0"] = coreVersion.split(".");
+
+    return [
+        Number.parseInt(major, 10),
+        Number.parseInt(minor, 10),
+        Number.parseInt(patch, 10),
+    ];
+}
+
+function isWorkflowMinSdkNewerThanCurrent(
+    minSdkVersion: string,
+    currentSdkVersion: string,
+): boolean {
+    const minVersion = parseSemver(minSdkVersion);
+    const currentVersion = parseSemver(currentSdkVersion);
+
+    if (!minVersion || !currentVersion) {
+        return false;
+    }
+
+    const [minMajor, minMinor, minPatch] = minVersion;
+    const [curMajor, curMinor, curPatch] = currentVersion;
+
+    if (minMajor !== curMajor) return minMajor > curMajor;
+    if (minMinor !== curMinor) return minMinor > curMinor;
+    return minPatch > curPatch;
+}
+
 /**
  * Discover workflow files from disk.
  * Returns paths to .ts files that define workflows.
@@ -310,6 +368,10 @@ let loadedWorkflows: WorkflowMetadata[] = [];
  * - `name`: Workflow name (optional, defaults to filename)
  * - `description`: Human-readable description (optional)
  * - `aliases`: Alternative names (optional)
+ * - `version`: Workflow version (optional)
+ * - `minSDKVersion`: Minimum required SDK version (optional)
+ * - `stateVersion`: Workflow state schema version (optional)
+ * - `migrateState(oldState, fromVersion)`: State migration handler (optional)
  *
  * Example workflow file (.atomic/workflows/my-workflow.ts):
  * ```typescript
@@ -340,13 +402,39 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata[]> {
                 continue;
             }
 
+            const migrateState =
+                typeof module.migrateState === "function"
+                    ? (module.migrateState as WorkflowStateMigrator)
+                    : undefined;
+
             const metadata: WorkflowMetadata = {
                 name,
                 description: module.description ?? `Custom workflow: ${name}`,
                 aliases: module.aliases,
                 defaultConfig: module.defaultConfig,
+                version: module.version,
+                minSDKVersion: module.minSDKVersion,
+                stateVersion: module.stateVersion,
+                migrateState,
                 source,
             };
+
+            if (typeof metadata.minSDKVersion === "string") {
+                if (!parseSemver(metadata.minSDKVersion)) {
+                    console.warn(
+                        `Workflow "${metadata.name}" has invalid minSDKVersion "${metadata.minSDKVersion}". Expected semver format like "1.2.3".`,
+                    );
+                } else if (
+                    isWorkflowMinSdkNewerThanCurrent(
+                        metadata.minSDKVersion,
+                        VERSION,
+                    )
+                ) {
+                    console.warn(
+                        `Workflow "${metadata.name}" requires SDK ${metadata.minSDKVersion}, but current SDK is ${VERSION}.`,
+                    );
+                }
+            }
 
             loaded.push(metadata);
             loadedNames.add(name.toLowerCase());
@@ -418,6 +506,9 @@ const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata[] = [
         name: "ralph",
         description: "Start autonomous implementation workflow",
         aliases: ["loop"],
+        version: "1.0.0",
+        minSDKVersion: VERSION,
+        stateVersion: 1,
         argumentHint: '"<prompt-or-spec-path>"',
         source: "builtin",
     },

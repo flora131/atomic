@@ -58,7 +58,7 @@ import { loadCopilotAgents } from "../../config/copilot-manual.ts";
 import {
   BACKGROUND_COMPACTION_THRESHOLD,
   BUFFER_EXHAUSTION_THRESHOLD,
-} from "../../graph/types.ts";
+} from "../../workflows/graph/types.ts";
 
 import {
   stripProviderPrefix,

@@ -11,7 +11,7 @@ import type { Session, ModelDisplayInfo, McpServerConfig } from "../../sdk/types
 import type { AgentType, ModelOperations } from "../../models";
 import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "../utils/mcp-output.ts";
-import type { SubagentSpawnOptions, SubagentResult } from "../../graph/subagent-bridge.ts";
+import type { SubagentSpawnOptions, SubagentResult } from "../../workflows/graph/subagent-bridge.ts";
 
 // ============================================================================
 // TYPES

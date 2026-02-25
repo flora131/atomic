@@ -8,7 +8,7 @@
 
 import { join } from "path";
 import { homedir } from "os";
-import type { SubagentResult } from "../graph/subagent-bridge.ts";
+import type { SubagentResult } from "./graph/subagent-bridge.ts";
 
 // ============================================================================
 // Types

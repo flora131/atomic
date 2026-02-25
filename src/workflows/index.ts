@@ -1,8 +1,10 @@
 /**
  * Workflows Module
  *
- * This module exports workflow session management for the Atomic CLI.
- * Sessions are stored at ~/.atomic/workflows/sessions/{sessionId}/
+ * Unified barrel for the workflow engine. Re-exports:
+ * - graph/: Core graph execution engine (builder, executor, nodes, streaming)
+ * - session: Workflow session management
+ * - ralph/: Ralph autonomous workflow definitions
  */
 
 export {
@@ -14,3 +16,10 @@ export {
   saveWorkflowSession,
   saveSubagentOutput,
 } from "./session.ts";
+
+// Graph execution engine
+export * from "./graph/index.ts";
+
+// Ralph workflow
+export * from "./ralph/state.ts";
+export * from "./ralph/prompts.ts";

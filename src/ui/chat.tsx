@@ -38,6 +38,7 @@ import {
 import {
   SubagentGraphBridge,
   setSubagentBridge,
+  getSubagentBridge,
   type CreateSessionFn,
 } from "../graph/subagent-bridge.ts";
 import {
@@ -117,6 +118,7 @@ import {
   createStoppedStreamControlState,
   dispatchNextQueuedMessage,
   interruptRunningToolCalls,
+  interruptRunningToolParts,
   isAskQuestionToolName,
   isCurrentStreamCallback,
   shouldDispatchQueuedMessage,
@@ -1975,6 +1977,30 @@ export function ChatApp({
     setMessages(next);
   }, []);
 
+  // Process a background agent completion by updating the baked message directly.
+  // Follows the queued-message pattern: arrive asynchronously, dispatch immediately.
+  const applyBackgroundAgentUpdate = useCallback((messageId: string, agents: ParallelAgent[]) => {
+    setMessagesWindowed((prev: ChatMessage[]) =>
+      prev.map((msg: ChatMessage, index: number) =>
+        msg.id === messageId
+          ? applyStreamPartEvent(msg, {
+              type: "parallel-agents",
+              agents,
+              isLastMessage: index === prev.length - 1,
+            })
+          : msg
+      )
+    );
+    // Clean up when all background agents reach terminal state
+    if (getActiveBackgroundAgents(agents).length === 0) {
+      backgroundAgentMessageIdRef.current = null;
+      streamingStartRef.current = null;
+    }
+  }, [setMessagesWindowed]);
+
+  const applyBackgroundAgentUpdateRef = useRef(applyBackgroundAgentUpdate);
+  applyBackgroundAgentUpdateRef.current = applyBackgroundAgentUpdate;
+
   const hasLiveLoadingIndicator = useMemo(
     () => hasAnyLiveLoadingIndicator(messages, todoItems),
     [messages, todoItems],
@@ -2810,13 +2836,20 @@ export function ChatApp({
       registerParallelAgentHandler((agents: ParallelAgent[]) => {
         parallelAgentsRef.current = agents;
         setParallelAgents(agents);
+
+        // Dispatch background results immediately (queued-message pattern)
+        // instead of routing through a React state → effect cycle.
+        if (!streamingMessageIdRef.current && backgroundAgentMessageIdRef.current) {
+          applyBackgroundAgentUpdateRef.current(backgroundAgentMessageIdRef.current, agents);
+        }
       });
     }
   }, [registerParallelAgentHandler]);
 
   // Keep live sub-agent updates anchored to the active streaming message so
   // they render in-order inside chat scrollback instead of as a last-row overlay.
-  // Also handles background agent completion updates after stream ends.
+  // Background agent completions after stream ends are handled directly by the
+  // parallelAgentHandler callback (queued-message pattern) — not this effect.
   useEffect(() => {
     if (parallelAgents.length === 0) return;
 
@@ -2835,30 +2868,6 @@ export function ChatApp({
           return msg;
         })
       );
-      return;
-    }
-
-    // After stream ends: update baked message for background agent completions
-    const bgMsgId = backgroundAgentMessageIdRef.current;
-    if (bgMsgId) {
-      setMessagesWindowed((prev: ChatMessage[]) =>
-        prev.map((msg: ChatMessage, index: number) => {
-          if (msg.id === bgMsgId) {
-            return applyStreamPartEvent(msg, {
-              type: "parallel-agents",
-              agents: parallelAgents,
-              isLastMessage: index === prev.length - 1,
-            });
-          }
-          return msg;
-        })
-      );
-      // Clear refs once all background agents have reached terminal state
-      const hasActiveBg = getActiveBackgroundAgents(parallelAgents).length > 0;
-      if (!hasActiveBg) {
-        backgroundAgentMessageIdRef.current = null;
-        streamingStartRef.current = null;
-      }
     }
   }, [parallelAgents, setMessagesWindowed]);
 
@@ -3594,6 +3603,7 @@ export function ChatApp({
                         thinkingMs: finalMeta?.thinkingMs,
                         thinkingText: finalMeta?.thinkingText || undefined,
                         toolCalls: interruptRunningToolCalls(msg.toolCalls),
+                        parts: interruptRunningToolParts(msg.parts),
                         parallelAgents: finalizedAgents,
                         taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
                       }
@@ -3715,6 +3725,13 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           success: !result.wasInterrupted,
           output: result.content,
         };
+      },
+      spawnSubagentParallel: async (agents) => {
+        const bridge = getSubagentBridge();
+        if (!bridge) {
+          throw new Error("SubagentGraphBridge not initialized. Cannot spawn parallel sub-agents.");
+        }
+        return bridge.spawnParallel(agents);
       },
       streamAndWait: (prompt: string, options?: { hideContent?: boolean }) => {
         return new Promise<import("./commands/registry.ts").StreamResult>((resolve) => {
@@ -4268,6 +4285,11 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             // Bake interrupted agents into message and stop streaming
             const interruptedId = streamingMessageIdRef.current;
+            // Capture duration before stopSharedStreamState nulls streamingStartRef
+            const durationMs = streamingStartRef.current
+              ? Date.now() - streamingStartRef.current
+              : undefined;
+            const finalMeta = streamingMetaRef.current;
             if (interruptedId) {
               setMessagesWindowed((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
@@ -4276,9 +4298,14 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                       ...finalizeStreamingReasoningInMessage(msg),
                       wasInterrupted: true,
                       streaming: false,
+                      durationMs,
+                      outputTokens: finalMeta?.outputTokens,
+                      thinkingMs: finalMeta?.thinkingMs,
+                      thinkingText: finalMeta?.thinkingText || undefined,
                       parallelAgents: interruptedAgents,
                       taskItems: interruptedTaskItems,
                       toolCalls: interruptRunningToolCalls(msg.toolCalls),
+                      parts: interruptRunningToolParts(msg.parts),
                     }
                     : msg
                 )
@@ -4373,6 +4400,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                         parallelAgents: interruptedAgents,
                         taskItems: interruptedTaskItems,
                         toolCalls: interruptRunningToolCalls(msg.toolCalls),
+                        parts: interruptRunningToolParts(msg.parts),
                       }
                       : msg
                   )
@@ -4592,6 +4620,13 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
             // Bake interrupted agents into message and stop streaming
             const interruptedId = streamingMessageIdRef.current;
+            // Capture timing/meta BEFORE stopSharedStreamState() clears them
+            const frozenDurationMs = streamingStartRef.current
+              ? Date.now() - streamingStartRef.current
+              : undefined;
+            const frozenMeta = streamingMetaRef.current
+              ? { ...streamingMetaRef.current }
+              : undefined;
             if (interruptedId) {
               setMessagesWindowed((prev: ChatMessage[]) =>
                 prev.map((msg: ChatMessage) =>
@@ -4600,9 +4635,12 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                       ...finalizeStreamingReasoningInMessage(msg),
                       wasInterrupted: true,
                       streaming: false,
+                      ...(frozenDurationMs != null && { durationMs: frozenDurationMs }),
+                      ...(frozenMeta && { streamingMeta: frozenMeta }),
                       parallelAgents: interruptedAgents,
                       taskItems: interruptedTaskItems,
                       toolCalls: interruptRunningToolCalls(msg.toolCalls),
+                      parts: interruptRunningToolParts(msg.parts),
                     }
                     : msg
                 )
@@ -4659,6 +4697,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                         parallelAgents: interruptedAgents,
                         taskItems: interruptedTaskItems,
                         toolCalls: interruptRunningToolCalls(msg.toolCalls),
+                        parts: interruptRunningToolParts(msg.parts),
                       }
                       : msg
                   )
@@ -5307,6 +5346,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                       thinkingMs: finalMeta?.thinkingMs,
                       thinkingText: finalMeta?.thinkingText || undefined,
                       toolCalls: interruptRunningToolCalls(msg.toolCalls),
+                      parts: interruptRunningToolParts(msg.parts),
                       parallelAgents: finalizedAgents,
                       taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
                     }
@@ -5618,6 +5658,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                   thinkingMs: finalMeta?.thinkingMs,
                   thinkingText: finalMeta?.thinkingText || undefined,
                   toolCalls: interruptRunningToolCalls(msg.toolCalls),
+                  parts: interruptRunningToolParts(msg.parts),
                   taskItems: interruptedTaskItems,
                 }
                 : msg

@@ -11,6 +11,7 @@ import type { Session, ModelDisplayInfo, McpServerConfig } from "../../sdk/types
 import type { AgentType, ModelOperations } from "../../models";
 import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "../utils/mcp-output.ts";
+import type { SubagentSpawnOptions, SubagentResult } from "../../graph/subagent-bridge.ts";
 
 // ============================================================================
 // TYPES
@@ -96,6 +97,15 @@ export interface CommandContext {
    * @returns Promise with the sub-agent execution result
    */
   spawnSubagent: (options: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
+  /**
+   * Spawn multiple sub-agents concurrently using independent SDK sessions.
+   * Each sub-agent runs in its own session via SubagentGraphBridge, so all
+   * agents can execute truly in parallel (unlike spawnSubagent which is serial).
+   *
+   * @param agents - Array of sub-agent spawn configurations
+   * @returns Promise with results for all agents (uses Promise.allSettled internally)
+   */
+  spawnSubagentParallel?: (agents: SubagentSpawnOptions[]) => Promise<SubagentResult[]>;
   /**
    * Send a message and wait for the streaming response to complete.
    * Returns the accumulated content and whether it was interrupted.

@@ -625,6 +625,8 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 ralphConfig: { sessionId, userPrompt: parsed.prompt },
             });
 
+            context.addMessage("system", `● Started ${metadata.name} workflow`);
+
             try {
                 // Step 1: Task decomposition (blocks until streaming completes)
                 // hideContent suppresses raw JSON rendering in the chat — content is still
@@ -934,6 +936,8 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                     }
                 }
 
+                context.addMessage("system", `● Successfully completed ${metadata.name} workflow`);
+
                 return {
                     success: true,
                     stateUpdate: {
@@ -959,7 +963,7 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 }
                 return {
                     success: false,
-                    message: `Workflow failed: ${error instanceof Error ? error.message : String(error)}`,
+                    message: `● Workflow Execution Error: ${error instanceof Error ? error.message : String(error)}`,
                     stateUpdate: {
                         workflowActive: false,
                         workflowType: null,

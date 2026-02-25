@@ -13,6 +13,8 @@ import {
   type LoopConfig,
   type ParallelConfig,
   type IfConfig,
+  type SubAgentConfig,
+  type ToolBuilderConfig,
 } from "./builder.ts";
 import type { BaseState, NodeDefinition } from "./types.ts";
 
@@ -823,5 +825,543 @@ describe("GraphBuilder - query methods", () => {
     
     const edges = builder.getEdgesTo("test1");
     expect(edges).toEqual([]);
+  });
+});
+
+// ============================================================================
+// GRAPH BUILDER: .subagent() METHOD
+// ============================================================================
+
+describe("GraphBuilder - .subagent() method", () => {
+  test("creates a node with type 'agent' and correct ID", () => {
+    const builder = graph<TestState>().subagent({
+      id: "analyze-code",
+      agent: "codebase-analyzer",
+      task: "Analyze the codebase",
+    });
+
+    const compiled = builder.compile();
+
+    expect(compiled.nodes.has("analyze-code")).toBe(true);
+    const node = compiled.nodes.get("analyze-code");
+    expect(node?.type).toBe("agent");
+    expect(node?.id).toBe("analyze-code");
+  });
+
+  test("maps config.agent to agentName correctly", () => {
+    const builder = graph<TestState>().subagent({
+      id: "my-subagent",
+      agent: "codebase-analyzer",
+      task: "Do something",
+    });
+
+    const compiled = builder.compile();
+    const node = compiled.nodes.get("my-subagent");
+
+    // The node should exist with type "agent"
+    expect(node?.type).toBe("agent");
+    
+    // We can verify the agent name is used in the description
+    expect(node?.description).toContain("codebase-analyzer");
+  });
+
+  test("first .subagent() call auto-sets as start node (no .start() needed)", () => {
+    const builder = graph<TestState>().subagent({
+      id: "first-agent",
+      agent: "codebase-analyzer",
+      task: "First task",
+    });
+
+    const compiled = builder.compile();
+
+    expect(compiled.startNode).toBe("first-agent");
+  });
+
+  test("chaining: .subagent().subagent() creates two nodes with an edge", () => {
+    const builder = graph<TestState>()
+      .subagent({
+        id: "agent1",
+        agent: "codebase-analyzer",
+        task: "First task",
+      })
+      .subagent({
+        id: "agent2",
+        agent: "codebase-locator",
+        task: "Second task",
+      });
+
+    const compiled = builder.compile();
+
+    // Both nodes should exist
+    expect(compiled.nodes.has("agent1")).toBe(true);
+    expect(compiled.nodes.has("agent2")).toBe(true);
+
+    // Should have an edge from agent1 to agent2
+    const edge = compiled.edges.find((e) => e.from === "agent1" && e.to === "agent2");
+    expect(edge).toBeDefined();
+  });
+
+  test("config fields (name, description, retry) are passed through", () => {
+    const builder = graph<TestState>().subagent({
+      id: "my-agent",
+      agent: "codebase-analyzer",
+      task: "Analyze code",
+      name: "Code Analyzer",
+      description: "Analyzes the codebase structure",
+      retry: { maxAttempts: 3, backoffMs: 1000, backoffMultiplier: 2 },
+    });
+
+    const compiled = builder.compile();
+    const node = compiled.nodes.get("my-agent");
+
+    expect(node?.name).toBe("Code Analyzer");
+    expect(node?.description).toBe("Analyzes the codebase structure");
+    expect(node?.retry?.maxAttempts).toBe(3);
+    expect(node?.retry?.backoffMs).toBe(1000);
+  });
+
+  test("task can be a function that resolves from state", () => {
+    const builder = graph<TestState>().subagent({
+      id: "dynamic-agent",
+      agent: "codebase-analyzer",
+      task: (state) => `Analyze ${state.message}`,
+    });
+
+    const compiled = builder.compile();
+    const node = compiled.nodes.get("dynamic-agent");
+
+    expect(node).toBeDefined();
+    expect(node?.type).toBe("agent");
+  });
+
+  test("systemPrompt can be provided as string", () => {
+    const builder = graph<TestState>().subagent({
+      id: "custom-agent",
+      agent: "codebase-analyzer",
+      task: "Analyze",
+      systemPrompt: "Custom system prompt",
+    });
+
+    const compiled = builder.compile();
+    const node = compiled.nodes.get("custom-agent");
+
+    expect(node).toBeDefined();
+  });
+
+  test("model and tools can be specified", () => {
+    const builder = graph<TestState>().subagent({
+      id: "restricted-agent",
+      agent: "codebase-analyzer",
+      task: "Analyze",
+      model: "claude-opus-4",
+      tools: ["bash", "view"],
+    });
+
+    const compiled = builder.compile();
+    const node = compiled.nodes.get("restricted-agent");
+
+    expect(node).toBeDefined();
+    expect(node?.type).toBe("agent");
+  });
+
+  test("outputMapper can be provided", () => {
+    const builder = graph<TestState>().subagent({
+      id: "mapped-agent",
+      agent: "codebase-analyzer",
+      task: "Analyze",
+      outputMapper: (result, state) => ({ message: result.output }),
+    });
+
+    const compiled = builder.compile();
+    const node = compiled.nodes.get("mapped-agent");
+
+    expect(node).toBeDefined();
+  });
+});
+
+// ============================================================================
+// GRAPH BUILDER: .tool() METHOD
+// ============================================================================
+
+describe("GraphBuilder - .tool() method", () => {
+  test("creates a node with type 'tool' and correct ID", () => {
+    const builder = graph<TestState>().tool({
+      id: "fetch-data",
+      execute: async () => ({ data: "result" }),
+    });
+
+    const compiled = builder.compile();
+
+    expect(compiled.nodes.has("fetch-data")).toBe(true);
+    const node = compiled.nodes.get("fetch-data");
+    expect(node?.type).toBe("tool");
+    expect(node?.id).toBe("fetch-data");
+  });
+
+  test("defaults toolName to config.id when not specified", () => {
+    const builder = graph<TestState>().tool({
+      id: "my-tool",
+      execute: async () => ({}),
+    });
+
+    const compiled = builder.compile();
+    const node = compiled.nodes.get("my-tool");
+
+    expect(node).toBeDefined();
+    expect(node?.type).toBe("tool");
+    // The toolName should default to the id
+    expect(node?.name).toBe("my-tool");
+  });
+
+  test("uses explicit toolName when provided", () => {
+    const builder = graph<TestState>().tool({
+      id: "fetch-tool",
+      toolName: "http_fetch",
+      execute: async () => ({}),
+    });
+
+    const compiled = builder.compile();
+    const node = compiled.nodes.get("fetch-tool");
+
+    expect(node).toBeDefined();
+    expect(node?.name).toBe("http_fetch");
+  });
+
+  test("first .tool() call auto-sets as start node", () => {
+    const builder = graph<TestState>().tool({
+      id: "first-tool",
+      execute: async () => ({}),
+    });
+
+    const compiled = builder.compile();
+
+    expect(compiled.startNode).toBe("first-tool");
+  });
+
+  test("chaining: .tool().tool() creates two nodes with an edge", () => {
+    const builder = graph<TestState>()
+      .tool({
+        id: "tool1",
+        execute: async () => ({ result: 1 }),
+      })
+      .tool({
+        id: "tool2",
+        execute: async () => ({ result: 2 }),
+      });
+
+    const compiled = builder.compile();
+
+    // Both nodes should exist
+    expect(compiled.nodes.has("tool1")).toBe(true);
+    expect(compiled.nodes.has("tool2")).toBe(true);
+
+    // Should have an edge from tool1 to tool2
+    const edge = compiled.edges.find((e) => e.from === "tool1" && e.to === "tool2");
+    expect(edge).toBeDefined();
+  });
+
+  test("execute function is passed through correctly", () => {
+    const executeFn = async () => ({ data: "test" });
+    
+    const builder = graph<TestState>().tool({
+      id: "exec-tool",
+      execute: executeFn,
+    });
+
+    const compiled = builder.compile();
+    const node = compiled.nodes.get("exec-tool");
+
+    expect(node).toBeDefined();
+    expect(node?.execute).toBeTypeOf("function");
+  });
+
+  test("config fields (name, description, retry, timeout) are passed through", () => {
+    const builder = graph<TestState>().tool({
+      id: "my-tool",
+      execute: async () => ({}),
+      name: "Data Fetcher",
+      description: "Fetches data from API",
+      retry: { maxAttempts: 5, backoffMs: 500, backoffMultiplier: 2 },
+      timeout: 30000,
+    });
+
+    const compiled = builder.compile();
+    const node = compiled.nodes.get("my-tool");
+
+    expect(node?.name).toBe("Data Fetcher");
+    expect(node?.description).toBe("Fetches data from API");
+    expect(node?.retry?.maxAttempts).toBe(5);
+    expect(node?.retry?.backoffMs).toBe(500);
+  });
+
+  test("args can be a static object", () => {
+    const builder = graph<TestState>().tool({
+      id: "static-args-tool",
+      execute: async (args: { url: string }) => ({ data: args.url }),
+      args: { url: "https://example.com" },
+    });
+
+    const compiled = builder.compile();
+    const node = compiled.nodes.get("static-args-tool");
+
+    expect(node).toBeDefined();
+  });
+
+  test("args can be a function that resolves from state", () => {
+    const builder = graph<TestState>().tool({
+      id: "dynamic-args-tool",
+      execute: async (args: { message: string }) => ({ result: args.message }),
+      args: (state) => ({ message: state.message }),
+    });
+
+    const compiled = builder.compile();
+    const node = compiled.nodes.get("dynamic-args-tool");
+
+    expect(node).toBeDefined();
+  });
+
+  test("outputMapper can be provided", () => {
+    const builder = graph<TestState>().tool({
+      id: "mapped-tool",
+      execute: async () => ({ value: 42 }),
+      outputMapper: (result, state) => ({ count: result.value }),
+    });
+
+    const compiled = builder.compile();
+    const node = compiled.nodes.get("mapped-tool");
+
+    expect(node).toBeDefined();
+  });
+});
+
+// ============================================================================
+// GRAPH BUILDER: MIXED CHAINING
+// ============================================================================
+
+describe("GraphBuilder - mixed chaining", () => {
+  test(".subagent().tool().subagent() creates correct 3-node chain", () => {
+    const builder = graph<TestState>()
+      .subagent({
+        id: "agent1",
+        agent: "codebase-analyzer",
+        task: "Analyze",
+      })
+      .tool({
+        id: "tool1",
+        execute: async () => ({}),
+      })
+      .subagent({
+        id: "agent2",
+        agent: "codebase-locator",
+        task: "Locate",
+      });
+
+    const compiled = builder.compile();
+
+    // All three nodes should exist
+    expect(compiled.nodes.has("agent1")).toBe(true);
+    expect(compiled.nodes.has("tool1")).toBe(true);
+    expect(compiled.nodes.has("agent2")).toBe(true);
+
+    // Check edges: agent1 -> tool1 -> agent2
+    const edge1 = compiled.edges.find((e) => e.from === "agent1" && e.to === "tool1");
+    const edge2 = compiled.edges.find((e) => e.from === "tool1" && e.to === "agent2");
+
+    expect(edge1).toBeDefined();
+    expect(edge2).toBeDefined();
+
+    // Start node should be agent1
+    expect(compiled.startNode).toBe("agent1");
+  });
+
+  test(".tool().subagent().tool() creates correct 3-node chain", () => {
+    const builder = graph<TestState>()
+      .tool({
+        id: "tool1",
+        execute: async () => ({}),
+      })
+      .subagent({
+        id: "agent1",
+        agent: "codebase-analyzer",
+        task: "Analyze",
+      })
+      .tool({
+        id: "tool2",
+        execute: async () => ({}),
+      });
+
+    const compiled = builder.compile();
+
+    // All three nodes should exist
+    expect(compiled.nodes.has("tool1")).toBe(true);
+    expect(compiled.nodes.has("agent1")).toBe(true);
+    expect(compiled.nodes.has("tool2")).toBe(true);
+
+    // Check edges: tool1 -> agent1 -> tool2
+    const edge1 = compiled.edges.find((e) => e.from === "tool1" && e.to === "agent1");
+    const edge2 = compiled.edges.find((e) => e.from === "agent1" && e.to === "tool2");
+
+    expect(edge1).toBeDefined();
+    expect(edge2).toBeDefined();
+
+    // Start node should be tool1
+    expect(compiled.startNode).toBe("tool1");
+  });
+
+  test(".subagent().if(condition).then(node).endif().tool() works with conditionals", () => {
+    const builder = graph<TestState>()
+      .subagent({
+        id: "agent1",
+        agent: "codebase-analyzer",
+        task: "Analyze",
+      })
+      .if((state) => state.flag)
+        .then(testNode2)
+      .endif()
+      .tool({
+        id: "tool1",
+        execute: async () => ({}),
+      });
+
+    const compiled = builder.compile();
+
+    // All nodes should exist
+    expect(compiled.nodes.has("agent1")).toBe(true);
+    expect(compiled.nodes.has("test2")).toBe(true);
+    expect(compiled.nodes.has("tool1")).toBe(true);
+
+    // Should have decision and merge nodes
+    const nodeIds = Array.from(compiled.nodes.keys());
+    const decisionNode = nodeIds.find((id) => id.startsWith("decision_"));
+    const mergeNode = nodeIds.find((id) => id.startsWith("merge_"));
+
+    expect(decisionNode).toBeDefined();
+    expect(mergeNode).toBeDefined();
+
+    // tool1 should be connected after the merge node
+    const edgeToTool = compiled.edges.find((e) => e.from === mergeNode && e.to === "tool1");
+    expect(edgeToTool).toBeDefined();
+  });
+
+  test(".tool().if({ condition, then, else }).subagent() works with config-based conditionals", () => {
+    const builder = graph<TestState>()
+      .tool({
+        id: "tool1",
+        execute: async () => ({}),
+      })
+      .if({
+        condition: (state) => state.flag,
+        then: [testNode2],
+        else: [testNode3],
+      })
+      .subagent({
+        id: "agent1",
+        agent: "codebase-analyzer",
+        task: "Analyze",
+      });
+
+    const compiled = builder.compile();
+
+    // All nodes should exist
+    expect(compiled.nodes.has("tool1")).toBe(true);
+    expect(compiled.nodes.has("test2")).toBe(true);
+    expect(compiled.nodes.has("test3")).toBe(true);
+    expect(compiled.nodes.has("agent1")).toBe(true);
+
+    // agent1 should be connected after the conditional merge
+    const nodeIds = Array.from(compiled.nodes.keys());
+    const mergeNode = nodeIds.find((id) => id.startsWith("merge_"));
+    expect(mergeNode).toBeDefined();
+
+    const edgeToAgent = compiled.edges.find((e) => e.from === mergeNode && e.to === "agent1");
+    expect(edgeToAgent).toBeDefined();
+  });
+});
+
+// ============================================================================
+// GRAPH BUILDER: AUTO ENTRY-POINT DETECTION
+// ============================================================================
+
+describe("GraphBuilder - auto entry-point detection", () => {
+  test("starting with .subagent() (no .start()) sets it as the start node", () => {
+    const builder = graph<TestState>().subagent({
+      id: "entry-agent",
+      agent: "codebase-analyzer",
+      task: "Start here",
+    });
+
+    const compiled = builder.compile();
+
+    expect(compiled.startNode).toBe("entry-agent");
+  });
+
+  test("starting with .tool() (no .start()) sets it as the start node", () => {
+    const builder = graph<TestState>().tool({
+      id: "entry-tool",
+      execute: async () => ({}),
+    });
+
+    const compiled = builder.compile();
+
+    expect(compiled.startNode).toBe("entry-tool");
+  });
+
+  test("explicit .start() takes precedence over auto-detection", () => {
+    const builder = graph<TestState>()
+      .start(testNode1)
+      .subagent({
+        id: "agent1",
+        agent: "codebase-analyzer",
+        task: "Not the start",
+      });
+
+    const compiled = builder.compile();
+
+    expect(compiled.startNode).toBe("test1");
+  });
+
+  test("chaining after .subagent() does not change start node", () => {
+    const builder = graph<TestState>()
+      .subagent({
+        id: "agent1",
+        agent: "codebase-analyzer",
+        task: "First",
+      })
+      .tool({
+        id: "tool1",
+        execute: async () => ({}),
+      })
+      .subagent({
+        id: "agent2",
+        agent: "codebase-locator",
+        task: "Second",
+      });
+
+    const compiled = builder.compile();
+
+    // Start node should still be the first one (agent1)
+    expect(compiled.startNode).toBe("agent1");
+  });
+
+  test("chaining after .tool() does not change start node", () => {
+    const builder = graph<TestState>()
+      .tool({
+        id: "tool1",
+        execute: async () => ({}),
+      })
+      .subagent({
+        id: "agent1",
+        agent: "codebase-analyzer",
+        task: "Second",
+      })
+      .tool({
+        id: "tool2",
+        execute: async () => ({}),
+      });
+
+    const compiled = builder.compile();
+
+    // Start node should still be the first one (tool1)
+    expect(compiled.startNode).toBe("tool1");
   });
 });

@@ -5,7 +5,14 @@ import type { Root } from "@opentui/react";
 import * as opentuiCore from "@opentui/core";
 import * as opentuiReact from "@opentui/react";
 
-import type { AgentMessage, CodingAgentClient, Session } from "../sdk/types.ts";
+import type {
+  AgentMessage,
+  CodingAgentClient,
+  EventDataMap,
+  EventHandler,
+  EventType,
+  Session,
+} from "../sdk/types.ts";
 import type { ChatAppProps, StreamingMeta } from "./chat.tsx";
 
 interface ElementWithProps {
@@ -18,6 +25,8 @@ interface StreamHarness {
   onExit: NonNullable<ChatAppProps["onExit"]>;
   onInterrupt: NonNullable<ChatAppProps["onInterrupt"]>;
   onStreamMessage: NonNullable<ChatAppProps["onStreamMessage"]>;
+  registerToolStartHandler: NonNullable<ChatAppProps["registerToolStartHandler"]>;
+  registerToolCompleteHandler: NonNullable<ChatAppProps["registerToolCompleteHandler"]>;
   uiPromise: Promise<unknown>;
   restore: () => void;
 }
@@ -33,6 +42,12 @@ interface ControlledAgentStream {
 interface ControlledClientBundle {
   client: CodingAgentClient;
   streams: ControlledAgentStream[];
+  emitEvent: <T extends keyof EventDataMap>(
+    eventType: T,
+    data: EventDataMap[T],
+    sessionId?: string,
+  ) => void;
+  getStreamCallCount: () => number;
 }
 
 function extractChatAppProps(rootElement: unknown): ChatAppProps | null {
@@ -155,6 +170,40 @@ function createControlledClient(streamCount: number): ControlledClientBundle {
   const streams = Array.from({ length: streamCount }, () => createControlledAgentStream());
   let streamCallIndex = 0;
   let activeStream: ControlledAgentStream | null = null;
+  const eventHandlers = new Map<EventType, Set<EventHandler<EventType>>>();
+
+  const registerEventHandler = <T extends EventType>(eventType: T, handler: EventHandler<T>): (() => void) => {
+    const existing = eventHandlers.get(eventType) ?? new Set<EventHandler<EventType>>();
+    existing.add(handler as EventHandler<EventType>);
+    eventHandlers.set(eventType, existing);
+    return () => {
+      const handlers = eventHandlers.get(eventType);
+      handlers?.delete(handler as EventHandler<EventType>);
+      if (handlers && handlers.size === 0) {
+        eventHandlers.delete(eventType);
+      }
+    };
+  };
+
+  const emitEvent = <T extends keyof EventDataMap>(
+    eventType: T,
+    data: EventDataMap[T],
+    sessionId = session.id,
+  ): void => {
+    const handlers = eventHandlers.get(eventType as EventType);
+    if (!handlers || handlers.size === 0) {
+      return;
+    }
+    const event = {
+      type: eventType,
+      sessionId,
+      timestamp: new Date().toISOString(),
+      data,
+    };
+    for (const handler of handlers) {
+      void Promise.resolve(handler(event));
+    }
+  };
 
   const session: Session = {
     id: "session-thinking-contract-controlled",
@@ -200,9 +249,7 @@ function createControlledClient(streamCount: number): ControlledClientBundle {
       agentType: "claude",
       createSession: async () => session,
       resumeSession: async () => null,
-      on: () => () => {
-        return;
-      },
+      on: registerEventHandler,
       registerTool: () => {
         return;
       },
@@ -215,6 +262,8 @@ function createControlledClient(streamCount: number): ControlledClientBundle {
       getModelDisplayInfo: async () => ({ model: "test", tier: "test" }),
       getSystemToolsTokens: () => null,
     },
+    emitEvent,
+    getStreamCallCount: () => streamCallIndex,
   };
 }
 
@@ -274,7 +323,13 @@ async function createStreamHarnessFromClient(client: CodingAgentClient): Promise
 
     await waitFor(() => renderedTree !== null);
     const chatAppProps = extractChatAppProps(renderedTree);
-    if (!chatAppProps?.onStreamMessage || !chatAppProps.onExit || !chatAppProps.onInterrupt) {
+    if (
+      !chatAppProps?.onStreamMessage
+      || !chatAppProps.onExit
+      || !chatAppProps.onInterrupt
+      || !chatAppProps.registerToolStartHandler
+      || !chatAppProps.registerToolCompleteHandler
+    ) {
       throw new Error("Failed to extract ChatApp stream callbacks");
     }
 
@@ -282,6 +337,8 @@ async function createStreamHarnessFromClient(client: CodingAgentClient): Promise
       onExit: chatAppProps.onExit,
       onInterrupt: chatAppProps.onInterrupt,
       onStreamMessage: chatAppProps.onStreamMessage,
+      registerToolStartHandler: chatAppProps.registerToolStartHandler,
+      registerToolCompleteHandler: chatAppProps.registerToolCompleteHandler,
       uiPromise,
       restore: () => {
         createRendererSpy.mockRestore();
@@ -674,6 +731,69 @@ describe("startChatUI thinking source key contract", () => {
       expect(latest.thinkingGenerationBySource?.[sourceB]).toBe(10);
       expect(latest.thinkingMessageBySource?.[sourceA]).toBe("msg-a");
       expect(latest.thinkingMessageBySource?.[sourceB]).toBe("msg-b");
+    } finally {
+      await Promise.resolve(harness.onExit());
+      await harness.uiPromise;
+      harness.restore();
+    }
+  });
+
+  test("processes late tool.complete events after stream end", async () => {
+    const { client, streams, emitEvent, getStreamCallCount } = createControlledClient(1);
+    const firstStream = streams[0];
+    if (!firstStream) {
+      throw new Error("Expected one controlled stream");
+    }
+
+    const harness = await createStreamHarnessFromClient(client);
+
+    try {
+      const startedToolIds: string[] = [];
+      const completedToolIds: string[] = [];
+      let completeCalls = 0;
+
+      harness.registerToolStartHandler((toolId) => {
+        startedToolIds.push(toolId);
+      });
+      harness.registerToolCompleteHandler((toolId) => {
+        completedToolIds.push(toolId);
+      });
+
+      const streamPromise = harness.onStreamMessage(
+        "run a skill",
+        () => {
+          return;
+        },
+        () => {
+          completeCalls += 1;
+        },
+      );
+
+      await waitFor(() => getStreamCallCount() > 0);
+
+      emitEvent("tool.start", {
+        toolName: "Bash",
+        toolInput: { command: "git status" },
+        toolUseID: "late-tool-1",
+      });
+
+      await waitFor(() => startedToolIds.length === 1);
+
+      firstStream.end();
+      await streamPromise;
+
+      expect(completeCalls).toBe(1);
+      expect(completedToolIds).toHaveLength(0);
+
+      emitEvent("tool.complete", {
+        toolName: "Bash",
+        toolResult: "ok",
+        success: true,
+        toolUseID: "late-tool-1",
+      });
+
+      await waitFor(() => completedToolIds.length === 1);
+      expect(completedToolIds[0]).toBe(startedToolIds[0]);
     } finally {
       await Promise.resolve(harness.onExit());
       await harness.uiPromise;

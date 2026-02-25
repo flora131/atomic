@@ -195,12 +195,11 @@ const STATUS_PRIORITY: Record<AgentStatus, number> = {
 };
 
 /**
- * Deduplicate agents that share the same `taskToolCallId`.
+ * Deduplicate duplicate logical sub-agents.
  *
- * When eager agent creation (at tool.start) and real agent creation
- * (at subagent.start) fail to merge, two entries appear for one
- * logical sub-agent. This function merges them into a single entry,
- * taking the best data from each (task description, tool uses, status).
+ * Primary path: merge entries that share a `taskToolCallId`.
+ * Fallback path: merge uncorrelated duplicates when one row still carries
+ * the generic placeholder task and another row has the real task text.
  */
 export function deduplicateAgents(agents: ParallelAgent[]): ParallelAgent[] {
   if (agents.length <= 1) return agents;
@@ -237,8 +236,10 @@ export function deduplicateAgents(agents: ParallelAgent[]): ParallelAgent[] {
     merged.push(best);
   }
 
-  if (!anyMerged) return agents;
-  return [...merged, ...ungrouped];
+  const dedupedUngrouped = deduplicateUncorrelatedAgents(ungrouped);
+
+  if (!anyMerged && !dedupedUngrouped.merged) return agents;
+  return [...merged, ...dedupedUngrouped.agents];
 }
 
 function mergeAgentPair(a: ParallelAgent, b: ParallelAgent): ParallelAgent {
@@ -267,6 +268,66 @@ function mergeAgentPair(a: ParallelAgent, b: ParallelAgent): ParallelAgent {
     durationMs: a.durationMs ?? b.durationMs,
     tokens: Math.max(a.tokens ?? 0, b.tokens ?? 0) || undefined,
   };
+}
+
+function canMergeUncorrelatedDuplicate(a: ParallelAgent, b: ParallelAgent): boolean {
+  if (a.taskToolCallId || b.taskToolCallId) return false;
+  if (a.name !== b.name) return false;
+
+  const aGenericTask = isGenericSubagentTask(a.task);
+  const bGenericTask = isGenericSubagentTask(b.task);
+  if (aGenericTask === bGenericTask) return false;
+
+  if (Boolean(a.background) !== Boolean(b.background)) return false;
+  if (a.result && b.result && a.result !== b.result) return false;
+  if (a.error && b.error && a.error !== b.error) return false;
+  if (a.toolUses !== undefined && b.toolUses !== undefined && a.toolUses !== b.toolUses) return false;
+
+  return true;
+}
+
+function deduplicateUncorrelatedAgents(agents: ParallelAgent[]): {
+  agents: ParallelAgent[];
+  merged: boolean;
+} {
+  if (agents.length <= 1) {
+    return { agents, merged: false };
+  }
+
+  const consumed = new Set<number>();
+  const mergedAgents: ParallelAgent[] = [];
+  let merged = false;
+
+  for (let i = 0; i < agents.length; i++) {
+    if (consumed.has(i)) continue;
+    const current = agents[i];
+    if (!current) continue;
+
+    let matchIndex = -1;
+    for (let j = i + 1; j < agents.length; j++) {
+      if (consumed.has(j)) continue;
+      const candidate = agents[j];
+      if (!candidate) continue;
+      if (canMergeUncorrelatedDuplicate(current, candidate)) {
+        matchIndex = j;
+        break;
+      }
+    }
+
+    if (matchIndex >= 0) {
+      const match = agents[matchIndex];
+      if (match) {
+        mergedAgents.push(mergeAgentPair(current, match));
+        consumed.add(matchIndex);
+        merged = true;
+        continue;
+      }
+    }
+
+    mergedAgents.push(current);
+  }
+
+  return { agents: merged ? mergedAgents : agents, merged };
 }
 
 export function buildAgentHeaderLabel(count: number, dominantType: string): string {

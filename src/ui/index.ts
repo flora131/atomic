@@ -226,6 +226,16 @@ function clearParallelAgents(state: ChatUIState) {
   state.parallelAgentHandler?.(state.parallelAgents);
 }
 
+function hasActiveParallelAgentWork(parallelAgents: readonly ParallelAgent[]): boolean {
+  return parallelAgents.some(
+    (agent) => agent.status === "running" || agent.status === "pending" || agent.status === "background"
+  );
+}
+
+function hasOpenStreamLifecycleWork(state: ChatUIState): boolean {
+  return hasActiveParallelAgentWork(state.parallelAgents) || state.activeToolIds.size > 0;
+}
+
 /**
  * Wraps an AsyncIterable so that each `iterator.next()` call races against an
  * AbortSignal. This ensures that abort takes effect immediately even while the
@@ -552,9 +562,7 @@ export async function startChatUI(
     // Internal cleanup gate for correlation tracking.
     // Keep completed agents around until late Task tool.complete events are consumed.
     const tryFinalizeParallelTracking = (): void => {
-      const hasActiveAgents = state.parallelAgents.some(
-        (a) => a.status === "running" || a.status === "pending" || a.status === "background"
-      );
+      const hasActiveAgents = hasActiveParallelAgentWork(state.parallelAgents);
       const hasPendingCorrelations =
         pendingTaskEntries.length > 0 || toolCallToAgentMap.size > 0;
       if (!hasActiveAgents && !hasPendingCorrelations) {
@@ -1069,6 +1077,14 @@ export async function startChatUI(
 
       clearToolRunTracking(toolId, sdkCorrelationId);
       tryFinalizeParallelTracking();
+
+      // The model stream can end before the final tool.complete hook event
+      // arrives. Keep ownership alive until all active tools/agents settle,
+      // then close the run after the late completion drains.
+      if (state.streamAbortController === null && !hasOpenStreamLifecycleWork(state)) {
+        state.isStreaming = false;
+        state.currentRunId = null;
+      }
     });
 
     // Subscribe to skill.invoked events
@@ -1784,10 +1800,7 @@ export async function startChatUI(
       // subagent.complete events continue to be processed.
       // Only match agents that are actually active (running/pending/background),
       // not completed background agents that happen to have background=true.
-      const hasActiveAgents = state.parallelAgents.some(
-        (a) => a.status === "running" || a.status === "pending" || a.status === "background"
-      );
-      if (!hasActiveAgents) {
+      if (!hasOpenStreamLifecycleWork(state)) {
         state.isStreaming = false;
         state.currentRunId = null;
       }

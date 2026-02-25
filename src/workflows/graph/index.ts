@@ -75,7 +75,7 @@ export {
 } from "./annotation.ts";
 
 // === Builder and node factories ===
-export type { LoopConfig, MergeStrategy, ParallelConfig } from "./builder.ts";
+export type { LoopConfig, MergeStrategy, ParallelConfig, SubAgentConfig, ToolBuilderConfig, IfConfig } from "./builder.ts";
 export {
   GraphBuilder,
   graph,

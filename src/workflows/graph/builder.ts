@@ -25,6 +25,7 @@ import type {
   RetryConfig,
   NodeType,
 } from "./types.ts";
+import type { SubagentResult } from "./subagent-bridge.ts";
 
 // ============================================================================
 // LOOP CONFIGURATION
@@ -83,6 +84,97 @@ export interface ParallelConfig<TState extends BaseState = BaseState> {
    * If not provided, results are stored in outputs.
    */
   merge?: (results: Map<NodeId, unknown>, state: TState) => Partial<TState>;
+}
+
+// ============================================================================
+// SUBAGENT CONFIG (for .subagent() builder method)
+// ============================================================================
+
+/**
+ * Configuration for the .subagent() builder method.
+ * Creates a subagent node from a config object.
+ *
+ * @template TState - The state type for the workflow
+ */
+export interface SubAgentConfig<TState extends BaseState> {
+  /** Unique identifier for this node */
+  id: string;
+  /** Agent name resolved from SubagentTypeRegistry */
+  agent: string;
+  /** Task prompt — static string or state-derived function */
+  task: string | ((state: TState) => string);
+  /** Override the agent's system prompt */
+  systemPrompt?: string | ((state: TState) => string);
+  /** Model override */
+  model?: string;
+  /** Tool allowlist */
+  tools?: string[];
+  /** Map agent result to state update */
+  outputMapper?: (result: SubagentResult, state: TState) => Partial<TState>;
+  /** Retry configuration */
+  retry?: RetryConfig;
+  /** Human-readable name */
+  name?: string;
+  /** Description of the node */
+  description?: string;
+}
+
+// ============================================================================
+// TOOL CONFIG (for .tool() builder method)
+// ============================================================================
+
+/**
+ * Configuration for the .tool() builder method.
+ * Creates a tool node from a config object.
+ *
+ * @template TState - The state type for the workflow
+ * @template TArgs - Tool argument type
+ * @template TResult - Tool result type
+ */
+export interface ToolBuilderConfig<TState extends BaseState, TArgs = unknown, TResult = unknown> {
+  /** Unique identifier for this node */
+  id: string;
+  /** Name of the tool being executed */
+  toolName?: string;
+  /** Tool execution function */
+  execute?: (args: TArgs, abortSignal?: AbortSignal) => Promise<TResult>;
+  /** Arguments — static object or state-derived function */
+  args?: TArgs | ((state: TState) => TArgs);
+  /** Map tool result to state update */
+  outputMapper?: (result: TResult, state: TState) => Partial<TState>;
+  /** Timeout in milliseconds */
+  timeout?: number;
+  /** Retry configuration */
+  retry?: RetryConfig;
+  /** Human-readable name */
+  name?: string;
+  /** Description of the node */
+  description?: string;
+}
+
+// ============================================================================
+// IF CONFIG (for .if() config-based builder method)
+// ============================================================================
+
+/**
+ * Configuration for the config-based .if() builder method.
+ * Encapsulates conditional logic with then/else_if/else branches containing
+ * NodeDefinition arrays, similar to how .loop() works.
+ *
+ * @template TState - The state type for the workflow
+ */
+export interface IfConfig<TState extends BaseState> {
+  /** Condition that determines which branch to take */
+  condition: (state: TState) => boolean;
+  /** Nodes to execute when condition is true */
+  then: NodeDefinition<TState>[];
+  /** Optional chained else_if conditions */
+  else_if?: {
+    condition: (state: TState) => boolean;
+    then: NodeDefinition<TState>[];
+  }[];
+  /** Nodes to execute when all conditions are false */
+  else?: NodeDefinition<TState>[];
 }
 
 // ============================================================================

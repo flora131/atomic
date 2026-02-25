@@ -183,7 +183,7 @@ export function detectDeadlock(tasks: TaskItem[]): DeadlockDiagnostic {
  * Tasks with invalid dependency metadata (missing/duplicate IDs, unknown blockers,
  * or cycles) are appended at the end in their original relative order.
  */
-export function sortTasksTopologically(tasks: TaskItem[]): TaskItem[] {
+export function sortTasksTopologically<T extends TaskItem>(tasks: readonly T[]): T[] {
   if (tasks.length <= 1) return [...tasks];
 
   const normalizedIds = tasks.map((task) => normalizeTaskId(task.id));

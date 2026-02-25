@@ -27,6 +27,7 @@ interface StreamHarness {
   onStreamMessage: NonNullable<ChatAppProps["onStreamMessage"]>;
   registerToolStartHandler: NonNullable<ChatAppProps["registerToolStartHandler"]>;
   registerToolCompleteHandler: NonNullable<ChatAppProps["registerToolCompleteHandler"]>;
+  registerParallelAgentHandler: NonNullable<ChatAppProps["registerParallelAgentHandler"]>;
   uiPromise: Promise<unknown>;
   restore: () => void;
 }
@@ -329,6 +330,7 @@ async function createStreamHarnessFromClient(client: CodingAgentClient): Promise
       || !chatAppProps.onInterrupt
       || !chatAppProps.registerToolStartHandler
       || !chatAppProps.registerToolCompleteHandler
+      || !chatAppProps.registerParallelAgentHandler
     ) {
       throw new Error("Failed to extract ChatApp stream callbacks");
     }
@@ -339,6 +341,7 @@ async function createStreamHarnessFromClient(client: CodingAgentClient): Promise
       onStreamMessage: chatAppProps.onStreamMessage,
       registerToolStartHandler: chatAppProps.registerToolStartHandler,
       registerToolCompleteHandler: chatAppProps.registerToolCompleteHandler,
+      registerParallelAgentHandler: chatAppProps.registerParallelAgentHandler,
       uiPromise,
       restore: () => {
         createRendererSpy.mockRestore();
@@ -794,6 +797,195 @@ describe("startChatUI thinking source key contract", () => {
 
       await waitFor(() => completedToolIds.length === 1);
       expect(completedToolIds[0]).toBe(startedToolIds[0]);
+    } finally {
+      await Promise.resolve(harness.onExit());
+      await harness.uiPromise;
+      harness.restore();
+    }
+  });
+
+  test("suppresses out-of-order Task echo text across parallel completions", async () => {
+    const { client, streams, emitEvent, getStreamCallCount } = createControlledClient(1);
+    const stream = streams[0];
+    if (!stream) {
+      throw new Error("Expected one controlled stream");
+    }
+
+    const harness = await createStreamHarnessFromClient(client);
+
+    try {
+      const chunks: string[] = [];
+      const startedToolIds: string[] = [];
+      const completedToolIds: string[] = [];
+
+      harness.registerParallelAgentHandler(() => {
+        return;
+      });
+      harness.registerToolStartHandler((toolId) => {
+        startedToolIds.push(toolId);
+      });
+      harness.registerToolCompleteHandler((toolId) => {
+        completedToolIds.push(toolId);
+      });
+
+      const streamPromise = harness.onStreamMessage(
+        "create spec",
+        (chunk) => {
+          chunks.push(chunk);
+        },
+        () => {
+          return;
+        },
+      );
+
+      await waitFor(() => getStreamCallCount() > 0);
+
+      emitEvent("tool.start", {
+        toolName: "Task",
+        toolInput: {
+          subagent_type: "codebase-locator",
+          description: "Analyze codebase structure",
+        },
+        toolUseID: "task-1",
+      });
+      emitEvent("tool.start", {
+        toolName: "Task",
+        toolInput: {
+          subagent_type: "codebase-research-locator",
+          description: "Analyze research documents",
+        },
+        toolUseID: "task-2",
+      });
+      await waitFor(() => startedToolIds.length === 2);
+
+      const resultOne = "Now I have comprehensive understanding of the codebase and research. Let me create the spec.";
+      const resultTwo = "Now I have a comprehensive understanding of the entire codebase, research, and existing specs. Let me create the spec document.";
+
+      emitEvent("tool.complete", {
+        toolName: "Task",
+        toolResult: { result: resultOne },
+        success: true,
+        toolUseID: "task-1",
+      });
+      emitEvent("tool.complete", {
+        toolName: "Task",
+        toolResult: { result: resultTwo },
+        success: true,
+        toolUseID: "task-2",
+      });
+      await waitFor(() => completedToolIds.length === 2);
+
+      stream.emit({
+        type: "text",
+        content: resultTwo,
+        role: "assistant",
+      });
+      stream.emit({
+        type: "text",
+        content: resultOne,
+        role: "assistant",
+      });
+      stream.emit({
+        type: "text",
+        content: "Spec is ready.",
+        role: "assistant",
+      });
+      stream.end();
+
+      await streamPromise;
+
+      expect(chunks.join("")).toBe("Spec is ready.");
+    } finally {
+      await Promise.resolve(harness.onExit());
+      await harness.uiPromise;
+      harness.restore();
+    }
+  });
+
+  test("does not clear Task echo suppression on sub-agent tool.start", async () => {
+    const { client, streams, emitEvent, getStreamCallCount } = createControlledClient(1);
+    const stream = streams[0];
+    if (!stream) {
+      throw new Error("Expected one controlled stream");
+    }
+
+    const harness = await createStreamHarnessFromClient(client);
+
+    try {
+      const chunks: string[] = [];
+      const completedToolIds: string[] = [];
+
+      harness.registerParallelAgentHandler(() => {
+        return;
+      });
+      harness.registerToolStartHandler(() => {
+        return;
+      });
+      harness.registerToolCompleteHandler((toolId) => {
+        completedToolIds.push(toolId);
+      });
+
+      const streamPromise = harness.onStreamMessage(
+        "create spec",
+        (chunk) => {
+          chunks.push(chunk);
+        },
+        () => {
+          return;
+        },
+      );
+
+      await waitFor(() => getStreamCallCount() > 0);
+
+      emitEvent("tool.start", {
+        toolName: "Task",
+        toolInput: {
+          subagent_type: "codebase-locator",
+          description: "Analyze codebase structure",
+        },
+        toolUseID: "task-a",
+      });
+      emitEvent("tool.start", {
+        toolName: "Task",
+        toolInput: {
+          subagent_type: "codebase-research-locator",
+          description: "Analyze research documents",
+        },
+        toolUseID: "task-b",
+      });
+
+      const taskResult = "Now I have comprehensive understanding of the codebase and research. Let me create the spec.";
+      emitEvent("tool.complete", {
+        toolName: "Task",
+        toolResult: { result: taskResult },
+        success: true,
+        toolUseID: "task-a",
+      });
+      await waitFor(() => completedToolIds.length === 1);
+
+      // This tool.start should be attributed to the still-running second
+      // sub-agent. It must not clear the pending echo suppression target.
+      emitEvent("tool.start", {
+        toolName: "Bash",
+        toolInput: { command: "git status" },
+        toolUseID: "subagent-bash-1",
+      });
+
+      stream.emit({
+        type: "text",
+        content: taskResult,
+        role: "assistant",
+      });
+      stream.emit({
+        type: "text",
+        content: "Proceeding with spec generation.",
+        role: "assistant",
+      });
+      stream.end();
+
+      await streamPromise;
+
+      expect(chunks.join("")).toBe("Proceeding with spec generation.");
     } finally {
       await Promise.resolve(harness.onExit());
       await harness.uiPromise;

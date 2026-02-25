@@ -109,6 +109,7 @@ atomic chat -a claude "/research-codebase Research implementing GraphRAG using \
 - [Telemetry](#telemetry)
 - [Troubleshooting](#troubleshooting)
 - [FAQ](#faq)
+- [Workflow Authoring Guide](docs/workflow-authors-getting-started.md)
 - [Contributing Guide](#contributing-guide)
 - [License](#license)
 - [Credits](#credits)
@@ -769,6 +770,7 @@ This keeps your main workspace free for other work while Ralph runs autonomously
 ## Contributing Guide
 
 See [DEV_SETUP.md](DEV_SETUP.md) for development setup, testing guidelines, and contribution workflow.
+For custom workflow authoring, see [docs/workflow-authors-getting-started.md](docs/workflow-authors-getting-started.md).
 
 ---
 

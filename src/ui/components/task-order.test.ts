@@ -80,6 +80,19 @@ describe("sortTasksTopologically", () => {
     expect(sorted.map((t) => t.id)).toEqual(["#3", "#1", "#2"]);
   });
 
+  test("keeps dependency chains contiguous around in_progress items", () => {
+    const tasks: TaskItem[] = [
+      task("#3", "verify", ["#2"], "pending"),
+      task("#1", "plan", [], "completed"),
+      task("#2", "implement", ["#1"], "in_progress"),
+    ];
+
+    const sorted = sortTasksTopologically(tasks);
+
+    expect(sorted.map((t) => t.id)).toEqual(["#1", "#2", "#3"]);
+    expect(sorted[1]!.status).toBe("in_progress");
+  });
+
   test("appends tasks with missing or duplicate ids", () => {
     const tasks: TaskItem[] = [
       task("#1", "duplicate one"),
@@ -528,4 +541,3 @@ describe("detectDeadlock", () => {
     }
   });
 });
-

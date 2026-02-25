@@ -7,6 +7,7 @@ import {
   normalizeTaskStatus,
   normalizeTodoItem,
   normalizeTodoItems,
+  reconcileTodoWriteItems,
   type NormalizedTaskItem,
 } from "./task-status.ts";
 
@@ -221,5 +222,91 @@ describe("mergeBlockedBy", () => {
     const merged = mergeBlockedBy(updated, previous);
     expect(merged[0]!.id).toBe("#z");
     expect(merged[0]!.blockedBy).toBeUndefined();
+  });
+});
+
+describe("reconcileTodoWriteItems", () => {
+  test("keeps todo updates topologically sorted by blockedBy", () => {
+    const previous = [
+      { id: "#1", content: "Plan", status: "completed" as const, activeForm: "Planning" },
+      {
+        id: "#2",
+        content: "Implement",
+        status: "pending" as const,
+        blockedBy: ["#1"],
+        activeForm: "Implementing",
+      },
+      {
+        id: "#3",
+        content: "Test",
+        status: "pending" as const,
+        blockedBy: ["#2"],
+        activeForm: "Testing",
+      },
+    ];
+
+    const incoming = [
+      { id: "#3", content: "Test", status: "pending", activeForm: "Testing" },
+      { id: "#1", content: "Plan", status: "completed", activeForm: "Planning" },
+      { id: "#2", content: "Implement", status: "in_progress", activeForm: "Implementing" },
+    ];
+
+    const reconciled = reconcileTodoWriteItems(incoming, previous);
+
+    expect(reconciled.map((item) => item.id)).toEqual(["#1", "#2", "#3"]);
+    expect(reconciled[1]!.status).toBe("in_progress");
+    expect(reconciled[1]!.blockedBy).toEqual(["#1"]);
+    expect(reconciled[2]!.blockedBy).toEqual(["#2"]);
+  });
+
+  test("restores missing ids/blockedBy before sorting follow-up updates", () => {
+    const previous = [
+      { id: "#1", content: "Plan", status: "completed" as const, activeForm: "Planning" },
+      {
+        id: "#2",
+        content: "Implement",
+        status: "in_progress" as const,
+        blockedBy: ["#1"],
+        activeForm: "Implementing",
+      },
+      {
+        id: "#3",
+        content: "Test",
+        status: "pending" as const,
+        blockedBy: ["#2"],
+        activeForm: "Testing",
+      },
+    ];
+
+    const incomingWithoutIds = [
+      { content: "Test", status: "pending", activeForm: "Testing" },
+      { content: "Implement", status: "completed", activeForm: "Implementing" },
+      { content: "Plan", status: "completed", activeForm: "Planning" },
+    ];
+
+    const reconciled = reconcileTodoWriteItems(incomingWithoutIds, previous);
+
+    expect(reconciled.map((item) => item.id)).toEqual(["#1", "#2", "#3"]);
+    expect(reconciled[1]!.blockedBy).toEqual(["#1"]);
+    expect(reconciled[2]!.blockedBy).toEqual(["#2"]);
+  });
+
+  test("keeps previous sibling order when blockedBy rank is equal", () => {
+    const previous = [
+      { id: "#1", content: "Setup", status: "completed" as const, activeForm: "Setting up" },
+      { id: "#2", content: "Lint", status: "pending" as const, activeForm: "Linting" },
+      { id: "#3", content: "Test", status: "pending" as const, activeForm: "Testing" },
+    ];
+
+    const incomingShuffled = [
+      { id: "#3", content: "Test", status: "in_progress", activeForm: "Testing" },
+      { id: "#1", content: "Setup", status: "completed", activeForm: "Setting up" },
+      { id: "#2", content: "Lint", status: "pending", activeForm: "Linting" },
+    ];
+
+    const reconciled = reconcileTodoWriteItems(incomingShuffled, previous);
+
+    expect(reconciled.map((item) => item.id)).toEqual(["#1", "#2", "#3"]);
+    expect(reconciled[2]!.status).toBe("in_progress");
   });
 });

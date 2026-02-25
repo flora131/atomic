@@ -1,9 +1,18 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, writeFile as fsWriteFile, rm } from "fs/promises";
+import { mkdtemp, mkdir, writeFile as fsWriteFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { CommandContext } from "./registry.ts";
-import { getWorkflowCommands, parseRalphArgs, watchTasksJson } from "./workflow-commands.ts";
+import { VERSION } from "../../version.ts";
+import { buildSpecToTasksPrompt } from "../../workflows/ralph/prompts.ts";
+import {
+  CUSTOM_WORKFLOW_SEARCH_PATHS,
+  discoverWorkflowFiles,
+  getWorkflowCommands,
+  loadWorkflowsFromDisk,
+  parseRalphArgs,
+  watchTasksJson,
+} from "./workflow-commands.ts";
 
 function createMockContext(overrides?: Partial<CommandContext>): CommandContext {
   return {
@@ -38,6 +47,24 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
   };
 }
 
+async function withWorkflowSearchPaths(
+  paths: string[],
+  run: () => Promise<void>,
+): Promise<void> {
+  const originalPaths = [...CUSTOM_WORKFLOW_SEARCH_PATHS];
+  CUSTOM_WORKFLOW_SEARCH_PATHS.splice(0, CUSTOM_WORKFLOW_SEARCH_PATHS.length, ...paths);
+  try {
+    await run();
+  } finally {
+    CUSTOM_WORKFLOW_SEARCH_PATHS.splice(
+      0,
+      CUSTOM_WORKFLOW_SEARCH_PATHS.length,
+      ...originalPaths,
+    );
+    await loadWorkflowsFromDisk();
+  }
+}
+
 describe("parseRalphArgs", () => {
   test("parses a prompt argument", () => {
     const result = parseRalphArgs("Build a feature");
@@ -51,6 +78,182 @@ describe("parseRalphArgs", () => {
   test("trims whitespace from prompt", () => {
     const result = parseRalphArgs("  Build a feature  ");
     expect(result).toEqual({ prompt: "Build a feature" });
+  });
+});
+
+describe("workflow metadata discovery", () => {
+  test("integration discovers workflows and preserves version metadata", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "workflow-discovery-metadata-"));
+    const localDir = join(tempRoot, "local");
+    const globalDir = join(tempRoot, "global");
+    await mkdir(localDir, { recursive: true });
+    await mkdir(globalDir, { recursive: true });
+
+    await fsWriteFile(
+      join(localDir, "versioned-discovery.ts"),
+      [
+        'export const name = "versioned-discovery";',
+        'export const description = "Local versioned workflow";',
+        'export const version = "3.0.0";',
+        `export const minSDKVersion = "${VERSION}";`,
+        "export const stateVersion = 7;",
+      ].join("\n"),
+    );
+    await fsWriteFile(
+      join(globalDir, "versioned-discovery.ts"),
+      [
+        'export const name = "versioned-discovery";',
+        'export const description = "Global versioned workflow";',
+        'export const version = "1.0.0";',
+        `export const minSDKVersion = "${VERSION}";`,
+        "export const stateVersion = 1;",
+      ].join("\n"),
+    );
+
+    try {
+      await withWorkflowSearchPaths([localDir, globalDir], async () => {
+        const discovered = discoverWorkflowFiles();
+        expect(
+          discovered.some(
+            (entry) =>
+              entry.path === join(localDir, "versioned-discovery.ts") && entry.source === "local",
+          ),
+        ).toBe(true);
+        expect(
+          discovered.some(
+            (entry) =>
+              entry.path === join(globalDir, "versioned-discovery.ts") && entry.source === "global",
+          ),
+        ).toBe(true);
+
+        const workflows = await loadWorkflowsFromDisk();
+        const metadata = workflows.find((workflow) => workflow.name === "versioned-discovery");
+        expect(metadata).toBeDefined();
+        expect(metadata?.description).toBe("Local versioned workflow");
+        expect(metadata?.version).toBe("3.0.0");
+        expect(metadata?.minSDKVersion).toBe(VERSION);
+        expect(metadata?.stateVersion).toBe(7);
+
+        const command = getWorkflowCommands().find((cmd) => cmd.name === "versioned-discovery");
+        expect(command).toBeDefined();
+        expect(command?.description).toBe("Local versioned workflow");
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("loads versioning metadata from custom workflows", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "workflow-version-metadata-"));
+    const localDir = join(tempRoot, "local");
+    await mkdir(localDir, { recursive: true });
+    await fsWriteFile(
+      join(localDir, "versioned.ts"),
+      [
+        'export const name = "versioned";',
+        'export const description = "Versioned workflow";',
+        'export const version = "2.1.0";',
+        `export const minSDKVersion = "${VERSION}";`,
+        "export const stateVersion = 3;",
+        "export function migrateState(_oldState: unknown, fromVersion: number) {",
+        "  return {",
+        "    executionId: `migrated-${fromVersion}`,",
+        '    lastUpdated: "1970-01-01T00:00:00.000Z",',
+        "    outputs: {},",
+        "  };",
+        "}",
+      ].join("\n"),
+    );
+
+    try {
+      await withWorkflowSearchPaths([localDir], async () => {
+        const workflows = await loadWorkflowsFromDisk();
+        const metadata = workflows.find((workflow) => workflow.name === "versioned");
+
+        expect(metadata).toBeDefined();
+        expect(metadata?.version).toBe("2.1.0");
+        expect(metadata?.minSDKVersion).toBe(VERSION);
+        expect(metadata?.stateVersion).toBe(3);
+        expect(typeof metadata?.migrateState).toBe("function");
+        expect(metadata?.migrateState?.({}, 3)).toEqual({
+          executionId: "migrated-3",
+          lastUpdated: "1970-01-01T00:00:00.000Z",
+          outputs: {},
+        });
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("warns when a workflow requires a newer SDK version", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "workflow-version-warning-"));
+    const localDir = join(tempRoot, "local");
+    await mkdir(localDir, { recursive: true });
+    await fsWriteFile(
+      join(localDir, "requires-new-sdk.ts"),
+      [
+        'export const name = "requires-new-sdk";',
+        'export const description = "Requires future SDK";',
+        'export const minSDKVersion = "999.0.0";',
+      ].join("\n"),
+    );
+
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: Parameters<typeof console.warn>) => {
+      warnings.push(args.map((value) => String(value)).join(" "));
+    };
+
+    try {
+      await withWorkflowSearchPaths([localDir], async () => {
+        await loadWorkflowsFromDisk();
+      });
+      expect(
+        warnings.some((warning) =>
+          warning.includes(`Workflow "requires-new-sdk" requires SDK 999.0.0, but current SDK is ${VERSION}.`),
+        ),
+      ).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("warns when minSDKVersion is not a valid semver", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "workflow-version-invalid-"));
+    const localDir = join(tempRoot, "local");
+    await mkdir(localDir, { recursive: true });
+    await fsWriteFile(
+      join(localDir, "invalid-sdk-version.ts"),
+      [
+        'export const name = "invalid-sdk-version";',
+        'export const description = "Invalid min SDK";',
+        'export const minSDKVersion = "next";',
+      ].join("\n"),
+    );
+
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: Parameters<typeof console.warn>) => {
+      warnings.push(args.map((value) => String(value)).join(" "));
+    };
+
+    try {
+      await withWorkflowSearchPaths([localDir], async () => {
+        await loadWorkflowsFromDisk();
+      });
+      expect(
+        warnings.some((warning) =>
+          warning.includes(
+            'Workflow "invalid-sdk-version" has invalid minSDKVersion "next". Expected semver format like "1.2.3".',
+          ),
+        ),
+      ).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 });
 
@@ -783,6 +986,75 @@ describe("workflow inline mode", () => {
 });
 
 describe("workflow inline mode integration", () => {
+  test("#39 - Ralph workflow executes with extracted prompt builders", async () => {
+    const streamPrompts: string[] = [];
+    let sessionDir: string | null = null;
+    let workerTaskPrompt = "";
+
+    const context = createMockContext({
+      streamAndWait: async (prompt: string) => {
+        streamPrompts.push(prompt);
+
+        if (streamPrompts.length === 1) {
+          return {
+            content: JSON.stringify([
+              {
+                id: "#1",
+                content: "Implement extraction-safe integration coverage",
+                status: "pending",
+                activeForm: "Implementing extraction-safe integration coverage",
+              },
+            ]),
+            wasInterrupted: false,
+          };
+        }
+
+        return { content: "", wasInterrupted: false };
+      },
+      spawnSubagentParallel: async (agents) => {
+        workerTaskPrompt = agents[0]?.task ?? "";
+        return agents.map((agent) => ({
+          agentId: agent.agentId,
+          success: true,
+          output: "done",
+          toolUses: 1,
+          durationMs: 10,
+        }));
+      },
+      spawnSubagent: async () => ({
+        success: true,
+        output: JSON.stringify({
+          findings: [],
+          overall_correctness: "correct",
+          overall_explanation: "LGTM",
+          overall_confidence_score: 1.0,
+        }),
+      }),
+      setRalphSessionDir: (dir: string | null) => {
+        sessionDir = dir;
+        if (dir) {
+          const { mkdirSync } = require("fs");
+          mkdirSync(dir, { recursive: true });
+        }
+      },
+    });
+
+    const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
+    expect(ralphCommand).toBeDefined();
+
+    const initialPrompt = "Verify extraction stability";
+    const result = await ralphCommand!.execute(initialPrompt, context);
+
+    expect(streamPrompts[0]).toBe(buildSpecToTasksPrompt(initialPrompt));
+    expect(workerTaskPrompt).toContain("Implement extraction-safe integration coverage");
+    expect(result.success).toBe(true);
+    expect(result.stateUpdate?.workflowActive).toBe(false);
+
+    if (sessionDir) {
+      await rm(sessionDir, { recursive: true, force: true });
+    }
+  });
+
   test("#16 - Ralph end-to-end without clearContext calls", async () => {
     let clearContextCalled = false;
     let streamCallCount = 0;

@@ -1,3 +1,5 @@
+import { sortTasksTopologically } from "../components/task-order.ts";
+
 /**
  * Task status normalization helpers.
  *
@@ -84,6 +86,56 @@ function normalizeBlockedBy(value: unknown): string[] | undefined {
     .filter((item) => item.length > 0);
 
   return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeStableTaskContent(content: string): string {
+  return content.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function getStableTaskKey(task: { id?: string; content: string }): string {
+  const normalizedId = task.id?.trim().toLowerCase();
+  if (normalizedId) {
+    return `id:${normalizedId}`;
+  }
+
+  const normalizedContent = normalizeStableTaskContent(task.content);
+  if (normalizedContent.length > 0) {
+    return `content:${normalizedContent}`;
+  }
+
+  return "";
+}
+
+function stabilizeByPreviousOrder<T extends NormalizedTaskItem>(
+  tasks: readonly T[],
+  previous: readonly NormalizedTaskItem[],
+): T[] {
+  if (tasks.length <= 1 || previous.length === 0) {
+    return [...tasks];
+  }
+
+  const previousRank = new Map<string, number>();
+  for (let index = 0; index < previous.length; index++) {
+    const task = previous[index];
+    if (!task) continue;
+    const key = getStableTaskKey(task);
+    if (!key || previousRank.has(key)) continue;
+    previousRank.set(key, index);
+  }
+
+  if (previousRank.size === 0) {
+    return [...tasks];
+  }
+
+  return [...tasks].sort((left, right) => {
+    const leftRank = previousRank.get(getStableTaskKey(left));
+    const rightRank = previousRank.get(getStableTaskKey(right));
+
+    if (leftRank === undefined && rightRank === undefined) return 0;
+    if (leftRank === undefined) return 1;
+    if (rightRank === undefined) return -1;
+    return leftRank - rightRank;
+  });
 }
 
 export function isTaskStatus(status: unknown): status is TaskStatus {
@@ -204,4 +256,18 @@ export function mergeBlockedBy<T extends NormalizedTaskItem>(
       blockedBy: restoredBlockedBy,
     };
   });
+}
+
+/**
+ * Normalize a TodoWrite payload, restore missing dependency metadata, and
+ * apply a stable dependency-aware order for rendering.
+ */
+export function reconcileTodoWriteItems(
+  incomingTodos: unknown,
+  previous: readonly NormalizedTodoItem[] = [],
+): NormalizedTodoItem[] {
+  const normalized = normalizeTodoItems(incomingTodos);
+  const merged = mergeBlockedBy(normalized, previous);
+  const stabilized = stabilizeByPreviousOrder(merged, previous);
+  return sortTasksTopologically(stabilized);
 }

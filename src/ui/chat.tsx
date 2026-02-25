@@ -555,10 +555,14 @@ export function resolveValidatedThinkingMetaEvent(
   }
 
   const sourceTargetMessageId = meta.thinkingMessageBySource?.[sourceKey];
-  if (typeof sourceTargetMessageId !== "string" || sourceTargetMessageId.length === 0) {
-    return recordDrop("missing_binding", sourceKey, "missing targetMessageId binding");
-  }
-  if (sourceTargetMessageId !== expectedMessageId) {
+  // When no explicit targetMessageId binding exists (SDK clients don't emit one),
+  // default to the current streaming message — thinking events arriving on the
+  // active stream belong to the active message.
+  const resolvedTargetMessageId =
+    typeof sourceTargetMessageId === "string" && sourceTargetMessageId.length > 0
+      ? sourceTargetMessageId
+      : expectedMessageId;
+  if (resolvedTargetMessageId !== expectedMessageId) {
     return recordDrop("stale_or_closed", sourceKey, "targetMessageId mismatch");
   }
 
@@ -572,7 +576,7 @@ export function resolveValidatedThinkingMetaEvent(
 
   return {
     thinkingSourceKey: sourceKey,
-    targetMessageId: sourceTargetMessageId,
+    targetMessageId: resolvedTargetMessageId,
     streamGeneration: sourceGeneration,
     thinkingText: meta.thinkingTextBySource?.[sourceKey] ?? meta.thinkingText,
   };
@@ -4588,7 +4592,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             void Promise.resolve(onTerminateBackgroundAgents?.()).catch((error) => {
               console.error("[background-termination] parent callback failed:", error);
             });
-            addMessage("assistant", `${STATUS.error} ${decision.message}`);
+            addMessage("system", `${STATUS.active} ${decision.message}`);
             backgroundTerminationInFlightRef.current = false;
             return;
           }

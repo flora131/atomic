@@ -59,17 +59,22 @@ describe("resolveValidatedThinkingMetaEvent", () => {
     });
   });
 
-  test("increments missing-binding counter when source message binding is absent", () => {
+  test("defaults to expectedMessageId when source message binding is absent", () => {
     const diagnostics = createDiagnostics();
 
     const event = resolveValidatedThinkingMetaEvent(createMeta({
       thinkingMessageBySource: {},
     }), "msg-1", 3, undefined, diagnostics);
 
-    expect(event).toBeNull();
+    expect(event).toEqual({
+      thinkingSourceKey: sourceKey,
+      targetMessageId: "msg-1",
+      streamGeneration: 3,
+      thinkingText: "source thought",
+    });
     expect(diagnostics).toEqual({
       droppedStaleOrClosedThinkingEvents: 0,
-      droppedMissingBindingThinkingEvents: 1,
+      droppedMissingBindingThinkingEvents: 0,
     });
   });
 

@@ -121,6 +121,38 @@ describe("deduplicateAgents", () => {
     expect(result[0]!.result).toBe("All good");
     expect(result[0]!.error).toBe("Oops");
   });
+
+  test("merges uncorrelated generic+descriptive duplicates for same agent", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({
+        id: "agent-generic",
+        name: "debugger",
+        task: "Sub-agent task",
+        toolUses: 12,
+      }),
+      makeAgent({
+        id: "agent-real",
+        name: "debugger",
+        task: "Debug stuck spinner",
+        toolUses: 12,
+      }),
+    ];
+
+    const result = deduplicateAgents(agents);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.task).toBe("Debug stuck spinner");
+    expect(result[0]!.toolUses).toBe(12);
+  });
+
+  test("does not merge uncorrelated descriptive tasks for same agent name", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({ id: "agent-1", name: "debugger", task: "Debug stuck spinner" }),
+      makeAgent({ id: "agent-2", name: "debugger", task: "Investigate login timeout" }),
+    ];
+
+    const result = deduplicateAgents(agents);
+    expect(result).toHaveLength(2);
+  });
 });
 
 describe("getBackgroundSubStatusText", () => {

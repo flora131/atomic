@@ -483,7 +483,7 @@ describe("buildReviewPrompt", () => {
       { id: "#1", content: "Add login", status: "completed", activeForm: "Adding login" },
     ];
     const userPrompt = "Implement user authentication";
-    const prompt = buildReviewPrompt(tasks, userPrompt);
+    const prompt = buildReviewPrompt(tasks, userPrompt, "/tmp/progress.txt");
 
     expect(prompt).toContain("Implement user authentication");
     expect(prompt).toContain("<user_request>");
@@ -496,7 +496,7 @@ describe("buildReviewPrompt", () => {
       { id: "#2", content: "Add API", status: "completed", activeForm: "Adding API" },
       { id: "#3", content: "Not done yet", status: "pending", activeForm: "Working" },
     ];
-    const prompt = buildReviewPrompt(tasks, "Build backend");
+    const prompt = buildReviewPrompt(tasks, "Build backend", "/tmp/progress.txt");
 
     expect(prompt).toContain("#1");
     expect(prompt).toContain("Setup DB");
@@ -505,11 +505,20 @@ describe("buildReviewPrompt", () => {
     expect(prompt).not.toContain("Not done yet");
   });
 
+  test("includes progress file path", () => {
+    const tasks: TaskItem[] = [
+      { id: "#1", content: "Task", status: "completed", activeForm: "Working" },
+    ];
+    const prompt = buildReviewPrompt(tasks, "Test", "/session/progress.txt");
+
+    expect(prompt).toContain("/session/progress.txt");
+  });
+
   test("includes review focus areas", () => {
     const tasks: TaskItem[] = [
       { id: "#1", content: "Task", status: "completed", activeForm: "Working" },
     ];
-    const prompt = buildReviewPrompt(tasks, "Test");
+    const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt");
 
     expect(prompt).toContain("Correctness of Logic");
     expect(prompt).toContain("Error Handling");
@@ -523,7 +532,7 @@ describe("buildReviewPrompt", () => {
     const tasks: TaskItem[] = [
       { id: "#1", content: "Task", status: "completed", activeForm: "Working" },
     ];
-    const prompt = buildReviewPrompt(tasks, "Test");
+    const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt");
 
     expect(prompt).toContain("findings");
     expect(prompt).toContain("overall_correctness");
@@ -535,7 +544,7 @@ describe("buildReviewPrompt", () => {
     const tasks: TaskItem[] = [
       { id: "#1", content: "Task", status: "completed", activeForm: "Working" },
     ];
-    const prompt = buildReviewPrompt(tasks, "Test");
+    const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt");
 
     expect(prompt).toContain("P0");
     expect(prompt).toContain("P1");
@@ -549,7 +558,7 @@ describe("buildReviewPrompt", () => {
     const tasks: TaskItem[] = [
       { content: "Unnamed task", status: "completed", activeForm: "Working" },
     ];
-    const prompt = buildReviewPrompt(tasks, "Test");
+    const prompt = buildReviewPrompt(tasks, "Test", "/tmp/progress.txt");
 
     expect(prompt).toContain("?");
     expect(prompt).toContain("Unnamed task");

@@ -4,6 +4,7 @@ import {
   buildTaskListPreamble,
   buildWorkerAssignment,
   buildBootstrappedTaskContext,
+  buildDagDispatchPrompt,
   buildReviewPrompt,
   parseReviewResult,
   buildFixSpecFromReview,
@@ -805,5 +806,86 @@ describe("buildFixSpecFromReview", () => {
 
     expect(spec).toContain("Rubric");
     expect(spec).toContain("fix is complete when");
+  });
+});
+
+describe("buildDagDispatchPrompt", () => {
+  test("includes session ID and progress", () => {
+    const allTasks: TaskItem[] = [
+      { id: "#1", content: "Task A", status: "completed", activeForm: "Working" },
+      { id: "#2", content: "Task B", status: "pending", activeForm: "Working" },
+    ];
+    const readyTasks: TaskItem[] = [
+      { id: "#2", content: "Task B", status: "pending", activeForm: "Working" },
+    ];
+    const prompt = buildDagDispatchPrompt(allTasks, readyTasks, "test-session");
+
+    expect(prompt).toContain("test-session");
+    expect(prompt).toContain("1/2 tasks completed");
+  });
+
+  test("lists all ready tasks explicitly", () => {
+    const allTasks: TaskItem[] = [
+      { id: "#1", content: "Task A", status: "pending", activeForm: "Doing A" },
+      { id: "#2", content: "Task B", status: "pending", activeForm: "Doing B" },
+      { id: "#3", content: "Task C", status: "pending", activeForm: "Doing C" },
+    ];
+    const readyTasks = allTasks;
+    const prompt = buildDagDispatchPrompt(allTasks, readyTasks, "s1");
+
+    expect(prompt).toContain("- #1: Task A");
+    expect(prompt).toContain("- #2: Task B");
+    expect(prompt).toContain("- #3: Task C");
+    expect(prompt).toContain("3 task(s)");
+  });
+
+  test("instructs parallel dispatch", () => {
+    const allTasks: TaskItem[] = [
+      { id: "#1", content: "Task A", status: "pending", activeForm: "Working" },
+    ];
+    const prompt = buildDagDispatchPrompt(allTasks, allTasks, "s1");
+
+    expect(prompt).toContain("parallel");
+    expect(prompt).toContain("simultaneously");
+  });
+
+  test("handles empty ready tasks", () => {
+    const allTasks: TaskItem[] = [
+      { id: "#1", content: "Task A", status: "pending", activeForm: "Working", blockedBy: ["#2"] },
+      { id: "#2", content: "Task B", status: "error", activeForm: "Working" },
+    ];
+    const prompt = buildDagDispatchPrompt(allTasks, [], "s1");
+
+    expect(prompt).toContain("0 task(s)");
+    expect(prompt).toContain("No tasks are currently ready");
+  });
+
+  test("includes task list JSON", () => {
+    const allTasks: TaskItem[] = [
+      { id: "#1", content: "Task A", status: "completed", activeForm: "Working" },
+      { id: "#2", content: "Task B", status: "pending", activeForm: "Working" },
+    ];
+    const prompt = buildDagDispatchPrompt(allTasks, [allTasks[1]!], "s1");
+
+    expect(prompt).toContain('"#1"');
+    expect(prompt).toContain('"completed"');
+    expect(prompt).toContain('"#2"');
+    expect(prompt).toContain('"pending"');
+  });
+
+  test("only lists ready tasks in dispatch section, not all tasks", () => {
+    const allTasks: TaskItem[] = [
+      { id: "#1", content: "Done task", status: "completed", activeForm: "Done" },
+      { id: "#2", content: "Ready task", status: "pending", activeForm: "Ready" },
+      { id: "#3", content: "Blocked task", status: "pending", activeForm: "Blocked", blockedBy: ["#2"] },
+    ];
+    const readyTasks: TaskItem[] = [allTasks[1]!];
+    const prompt = buildDagDispatchPrompt(allTasks, readyTasks, "s1");
+
+    // Ready Tasks section should list #2 but not #1 or #3
+    const readySection = prompt.split("# Ready Tasks")[1]?.split("# Instructions")[0] ?? "";
+    expect(readySection).toContain("- #2: Ready task");
+    expect(readySection).not.toContain("- #1:");
+    expect(readySection).not.toContain("- #3:");
   });
 });

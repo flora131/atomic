@@ -180,6 +180,55 @@ Some tasks are still incomplete. Continue processing tasks in dependency order. 
 }
 
 // ============================================================================
+// STEP 2B: DAG DISPATCH (PARALLEL READY-TASK EXECUTION)
+// ============================================================================
+
+/**
+ * Build a prompt that explicitly lists ALL ready tasks for parallel dispatch.
+ *
+ * Unlike buildBootstrappedTaskContext / buildContinuePrompt, this prompt
+ * enumerates the tasks identified by getReadyTasks() so the agent dispatches
+ * workers for every independent task in a single turn using parallel tool calls.
+ */
+export function buildDagDispatchPrompt(
+  allTasks: readonly { id?: string; content: string; status: string; blockedBy?: string[] }[],
+  readyTasks: readonly { id?: string; content: string }[],
+  sessionId: string,
+): string {
+  const taskListJson = JSON.stringify(allTasks, null, 2);
+  const completed = allTasks.filter((t) => isCompletedStatus(t.status)).length;
+  const total = allTasks.length;
+
+  const readySection = readyTasks.length > 0
+    ? readyTasks.map((task) => `- ${task.id ?? "?"}: ${task.content}`).join("\n")
+    : "No tasks are currently ready (all pending tasks have unmet dependencies).";
+
+  return `# Ralph Session — DAG Dispatch
+
+Session ID: ${sessionId}
+Progress: ${completed}/${total} tasks completed
+Ready for parallel dispatch: ${readyTasks.length} task(s)
+
+Current task state:
+
+\`\`\`json
+${taskListJson}
+\`\`\`
+
+# Ready Tasks
+
+${readySection}
+
+# Instructions
+
+- Dispatch a worker sub-agent for EACH ready task shown above.
+- Use parallel tool calls to dispatch ALL ${readyTasks.length} workers simultaneously — do NOT process them sequentially.
+- Each worker should receive its task ID, description, and context about completed tasks.
+- Update TodoWrite after each worker completes.
+- After all workers finish, report progress.`;
+}
+
+// ============================================================================
 // STEP 3: REVIEW & FIX
 // ============================================================================
 

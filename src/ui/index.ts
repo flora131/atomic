@@ -213,10 +213,10 @@ interface ChatUIState {
   resetParallelTracking: ((reason: string) => void) | null;
   /**
    * Suppress streaming text that is a raw JSON echo of the Task tool result.
-   * When set, holds the result text so suppression is content-aware.
-   * Reset when the model produces non-echo text or starts a new tool.
+   * Holds a short FIFO of recent Task result texts so suppression stays
+   * correct when multiple Task tools complete in parallel.
    */
-  suppressPostTaskResult: string | null;
+  suppressPostTaskResults: string[];
   /** Native TUI telemetry tracker (null when telemetry is disabled or agent type is unknown) */
   telemetryTracker: TuiTelemetrySessionTracker | null;
 }
@@ -367,7 +367,7 @@ export async function startChatUI(
     runCounter: 0,
     currentRunId: null,
     resetParallelTracking: null,
-    suppressPostTaskResult: null,
+    suppressPostTaskResults: [],
     telemetryTracker: agentType
       ? createTuiTelemetrySessionTracker({
         agentType,
@@ -559,7 +559,7 @@ export async function startChatUI(
       toolNameToIds.clear();
       toolNameToId.clear();
       state.activeToolIds.clear();
-      state.suppressPostTaskResult = null;
+      state.suppressPostTaskResults = [];
       clearParallelAgents(state);
     };
     state.resetParallelTracking = resetParallelTracking;
@@ -793,11 +793,6 @@ export async function startChatUI(
         state.parallelAgentHandler(state.parallelAgents);
       }
 
-      // Reset post-task text suppression when the model invokes a new tool —
-      // the model has moved past any potential JSON echo of the previous
-      // task result and is generating new output.
-      state.suppressPostTaskResult = null;
-
       // Propagate tool progress to running subagents in the parallel agents tree.
       // SDK events (subagent.start / subagent.complete) don't carry intermediate
       // tool-use updates, so we bridge that gap here by attributing each tool.start
@@ -854,6 +849,13 @@ export async function startChatUI(
             state.parallelAgentHandler(state.parallelAgents);
           }
         }
+      }
+
+      // Reset post-task text suppression only when a foreground non-Task tool
+      // starts. Sub-agent tool.start events can arrive between Task completion
+      // and the model's echoed text, so clearing there would leak the echo.
+      if (!isSubagentTool && !isTaskTool) {
+        state.suppressPostTaskResults = [];
       }
 
       // Only dispatch to the main chat UI for non-subagent tools.
@@ -1079,7 +1081,12 @@ export async function startChatUI(
           ? state.parallelAgents.find(a => a.id === agentId)
           : undefined;
         if (!agentForSuppress || shouldFinalizeOnToolComplete(agentForSuppress)) {
-          state.suppressPostTaskResult = resultStr ?? null;
+          if (resultStr && !state.suppressPostTaskResults.includes(resultStr)) {
+            state.suppressPostTaskResults.push(resultStr);
+            if (state.suppressPostTaskResults.length > 8) {
+              state.suppressPostTaskResults.shift();
+            }
+          }
         }
       } else if (
         isTaskTool &&
@@ -1575,7 +1582,7 @@ export async function startChatUI(
       const allowStreamToolEvents = !state.toolEventsViaHooks || agentType === "opencode";
 
       // Reset the suppress state at the start of each stream
-      state.suppressPostTaskResult = null;
+      state.suppressPostTaskResults = [];
 
       // Prefix-based accumulator for post-task text suppression.
       // Tracks accumulated text so we can check if the model is echoing the
@@ -1589,6 +1596,25 @@ export async function startChatUI(
       // formatting (paragraph breaks / newlines) from the model's output.
       let suppressWhitespacePrefix = "";
       let suppressHasTextMatch = false;
+
+      const resetSuppressMatcher = (): void => {
+        suppressAccumulator = "";
+        suppressTarget = null;
+        suppressWhitespacePrefix = "";
+        suppressHasTextMatch = false;
+      };
+
+      const removeSuppressTarget = (target: string): void => {
+        const idx = state.suppressPostTaskResults.indexOf(target);
+        if (idx !== -1) {
+          state.suppressPostTaskResults.splice(idx, 1);
+        }
+      };
+
+      const pickSuppressTarget = (candidate: string): string | null => {
+        const target = state.suppressPostTaskResults.find((resultText) => resultText.startsWith(candidate));
+        return target ?? null;
+      };
 
       const toStringRecord = (sourceMap: Map<string, string>): Record<string, string> => {
         const record: Record<string, string> = {};
@@ -1665,61 +1691,69 @@ export async function startChatUI(
             thinkingStartLocal = null;
           }
 
-          // After a Task tool completes, the SDK model may echo back the raw
-          // tool_response as streaming text. Suppress only text that looks
-          // like the echoed result (starts with JSON delimiters or sequentially
-          // matches the stored result from the beginning). Once non-echo text
-          // arrives, clear the suppression so the model's real response flows.
-          const cachedResult = state.suppressPostTaskResult;
-          // Reset accumulator when suppression target changes
-          if (cachedResult !== suppressTarget) {
-            suppressAccumulator = "";
-            suppressTarget = cachedResult;
-            suppressWhitespacePrefix = "";
-            suppressHasTextMatch = false;
-          }
-          if (cachedResult !== null) {
-            const trimmed = message.content.trim();
-            if (trimmed.length === 0) {
-              // Accumulate whitespace while suppression is active
-              suppressAccumulator += message.content;
-              if (!suppressHasTextMatch) {
-                suppressWhitespacePrefix += message.content;
+          // After Task tools complete, some SDKs echo raw tool results back as
+          // streaming text. Suppress content that is likely this echo while
+          // allowing genuine follow-up response text to flow through.
+          let chunkToEmit = message.content;
+          if (state.suppressPostTaskResults.length > 0 || suppressTarget !== null) {
+            let shouldReprocess = true;
+            while (shouldReprocess) {
+              shouldReprocess = false;
+
+              if (suppressTarget !== null && !state.suppressPostTaskResults.includes(suppressTarget)) {
+                resetSuppressMatcher();
               }
-              continue;
+
+              const hasSuppressionTargets = state.suppressPostTaskResults.length > 0 || suppressTarget !== null;
+              if (!hasSuppressionTargets) {
+                break;
+              }
+
+              const trimmed = chunkToEmit.trim();
+              if (trimmed.length === 0) {
+                suppressAccumulator += chunkToEmit;
+                if (!suppressHasTextMatch) {
+                  suppressWhitespacePrefix += chunkToEmit;
+                }
+                chunkToEmit = "";
+                break;
+              }
+
+              const isJsonEcho = trimmed.startsWith("{") || trimmed.startsWith("[");
+              if (isJsonEcho) {
+                chunkToEmit = "";
+                break;
+              }
+
+              const candidate = (suppressAccumulator + chunkToEmit).trimStart();
+              const matchedTarget: string | null = suppressTarget !== null && suppressTarget.startsWith(candidate)
+                ? suppressTarget
+                : pickSuppressTarget(candidate);
+              if (matchedTarget !== null) {
+                suppressTarget = matchedTarget;
+                suppressAccumulator += chunkToEmit;
+                suppressHasTextMatch = true;
+                chunkToEmit = "";
+                break;
+              }
+
+              const recoveredWhitespace = suppressWhitespacePrefix;
+              const matchedEchoTarget = suppressHasTextMatch ? suppressTarget : null;
+              resetSuppressMatcher();
+              if (matchedEchoTarget !== null) {
+                removeSuppressTarget(matchedEchoTarget);
+              }
+              if (recoveredWhitespace.length > 0) {
+                onChunk(recoveredWhitespace);
+              }
+              if (state.suppressPostTaskResults.length > 0) {
+                shouldReprocess = true;
+              }
             }
-            const isJsonEcho = trimmed.startsWith("{") || trimmed.startsWith("[");
-            if (isJsonEcho) {
-              continue;
-            }
-            // Check if accumulated text + current chunk is a prefix of the
-            // cached result. When the model echoes a result, text arrives
-            // sequentially matching from the start of the result string.
-            // The old substring check (`cachedResult.indexOf(trimmed) !== -1`)
-            // was too aggressive — small streaming chunks (single words) are
-            // almost always found as substrings of long result strings, which
-            // incorrectly suppressed the model's genuine follow-up text.
-            const candidate = (suppressAccumulator + message.content).trimStart();
-            if ((cachedResult as string).startsWith(candidate)) {
-              suppressAccumulator += message.content;
-              suppressHasTextMatch = true;
-              continue;
-            }
-            // Not an echo — clear suppression, let this chunk through.
-            // Recover leading whitespace that was provisionally suppressed
-            // before any echo text matched (likely genuine paragraph breaks).
-            if (suppressWhitespacePrefix.length > 0) {
-              onChunk(suppressWhitespacePrefix);
-            }
-            state.suppressPostTaskResult = null;
-            suppressTarget = null;
-            suppressAccumulator = "";
-            suppressWhitespacePrefix = "";
-            suppressHasTextMatch = false;
           }
 
-          if (message.content.length > 0) {
-            onChunk(message.content);
+          if (chunkToEmit.length > 0) {
+            onChunk(chunkToEmit);
           }
 
           // Use SDK-reported token counts when present
@@ -1837,9 +1871,12 @@ export async function startChatUI(
       onComplete();
     } catch (error) {
       closeThinkingSourcesAndClearMaps();
-      // Ignore AbortError - this is expected when user interrupts
+      // AbortError is expected when user interrupts — finalize cleanly
       if (error instanceof Error && error.name === "AbortError") {
-        // Stream was intentionally aborted
+        state.currentRunId = null;
+        state.resetParallelTracking?.("stream_abort");
+        onComplete();
+        return;
       } else if (error instanceof Error && error.name === "ThinkingSourceContractViolationError") {
         state.currentRunId = null;
         state.resetParallelTracking?.("stream_error");

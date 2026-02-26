@@ -30,11 +30,15 @@ export function coalescingKey(event: BusEvent): string | undefined {
       return `agent.start:${data.agentId}`;
     }
 
-    // Session status coalesces by session
+    // Session status: each type gets its own key to prevent start being
+    // replaced by idle/error within the same batch window (which would
+    // prevent CorrelationService.startRun() from ever firing).
     case "stream.session.start":
+      return `session.start:${event.sessionId}`;
     case "stream.session.idle":
+      return `session.idle:${event.sessionId}`;
     case "stream.session.error":
-      return `session:${event.sessionId}`;
+      return `session.error:${event.sessionId}`;
 
     // Workflow task list coalesces per workflow
     case "workflow.task.update": {

@@ -143,6 +143,10 @@ export class AtomicEventBus {
         schema.parse(event.data);
       } catch (error) {
         console.error(`[EventBus] Schema validation failed for ${event.type}:`, error);
+        // DEBUG: Log the actual event data that failed validation
+        if (event.type.startsWith("stream.tool.")) {
+          console.error(`[EventBus] Rejected tool event data:`, JSON.stringify(event.data));
+        }
         return;
       }
     }

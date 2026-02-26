@@ -2262,6 +2262,34 @@ export function ChatApp({
           return msg;
         })
       );
+    } else {
+      // Fallback: when streamingMessageIdRef is already null (e.g. race between
+      // stream.text.complete firing via direct bus subscription and batched
+      // tool-start events arriving via the 16ms batch dispatcher), find the most
+      // recent assistant message inside the state updater.
+      setMessagesWindowed((prev) => {
+        let targetId: string | undefined;
+        for (let i = prev.length - 1; i >= 0; i--) {
+          const msg = prev[i]!;
+          if (msg.role === "assistant") {
+            targetId = msg.id;
+            break;
+          }
+        }
+        if (!targetId) return prev;
+        toolMessageIdByIdRef.current.set(toolId, targetId);
+        return prev.map((msg) => {
+          if (msg.id === targetId) {
+            return applyStreamPartEvent(msg, {
+              type: "tool-start",
+              toolId,
+              toolName,
+              input,
+            });
+          }
+          return msg;
+        });
+      });
     }
 
     // Update persistent todo panel when TodoWrite is called

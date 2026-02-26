@@ -185,8 +185,8 @@ describe("coalescingKey()", () => {
     });
   });
 
-  describe("session events (return session:{sessionId})", () => {
-    it("should return session:${sessionId} for stream.session.start", () => {
+  describe("session events (each type gets unique key)", () => {
+    it("should return session.start:${sessionId} for stream.session.start", () => {
       const event: BusEvent<"stream.session.start"> = {
         type: "stream.session.start",
         sessionId: "session-abc",
@@ -198,10 +198,10 @@ describe("coalescingKey()", () => {
       };
 
       const key = coalescingKey(event);
-      expect(key).toBe("session:session-abc");
+      expect(key).toBe("session.start:session-abc");
     });
 
-    it("should return session:${sessionId} for stream.session.idle", () => {
+    it("should return session.idle:${sessionId} for stream.session.idle", () => {
       const event: BusEvent<"stream.session.idle"> = {
         type: "stream.session.idle",
         sessionId: "session-xyz",
@@ -213,10 +213,10 @@ describe("coalescingKey()", () => {
       };
 
       const key = coalescingKey(event);
-      expect(key).toBe("session:session-xyz");
+      expect(key).toBe("session.idle:session-xyz");
     });
 
-    it("should return session:${sessionId} for stream.session.error", () => {
+    it("should return session.error:${sessionId} for stream.session.error", () => {
       const event: BusEvent<"stream.session.error"> = {
         type: "stream.session.error",
         sessionId: "session-err",
@@ -229,7 +229,7 @@ describe("coalescingKey()", () => {
       };
 
       const key = coalescingKey(event);
-      expect(key).toBe("session:session-err");
+      expect(key).toBe("session.error:session-err");
     });
 
     it("should use different sessionIds for different sessions", () => {
@@ -252,9 +252,28 @@ describe("coalescingKey()", () => {
       const key1 = coalescingKey(event1);
       const key2 = coalescingKey(event2);
 
-      expect(key1).toBe("session:session-1");
-      expect(key2).toBe("session:session-2");
+      expect(key1).toBe("session.start:session-1");
+      expect(key2).toBe("session.start:session-2");
       expect(key1).not.toBe(key2);
+    });
+
+    it("should NOT coalesce session.start with session.idle", () => {
+      const start: BusEvent<"stream.session.start"> = {
+        type: "stream.session.start",
+        sessionId: "session-1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {},
+      };
+      const idle: BusEvent<"stream.session.idle"> = {
+        type: "stream.session.idle",
+        sessionId: "session-1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {},
+      };
+
+      expect(coalescingKey(start)).not.toBe(coalescingKey(idle));
     });
   });
 

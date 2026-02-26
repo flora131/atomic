@@ -198,4 +198,4 @@ export {
 // === Subagent orchestration ===
 export type { SubagentEntry } from "./subagent-registry.ts";
 export { SubagentTypeRegistry, populateSubagentRegistry } from "./subagent-registry.ts";
-export { SubagentGraphBridge } from "./subagent-bridge.ts";
+// SubagentGraphBridge is an internal implementation detail; not re-exported.

@@ -33,40 +33,9 @@ import {
 } from "../../workflows/session.ts";
 import type { BaseState, NodeDefinition, Edge } from "../../workflows/graph/types.ts";
 import { VERSION } from "../../version.ts";
+import { executeWorkflow } from "../../workflows/executor.ts";
 import { createRalphWorkflow } from "../../workflows/ralph/graph.ts";
-import { createRalphState } from "../../workflows/ralph/state.ts";
-import { streamGraph } from "../../workflows/graph/compiled.ts";
-import type {
-    SubagentSpawnOptions,
-    SubagentResult,
-} from "../../workflows/graph/subagent-bridge.ts";
-import { SubagentTypeRegistry } from "../../workflows/graph/subagent-registry.ts";
-import { discoverAgentInfos } from "./agent-commands.ts";
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-/** Maximum number of iterations for the main implementation loop to prevent infinite loops */
-const MAX_RALPH_ITERATIONS = 100;
-
-/**
- * Get a human-readable description for a workflow node phase.
- * Returns null if the node should not display progress updates.
- */
-function getNodePhaseDescription(nodeId: string): string | null {
-    const phaseMap: Record<string, string> = {
-        planner:
-            "⌕ Planning: Analyzing requirements and decomposing into tasks...",
-        "parse-tasks": "☰ Parsing: Extracting task structure from plan...",
-        "select-ready-tasks":
-            "◎ Selecting: Identifying ready tasks for execution...",
-        worker: "⚙ Working: Implementing assigned task...",
-        reviewer: "◉ Reviewing: Evaluating completed work...",
-        fixer: "⚒ Fixing: Applying review feedback...",
-    };
-    return phaseMap[nodeId] ?? null;
-}
+import { ralphWorkflowDefinition } from "../../workflows/ralph/definition.ts";
 
 // ============================================================================
 // RALPH COMMAND PARSING
@@ -628,22 +597,9 @@ export function getAllWorkflows(): WorkflowMetadata[] {
 /**
  * Built-in workflow definitions.
  * These can be overridden by local or global workflows with the same name.
- *
- * The ralph workflow is a two-step workflow:
- *   1. decompose — Task list decomposition from user prompt
- *   2. implement — Main agent manually dispatches worker sub-agents
  */
-const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata[] = [
-    {
-        name: "ralph",
-        description: "Start autonomous implementation workflow",
-        aliases: ["loop"],
-        version: "1.0.0",
-        minSDKVersion: VERSION,
-        stateVersion: 1,
-        argumentHint: '"<prompt-or-spec-path>"',
-        source: "builtin",
-    },
+const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowDefinition[] = [
+    ralphWorkflowDefinition,
 ];
 
 // ============================================================================
@@ -652,16 +608,58 @@ const BUILTIN_WORKFLOW_DEFINITIONS: WorkflowMetadata[] = [
 
 /**
  * Create a command definition for a workflow.
+ * Handles both graph-based workflows (via executeWorkflow) and chat-based workflows.
  *
- * @param metadata - Workflow metadata
+ * @param metadata - Workflow metadata (may be a full WorkflowDefinition)
  * @returns Command definition for the workflow
  */
 function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
-    // Use specialized handler for ralph workflow
-    if (metadata.name === "ralph") {
-        return createRalphCommand(metadata);
+    const definition = metadata as WorkflowDefinition;
+    const hasExecutionLogic = definition.createState || definition.graphConfig;
+
+    if (hasExecutionLogic) {
+        // Graph-based workflow — use executeWorkflow() for full lifecycle
+        return {
+            name: metadata.name,
+            description: metadata.description,
+            category: "workflow",
+            aliases: metadata.aliases,
+            argumentHint: metadata.argumentHint,
+            execute: async (
+                args: string,
+                context: CommandContext,
+            ): Promise<CommandResult> => {
+                if (context.state.workflowActive) {
+                    return {
+                        success: false,
+                        message: `A workflow is already active (${context.state.workflowType}).`,
+                    };
+                }
+
+                let parsed: RalphCommandArgs;
+                try {
+                    parsed = parseRalphArgs(args);
+                } catch (e) {
+                    return {
+                        success: false,
+                        message: e instanceof Error ? e.message : String(e),
+                    };
+                }
+
+                // Ralph uses builder pattern (createRalphWorkflow) instead of declarative graphConfig
+                const compiledGraph = definition.name === "ralph"
+                    ? createRalphWorkflow() as unknown as import("../../workflows/graph/types.ts").CompiledGraph<BaseState>
+                    : undefined;
+
+                return executeWorkflow(definition, parsed.prompt, context, {
+                    compiledGraph,
+                    saveTasksToSession: saveTasksToActiveSession,
+                });
+            },
+        };
     }
 
+    // Chat-based workflow — simple state update, no graph execution
     return {
         name: metadata.name,
         description: metadata.description,
@@ -669,7 +667,6 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
         aliases: metadata.aliases,
         argumentHint: metadata.argumentHint,
         execute: (args: string, context: CommandContext): CommandResult => {
-            // Check if already in a workflow
             if (context.state.workflowActive) {
                 return {
                     success: false,
@@ -677,7 +674,6 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
                 };
             }
 
-            // Extract the prompt from args
             const initialPrompt = args.trim() || null;
 
             if (!initialPrompt) {
@@ -687,13 +683,11 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
                 };
             }
 
-            // Add a system message indicating workflow start
             context.addMessage(
                 "system",
                 `Starting **${metadata.name}** workflow...\n\nPrompt: "${initialPrompt}"`,
             );
 
-            // Return success with state updates
             return {
                 success: true,
                 message: `Workflow **${metadata.name}** initialized. Researching codebase...`,
@@ -706,204 +700,6 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
                     feedback: null,
                 },
             };
-        },
-    };
-}
-
-function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
-    return {
-        name: metadata.name,
-        description: metadata.description,
-        category: "workflow",
-        aliases: metadata.aliases,
-        argumentHint: metadata.argumentHint,
-        execute: async (
-            args: string,
-            context: CommandContext,
-        ): Promise<CommandResult> => {
-            if (context.state.workflowActive) {
-                return {
-                    success: false,
-                    message: `A workflow is already active (${context.state.workflowType}).`,
-                };
-            }
-
-            let parsed: RalphCommandArgs;
-            try {
-                parsed = parseRalphArgs(args);
-            } catch (e) {
-                return {
-                    success: false,
-                    message: e instanceof Error ? e.message : String(e),
-                };
-            }
-
-            // ── Two-step workflow (async/await) ──────────────────────────────
-            // Step 1: Task decomposition via streamAndWait
-            // Step 2: Feature implementation via worker sub-agent
-            // ────────────────────────────────────────────────────────────────
-
-            // Initialize a workflow session via the SDK
-            const sessionId = crypto.randomUUID();
-            const sessionDir = getWorkflowSessionDir(sessionId);
-            void initWorkflowSession("ralph", sessionId).then((session) => {
-                activeSessions.set(session.sessionId, session);
-            });
-
-            context.updateWorkflowState({
-                workflowActive: true,
-                workflowType: metadata.name,
-                workflowConfig: { sessionId, userPrompt: parsed.prompt, workflowName: metadata.name },
-            });
-
-            // Set streaming state to show spinner during workflow execution
-            context.setStreaming(true);
-
-            try {
-                // Add a status message to show workflow is starting
-                context.addMessage(
-                    "assistant",
-                    `Starting **${metadata.name}** workflow with prompt: "${parsed.prompt}"\n\nInitializing task decomposition...`,
-                );
-
-                // Create initial state for the Ralph workflow
-                const initialState = createRalphState(sessionId, {
-                    yoloPrompt: parsed.prompt,
-                    ralphSessionDir: sessionDir,
-                    maxIterations: MAX_RALPH_ITERATIONS,
-                });
-
-                // Build bridge adapter for sub-agent spawning
-                const bridge = {
-                    async spawn(
-                        agent: SubagentSpawnOptions,
-                        abortSignal?: AbortSignal,
-                    ): Promise<SubagentResult> {
-                        const [result] = await context.spawnSubagentParallel!(
-                            [{ ...agent, abortSignal }],
-                            abortSignal,
-                        );
-                        return result!;
-                    },
-                    spawnParallel: (
-                        agents: SubagentSpawnOptions[],
-                        abortSignal?: AbortSignal,
-                    ) => context.spawnSubagentParallel!(agents, abortSignal),
-                };
-
-                // Build subagent registry with discovered agents
-                const registry = new SubagentTypeRegistry();
-                const discoveredAgents = discoverAgentInfos();
-                for (const agent of discoveredAgents) {
-                    registry.register({
-                        name: agent.name,
-                        info: agent,
-                        source: agent.source,
-                    });
-                }
-
-                // Get compiled graph and inject bridge + registry
-                const compiled = createRalphWorkflow();
-                compiled.config.runtime = {
-                    ...compiled.config.runtime,
-                    subagentBridge: bridge,
-                    subagentRegistry: registry,
-                };
-
-                // Track whether we've set up session tracking
-                let sessionTracked = false;
-                let lastNodeId: string | null = null;
-
-                // Execute workflow graph with streaming
-                for await (const step of streamGraph(compiled, {
-                    initialState,
-                })) {
-                    // Show progress for each node execution
-                    if (step.nodeId !== lastNodeId) {
-                        const nodePhase = getNodePhaseDescription(step.nodeId);
-                        if (nodePhase) {
-                            context.addMessage(
-                                "assistant",
-                                `**Workflow Progress:** ${nodePhase}`,
-                            );
-                        }
-                        lastNodeId = step.nodeId;
-                    }
-
-                    // Update tasks UI as nodes complete
-                    if (step.state.tasks && step.state.tasks.length > 0) {
-                        await saveTasksToActiveSession(
-                            step.state.tasks as NormalizedTodoItem[],
-                            sessionId,
-                        );
-                        context.setTodoItems(step.state.tasks as TodoItem[]);
-
-                        // Set up session tracking after first step with tasks
-                        if (!sessionTracked) {
-                            context.setWorkflowSessionDir(sessionDir);
-                            context.setWorkflowSessionId(sessionId);
-                            const taskIds = new Set(
-                                step.state.tasks
-                                    .map((t: { id?: string }) => t.id)
-                                    .filter(
-                                        (id): id is string =>
-                                            id != null && id.length > 0,
-                                    ),
-                            );
-                            context.setWorkflowTaskIds(taskIds);
-                            sessionTracked = true;
-                        }
-                    }
-                }
-
-                // Add completion message
-                context.addMessage(
-                    "assistant",
-                    `**${metadata.name}** workflow completed successfully.`,
-                );
-
-                // Clear streaming state
-                context.setStreaming(false);
-
-                return {
-                    success: true,
-                    stateUpdate: {
-                        workflowActive: false,
-                        workflowType: null,
-                        initialPrompt: null,
-                    },
-                };
-            } catch (error) {
-                // Clear streaming state on error
-                context.setStreaming(false);
-
-                // Silent exit for workflow cancellation (double Ctrl+C)
-                if (
-                    error instanceof Error &&
-                    error.message === "Workflow cancelled"
-                ) {
-                    context.setStreaming(false);
-                    return {
-                        success: true,
-                        stateUpdate: {
-                            workflowActive: false,
-                            workflowType: null,
-                            initialPrompt: null,
-                        },
-                    };
-                }
-
-                context.setStreaming(false);
-                return {
-                    success: false,
-                    message: `Workflow failed: ${error instanceof Error ? error.message : String(error)}`,
-                    stateUpdate: {
-                        workflowActive: false,
-                        workflowType: null,
-                        initialPrompt: null,
-                    },
-                };
-            }
         },
     };
 }

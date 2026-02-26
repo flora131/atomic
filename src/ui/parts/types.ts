@@ -42,6 +42,12 @@ export type ToolState =
   | { status: "error"; error: string; output?: unknown }
   | { status: "interrupted"; partialOutput?: unknown; durationMs?: number };
 
+/**
+ * Tool execution status union type.
+ * Extracted from ToolState for components that only need the status.
+ */
+export type ToolExecutionStatus = ToolState["status"];
+
 // ============================================================================
 // CONCRETE PART TYPES
 // ============================================================================

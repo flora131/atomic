@@ -2340,7 +2340,7 @@ export function ChatApp({
         );
       }
     }
-  }, [streamingState, isWorkflowTaskUpdate, applyAutoCompactionIndicator]);
+  }, [isWorkflowTaskUpdate, applyAutoCompactionIndicator]);
 
   /**
    * Handle tool execution complete event.
@@ -2457,7 +2457,7 @@ export function ChatApp({
         );
       }
     }
-  }, [streamingState, isWorkflowTaskUpdate, continueQueuedConversation, applyAutoCompactionIndicator]);
+  }, [isWorkflowTaskUpdate, continueQueuedConversation, applyAutoCompactionIndicator]);
 
   /**
    * Handle skill invoked event from SDK.

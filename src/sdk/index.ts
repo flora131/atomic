@@ -29,7 +29,6 @@ export { stripProviderPrefix, formatModelDisplayName } from "./types.ts";
 
 // Base client utilities for shared patterns
 export {
-  EventEmitter,
   createAgentEvent,
   requireRunning,
   type ClientState,

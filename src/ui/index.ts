@@ -186,8 +186,6 @@ interface ChatUIState {
   ctrlCTimeout: ReturnType<typeof setTimeout> | null;
   /** Callback to show Ctrl+C warning in UI */
   showCtrlCWarning: ((show: boolean) => void) | null;
-  /** Whether tool events are being received via hooks (to avoid duplicates from stream) */
-  toolEventsViaHooks: boolean;
   /** Set of active tool IDs (for deduplication of duplicate events) */
   activeToolIds: Set<string>;
   /** AbortController for the current stream (to interrupt on Escape/Ctrl+C) */
@@ -206,11 +204,6 @@ interface ChatUIState {
   runCounter: number;
   /** Active stream run owner ID. Null means no run currently owns hook events. */
   currentRunId: number | null;
-  /**
-   * Hook-scoped reset callback installed by subscribeToToolEvents().
-   * Clears correlation maps and live parallel tree state.
-   */
-  resetParallelTracking: ((reason: string) => void) | null;
   /**
    * Suppress streaming text that is a raw JSON echo of the Task tool result.
    * Holds a short FIFO of recent Task result texts so suppression stays
@@ -356,7 +349,6 @@ export async function startChatUI(
     ctrlCPressed: false,
     ctrlCTimeout: null,
     showCtrlCWarning: null,
-    toolEventsViaHooks: false,
     activeToolIds: new Set(),
     streamAbortController: null,
     isStreaming: false,
@@ -366,7 +358,6 @@ export async function startChatUI(
     sessionCreationPromise: null,
     runCounter: 0,
     currentRunId: null,
-    resetParallelTracking: null,
     suppressPostTaskResults: [],
     telemetryTracker: agentType
       ? createTuiTelemetrySessionTracker({
@@ -389,7 +380,6 @@ export async function startChatUI(
   async function cleanup(): Promise<void> {
     state.currentRunId = null;
     state.isStreaming = false;
-    state.resetParallelTracking?.("cleanup");
 
     // Remove signal handlers
     for (const handler of state.cleanupHandlers) {
@@ -482,18 +472,9 @@ export async function startChatUI(
     }
     state.sessionCreationPromise = (async () => {
       try {
-        // Subscribe to tool events BEFORE creating the session.
-        // Only subscribe once — handlers reference `state` so they stay
-        // up-to-date even across session resets (e.g., /clear).
-        if (!state.toolEventsViaHooks) {
-          const unsubscribe = subscribeToToolEvents();
-          state.cleanupHandlers.push(unsubscribe);
-        }
-
         // Clear stale tool tracking from any previous session
         state.currentRunId = null;
         state.activeToolIds.clear();
-        state.resetParallelTracking?.("ensure_session");
 
         // Apply the actively selected model for ALL agent types
         if (modelOps && sessionConfig) {

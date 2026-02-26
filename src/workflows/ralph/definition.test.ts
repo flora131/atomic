@@ -5,6 +5,7 @@
 import { describe, test, expect } from "bun:test";
 import { ralphWorkflowDefinition, ralphNodeDescriptions } from "./definition.ts";
 import { VERSION } from "../../version.ts";
+import type { RalphWorkflowState } from "./state.ts";
 
 describe("Ralph Workflow Definition", () => {
     test("exports ralphNodeDescriptions with all expected nodes", () => {
@@ -21,8 +22,9 @@ describe("Ralph Workflow Definition", () => {
 
         // Verify all descriptions are non-empty strings
         for (const nodeId of expectedNodes) {
-            expect(typeof ralphNodeDescriptions[nodeId]).toBe("string");
-            expect(ralphNodeDescriptions[nodeId].length).toBeGreaterThan(0);
+            const description = ralphNodeDescriptions[nodeId];
+            expect(typeof description).toBe("string");
+            expect(description && description.length).toBeGreaterThan(0);
         }
     });
 
@@ -58,7 +60,7 @@ describe("Ralph Workflow Definition", () => {
             maxIterations: 50,
         };
 
-        const state = ralphWorkflowDefinition.createState!(params);
+        const state = ralphWorkflowDefinition.createState!(params) as RalphWorkflowState;
 
         expect(state.executionId).toBe(params.sessionId);
         expect(state.yoloPrompt).toBe(params.prompt);

@@ -23,12 +23,12 @@ describe("compileGraphConfig", () => {
                 {
                     id: "node1",
                     type: "agent",
-                    execute: async () => ({ stateUpdate: { value: "test" } }),
+                    execute: async () => ({ stateUpdate: { value: "test" } as Partial<TestState> }),
                 },
                 {
                     id: "node2",
                     type: "tool",
-                    execute: async () => ({ stateUpdate: { value: "test2" } }),
+                    execute: async () => ({ stateUpdate: { value: "test2" } as Partial<TestState> }),
                 },
             ],
             edges: [{ from: "node1", to: "node2" }],
@@ -54,17 +54,17 @@ describe("compileGraphConfig", () => {
                 {
                     id: "start",
                     type: "agent",
-                    execute: async () => ({ stateUpdate: { value: "start" } }),
+                    execute: async () => ({ stateUpdate: { value: "start" } as Partial<TestState> }),
                 },
                 {
                     id: "middle",
                     type: "tool",
-                    execute: async () => ({ stateUpdate: { value: "middle" } }),
+                    execute: async () => ({ stateUpdate: { value: "middle" } as Partial<TestState> }),
                 },
                 {
                     id: "end",
                     type: "agent",
-                    execute: async () => ({ stateUpdate: { value: "end" } }),
+                    execute: async () => ({ stateUpdate: { value: "end" } as Partial<TestState> }),
                 },
             ],
             edges: [
@@ -92,17 +92,17 @@ describe("compileGraphConfig", () => {
                 {
                     id: "start",
                     type: "agent",
-                    execute: async () => ({ stateUpdate: { value: "start" } }),
+                    execute: async () => ({ stateUpdate: { value: "start" } as Partial<TestState> }),
                 },
                 {
                     id: "end1",
                     type: "tool",
-                    execute: async () => ({ stateUpdate: { value: "end1" } }),
+                    execute: async () => ({ stateUpdate: { value: "end1" } as Partial<TestState> }),
                 },
                 {
                     id: "end2",
                     type: "agent",
-                    execute: async () => ({ stateUpdate: { value: "end2" } }),
+                    execute: async () => ({ stateUpdate: { value: "end2" } as Partial<TestState> }),
                 },
             ],
             edges: [
@@ -129,7 +129,7 @@ describe("compileGraphConfig", () => {
                 {
                     id: "myStart",
                     type: "agent",
-                    execute: async () => ({ stateUpdate: { value: "start" } }),
+                    execute: async () => ({ stateUpdate: { value: "start" } as Partial<TestState> }),
                 },
             ],
             edges: [],
@@ -151,12 +151,12 @@ describe("compileGraphConfig", () => {
                 {
                     id: "node1",
                     type: "agent",
-                    execute: async () => ({ stateUpdate: { value: "test" } }),
+                    execute: async () => ({ stateUpdate: { value: "test" } as Partial<TestState> }),
                 },
                 {
                     id: "node2",
                     type: "tool",
-                    execute: async () => ({ stateUpdate: { value: "test2" } }),
+                    execute: async () => ({ stateUpdate: { value: "test2" } as Partial<TestState> }),
                 },
             ],
             edges: [{ from: "node1", to: "node2" }],
@@ -182,7 +182,7 @@ describe("compileGraphConfig", () => {
                 {
                     id: "node1",
                     type: "agent",
-                    execute: async () => ({ stateUpdate: { value: "test" } }),
+                    execute: async () => ({ stateUpdate: { value: "test" } as Partial<TestState> }),
                 },
             ],
             edges: [],
@@ -205,7 +205,7 @@ describe("compileGraphConfig", () => {
                 {
                     id: "node1",
                     type: "agent",
-                    execute: async () => ({ stateUpdate: { value: "test" } }),
+                    execute: async () => ({ stateUpdate: { value: "test" } as Partial<TestState> }),
                 },
             ],
             edges: [],
@@ -229,7 +229,7 @@ describe("inferHasSubagentNodes", () => {
                 {
                     id: "agent1",
                     type: "agent" as const,
-                    execute: async () => ({ stateUpdate: { value: "test" } }),
+                    execute: async () => ({ stateUpdate: { value: "test" } as Partial<TestState> }),
                 },
             ],
             edges: [],
@@ -249,7 +249,7 @@ describe("inferHasSubagentNodes", () => {
                 {
                     id: "my-subagent-node",
                     type: "tool" as const,
-                    execute: async () => ({ stateUpdate: { value: "test" } }),
+                    execute: async () => ({ stateUpdate: { value: "test" } as Partial<TestState> }),
                 },
             ],
             edges: [],
@@ -269,7 +269,7 @@ describe("inferHasSubagentNodes", () => {
                 {
                     id: "tool1",
                     type: "tool" as const,
-                    execute: async () => ({ stateUpdate: { value: "test" } }),
+                    execute: async () => ({ stateUpdate: { value: "test" } as Partial<TestState> }),
                 },
             ],
             edges: [],
@@ -291,7 +291,7 @@ describe("inferHasTaskList", () => {
                 {
                     id: "node1",
                     type: "agent" as const,
-                    execute: async () => ({ stateUpdate: { value: "test" } }),
+                    execute: async () => ({ stateUpdate: { value: "test" } as Partial<TestState> }),
                 },
             ],
             edges: [],
@@ -314,7 +314,7 @@ describe("inferHasTaskList", () => {
                 {
                     id: "node1",
                     type: "agent" as const,
-                    execute: async () => ({ stateUpdate: { value: "test" } }),
+                    execute: async () => ({ stateUpdate: { value: "test" } as Partial<TestState> }),
                 },
             ],
             edges: [],
@@ -337,7 +337,7 @@ describe("inferHasTaskList", () => {
                 {
                     id: "node1",
                     type: "agent" as const,
-                    execute: async () => ({ stateUpdate: { value: "test" } }),
+                    execute: async () => ({ stateUpdate: { value: "test" } as Partial<TestState> }),
                 },
             ],
             edges: [],

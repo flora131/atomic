@@ -2359,7 +2359,7 @@ export function ChatApp({
         );
       }
     }
-  }, [streamingState, isRalphTaskUpdate, applyAutoCompactionIndicator]);
+  }, [streamingState, isWorkflowTaskUpdate, applyAutoCompactionIndicator]);
 
   /**
    * Handle tool execution complete event.
@@ -2448,25 +2448,25 @@ export function ChatApp({
     if (isTodoWriteCompletion && input && input.todos && Array.isArray(input.todos)) {
       const previousTodos = todoItemsRef.current;
       const todos = reconcileTodoWriteItems(input.todos, previousTodos);
-      const taskStreamPinned = Boolean(ralphSessionIdRef.current);
-      const isRalphUpdate = isRalphTaskUpdate(todos, previousTodos);
+      const taskStreamPinned = Boolean(workflowSessionIdRef.current);
+      const isWorkflowUpdate = isWorkflowTaskUpdate(todos, previousTodos);
 
-      // During /ralph, ignore unrelated sub-agent TodoWrite payloads so they
-      // cannot replace the in-memory ralph task state.
-      const shouldApplyTodoState = !ralphSessionIdRef.current || isRalphUpdate;
+      // During workflow, ignore unrelated sub-agent TodoWrite payloads so they
+      // cannot replace the in-memory workflow task state.
+      const shouldApplyTodoState = !workflowSessionIdRef.current || isWorkflowUpdate;
       if (shouldApplyTodoState) {
         todoItemsRef.current = todos;
         setTodoItems(todos);
       }
 
-      // During /ralph workflow: do NOT persist TodoWrite calls to tasks.json.
-      // The ralph workflow (workflow-commands.ts) is the sole owner of tasks.json
+      // During workflow: do NOT persist TodoWrite calls to tasks.json.
+      // The workflow (workflow-commands.ts) is the sole owner of tasks.json
       // to prevent race conditions where sub-agent TodoWrite calls overwrite
       // the workflow's status updates (e.g., marking a completed task back to in_progress).
       // TodoWrite still updates in-memory UI state above for real-time display.
       // 
-      // Before: if (ralphSessionIdRef.current && isRalphUpdate) { ... }
-      // Now: Never persist TodoWrite during active ralph workflow.
+      // Before: if (workflowSessionIdRef.current && isWorkflowUpdate) { ... }
+      // Now: Never persist TodoWrite during active workflow.
 
       if (messageId) {
         setMessagesWindowed((prev) =>
@@ -2481,7 +2481,7 @@ export function ChatApp({
         );
       }
     }
-  }, [streamingState, isRalphTaskUpdate, continueQueuedConversation, applyAutoCompactionIndicator]);
+  }, [streamingState, isWorkflowTaskUpdate, continueQueuedConversation, applyAutoCompactionIndicator]);
 
   /**
    * Handle skill invoked event from SDK.
@@ -5913,8 +5913,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           streamingMeta={msg.streaming ? streamingMeta : null}
           collapsed={false}
           tasksExpanded={tasksExpanded}
-          inlineTasksEnabled={!ralphSessionDir}
-          ralphSessionDir={ralphSessionDir}
+          inlineTasksEnabled={!workflowSessionDir}
+          workflowSessionDir={workflowSessionDir}
           showTodoPanel={showTodoPanel}
         />
         );

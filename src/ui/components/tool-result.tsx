@@ -17,7 +17,7 @@ import {
   type ToolRenderResult,
 } from "../tools/registry.ts";
 import { SkillLoadIndicator, type SkillLoadStatus } from "./skill-load-indicator.tsx";
-import type { ToolExecutionStatus } from "../hooks/use-streaming-state.ts";
+import type { ToolExecutionStatus } from "../parts/types.ts";
 import {
   MAIN_CHAT_TOOL_PREVIEW_LIMITS,
   getMainChatToolMaxLines,

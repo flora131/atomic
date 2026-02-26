@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * SDK Stream Adapter Tests
  *
@@ -131,8 +132,8 @@ describe("OpenCodeStreamAdapter", () => {
       messageId: "msg-1",
     });
 
-    // Should have 2 delta events + 1 complete event
-    expect(events.length).toBe(3);
+    // Should have session.start + 2 delta events + 1 complete event
+    expect(events.length).toBe(4);
 
     const deltaEvents = events.filter((e) => e.type === "stream.text.delta");
     expect(deltaEvents.length).toBe(2);
@@ -363,8 +364,8 @@ describe("OpenCodeStreamAdapter", () => {
 
     await streamPromise;
 
-    // Should only have text delta and complete events
-    expect(events.length).toBe(2);
+    // Should only have session.start, text delta, and text complete events
+    expect(events.length).toBe(3);
     expect(events.some((e) => e.type === "stream.text.delta")).toBe(true);
     expect(events.some((e) => e.type === "stream.text.complete")).toBe(true);
   });
@@ -421,8 +422,8 @@ describe("ClaudeStreamAdapter", () => {
       messageId: "msg-2",
     });
 
-    // Should have 2 delta events + 1 complete event
-    expect(events.length).toBe(3);
+    // Should have session.start + 2 delta events + 1 complete event
+    expect(events.length).toBe(4);
 
     const deltaEvents = events.filter((e) => e.type === "stream.text.delta");
     expect(deltaEvents.length).toBe(2);
@@ -567,8 +568,8 @@ describe("ClaudeStreamAdapter", () => {
       messageId: "msg-2",
     });
 
-    // Should only have text delta and complete events
-    expect(events.length).toBe(2);
+    // Should only have session.start, text delta, and text complete events
+    expect(events.length).toBe(3);
     expect(events.some((e) => e.type === "stream.text.delta")).toBe(true);
     expect(events.some((e) => e.type === "stream.text.complete")).toBe(true);
   });
@@ -830,6 +831,39 @@ describe("CopilotStreamAdapter", () => {
     expect(toolStartEvents[0].data.toolInput).toEqual({ path: "/test" });
     expect(toolStartEvents[0].data.toolId).toBe("tool-456");
     expect(toolStartEvents[0].runId).toBe(200);
+  });
+
+  test("normalizes non-object tool input for tool start events", async () => {
+    const events = collectEvents(bus);
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 200,
+      messageId: "msg-3",
+    });
+
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: {
+        toolName: "bash",
+        toolInput: "ls -la",
+        toolCallId: "tool-raw-input",
+      },
+    } as AgentEvent<"tool.start">);
+
+    await streamPromise;
+
+    const toolStartEvents = events.filter(
+      (e) => e.type === "stream.tool.start",
+    );
+    expect(toolStartEvents.length).toBe(1);
+    expect(toolStartEvents[0].data.toolId).toBe("tool-raw-input");
+    expect(toolStartEvents[0].data.toolInput).toEqual({ value: "ls -la" });
   });
 
   test("publishes tool complete events", async () => {

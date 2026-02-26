@@ -34,8 +34,12 @@ import type {
   StreamAdapterOptions,
 } from "./types.ts";
 import type {
+  CodingAgentClient,
   Session,
   AgentMessage,
+  EventHandler,
+  ToolStartEventData,
+  ToolCompleteEventData,
 } from "../../sdk/types.ts";
 
 /**
@@ -47,10 +51,14 @@ import type {
 export class ClaudeStreamAdapter implements SDKStreamAdapter {
   private bus: AtomicEventBus;
   private sessionId: string;
+  private client?: CodingAgentClient;
   private abortController: AbortController | null = null;
   private textAccumulator = "";
+  private unsubscribers: Array<() => void> = [];
   /** Tracks thinking source start times for duration computation */
   private thinkingStartTimes = new Map<string, number>();
+  private pendingToolIdsByName = new Map<string, string[]>();
+  private syntheticToolCounter = 0;
 
   /**
    * Create a new Claude stream adapter.
@@ -58,9 +66,10 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
    * @param bus - The event bus to publish events to
    * @param sessionId - Session ID for event correlation
    */
-  constructor(bus: AtomicEventBus, sessionId: string) {
+  constructor(bus: AtomicEventBus, sessionId: string, client?: CodingAgentClient) {
     this.bus = bus;
     this.sessionId = sessionId;
+    this.client = client;
   }
 
   /**
@@ -88,6 +97,26 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
 
     // Reset text accumulator
     this.textAccumulator = "";
+    this.thinkingStartTimes.clear();
+    this.pendingToolIdsByName.clear();
+    this.syntheticToolCounter = 0;
+
+    this.publishSessionStart(runId);
+
+    const client = this.client ?? (session as Session & { __client?: CodingAgentClient }).__client;
+    if (client && typeof client.on === "function") {
+      const unsubToolStart = client.on(
+        "tool.start",
+        this.createToolStartHandler(runId),
+      );
+      this.unsubscribers.push(unsubToolStart);
+
+      const unsubToolComplete = client.on(
+        "tool.complete",
+        this.createToolCompleteHandler(runId),
+      );
+      this.unsubscribers.push(unsubToolComplete);
+    }
 
     try {
       // Start streaming from the Claude SDK
@@ -110,6 +139,8 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       if (this.abortController && !this.abortController.signal.aborted) {
         this.publishSessionError(runId, error);
       }
+    } finally {
+      // Keep subscriptions until dispose() so delayed hook events can complete tools.
     }
   }
 
@@ -198,16 +229,37 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
 
     // Handle tool_use events → stream.tool.start
     if (chunk.type === "tool_use") {
+      const chunkRecord = chunk as unknown as Record<string, unknown>;
+      const contentRecord = this.asRecord(chunkRecord.content) ?? {};
+      const metadataRecord = this.asRecord(chunk.metadata) ?? {};
+      const toolName = this.normalizeToolName(
+        contentRecord.name ?? chunkRecord.name ?? metadataRecord.toolName,
+      );
+      const explicitToolId = this.asString(
+        contentRecord.toolUseId
+          ?? contentRecord.toolUseID
+          ?? contentRecord.id
+          ?? chunkRecord.toolUseId
+          ?? chunkRecord.toolUseID
+          ?? chunkRecord.id
+          ?? metadataRecord.toolId
+          ?? metadataRecord.toolUseId
+          ?? metadataRecord.toolUseID
+          ?? metadataRecord.toolCallId,
+      );
+      const toolInput = this.asRecord(contentRecord.input ?? chunkRecord.input) ?? {};
+      const toolId = this.resolveToolStartId(explicitToolId, runId, toolName);
+
       const event: BusEvent<"stream.tool.start"> = {
         type: "stream.tool.start",
         sessionId: this.sessionId,
         runId,
         timestamp: Date.now(),
         data: {
-          toolId: (chunk as any).id ?? `tool_${Date.now()}`,
-          toolName: (chunk as any).name ?? "unknown",
-          toolInput: ((chunk as any).input ?? {}) as Record<string, unknown>,
-          sdkCorrelationId: (chunk as any).correlationId,
+          toolId,
+          toolName,
+          toolInput,
+          sdkCorrelationId: explicitToolId ?? toolId,
         },
       };
       this.bus.publish(event);
@@ -215,20 +267,41 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
 
     // Handle tool_result events → stream.tool.complete
     if (chunk.type === "tool_result") {
-      const content = (chunk as any).content;
-      const isError = (chunk as any).is_error ?? false;
+      const chunkRecord = chunk as unknown as Record<string, unknown>;
+      const content = chunkRecord.content;
+      const metadataRecord = this.asRecord(chunk.metadata) ?? {};
+      const toolName = this.normalizeToolName(
+        chunkRecord.toolName ?? metadataRecord.toolName,
+      );
+      const explicitToolId = this.asString(
+        chunkRecord.tool_use_id
+          ?? chunkRecord.toolUseId
+          ?? chunkRecord.toolUseID
+          ?? metadataRecord.toolId
+          ?? metadataRecord.toolUseId
+          ?? metadataRecord.toolUseID
+          ?? metadataRecord.toolCallId,
+      );
+      const toolId = this.resolveToolCompleteId(explicitToolId, runId, toolName);
+      const contentRecord = this.asRecord(content);
+      const isError = chunkRecord.is_error === true
+        || (typeof content === "object" && content !== null && "error" in content);
+      const errorValue = contentRecord?.error;
+
       const event: BusEvent<"stream.tool.complete"> = {
         type: "stream.tool.complete",
         sessionId: this.sessionId,
         runId,
         timestamp: Date.now(),
         data: {
-          toolId: (chunk as any).tool_use_id ?? `tool_${Date.now()}`,
-          toolName: (chunk as any).toolName ?? "unknown",
-          toolResult: typeof content === "string" ? content : JSON.stringify(content),
+          toolId,
+          toolName,
+          toolResult: content,
           success: !isError,
-          error: isError ? String(content) : undefined,
-          sdkCorrelationId: (chunk as any).correlationId,
+          error: isError
+            ? (typeof errorValue === "string" ? errorValue : String(content))
+            : undefined,
+          sdkCorrelationId: explicitToolId ?? toolId,
         },
       };
       this.bus.publish(event);
@@ -269,6 +342,79 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     }
   }
 
+  private createToolStartHandler(runId: number): EventHandler<"tool.start"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) {
+        return;
+      }
+
+      const data = event.data as ToolStartEventData;
+      const sdkCorrelationId = this.asString(
+        data.toolUseId ?? data.toolUseID ?? data.toolCallId,
+      );
+      const toolName = this.normalizeToolName(data.toolName);
+      const toolId = this.resolveToolStartId(sdkCorrelationId, runId, toolName);
+
+      const busEvent: BusEvent<"stream.tool.start"> = {
+        type: "stream.tool.start",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          toolId,
+          toolName,
+          toolInput: (data.toolInput ?? {}) as Record<string, unknown>,
+          sdkCorrelationId: sdkCorrelationId ?? toolId,
+        },
+      };
+      this.bus.publish(busEvent);
+    };
+  }
+
+  private createToolCompleteHandler(runId: number): EventHandler<"tool.complete"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) {
+        return;
+      }
+
+      const data = event.data as ToolCompleteEventData;
+      const sdkCorrelationId = this.asString(
+        data.toolUseId ?? data.toolUseID ?? data.toolCallId,
+      );
+      const toolName = this.normalizeToolName(data.toolName);
+      const toolId = this.resolveToolCompleteId(sdkCorrelationId, runId, toolName);
+      const toolInput = this.asRecord((data as Record<string, unknown>).toolInput);
+
+      const busEvent: BusEvent<"stream.tool.complete"> = {
+        type: "stream.tool.complete",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          toolId,
+          toolName,
+          toolInput,
+          toolResult: data.toolResult,
+          success: data.success,
+          error: data.error,
+          sdkCorrelationId: sdkCorrelationId ?? toolId,
+        },
+      };
+      this.bus.publish(busEvent);
+    };
+  }
+
+  private publishSessionStart(runId: number): void {
+    const event: BusEvent<"stream.session.start"> = {
+      type: "stream.session.start",
+      sessionId: this.sessionId,
+      runId,
+      timestamp: Date.now(),
+      data: {},
+    };
+    this.bus.publish(event);
+  }
+
   /**
    * Publish a stream.text.complete event.
    */
@@ -307,6 +453,84 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.bus.publish(event);
   }
 
+  private asRecord(value: unknown): Record<string, unknown> | undefined {
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return undefined;
+  }
+
+  private asString(value: unknown): string | undefined {
+    return typeof value === "string" && value.trim().length > 0
+      ? value
+      : undefined;
+  }
+
+  private normalizeToolName(value: unknown): string {
+    return this.asString(value) ?? "unknown";
+  }
+
+  private createSyntheticToolId(runId: number, toolName: string): string {
+    this.syntheticToolCounter += 1;
+    const normalizedName = toolName.replace(/[^a-zA-Z0-9_-]/g, "_");
+    return `tool_${runId}_${normalizedName}_${this.syntheticToolCounter}`;
+  }
+
+  private queueToolId(toolName: string, toolId: string): void {
+    const queue = this.pendingToolIdsByName.get(toolName) ?? [];
+    if (!queue.includes(toolId)) {
+      queue.push(toolId);
+      this.pendingToolIdsByName.set(toolName, queue);
+    }
+  }
+
+  private removeQueuedToolId(toolName: string, toolId: string): void {
+    const queue = this.pendingToolIdsByName.get(toolName);
+    if (!queue) return;
+    const nextQueue = queue.filter((queuedId) => queuedId !== toolId);
+    if (nextQueue.length === 0) {
+      this.pendingToolIdsByName.delete(toolName);
+      return;
+    }
+    this.pendingToolIdsByName.set(toolName, nextQueue);
+  }
+
+  private shiftQueuedToolId(toolName: string): string | undefined {
+    const queue = this.pendingToolIdsByName.get(toolName);
+    if (!queue || queue.length === 0) {
+      return undefined;
+    }
+    const [toolId, ...rest] = queue;
+    if (rest.length === 0) {
+      this.pendingToolIdsByName.delete(toolName);
+    } else {
+      this.pendingToolIdsByName.set(toolName, rest);
+    }
+    return toolId;
+  }
+
+  private resolveToolStartId(
+    explicitToolId: string | undefined,
+    runId: number,
+    toolName: string,
+  ): string {
+    const toolId = explicitToolId ?? this.createSyntheticToolId(runId, toolName);
+    this.queueToolId(toolName, toolId);
+    return toolId;
+  }
+
+  private resolveToolCompleteId(
+    explicitToolId: string | undefined,
+    runId: number,
+    toolName: string,
+  ): string {
+    if (explicitToolId) {
+      this.removeQueuedToolId(toolName, explicitToolId);
+      return explicitToolId;
+    }
+    return this.shiftQueuedToolId(toolName) ?? this.createSyntheticToolId(runId, toolName);
+  }
+
   /**
    * Cancel the ongoing stream and cleanup resources.
    */
@@ -315,7 +539,13 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       this.abortController.abort();
       this.abortController = null;
     }
+    for (const unsubscribe of this.unsubscribers) {
+      unsubscribe();
+    }
+    this.unsubscribers = [];
     this.textAccumulator = "";
     this.thinkingStartTimes.clear();
+    this.pendingToolIdsByName.clear();
+    this.syntheticToolCounter = 0;
   }
 }

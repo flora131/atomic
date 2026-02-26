@@ -18,7 +18,8 @@ interface ElementWithProps {
 
 function extractErrorBoundaryExit(rootElement: unknown): (() => void) | null {
   const themeProvider = rootElement as ElementWithProps;
-  const boundary = themeProvider.props?.children as ElementWithProps | undefined;
+  const eventBusProvider = themeProvider.props?.children as ElementWithProps | undefined;
+  const boundary = eventBusProvider?.props?.children as ElementWithProps | undefined;
   return boundary?.props?.onExit ?? null;
 }
 

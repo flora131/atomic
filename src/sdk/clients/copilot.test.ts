@@ -433,3 +433,126 @@ describe("CopilotClient subagent event mapping", () => {
     });
   });
 });
+
+describe("CopilotClient tool event mapping", () => {
+  test("maps tool.execution_start using mcpToolName fallback", () => {
+    const client = new CopilotClient({});
+    const events: Array<{ sessionId: string; data: Record<string, unknown> }> = [];
+
+    client.on("tool.start", (event) => {
+      events.push({ sessionId: event.sessionId, data: event.data as Record<string, unknown> });
+    });
+
+    (client as unknown as {
+      sessions: Map<string, {
+        sdkSession: unknown;
+        sessionId: string;
+        config: Record<string, unknown>;
+        inputTokens: number;
+        outputTokens: number;
+        isClosed: boolean;
+        unsubscribe: () => void;
+        toolCallIdToName: Map<string, string>;
+        contextWindow: number | null;
+        systemToolsBaseline: number | null;
+      }>;
+    }).sessions.set("test-session", {
+      sdkSession: {},
+      sessionId: "test-session",
+      config: {},
+      inputTokens: 0,
+      outputTokens: 0,
+      isClosed: false,
+      unsubscribe: () => {},
+      toolCallIdToName: new Map(),
+      contextWindow: null,
+      systemToolsBaseline: null,
+    });
+
+    const handleSdkEvent = (client as unknown as {
+      handleSdkEvent: (sessionId: string, event: { type: string; data: Record<string, unknown> }) => void;
+    }).handleSdkEvent.bind(client);
+
+    handleSdkEvent("test-session", {
+      type: "tool.execution_start",
+      data: {
+        toolCallId: "tool-1",
+        mcpToolName: "filesystem/read_file",
+        arguments: "README.md",
+      },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.sessionId).toBe("test-session");
+    expect(events[0]!.data).toEqual({
+      toolName: "filesystem/read_file",
+      toolInput: "README.md",
+      toolCallId: "tool-1",
+      parentId: undefined,
+    });
+  });
+
+  test("maps tool.execution_complete with result fallbacks and tracked tool name", () => {
+    const client = new CopilotClient({});
+    const events: Array<{ sessionId: string; data: Record<string, unknown> }> = [];
+
+    client.on("tool.complete", (event) => {
+      events.push({ sessionId: event.sessionId, data: event.data as Record<string, unknown> });
+    });
+
+    const trackedNames = new Map<string, string>();
+    trackedNames.set("tool-2", "view");
+
+    (client as unknown as {
+      sessions: Map<string, {
+        sdkSession: unknown;
+        sessionId: string;
+        config: Record<string, unknown>;
+        inputTokens: number;
+        outputTokens: number;
+        isClosed: boolean;
+        unsubscribe: () => void;
+        toolCallIdToName: Map<string, string>;
+        contextWindow: number | null;
+        systemToolsBaseline: number | null;
+      }>;
+    }).sessions.set("test-session", {
+      sdkSession: {},
+      sessionId: "test-session",
+      config: {},
+      inputTokens: 0,
+      outputTokens: 0,
+      isClosed: false,
+      unsubscribe: () => {},
+      toolCallIdToName: trackedNames,
+      contextWindow: null,
+      systemToolsBaseline: null,
+    });
+
+    const handleSdkEvent = (client as unknown as {
+      handleSdkEvent: (sessionId: string, event: { type: string; data: Record<string, unknown> }) => void;
+    }).handleSdkEvent.bind(client);
+
+    handleSdkEvent("test-session", {
+      type: "tool.execution_complete",
+      data: {
+        toolCallId: "tool-2",
+        success: true,
+        result: {
+          detailedContent: "line 1\nline 2",
+        },
+      },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.sessionId).toBe("test-session");
+    expect(events[0]!.data).toEqual({
+      toolName: "view",
+      success: true,
+      toolResult: "line 1\nline 2",
+      error: undefined,
+      toolCallId: "tool-2",
+      parentId: undefined,
+    });
+  });
+});

@@ -35,6 +35,7 @@ interface ToolStartEvent {
 interface ToolCompleteEvent {
   type: "tool-complete";
   toolId: string;
+  toolName?: string;
   output: unknown;
   success: boolean;
   error?: string;
@@ -284,8 +285,12 @@ function upsertToolCallComplete(
     const updatedInput = (event.input && Object.keys(toolCall.input).length === 0)
       ? event.input
       : toolCall.input;
+    const updatedToolName = toolCall.toolName === "unknown"
+      ? (event.toolName ?? "unknown")
+      : toolCall.toolName;
     return {
       ...toolCall,
+      toolName: updatedToolName,
       input: updatedInput,
       output: mergeToolCallOutput(toolCall, event.output),
       status: event.success ? ("completed" as const) : ("error" as const),
@@ -298,7 +303,7 @@ function upsertToolCallComplete(
     ...updated,
     {
       id: event.toolId,
-      toolName: "unknown",
+      toolName: event.toolName ?? "unknown",
       input: event.input ?? {},
       output: event.output,
       status: event.success ? ("completed" as const) : ("error" as const),
@@ -330,6 +335,7 @@ function upsertToolPartComplete(parts: Part[], event: ToolCompleteEvent): Part[]
     const updated = [...parts];
     updated[toolPartIdx] = {
       ...existing,
+      toolName: existing.toolName === "unknown" ? (event.toolName ?? "unknown") : existing.toolName,
       input: updatedInput,
       output: event.output,
       state: newState,
@@ -341,7 +347,7 @@ function upsertToolPartComplete(parts: Part[], event: ToolCompleteEvent): Part[]
     id: createPartId(),
     type: "tool",
     toolCallId: event.toolId,
-    toolName: "unknown",
+    toolName: event.toolName ?? "unknown",
     input: event.input ?? {},
     output: event.output,
     state: event.success

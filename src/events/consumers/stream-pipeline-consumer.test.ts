@@ -121,6 +121,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents[0]).toEqual({
       type: "tool-complete",
       toolId: "tool1",
+      toolName: "bash",
       output: "file1.txt\nfile2.txt",
       success: true,
       error: undefined,

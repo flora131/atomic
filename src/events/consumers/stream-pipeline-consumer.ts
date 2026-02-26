@@ -157,13 +157,16 @@ export class StreamPipelineConsumer {
 
       case "stream.tool.complete": {
         const data = event.data as BusEventDataMap["stream.tool.complete"];
-        return [{
+        const mapped: StreamPartEvent = {
           type: "tool-complete",
           toolId: data.toolId,
+          toolName: data.toolName,
           output: data.toolResult,
           success: data.success,
           error: data.error,
-        }];
+          ...(data.toolInput ? { input: data.toolInput } : {}),
+        };
+        return [mapped];
       }
 
       default:

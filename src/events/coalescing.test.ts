@@ -47,8 +47,8 @@ describe("coalescingKey()", () => {
     });
   });
 
-  describe("tool events (return tool:{toolId})", () => {
-    it("should return tool:${toolId} for stream.tool.start", () => {
+  describe("tool events", () => {
+    it("should return tool.start:${toolId} for stream.tool.start", () => {
       const event: BusEvent<"stream.tool.start"> = {
         type: "stream.tool.start",
         sessionId: "test-session",
@@ -62,10 +62,10 @@ describe("coalescingKey()", () => {
       };
 
       const key = coalescingKey(event);
-      expect(key).toBe("tool:tool-123");
+      expect(key).toBe("tool.start:tool-123");
     });
 
-    it("should return tool:${toolId} for stream.tool.complete", () => {
+    it("should return tool.complete:${toolId} for stream.tool.complete", () => {
       const event: BusEvent<"stream.tool.complete"> = {
         type: "stream.tool.complete",
         sessionId: "test-session",
@@ -80,7 +80,7 @@ describe("coalescingKey()", () => {
       };
 
       const key = coalescingKey(event);
-      expect(key).toBe("tool:tool-456");
+      expect(key).toBe("tool.complete:tool-456");
     });
 
     it("should generate different keys for different toolIds", () => {
@@ -111,8 +111,8 @@ describe("coalescingKey()", () => {
       const key1 = coalescingKey(event1);
       const key2 = coalescingKey(event2);
 
-      expect(key1).toBe("tool:tool-123");
-      expect(key2).toBe("tool:tool-456");
+      expect(key1).toBe("tool.start:tool-123");
+      expect(key2).toBe("tool.start:tool-456");
       expect(key1).not.toBe(key2);
     });
   });

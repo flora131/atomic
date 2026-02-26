@@ -171,6 +171,42 @@ function mapSdkEventToEventType(sdkEventType: SdkSessionEventType | string): Eve
   return mapping[sdkEventType] ?? null;
 }
 
+function asNonEmptyString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value
+    : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return undefined;
+}
+
+function extractCopilotToolResult(result: unknown): unknown {
+  const resultRecord = asRecord(result);
+  if (!resultRecord) {
+    return result;
+  }
+
+  const content = resultRecord.content;
+  if (typeof content === "string" && content.trim().length > 0) {
+    return content;
+  }
+
+  const detailedContent = resultRecord.detailedContent;
+  if (typeof detailedContent === "string" && detailedContent.trim().length > 0) {
+    return detailedContent;
+  }
+
+  if ("contents" in resultRecord) {
+    return resultRecord.contents;
+  }
+
+  return result;
+}
+
 /**
  * CopilotClient implements CodingAgentClient for the GitHub Copilot SDK.
  *
@@ -595,15 +631,17 @@ export class CopilotClient implements CodingAgentClient {
           break;
         case "tool.execution_start": {
           // Track toolCallId -> toolName mapping for the complete event
-          const toolCallId = data.toolCallId as string | undefined;
-          const toolName = data.toolName as string | undefined;
-          if (state && toolCallId && toolName) {
+          const toolCallId = asNonEmptyString(data.toolCallId);
+          const toolName = asNonEmptyString(data.toolName)
+            ?? asNonEmptyString(data.mcpToolName)
+            ?? "unknown";
+          if (state && toolCallId) {
             state.toolCallIdToName.set(toolCallId, toolName);
           }
           // Extract parentToolCallId to link tool calls to their parent sub-agent
-          const parentToolCallId = data.parentToolCallId as string | undefined;
+          const parentToolCallId = asNonEmptyString(data.parentToolCallId);
           eventData = {
-            toolName: toolName,
+            toolName,
             toolInput: data.arguments,
             toolCallId,
             parentId: parentToolCallId,
@@ -612,20 +650,26 @@ export class CopilotClient implements CodingAgentClient {
         }
         case "tool.execution_complete": {
           // Look up the actual tool name from the toolCallId
-          const toolCallId = data.toolCallId as string;
-          const toolName = state?.toolCallIdToName.get(toolCallId) ?? toolCallId;
+          const toolCallId = asNonEmptyString(data.toolCallId);
+          const mappedToolName = toolCallId ? state?.toolCallIdToName.get(toolCallId) : undefined;
+          const toolName = mappedToolName
+            ?? asNonEmptyString(data.toolName)
+            ?? asNonEmptyString(data.mcpToolName)
+            ?? "unknown";
           // Clean up the mapping
-          state?.toolCallIdToName.delete(toolCallId);
-          const resultData = data.result as Record<string, unknown> | undefined;
-          const errorData = data.error as Record<string, unknown> | undefined;
+          if (toolCallId) {
+            state?.toolCallIdToName.delete(toolCallId);
+          }
+          const errorData = asRecord(data.error);
+          const success = typeof data.success === "boolean" ? data.success : true;
           // Extract parentToolCallId to link tool calls to their parent sub-agent
-          const parentToolCallId = data.parentToolCallId as string | undefined;
+          const parentToolCallId = asNonEmptyString(data.parentToolCallId);
           eventData = {
             toolName,
-            success: data.success,
-            toolResult: resultData?.content,
-            error: errorData?.message,
-            toolCallId: data.toolCallId,
+            success,
+            toolResult: extractCopilotToolResult(data.result),
+            error: asNonEmptyString(errorData?.message),
+            toolCallId,
             parentId: parentToolCallId,
           };
           break;

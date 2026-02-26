@@ -34,7 +34,9 @@ import type {
   Session,
   CodingAgentClient,
   AgentEvent,
-  EventType,
+  PermissionRequestedEventData,
+  HumanInputRequiredEventData,
+  SkillInvokedEventData,
 } from "../../sdk/types.ts";
 import type { AtomicEventBus } from "../event-bus.ts";
 import type { BusEvent } from "../bus-events.ts";
@@ -62,6 +64,9 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
   private runId: number = 0;
   private messageId: string = "";
   private isActive = false;
+  private pendingToolIdsByName = new Map<string, string[]>();
+  private toolNameById = new Map<string, string>();
+  private syntheticToolCounter = 0;
 
   /**
    * Track thinking streams for timing and correlation.
@@ -105,7 +110,18 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.messageId = options.messageId;
     this.accumulatedText = "";
     this.thinkingStreams.clear();
+    this.pendingToolIdsByName.clear();
+    this.toolNameById.clear();
+    this.syntheticToolCounter = 0;
     this.isActive = true;
+
+    this.publishEvent({
+      type: "stream.session.start",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {},
+    });
 
     // Subscribe to all relevant event types from the client
     this.subscribeToEvents();
@@ -203,6 +219,27 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       this.handleUsage(event);
     });
     this.unsubscribers.push(unsubUsage);
+
+    // Subscribe to permission request events
+    const unsubPermission = this.client.on("permission.requested", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handlePermissionRequested(event as AgentEvent<"permission.requested">);
+    });
+    this.unsubscribers.push(unsubPermission);
+
+    // Subscribe to workflow/human-input events
+    const unsubHumanInput = this.client.on("human_input_required", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleHumanInputRequired(event as AgentEvent<"human_input_required">);
+    });
+    this.unsubscribers.push(unsubHumanInput);
+
+    // Subscribe to skill invocation events
+    const unsubSkill = this.client.on("skill.invoked", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleSkillInvoked(event as AgentEvent<"skill.invoked">);
+    });
+    this.unsubscribers.push(unsubSkill);
   }
 
   /**
@@ -249,9 +286,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
   /**
    * Handle message.complete event.
    */
-  private handleMessageComplete(event: AgentEvent<"message.complete">): void {
-    const { message } = event.data;
-
+  private handleMessageComplete(_event: AgentEvent<"message.complete">): void {
     // Publish text complete event
     this.publishEvent({
       type: "stream.text.complete",
@@ -290,7 +325,9 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     const { toolName, toolInput, toolUseId, toolCallId } = event.data;
 
     // Use toolCallId (Copilot) or toolUseId (Claude) as the unique ID
-    const toolId = toolCallId || toolUseId || `tool_${Date.now()}`;
+    const explicitToolId = this.asString(toolCallId || toolUseId);
+    const resolvedToolName = this.normalizeToolName(toolName);
+    const toolId = this.resolveToolStartId(explicitToolId, resolvedToolName);
 
     this.publishEvent({
       type: "stream.tool.start",
@@ -299,9 +336,10 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       timestamp: Date.now(),
       data: {
         toolId,
-        toolName,
-        toolInput: (toolInput as Record<string, unknown>) || {},
-        sdkCorrelationId: toolCallId || toolUseId,
+        toolName: resolvedToolName,
+        toolInput: this.normalizeToolInput(toolInput),
+        sdkCorrelationId: explicitToolId ?? toolId,
+        parentAgentId: this.asString((event.data as Record<string, unknown>).parentId),
       },
     });
   }
@@ -314,7 +352,12 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       event.data;
 
     // Use toolCallId (Copilot) or toolUseId (Claude) as the unique ID
-    const toolId = toolCallId || toolUseId || `tool_${Date.now()}`;
+    const explicitToolId = this.asString(toolCallId || toolUseId);
+    const toolId = this.resolveToolCompleteId(explicitToolId, toolName);
+    const resolvedToolName = this.normalizeToolName(toolName ?? this.toolNameById.get(toolId));
+    const toolInput = this.normalizeToolInput((event.data as Record<string, unknown>).toolInput);
+    this.toolNameById.delete(toolId);
+    const normalizedSuccess = typeof success === "boolean" ? success : true;
 
     this.publishEvent({
       type: "stream.tool.complete",
@@ -323,11 +366,12 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       timestamp: Date.now(),
       data: {
         toolId,
-        toolName,
-        toolResult: String(toolResult || ""),
-        success,
+        toolName: resolvedToolName,
+        toolInput,
+        toolResult,
+        success: normalizedSuccess,
         error,
-        sdkCorrelationId: toolCallId || toolUseId,
+        sdkCorrelationId: explicitToolId ?? toolId,
       },
     });
   }
@@ -390,6 +434,175 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
         model,
       },
     });
+  }
+
+  /**
+   * Handle permission.requested event.
+   */
+  private handlePermissionRequested(event: AgentEvent<"permission.requested">): void {
+    const data = event.data as PermissionRequestedEventData;
+    this.publishEvent({
+      type: "stream.permission.requested",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        requestId: data.requestId,
+        toolName: data.toolName,
+        toolInput: (data.toolInput as Record<string, unknown> | undefined),
+        question: data.question,
+        header: data.header,
+        options: data.options,
+        multiSelect: data.multiSelect,
+        respond: data.respond,
+        toolCallId: data.toolCallId,
+      },
+    });
+  }
+
+  /**
+   * Handle human_input_required event.
+   */
+  private handleHumanInputRequired(event: AgentEvent<"human_input_required">): void {
+    const data = event.data as HumanInputRequiredEventData;
+    this.publishEvent({
+      type: "stream.human_input_required",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        requestId: data.requestId,
+        question: data.question,
+        header: data.header,
+        options: data.options,
+        nodeId: data.nodeId,
+        respond: data.respond,
+      },
+    });
+  }
+
+  /**
+   * Handle skill.invoked event.
+   */
+  private handleSkillInvoked(event: AgentEvent<"skill.invoked">): void {
+    const data = event.data as SkillInvokedEventData;
+    this.publishEvent({
+      type: "stream.skill.invoked",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        skillName: data.skillName,
+        skillPath: data.skillPath,
+      },
+    });
+  }
+
+  private asString(value: unknown): string | undefined {
+    return typeof value === "string" && value.trim().length > 0
+      ? value
+      : undefined;
+  }
+
+  private asRecord(value: unknown): Record<string, unknown> | undefined {
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return undefined;
+  }
+
+  private normalizeToolName(value: unknown): string {
+    return this.asString(value) ?? "unknown";
+  }
+
+  private normalizeToolInput(value: unknown): Record<string, unknown> {
+    const record = this.asRecord(value);
+    if (record) {
+      return record;
+    }
+
+    if (value === undefined || value === null) {
+      return {};
+    }
+
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed.length === 0) {
+        return {};
+      }
+      try {
+        const parsed = JSON.parse(trimmed) as unknown;
+        const parsedRecord = this.asRecord(parsed);
+        if (parsedRecord) {
+          return parsedRecord;
+        }
+      } catch {
+        // Keep the raw string payload when it's not valid JSON.
+      }
+      return { value };
+    }
+
+    return { value };
+  }
+
+  private createSyntheticToolId(toolName: string): string {
+    this.syntheticToolCounter += 1;
+    const normalizedName = toolName.replace(/[^a-zA-Z0-9_-]/g, "_");
+    return `tool_${this.runId}_${normalizedName}_${this.syntheticToolCounter}`;
+  }
+
+  private queueToolId(toolName: string, toolId: string): void {
+    const queue = this.pendingToolIdsByName.get(toolName) ?? [];
+    if (!queue.includes(toolId)) {
+      queue.push(toolId);
+      this.pendingToolIdsByName.set(toolName, queue);
+    }
+    this.toolNameById.set(toolId, toolName);
+  }
+
+  private removeQueuedToolId(toolName: string, toolId: string): void {
+    const queue = this.pendingToolIdsByName.get(toolName);
+    if (!queue) return;
+    const nextQueue = queue.filter((queuedId) => queuedId !== toolId);
+    if (nextQueue.length === 0) {
+      this.pendingToolIdsByName.delete(toolName);
+      return;
+    }
+    this.pendingToolIdsByName.set(toolName, nextQueue);
+  }
+
+  private shiftQueuedToolId(toolName: string): string | undefined {
+    const queue = this.pendingToolIdsByName.get(toolName);
+    if (!queue || queue.length === 0) {
+      return undefined;
+    }
+    const [toolId, ...rest] = queue;
+    if (rest.length === 0) {
+      this.pendingToolIdsByName.delete(toolName);
+    } else {
+      this.pendingToolIdsByName.set(toolName, rest);
+    }
+    return toolId;
+  }
+
+  private resolveToolStartId(explicitToolId: string | undefined, toolName: string): string {
+    const toolId = explicitToolId ?? this.createSyntheticToolId(toolName);
+    this.queueToolId(toolName, toolId);
+    return toolId;
+  }
+
+  private resolveToolCompleteId(
+    explicitToolId: string | undefined,
+    toolName: unknown,
+  ): string {
+    if (explicitToolId) {
+      const resolvedName = this.normalizeToolName(toolName ?? this.toolNameById.get(explicitToolId));
+      this.removeQueuedToolId(resolvedName, explicitToolId);
+      return explicitToolId;
+    }
+
+    const resolvedName = this.normalizeToolName(toolName);
+    return this.shiftQueuedToolId(resolvedName) ?? this.createSyntheticToolId(resolvedName);
   }
 
   /**
@@ -459,5 +672,8 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.eventBuffer = [];
     this.thinkingStreams.clear();
     this.accumulatedText = "";
+    this.pendingToolIdsByName.clear();
+    this.toolNameById.clear();
+    this.syntheticToolCounter = 0;
   }
 }

@@ -12,18 +12,14 @@ import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { createRoot, type Root } from "@opentui/react";
 import {
   ChatApp,
-  type StreamingMeta,
-  type OnPermissionRequest as ChatOnPermissionRequest,
-  type OnInterrupt,
   type OnTerminateBackgroundAgents,
-  type OnAskUserQuestion,
   type CommandExecutionTelemetry,
   type MessageSubmitTelemetry,
 } from "./chat.tsx";
-import type { ParallelAgent } from "./components/parallel-agents-tree.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
 import { AppErrorBoundary } from "./components/error-exit-screen.tsx";
 import { initializeCommandsAsync, globalRegistry } from "./commands/index.ts";
+import { EventBusProvider } from "../events/event-bus-provider.tsx";
 import type {
   CodingAgentClient,
   SessionConfig,
@@ -31,14 +27,10 @@ import type {
   AgentMessage,
 } from "../sdk/types.ts";
 import { UnifiedModelOperations } from "../models/model-operations.ts";
-import { parseTaskToolResult } from "./tools/registry.ts";
-import { normalizeMarkdownNewlines } from "./utils/format.ts";
 import {
   createTuiTelemetrySessionTracker,
   type TuiTelemetrySessionTracker,
 } from "../telemetry/index.ts";
-import { shouldFinalizeOnToolComplete } from "./parts/index.ts";
-import { getActiveBackgroundAgents, isBackgroundAgent } from "./utils/background-agent-footer.ts";
 import { AtomicEventBus } from "../events/event-bus.ts";
 import { BatchDispatcher } from "../events/batch-dispatcher.ts";
 import { OpenCodeStreamAdapter } from "../events/adapters/opencode-adapter.ts";
@@ -144,19 +136,6 @@ export interface ChatUIResult {
 }
 
 /**
- * Handler for permission/HITL requests
- */
-export type OnPermissionRequest = (
-  requestId: string,
-  toolName: string,
-  question: string,
-  options: Array<{ label: string; value: string; description?: string }>,
-  respond: (answer: string | string[]) => void,
-  header?: string,
-  toolCallId?: string
-) => void;
-
-/**
  * Internal state for managing the chat UI lifecycle.
  */
 interface ChatUIState {
@@ -166,32 +145,14 @@ interface ChatUIState {
   startTime: number;
   messageCount: number;
   cleanupHandlers: (() => void)[];
-  /** Registered handler for permission/HITL requests */
-  permissionRequestHandler: OnPermissionRequest | null;
-  /** Registered handler for askUserQuestion events from workflow graphs */
-  askUserQuestionHandler: OnAskUserQuestion | null;
-  /** Tool ID counter for generating unique IDs */
-  toolIdCounter: number;
   /** Interrupt counter for double-press exit (shared between signal and UI) */
   interruptCount: number;
   /** Interrupt timeout ID */
   interruptTimeout: ReturnType<typeof setTimeout> | null;
-  /** Ctrl+C press state for double-press exit (deprecated, kept for signal handler compat) */
-  ctrlCPressed: boolean;
-  /** Ctrl+C timeout ID (deprecated, kept for signal handler compat) */
-  ctrlCTimeout: ReturnType<typeof setTimeout> | null;
-  /** Callback to show Ctrl+C warning in UI */
-  showCtrlCWarning: ((show: boolean) => void) | null;
-  /** Set of active tool IDs (for deduplication of duplicate events) */
-  activeToolIds: Set<string>;
   /** AbortController for the current stream (to interrupt on Escape/Ctrl+C) */
   streamAbortController: AbortController | null;
   /** Whether streaming is currently active */
   isStreaming: boolean;
-  /** Registered handler for parallel agent updates (from ChatApp's setParallelAgents) */
-  parallelAgentHandler: ((agents: ParallelAgent[]) => void) | null;
-  /** Current list of parallel agents tracked from SDK events */
-  parallelAgents: ParallelAgent[];
   /** Session IDs owned by this TUI instance (main + spawned subagent sessions) */
   ownedSessionIds: Set<string>;
   /** Promise lock to prevent concurrent session creation */
@@ -200,29 +161,12 @@ interface ChatUIState {
   runCounter: number;
   /** Active stream run owner ID. Null means no run currently owns hook events. */
   currentRunId: number | null;
-  /** Callback to reset parallel tracking state (from ChatApp's internal logic) */
-  resetParallelTracking: ((reason: string) => void) | null;
   /** Native TUI telemetry tracker (null when telemetry is disabled or agent type is unknown) */
   telemetryTracker: TuiTelemetrySessionTracker | null;
   /** Singleton event bus shared across all streams */
   bus: AtomicEventBus;
   /** Singleton batch dispatcher for frame-aligned event batching */
   dispatcher: BatchDispatcher;
-}
-
-function clearParallelAgents(state: ChatUIState) {
-  state.parallelAgents = [];
-  state.parallelAgentHandler?.(state.parallelAgents);
-}
-
-function hasActiveParallelAgentWork(parallelAgents: readonly ParallelAgent[]): boolean {
-  return parallelAgents.some(
-    (agent) => agent.status === "running" || agent.status === "pending" || agent.status === "background"
-  );
-}
-
-function hasOpenStreamLifecycleWork(state: ChatUIState): boolean {
-  return hasActiveParallelAgentWork(state.parallelAgents) || state.activeToolIds.size > 0;
 }
 
 // ============================================================================
@@ -301,24 +245,14 @@ export async function startChatUI(
     startTime: Date.now(),
     messageCount: 0,
     cleanupHandlers: [],
-    permissionRequestHandler: null,
-    askUserQuestionHandler: null,
-    toolIdCounter: 0,
     interruptCount: 0,
     interruptTimeout: null,
-    ctrlCPressed: false,
-    ctrlCTimeout: null,
-    showCtrlCWarning: null,
-    activeToolIds: new Set(),
     streamAbortController: null,
     isStreaming: false,
-    parallelAgentHandler: null,
-    parallelAgents: [],
     ownedSessionIds: new Set(),
     sessionCreationPromise: null,
     runCounter: 0,
     currentRunId: null,
-    resetParallelTracking: null,
     telemetryTracker: agentType
       ? createTuiTelemetrySessionTracker({
         agentType,
@@ -440,7 +374,6 @@ export async function startChatUI(
       try {
         // Clear stale tool tracking from any previous session
         state.currentRunId = null;
-        state.activeToolIds.clear();
 
         // Apply the actively selected model for ALL agent types
         if (modelOps && sessionConfig) {
@@ -480,7 +413,6 @@ export async function startChatUI(
     // Single-owner stream model: any new stream handoff resets previous
     // run-owned hook state before creating the next owner.
     state.currentRunId = null;
-    state.resetParallelTracking?.("stream_start");
 
     // Create session if needed (uses shared lock to prevent dual creation)
     try {
@@ -499,9 +431,9 @@ export async function startChatUI(
     let adapter: SDKStreamAdapter;
 
     if (agentType === "opencode") {
-      adapter = new OpenCodeStreamAdapter(state.bus, state.session!.id);
+      adapter = new OpenCodeStreamAdapter(state.bus, state.session!.id, client);
     } else if (agentType === "claude") {
-      adapter = new ClaudeStreamAdapter(state.bus, state.session!.id);
+      adapter = new ClaudeStreamAdapter(state.bus, state.session!.id, client);
     } else {
       adapter = new CopilotStreamAdapter(state.bus, client);
     }
@@ -521,38 +453,16 @@ export async function startChatUI(
       // AbortError is expected when user interrupts — finalize cleanly
       if (error instanceof Error && error.name === "AbortError") {
         state.currentRunId = null;
-        state.resetParallelTracking?.("stream_abort");
         return;
       }
       state.currentRunId = null;
-      state.resetParallelTracking?.("stream_error");
     } finally {
       adapter.dispose();
       // Clear streaming state
       state.streamAbortController = null;
-      // Keep isStreaming true if sub-agents are still actively running so
-      // subagent.complete events continue to be processed.
-      if (!hasOpenStreamLifecycleWork(state)) {
-        state.isStreaming = false;
-        state.currentRunId = null;
-      }
+      state.isStreaming = false;
+      state.currentRunId = null;
     }
-  }
-
-  /**
-   * Compatibility wrapper for ChatApp's old onStreamMessage signature.
-   * Bridges the gap until ChatApp is updated to use useStreamConsumer directly.
-   * Ignores onChunk/onComplete/onMeta callbacks since events flow through the bus now.
-   */
-  async function handleStreamMessageCompat(
-    content: string,
-    onChunk: (chunk: string) => void,
-    onComplete: () => void,
-    onMeta?: (meta: StreamingMeta) => void,
-    options?: { agent?: string }
-  ): Promise<void> {
-    // Delegate to the new implementation (callbacks are ignored - bus handles UI updates)
-    await handleStreamMessage(content, options);
   }
 
   /**
@@ -576,21 +486,8 @@ export async function startChatUI(
       state.isStreaming = false;
       state.currentRunId = null;
 
-      // Preserve background agents across the reset — resetParallelTracking
-      // calls clearParallelAgents() which wipes ALL agents from state.
-      const backgroundAgents = state.parallelAgents.filter(isBackgroundAgent);
-      state.resetParallelTracking?.("interrupt");
-      // Restore background agents that were cleared by resetParallelTracking
-      if (backgroundAgents.length > 0) {
-        state.parallelAgents = backgroundAgents;
-        state.parallelAgentHandler?.(state.parallelAgents);
-      }
-
       state.streamAbortController?.abort();
-      // Call session.abort() to fully cancel the in-flight SDK request,
-      // but only when no background agents are running (session.abort()
-      // kills ALL agents in the session including background ones).
-      if (backgroundAgents.length === 0 && state.session?.abort) {
+      if (state.session?.abort) {
         void state.session.abort().catch(() => {});
       }
       state.telemetryTracker?.trackInterrupt(sourceType);
@@ -599,9 +496,6 @@ export async function startChatUI(
       if (state.interruptTimeout) {
         clearTimeout(state.interruptTimeout);
         state.interruptTimeout = null;
-      }
-      if (state.showCtrlCWarning) {
-        state.showCtrlCWarning(false);
       }
       return;
     }
@@ -615,26 +509,17 @@ export async function startChatUI(
         clearTimeout(state.interruptTimeout);
         state.interruptTimeout = null;
       }
-      if (state.showCtrlCWarning) {
-        state.showCtrlCWarning(false);
-      }
       void cleanup();
       return;
     }
 
-    // First press - show warning and set timeout
-    if (state.showCtrlCWarning) {
-      state.showCtrlCWarning(true);
-    }
+    // First press - arm timeout for double-press exit
     if (state.interruptTimeout) {
       clearTimeout(state.interruptTimeout);
     }
     state.interruptTimeout = setTimeout(() => {
       state.interruptCount = 0;
       state.interruptTimeout = null;
-      if (state.showCtrlCWarning) {
-        state.showCtrlCWarning(false);
-      }
     }, 1000);
   }
 
@@ -655,9 +540,6 @@ export async function startChatUI(
   state.cleanupHandlers.push(() => {
     process.off("SIGINT", sigintHandler);
     process.off("SIGTERM", sigtermHandler);
-    if (state.ctrlCTimeout) {
-      clearTimeout(state.ctrlCTimeout);
-    }
     if (state.interruptTimeout) {
       clearTimeout(state.interruptTimeout);
     }
@@ -707,24 +589,7 @@ export async function startChatUI(
     // Create React root
     state.root = createRoot(state.renderer);
 
-    // Render the chat application
-    // Tool/skill handler registration removed — events flow through the event bus now.
-
-    const registerPermissionRequestHandler = (handler: ChatOnPermissionRequest) => {
-      state.permissionRequestHandler = handler;
-    };
-
-    const registerAskUserQuestionHandler = (handler: OnAskUserQuestion) => {
-      state.askUserQuestionHandler = handler;
-    };
-
-    const registerParallelAgentHandler = (handler: (agents: ParallelAgent[]) => void) => {
-      state.parallelAgentHandler = handler;
-    };
-
-    const registerCtrlCWarningHandler = (handler: (show: boolean) => void) => {
-      state.showCtrlCWarning = handler;
-    };
+    // Render the chat application.
 
     /**
      * Set the streaming state from the UI layer.
@@ -742,12 +607,6 @@ export async function startChatUI(
         return;
       }
 
-      // Keep ownership active if late lifecycle work is still draining.
-      if (hasOpenStreamLifecycleWork(state)) {
-        state.isStreaming = true;
-        return;
-      }
-
       state.isStreaming = false;
       state.currentRunId = null;
     };
@@ -761,18 +620,6 @@ export async function startChatUI(
     };
 
     const handleTerminateBackgroundAgentsFromUI: OnTerminateBackgroundAgents = () => {
-      const activeAgents = getActiveBackgroundAgents(state.parallelAgents);
-      if (activeAgents.length === 0) {
-        state.telemetryTracker?.trackBackgroundTermination("noop", 0);
-        return;
-      }
-
-      const activeCount = activeAgents.length;
-
-      // Clear background agents from state tracking
-      state.parallelAgents = state.parallelAgents.filter(a => !isBackgroundAgent(a));
-      state.parallelAgentHandler?.(state.parallelAgents);
-
       // Abort the SDK session to actually kill background agent processes.
       // This is safe because ctrl+f only fires when NOT streaming (guarded
       // by isStreamingRef.current check in chat.tsx), so no foreground work
@@ -781,9 +628,11 @@ export async function startChatUI(
         void state.session.abort().catch((error) => {
           console.error("Failed to abort session during background-agent termination:", error);
         });
+        state.telemetryTracker?.trackBackgroundTermination("execute", 1, 1);
+        return;
       }
 
-      state.telemetryTracker?.trackBackgroundTermination("execute", activeCount, activeCount);
+      state.telemetryTracker?.trackBackgroundTermination("noop", 0);
     };
 
     /**
@@ -798,7 +647,6 @@ export async function startChatUI(
     const resetSession = async () => {
       state.currentRunId = null;
       state.isStreaming = false;
-      state.resetParallelTracking?.("reset_session");
       if (state.session) {
         try {
           await state.session.destroy();
@@ -854,41 +702,44 @@ export async function startChatUI(
         {
           initialTheme: theme,
           children: React.createElement(
-            AppErrorBoundary,
+            EventBusProvider,
             {
-              onExit: () => { void cleanup(); },
-              isDark: theme.isDark,
-              children: React.createElement(ChatApp, {
-                title,
-                placeholder,
-                version,
-                model,
-                tier,
-                workingDir,
-                suggestion,
-                agentType,
-                modelOps,
-                initialModelId: sessionConfig?.model,
-                getModelDisplayInfo: (hint?: string) => client.getModelDisplayInfo(hint),
-                onSendMessage: handleSendMessage,
-                onStreamMessage: handleStreamMessageCompat,
-                onExit: handleExit,
-                onResetSession: resetSession,
-                onInterrupt: handleInterruptFromUI,
-                onTerminateBackgroundAgents: handleTerminateBackgroundAgentsFromUI,
-                setStreamingState,
-                registerPermissionRequestHandler,
-                registerAskUserQuestionHandler,
-                registerParallelAgentHandler,
-                registerCtrlCWarningHandler,
-                getSession,
-                createSubagentSession,
-                initialPrompt,
-                onModelChange: handleModelChange,
-                onSessionMcpServersChange: handleSessionMcpServersChange,
-                onCommandExecutionTelemetry: handleCommandTelemetry,
-                onMessageSubmitTelemetry: handleMessageTelemetry,
-              }),
+              bus: state.bus,
+              dispatcher: state.dispatcher,
+              children: React.createElement(
+                AppErrorBoundary,
+                {
+                  onExit: () => { void cleanup(); },
+                  isDark: theme.isDark,
+                  children: React.createElement(ChatApp, {
+                    title,
+                    placeholder,
+                    version,
+                    model,
+                    tier,
+                    workingDir,
+                    suggestion,
+                    agentType,
+                    modelOps,
+                    initialModelId: sessionConfig?.model,
+                    getModelDisplayInfo: (hint?: string) => client.getModelDisplayInfo(hint),
+                    onSendMessage: handleSendMessage,
+                    onStreamMessage: handleStreamMessage,
+                    onExit: handleExit,
+                    onResetSession: resetSession,
+                    onInterrupt: handleInterruptFromUI,
+                    onTerminateBackgroundAgents: handleTerminateBackgroundAgentsFromUI,
+                    setStreamingState,
+                    getSession,
+                    createSubagentSession,
+                    initialPrompt,
+                    onModelChange: handleModelChange,
+                    onSessionMcpServersChange: handleSessionMcpServersChange,
+                    onCommandExecutionTelemetry: handleCommandTelemetry,
+                    onMessageSubmitTelemetry: handleMessageTelemetry,
+                  }),
+                }
+              ),
             }
           ),
         }

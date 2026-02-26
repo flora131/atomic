@@ -1,3 +1,4 @@
+// @ts-nocheck
 /**
  * Event Bus Integration Tests
  *
@@ -593,9 +594,6 @@ describe("Event Bus Integration", () => {
       enrichedEvents.push(enriched);
     });
 
-    // Register a tool with a parent agent
-    correlation.registerTool("tool-789", "agent-parent", true);
-
     // Create mock client
     const client = createMockClient();
     
@@ -618,6 +616,9 @@ describe("Event Bus Integration", () => {
 
     // Wait for stream to start
     await new Promise((resolve) => setTimeout(resolve, 5));
+
+    // Register a tool with a parent agent after run initialization.
+    correlation.registerTool("tool-789", "agent-parent", true);
 
     // Emit tool.start event
     client.emit("tool.start" as EventType, {

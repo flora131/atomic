@@ -63,12 +63,18 @@ const EventBusContext = createContext<EventBusContextValue | null>(null);
  * }
  * ```
  */
-export function EventBusProvider({ children }: { children: React.ReactNode }) {
+interface EventBusProviderProps {
+  children: React.ReactNode;
+  bus?: AtomicEventBus;
+  dispatcher?: BatchDispatcher;
+}
+
+export function EventBusProvider({ children, bus: externalBus, dispatcher: externalDispatcher }: EventBusProviderProps) {
   const value = useMemo(() => {
-    const bus = new AtomicEventBus();
-    const dispatcher = new BatchDispatcher(bus);
+    const bus = externalBus ?? new AtomicEventBus();
+    const dispatcher = externalDispatcher ?? new BatchDispatcher(bus);
     return { bus, dispatcher };
-  }, []);
+  }, [externalBus, externalDispatcher]);
 
   return (
     <EventBusContext.Provider value={value}>

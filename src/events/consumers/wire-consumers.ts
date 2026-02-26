@@ -73,7 +73,18 @@ export function wireConsumers(bus: AtomicEventBus, dispatcher: BatchDispatcher):
 
   // Register the consumer pipeline as a batch consumer of the dispatcher
   const unsubscribeConsumer = dispatcher.addConsumer((events) => {
-    const enriched = events.map((event) => correlation.enrich(event));
+    const owned = [];
+    for (const event of events) {
+      if (event.type === "stream.session.start") {
+        correlation.startRun(event.runId, event.sessionId);
+        owned.push(event);
+        continue;
+      }
+      if (correlation.isOwnedEvent(event)) {
+        owned.push(event);
+      }
+    }
+    const enriched = owned.map((event) => correlation.enrich(event));
     pipeline.processBatch(enriched);
   });
 

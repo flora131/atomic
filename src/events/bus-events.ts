@@ -124,8 +124,10 @@ export interface BusEventDataMap {
     toolId: string;
     /** Name of the tool that completed */
     toolName: string;
+    /** Input parameters passed to the tool (optional late payload) */
+    toolInput?: Record<string, unknown>;
     /** Result returned by the tool */
-    toolResult: string;
+    toolResult: unknown;
     /** Whether the tool execution succeeded */
     success: boolean;
     /** Error message if tool execution failed */
@@ -372,7 +374,8 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
   "stream.tool.complete": z.object({
     toolId: z.string(),
     toolName: z.string(),
-    toolResult: z.string(),
+    toolInput: z.record(z.string(), z.unknown()).optional(),
+    toolResult: z.unknown(),
     success: z.boolean(),
     error: z.string().optional(),
     sdkCorrelationId: z.string().optional(),

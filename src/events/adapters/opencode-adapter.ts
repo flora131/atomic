@@ -41,15 +41,18 @@ import type {
   StreamAdapterOptions,
 } from "./types.ts";
 import type {
+  CodingAgentClient,
   Session,
   AgentMessage,
-  EventType,
   EventHandler,
   ToolStartEventData,
   ToolCompleteEventData,
   SubagentStartEventData,
   SubagentCompleteEventData,
   MessageDeltaEventData,
+  PermissionRequestedEventData,
+  HumanInputRequiredEventData,
+  SkillInvokedEventData,
 } from "../../sdk/types.ts";
 
 /**
@@ -61,11 +64,14 @@ import type {
 export class OpenCodeStreamAdapter implements SDKStreamAdapter {
   private bus: AtomicEventBus;
   private sessionId: string;
+  private client?: CodingAgentClient;
   private abortController: AbortController | null = null;
   private textAccumulator = "";
   private unsubscribers: Array<() => void> = [];
   // Track thinking blocks to emit complete events
   private thinkingBlocks = new Map<string, { startTime: number }>();
+  private pendingToolIdsByName = new Map<string, string[]>();
+  private syntheticToolCounter = 0;
 
   /**
    * Create a new OpenCode stream adapter.
@@ -73,9 +79,10 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
    * @param bus - The event bus to publish events to
    * @param sessionId - Session ID for event correlation
    */
-  constructor(bus: AtomicEventBus, sessionId: string) {
+  constructor(bus: AtomicEventBus, sessionId: string, client?: CodingAgentClient) {
     this.bus = bus;
     this.sessionId = sessionId;
+    this.client = client;
   }
 
   /**
@@ -105,73 +112,98 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     // Reset state
     this.textAccumulator = "";
     this.thinkingBlocks.clear();
+    this.pendingToolIdsByName.clear();
+    this.syntheticToolCounter = 0;
 
-    // Get the SDK client from the session to subscribe to events
+    this.publishSessionStart(runId);
+
+    // Get the SDK client from constructor injection first, then legacy session field fallback.
     // Note: The OpenCode SDK emits most events through the CodingAgentClient event emitter
-    const client = (session as any).__client;
+    const client = this.client ?? (session as Session & { __client?: CodingAgentClient }).__client;
     if (client && typeof client.on === "function") {
       // Subscribe to message.delta events (backup - primarily handled in stream)
       const unsubDelta = client.on(
-        "message.delta" as EventType,
+        "message.delta",
         this.createMessageDeltaHandler(runId, messageId),
       );
       this.unsubscribers.push(unsubDelta);
 
       // Subscribe to message.complete events
       const unsubComplete = client.on(
-        "message.complete" as EventType,
+        "message.complete",
         this.createMessageCompleteHandler(runId, messageId),
       );
       this.unsubscribers.push(unsubComplete);
 
       // Subscribe to tool.start events
       const unsubToolStart = client.on(
-        "tool.start" as EventType,
+        "tool.start",
         this.createToolStartHandler(runId),
       );
       this.unsubscribers.push(unsubToolStart);
 
       // Subscribe to tool.complete events
       const unsubToolComplete = client.on(
-        "tool.complete" as EventType,
+        "tool.complete",
         this.createToolCompleteHandler(runId),
       );
       this.unsubscribers.push(unsubToolComplete);
 
       // Subscribe to subagent.start events
       const unsubAgentStart = client.on(
-        "subagent.start" as EventType,
+        "subagent.start",
         this.createSubagentStartHandler(runId),
       );
       this.unsubscribers.push(unsubAgentStart);
 
       // Subscribe to subagent.complete events
       const unsubAgentComplete = client.on(
-        "subagent.complete" as EventType,
+        "subagent.complete",
         this.createSubagentCompleteHandler(runId),
       );
       this.unsubscribers.push(unsubAgentComplete);
 
       // Subscribe to session.idle events
       const unsubIdle = client.on(
-        "session.idle" as EventType,
+        "session.idle",
         this.createSessionIdleHandler(runId),
       );
       this.unsubscribers.push(unsubIdle);
 
       // Subscribe to session.error events
       const unsubError = client.on(
-        "session.error" as EventType,
+        "session.error",
         this.createSessionErrorHandler(runId),
       );
       this.unsubscribers.push(unsubError);
 
       // Subscribe to usage events
       const unsubUsage = client.on(
-        "usage" as EventType,
+        "usage",
         this.createUsageHandler(runId),
       );
       this.unsubscribers.push(unsubUsage);
+
+      // Subscribe to permission request events
+      const unsubPermission = client.on(
+        "permission.requested",
+        this.createPermissionRequestedHandler(runId),
+      );
+      this.unsubscribers.push(unsubPermission);
+
+      // Subscribe to human input request events
+      const unsubHumanInput = client.on(
+        "human_input_required",
+        this.createHumanInputRequiredHandler(runId),
+      );
+      this.unsubscribers.push(unsubHumanInput);
+
+      // Subscribe to skill invocation events
+      const unsubSkill = client.on(
+        "skill.invoked",
+        this.createSkillInvokedHandler(runId),
+      );
+      this.unsubscribers.push(unsubSkill);
     }
 
     try {
@@ -198,8 +230,8 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         this.publishSessionError(runId, error);
       }
     } finally {
-      // Cleanup SDK event subscriptions
-      this.cleanupSubscriptions();
+      // Keep subscriptions active until dispose() so late lifecycle events
+      // (e.g. delayed tool.complete) can still be published to the bus.
     }
   }
 
@@ -265,7 +297,6 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         | { thinkingMs?: number }
         | undefined;
       if (streamingStats?.thinkingMs !== undefined) {
-        const thinkingBlock = this.thinkingBlocks.get(sourceKey);
         const durationMs = streamingStats.thinkingMs;
 
         const event: BusEvent<"stream.thinking.complete"> = {
@@ -282,6 +313,80 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         this.bus.publish(event);
         this.thinkingBlocks.delete(sourceKey);
       }
+    }
+
+    if (chunk.type === "tool_use") {
+      const metadata = (chunk.metadata ?? {}) as Record<string, unknown>;
+      const content = (chunk.content ?? {}) as Record<string, unknown>;
+      const toolCalls = Array.isArray(content.toolCalls)
+        ? content.toolCalls as Record<string, unknown>[]
+        : [content];
+
+      for (const toolCall of toolCalls) {
+        const toolName = this.normalizeToolName(toolCall.name ?? metadata.toolName);
+        const input = this.asRecord(toolCall.input) ?? {};
+        const explicitToolId = this.asString(
+          toolCall.toolUseId
+            ?? toolCall.toolUseID
+            ?? toolCall.id
+            ?? metadata.toolId
+            ?? metadata.toolUseId
+            ?? metadata.toolUseID
+            ?? metadata.toolCallId,
+        );
+        const toolId = this.resolveToolStartId(explicitToolId, runId, toolName);
+        const sdkCorrelationId = explicitToolId ?? toolId;
+
+        const event: BusEvent<"stream.tool.start"> = {
+          type: "stream.tool.start",
+          sessionId: this.sessionId,
+          runId,
+          timestamp: Date.now(),
+          data: {
+            toolId,
+            toolName,
+            toolInput: input,
+            sdkCorrelationId,
+          },
+        };
+        this.bus.publish(event);
+      }
+    }
+
+    if (chunk.type === "tool_result") {
+      const metadata = (chunk.metadata ?? {}) as Record<string, unknown>;
+      const toolName = this.normalizeToolName(metadata.toolName);
+      const explicitToolId = this.asString(
+        metadata.toolId
+          ?? metadata.toolUseId
+          ?? metadata.toolUseID
+          ?? metadata.toolCallId,
+      );
+      const toolId = this.resolveToolCompleteId(explicitToolId, runId, toolName);
+      const rawContent = chunk.content;
+      const contentRecord = this.asRecord(rawContent);
+      const isError = metadata.error === true
+        || (typeof rawContent === "object" && rawContent !== null && "error" in rawContent);
+      const errorValue = contentRecord?.error;
+      const error = isError
+        ? (typeof errorValue === "string" ? errorValue : "Tool execution failed")
+        : undefined;
+
+      const event: BusEvent<"stream.tool.complete"> = {
+        type: "stream.tool.complete",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          toolId,
+          toolName,
+          toolResult: rawContent,
+          success: !isError,
+          error,
+          sdkCorrelationId: explicitToolId ?? toolId,
+        },
+      };
+      this.bus.publish(event);
     }
   }
 
@@ -376,10 +481,11 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       }
 
       const data = event.data as ToolStartEventData;
-
-      // Extract tool use ID from various SDK formats
-      const sdkCorrelationId =
-        data.toolUseId ?? data.toolUseID ?? data.toolCallId;
+      const sdkCorrelationId = this.asString(
+        data.toolUseId ?? data.toolUseID ?? data.toolCallId,
+      );
+      const toolName = this.normalizeToolName(data.toolName);
+      const toolId = this.resolveToolStartId(sdkCorrelationId, runId, toolName);
 
       const busEvent: BusEvent<"stream.tool.start"> = {
         type: "stream.tool.start",
@@ -387,10 +493,10 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         runId,
         timestamp: Date.now(),
         data: {
-          toolId: sdkCorrelationId ?? `tool_${Date.now()}`,
-          toolName: data.toolName,
+          toolId,
+          toolName,
           toolInput: (data.toolInput ?? {}) as Record<string, unknown>,
-          sdkCorrelationId,
+          sdkCorrelationId: sdkCorrelationId ?? toolId,
         },
       };
 
@@ -411,10 +517,12 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       }
 
       const data = event.data as ToolCompleteEventData;
-
-      // Extract tool use ID from various SDK formats
-      const sdkCorrelationId =
-        data.toolUseId ?? data.toolUseID ?? data.toolCallId;
+      const sdkCorrelationId = this.asString(
+        data.toolUseId ?? data.toolUseID ?? data.toolCallId,
+      );
+      const toolName = this.normalizeToolName(data.toolName);
+      const toolId = this.resolveToolCompleteId(sdkCorrelationId, runId, toolName);
+      const toolInput = this.asRecord((data as Record<string, unknown>).toolInput);
 
       const busEvent: BusEvent<"stream.tool.complete"> = {
         type: "stream.tool.complete",
@@ -422,12 +530,13 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         runId,
         timestamp: Date.now(),
         data: {
-          toolId: sdkCorrelationId ?? `tool_${Date.now()}`,
-          toolName: data.toolName,
-          toolResult: String(data.toolResult ?? ""),
+          toolId,
+          toolName,
+          toolInput,
+          toolResult: data.toolResult,
           success: data.success,
           error: data.error,
-          sdkCorrelationId,
+          sdkCorrelationId: sdkCorrelationId ?? toolId,
         },
       };
 
@@ -591,6 +700,98 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
   }
 
   /**
+   * Create a handler for permission.requested events from the SDK.
+   */
+  private createPermissionRequestedHandler(
+    runId: number,
+  ): EventHandler<"permission.requested"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) {
+        return;
+      }
+
+      const data = event.data as PermissionRequestedEventData;
+      const busEvent: BusEvent<"stream.permission.requested"> = {
+        type: "stream.permission.requested",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          requestId: data.requestId,
+          toolName: data.toolName,
+          toolInput: (data.toolInput as Record<string, unknown> | undefined),
+          question: data.question,
+          header: data.header,
+          options: data.options,
+          multiSelect: data.multiSelect,
+          respond: data.respond,
+          toolCallId: data.toolCallId,
+        },
+      };
+
+      this.bus.publish(busEvent);
+    };
+  }
+
+  /**
+   * Create a handler for human_input_required events from the SDK.
+   */
+  private createHumanInputRequiredHandler(
+    runId: number,
+  ): EventHandler<"human_input_required"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) {
+        return;
+      }
+
+      const data = event.data as HumanInputRequiredEventData;
+      const busEvent: BusEvent<"stream.human_input_required"> = {
+        type: "stream.human_input_required",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          requestId: data.requestId,
+          question: data.question,
+          header: data.header,
+          options: data.options,
+          nodeId: data.nodeId,
+          respond: data.respond,
+        },
+      };
+
+      this.bus.publish(busEvent);
+    };
+  }
+
+  /**
+   * Create a handler for skill.invoked events from the SDK.
+   */
+  private createSkillInvokedHandler(
+    runId: number,
+  ): EventHandler<"skill.invoked"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) {
+        return;
+      }
+
+      const data = event.data as SkillInvokedEventData;
+      const busEvent: BusEvent<"stream.skill.invoked"> = {
+        type: "stream.skill.invoked",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          skillName: data.skillName,
+          skillPath: data.skillPath,
+        },
+      };
+
+      this.bus.publish(busEvent);
+    };
+  }
+
+  /**
    * Publish a stream.text.complete event.
    */
   private publishTextComplete(runId: number, messageId: string): void {
@@ -605,6 +806,17 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       },
     };
 
+    this.bus.publish(event);
+  }
+
+  private publishSessionStart(runId: number): void {
+    const event: BusEvent<"stream.session.start"> = {
+      type: "stream.session.start",
+      sessionId: this.sessionId,
+      runId,
+      timestamp: Date.now(),
+      data: {},
+    };
     this.bus.publish(event);
   }
 
@@ -628,6 +840,84 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.bus.publish(event);
   }
 
+  private asRecord(value: unknown): Record<string, unknown> | undefined {
+    if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      return value as Record<string, unknown>;
+    }
+    return undefined;
+  }
+
+  private asString(value: unknown): string | undefined {
+    return typeof value === "string" && value.trim().length > 0
+      ? value
+      : undefined;
+  }
+
+  private normalizeToolName(value: unknown): string {
+    return this.asString(value) ?? "unknown";
+  }
+
+  private createSyntheticToolId(runId: number, toolName: string): string {
+    this.syntheticToolCounter += 1;
+    const normalizedName = toolName.replace(/[^a-zA-Z0-9_-]/g, "_");
+    return `tool_${runId}_${normalizedName}_${this.syntheticToolCounter}`;
+  }
+
+  private queueToolId(toolName: string, toolId: string): void {
+    const queue = this.pendingToolIdsByName.get(toolName) ?? [];
+    if (!queue.includes(toolId)) {
+      queue.push(toolId);
+      this.pendingToolIdsByName.set(toolName, queue);
+    }
+  }
+
+  private removeQueuedToolId(toolName: string, toolId: string): void {
+    const queue = this.pendingToolIdsByName.get(toolName);
+    if (!queue) return;
+    const nextQueue = queue.filter((queuedId) => queuedId !== toolId);
+    if (nextQueue.length === 0) {
+      this.pendingToolIdsByName.delete(toolName);
+      return;
+    }
+    this.pendingToolIdsByName.set(toolName, nextQueue);
+  }
+
+  private shiftQueuedToolId(toolName: string): string | undefined {
+    const queue = this.pendingToolIdsByName.get(toolName);
+    if (!queue || queue.length === 0) {
+      return undefined;
+    }
+    const [toolId, ...rest] = queue;
+    if (rest.length === 0) {
+      this.pendingToolIdsByName.delete(toolName);
+    } else {
+      this.pendingToolIdsByName.set(toolName, rest);
+    }
+    return toolId;
+  }
+
+  private resolveToolStartId(
+    explicitToolId: string | undefined,
+    runId: number,
+    toolName: string,
+  ): string {
+    const toolId = explicitToolId ?? this.createSyntheticToolId(runId, toolName);
+    this.queueToolId(toolName, toolId);
+    return toolId;
+  }
+
+  private resolveToolCompleteId(
+    explicitToolId: string | undefined,
+    runId: number,
+    toolName: string,
+  ): string {
+    if (explicitToolId) {
+      this.removeQueuedToolId(toolName, explicitToolId);
+      return explicitToolId;
+    }
+    return this.shiftQueuedToolId(toolName) ?? this.createSyntheticToolId(runId, toolName);
+  }
+
   /**
    * Clean up SDK event subscriptions.
    */
@@ -649,5 +939,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.cleanupSubscriptions();
     this.textAccumulator = "";
     this.thinkingBlocks.clear();
+    this.pendingToolIdsByName.clear();
+    this.syntheticToolCounter = 0;
   }
 }

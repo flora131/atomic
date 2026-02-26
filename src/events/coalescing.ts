@@ -13,12 +13,13 @@ export function coalescingKey(event: BusEvent): string | undefined {
       return undefined;
 
     // Tool/agent state updates coalesce by entity ID
-    case "stream.tool.start":
+    case "stream.tool.start": {
+      const data = event.data as BusEventDataMap["stream.tool.start"];
+      return `tool.start:${data.toolId}`;
+    }
     case "stream.tool.complete": {
-      const data = event.data as
-        | BusEventDataMap["stream.tool.start"]
-        | BusEventDataMap["stream.tool.complete"];
-      return `tool:${data.toolId}`;
+      const data = event.data as BusEventDataMap["stream.tool.complete"];
+      return `tool.complete:${data.toolId}`;
     }
     case "stream.agent.update": {
       const data = event.data as BusEventDataMap["stream.agent.update"];

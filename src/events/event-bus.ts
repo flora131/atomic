@@ -18,6 +18,7 @@ import type {
   BusHandler,
   WildcardHandler,
 } from "./bus-events.ts";
+import { BusEventSchemas } from "./bus-events.ts";
 
 /**
  * Core event bus for the streaming architecture.
@@ -135,6 +136,17 @@ export class AtomicEventBus {
    * ```
    */
   publish<T extends BusEventType>(event: BusEvent<T>): void {
+    // Validate event data with Zod schema before dispatch
+    const schema = BusEventSchemas[event.type];
+    if (schema) {
+      try {
+        schema.parse(event.data);
+      } catch (error) {
+        console.error(`[EventBus] Schema validation failed for ${event.type}:`, error);
+        return;
+      }
+    }
+
     // Dispatch to typed handlers
     const handlers = this.handlers.get(event.type);
     if (handlers) {

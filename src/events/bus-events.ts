@@ -10,7 +10,10 @@
  * - BusEventDataMap: Type mapping from event type to payload structure
  * - BusEvent: The base event envelope with metadata
  * - EnrichedBusEvent: Extended event with correlation and suppression data
+ * - BusEventSchemas: Zod schemas for runtime validation of event payloads
  */
+
+import { z } from "zod";
 
 /**
  * All event types supported by the event bus.
@@ -318,6 +321,145 @@ export interface BusEventDataMap {
     model?: string;
   };
 }
+
+/**
+ * Define a typed bus event with Zod schema validation (OpenCode pattern).
+ *
+ * @param type - Event type string
+ * @param schema - Zod schema for validating event data
+ * @returns Event definition with type, schema, and parse function
+ */
+export function defineBusEvent<T extends string, S extends z.ZodType>(
+  type: T,
+  schema: S,
+) {
+  return {
+    type,
+    schema,
+    parse: (data: unknown) => schema.parse(data),
+  } as const;
+}
+
+/**
+ * Zod schemas for all bus event data payloads.
+ * Used by publish() to validate event data at runtime.
+ */
+export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
+  "stream.text.delta": z.object({
+    delta: z.string(),
+    messageId: z.string(),
+  }),
+  "stream.text.complete": z.object({
+    messageId: z.string(),
+    fullText: z.string(),
+  }),
+  "stream.thinking.delta": z.object({
+    delta: z.string(),
+    sourceKey: z.string(),
+    messageId: z.string(),
+  }),
+  "stream.thinking.complete": z.object({
+    sourceKey: z.string(),
+    durationMs: z.number(),
+  }),
+  "stream.tool.start": z.object({
+    toolId: z.string(),
+    toolName: z.string(),
+    toolInput: z.record(z.string(), z.unknown()),
+    sdkCorrelationId: z.string().optional(),
+    parentAgentId: z.string().optional(),
+  }),
+  "stream.tool.complete": z.object({
+    toolId: z.string(),
+    toolName: z.string(),
+    toolResult: z.string(),
+    success: z.boolean(),
+    error: z.string().optional(),
+    sdkCorrelationId: z.string().optional(),
+  }),
+  "stream.agent.start": z.object({
+    agentId: z.string(),
+    agentType: z.string(),
+    task: z.string(),
+    isBackground: z.boolean(),
+    sdkCorrelationId: z.string().optional(),
+  }),
+  "stream.agent.update": z.object({
+    agentId: z.string(),
+    currentTool: z.string().optional(),
+    toolUses: z.number().optional(),
+  }),
+  "stream.agent.complete": z.object({
+    agentId: z.string(),
+    success: z.boolean(),
+    result: z.string().optional(),
+    error: z.string().optional(),
+  }),
+  "stream.session.start": z.object({
+    config: z.record(z.string(), z.unknown()).optional(),
+  }),
+  "stream.session.idle": z.object({
+    reason: z.string().optional(),
+  }),
+  "stream.session.error": z.object({
+    error: z.string(),
+    code: z.string().optional(),
+  }),
+  "workflow.step.start": z.object({
+    workflowId: z.string(),
+    nodeId: z.string(),
+    nodeName: z.string(),
+  }),
+  "workflow.step.complete": z.object({
+    workflowId: z.string(),
+    nodeId: z.string(),
+    status: z.enum(["success", "error", "skipped"]),
+    result: z.unknown().optional(),
+  }),
+  "workflow.task.update": z.object({
+    workflowId: z.string(),
+    tasks: z.array(z.object({
+      id: z.string(),
+      title: z.string(),
+      status: z.string(),
+    })),
+  }),
+  "stream.permission.requested": z.object({
+    requestId: z.string(),
+    toolName: z.string(),
+    toolInput: z.record(z.string(), z.unknown()).optional(),
+    question: z.string(),
+    header: z.string().optional(),
+    options: z.array(z.object({
+      label: z.string(),
+      value: z.string(),
+      description: z.string().optional(),
+    })),
+    multiSelect: z.boolean().optional(),
+    respond: z.function().optional(),
+    toolCallId: z.string().optional(),
+  }),
+  "stream.human_input_required": z.object({
+    requestId: z.string(),
+    question: z.string(),
+    header: z.string().optional(),
+    options: z.array(z.object({
+      label: z.string(),
+      description: z.string().optional(),
+    })).optional(),
+    nodeId: z.string(),
+    respond: z.function().optional(),
+  }),
+  "stream.skill.invoked": z.object({
+    skillName: z.string(),
+    skillPath: z.string().optional(),
+  }),
+  "stream.usage": z.object({
+    inputTokens: z.number(),
+    outputTokens: z.number(),
+    model: z.string().optional(),
+  }),
+};
 
 /**
  * Base event envelope for all bus events.

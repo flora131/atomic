@@ -21,14 +21,18 @@ describe("BatchDispatcher", () => {
   let dispatcher: BatchDispatcher;
   let publishedEvents: BusEvent[];
 
+  /** Create dispatcher and register a consumer that collects flushed events. */
+  function createDispatcher(flushIntervalMs = 1000): BatchDispatcher {
+    dispatcher = new BatchDispatcher(bus, flushIntervalMs);
+    dispatcher.addConsumer((events) => {
+      publishedEvents.push(...events);
+    });
+    return dispatcher;
+  }
+
   beforeEach(() => {
     bus = new AtomicEventBus();
     publishedEvents = [];
-
-    // Subscribe to all events to track what gets published
-    bus.onAll((event) => {
-      publishedEvents.push(event);
-    });
   });
 
   afterEach(() => {
@@ -40,7 +44,7 @@ describe("BatchDispatcher", () => {
 
   describe("enqueue()", () => {
     it("should add events to buffer", () => {
-      dispatcher = new BatchDispatcher(bus, 1000); // Long interval to prevent auto-flush
+      createDispatcher(1000);
 
       const event: BusEvent<"stream.text.delta"> = {
         type: "stream.text.delta",
@@ -57,7 +61,7 @@ describe("BatchDispatcher", () => {
     });
 
     it("should accumulate multiple events in buffer", () => {
-      dispatcher = new BatchDispatcher(bus, 1000); // Long interval to prevent auto-flush
+      createDispatcher(1000);
 
       const event1: BusEvent<"stream.text.delta"> = {
         type: "stream.text.delta",
@@ -85,7 +89,7 @@ describe("BatchDispatcher", () => {
 
   describe("flush()", () => {
     it("should publish all events to bus", () => {
-      dispatcher = new BatchDispatcher(bus, 1000); // Long interval to prevent auto-flush
+      createDispatcher(1000);
 
       const event1: BusEvent<"stream.text.delta"> = {
         type: "stream.text.delta",
@@ -113,7 +117,7 @@ describe("BatchDispatcher", () => {
     });
 
     it("should use double-buffer swap (old write becomes new read)", () => {
-      dispatcher = new BatchDispatcher(bus, 1000); // Long interval to prevent auto-flush
+      createDispatcher(1000);
 
       const event1: BusEvent<"stream.text.delta"> = {
         type: "stream.text.delta",
@@ -149,7 +153,7 @@ describe("BatchDispatcher", () => {
     });
 
     it("should preserve flush order for non-coalesced events", () => {
-      dispatcher = new BatchDispatcher(bus, 1000); // Long interval to prevent auto-flush
+      createDispatcher(1000);
 
       const events: BusEvent[] = [
         {
@@ -187,7 +191,7 @@ describe("BatchDispatcher", () => {
 
   describe("coalescing behavior", () => {
     it("should coalesce events with same key (only latest retained)", () => {
-      dispatcher = new BatchDispatcher(bus, 1000); // Long interval to prevent auto-flush
+      createDispatcher(1000);
 
       const event1: BusEvent<"stream.tool.start"> = {
         type: "stream.tool.start",
@@ -223,7 +227,7 @@ describe("BatchDispatcher", () => {
     });
 
     it("should never coalesce text deltas (all accumulate)", () => {
-      dispatcher = new BatchDispatcher(bus, 1000); // Long interval to prevent auto-flush
+      createDispatcher(1000);
 
       const event1: BusEvent<"stream.text.delta"> = {
         type: "stream.text.delta",
@@ -262,7 +266,7 @@ describe("BatchDispatcher", () => {
     });
 
     it("should handle mixed coalescable and non-coalescable events", () => {
-      dispatcher = new BatchDispatcher(bus, 1000); // Long interval to prevent auto-flush
+      createDispatcher(1000);
 
       const textDelta1: BusEvent<"stream.text.delta"> = {
         type: "stream.text.delta",
@@ -318,7 +322,7 @@ describe("BatchDispatcher", () => {
     });
 
     it("should coalesce multiple different tools independently", () => {
-      dispatcher = new BatchDispatcher(bus, 1000); // Long interval to prevent auto-flush
+      createDispatcher(1000);
 
       const tool1Event1: BusEvent<"stream.tool.start"> = {
         type: "stream.tool.start",
@@ -370,7 +374,7 @@ describe("BatchDispatcher", () => {
 
   describe("timer lifecycle", () => {
     it("should auto-start timer on first enqueue", async () => {
-      dispatcher = new BatchDispatcher(bus, 50); // Short interval for test
+      createDispatcher(50);
 
       const event: BusEvent<"stream.text.delta"> = {
         type: "stream.text.delta",
@@ -391,7 +395,7 @@ describe("BatchDispatcher", () => {
     });
 
     it("should auto-stop timer when buffer empty after flush", async () => {
-      dispatcher = new BatchDispatcher(bus, 50); // Short interval for test
+      createDispatcher(50);
 
       const event: BusEvent<"stream.text.delta"> = {
         type: "stream.text.delta",
@@ -419,7 +423,7 @@ describe("BatchDispatcher", () => {
     });
 
     it("should continue timer while events are being enqueued", async () => {
-      dispatcher = new BatchDispatcher(bus, 50); // Short interval for test
+      createDispatcher(50);
 
       const event1: BusEvent<"stream.text.delta"> = {
         type: "stream.text.delta",
@@ -454,7 +458,7 @@ describe("BatchDispatcher", () => {
 
   describe("dispose()", () => {
     it("should clear timer and buffers", () => {
-      dispatcher = new BatchDispatcher(bus, 1000); // Long interval to prevent auto-flush
+      createDispatcher(1000);
 
       const event: BusEvent<"stream.text.delta"> = {
         type: "stream.text.delta",
@@ -472,7 +476,7 @@ describe("BatchDispatcher", () => {
     });
 
     it("should prevent auto-flush after dispose", async () => {
-      dispatcher = new BatchDispatcher(bus, 50); // Short interval for test
+      createDispatcher(50);
 
       const event: BusEvent<"stream.text.delta"> = {
         type: "stream.text.delta",

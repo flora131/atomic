@@ -24,6 +24,7 @@
  */
 
 import type { AtomicEventBus } from "../event-bus.ts";
+import type { BatchDispatcher } from "../batch-dispatcher.ts";
 import { CorrelationService } from "./correlation-service.ts";
 import { EchoSuppressor } from "./echo-suppressor.ts";
 import { StreamPipelineConsumer } from "./stream-pipeline-consumer.ts";
@@ -46,50 +47,34 @@ export interface WiredConsumers {
 }
 
 /**
- * Wire all consumers to the event bus.
+ * Wire all consumers to the event bus via the BatchDispatcher.
  *
  * Establishes the complete event processing pipeline:
  * 1. Creates instances of all consumer services
- * 2. Wires them together: Bus → enrich → pipeline consumer
- * 3. Returns handles for external access and cleanup
+ * 2. Subscribes the dispatcher to the bus to enqueue events
+ * 3. Registers the consumer pipeline as a batch consumer of the dispatcher
+ * 4. Returns handles for external access and cleanup
  *
- * The pipeline works as follows:
- * - All events published to the bus are received by the wildcard subscriber
- * - Each event is enriched with correlation metadata
- * - Enriched events are batched and processed by the pipeline consumer
- * - Pipeline consumer transforms them to StreamPartEvents for the UI
+ * Event flow: Bus → BatchDispatcher.enqueue() → flush() → enrich → pipeline
  *
  * @param bus - The event bus to subscribe to
+ * @param dispatcher - The batch dispatcher for frame-aligned batching
  * @returns Container with consumer instances and dispose function
- *
- * @example
- * ```typescript
- * const bus = new AtomicEventBus();
- * const consumers = wireConsumers(bus);
- *
- * // Register a callback to receive StreamPartEvents
- * consumers.pipeline.onStreamParts((events) => {
- *   for (const event of events) {
- *     message = applyStreamPartEvent(message, event);
- *   }
- * });
- *
- * // Clean up when done
- * consumers.dispose();
- * ```
  */
-export function wireConsumers(bus: AtomicEventBus): WiredConsumers {
+export function wireConsumers(bus: AtomicEventBus, dispatcher: BatchDispatcher): WiredConsumers {
   const correlation = new CorrelationService();
   const echoSuppressor = new EchoSuppressor();
   const pipeline = new StreamPipelineConsumer(correlation, echoSuppressor);
 
-  // Subscribe to all bus events, enrich them, and pass to pipeline
-  // Note: We process events one at a time, but the pipeline consumer
-  // expects an array, so we wrap each enriched event in an array.
-  // The pipeline consumer batches internally via its callback mechanism.
-  const unsubscribe = bus.onAll((event) => {
-    const enriched = correlation.enrich(event);
-    pipeline.processBatch([enriched]);
+  // Subscribe BatchDispatcher to all bus events for enqueuing
+  const unsubscribeBus = bus.onAll((event) => {
+    dispatcher.enqueue(event);
+  });
+
+  // Register the consumer pipeline as a batch consumer of the dispatcher
+  const unsubscribeConsumer = dispatcher.addConsumer((events) => {
+    const enriched = events.map((event) => correlation.enrich(event));
+    pipeline.processBatch(enriched);
   });
 
   return {
@@ -97,7 +82,8 @@ export function wireConsumers(bus: AtomicEventBus): WiredConsumers {
     echoSuppressor,
     pipeline,
     dispose: () => {
-      unsubscribe();
+      unsubscribeBus();
+      unsubscribeConsumer();
       pipeline.reset();
     },
   };

@@ -5,7 +5,7 @@
     "": {
       "name": "atomic",
       "dependencies": {
-        "@anthropic-ai/claude-agent-sdk": "^0.2.58",
+        "@anthropic-ai/claude-agent-sdk": "^0.2.59",
         "@azure/monitor-opentelemetry": "^1.16.0",
         "@clack/prompts": "^1.0.1",
         "@commander-js/extra-typings": "^14.0.0",
@@ -17,6 +17,7 @@
         "@opentui/react": "^0.1.83",
         "ci-info": "^4.4.0",
         "commander": "^14.0.3",
+        "zod": "^4.3.6",
       },
       "devDependencies": {
         "@types/bun": "^1.3.9",

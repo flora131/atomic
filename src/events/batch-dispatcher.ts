@@ -17,6 +17,8 @@ import type { BusEvent } from "./bus-events.ts";
 import { coalescingKey } from "./coalescing.ts";
 import type { AtomicEventBus } from "./event-bus.ts";
 
+const FLUSH_INTERVAL_MS = 16; // ~60 FPS alignment
+
 /**
  * Metrics tracking for batch dispatcher operations.
  */
@@ -71,8 +73,10 @@ export class BatchDispatcher {
   private writeBuffer: BusEvent[] = [];
   private readBuffer: BusEvent[] = [];
   private coalescingMap = new Map<string, number>(); // key → index in writeBuffer
-  private timer: ReturnType<typeof setInterval> | null = null;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastFlush = Date.now();
   private flushIntervalMs: number;
+  private consumers: Array<(events: BusEvent[]) => void> = [];
   private _metrics: BatchMetrics = {
     totalFlushed: 0,
     totalCoalesced: 0,
@@ -87,7 +91,7 @@ export class BatchDispatcher {
    * @param bus - The event bus to flush events to
    * @param flushIntervalMs - Milliseconds between automatic flushes (default: 16ms ~= 60fps)
    */
-  constructor(bus: AtomicEventBus, flushIntervalMs = 16) {
+  constructor(bus: AtomicEventBus, flushIntervalMs = FLUSH_INTERVAL_MS) {
     this.bus = bus;
     this.flushIntervalMs = flushIntervalMs;
   }
@@ -124,17 +128,31 @@ export class BatchDispatcher {
       this.coalescingMap.set(key, this.writeBuffer.length);
     }
     this.writeBuffer.push(event);
-    this.ensureTimer();
+    this.scheduleFlush();
   }
 
   /**
-   * Flush all buffered events to the event bus immediately.
+   * Register a consumer that receives batched events on flush.
+   *
+   * @param consumer - Callback receiving an array of batched events
+   * @returns Unsubscribe function to remove the consumer
+   */
+  addConsumer(consumer: (events: BusEvent[]) => void): () => void {
+    this.consumers.push(consumer);
+    return () => {
+      const idx = this.consumers.indexOf(consumer);
+      if (idx !== -1) this.consumers.splice(idx, 1);
+    };
+  }
+
+  /**
+   * Flush all buffered events immediately.
    *
    * Uses a double-buffer swap pattern for efficient zero-allocation flushing.
-   * The write buffer and read buffer are swapped, then the read buffer is
-   * published while the write buffer (now empty) accepts new events.
+   * Dispatches batched events to all registered consumers.
    */
   flush(): void {
+    this.flushTimer = null;
     const startTime = performance.now();
 
     // Double-buffer swap
@@ -143,10 +161,11 @@ export class BatchDispatcher {
     this.readBuffer = toFlush;
     this.writeBuffer.length = 0;
     this.coalescingMap.clear();
+    this.lastFlush = Date.now();
 
-    // Publish each event on the bus
-    for (const event of toFlush) {
-      this.bus.publish(event);
+    // Dispatch batched events to all consumers
+    for (const consumer of this.consumers) {
+      consumer(toFlush);
     }
 
     // Update metrics
@@ -158,21 +177,19 @@ export class BatchDispatcher {
   }
 
   /**
-   * Ensure the flush timer is running.
-   *
-   * The timer is automatically started when the first event is enqueued.
-   * It stops automatically when the buffer is empty (no work to do).
+   * Schedule a flush using setTimeout with elapsed time calculation.
+   * If enough time has passed since last flush, flush immediately.
    */
-  private ensureTimer(): void {
-    if (this.timer === null) {
-      this.timer = setInterval(() => {
-        if (this.writeBuffer.length > 0) {
-          this.flush();
-        } else {
-          clearInterval(this.timer!);
-          this.timer = null;
-        }
-      }, this.flushIntervalMs);
+  private scheduleFlush(): void {
+    if (this.flushTimer !== null) return;
+    const elapsed = Date.now() - this.lastFlush;
+    if (elapsed >= this.flushIntervalMs) {
+      this.flush();
+    } else {
+      this.flushTimer = setTimeout(
+        () => this.flush(),
+        this.flushIntervalMs - elapsed,
+      );
     }
   }
 
@@ -183,13 +200,14 @@ export class BatchDispatcher {
    * when the dispatcher is no longer needed to prevent memory leaks.
    */
   dispose(): void {
-    if (this.timer !== null) {
-      clearInterval(this.timer);
-      this.timer = null;
+    if (this.flushTimer !== null) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
     }
     this.writeBuffer.length = 0;
     this.readBuffer.length = 0;
     this.coalescingMap.clear();
+    this.consumers.length = 0;
     this._metrics = {
       totalFlushed: 0,
       totalCoalesced: 0,

@@ -40,6 +40,7 @@ import {
 import { shouldFinalizeOnToolComplete } from "./parts/index.ts";
 import { getActiveBackgroundAgents, isBackgroundAgent } from "./utils/background-agent-footer.ts";
 import { AtomicEventBus } from "../events/event-bus.ts";
+import { BatchDispatcher } from "../events/batch-dispatcher.ts";
 import { OpenCodeStreamAdapter } from "../events/adapters/opencode-adapter.ts";
 import { ClaudeStreamAdapter } from "../events/adapters/claude-adapter.ts";
 import { CopilotStreamAdapter } from "../events/adapters/copilot-adapter.ts";
@@ -203,6 +204,10 @@ interface ChatUIState {
   resetParallelTracking: ((reason: string) => void) | null;
   /** Native TUI telemetry tracker (null when telemetry is disabled or agent type is unknown) */
   telemetryTracker: TuiTelemetrySessionTracker | null;
+  /** Singleton event bus shared across all streams */
+  bus: AtomicEventBus;
+  /** Singleton batch dispatcher for frame-aligned event batching */
+  dispatcher: BatchDispatcher;
 }
 
 function clearParallelAgents(state: ChatUIState) {
@@ -284,6 +289,10 @@ export async function startChatUI(
       : undefined;
   const modelOps = agentType ? new UnifiedModelOperations(agentType, sdkSetModel, sdkListModels, sessionConfig?.model) : undefined;
 
+  // Initialize singleton event bus and batch dispatcher
+  const sharedBus = new AtomicEventBus();
+  const sharedDispatcher = new BatchDispatcher(sharedBus);
+
   // Initialize state
   const state: ChatUIState = {
     renderer: null,
@@ -317,6 +326,8 @@ export async function startChatUI(
         hasInitialPrompt: !!initialPrompt,
       })
       : null,
+    bus: sharedBus,
+    dispatcher: sharedDispatcher,
   };
 
   // Create a promise that resolves when the UI exits
@@ -331,6 +342,10 @@ export async function startChatUI(
   async function cleanup(): Promise<void> {
     state.currentRunId = null;
     state.isStreaming = false;
+
+    // Dispose event bus infrastructure
+    state.dispatcher.dispose();
+    state.bus.clear();
 
     // Remove signal handlers
     for (const handler of state.cleanupHandlers) {
@@ -481,15 +496,14 @@ export async function startChatUI(
     state.isStreaming = true;
 
     // Create the appropriate SDK adapter based on agent type
-    const bus = new AtomicEventBus();
     let adapter: SDKStreamAdapter;
 
     if (agentType === "opencode") {
-      adapter = new OpenCodeStreamAdapter(bus, state.session!.id);
+      adapter = new OpenCodeStreamAdapter(state.bus, state.session!.id);
     } else if (agentType === "claude") {
-      adapter = new ClaudeStreamAdapter(bus, state.session!.id);
+      adapter = new ClaudeStreamAdapter(state.bus, state.session!.id);
     } else {
-      adapter = new CopilotStreamAdapter(bus, client);
+      adapter = new CopilotStreamAdapter(state.bus, client);
     }
 
     const runId = state.currentRunId;

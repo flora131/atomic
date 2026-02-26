@@ -112,13 +112,15 @@ async function waitForBatchFlush(): Promise<void> {
 
 describe("Event Bus Integration", () => {
   let bus: AtomicEventBus;
+  let dispatcher: BatchDispatcher;
 
   beforeEach(() => {
     bus = new AtomicEventBus();
+    dispatcher = new BatchDispatcher(bus);
   });
 
   test("full pipeline: SDK stream → adapter → bus → consumer → output", async () => {
-    const { pipeline, dispose } = wireConsumers(bus);
+    const { pipeline, dispose } = wireConsumers(bus, dispatcher);
 
     const output: StreamPartEvent[] = [];
     pipeline.onStreamParts((parts) => output.push(...parts));
@@ -141,6 +143,7 @@ describe("Event Bus Integration", () => {
 
     // Wait for events to be processed
     await flushMicrotasks();
+    await waitForBatchFlush();
 
     // Verify output contains expected StreamPartEvents
     expect(output.length).toBeGreaterThan(0);
@@ -155,7 +158,7 @@ describe("Event Bus Integration", () => {
   });
 
   test("text delta flow: verify text deltas flow from mock stream to StreamPartEvent", async () => {
-    const { pipeline, dispose } = wireConsumers(bus);
+    const { pipeline, dispose } = wireConsumers(bus, dispatcher);
 
     const output: StreamPartEvent[] = [];
     pipeline.onStreamParts((parts) => output.push(...parts));
@@ -178,6 +181,7 @@ describe("Event Bus Integration", () => {
     });
 
     await flushMicrotasks();
+    await waitForBatchFlush();
 
     // Verify all text deltas are present
     const textDeltas = output.filter((e) => e.type === "text-delta");
@@ -192,7 +196,7 @@ describe("Event Bus Integration", () => {
   });
 
   test("tool lifecycle: tool.start → tool.complete flows through pipeline", async () => {
-    const { pipeline, correlation, dispose } = wireConsumers(bus);
+    const { pipeline, correlation, dispose } = wireConsumers(bus, dispatcher);
 
     const output: StreamPartEvent[] = [];
     pipeline.onStreamParts((parts) => output.push(...parts));
@@ -252,6 +256,7 @@ describe("Event Bus Integration", () => {
 
     await streamPromise;
     await flushMicrotasks();
+    await waitForBatchFlush();
 
     // Verify tool lifecycle events in output
     const toolStarts = output.filter((e) => e.type === "tool-start");
@@ -271,7 +276,7 @@ describe("Event Bus Integration", () => {
   });
 
   test("echo suppression: text delta suppressed when matching expected echo", async () => {
-    const { pipeline, echoSuppressor, dispose } = wireConsumers(bus);
+    const { pipeline, echoSuppressor, dispose } = wireConsumers(bus, dispatcher);
 
     const output: StreamPartEvent[] = [];
     pipeline.onStreamParts((parts) => output.push(...parts));
@@ -295,6 +300,7 @@ describe("Event Bus Integration", () => {
     });
 
     await flushMicrotasks();
+    await waitForBatchFlush();
 
     // Verify echo was suppressed
     const textDeltas = output.filter((e) => e.type === "text-delta");
@@ -373,7 +379,7 @@ describe("Event Bus Integration", () => {
   });
 
   test("batch coalescing: rapidly fired state updates get coalesced", async () => {
-    const { pipeline, dispose } = wireConsumers(bus);
+    const { pipeline, dispose } = wireConsumers(bus, dispatcher);
 
     const batchSizes: number[] = [];
     pipeline.onStreamParts((parts) => {
@@ -397,6 +403,7 @@ describe("Event Bus Integration", () => {
     });
 
     await flushMicrotasks();
+    await waitForBatchFlush();
 
     // Verify that events were batched
     const totalEvents = batchSizes.reduce((sum, size) => sum + size, 0);
@@ -408,7 +415,7 @@ describe("Event Bus Integration", () => {
   });
 
   test("thinking deltas flow through pipeline", async () => {
-    const { pipeline, dispose } = wireConsumers(bus);
+    const { pipeline, dispose } = wireConsumers(bus, dispatcher);
 
     const output: StreamPartEvent[] = [];
     pipeline.onStreamParts((parts) => output.push(...parts));
@@ -445,6 +452,7 @@ describe("Event Bus Integration", () => {
     });
 
     await flushMicrotasks();
+    await waitForBatchFlush();
 
     // Verify thinking meta events (thinking deltas are mapped to thinking-meta)
     const thinkingMeta = output.filter((e) => e.type === "thinking-meta");
@@ -512,6 +520,7 @@ describe("Event Bus Integration", () => {
 
     await streamPromise;
     await flushMicrotasks();
+    await waitForBatchFlush();
 
     // Verify sub-agent events were published to bus
     const agentStarts = busEvents.filter((e) => e.type === "stream.agent.start");
@@ -561,6 +570,7 @@ describe("Event Bus Integration", () => {
 
     await streamPromise;
     await flushMicrotasks();
+    await waitForBatchFlush();
 
     // Verify session error event was published to bus
     const errorEvents = busEvents.filter(
@@ -574,7 +584,7 @@ describe("Event Bus Integration", () => {
   });
 
   test("correlation enriches tool events with agent metadata", async () => {
-    const { correlation, dispose } = wireConsumers(bus);
+    const { correlation, dispose } = wireConsumers(bus, dispatcher);
 
     // Collect enriched bus events
     const enrichedEvents: EnrichedBusEvent[] = [];
@@ -636,6 +646,7 @@ describe("Event Bus Integration", () => {
 
     await streamPromise;
     await flushMicrotasks();
+    await waitForBatchFlush();
 
     // Verify tool events were enriched with agent metadata
     const toolCompletes = enrichedEvents.filter(

@@ -18,6 +18,22 @@ import { coalescingKey } from "./coalescing.ts";
 import type { AtomicEventBus } from "./event-bus.ts";
 
 /**
+ * Metrics tracking for batch dispatcher operations.
+ */
+export interface BatchMetrics {
+  /** Total events published across all flushes */
+  totalFlushed: number;
+  /** Total events that were coalesced (replaced in-place) */
+  totalCoalesced: number;
+  /** Number of flush cycles */
+  flushCount: number;
+  /** Duration of last flush in milliseconds */
+  lastFlushDuration: number;
+  /** Number of events in last flush */
+  lastFlushSize: number;
+}
+
+/**
  * Batch dispatcher for frame-aligned event batching with coalescing.
  *
  * Manages efficient event batching using a double-buffer pattern. Events are

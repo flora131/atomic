@@ -3755,10 +3755,7 @@ export function ChatApp({
       spawnSubagent: async (options) => {
         // Inject into main session — SDK's native sub-agent dispatch handles it.
         // Wait for the streaming response so the caller gets the actual result.
-        //
-        // IMPORTANT: For workflow review-fix loops, the sub-agent output must be
-        // clean JSON without additional commentary. We hide the stream content
-        // to avoid polluting the chat UI with intermediate steps.
+        // Stream content is rendered in the chat UI (same transcript + spinner as chat mode).
         const agentName = options.name ?? options.model ?? "general-purpose";
         const task = options.message;
 
@@ -3788,13 +3785,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             previousResolver({ content: lastStreamingContentRef.current, wasInterrupted: true });
           }
           streamCompletionResolverRef.current = resolve;
-          // Hide stream content to keep chat UI clean (content is still accumulated)
-          hideStreamContentRef.current = true;
           context.sendSilentMessage(instruction, silentOptions);
         });
-        
-        // Reset hideStreamContent for next stream
-        hideStreamContentRef.current = false;
         
         return {
           success: !result.wasInterrupted,

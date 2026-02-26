@@ -13,16 +13,12 @@ import { createRoot, type Root } from "@opentui/react";
 import {
   ChatApp,
   type StreamingMeta,
-  type OnToolStart,
-  type OnToolComplete,
-  type OnSkillInvoked,
   type OnPermissionRequest as ChatOnPermissionRequest,
   type OnInterrupt,
   type OnTerminateBackgroundAgents,
   type OnAskUserQuestion,
   type CommandExecutionTelemetry,
   type MessageSubmitTelemetry,
-  traceThinkingSourceLifecycle,
 } from "./chat.tsx";
 import type { ParallelAgent } from "./components/parallel-agents-tree.tsx";
 import { ThemeProvider, darkTheme, type Theme } from "./theme.tsx";
@@ -43,6 +39,11 @@ import {
 } from "../telemetry/index.ts";
 import { shouldFinalizeOnToolComplete } from "./parts/index.ts";
 import { getActiveBackgroundAgents, isBackgroundAgent } from "./utils/background-agent-footer.ts";
+import { AtomicEventBus } from "../events/event-bus.ts";
+import { OpenCodeStreamAdapter } from "../events/adapters/opencode-adapter.ts";
+import { ClaudeStreamAdapter } from "../events/adapters/claude-adapter.ts";
+import { CopilotStreamAdapter } from "../events/adapters/copilot-adapter.ts";
+import type { SDKStreamAdapter } from "../events/adapters/types.ts";
 
 /**
  * Build a system prompt section describing all registered capabilities.
@@ -164,12 +165,6 @@ interface ChatUIState {
   startTime: number;
   messageCount: number;
   cleanupHandlers: (() => void)[];
-  /** Registered handler for tool start events */
-  toolStartHandler: OnToolStart | null;
-  /** Registered handler for tool complete events */
-  toolCompleteHandler: OnToolComplete | null;
-  /** Registered handler for skill invoked events */
-  skillInvokedHandler: OnSkillInvoked | null;
   /** Registered handler for permission/HITL requests */
   permissionRequestHandler: OnPermissionRequest | null;
   /** Registered handler for askUserQuestion events from workflow graphs */
@@ -204,12 +199,8 @@ interface ChatUIState {
   runCounter: number;
   /** Active stream run owner ID. Null means no run currently owns hook events. */
   currentRunId: number | null;
-  /**
-   * Suppress streaming text that is a raw JSON echo of the Task tool result.
-   * Holds a short FIFO of recent Task result texts so suppression stays
-   * correct when multiple Task tools complete in parallel.
-   */
-  suppressPostTaskResults: Array<{ text: string; addedAt: number }>;
+  /** Callback to reset parallel tracking state (from ChatApp's internal logic) */
+  resetParallelTracking: ((reason: string) => void) | null;
   /** Native TUI telemetry tracker (null when telemetry is disabled or agent type is unknown) */
   telemetryTracker: TuiTelemetrySessionTracker | null;
 }
@@ -227,43 +218,6 @@ function hasActiveParallelAgentWork(parallelAgents: readonly ParallelAgent[]): b
 
 function hasOpenStreamLifecycleWork(state: ChatUIState): boolean {
   return hasActiveParallelAgentWork(state.parallelAgents) || state.activeToolIds.size > 0;
-}
-
-/**
- * Wraps an AsyncIterable so that each `iterator.next()` call races against an
- * AbortSignal. This ensures that abort takes effect immediately even while the
- * iterator is blocked waiting on the network (e.g. Claude extended thinking,
- * OpenCode 30s timeout, Copilot infinite wait).
- */
-async function* abortableAsyncIterable<T>(
-  iterable: AsyncIterable<T>,
-  signal: AbortSignal
-): AsyncGenerator<T> {
-  const iterator = iterable[Symbol.asyncIterator]();
-  const abortPromise = new Promise<never>((_, reject) => {
-    if (signal.aborted) {
-      reject(new DOMException("The operation was aborted", "AbortError"));
-      return;
-    }
-    signal.addEventListener(
-      "abort",
-      () => {
-        reject(new DOMException("The operation was aborted", "AbortError"));
-      },
-      { once: true }
-    );
-  });
-  try {
-    while (true) {
-      const result = await Promise.race([iterator.next(), abortPromise]);
-      if (result.done) break;
-      yield result.value;
-    }
-  } finally {
-    // Fire-and-forget: don't block abort propagation on iterator cleanup
-    // (SDK stream teardown may involve network I/O)
-    void iterator.return?.();
-  }
 }
 
 // ============================================================================
@@ -338,9 +292,6 @@ export async function startChatUI(
     startTime: Date.now(),
     messageCount: 0,
     cleanupHandlers: [],
-    toolStartHandler: null,
-    toolCompleteHandler: null,
-    skillInvokedHandler: null,
     permissionRequestHandler: null,
     askUserQuestionHandler: null,
     toolIdCounter: 0,
@@ -358,7 +309,7 @@ export async function startChatUI(
     sessionCreationPromise: null,
     runCounter: 0,
     currentRunId: null,
-    suppressPostTaskResults: [],
+    resetParallelTracking: null,
     telemetryTracker: agentType
       ? createTuiTelemetrySessionTracker({
         agentType,
@@ -504,14 +455,11 @@ export async function startChatUI(
 
   /**
    * Handle streaming a message response from the agent.
-   * Handles text, tool_use, and tool_result messages from the stream.
-   * Supports interruption via AbortController (Escape/Ctrl+C during streaming).
+   * Delegates to the appropriate SDK adapter which publishes events to the bus.
+   * UI consumption happens via useStreamConsumer hook subscribed to bus events.
    */
   async function handleStreamMessage(
     content: string,
-    onChunk: (chunk: string) => void,
-    onComplete: () => void,
-    onMeta?: (meta: StreamingMeta) => void,
     options?: { agent?: string }
   ): Promise<void> {
     // Single-owner stream model: any new stream handoff resets previous
@@ -524,7 +472,6 @@ export async function startChatUI(
       await ensureSession();
     } catch (error) {
       console.error("Failed to create session:", error);
-      onComplete();
       return;
     }
 
@@ -532,381 +479,66 @@ export async function startChatUI(
     state.streamAbortController = new AbortController();
     state.currentRunId = ++state.runCounter;
     state.isStreaming = true;
-    const thinkingTextBySourceMap = new Map<string, string>();
-    const thinkingGenerationBySourceMap = new Map<string, number>();
-    const thinkingMessageBySourceMap = new Map<string, string>();
-    const activeThinkingSources = new Set<string>();
-    const closedThinkingSources = new Set<string>();
 
-    const closeThinkingSourcesAndClearMaps = (): void => {
-      const finalizedSources = new Set<string>();
-      for (const sourceKey of thinkingTextBySourceMap.keys()) {
-        finalizedSources.add(sourceKey);
-      }
-      for (const sourceKey of thinkingGenerationBySourceMap.keys()) {
-        finalizedSources.add(sourceKey);
-      }
-      for (const sourceKey of thinkingMessageBySourceMap.keys()) {
-        finalizedSources.add(sourceKey);
-      }
-      for (const sourceKey of activeThinkingSources) {
-        finalizedSources.add(sourceKey);
-      }
-      for (const sourceKey of finalizedSources) {
-        if (!closedThinkingSources.has(sourceKey)) {
-          traceThinkingSourceLifecycle("finalize", sourceKey, "stream finalize");
-        }
-        closedThinkingSources.add(sourceKey);
-      }
+    // Create the appropriate SDK adapter based on agent type
+    const bus = new AtomicEventBus();
+    let adapter: SDKStreamAdapter;
 
-      thinkingTextBySourceMap.clear();
-      thinkingGenerationBySourceMap.clear();
-      thinkingMessageBySourceMap.clear();
-      activeThinkingSources.clear();
-    };
+    if (agentType === "opencode") {
+      adapter = new OpenCodeStreamAdapter(bus, state.session!.id);
+    } else if (agentType === "claude") {
+      adapter = new ClaudeStreamAdapter(bus, state.session!.id);
+    } else {
+      adapter = new CopilotStreamAdapter(bus, client);
+    }
+
+    const runId = state.currentRunId;
+    const messageId = crypto.randomUUID();
 
     try {
-      // Stream the response, wrapped so abort takes effect immediately
-      // even while iterator.next() is blocked on the network
-      const stream = state.session!.stream(content, options);
-      const abortableStream = abortableAsyncIterable(
-        stream,
-        state.streamAbortController.signal
-      );
-
-      let sdkOutputTokens = 0;
-      let thinkingMs = 0;
-      let thinkingStartLocal: number | null = null;
-      // Map SDK tool use IDs to internal tool IDs for stream-path deduplication
-      const streamToolIdMap = new Map<string, string>();
-      const allowStreamToolEvents = !state.toolEventsViaHooks || agentType === "opencode";
-
-      // Reset the suppress state at the start of each stream
-      state.suppressPostTaskResults = [];
-
-      // Prefix-based accumulator for post-task text suppression.
-      // Tracks accumulated text so we can check if the model is echoing the
-      // sub-agent result (text arrives sequentially matching from the start)
-      // vs. generating genuine follow-up content.
-      let suppressAccumulator = "";
-      let suppressTarget: string | null = null;
-      // Tracks the leading whitespace accumulated before any text started
-      // matching the echo prefix. This whitespace is recovered (emitted via
-      // onChunk) when suppression clears, since it likely represents genuine
-      // formatting (paragraph breaks / newlines) from the model's output.
-      let suppressWhitespacePrefix = "";
-      let suppressHasTextMatch = false;
-
-      const resetSuppressMatcher = (): void => {
-        suppressAccumulator = "";
-        suppressTarget = null;
-        suppressWhitespacePrefix = "";
-        suppressHasTextMatch = false;
-      };
-
-      const removeSuppressTarget = (target: string): void => {
-        const idx = state.suppressPostTaskResults.findIndex(e => e.text === target);
-        if (idx !== -1) {
-          state.suppressPostTaskResults.splice(idx, 1);
-        }
-      };
-
-      const pickSuppressTarget = (candidate: string): string | null => {
-        const entry = state.suppressPostTaskResults.find((e) => e.text.startsWith(candidate));
-        return entry?.text ?? null;
-      };
-
-      const toStringRecord = (sourceMap: Map<string, string>): Record<string, string> => {
-        const record: Record<string, string> = {};
-        for (const [source, value] of sourceMap) {
-          record[source] = value;
-        }
-        return record;
-      };
-
-      const toNumberRecord = (sourceMap: Map<string, number>): Record<string, number> => {
-        const record: Record<string, number> = {};
-        for (const [source, value] of sourceMap) {
-          record[source] = value;
-        }
-        return record;
-      };
-
-      const resolveThinkingSourceKey = (message: AgentMessage): string => {
-        const metadata = message.metadata as Record<string, unknown> | undefined;
-        const sourceFromMetadata = typeof metadata?.thinkingSourceKey === "string"
-          ? metadata.thinkingSourceKey.trim()
-          : "";
-        if (sourceFromMetadata.length > 0) {
-          return sourceFromMetadata;
-        }
-        const contractError = new Error(
-          "Contract violation: thinking stream message is missing required metadata.thinkingSourceKey"
-        );
-        contractError.name = "ThinkingSourceContractViolationError";
-        throw contractError;
-      };
-
-      const bindThinkingSource = (sourceKey: string, message: AgentMessage): void => {
-        const metadata = message.metadata as Record<string, unknown> | undefined;
-        const generationFromMetadata = metadata?.streamGeneration;
-        const resolvedGeneration = typeof generationFromMetadata === "number"
-          && Number.isFinite(generationFromMetadata)
-          ? generationFromMetadata
-          : (state.currentRunId ?? state.runCounter);
-        thinkingGenerationBySourceMap.set(sourceKey, resolvedGeneration);
-
-        const targetMessageId = typeof metadata?.targetMessageId === "string"
-          ? metadata.targetMessageId
-          : (typeof metadata?.messageId === "string" ? metadata.messageId : undefined);
-        if (targetMessageId && targetMessageId.length > 0) {
-          thinkingMessageBySourceMap.set(sourceKey, targetMessageId);
-        }
-      };
-
-      const getThinkingTextSnapshot = (): string => {
-        let combined = "";
-        for (const text of thinkingTextBySourceMap.values()) {
-          combined += text;
-        }
-        return combined;
-      };
-
-      const createStreamingMetaSnapshot = (thinkingSourceKey?: string): StreamingMeta => ({
-        outputTokens: sdkOutputTokens,
-        thinkingMs,
-        thinkingText: getThinkingTextSnapshot(),
-        thinkingSourceKey,
-        thinkingTextBySource: toStringRecord(thinkingTextBySourceMap),
-        thinkingGenerationBySource: toNumberRecord(thinkingGenerationBySourceMap),
-        thinkingMessageBySource: toStringRecord(thinkingMessageBySourceMap),
+      await adapter.startStreaming(state.session!, content, {
+        runId,
+        messageId,
+        agent: options?.agent,
       });
 
-      for await (const message of abortableStream) {
-        // Handle text content
-        if (message.type === "text" && typeof message.content === "string") {
-          // Accumulate thinking duration when transitioning away from thinking
-          if (thinkingStartLocal !== null) {
-            thinkingMs = thinkingMs + (Date.now() - thinkingStartLocal);
-            thinkingStartLocal = null;
-          }
-
-          // After Task tools complete, some SDKs echo raw tool results back as
-          // streaming text. Suppress content that is likely this echo while
-          // allowing genuine follow-up response text to flow through.
-          let chunkToEmit = message.content;
-          if (state.suppressPostTaskResults.length > 0 || suppressTarget !== null) {
-            let shouldReprocess = true;
-            let suppressionIterations = 0;
-            // Defensive bound: suppression is best-effort and must never
-            // block the UI thread if state unexpectedly stops making progress.
-            while (shouldReprocess && suppressionIterations < 16) {
-              suppressionIterations += 1;
-              shouldReprocess = false;
-
-              if (suppressTarget !== null && !state.suppressPostTaskResults.some(e => e.text === suppressTarget)) {
-                resetSuppressMatcher();
-              }
-
-              const hasSuppressionTargets = state.suppressPostTaskResults.length > 0 || suppressTarget !== null;
-              if (!hasSuppressionTargets) {
-                break;
-              }
-
-              const trimmed = chunkToEmit.trim();
-              if (trimmed.length === 0) {
-                suppressAccumulator += chunkToEmit;
-                if (!suppressHasTextMatch) {
-                  suppressWhitespacePrefix += chunkToEmit;
-                }
-                chunkToEmit = "";
-                break;
-              }
-
-              const isJsonEcho = trimmed.startsWith("{") || trimmed.startsWith("[");
-              if (isJsonEcho) {
-                chunkToEmit = "";
-                break;
-              }
-
-              const candidate = (suppressAccumulator + chunkToEmit).trimStart();
-              const matchedTarget: string | null = suppressTarget !== null && suppressTarget.startsWith(candidate)
-                ? suppressTarget
-                : pickSuppressTarget(candidate);
-              if (matchedTarget !== null) {
-                suppressTarget = matchedTarget;
-                suppressAccumulator += chunkToEmit;
-                suppressHasTextMatch = true;
-                chunkToEmit = "";
-                break;
-              }
-
-              const recoveredWhitespace = suppressWhitespacePrefix;
-              const matchedEchoTarget = suppressHasTextMatch ? suppressTarget : null;
-              resetSuppressMatcher();
-              if (matchedEchoTarget !== null) {
-                removeSuppressTarget(matchedEchoTarget);
-              }
-              if (recoveredWhitespace.length > 0) {
-                onChunk(recoveredWhitespace);
-              }
-              // Only retry when we consumed a previously matched echo target.
-              // If there was no match, reprocessing the same chunk would spin.
-              if (matchedEchoTarget !== null && state.suppressPostTaskResults.length > 0) {
-                shouldReprocess = true;
-              }
-            }
-            if (suppressionIterations >= 16) {
-              resetSuppressMatcher();
-            }
-          }
-
-          if (chunkToEmit.length > 0) {
-            onChunk(chunkToEmit);
-          }
-
-          // Use SDK-reported token counts when present
-          const stats = message.metadata?.streamingStats as
-            | { outputTokens?: number; thinkingMs?: number }
-            | undefined;
-          if (stats?.thinkingMs != null) {
-            thinkingMs = stats.thinkingMs;
-          }
-          if (stats?.outputTokens && stats.outputTokens > 0) {
-            sdkOutputTokens = stats.outputTokens;
-          }
-
-          onMeta?.(createStreamingMetaSnapshot());
-        }
-        // Handle thinking metadata from SDK
-        else if (message.type === "thinking") {
-          const thinkingSourceKey = resolveThinkingSourceKey(message);
-          if (closedThinkingSources.has(thinkingSourceKey)) {
-            traceThinkingSourceLifecycle("drop", thinkingSourceKey, "index closed-source rejection");
-            continue;
-          }
-          const isNewSource = !activeThinkingSources.has(thinkingSourceKey);
-          if (isNewSource) {
-            activeThinkingSources.add(thinkingSourceKey);
-            traceThinkingSourceLifecycle("create", thinkingSourceKey, "index first-seen thinking event");
-          } else {
-            traceThinkingSourceLifecycle("update", thinkingSourceKey, "index thinking event update");
-          }
-          bindThinkingSource(thinkingSourceKey, message);
-
-          // Start local wall-clock timer on first thinking message
-          if (thinkingStartLocal === null) {
-            thinkingStartLocal = Date.now();
-          }
-
-          // Capture thinking text content
-          if (typeof message.content === "string") {
-            const previous = thinkingTextBySourceMap.get(thinkingSourceKey) ?? "";
-            thinkingTextBySourceMap.set(thinkingSourceKey, previous + message.content);
-          }
-
-          const stats = message.metadata?.streamingStats as
-            | { thinkingMs?: number; outputTokens?: number }
-            | undefined;
-
-          if (stats?.thinkingMs != null) {
-            // Authoritative value from SDK — use it and reset local timer
-            thinkingMs = stats.thinkingMs;
-            thinkingStartLocal = null;
-          } else {
-            // Live estimation: accumulated + current block duration
-            thinkingMs = thinkingMs + (Date.now() - thinkingStartLocal);
-            // Don't reset thinkingStartLocal — keep accumulating
-          }
-
-          if (stats?.outputTokens && stats.outputTokens > 0) {
-            sdkOutputTokens = stats.outputTokens;
-          }
-          onMeta?.(createStreamingMetaSnapshot(thinkingSourceKey));
-        }
-        // Handle tool_use content - notify UI of tool invocation
-        // OpenCode can complete the stream before hook events flush; keep a
-        // stream-path fallback for it while preserving hook-first behavior elsewhere.
-        else if (message.type === "tool_use" && message.content && allowStreamToolEvents) {
-          const toolContent = message.content as { name?: string; input?: Record<string, unknown>; toolUseId?: string };
-          if (state.toolStartHandler && toolContent.name) {
-            state.telemetryTracker?.trackToolStart(toolContent.name);
-            // Deduplicate using SDK tool use ID (e.g., Claude's includePartialMessages
-            // emits multiple assistant messages for the same tool_use block)
-            const sdkId = toolContent.toolUseId
-              ?? (message.metadata as Record<string, unknown> | undefined)?.toolId as string | undefined;
-            let toolId: string;
-            if (sdkId && streamToolIdMap.has(sdkId)) {
-              toolId = streamToolIdMap.get(sdkId)!;
-            } else {
-              toolId = agentType === "opencode" && sdkId
-                ? `tool_${sdkId}`
-                : `tool_${++state.toolIdCounter}`;
-              if (sdkId) streamToolIdMap.set(sdkId, toolId);
-            }
-            state.toolStartHandler(
-              toolId,
-              toolContent.name,
-              toolContent.input ?? {}
-            );
-          }
-        }
-        // Handle tool_result content - notify UI of tool completion
-        else if (message.type === "tool_result" && allowStreamToolEvents) {
-          if (state.toolCompleteHandler) {
-            const metadata = message.metadata as Record<string, unknown> | undefined;
-            const toolNameFromMeta = typeof message.metadata?.toolName === "string"
-              ? message.metadata.toolName
-              : "unknown";
-            const sdkId = typeof metadata?.toolId === "string" ? metadata.toolId : undefined;
-            state.telemetryTracker?.trackToolComplete(toolNameFromMeta, true);
-            const toolId = sdkId
-              ? (streamToolIdMap.get(sdkId) ?? (agentType === "opencode" ? `tool_${sdkId}` : `tool_${state.toolIdCounter}`))
-              : `tool_${state.toolIdCounter}`;
-            if (sdkId && !streamToolIdMap.has(sdkId)) {
-              streamToolIdMap.set(sdkId, toolId);
-            }
-            state.toolCompleteHandler(
-              toolId,
-              message.content,
-              true
-            );
-          }
-        }
-      }
-
-      closeThinkingSourcesAndClearMaps();
       state.messageCount++;
-      onComplete();
     } catch (error) {
-      closeThinkingSourcesAndClearMaps();
       // AbortError is expected when user interrupts — finalize cleanly
       if (error instanceof Error && error.name === "AbortError") {
         state.currentRunId = null;
         state.resetParallelTracking?.("stream_abort");
-        onComplete();
         return;
-      } else if (error instanceof Error && error.name === "ThinkingSourceContractViolationError") {
-        state.currentRunId = null;
-        state.resetParallelTracking?.("stream_error");
-        onComplete();
-        throw error;
       }
       state.currentRunId = null;
       state.resetParallelTracking?.("stream_error");
-      onComplete();
     } finally {
+      adapter.dispose();
       // Clear streaming state
       state.streamAbortController = null;
       // Keep isStreaming true if sub-agents are still actively running so
       // subagent.complete events continue to be processed.
-      // Only match agents that are actually active (running/pending/background),
-      // not completed background agents that happen to have background=true.
       if (!hasOpenStreamLifecycleWork(state)) {
         state.isStreaming = false;
         state.currentRunId = null;
       }
     }
+  }
+
+  /**
+   * Compatibility wrapper for ChatApp's old onStreamMessage signature.
+   * Bridges the gap until ChatApp is updated to use useStreamConsumer directly.
+   * Ignores onChunk/onComplete/onMeta callbacks since events flow through the bus now.
+   */
+  async function handleStreamMessageCompat(
+    content: string,
+    onChunk: (chunk: string) => void,
+    onComplete: () => void,
+    onMeta?: (meta: StreamingMeta) => void,
+    options?: { agent?: string }
+  ): Promise<void> {
+    // Delegate to the new implementation (callbacks are ignored - bus handles UI updates)
+    await handleStreamMessage(content, options);
   }
 
   /**
@@ -1062,18 +694,7 @@ export async function startChatUI(
     state.root = createRoot(state.renderer);
 
     // Render the chat application
-    // Handler registration callbacks - ChatApp will call these with its internal handlers
-    const registerToolStartHandler = (handler: OnToolStart) => {
-      state.toolStartHandler = handler;
-    };
-
-    const registerToolCompleteHandler = (handler: OnToolComplete) => {
-      state.toolCompleteHandler = handler;
-    };
-
-    const registerSkillInvokedHandler = (handler: OnSkillInvoked) => {
-      state.skillInvokedHandler = handler;
-    };
+    // Tool/skill handler registration removed — events flow through the event bus now.
 
     const registerPermissionRequestHandler = (handler: ChatOnPermissionRequest) => {
       state.permissionRequestHandler = handler;
@@ -1236,15 +857,12 @@ export async function startChatUI(
                 initialModelId: sessionConfig?.model,
                 getModelDisplayInfo: (hint?: string) => client.getModelDisplayInfo(hint),
                 onSendMessage: handleSendMessage,
-                onStreamMessage: handleStreamMessage,
+                onStreamMessage: handleStreamMessageCompat,
                 onExit: handleExit,
                 onResetSession: resetSession,
                 onInterrupt: handleInterruptFromUI,
                 onTerminateBackgroundAgents: handleTerminateBackgroundAgentsFromUI,
                 setStreamingState,
-                registerToolStartHandler,
-                registerToolCompleteHandler,
-                registerSkillInvokedHandler,
                 registerPermissionRequestHandler,
                 registerAskUserQuestionHandler,
                 registerParallelAgentHandler,
@@ -1389,8 +1007,6 @@ export {
   type ChatMessage,
   type MessageToolCall,
   type WorkflowChatState,
-  type OnToolStart,
-  type OnToolComplete,
   type OnInterrupt,
   type OnTerminateBackgroundAgents,
   type OnAskUserQuestion,

@@ -235,7 +235,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     }
 
     // Handle agent lifecycle events
-    if (chunk.type === "agent_start") {
+    if ((chunk.type as string) === "agent_start") {
       const event: BusEvent<"stream.agent.start"> = {
         type: "stream.agent.start",
         sessionId: this.sessionId,
@@ -252,7 +252,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       this.bus.publish(event);
     }
 
-    if (chunk.type === "agent_complete") {
+    if ((chunk.type as string) === "agent_complete") {
       const event: BusEvent<"stream.agent.complete"> = {
         type: "stream.agent.complete",
         sessionId: this.sessionId,

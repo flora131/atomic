@@ -1,7 +1,7 @@
 /**
  * Integration tests for createRalphWorkflow()
  *
- * These tests verify the 3-phase flow of the Ralph workflow with a mocked SubagentGraphBridge:
+ * These tests verify the 3-phase flow of the Ralph workflow with mocked spawn functions:
  * Phase 1: Planner subagent → parse-tasks tool (decompose prompt into task list)
  * Phase 2: Worker loop (select ready tasks → worker subagent, repeats until all done)
  * Phase 3: Reviewer subagent → conditional fixer subagent
@@ -12,46 +12,47 @@ import { executeGraph, streamGraph } from "../graph/compiled.ts";
 import type {
   SubagentSpawnOptions,
   SubagentResult,
-} from "../graph/subagent-bridge.ts";
+} from "../graph/types.ts";
 import { createRalphWorkflow } from "./graph.ts";
 import { createRalphState } from "./state.ts";
 import type { RalphWorkflowState } from "./state.ts";
 
 // ============================================================================
-// MOCK BRIDGE
+// MOCK SPAWN FUNCTIONS
 // ============================================================================
 
 /**
- * Mock SubagentGraphBridge for testing.
+ * Mock spawn functions for testing.
  * Maps agent names to response handlers.
  */
-function createMockBridge(
+function createMockSpawnFunctions(
   responses: Map<
     string,
     (opts: SubagentSpawnOptions) => SubagentResult | Promise<SubagentResult>
   >
 ) {
-  return {
-    async spawn(agent: SubagentSpawnOptions): Promise<SubagentResult> {
-      const handler = responses.get(agent.agentName);
-      if (!handler) {
-        return {
-          agentId: agent.agentId,
-          success: false,
-          output: "",
-          error: `No handler for agent: ${agent.agentName}`,
-          toolUses: 0,
-          durationMs: 0,
-        };
-      }
-      return await handler(agent);
-    },
-    async spawnParallel(
-      agents: SubagentSpawnOptions[]
-    ): Promise<SubagentResult[]> {
-      return Promise.all(agents.map((a) => this.spawn(a)));
-    },
-  };
+  async function spawnSubagent(agent: SubagentSpawnOptions): Promise<SubagentResult> {
+    const handler = responses.get(agent.agentName);
+    if (!handler) {
+      return {
+        agentId: agent.agentId,
+        success: false,
+        output: "",
+        error: `No handler for agent: ${agent.agentName}`,
+        toolUses: 0,
+        durationMs: 0,
+      };
+    }
+    return await handler(agent);
+  }
+
+  async function spawnSubagentParallel(
+    agents: SubagentSpawnOptions[]
+  ): Promise<SubagentResult[]> {
+    return Promise.all(agents.map((a) => spawnSubagent(a)));
+  }
+
+  return { spawnSubagent, spawnSubagentParallel };
 }
 
 /**
@@ -78,7 +79,7 @@ function createMockRegistry() {
 }
 
 /**
- * Helper to create a workflow with mock bridge and registry injected.
+ * Helper to create a workflow with mock spawn functions and registry injected.
  */
 function createWorkflowWithMockBridge(
   responses: Map<
@@ -87,12 +88,14 @@ function createWorkflowWithMockBridge(
   >
 ) {
   const baseWorkflow = createRalphWorkflow();
+  const { spawnSubagent, spawnSubagentParallel } = createMockSpawnFunctions(responses);
   return {
     ...baseWorkflow,
     config: {
       ...baseWorkflow.config,
       runtime: {
-        subagentBridge: createMockBridge(responses),
+        spawnSubagent,
+        spawnSubagentParallel,
         subagentRegistry: createMockRegistry(),
       },
     },

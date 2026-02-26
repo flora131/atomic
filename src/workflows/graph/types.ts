@@ -1,6 +1,5 @@
 import type { z } from "zod";
-import type { CodingAgentClient } from "../../sdk/types.ts";
-import type { SubagentResult, SubagentSpawnOptions } from "./subagent-bridge.ts";
+import type { CodingAgentClient, Session, SessionConfig } from "../../sdk/types.ts";
 import type { SubagentEntry } from "./subagent-registry.ts";
 
 /**
@@ -393,13 +392,64 @@ export interface RuntimeSubgraph {
   execute(state: BaseState): Promise<BaseState>;
 }
 
+// ============================================================================
+// SUBAGENT TYPES
+// ============================================================================
+
+/**
+ * Factory function that creates independent sessions for sub-agents.
+ */
+export type CreateSessionFn = (config?: SessionConfig) => Promise<Session>;
+
+/**
+ * Options for spawning a single sub-agent session.
+ */
+export interface SubagentSpawnOptions {
+  /** Unique identifier for this sub-agent */
+  agentId: string;
+  /** Display name (e.g., "codebase-analyzer", "debugger") */
+  agentName: string;
+  /** Task description to send to the sub-agent */
+  task: string;
+  /** Optional system prompt override */
+  systemPrompt?: string;
+  /** Optional model override */
+  model?: string;
+  /** Optional tool restrictions */
+  tools?: string[];
+  /** Optional timeout in milliseconds. When exceeded, the session is aborted. */
+  timeout?: number;
+  /** Optional external abort signal (e.g., from Ctrl+C) to cancel the sub-agent. */
+  abortSignal?: AbortSignal;
+}
+
+/**
+ * Result returned after a sub-agent completes or fails.
+ */
+export interface SubagentResult {
+  /** Agent identifier matching SubagentSpawnOptions.agentId */
+  agentId: string;
+  /** Whether the sub-agent completed successfully */
+  success: boolean;
+  /** Summary text returned to parent (truncated to MAX_SUMMARY_LENGTH) */
+  output: string;
+  /** Error message if the sub-agent failed */
+  error?: string;
+  /** Number of tool invocations during execution */
+  toolUses: number;
+  /** Execution duration in milliseconds */
+  durationMs: number;
+}
+
+// ============================================================================
+// GRAPH RUNTIME DEPENDENCIES
+// ============================================================================
+
 export interface GraphRuntimeDependencies {
   clientProvider?: (agentType: string) => CodingAgentClient | null;
   workflowResolver?: (name: string) => RuntimeSubgraph | null;
-  subagentBridge?: {
-    spawn(agent: SubagentSpawnOptions, abortSignal?: AbortSignal): Promise<SubagentResult>;
-    spawnParallel(agents: SubagentSpawnOptions[], abortSignal?: AbortSignal): Promise<SubagentResult[]>;
-  };
+  spawnSubagent?: (agent: SubagentSpawnOptions, abortSignal?: AbortSignal) => Promise<SubagentResult>;
+  spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal) => Promise<SubagentResult[]>;
   subagentRegistry?: {
     get(name: string): SubagentEntry | undefined;
     getAll(): SubagentEntry[];

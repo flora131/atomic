@@ -13,7 +13,7 @@ import {
   toolNode,
 } from "../graph/index.ts";
 import type { NodeDefinition, ExecutionContext, NodeResult } from "../graph/types.ts";
-import type { SubagentSpawnOptions } from "../graph/subagent-bridge.ts";
+import type { SubagentSpawnOptions } from "../graph/types.ts";
 import type { RalphWorkflowState } from "./state.ts";
 import {
   buildSpecToTasksPrompt,
@@ -145,9 +145,9 @@ export function createRalphWorkflow() {
           description: "Implements assigned tasks",
           retry: { maxAttempts: 1, backoffMs: 0, backoffMultiplier: 1 },
           async execute(ctx: ExecutionContext<RalphWorkflowState>): Promise<NodeResult<RalphWorkflowState>> {
-            const bridge = ctx.config.runtime?.subagentBridge;
-            if (!bridge) {
-              throw new Error("SubagentGraphBridge not initialized. Execute this graph through WorkflowSDK.init().");
+            const spawnSubagent = ctx.config.runtime?.spawnSubagent;
+            if (!spawnSubagent) {
+              throw new Error("spawnSubagent not initialized. Execute this graph through WorkflowSDK.init().");
             }
             const ready = ctx.state.currentTasks;
             const task = ready[0];
@@ -160,7 +160,7 @@ export function createRalphWorkflow() {
               agentName: "worker",
               task: taskPrompt,
             };
-            const result = await bridge.spawn(spawnOpts, ctx.abortSignal);
+            const result = await spawnSubagent(spawnOpts, ctx.abortSignal);
 
             return {
               stateUpdate: {

@@ -25,7 +25,7 @@ import type {
   RetryConfig,
   NodeType,
 } from "./types.ts";
-import type { SubagentResult } from "./subagent-bridge.ts";
+import type { SubagentResult } from "./types.ts";
 import { subagentNode, toolNode } from "./nodes.ts";
 
 // ============================================================================

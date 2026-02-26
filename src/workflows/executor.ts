@@ -9,7 +9,6 @@ import { SubagentTypeRegistry } from "./graph/subagent-registry.ts";
 import { discoverAgentInfos } from "../ui/commands/agent-commands.ts";
 import { type WorkflowDefinition, type WorkflowGraphConfig, registerActiveSession } from "../ui/commands/workflow-commands.ts";
 import type { CommandContext, CommandResult } from "../ui/commands/registry.ts";
-import { createTUIBridge } from "./graph/bridge.ts";
 import { streamGraph } from "./graph/compiled.ts";
 import {
     initWorkflowSession,
@@ -177,13 +176,21 @@ export async function executeWorkflow(
             ? definition.createState({ prompt, sessionId, sessionDir, maxIterations })
             : ({ executionId: sessionId, lastUpdated: new Date().toISOString(), outputs: {} } as BaseState);
 
-        // Phase 4: Bridge and registry setup
-        const bridge = createTUIBridge(context);
+        // Phase 4: Registry setup — pass TUI's spawnSubagentParallel directly
         const registry = createSubagentRegistry();
+        const spawnFn = context.spawnSubagentParallel;
+        if (!spawnFn) {
+            throw new Error("spawnSubagentParallel is not available on CommandContext.");
+        }
 
         compiled.config.runtime = {
             ...compiled.config.runtime,
-            subagentBridge: bridge,
+            spawnSubagent: async (agent, abortSignal) => {
+                const [result] = await spawnFn([{ ...agent, abortSignal }], abortSignal);
+                if (!result) throw new Error("Subagent spawn returned no results");
+                return result;
+            },
+            spawnSubagentParallel: spawnFn,
             subagentRegistry: registry,
         };
 

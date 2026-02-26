@@ -35,10 +35,11 @@ import {
   readHistoryBuffer,
   clearHistoryBuffer,
 } from "./utils/conversation-history-buffer.ts";
-import {
-  SubagentGraphBridge,
-  type CreateSessionFn,
-} from "../workflows/graph/subagent-bridge.ts";
+import type {
+  CreateSessionFn,
+  SubagentSpawnOptions,
+  SubagentResult,
+} from "../workflows/graph/types.ts";
 import {
   UserQuestionDialog,
   type UserQuestion,
@@ -1894,7 +1895,6 @@ export function ChatApp({
   const wasInterruptedRef = useRef(false);
   // Ref to keep a synchronous copy of parallel agents (avoids nested dispatch issues)
   const parallelAgentsRef = useRef<ParallelAgent[]>([]);
-  const subagentBridgeRef = useRef<SubagentGraphBridge | null>(null);
   // Ref to hold a deferred handleComplete when sub-agents are still running.
   // When the last agent finishes, the stored function is called to finalize
   // the message and process the next queued message.
@@ -3023,23 +3023,6 @@ export function ChatApp({
     }
   }, [parallelAgents, continueQueuedConversation, toolCompletionVersion, messages, stopSharedStreamState, finalizeThinkingSourceTracking]);
 
-  // Initialize SubagentGraphBridge when createSubagentSession is available
-  useEffect(() => {
-    if (!createSubagentSession) {
-      subagentBridgeRef.current = null;
-      return;
-    }
-
-    const bridge = new SubagentGraphBridge({
-      createSession: createSubagentSession,
-    });
-    subagentBridgeRef.current = bridge;
-
-    return () => {
-      subagentBridgeRef.current = null;
-    };
-  }, [createSubagentSession]);
-
   /**
    * Handle user answering a question from UserQuestionDialog.
    * Claude Code behavior: Just respond and continue streaming, no "User selected" messages.
@@ -3819,12 +3802,13 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         };
       },
       spawnSubagentParallel: async (agents, externalAbortSignal) => {
-        const bridge = subagentBridgeRef.current;
-        if (!bridge) {
-          throw new Error("SubagentGraphBridge not initialized. Cannot spawn parallel sub-agents.");
+        if (!createSubagentSession) {
+          throw new Error("createSubagentSession not available. Cannot spawn parallel sub-agents.");
         }
 
-        // Create an AbortController so Ctrl+C can cancel the bridge sessions.
+        const MAX_SUMMARY_LENGTH = 4000;
+
+        // Create an AbortController so Ctrl+C can cancel all sessions.
         // Mark streaming as active so the Ctrl+C handler enters the abort path.
         const parallelAbortController = new AbortController();
         isStreamingRef.current = true;
@@ -3848,12 +3832,145 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // path can signal cancellation back to us.
         const previousResolver = streamCompletionResolverRef.current;
         streamCompletionResolverRef.current = (_result: import("./commands/registry.ts").StreamResult) => {
-          // Ctrl+C fires this resolver — abort all bridge sessions
+          // Ctrl+C fires this resolver — abort all sessions
           parallelAbortController.abort();
         };
 
+        /**
+         * Spawn a single sub-agent by creating an isolated session, streaming
+         * its response, and destroying the session when done.
+         */
+        const spawnOne = async (options: SubagentSpawnOptions): Promise<SubagentResult> => {
+          const startTime = Date.now();
+          let toolUses = 0;
+          const summaryParts: string[] = [];
+          let session: import("../sdk/types.ts").Session | null = null;
+
+          try {
+            const sessionConfig: import("../sdk/types.ts").SessionConfig = {};
+            if (options.systemPrompt) sessionConfig.systemPrompt = options.systemPrompt;
+            if (options.model) sessionConfig.model = options.model;
+            if (options.tools) sessionConfig.tools = options.tools;
+
+            session = await createSubagentSession(sessionConfig);
+
+            // Set up per-agent abort controller with timeout support
+            const agentAbort = new AbortController();
+            let timeoutId: ReturnType<typeof setTimeout> | undefined;
+            if (options.timeout) {
+              timeoutId = setTimeout(() => agentAbort.abort(), options.timeout);
+            }
+            // Forward parent abort signal
+            const parentSignal = options.abortSignal ?? parallelAbortController.signal;
+            if (parentSignal.aborted) {
+              agentAbort.abort();
+            } else {
+              parentSignal.addEventListener("abort", () => agentAbort.abort(), { once: true });
+            }
+
+            try {
+              const stream = session.stream(options.task, { agent: options.agentName });
+              const iterator = stream[Symbol.asyncIterator]();
+              const abortPromise = new Promise<never>((_, reject) => {
+                if (agentAbort.signal.aborted) {
+                  reject(new DOMException("The operation was aborted", "AbortError"));
+                  return;
+                }
+                agentAbort.signal.addEventListener(
+                  "abort",
+                  () => reject(new DOMException("The operation was aborted", "AbortError")),
+                  { once: true },
+                );
+              });
+
+              try {
+                while (true) {
+                  const result = await Promise.race([iterator.next(), abortPromise]);
+                  if (result.done) break;
+                  const msg = result.value;
+                  if (msg.type === "tool_use") {
+                    toolUses++;
+                  } else if (msg.type === "text" && typeof msg.content === "string") {
+                    summaryParts.push(msg.content);
+                  }
+                }
+              } finally {
+                void iterator.return?.();
+              }
+            } catch (err) {
+              if (!(err instanceof DOMException && err.name === "AbortError")) {
+                throw err;
+              }
+            } finally {
+              if (timeoutId) clearTimeout(timeoutId);
+            }
+
+            if (agentAbort.signal.aborted) {
+              if (session.abort) {
+                await session.abort().catch(() => {});
+              }
+              const wasExternalAbort = options.abortSignal?.aborted || parallelAbortController.signal.aborted;
+              return {
+                agentId: options.agentId,
+                success: false,
+                output: summaryParts.join(""),
+                error: wasExternalAbort
+                  ? `Sub-agent "${options.agentName}" was cancelled`
+                  : `Sub-agent "${options.agentName}" timed out after ${options.timeout}ms`,
+                toolUses,
+                durationMs: Date.now() - startTime,
+              };
+            }
+
+            const fullSummary = summaryParts.join("");
+            const output = fullSummary.length > MAX_SUMMARY_LENGTH
+              ? fullSummary.slice(0, MAX_SUMMARY_LENGTH) + "..."
+              : fullSummary;
+
+            return {
+              agentId: options.agentId,
+              success: true,
+              output,
+              toolUses,
+              durationMs: Date.now() - startTime,
+            };
+          } catch (error) {
+            return {
+              agentId: options.agentId,
+              success: false,
+              output: "",
+              error: error instanceof Error ? error.message : String(error ?? "Unknown error"),
+              toolUses,
+              durationMs: Date.now() - startTime,
+            };
+          } finally {
+            if (session) {
+              try { await session.destroy(); } catch { /* may already be destroyed */ }
+            }
+          }
+        };
+
         try {
-          return await bridge.spawnParallel(agents, parallelAbortController.signal);
+          const results = await Promise.allSettled(
+            agents.map((agent) => spawnOne(agent))
+          );
+
+          return results.map((result, i) => {
+            if (result.status === "fulfilled") {
+              return result.value;
+            }
+            const agent = agents[i];
+            return {
+              agentId: agent?.agentId ?? `unknown-${i}`,
+              success: false,
+              output: "",
+              error: result.reason instanceof Error
+                ? result.reason.message
+                : String(result.reason ?? "Unknown error"),
+              toolUses: 0,
+              durationMs: 0,
+            };
+          });
         } finally {
           // Restore previous resolver (if any) and reset streaming flags
           if (streamCompletionResolverRef.current === null) {

@@ -30,7 +30,7 @@ import { DEFAULT_RETRY_CONFIG, BACKGROUND_COMPACTION_THRESHOLD, BUFFER_EXHAUSTIO
 import type { z } from "zod";
 import { getToolRegistry } from "../../sdk/tools/registry.ts";
 import { SchemaValidationError, NodeExecutionError } from "./errors.ts";
-import type { SubagentResult, SubagentSpawnOptions } from "./subagent-bridge.ts";
+import type { SubagentResult, SubagentSpawnOptions } from "./types.ts";
 
 // ============================================================================
 // AGENT NODE
@@ -1671,10 +1671,10 @@ export function subagentNode<TState extends BaseState>(
     description: config.description ?? `Sub-agent: ${config.agentName}`,
     retry: config.retry,
     async execute(ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> {
-      const bridge = ctx.config.runtime?.subagentBridge;
-      if (!bridge) {
+      const spawnSubagent = ctx.config.runtime?.spawnSubagent;
+      if (!spawnSubagent) {
         throw new Error(
-          "SubagentGraphBridge not initialized. " +
+          "spawnSubagent not initialized. " +
           "Execute this graph through WorkflowSDK.init()."
         );
       }
@@ -1702,7 +1702,7 @@ export function subagentNode<TState extends BaseState>(
         ? config.systemPrompt(ctx.state)
         : config.systemPrompt;
 
-      const result = await bridge.spawn({
+      const result = await spawnSubagent({
         agentId: `${config.id}-${ctx.state.executionId}`,
         agentName: config.agentName,
         task,
@@ -1778,10 +1778,10 @@ export function parallelSubagentNode<TState extends BaseState>(
     description: config.description,
     retry: config.retry,
     async execute(ctx: ExecutionContext<TState>): Promise<NodeResult<TState>> {
-      const bridge = ctx.config.runtime?.subagentBridge;
-      if (!bridge) {
+      const spawnSubagentParallel = ctx.config.runtime?.spawnSubagentParallel;
+      if (!spawnSubagentParallel) {
         throw new Error(
-          "SubagentGraphBridge not initialized. Execute this graph through WorkflowSDK.init().",
+          "spawnSubagentParallel not initialized. Execute this graph through WorkflowSDK.init().",
         );
       }
 
@@ -1794,7 +1794,7 @@ export function parallelSubagentNode<TState extends BaseState>(
         tools: agent.tools,
       }));
 
-      const results = await bridge.spawnParallel(spawnOptions);
+      const results = await spawnSubagentParallel(spawnOptions);
 
       const resultMap = new Map<string, SubagentResult>();
       results.forEach((result, i) => {

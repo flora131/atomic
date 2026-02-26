@@ -1,10 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parallelNode, parallelSubagentNode } from "./nodes.ts";
-import type { BaseState, ExecutionContext } from "./types.ts";
-import {
-  SubagentGraphBridge,
-  type SubagentResult,
-} from "./subagent-bridge.ts";
+import type { BaseState, ExecutionContext, SubagentResult } from "./types.ts";
 
 interface TestState extends BaseState {
   mapperSource?: string;
@@ -28,18 +24,8 @@ function createContext(
   };
 }
 
-class MockSubagentBridge extends SubagentGraphBridge {
-  constructor(private readonly results: SubagentResult[]) {
-    super({
-      createSession: async () => {
-        throw new Error("createSession should not be called in this test");
-      },
-    });
-  }
-
-  override async spawnParallel(): Promise<SubagentResult[]> {
-    return this.results;
-  }
+function createMockSpawnParallel(results: SubagentResult[]) {
+  return async (): Promise<SubagentResult[]> => results;
 }
 
 describe("parallelNode mapper standardization", () => {
@@ -104,7 +90,7 @@ describe("parallelSubagentNode mapper standardization", () => {
     });
 
     const result = await node.execute(createContext({}, {
-      subagentBridge: new MockSubagentBridge([mockResult]),
+      spawnSubagentParallel: createMockSpawnParallel([mockResult]),
     }));
     expect(result.stateUpdate?.mapperSource).toBe("outputMapper:ok");
   });
@@ -118,7 +104,7 @@ describe("parallelSubagentNode mapper standardization", () => {
     });
 
     const result = await node.execute(createContext({}, {
-      subagentBridge: new MockSubagentBridge([mockResult]),
+      spawnSubagentParallel: createMockSpawnParallel([mockResult]),
     }));
     expect(result.stateUpdate?.mapperSource).toBe("outputMapper");
   });
@@ -131,7 +117,7 @@ describe("parallelSubagentNode mapper standardization", () => {
     });
 
     const result = await node.execute(createContext({}, {
-      subagentBridge: new MockSubagentBridge([mockResult]),
+      spawnSubagentParallel: createMockSpawnParallel([mockResult]),
     }));
     expect(result.stateUpdate?.mapperSource).toBe("merge");
   });

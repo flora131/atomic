@@ -11,7 +11,7 @@ import type { Session, ModelDisplayInfo, McpServerConfig } from "../../sdk/types
 import type { AgentType, ModelOperations } from "../../models";
 import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "../utils/mcp-output.ts";
-import type { SubagentSpawnOptions, SubagentResult } from "../../workflows/graph/subagent-bridge.ts";
+import type { SubagentSpawnOptions, SubagentResult } from "../../workflows/graph/types.ts";
 
 // ============================================================================
 // TYPES
@@ -101,7 +101,7 @@ export interface CommandContext {
   spawnSubagent: (options: SpawnSubagentOptions) => Promise<SpawnSubagentResult>;
   /**
    * Spawn multiple sub-agents concurrently using independent SDK sessions.
-   * Each sub-agent runs in its own session via SubagentGraphBridge, so all
+   * Each sub-agent runs in its own session, so all
    * agents can execute truly in parallel (unlike spawnSubagent which is serial).
    *
    * @param agents - Array of sub-agent spawn configurations

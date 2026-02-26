@@ -912,7 +912,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                     extractMessageContent(sdkMessage);
 
                                 // Always yield tool_use messages so callers can track tool
-                                // invocations (e.g. SubagentGraphBridge counts them for
+                                // invocations (e.g. spawnSubagentParallel counts them for
                                 // the tree view).  Text messages are only yielded when we
                                 // haven't already streamed text deltas to avoid duplication.
                                 if (type === "tool_use") {

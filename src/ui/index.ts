@@ -2096,7 +2096,7 @@ export async function startChatUI(
 
     /**
      * Set the streaming state from the UI layer.
-     * Used by spawnSubagentParallel to flag that bridge sessions are
+     * Used by spawnSubagentParallel to flag that sub-agent sessions are
      * streaming even though the main session is idle.
      */
     const setStreamingState = (isStreaming: boolean) => {

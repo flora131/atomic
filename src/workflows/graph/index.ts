@@ -32,6 +32,9 @@ export type {
   StateUpdate,
   ModelSpec,
   WorkflowToolContext,
+  CreateSessionFn,
+  SubagentSpawnOptions,
+  SubagentResult,
 } from "./types.ts";
 export {
   isNodeType,
@@ -198,4 +201,3 @@ export {
 // === Subagent orchestration ===
 export type { SubagentEntry } from "./subagent-registry.ts";
 export { SubagentTypeRegistry, populateSubagentRegistry } from "./subagent-registry.ts";
-// SubagentGraphBridge is an internal implementation detail; not re-exported.

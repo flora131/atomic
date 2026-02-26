@@ -33,11 +33,13 @@
  * ```
  */
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { useEventBusContext } from "./event-bus-provider.tsx";
 import type { BusEvent, BusEventType, BusHandler, WildcardHandler } from "./bus-events.ts";
 import { wireConsumers } from "./consumers/wire-consumers.ts";
 import type { StreamPartEvent } from "../ui/parts/stream-pipeline.ts";
+import type { SDKStreamAdapter, StreamAdapterOptions } from "./adapters/types.ts";
+import type { Session } from "../sdk/types.ts";
 
 /**
  * Hook to get the event bus instance.
@@ -212,15 +214,25 @@ export function useStreamConsumer(
   onStreamParts: (parts: StreamPartEvent[]) => void
 ): {
   resetConsumers: () => void;
+  startStreaming: (
+    adapter: SDKStreamAdapter,
+    session: Session,
+    message: string,
+    options: StreamAdapterOptions
+  ) => Promise<void>;
+  stopStreaming: () => void;
+  isStreaming: boolean;
 } {
-  const { bus } = useEventBusContext();
+  const { bus, dispatcher } = useEventBusContext();
   const callbackRef = useRef(onStreamParts);
   callbackRef.current = onStreamParts;
 
   const consumersRef = useRef<ReturnType<typeof wireConsumers> | null>(null);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const adapterRef = useRef<SDKStreamAdapter | null>(null);
 
   useEffect(() => {
-    const consumers = wireConsumers(bus);
+    const consumers = wireConsumers(bus, dispatcher);
     consumersRef.current = consumers;
 
     const unsubscribe = consumers.pipeline.onStreamParts((parts) => {
@@ -232,11 +244,45 @@ export function useStreamConsumer(
       consumers.dispose();
       consumersRef.current = null;
     };
-  }, [bus]);
+  }, [bus, dispatcher]);
 
   const resetConsumers = useCallback(() => {
     consumersRef.current?.pipeline.reset();
   }, []);
 
-  return { resetConsumers };
+  const stopStreaming = useCallback(() => {
+    if (adapterRef.current) {
+      adapterRef.current.dispose();
+      adapterRef.current = null;
+    }
+    setIsStreaming(false);
+  }, []);
+
+  const startStreaming = useCallback(
+    async (
+      adapter: SDKStreamAdapter,
+      session: Session,
+      message: string,
+      options: StreamAdapterOptions,
+    ): Promise<void> => {
+      adapterRef.current = adapter;
+      setIsStreaming(true);
+      resetConsumers();
+      try {
+        await adapter.startStreaming(session, message, options);
+      } finally {
+        setIsStreaming(false);
+      }
+    },
+    [resetConsumers],
+  );
+
+  // Cleanup adapter on unmount
+  useEffect(() => {
+    return () => {
+      stopStreaming();
+    };
+  }, [stopStreaming]);
+
+  return { resetConsumers, startStreaming, stopStreaming, isStreaming };
 }

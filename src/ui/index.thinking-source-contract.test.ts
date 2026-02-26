@@ -902,6 +902,78 @@ describe("startChatUI thinking source key contract", () => {
     }
   });
 
+  test("emits non-matching text after Task suppression target is set", async () => {
+    const { client, streams, emitEvent, getStreamCallCount } = createControlledClient(1);
+    const stream = streams[0];
+    if (!stream) {
+      throw new Error("Expected one controlled stream");
+    }
+
+    const harness = await createStreamHarnessFromClient(client);
+
+    try {
+      const chunks: string[] = [];
+      const startedToolIds: string[] = [];
+      const completedToolIds: string[] = [];
+
+      harness.registerParallelAgentHandler(() => {
+        return;
+      });
+      harness.registerToolStartHandler((toolId) => {
+        startedToolIds.push(toolId);
+      });
+      harness.registerToolCompleteHandler((toolId) => {
+        completedToolIds.push(toolId);
+      });
+
+      const streamPromise = harness.onStreamMessage(
+        "create spec",
+        (chunk) => {
+          chunks.push(chunk);
+        },
+        () => {
+          return;
+        },
+      );
+
+      await waitFor(() => getStreamCallCount() > 0);
+
+      emitEvent("tool.start", {
+        toolName: "Task",
+        toolInput: {
+          subagent_type: "codebase-locator",
+          description: "Analyze codebase structure",
+        },
+        toolUseID: "task-emit-non-match",
+      });
+      await waitFor(() => startedToolIds.length === 1);
+
+      const taskResult = "Now I have comprehensive understanding of the codebase and research. Let me create the spec.";
+      emitEvent("tool.complete", {
+        toolName: "Task",
+        toolResult: { result: taskResult },
+        success: true,
+        toolUseID: "task-emit-non-match",
+      });
+      await waitFor(() => completedToolIds.length === 1);
+
+      stream.emit({
+        type: "text",
+        content: "Spec is ready.",
+        role: "assistant",
+      });
+      stream.end();
+
+      await streamPromise;
+
+      expect(chunks.join("")).toBe("Spec is ready.");
+    } finally {
+      await Promise.resolve(harness.onExit());
+      await harness.uiPromise;
+      harness.restore();
+    }
+  });
+
   test("does not clear Task echo suppression on sub-agent tool.start", async () => {
     const { client, streams, emitEvent, getStreamCallCount } = createControlledClient(1);
     const stream = streams[0];

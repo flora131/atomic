@@ -38,6 +38,8 @@ export const defaultFsOps: FsOps = {
  * Load agents from a directory containing .md files.
  * Each markdown file should have frontmatter with agent configuration.
  *
+ * Files are loaded in parallel for better performance when spawning multiple sub-agents.
+ *
  * @param agentsDir - Path to directory containing agent .md files
  * @param source - Whether agents are 'local' (project) or 'global' (user)
  * @param fsOps - Optional fs operations for testing (defaults to Node.js fs/promises)
@@ -52,23 +54,21 @@ export async function loadAgentsFromDir(
     const files = await fsOps.readdir(agentsDir);
     const mdFiles = (files as string[]).filter((f) => f.endsWith(".md"));
 
-    const agents: CopilotAgent[] = [];
-
-    for (const file of mdFiles) {
-      try {
+    // Load all files in parallel
+    const agentResults = await Promise.allSettled(
+      mdFiles.map(async (file) => {
         const filePath = path.join(agentsDir, file);
         const content = await fsOps.readFile(filePath, "utf-8");
         const parsed = parseMarkdownFrontmatter(content as string);
 
         if (!parsed) {
           // No frontmatter, use file content as system prompt
-          agents.push({
+          return {
             name: file.replace(/\.md$/, ""),
             description: `Agent: ${file.replace(/\.md$/, "")}`,
             systemPrompt: (content as string).trim(),
             source,
-          });
-          continue;
+          };
         }
 
         const { frontmatter, body } = parsed;
@@ -86,20 +86,20 @@ export async function loadAgentsFromDir(
             ) as string[])
           : undefined;
 
-        agents.push({
+        return {
           name,
           description,
           tools,
           systemPrompt: body.trim(),
           source,
-        });
-      } catch {
-        // Skip files we can't read or parse
-        continue;
-      }
-    }
+        };
+      })
+    );
 
-    return agents;
+    // Filter out rejected promises and extract successful agents
+    return agentResults
+      .filter((result): result is PromiseFulfilledResult<CopilotAgent> => result.status === "fulfilled")
+      .map((result) => result.value);
   } catch {
     // Return empty array if directory doesn't exist or can't be read
     return [];
@@ -107,8 +107,19 @@ export async function loadAgentsFromDir(
 }
 
 /**
+ * Cache for loaded agents by project root.
+ * Key: projectRoot, Value: { agents, timestamp }
+ * Cache is invalidated after 5 seconds to allow for dynamic agent changes.
+ */
+const agentCache = new Map<string, { agents: CopilotAgent[]; timestamp: number }>();
+const CACHE_TTL_MS = 5000;
+
+/**
  * Load all Copilot agents from both local and global directories.
  * Local agents (project-specific) override global agents with the same name.
+ *
+ * Results are cached per project root for 5 seconds to avoid redundant file system
+ * operations when spawning multiple parallel sub-agents.
  *
  * @param projectRoot - Path to the project root directory
  * @param fsOps - Optional fs operations for testing (defaults to Node.js fs/promises)
@@ -118,6 +129,12 @@ export async function loadCopilotAgents(
   projectRoot: string,
   fsOps: FsOps = defaultFsOps
 ): Promise<CopilotAgent[]> {
+  // Check cache first
+  const cached = agentCache.get(projectRoot);
+  if (cached && (Date.now() - cached.timestamp) < CACHE_TTL_MS) {
+    return cached.agents;
+  }
+
   const HOME = os.homedir();
   const ATOMIC_HOME = path.join(HOME, ".atomic");
 
@@ -140,14 +157,24 @@ export async function loadCopilotAgents(
   // Map for deduplication - lowercase name as key for case-insensitive matching
   const agentMap = new Map<string, CopilotAgent>();
 
-  for (const { dir, source } of agentDirs) {
-    const agents = await loadAgentsFromDir(dir, source, fsOps);
+  // Load all directories in parallel instead of sequentially
+  const allAgentsArrays = await Promise.all(
+    agentDirs.map(({ dir, source }) => loadAgentsFromDir(dir, source, fsOps))
+  );
+
+  // Merge in priority order (later directories override earlier)
+  for (const agents of allAgentsArrays) {
     for (const agent of agents) {
       agentMap.set(agent.name.toLowerCase(), agent);
     }
   }
 
-  return Array.from(agentMap.values());
+  const agents = Array.from(agentMap.values());
+  
+  // Update cache
+  agentCache.set(projectRoot, { agents, timestamp: Date.now() });
+  
+  return agents;
 }
 
 /**

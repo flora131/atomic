@@ -449,7 +449,7 @@ export function discoverWorkflowFiles(): {
  * Dynamically loaded workflows from disk.
  * Populated by loadWorkflowsFromDisk().
  */
-let loadedWorkflows: WorkflowMetadata[] = [];
+let loadedWorkflows: WorkflowDefinition[] = [];
 
 /**
  * Load workflow definitions from .ts files on disk.
@@ -462,6 +462,9 @@ let loadedWorkflows: WorkflowMetadata[] = [];
  * - `minSDKVersion`: Minimum required SDK version (optional)
  * - `stateVersion`: Workflow state schema version (optional)
  * - `migrateState(oldState, fromVersion)`: State migration handler (optional)
+ * - `graphConfig`: Declarative graph configuration (optional)
+ * - `createState`: Factory function to create initial state (optional)
+ * - `nodeDescriptions`: Map of node IDs to progress descriptions (optional)
  *
  * Example workflow file (.atomic/workflows/my-workflow.ts):
  * ```typescript
@@ -470,11 +473,11 @@ let loadedWorkflows: WorkflowMetadata[] = [];
  * export const aliases = ["mw"];
  * ```
  *
- * @returns Array of loaded workflow metadata (local workflows override global)
+ * @returns Array of loaded workflow definitions (local workflows override global)
  */
-export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata[]> {
+export async function loadWorkflowsFromDisk(): Promise<WorkflowDefinition[]> {
     const discovered = discoverWorkflowFiles();
-    const loaded: WorkflowMetadata[] = [];
+    const loaded: WorkflowDefinition[] = [];
     const loadedNames = new Set<string>();
 
     for (const { path, source } of discovered) {
@@ -497,7 +500,43 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata[]> {
                     ? (module.migrateState as WorkflowStateMigrator)
                     : undefined;
 
-            const metadata: WorkflowMetadata = {
+            // Extract new WorkflowDefinition fields (optional)
+            const graphConfig = module.graphConfig as WorkflowGraphConfig | undefined;
+            const createState = module.createState as ((params: WorkflowStateParams) => BaseState) | undefined;
+            const nodeDescriptions = module.nodeDescriptions as Record<string, string> | undefined;
+
+            // Validate graph config (Task #33)
+            if (graphConfig) {
+                const nodeIds = new Set(graphConfig.nodes.map(n => n.id));
+                
+                if (!nodeIds.has(graphConfig.startNode)) {
+                    console.warn(`[workflow:${name}] startNode "${graphConfig.startNode}" not found in nodes`);
+                }
+                
+                for (const edge of graphConfig.edges) {
+                    if (!nodeIds.has(edge.from)) {
+                        console.warn(`[workflow:${name}] edge from "${edge.from}" references unknown node`);
+                    }
+                    if (!nodeIds.has(edge.to)) {
+                        console.warn(`[workflow:${name}] edge to "${edge.to}" references unknown node`);
+                    }
+                }
+                
+                // Check for orphan nodes (nodes with no edges to/from them, except startNode)
+                const nodesWithEdges = new Set<string>();
+                for (const edge of graphConfig.edges) {
+                    nodesWithEdges.add(edge.from);
+                    nodesWithEdges.add(edge.to);
+                }
+                
+                for (const node of graphConfig.nodes) {
+                    if (node.id !== graphConfig.startNode && !nodesWithEdges.has(node.id)) {
+                        console.warn(`[workflow:${name}] node "${node.id}" is orphaned (no edges to/from it)`);
+                    }
+                }
+            }
+
+            const definition: WorkflowDefinition = {
                 name,
                 description: module.description ?? `Custom workflow: ${name}`,
                 aliases: module.aliases,
@@ -507,31 +546,34 @@ export async function loadWorkflowsFromDisk(): Promise<WorkflowMetadata[]> {
                 stateVersion: module.stateVersion,
                 migrateState,
                 source,
+                graphConfig,
+                createState,
+                nodeDescriptions,
             };
 
-            if (typeof metadata.minSDKVersion === "string") {
-                if (!parseSemver(metadata.minSDKVersion)) {
+            if (typeof definition.minSDKVersion === "string") {
+                if (!parseSemver(definition.minSDKVersion)) {
                     console.warn(
-                        `Workflow "${metadata.name}" has invalid minSDKVersion "${metadata.minSDKVersion}". Expected semver format like "1.2.3".`,
+                        `Workflow "${definition.name}" has invalid minSDKVersion "${definition.minSDKVersion}". Expected semver format like "1.2.3".`,
                     );
                 } else if (
                     isWorkflowMinSdkNewerThanCurrent(
-                        metadata.minSDKVersion,
+                        definition.minSDKVersion,
                         VERSION,
                     )
                 ) {
                     console.warn(
-                        `Workflow "${metadata.name}" requires SDK ${metadata.minSDKVersion}, but current SDK is ${VERSION}.`,
+                        `Workflow "${definition.name}" requires SDK ${definition.minSDKVersion}, but current SDK is ${VERSION}.`,
                     );
                 }
             }
 
-            loaded.push(metadata);
+            loaded.push(definition);
             loadedNames.add(name.toLowerCase());
 
             // Also track aliases
-            if (metadata.aliases) {
-                for (const alias of metadata.aliases) {
+            if (definition.aliases) {
+                for (const alias of definition.aliases) {
                     loadedNames.add(alias.toLowerCase());
                 }
             }
@@ -711,7 +753,7 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
             context.updateWorkflowState({
                 workflowActive: true,
                 workflowType: metadata.name,
-                ralphConfig: { sessionId, userPrompt: parsed.prompt },
+                workflowConfig: { sessionId, userPrompt: parsed.prompt, workflowName: metadata.name },
             });
 
             // Set streaming state to show spinner during workflow execution
@@ -798,8 +840,8 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
 
                         // Set up session tracking after first step with tasks
                         if (!sessionTracked) {
-                            context.setRalphSessionDir(sessionDir);
-                            context.setRalphSessionId(sessionId);
+                            context.setWorkflowSessionDir(sessionDir);
+                            context.setWorkflowSessionId(sessionId);
                             const taskIds = new Set(
                                 step.state.tasks
                                     .map((t: { id?: string }) => t.id)
@@ -808,7 +850,7 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                                             id != null && id.length > 0,
                                     ),
                             );
-                            context.setRalphTaskIds(taskIds);
+                            context.setWorkflowTaskIds(taskIds);
                             sessionTracked = true;
                         }
                     }

@@ -292,6 +292,42 @@ describe("ClaudeAgentClient observability and parity", () => {
     }
   });
 
+  test("binds concurrent hook session IDs deterministically via pending queue", async () => {
+    const client = new ClaudeAgentClient();
+
+    const privateClient = client as unknown as {
+      wrapQuery: (
+        queryInstance: null,
+        sessionId: string,
+        config: Record<string, unknown>,
+      ) => { destroy: () => Promise<void> };
+      pendingHookSessionBindings: string[];
+      resolveHookSessionId: (sdkSessionId: string) => string;
+      sessions: Map<string, { sdkSessionId: string | null }>;
+    };
+
+    const sessionA = privateClient.wrapQuery(null, "wrapped-a", {});
+    const sessionB = privateClient.wrapQuery(null, "wrapped-b", {});
+    const stateA = privateClient.sessions.get("wrapped-a") as { query?: { close?: () => void } } | undefined;
+    const stateB = privateClient.sessions.get("wrapped-b") as { query?: { close?: () => void } } | undefined;
+    if (stateA) stateA.query = { close: () => {} };
+    if (stateB) stateB.query = { close: () => {} };
+    privateClient.pendingHookSessionBindings.push("wrapped-a", "wrapped-b");
+
+    try {
+      const mappedA = privateClient.resolveHookSessionId("sdk-a");
+      const mappedB = privateClient.resolveHookSessionId("sdk-b");
+
+      expect(mappedA).toBe("wrapped-a");
+      expect(mappedB).toBe("wrapped-b");
+      expect(privateClient.sessions.get("wrapped-a")?.sdkSessionId).toBe("sdk-a");
+      expect(privateClient.sessions.get("wrapped-b")?.sdkSessionId).toBe("sdk-b");
+    } finally {
+      await sessionA.destroy();
+      await sessionB.destroy();
+    }
+  });
+
   test("emits stream integrity counters through usage without payload leakage", async () => {
     const client = new ClaudeAgentClient();
     const usageEvents: Array<Record<string, unknown>> = [];

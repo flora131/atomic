@@ -38,9 +38,9 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
     waitForUserInput: async () => "",
     clearContext: async () => {},
     setTodoItems: () => {},
-    setRalphSessionDir: () => {},
-    setRalphSessionId: () => {},
-    setRalphTaskIds: () => {},
+    setWorkflowSessionDir: () => {},
+    setWorkflowSessionId: () => {},
+    setWorkflowTaskIds: () => {},
     updateWorkflowState: () => {},
     ...overrides,
   };
@@ -56,7 +56,7 @@ describe("Workflow inline mode E2E", () => {
       updateWorkflowState: (update) => {
         workflowStateUpdates.push(update);
       },
-      setRalphSessionDir: (dir) => {
+      setWorkflowSessionDir: (dir) => {
         sessionDir = dir;
         if (dir && !existsSync(dir)) {
           mkdirSync(dir, { recursive: true });
@@ -138,7 +138,7 @@ describe("Workflow inline mode E2E", () => {
       updateWorkflowState: (update) => {
         workflowStateUpdates.push(update);
       },
-      setRalphSessionDir: (dir) => {
+      setWorkflowSessionDir: (dir) => {
         sessionDir = dir;
         if (dir && !existsSync(dir)) {
           mkdirSync(dir, { recursive: true });
@@ -147,8 +147,8 @@ describe("Workflow inline mode E2E", () => {
           fsWriteFile(progressPath, "Test workflow in progress\n", "utf-8").catch(() => {});
         }
       },
-      setRalphSessionId: () => {},
-      setRalphTaskIds: () => {},
+      setWorkflowSessionId: () => {},
+      setWorkflowTaskIds: () => {},
       setTodoItems: (items) => {
         todoItems = items;
       },

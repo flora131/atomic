@@ -130,19 +130,19 @@ export interface CommandContext {
    */
   setTodoItems: (items: TodoItem[]) => void;
   /**
-   * Set the ralph workflow session directory for the persistent task list panel.
+   * Set the workflow session directory for the persistent task list panel.
    */
-  setRalphSessionDir: (dir: string | null) => void;
+  setWorkflowSessionDir: (dir: string | null) => void;
   /**
-   * Set the ralph workflow session ID for the persistent task list panel.
+   * Set the workflow session ID for the persistent task list panel.
    */
-  setRalphSessionId: (id: string | null) => void;
+  setWorkflowSessionId: (id: string | null) => void;
   /**
-   * Set the known ralph task IDs from the planning phase.
-   * Used to guard TodoWrite persistence so that only ralph-originated
+   * Set the known workflow task IDs from the planning phase.
+   * Used to guard TodoWrite persistence so that only workflow-originated
    * updates are written to tasks.json (prevents sub-agent overwrites).
    */
-  setRalphTaskIds: (ids: Set<string>) => void;
+  setWorkflowTaskIds: (ids: Set<string>) => void;
   /**
    * Wait for the user to type and submit a prompt.
    * Used by workflows after a stream interruption (Ctrl+C) to yield control
@@ -207,10 +207,11 @@ export interface CommandContextState {
   specApproved?: boolean;
   /** Feedback from spec rejection */
   feedback?: string | null;
-  /** Ralph-specific workflow configuration */
-  ralphConfig?: {
+  /** Workflow-specific configuration */
+  workflowConfig?: {
     userPrompt: string | null;
     sessionId?: string;
+    workflowName?: string;
   };
 }
 

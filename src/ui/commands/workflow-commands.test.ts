@@ -38,9 +38,9 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
     waitForUserInput: async () => "",
     clearContext: async () => {},
     setTodoItems: () => {},
-    setRalphSessionDir: () => {},
-    setRalphSessionId: () => {},
-    setRalphTaskIds: () => {},
+    setWorkflowSessionDir: () => {},
+    setWorkflowSessionId: () => {},
+    setWorkflowTaskIds: () => {},
     updateWorkflowState: () => {},
     ...overrides,
   };
@@ -181,6 +181,186 @@ describe("workflow metadata discovery", () => {
         });
       });
     } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("loads graphConfig, createState, and nodeDescriptions from workflows", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "workflow-graph-fields-"));
+    const localDir = join(tempRoot, "local");
+    await mkdir(localDir, { recursive: true });
+    await fsWriteFile(
+      join(localDir, "graph-workflow.ts"),
+      [
+        'export const name = "graph-workflow";',
+        'export const description = "Workflow with graph config";',
+        'export const graphConfig = {',
+        '  nodes: [',
+        '    { id: "start", type: "action", action: async () => {} },',
+        '    { id: "end", type: "action", action: async () => {} }',
+        '  ],',
+        '  edges: [{ from: "start", to: "end" }],',
+        '  startNode: "start"',
+        '};',
+        'export function createState(params) {',
+        '  return {',
+        '    executionId: params.sessionId,',
+        '    lastUpdated: new Date().toISOString(),',
+        '    outputs: {}',
+        '  };',
+        '}',
+        'export const nodeDescriptions = {',
+        '  "start": "🚀 Starting workflow...",',
+        '  "end": "✅ Completing workflow..."',
+        '};',
+      ].join("\n"),
+    );
+
+    try {
+      await withWorkflowSearchPaths([localDir], async () => {
+        const workflows = await loadWorkflowsFromDisk();
+        const definition = workflows.find((workflow) => workflow.name === "graph-workflow");
+
+        expect(definition).toBeDefined();
+        expect(definition?.graphConfig).toBeDefined();
+        expect(definition?.graphConfig?.nodes).toHaveLength(2);
+        expect(definition?.graphConfig?.edges).toHaveLength(1);
+        expect(definition?.graphConfig?.startNode).toBe("start");
+        expect(typeof definition?.createState).toBe("function");
+        expect(definition?.nodeDescriptions).toBeDefined();
+        expect(definition?.nodeDescriptions?.["start"]).toBe("🚀 Starting workflow...");
+        expect(definition?.nodeDescriptions?.["end"]).toBe("✅ Completing workflow...");
+      });
+    } finally {
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("validates graph config and warns about invalid startNode", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "workflow-graph-validation-"));
+    const localDir = join(tempRoot, "local");
+    await mkdir(localDir, { recursive: true });
+    await fsWriteFile(
+      join(localDir, "invalid-graph.ts"),
+      [
+        'export const name = "invalid-graph";',
+        'export const description = "Workflow with invalid graph";',
+        'export const graphConfig = {',
+        '  nodes: [{ id: "node1", type: "action", action: async () => {} }],',
+        '  edges: [],',
+        '  startNode: "nonexistent"',
+        '};',
+      ].join("\n"),
+    );
+
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: Parameters<typeof console.warn>) => {
+      warnings.push(args.map((value) => String(value)).join(" "));
+    };
+
+    try {
+      await withWorkflowSearchPaths([localDir], async () => {
+        await loadWorkflowsFromDisk();
+      });
+      expect(
+        warnings.some((warning) =>
+          warning.includes('[workflow:invalid-graph] startNode "nonexistent" not found in nodes'),
+        ),
+      ).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("validates graph config and warns about invalid edge references", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "workflow-graph-edge-validation-"));
+    const localDir = join(tempRoot, "local");
+    await mkdir(localDir, { recursive: true });
+    await fsWriteFile(
+      join(localDir, "invalid-edges.ts"),
+      [
+        'export const name = "invalid-edges";',
+        'export const description = "Workflow with invalid edges";',
+        'export const graphConfig = {',
+        '  nodes: [',
+        '    { id: "node1", type: "action", action: async () => {} },',
+        '    { id: "node2", type: "action", action: async () => {} }',
+        '  ],',
+        '  edges: [',
+        '    { from: "node1", to: "nonexistent" },',
+        '    { from: "missing", to: "node2" }',
+        '  ],',
+        '  startNode: "node1"',
+        '};',
+      ].join("\n"),
+    );
+
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: Parameters<typeof console.warn>) => {
+      warnings.push(args.map((value) => String(value)).join(" "));
+    };
+
+    try {
+      await withWorkflowSearchPaths([localDir], async () => {
+        await loadWorkflowsFromDisk();
+      });
+      expect(
+        warnings.some((warning) =>
+          warning.includes('[workflow:invalid-edges] edge to "nonexistent" references unknown node'),
+        ),
+      ).toBe(true);
+      expect(
+        warnings.some((warning) =>
+          warning.includes('[workflow:invalid-edges] edge from "missing" references unknown node'),
+        ),
+      ).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("validates graph config and warns about orphan nodes", async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), "workflow-graph-orphan-"));
+    const localDir = join(tempRoot, "local");
+    await mkdir(localDir, { recursive: true });
+    await fsWriteFile(
+      join(localDir, "orphan-node.ts"),
+      [
+        'export const name = "orphan-node";',
+        'export const description = "Workflow with orphan node";',
+        'export const graphConfig = {',
+        '  nodes: [',
+        '    { id: "start", type: "action", action: async () => {} },',
+        '    { id: "connected", type: "action", action: async () => {} },',
+        '    { id: "orphan", type: "action", action: async () => {} }',
+        '  ],',
+        '  edges: [{ from: "start", to: "connected" }],',
+        '  startNode: "start"',
+        '};',
+      ].join("\n"),
+    );
+
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: Parameters<typeof console.warn>) => {
+      warnings.push(args.map((value) => String(value)).join(" "));
+    };
+
+    try {
+      await withWorkflowSearchPaths([localDir], async () => {
+        await loadWorkflowsFromDisk();
+      });
+      expect(
+        warnings.some((warning) =>
+          warning.includes('[workflow:orphan-node] node "orphan" is orphaned (no edges to/from it)'),
+        ),
+      ).toBe(true);
+    } finally {
+      console.warn = originalWarn;
       await rm(tempRoot, { recursive: true, force: true });
     }
   });
@@ -442,15 +622,15 @@ describe("review step in /ralph", () => {
         spawnCalls.push({ name: options.name });
         return { success: true, output: "" };
       },
-      setRalphSessionDir: (dir: string | null) => {
+      setWorkflowSessionDir: (dir: string | null) => {
         sessionDir = dir;
         if (dir) {
           const { mkdirSync } = require("fs");
           mkdirSync(dir, { recursive: true });
         }
       },
-      setRalphSessionId: () => {},
-      setRalphTaskIds: () => {},
+      setWorkflowSessionId: () => {},
+      setWorkflowTaskIds: () => {},
       updateWorkflowState: () => {},
     });
 

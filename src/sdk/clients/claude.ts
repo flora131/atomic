@@ -246,6 +246,15 @@ function normalizeClaudeModelLabel(model: string): string {
     return stripped;
 }
 
+function buildSubagentInvocationPrompt(agentName: string, task: string): string {
+    return `Invoke the "${agentName}" sub-agent with the following task. Return ONLY the sub-agent's complete output with no additional commentary or explanation.
+
+Task for ${agentName}:
+${task}
+
+Important: Do not add any text before or after the sub-agent's output. Pass through the complete response exactly as produced.`;
+}
+
 type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 interface AskUserQuestionInput {
@@ -315,6 +324,12 @@ export class ClaudeAgentClient implements CodingAgentClient {
     };
     private pendingToolBySession = new Map<string, number>();
     private pendingSubagentBySession = new Map<string, number>();
+    /**
+     * FIFO of wrapped session IDs awaiting first hook-session binding.
+     * Enables deterministic SDK->wrapped session mapping when multiple
+     * sessions are opened concurrently (parallel sub-agents).
+     */
+    private pendingHookSessionBindings: string[] = [];
 
     /**
      * Register native SDK hooks for event handling.
@@ -698,7 +713,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 );
             },
 
-            stream: (message: string, _options?: { agent?: string }): AsyncIterable<AgentMessage> => {
+            stream: (message: string, optionsArg?: { agent?: string }): AsyncIterable<AgentMessage> => {
                 // Capture references for the async generator
                 const buildOptions = () =>
                     this.buildSdkOptions(config, sessionId);
@@ -714,6 +729,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 };
                 // Capture SDK session ID for resume
                 const getSdkSessionId = () => state.sdkSessionId;
+                const resolvePrompt = () => {
+                    const requestedAgent = optionsArg?.agent?.trim();
+                    if (!requestedAgent) {
+                        return message;
+                    }
+                    return buildSubagentInvocationPrompt(requestedAgent, message);
+                };
 
                 return {
                     [Symbol.asyncIterator]: async function* () {
@@ -731,7 +753,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         }
 
                         const streamSource = query({
-                            prompt: message,
+                            prompt: resolvePrompt(),
                             options,
                         });
                         state.query = streamSource;
@@ -1265,6 +1287,33 @@ export class ClaudeAgentClient implements CodingAgentClient {
             }
         }
 
+        // Deterministic FIFO binding for newly-created wrapped sessions that
+        // haven't yet seen their first assistant/result message with sdkSessionId.
+        // This is critical when multiple sessions are created concurrently.
+        for (let i = 0; i < this.pendingHookSessionBindings.length; i++) {
+            const candidateWrappedId = this.pendingHookSessionBindings[i];
+            if (!candidateWrappedId) {
+                continue;
+            }
+            const candidateState = this.sessions.get(candidateWrappedId);
+            if (!candidateState || candidateState.isClosed) {
+                continue;
+            }
+            // Ignore sessions that have not started a query yet (e.g. freshly
+            // created main session before first prompt). Their SDK session ID
+            // is not knowable from hooks yet and should not absorb unrelated
+            // sub-agent hook traffic.
+            if (candidateState.query === null) {
+                continue;
+            }
+            if (candidateState.sdkSessionId && candidateState.sdkSessionId !== sdkSessionId) {
+                continue;
+            }
+            this.pendingHookSessionBindings.splice(i, 1);
+            candidateState.sdkSessionId = sdkSessionId;
+            return candidateWrappedId;
+        }
+
         // First hook can arrive before assistant/result messages populate sdkSessionId.
         // If exactly one open session exists, bind this SDK session ID to it.
         const openSessions = Array.from(this.sessions.entries()).filter(
@@ -1275,6 +1324,14 @@ export class ClaudeAgentClient implements CodingAgentClient {
             if (!state.sdkSessionId) {
                 state.sdkSessionId = sdkSessionId;
             }
+            return wrappedSessionId;
+        }
+
+        // If there is exactly one unbound open session, bind it.
+        const unboundOpenSessions = openSessions.filter(([, state]) => !state.sdkSessionId);
+        if (unboundOpenSessions.length === 1) {
+            const [wrappedSessionId, state] = unboundOpenSessions[0]!;
+            state.sdkSessionId = sdkSessionId;
             return wrappedSessionId;
         }
 
@@ -1323,6 +1380,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
         // Emit session start event
         this.emitEvent("session.start", sessionId, { config });
         this.emitRuntimeSelection(sessionId, "create");
+        this.pendingHookSessionBindings.push(sessionId);
         return this.wrapQuery(null, sessionId, config);
     }
 

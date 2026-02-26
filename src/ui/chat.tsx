@@ -883,10 +883,11 @@ export interface WorkflowChatState {
   specApproved: boolean;
   /** User feedback when rejecting (passed back to workflow) */
   feedback: string | null;
-  /** Ralph-specific workflow configuration (session ID, user prompt, etc.) */
-  ralphConfig?: {
+  /** Workflow-specific configuration (session ID, user prompt, workflow name, etc.) */
+  workflowConfig?: {
     userPrompt: string | null;
     sessionId?: string;
+    workflowName?: string;
   };
 }
 
@@ -937,8 +938,8 @@ export interface MessageBubbleProps {
   tasksExpanded?: boolean;
   /** Whether task updates should be rendered inline for this message */
   inlineTasksEnabled?: boolean;
-  /** Ralph session directory for persistent task list panel */
-  ralphSessionDir?: string | null;
+  /** Workflow session directory for persistent task list panel */
+  workflowSessionDir?: string | null;
   /** Whether the todo/task panel is visible (Ctrl+T toggle) */
   showTodoPanel?: boolean;
   /** Elapsed streaming time in milliseconds */
@@ -1468,7 +1469,7 @@ function getRenderableAssistantParts(
 
   return parts;
 }
-export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, ralphSessionDir, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, workflowSessionDir, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
   // Collapsed mode: show compact single-line summary for each message
@@ -1531,10 +1532,10 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
           </text>
         </box>
 
-        {/* Ralph persistent task list - also shown after user messages */}
-        {isLast && ralphSessionDir && showTodoPanel && (
+        {/* Workflow persistent task list - also shown after user messages */}
+        {isLast && workflowSessionDir && showTodoPanel && (
           <TaskListPanel
-            sessionDir={ralphSessionDir}
+            sessionDir={workflowSessionDir}
             expanded={tasksExpanded}
           />
         )}
@@ -1574,10 +1575,10 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
       >
         <MessageBubbleParts message={renderableMessage} syntaxStyle={syntaxStyle} />
 
-        {/* Ralph persistent task list - pinned above streaming text in last message */}
-        {isLast && ralphSessionDir && showTodoPanel && (
+        {/* Workflow persistent task list - pinned above streaming text in last message */}
+        {isLast && workflowSessionDir && showTodoPanel && (
           <TaskListPanel
-            sessionDir={ralphSessionDir}
+            sessionDir={workflowSessionDir}
             expanded={tasksExpanded}
           />
         )}
@@ -1838,15 +1839,15 @@ export function ChatApp({
   const [showTodoPanel, setShowTodoPanel] = useState(true);
   // Whether task list items are expanded (full content, no truncation)
   const [tasksExpanded, _setTasksExpanded] = useState(false);
-  // Ralph workflow persistent task list
-  const [ralphSessionDir, setRalphSessionDir] = useState<string | null>(null);
-  const ralphSessionDirRef = useRef<string | null>(null);
-  const [ralphSessionId, setRalphSessionId] = useState<string | null>(null);
-  const ralphSessionIdRef = useRef<string | null>(null);
-  // Known ralph task IDs from the planning phase.
+  // Workflow persistent task list
+  const [workflowSessionDir, setWorkflowSessionDir] = useState<string | null>(null);
+  const workflowSessionDirRef = useRef<string | null>(null);
+  const [workflowSessionId, setWorkflowSessionId] = useState<string | null>(null);
+  const workflowSessionIdRef = useRef<string | null>(null);
+  // Known workflow task IDs from the planning phase.
   // Used to guard TodoWrite persistence: only updates whose items match
   // these IDs are written to tasks.json, preventing sub-agent overwrites.
-  const ralphTaskIdsRef = useRef<Set<string>>(new Set());
+  const workflowTaskIdsRef = useRef<Set<string>>(new Set());
   // Tracks started tool names by toolCallId so completion handlers can
   // safely identify TodoWrite payloads (and ignore unrelated `input.todos`).
   const toolNameByIdRef = useRef<Map<string, string>>(new Map());
@@ -2087,33 +2088,33 @@ export function ChatApp({
     clearBackgroundTerminationConfirmation,
   ]);
 
-  // Keep ralph session refs in sync with state
+  // Keep workflow session refs in sync with state
   useEffect(() => {
-    ralphSessionDirRef.current = ralphSessionDir;
-  }, [ralphSessionDir]);
+    workflowSessionDirRef.current = workflowSessionDir;
+  }, [workflowSessionDir]);
   useEffect(() => {
-    ralphSessionIdRef.current = ralphSessionId;
-  }, [ralphSessionId]);
+    workflowSessionIdRef.current = workflowSessionId;
+  }, [workflowSessionId]);
 
   /**
-   * Check whether a TodoWrite payload is a ralph task update (shares IDs
-   * with the known ralph planning-phase tasks). Returns false when the
+   * Check whether a TodoWrite payload is a workflow task update (shares IDs
+   * with the known workflow planning-phase tasks). Returns false when the
    * incoming items are from a sub-agent's independent todo list, which
-   * should NOT overwrite ralph's tasks.json.
+   * should NOT overwrite workflow's tasks.json.
    */
-  const isRalphTaskUpdate = useCallback((
+  const isWorkflowTaskUpdate = useCallback((
     todos: NormalizedTodoItem[],
     previousTodos: readonly NormalizedTodoItem[] = todoItemsRef.current,
   ): boolean => {
-    return hasRalphTaskIdOverlap(todos, ralphTaskIdsRef.current, previousTodos);
+    return hasRalphTaskIdOverlap(todos, workflowTaskIdsRef.current, previousTodos);
   }, []);
 
   /**
    * Clear stale TodoWrite state when starting a new stream, except during
-   * active /ralph workflows where task continuity must persist across turns.
+   * active workflow sessions where task continuity must persist across turns.
    */
   const resetTodoItemsForNewStream = useCallback(() => {
-    if (ralphSessionIdRef.current) return;
+    if (workflowSessionIdRef.current) return;
     todoItemsRef.current = [];
     setTodoItems([]);
   }, []);
@@ -2130,13 +2131,13 @@ export function ChatApp({
     todoItemsRef.current = updated;
     setTodoItems(updated);
 
-    // Persist to tasks.json only if the current items are ralph tasks
-    if (ralphSessionIdRef.current && isRalphTaskUpdate(updated)) {
-      void saveTasksToActiveSession(updated, ralphSessionIdRef.current);
+    // Persist to tasks.json only if the current items are workflow tasks
+    if (workflowSessionIdRef.current && isWorkflowTaskUpdate(updated)) {
+      void saveTasksToActiveSession(updated, workflowSessionIdRef.current);
     }
 
     return snapshotTaskItems(updated) as TaskItem[] | undefined;
-  }, [isRalphTaskUpdate]);
+  }, [isWorkflowTaskUpdate]);
 
   const clearAutoCompactionTimeout = useCallback(() => {
     if (autoCompactionTimeoutRef.current) {
@@ -2325,25 +2326,25 @@ export function ChatApp({
     if (isTodoWriteToolName(toolName) && input.todos && Array.isArray(input.todos)) {
       const previousTodos = todoItemsRef.current;
       const todos = reconcileTodoWriteItems(input.todos, previousTodos);
-      const taskStreamPinned = Boolean(ralphSessionIdRef.current);
-      const isRalphUpdate = isRalphTaskUpdate(todos, previousTodos);
+      const taskStreamPinned = Boolean(workflowSessionIdRef.current);
+      const isWorkflowUpdate = isWorkflowTaskUpdate(todos, previousTodos);
 
-      // During /ralph, ignore unrelated sub-agent TodoWrite payloads so they
-      // cannot replace the in-memory ralph task state.
-      const shouldApplyTodoState = !ralphSessionIdRef.current || isRalphUpdate;
+      // During workflow, ignore unrelated sub-agent TodoWrite payloads so they
+      // cannot replace the in-memory workflow task state.
+      const shouldApplyTodoState = !workflowSessionIdRef.current || isWorkflowUpdate;
       if (shouldApplyTodoState) {
         todoItemsRef.current = todos;
         setTodoItems(todos);
       }
 
-      // During /ralph workflow: do NOT persist TodoWrite calls to tasks.json.
-      // The ralph workflow (workflow-commands.ts) is the sole owner of tasks.json
+      // During workflow: do NOT persist TodoWrite calls to tasks.json.
+      // The workflow (workflow-commands.ts) is the sole owner of tasks.json
       // to prevent race conditions where sub-agent TodoWrite calls overwrite
       // the workflow's status updates (e.g., marking a completed task back to in_progress).
       // TodoWrite still updates in-memory UI state above for real-time display.
       // 
-      // Before: if (ralphSessionIdRef.current && isRalphUpdate) { ... }
-      // Now: Never persist TodoWrite during active ralph workflow.
+      // Before: if (workflowSessionIdRef.current && isWorkflowUpdate) { ... }
+      // Now: Never persist TodoWrite during active workflow.
 
       if (messageId) {
         setMessagesWindowed((prev) =>
@@ -2718,14 +2719,14 @@ export function ChatApp({
   }, [setMessagesWindowed]);
 
   useEffect(() => {
-    if (!workflowState.workflowActive && ralphSessionDir) {
-      syncTerminalTaskStateFromSession(ralphSessionDir);
-      setRalphSessionDir(null);
-      setRalphSessionId(null);
-      ralphSessionDirRef.current = null;
-      ralphSessionIdRef.current = null;
+    if (!workflowState.workflowActive && workflowSessionDir) {
+      syncTerminalTaskStateFromSession(workflowSessionDir);
+      setWorkflowSessionDir(null);
+      setWorkflowSessionId(null);
+      workflowSessionDirRef.current = null;
+      workflowSessionIdRef.current = null;
     }
-  }, [workflowState.workflowActive, ralphSessionDir, syncTerminalTaskStateFromSession]);
+  }, [workflowState.workflowActive, workflowSessionDir, syncTerminalTaskStateFromSession]);
 
   /**
    * Handle human_input_required signal.
@@ -3412,8 +3413,51 @@ export function ChatApp({
    * Used by command execution context.
    */
   const addMessage = useCallback((role: "user" | "assistant" | "system", content: string) => {
-    const msg = createMessage(role, content);
-    setMessagesWindowed((prev) => [...prev, msg]);
+    // When streaming is active and we're adding an assistant message,
+    // mark it as streaming so the LoadingIndicator and task animations render.
+    // This is essential for workflow commands like /ralph that use setStreaming(true)
+    // and addMessage together.
+    const streaming = role === "assistant" && isStreamingRef.current;
+    const msg = createMessage(role, content, streaming);
+    setMessagesWindowed((prev) => {
+      // Finalize any previously streaming messages so only the newest one
+      // shows the spinner. This prevents stale spinners on earlier messages
+      // and ensures the spinner is always pinned above the chatbox.
+      const finalized = prev.map((m) =>
+        m.streaming
+          ? { ...finalizeStreamingReasoningInMessage(m), streaming: false, completedAt: new Date() }
+          : m,
+      );
+      return [...finalized, msg];
+    });
+  }, []);
+
+  /**
+   * Helper to set streaming state and optionally finalize the last streaming message.
+   * Used by command execution context.
+   */
+  const setStreamingWithFinalize = useCallback((streaming: boolean) => {
+    // When turning off streaming, finalize the last assistant message
+    if (!streaming && isStreamingRef.current) {
+      setMessagesWindowed((prev) => {
+        const lastMsg = prev[prev.length - 1];
+        if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
+          return [
+            ...prev.slice(0, -1),
+            {
+              ...finalizeStreamingReasoningInMessage(lastMsg),
+              streaming: false,
+              completedAt: new Date(),
+              taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
+            },
+          ];
+        }
+        return prev;
+      });
+    }
+    
+    isStreamingRef.current = streaming;
+    setIsStreaming(streaming);
   }, []);
 
   /**
@@ -3514,7 +3558,7 @@ export function ChatApp({
       session: getSession?.() ?? null,
       state: contextState,
       addMessage,
-      setStreaming: setIsStreaming,
+      setStreaming: setStreamingWithFinalize,
       sendMessage: (content: string) => {
         // Use ref to call sendMessage without circular dependency
         if (sendMessageRef.current) {
@@ -3642,21 +3686,25 @@ export function ChatApp({
             // separately via hasActiveBackgroundAgents.
             const hasActiveAgents = hasActiveForegroundAgents(parallelAgentsRef.current);
             if (hasActiveAgents || hasRunningToolRef.current) {
-              pendingCompleteRef.current = handleComplete;
-              // Safety timeout: if no sub-agent was ever spawned within 30s,
-              // unblock the deferred completion to prevent TUI freeze.
-              const spawnTimeout = setTimeout(() => {
-                if (pendingCompleteRef.current === handleComplete
-                    && parallelAgentsRef.current.length === 0) {
-                  pendingCompleteRef.current = null;
-                  handleComplete();
-                }
-              }, 30_000);
               const originalHandleComplete = handleComplete;
-              pendingCompleteRef.current = () => {
-                clearTimeout(spawnTimeout);
+              let spawnTimeout: ReturnType<typeof setTimeout> | null = null;
+              const deferredComplete = () => {
+                if (spawnTimeout) {
+                  clearTimeout(spawnTimeout);
+                  spawnTimeout = null;
+                }
                 originalHandleComplete();
               };
+              pendingCompleteRef.current = deferredComplete;
+              // Safety timeout: if no sub-agent was ever spawned within 30s,
+              // unblock the deferred completion to prevent TUI freeze.
+              spawnTimeout = setTimeout(() => {
+                if (pendingCompleteRef.current === deferredComplete
+                    && parallelAgentsRef.current.length === 0) {
+                  pendingCompleteRef.current = null;
+                  deferredComplete();
+                }
+              }, 30_000);
               return;
             }
 
@@ -3850,8 +3898,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           } else {
             streamCompletionResolverRef.current = previousResolver ?? null;
           }
-          isStreamingRef.current = false;
-          setIsStreaming(false);
+          setStreamingWithFinalize(false);
           setStreamingState?.(false);
         }
       },
@@ -3886,25 +3933,25 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Restore todoItems (preserved across context clears)
         const saved = todoItemsRef.current;
         setTodoItems(saved);
-        // Restore ralph session state (preserved across context clears)
-        setRalphSessionDir(ralphSessionDirRef.current);
-        setRalphSessionId(ralphSessionIdRef.current);
+        // Restore workflow session state (preserved across context clears)
+        setWorkflowSessionDir(workflowSessionDirRef.current);
+        setWorkflowSessionId(workflowSessionIdRef.current);
       },
       setTodoItems: (items) => {
         const nextTodos = sortTasksTopologically(normalizeTodoItems(items));
         todoItemsRef.current = nextTodos;
         setTodoItems(nextTodos);
       },
-      setRalphSessionDir: (dir: string | null) => {
-        ralphSessionDirRef.current = dir;
-        setRalphSessionDir(dir);
+      setWorkflowSessionDir: (dir: string | null) => {
+        workflowSessionDirRef.current = dir;
+        setWorkflowSessionDir(dir);
       },
-      setRalphSessionId: (id: string | null) => {
-        ralphSessionIdRef.current = id;
-        setRalphSessionId(id);
+      setWorkflowSessionId: (id: string | null) => {
+        workflowSessionIdRef.current = id;
+        setWorkflowSessionId(id);
       },
-      setRalphTaskIds: (ids: Set<string>) => {
-        ralphTaskIdsRef.current = ids;
+      setWorkflowTaskIds: (ids: Set<string>) => {
+        workflowTaskIdsRef.current = ids;
       },
       updateWorkflowState: (update) => {
         updateWorkflowState(update);
@@ -3990,13 +4037,13 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         setTranscriptMode(false);
         clearHistoryBuffer();
         loadedSkillsRef.current.clear();
-        // Reset ralph state on /clear (Copilot only)
+        // Reset workflow state on /clear (Copilot only)
         if (agentType === "copilot") {
-          setRalphSessionDir(null);
-          setRalphSessionId(null);
-          ralphSessionDirRef.current = null;
-          ralphSessionIdRef.current = null;
-          ralphTaskIdsRef.current = new Set();
+          setWorkflowSessionDir(null);
+          setWorkflowSessionId(null);
+          workflowSessionDirRef.current = null;
+          workflowSessionIdRef.current = null;
+          workflowTaskIdsRef.current = new Set();
           todoItemsRef.current = [];
           setTodoItems([]);
         }
@@ -4041,7 +4088,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           pendingApproval: result.stateUpdate.pendingApproval !== undefined ? result.stateUpdate.pendingApproval : workflowState.pendingApproval,
           specApproved: result.stateUpdate.specApproved !== undefined ? result.stateUpdate.specApproved : workflowState.specApproved,
           feedback: result.stateUpdate.feedback !== undefined ? result.stateUpdate.feedback : workflowState.feedback,
-          ralphConfig: result.stateUpdate.ralphConfig !== undefined ? result.stateUpdate.ralphConfig : workflowState.ralphConfig,
+          workflowConfig: result.stateUpdate.workflowConfig !== undefined ? result.stateUpdate.workflowConfig : workflowState.workflowConfig,
         });
 
         // Also update isStreaming if specified
@@ -5442,21 +5489,25 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           // separately via hasActiveBackgroundAgents.
           const hasActiveAgents = hasActiveForegroundAgents(parallelAgentsRef.current);
           if (hasActiveAgents || hasRunningToolRef.current) {
-            pendingCompleteRef.current = handleComplete;
-            // Safety timeout: if no sub-agent was ever spawned within 30s,
-            // unblock the deferred completion to prevent TUI freeze.
-            const spawnTimeout = setTimeout(() => {
-              if (pendingCompleteRef.current === handleComplete
-                  && parallelAgentsRef.current.length === 0) {
-                pendingCompleteRef.current = null;
-                handleComplete();
-              }
-            }, 30_000);
             const originalHandleComplete = handleComplete;
-            pendingCompleteRef.current = () => {
-              clearTimeout(spawnTimeout);
+            let spawnTimeout: ReturnType<typeof setTimeout> | null = null;
+            const deferredComplete = () => {
+              if (spawnTimeout) {
+                clearTimeout(spawnTimeout);
+                spawnTimeout = null;
+              }
               originalHandleComplete();
             };
+            pendingCompleteRef.current = deferredComplete;
+            // Safety timeout: if no sub-agent was ever spawned within 30s,
+            // unblock the deferred completion to prevent TUI freeze.
+            spawnTimeout = setTimeout(() => {
+              if (pendingCompleteRef.current === deferredComplete
+                  && parallelAgentsRef.current.length === 0) {
+                pendingCompleteRef.current = null;
+                deferredComplete();
+              }
+            }, 30_000);
             return;
           }
 
@@ -5668,13 +5719,13 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       // Check if this is a slash command
       const parsed = parseSlashCommand(trimmedValue);
       if (parsed.isCommand) {
-        // Dismiss ralph panel when user sends a non-ralph slash command (Copilot only)
-        if (agentType === "copilot" && ralphSessionDirRef.current && parsed.name !== "ralph") {
-          setRalphSessionDir(null);
-          setRalphSessionId(null);
-          ralphSessionDirRef.current = null;
-          ralphSessionIdRef.current = null;
-          ralphTaskIdsRef.current = new Set();
+        // Dismiss workflow panel when user sends a non-workflow slash command (Copilot only)
+        if (agentType === "copilot" && workflowSessionDirRef.current && parsed.name !== "ralph") {
+          setWorkflowSessionDir(null);
+          setWorkflowSessionId(null);
+          workflowSessionDirRef.current = null;
+          workflowSessionIdRef.current = null;
+          workflowTaskIdsRef.current = new Set();
           todoItemsRef.current = [];
           setTodoItems([]);
         }
@@ -5696,13 +5747,13 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         return;
       }
 
-      // Dismiss ralph panel when user sends a non-ralph message (Copilot only)
-      if (agentType === "copilot" && ralphSessionDirRef.current && !trimmedValue.startsWith("/ralph")) {
-        setRalphSessionDir(null);
-        setRalphSessionId(null);
-        ralphSessionDirRef.current = null;
-        ralphSessionIdRef.current = null;
-        ralphTaskIdsRef.current = new Set();
+      // Dismiss workflow panel when user sends a non-workflow message (Copilot only)
+      if (agentType === "copilot" && workflowSessionDirRef.current && !trimmedValue.startsWith("/ralph")) {
+        setWorkflowSessionDir(null);
+        setWorkflowSessionId(null);
+        workflowSessionDirRef.current = null;
+        workflowSessionIdRef.current = null;
+        workflowTaskIdsRef.current = new Set();
         todoItemsRef.current = [];
         setTodoItems([]);
       }

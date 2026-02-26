@@ -179,7 +179,10 @@ export class SubagentGraphBridge {
         // Stream response with abort support — abortableAsyncIterable ensures
         // we reject immediately when the signal fires, rather than blocking
         // on the next iterator value.
-        const stream = abortableAsyncIterable(session.stream(options.task), abortController.signal);
+        const stream = abortableAsyncIterable(
+          session.stream(options.task, { agent: options.agentName }),
+          abortController.signal,
+        );
         for await (const msg of stream) {
           if (msg.type === "tool_use") {
             toolUses++;

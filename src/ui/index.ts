@@ -216,7 +216,7 @@ interface ChatUIState {
    * Holds a short FIFO of recent Task result texts so suppression stays
    * correct when multiple Task tools complete in parallel.
    */
-  suppressPostTaskResults: string[];
+  suppressPostTaskResults: Array<{ text: string; addedAt: number }>;
   /** Native TUI telemetry tracker (null when telemetry is disabled or agent type is unknown) */
   telemetryTracker: TuiTelemetrySessionTracker | null;
 }
@@ -1081,8 +1081,11 @@ export async function startChatUI(
           ? state.parallelAgents.find(a => a.id === agentId)
           : undefined;
         if (!agentForSuppress || shouldFinalizeOnToolComplete(agentForSuppress)) {
-          if (resultStr && !state.suppressPostTaskResults.includes(resultStr)) {
-            state.suppressPostTaskResults.push(resultStr);
+          if (resultStr && !state.suppressPostTaskResults.some(e => e.text === resultStr)) {
+            const now = Date.now();
+            // Expire entries older than 30 seconds
+            state.suppressPostTaskResults = state.suppressPostTaskResults.filter(e => now - e.addedAt < 30_000);
+            state.suppressPostTaskResults.push({ text: resultStr, addedAt: now });
             if (state.suppressPostTaskResults.length > 8) {
               state.suppressPostTaskResults.shift();
             }
@@ -1605,15 +1608,15 @@ export async function startChatUI(
       };
 
       const removeSuppressTarget = (target: string): void => {
-        const idx = state.suppressPostTaskResults.indexOf(target);
+        const idx = state.suppressPostTaskResults.findIndex(e => e.text === target);
         if (idx !== -1) {
           state.suppressPostTaskResults.splice(idx, 1);
         }
       };
 
       const pickSuppressTarget = (candidate: string): string | null => {
-        const target = state.suppressPostTaskResults.find((resultText) => resultText.startsWith(candidate));
-        return target ?? null;
+        const entry = state.suppressPostTaskResults.find((e) => e.text.startsWith(candidate));
+        return entry?.text ?? null;
       };
 
       const toStringRecord = (sourceMap: Map<string, string>): Record<string, string> => {
@@ -1697,10 +1700,14 @@ export async function startChatUI(
           let chunkToEmit = message.content;
           if (state.suppressPostTaskResults.length > 0 || suppressTarget !== null) {
             let shouldReprocess = true;
-            while (shouldReprocess) {
+            let suppressionIterations = 0;
+            // Defensive bound: suppression is best-effort and must never
+            // block the UI thread if state unexpectedly stops making progress.
+            while (shouldReprocess && suppressionIterations < 16) {
+              suppressionIterations += 1;
               shouldReprocess = false;
 
-              if (suppressTarget !== null && !state.suppressPostTaskResults.includes(suppressTarget)) {
+              if (suppressTarget !== null && !state.suppressPostTaskResults.some(e => e.text === suppressTarget)) {
                 resetSuppressMatcher();
               }
 
@@ -1746,9 +1753,14 @@ export async function startChatUI(
               if (recoveredWhitespace.length > 0) {
                 onChunk(recoveredWhitespace);
               }
-              if (state.suppressPostTaskResults.length > 0) {
+              // Only retry when we consumed a previously matched echo target.
+              // If there was no match, reprocessing the same chunk would spin.
+              if (matchedEchoTarget !== null && state.suppressPostTaskResults.length > 0) {
                 shouldReprocess = true;
               }
+            }
+            if (suppressionIterations >= 16) {
+              resetSuppressMatcher();
             }
           }
 
@@ -2088,7 +2100,24 @@ export async function startChatUI(
      * streaming even though the main session is idle.
      */
     const setStreamingState = (isStreaming: boolean) => {
-      state.isStreaming = isStreaming;
+      if (isStreaming) {
+        state.isStreaming = true;
+        // Bridge-driven sub-agent execution does not go through handleStreamMessage,
+        // so we must establish a run owner here to allow hook events.
+        if (state.currentRunId === null) {
+          state.currentRunId = ++state.runCounter;
+        }
+        return;
+      }
+
+      // Keep ownership active if late lifecycle work is still draining.
+      if (hasOpenStreamLifecycleWork(state)) {
+        state.isStreaming = true;
+        return;
+      }
+
+      state.isStreaming = false;
+      state.currentRunId = null;
     };
 
     /**

@@ -14,7 +14,6 @@ import {
     initWorkflowSession,
     getWorkflowSessionDir,
 } from "./session.ts";
-import type { TodoItem } from "../sdk/tools/todo-write.ts";
 import type { NormalizedTodoItem } from "../ui/utils/task-status.ts";
 import type { WorkflowEventAdapter } from "../events/adapters/workflow-adapter.ts";
 
@@ -273,12 +272,6 @@ export async function executeWorkflow(
                     );
                 }
                 
-                if (description) {
-                    context.addMessage(
-                        "assistant",
-                        `**Workflow Progress:** ${description}`,
-                    );
-                }
                 lastNodeId = step.nodeId;
             }
 
@@ -291,7 +284,6 @@ export async function executeWorkflow(
                         sessionId,
                     );
                 }
-                context.setTodoItems(state.tasks as TodoItem[]);
                 
                 // Publish task update event
                 if (options?.eventAdapter) {

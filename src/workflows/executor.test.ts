@@ -527,9 +527,11 @@ describe("executeWorkflow", () => {
         );
 
         expect(result.success).toBe(true);
+        // Progress messages are now sent via bus events, not context.addMessage()
+        // Verify workflow still executes successfully with nodeDescriptions
         const messages = context._getMessages();
-        expect(messages.some((m: any) => m.content.includes("Executing first step"))).toBe(true);
-        expect(messages.some((m: any) => m.content.includes("Executing second step"))).toBe(true);
+        expect(messages.some((m: any) => m.content.includes("Starting"))).toBe(true);
+        expect(messages.some((m: any) => m.content.includes("completed successfully"))).toBe(true);
     });
 
     test("handles workflow cancellation error gracefully", async () => {

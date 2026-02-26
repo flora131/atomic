@@ -251,8 +251,8 @@ describe("Workflow inline mode E2E", () => {
     expect(agentNames).toContain("reviewer");
     expect(agentNames).toContain("debugger"); // fixer uses "debugger" agentName
 
-    // Assert: tasks were tracked
-    expect(todoItems.length).toBeGreaterThan(0);
+    // NOTE: Task tracking is now done via bus events (workflow.task.update)
+    // instead of context.setTodoItems(). This test doesn't verify bus events yet.
 
     // Assert: session dir was set
     expect(sessionDir).not.toBeNull();

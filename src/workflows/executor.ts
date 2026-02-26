@@ -4,7 +4,7 @@
  * bridge/registry setup, graph streaming with progress, and error handling.
  */
 
-import type { BaseState, CompiledGraph, NodeDefinition, Edge, GraphConfig } from "./graph/types.ts";
+import type { BaseState, CompiledGraph, NodeDefinition, GraphConfig } from "./graph/types.ts";
 import { SubagentTypeRegistry } from "./graph/subagent-registry.ts";
 import { discoverAgentInfos } from "../ui/commands/agent-commands.ts";
 import { type WorkflowDefinition, type WorkflowGraphConfig, registerActiveSession } from "../ui/commands/workflow-commands.ts";
@@ -16,6 +16,7 @@ import {
 } from "./session.ts";
 import type { TodoItem } from "../sdk/tools/todo-write.ts";
 import type { NormalizedTodoItem } from "../ui/utils/task-status.ts";
+import type { WorkflowEventAdapter } from "../events/adapters/workflow-adapter.ts";
 
 /**
  * Result of a workflow execution.
@@ -126,6 +127,7 @@ export async function executeWorkflow(
     options?: {
         compiledGraph?: CompiledGraph<BaseState>;
         saveTasksToSession?: (tasks: NormalizedTodoItem[], sessionId: string) => Promise<void>;
+        eventAdapter?: WorkflowEventAdapter;
     },
 ): Promise<CommandResult> {
     // Phase 1: Session initialization
@@ -186,11 +188,60 @@ export async function executeWorkflow(
         compiled.config.runtime = {
             ...compiled.config.runtime,
             spawnSubagent: async (agent, abortSignal) => {
+                // Publish agent start event if adapter is available
+                if (options?.eventAdapter) {
+                    options.eventAdapter.publishAgentStart(
+                        agent.agentId,
+                        agent.agentName,
+                        agent.task,
+                        false, // isBackground = false for single agent spawn
+                    );
+                }
+
                 const [result] = await spawnFn([{ ...agent, abortSignal }], abortSignal);
                 if (!result) throw new Error("Subagent spawn returned no results");
+
+                // Publish agent complete event if adapter is available
+                if (options?.eventAdapter) {
+                    options.eventAdapter.publishAgentComplete(
+                        agent.agentId,
+                        result.success,
+                        result.output,
+                        result.error,
+                    );
+                }
+
                 return result;
             },
-            spawnSubagentParallel: spawnFn,
+            spawnSubagentParallel: async (agents, abortSignal) => {
+                // Publish agent start events for all agents if adapter is available
+                if (options?.eventAdapter) {
+                    for (const agent of agents) {
+                        options.eventAdapter.publishAgentStart(
+                            agent.agentId,
+                            agent.agentName,
+                            agent.task,
+                            true, // isBackground = true for parallel agent spawn
+                        );
+                    }
+                }
+
+                const results = await spawnFn(agents, abortSignal);
+
+                // Publish agent complete events for all agents if adapter is available
+                if (options?.eventAdapter) {
+                    for (const result of results) {
+                        options.eventAdapter.publishAgentComplete(
+                            result.agentId,
+                            result.success,
+                            result.output,
+                            result.error,
+                        );
+                    }
+                }
+
+                return results;
+            },
             subagentRegistry: registry,
         };
 
@@ -203,6 +254,25 @@ export async function executeWorkflow(
             // Show progress for node transitions
             if (step.nodeId !== lastNodeId) {
                 const description = nodeDescriptions?.[step.nodeId];
+                
+                // Publish step complete event for previous node (if any)
+                if (lastNodeId !== null && options?.eventAdapter) {
+                    options.eventAdapter.publishStepComplete(
+                        sessionId,
+                        nodeDescriptions?.[lastNodeId] ?? lastNodeId,
+                        lastNodeId,
+                    );
+                }
+                
+                // Publish step start event for new node
+                if (options?.eventAdapter) {
+                    options.eventAdapter.publishStepStart(
+                        sessionId,
+                        description ?? step.nodeId,
+                        step.nodeId,
+                    );
+                }
+                
                 if (description) {
                     context.addMessage(
                         "assistant",
@@ -222,6 +292,16 @@ export async function executeWorkflow(
                     );
                 }
                 context.setTodoItems(state.tasks as TodoItem[]);
+                
+                // Publish task update event
+                if (options?.eventAdapter) {
+                    const formattedTasks = state.tasks.map(task => ({
+                        id: task.id ?? crypto.randomUUID(),
+                        title: task.content,
+                        status: task.status,
+                    }));
+                    options.eventAdapter.publishTaskUpdate(sessionId, formattedTasks);
+                }
 
                 if (!sessionTracked) {
                     context.setWorkflowSessionDir(sessionDir);
@@ -238,6 +318,15 @@ export async function executeWorkflow(
                     sessionTracked = true;
                 }
             }
+        }
+        
+        // Publish final step complete event
+        if (lastNodeId !== null && options?.eventAdapter) {
+            options.eventAdapter.publishStepComplete(
+                sessionId,
+                nodeDescriptions?.[lastNodeId] ?? lastNodeId,
+                lastNodeId,
+            );
         }
 
         // Phase 6: Success

@@ -53,6 +53,14 @@ import type {
   PermissionRequestedEventData,
   HumanInputRequiredEventData,
   SkillInvokedEventData,
+  SessionCompactionEventData,
+  SessionTruncationEventData,
+  TurnStartEventData,
+  TurnEndEventData,
+  ToolPartialResultEventData,
+  SessionInfoEventData,
+  SessionWarningEventData,
+  SessionTitleChangedEventData,
 } from "../../sdk/types.ts";
 
 /**
@@ -204,6 +212,59 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         this.createSkillInvokedHandler(runId),
       );
       this.unsubscribers.push(unsubSkill);
+
+      // Subscribe to session compaction events
+      const unsubCompaction = client.on(
+        "session.compaction",
+        this.createSessionCompactionHandler(runId),
+      );
+      this.unsubscribers.push(unsubCompaction);
+
+      // Subscribe to session truncation events
+      const unsubTruncation = client.on(
+        "session.truncation",
+        this.createSessionTruncationHandler(runId),
+      );
+      this.unsubscribers.push(unsubTruncation);
+
+      // Subscribe to turn lifecycle events
+      const unsubTurnStart = client.on(
+        "turn.start",
+        this.createTurnStartHandler(runId),
+      );
+      this.unsubscribers.push(unsubTurnStart);
+
+      const unsubTurnEnd = client.on(
+        "turn.end",
+        this.createTurnEndHandler(runId),
+      );
+      this.unsubscribers.push(unsubTurnEnd);
+
+      // Subscribe to tool partial result events
+      const unsubToolPartial = client.on(
+        "tool.partial_result",
+        this.createToolPartialResultHandler(runId),
+      );
+      this.unsubscribers.push(unsubToolPartial);
+
+      // Subscribe to session info/warning/title events
+      const unsubInfo = client.on(
+        "session.info",
+        this.createSessionInfoHandler(runId),
+      );
+      this.unsubscribers.push(unsubInfo);
+
+      const unsubWarning = client.on(
+        "session.warning",
+        this.createSessionWarningHandler(runId),
+      );
+      this.unsubscribers.push(unsubWarning);
+
+      const unsubTitleChanged = client.on(
+        "session.title_changed",
+        this.createSessionTitleChangedHandler(runId),
+      );
+      this.unsubscribers.push(unsubTitleChanged);
     }
 
     try {
@@ -788,6 +849,181 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       };
 
       this.bus.publish(busEvent);
+    };
+  }
+
+  /**
+   * Create handler for session.compaction events.
+   */
+  private createSessionCompactionHandler(
+    runId: number,
+  ): EventHandler<"session.compaction"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as SessionCompactionEventData;
+      this.bus.publish({
+        type: "stream.session.compaction",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          phase: data.phase,
+          success: data.success,
+          error: data.error,
+        },
+      });
+    };
+  }
+
+  /**
+   * Create handler for session.truncation events.
+   */
+  private createSessionTruncationHandler(
+    runId: number,
+  ): EventHandler<"session.truncation"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as SessionTruncationEventData;
+      this.bus.publish({
+        type: "stream.session.truncation",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          tokenLimit: data.tokenLimit ?? 0,
+          tokensRemoved: data.tokensRemoved ?? 0,
+          messagesRemoved: data.messagesRemoved ?? 0,
+        },
+      });
+    };
+  }
+
+  /**
+   * Create handler for turn.start events.
+   */
+  private createTurnStartHandler(
+    runId: number,
+  ): EventHandler<"turn.start"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as TurnStartEventData;
+      this.bus.publish({
+        type: "stream.turn.start",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          turnId: data.turnId ?? `turn_${Date.now()}`,
+        },
+      });
+    };
+  }
+
+  /**
+   * Create handler for turn.end events.
+   */
+  private createTurnEndHandler(
+    runId: number,
+  ): EventHandler<"turn.end"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as TurnEndEventData;
+      this.bus.publish({
+        type: "stream.turn.end",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          turnId: data.turnId ?? `turn_${Date.now()}`,
+        },
+      });
+    };
+  }
+
+  /**
+   * Create handler for tool.partial_result events.
+   */
+  private createToolPartialResultHandler(
+    runId: number,
+  ): EventHandler<"tool.partial_result"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as ToolPartialResultEventData;
+      this.bus.publish({
+        type: "stream.tool.partial_result",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          toolCallId: data.toolCallId,
+          partialOutput: data.partialOutput,
+        },
+      });
+    };
+  }
+
+  /**
+   * Create handler for session.info events.
+   */
+  private createSessionInfoHandler(
+    runId: number,
+  ): EventHandler<"session.info"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as SessionInfoEventData;
+      this.bus.publish({
+        type: "stream.session.info",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          infoType: data.infoType ?? "general",
+          message: data.message ?? "",
+        },
+      });
+    };
+  }
+
+  /**
+   * Create handler for session.warning events.
+   */
+  private createSessionWarningHandler(
+    runId: number,
+  ): EventHandler<"session.warning"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as SessionWarningEventData;
+      this.bus.publish({
+        type: "stream.session.warning",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          warningType: data.warningType ?? "general",
+          message: data.message ?? "",
+        },
+      });
+    };
+  }
+
+  /**
+   * Create handler for session.title_changed events.
+   */
+  private createSessionTitleChangedHandler(
+    runId: number,
+  ): EventHandler<"session.title_changed"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      const data = event.data as SessionTitleChangedEventData;
+      this.bus.publish({
+        type: "stream.session.title_changed",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          title: data.title ?? "",
+        },
+      });
     };
   }
 

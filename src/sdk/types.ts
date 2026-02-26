@@ -298,10 +298,20 @@ export type EventType =
   | "session.start"
   | "session.idle"
   | "session.error"
+  | "session.info"
+  | "session.warning"
+  | "session.title_changed"
+  | "session.truncation"
+  | "session.compaction"
   | "message.delta"
   | "message.complete"
+  | "reasoning.delta"
+  | "reasoning.complete"
+  | "turn.start"
+  | "turn.end"
   | "tool.start"
   | "tool.complete"
+  | "tool.partial_result"
   | "skill.invoked"
   | "subagent.start"
   | "subagent.complete"
@@ -353,6 +363,10 @@ export interface MessageDeltaEventData extends BaseEventData {
   contentType?: MessageContentType;
   /** Provider-native thinking source identity (for reasoning/thinking deltas) */
   thinkingSourceKey?: string;
+  /** Parent tool call ID when this delta belongs to a sub-agent */
+  parentToolCallId?: string;
+  /** Runtime message ID for per-message correlation */
+  messageId?: string;
 }
 
 /**
@@ -361,6 +375,14 @@ export interface MessageDeltaEventData extends BaseEventData {
 export interface MessageCompleteEventData extends BaseEventData {
   /** Complete message */
   message: AgentMessage;
+  /** Tool requests made by the model in this message (Copilot SDK) */
+  toolRequests?: Array<{
+    toolCallId: string;
+    name: string;
+    arguments: unknown;
+  }>;
+  /** Parent tool call ID when this message is from a sub-agent */
+  parentToolCallId?: string;
 }
 
 /**
@@ -407,6 +429,104 @@ export interface SkillInvokedEventData extends BaseEventData {
   skillName: string;
   /** File path of the skill */
   skillPath?: string;
+}
+
+/**
+ * Event data for reasoning.delta events (streaming thinking content)
+ */
+export interface ReasoningDeltaEventData extends BaseEventData {
+  /** Partial reasoning content */
+  delta: string;
+  /** Reasoning block identifier */
+  reasoningId: string;
+}
+
+/**
+ * Event data for reasoning.complete events
+ */
+export interface ReasoningCompleteEventData extends BaseEventData {
+  /** Reasoning block identifier */
+  reasoningId: string;
+  /** Complete reasoning content */
+  content: string;
+}
+
+/**
+ * Event data for turn.start events
+ */
+export interface TurnStartEventData extends BaseEventData {
+  /** Unique turn identifier */
+  turnId: string;
+}
+
+/**
+ * Event data for turn.end events
+ */
+export interface TurnEndEventData extends BaseEventData {
+  /** Unique turn identifier */
+  turnId: string;
+}
+
+/**
+ * Event data for tool.partial_result events (streaming tool output)
+ */
+export interface ToolPartialResultEventData extends BaseEventData {
+  /** Tool call ID this output belongs to */
+  toolCallId: string;
+  /** Incremental output text */
+  partialOutput: string;
+}
+
+/**
+ * Event data for session.info events
+ */
+export interface SessionInfoEventData extends BaseEventData {
+  /** Information category */
+  infoType: string;
+  /** Human-readable message */
+  message: string;
+}
+
+/**
+ * Event data for session.warning events
+ */
+export interface SessionWarningEventData extends BaseEventData {
+  /** Warning category */
+  warningType: string;
+  /** Human-readable message */
+  message: string;
+}
+
+/**
+ * Event data for session.title_changed events
+ */
+export interface SessionTitleChangedEventData extends BaseEventData {
+  /** New session title */
+  title: string;
+}
+
+/**
+ * Event data for session.truncation events
+ */
+export interface SessionTruncationEventData extends BaseEventData {
+  /** Maximum token budget */
+  tokenLimit: number;
+  /** Tokens removed during truncation */
+  tokensRemoved: number;
+  /** Messages removed during truncation */
+  messagesRemoved: number;
+}
+
+/**
+ * Event data for session.compaction events
+ */
+export interface SessionCompactionEventData extends BaseEventData {
+  /** Whether this is a start or complete event */
+  phase: "start" | "complete";
+  /** Whether compaction succeeded (only for complete phase) */
+  success?: boolean;
+  /** Error message on failure (only for complete phase) */
+  error?: string;
 }
 
 /**
@@ -509,10 +629,20 @@ export interface EventDataMap {
   "session.start": SessionStartEventData;
   "session.idle": SessionIdleEventData;
   "session.error": SessionErrorEventData;
+  "session.info": SessionInfoEventData;
+  "session.warning": SessionWarningEventData;
+  "session.title_changed": SessionTitleChangedEventData;
+  "session.truncation": SessionTruncationEventData;
+  "session.compaction": SessionCompactionEventData;
   "message.delta": MessageDeltaEventData;
   "message.complete": MessageCompleteEventData;
+  "reasoning.delta": ReasoningDeltaEventData;
+  "reasoning.complete": ReasoningCompleteEventData;
+  "turn.start": TurnStartEventData;
+  "turn.end": TurnEndEventData;
   "tool.start": ToolStartEventData;
   "tool.complete": ToolCompleteEventData;
+  "tool.partial_result": ToolPartialResultEventData;
   "skill.invoked": SkillInvokedEventData;
   "subagent.start": SubagentStartEventData;
   "subagent.complete": SubagentCompleteEventData;

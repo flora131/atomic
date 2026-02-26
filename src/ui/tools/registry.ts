@@ -830,6 +830,13 @@ export const TOOL_RENDERERS: Record<string, ToolRenderer> = {
   // Copilot equivalents
   create: writeToolRenderer,
   view: readToolRenderer,
+  local_shell: bashToolRenderer,
+  powershell: bashToolRenderer,
+  str_replace_editor: editToolRenderer,
+  str_replace: editToolRenderer,
+  apply_patch: editToolRenderer,
+  show_file: readToolRenderer,
+  rg: grepToolRenderer,
   // Claude MultiEdit
   MultiEdit: editToolRenderer,
   multiedit: editToolRenderer,

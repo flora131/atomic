@@ -556,3 +556,189 @@ describe("CopilotClient tool event mapping", () => {
     });
   });
 });
+
+describe("CopilotClient message_delta preserves parentToolCallId and messageId", () => {
+  test("handleSdkEvent passes parentToolCallId and messageId to unified event", () => {
+    const client = new CopilotClient({});
+    const events: Array<{ data: Record<string, unknown> }> = [];
+
+    client.on("message.delta", (event) => {
+      events.push({ data: event.data as Record<string, unknown> });
+    });
+
+    const handleSdkEvent = (client as unknown as {
+      handleSdkEvent: (sessionId: string, event: { type: string; data: Record<string, unknown> }) => void;
+    }).handleSdkEvent.bind(client);
+
+    handleSdkEvent("test-session", {
+      type: "assistant.message_delta",
+      data: {
+        deltaContent: "Hello world",
+        messageId: "msg-123",
+        parentToolCallId: "tc-456",
+      },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.data.delta).toBe("Hello world");
+    expect(events[0]!.data.messageId).toBe("msg-123");
+    expect(events[0]!.data.parentToolCallId).toBe("tc-456");
+  });
+
+  test("handleSdkEvent omits parentToolCallId when not present", () => {
+    const client = new CopilotClient({});
+    const events: Array<{ data: Record<string, unknown> }> = [];
+
+    client.on("message.delta", (event) => {
+      events.push({ data: event.data as Record<string, unknown> });
+    });
+
+    const handleSdkEvent = (client as unknown as {
+      handleSdkEvent: (sessionId: string, event: { type: string; data: Record<string, unknown> }) => void;
+    }).handleSdkEvent.bind(client);
+
+    handleSdkEvent("test-session", {
+      type: "assistant.message_delta",
+      data: {
+        deltaContent: "Main agent text",
+        messageId: "msg-789",
+      },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.data.delta).toBe("Main agent text");
+    expect(events[0]!.data.messageId).toBe("msg-789");
+    expect(events[0]!.data.parentToolCallId).toBeUndefined();
+  });
+});
+
+describe("CopilotClient assistant.message preserves toolRequests", () => {
+  test("handleSdkEvent passes toolRequests to message.complete event", () => {
+    const client = new CopilotClient({});
+    const events: Array<{ data: Record<string, unknown> }> = [];
+
+    client.on("message.complete", (event) => {
+      events.push({ data: event.data as Record<string, unknown> });
+    });
+
+    const handleSdkEvent = (client as unknown as {
+      handleSdkEvent: (sessionId: string, event: { type: string; data: Record<string, unknown> }) => void;
+    }).handleSdkEvent.bind(client);
+
+    handleSdkEvent("test-session", {
+      type: "assistant.message",
+      data: {
+        content: "Let me check that file.",
+        messageId: "msg-001",
+        toolRequests: [
+          { toolCallId: "tc-1", name: "view", arguments: { path: "/tmp/file.txt" } },
+        ],
+      },
+    });
+
+    expect(events).toHaveLength(1);
+    const data = events[0]!.data;
+    expect((data.message as Record<string, unknown>).content).toBe("Let me check that file.");
+    expect(data.toolRequests).toEqual([
+      { toolCallId: "tc-1", name: "view", arguments: { path: "/tmp/file.txt" } },
+    ]);
+  });
+
+  test("handleSdkEvent omits toolRequests when not present", () => {
+    const client = new CopilotClient({});
+    const events: Array<{ data: Record<string, unknown> }> = [];
+
+    client.on("message.complete", (event) => {
+      events.push({ data: event.data as Record<string, unknown> });
+    });
+
+    const handleSdkEvent = (client as unknown as {
+      handleSdkEvent: (sessionId: string, event: { type: string; data: Record<string, unknown> }) => void;
+    }).handleSdkEvent.bind(client);
+
+    handleSdkEvent("test-session", {
+      type: "assistant.message",
+      data: {
+        content: "Done!",
+        messageId: "msg-002",
+      },
+    });
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.data.toolRequests).toBeUndefined();
+  });
+});
+
+describe("CopilotClient stream() filters sub-agent deltas", () => {
+  test("stream() skips assistant.message_delta with parentToolCallId", async () => {
+    const listeners: Array<(event: {
+      type: string;
+      data: Record<string, unknown>;
+    }) => void> = [];
+
+    const mockSdkSession = {
+      sessionId: "copilot-subagent-session",
+      on: mock((handler: (event: { type: string; data: Record<string, unknown> }) => void) => {
+        listeners.push(handler);
+        return () => {
+          const idx = listeners.indexOf(handler);
+          if (idx >= 0) listeners.splice(idx, 1);
+        };
+      }),
+      send: mock(async () => {
+        // Main agent text
+        for (const listener of [...listeners]) {
+          listener({
+            type: "assistant.message_delta",
+            data: { deltaContent: "main text", messageId: "msg-1" },
+          });
+        }
+        // Sub-agent text (should be skipped)
+        for (const listener of [...listeners]) {
+          listener({
+            type: "assistant.message_delta",
+            data: { deltaContent: "sub-agent text", messageId: "msg-2", parentToolCallId: "tc-sub" },
+          });
+        }
+        // More main agent text
+        for (const listener of [...listeners]) {
+          listener({
+            type: "assistant.message_delta",
+            data: { deltaContent: " continues", messageId: "msg-1" },
+          });
+        }
+        for (const listener of [...listeners]) {
+          listener({ type: "session.idle", data: {} });
+        }
+      }),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+    };
+
+    const client = new CopilotClient({});
+    const wrapSession = (client as unknown as {
+      wrapSession: (
+        sdkSession: unknown,
+        config: Record<string, unknown>,
+      ) => {
+        stream: (message: string) => AsyncIterable<{
+          type: string;
+          content: unknown;
+        }>;
+      };
+    }).wrapSession.bind(client);
+
+    const session = wrapSession(mockSdkSession, {});
+    const streamed: Array<{ type: string; content: unknown }> = [];
+    for await (const chunk of session.stream("hello")) {
+      streamed.push(chunk);
+    }
+
+    // Only main agent text should be yielded (sub-agent text filtered out)
+    const textChunks = streamed.filter(c => c.type === "text");
+    expect(textChunks).toHaveLength(2);
+    expect(textChunks[0]!.content).toBe("main text");
+    expect(textChunks[1]!.content).toBe(" continues");
+  });
+});

@@ -655,6 +655,17 @@ export class OpenCodeClient implements CodingAgentClient {
         );
         break;
 
+      case "session.compacted":
+        this.emitEvent(
+          "session.compaction",
+          (properties?.sessionID as string) ?? "",
+          {
+            phase: "complete",
+            success: true,
+          }
+        );
+        break;
+
       case "message.updated": {
         // Handle message updates (info contains the message)
         const info = properties?.info as Record<string, unknown> | undefined;

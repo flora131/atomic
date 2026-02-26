@@ -17,9 +17,21 @@
  * - message.complete → stream.text.complete
  * - tool.start → stream.tool.start
  * - tool.complete → stream.tool.complete
+ * - tool.partial_result → stream.tool.partial_result
  * - thinking (from message.delta with thinking content) → stream.thinking.delta
+ * - reasoning.delta → stream.thinking.delta
+ * - reasoning.complete → stream.thinking.complete
+ * - subagent.start → stream.agent.start
+ * - subagent.complete → stream.agent.complete
+ * - turn.start → stream.turn.start
+ * - turn.end → stream.turn.end
  * - session.idle → stream.session.idle
  * - session.error → stream.session.error
+ * - session.info → stream.session.info
+ * - session.warning → stream.session.warning
+ * - session.title_changed → stream.session.title_changed
+ * - session.truncation → stream.session.truncation
+ * - session.compaction → stream.session.compaction
  * - usage → stream.usage
  *
  * Usage:
@@ -37,6 +49,18 @@ import type {
   PermissionRequestedEventData,
   HumanInputRequiredEventData,
   SkillInvokedEventData,
+  ReasoningDeltaEventData,
+  ReasoningCompleteEventData,
+  TurnStartEventData,
+  TurnEndEventData,
+  ToolPartialResultEventData,
+  SessionInfoEventData,
+  SessionWarningEventData,
+  SessionTitleChangedEventData,
+  SessionTruncationEventData,
+  SessionCompactionEventData,
+  SubagentStartEventData,
+  SubagentCompleteEventData,
 } from "../../sdk/types.ts";
 import type { AtomicEventBus } from "../event-bus.ts";
 import type { BusEvent } from "../bus-events.ts";
@@ -67,6 +91,13 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
   private pendingToolIdsByName = new Map<string, string[]>();
   private toolNameById = new Map<string, string>();
   private syntheticToolCounter = 0;
+
+  /**
+   * Track tool call IDs that have already had a `stream.tool.start` emitted
+   * (from `assistant.message.toolRequests`), so that a later `tool.execution_start`
+   * for the same ID is deduplicated.
+   */
+  private emittedToolStartIds = new Set<string>();
 
   /**
    * Track thinking streams for timing and correlation.
@@ -113,6 +144,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.pendingToolIdsByName.clear();
     this.toolNameById.clear();
     this.syntheticToolCounter = 0;
+    this.emittedToolStartIds.clear();
     this.isActive = true;
 
     this.publishEvent({
@@ -240,6 +272,85 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       this.handleSkillInvoked(event as AgentEvent<"skill.invoked">);
     });
     this.unsubscribers.push(unsubSkill);
+
+    // Subscribe to reasoning delta events (thinking content)
+    const unsubReasoningDelta = this.client.on("reasoning.delta", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleReasoningDelta(event as AgentEvent<"reasoning.delta">);
+    });
+    this.unsubscribers.push(unsubReasoningDelta);
+
+    // Subscribe to reasoning complete events
+    const unsubReasoningComplete = this.client.on("reasoning.complete", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleReasoningComplete(event as AgentEvent<"reasoning.complete">);
+    });
+    this.unsubscribers.push(unsubReasoningComplete);
+
+    // Subscribe to subagent start events
+    const unsubSubagentStart = this.client.on("subagent.start", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleSubagentStart(event as AgentEvent<"subagent.start">);
+    });
+    this.unsubscribers.push(unsubSubagentStart);
+
+    // Subscribe to subagent complete events
+    const unsubSubagentComplete = this.client.on("subagent.complete", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleSubagentComplete(event as AgentEvent<"subagent.complete">);
+    });
+    this.unsubscribers.push(unsubSubagentComplete);
+
+    // Subscribe to turn lifecycle events
+    const unsubTurnStart = this.client.on("turn.start", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleTurnStart(event as AgentEvent<"turn.start">);
+    });
+    this.unsubscribers.push(unsubTurnStart);
+
+    const unsubTurnEnd = this.client.on("turn.end", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleTurnEnd(event as AgentEvent<"turn.end">);
+    });
+    this.unsubscribers.push(unsubTurnEnd);
+
+    // Subscribe to tool partial result events (streaming tool output)
+    const unsubToolPartial = this.client.on("tool.partial_result", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleToolPartialResult(event as AgentEvent<"tool.partial_result">);
+    });
+    this.unsubscribers.push(unsubToolPartial);
+
+    // Subscribe to session info/warning/title/truncation/compaction events
+    const unsubInfo = this.client.on("session.info", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleSessionInfo(event as AgentEvent<"session.info">);
+    });
+    this.unsubscribers.push(unsubInfo);
+
+    const unsubWarning = this.client.on("session.warning", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleSessionWarning(event as AgentEvent<"session.warning">);
+    });
+    this.unsubscribers.push(unsubWarning);
+
+    const unsubTitleChanged = this.client.on("session.title_changed", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleSessionTitleChanged(event as AgentEvent<"session.title_changed">);
+    });
+    this.unsubscribers.push(unsubTitleChanged);
+
+    const unsubTruncation = this.client.on("session.truncation", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleSessionTruncation(event as AgentEvent<"session.truncation">);
+    });
+    this.unsubscribers.push(unsubTruncation);
+
+    const unsubCompaction = this.client.on("session.compaction", (event) => {
+      if (!this.isActive || event.sessionId !== this.sessionId) return;
+      this.handleSessionCompaction(event as AgentEvent<"session.compaction">);
+    });
+    this.unsubscribers.push(unsubCompaction);
   }
 
   /**
@@ -247,6 +358,11 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
    */
   private handleMessageDelta(event: AgentEvent<"message.delta">): void {
     const { delta, contentType, thinkingSourceKey } = event.data;
+
+    // Skip sub-agent text deltas — they belong to a child agent and should
+    // not be accumulated or rendered in the main chat stream.
+    const parentToolCallId = (event.data as Record<string, unknown>).parentToolCallId;
+    if (parentToolCallId) return;
 
     // Check if this is thinking/reasoning content
     if (contentType === "thinking" && thinkingSourceKey) {
@@ -285,20 +401,14 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
 
   /**
    * Handle message.complete event.
+   *
+   * In the Copilot CLI, tool call UI entries are created from
+   * `assistant.message.toolRequests[]` inside this event — NOT from
+   * `tool.execution_start`. We mirror that behaviour here by emitting
+   * `stream.tool.start` for each tool request, then deduplicating against
+   * the later `tool.execution_start` in `handleToolStart`.
    */
-  private handleMessageComplete(_event: AgentEvent<"message.complete">): void {
-    // Publish text complete event
-    this.publishEvent({
-      type: "stream.text.complete",
-      sessionId: this.sessionId,
-      runId: this.runId,
-      timestamp: Date.now(),
-      data: {
-        messageId: this.messageId,
-        fullText: this.accumulatedText,
-      },
-    });
-
+  private handleMessageComplete(event: AgentEvent<"message.complete">): void {
     // Publish thinking complete events for any active thinking streams
     for (const [sourceKey, startTime] of this.thinkingStreams.entries()) {
       const durationMs = Date.now() - startTime;
@@ -316,16 +426,80 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
 
     // Clear thinking streams after completion
     this.thinkingStreams.clear();
+
+    // Emit stream.tool.start for each toolRequest in the message.complete payload.
+    // This mirrors the Copilot CLI's useTimeline.ts behaviour where tool call UI
+    // entries are created from assistant.message.toolRequests.
+    const toolRequests = (event.data as Record<string, unknown>).toolRequests;
+    const hasToolRequests = Array.isArray(toolRequests) && toolRequests.length > 0;
+
+    if (hasToolRequests) {
+      for (const request of toolRequests as Array<Record<string, unknown>>) {
+        const toolCallId = this.asString(request.toolCallId);
+        const toolName = this.normalizeToolName(request.name);
+        const toolInput = this.normalizeToolInput(request.arguments);
+        if (!toolCallId) continue;
+
+        this.emittedToolStartIds.add(toolCallId);
+        const toolId = this.resolveToolStartId(toolCallId, toolName);
+
+        this.publishEvent({
+          type: "stream.tool.start",
+          sessionId: this.sessionId,
+          runId: this.runId,
+          timestamp: Date.now(),
+          data: {
+            toolId,
+            toolName,
+            toolInput,
+            sdkCorrelationId: toolCallId,
+          },
+        });
+      }
+    }
+
+    // Only emit stream.text.complete when there are NO pending tool requests.
+    //
+    // In the Copilot turn-based model, assistant.message events with toolRequests
+    // are intermediate — the turn continues with tool execution followed by another
+    // assistant message. Emitting stream.text.complete here would trigger
+    // handleStreamComplete in the UI (via direct bus subscription), which nulls
+    // streamingMessageIdRef BEFORE the batched tool-start events arrive (16ms
+    // batch-dispatcher delay), causing tool parts to be silently dropped.
+    //
+    // When tool requests are present, finalization is deferred to session.idle
+    // or a subsequent message.complete without tool requests.
+    if (!hasToolRequests) {
+      this.publishEvent({
+        type: "stream.text.complete",
+        sessionId: this.sessionId,
+        runId: this.runId,
+        timestamp: Date.now(),
+        data: {
+          messageId: this.messageId,
+          fullText: this.accumulatedText,
+        },
+      });
+    }
   }
 
   /**
    * Handle tool.start event.
+   *
+   * Deduplicates against tool starts already emitted from
+   * `handleMessageComplete` (via `assistant.message.toolRequests`).
    */
   private handleToolStart(event: AgentEvent<"tool.start">): void {
     const { toolName, toolInput, toolUseId, toolCallId } = event.data;
 
     // Use toolCallId (Copilot) or toolUseId (Claude) as the unique ID
     const explicitToolId = this.asString(toolCallId || toolUseId);
+
+    // Skip if already emitted from assistant.message.toolRequests
+    if (explicitToolId && this.emittedToolStartIds.has(explicitToolId)) {
+      return;
+    }
+
     const resolvedToolName = this.normalizeToolName(toolName);
     const toolId = this.resolveToolStartId(explicitToolId, resolvedToolName);
 
@@ -357,6 +531,11 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     const resolvedToolName = this.normalizeToolName(toolName ?? this.toolNameById.get(toolId));
     const toolInput = this.normalizeToolInput((event.data as Record<string, unknown>).toolInput);
     this.toolNameById.delete(toolId);
+
+    // Clean up deduplication tracking
+    if (explicitToolId) {
+      this.emittedToolStartIds.delete(explicitToolId);
+    }
     const normalizedSuccess = typeof success === "boolean" ? success : true;
 
     this.publishEvent({
@@ -494,6 +673,228 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       data: {
         skillName: data.skillName,
         skillPath: data.skillPath,
+      },
+    });
+  }
+
+  /**
+   * Handle reasoning.delta event (thinking content from Copilot SDK).
+   */
+  private handleReasoningDelta(event: AgentEvent<"reasoning.delta">): void {
+    const data = event.data as ReasoningDeltaEventData;
+    const reasoningId = data.reasoningId ?? "reasoning";
+
+    if (!this.thinkingStreams.has(reasoningId)) {
+      this.thinkingStreams.set(reasoningId, Date.now());
+    }
+
+    this.publishEvent({
+      type: "stream.thinking.delta",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        delta: data.delta,
+        sourceKey: reasoningId,
+        messageId: this.messageId,
+      },
+    });
+  }
+
+  /**
+   * Handle reasoning.complete event.
+   */
+  private handleReasoningComplete(event: AgentEvent<"reasoning.complete">): void {
+    const data = event.data as ReasoningCompleteEventData;
+    const reasoningId = data.reasoningId ?? "reasoning";
+    const startTime = this.thinkingStreams.get(reasoningId) ?? Date.now();
+    const durationMs = Date.now() - startTime;
+    this.thinkingStreams.delete(reasoningId);
+
+    this.publishEvent({
+      type: "stream.thinking.complete",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        sourceKey: reasoningId,
+        durationMs,
+      },
+    });
+  }
+
+  /**
+   * Handle subagent.start event.
+   */
+  private handleSubagentStart(event: AgentEvent<"subagent.start">): void {
+    const data = event.data as SubagentStartEventData;
+    this.publishEvent({
+      type: "stream.agent.start",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        agentId: data.subagentId,
+        agentType: data.subagentType ?? "unknown",
+        task: data.task ?? "",
+        isBackground: false,
+        sdkCorrelationId: data.toolCallId,
+      },
+    });
+  }
+
+  /**
+   * Handle subagent.complete event.
+   */
+  private handleSubagentComplete(event: AgentEvent<"subagent.complete">): void {
+    const data = event.data as SubagentCompleteEventData;
+    this.publishEvent({
+      type: "stream.agent.complete",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        agentId: data.subagentId,
+        success: data.success,
+        result: typeof data.result === "string" ? data.result : undefined,
+        error: typeof (data as Record<string, unknown>).error === "string"
+          ? (data as Record<string, unknown>).error as string
+          : undefined,
+      },
+    });
+  }
+
+  /**
+   * Handle turn.start event.
+   */
+  private handleTurnStart(event: AgentEvent<"turn.start">): void {
+    const data = event.data as TurnStartEventData;
+    this.publishEvent({
+      type: "stream.turn.start",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        turnId: data.turnId ?? `turn_${Date.now()}`,
+      },
+    });
+  }
+
+  /**
+   * Handle turn.end event.
+   */
+  private handleTurnEnd(event: AgentEvent<"turn.end">): void {
+    const data = event.data as TurnEndEventData;
+    this.publishEvent({
+      type: "stream.turn.end",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        turnId: data.turnId ?? `turn_${Date.now()}`,
+      },
+    });
+  }
+
+  /**
+   * Handle tool.partial_result event (streaming tool output).
+   */
+  private handleToolPartialResult(event: AgentEvent<"tool.partial_result">): void {
+    const data = event.data as ToolPartialResultEventData;
+    this.publishEvent({
+      type: "stream.tool.partial_result",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        toolCallId: data.toolCallId,
+        partialOutput: data.partialOutput,
+      },
+    });
+  }
+
+  /**
+   * Handle session.info event.
+   */
+  private handleSessionInfo(event: AgentEvent<"session.info">): void {
+    const data = event.data as SessionInfoEventData;
+    this.publishEvent({
+      type: "stream.session.info",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        infoType: data.infoType ?? "general",
+        message: data.message ?? "",
+      },
+    });
+  }
+
+  /**
+   * Handle session.warning event.
+   */
+  private handleSessionWarning(event: AgentEvent<"session.warning">): void {
+    const data = event.data as SessionWarningEventData;
+    this.publishEvent({
+      type: "stream.session.warning",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        warningType: data.warningType ?? "general",
+        message: data.message ?? "",
+      },
+    });
+  }
+
+  /**
+   * Handle session.title_changed event.
+   */
+  private handleSessionTitleChanged(event: AgentEvent<"session.title_changed">): void {
+    const data = event.data as SessionTitleChangedEventData;
+    this.publishEvent({
+      type: "stream.session.title_changed",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        title: data.title ?? "",
+      },
+    });
+  }
+
+  /**
+   * Handle session.truncation event.
+   */
+  private handleSessionTruncation(event: AgentEvent<"session.truncation">): void {
+    const data = event.data as SessionTruncationEventData;
+    this.publishEvent({
+      type: "stream.session.truncation",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        tokenLimit: data.tokenLimit ?? 0,
+        tokensRemoved: data.tokensRemoved ?? 0,
+        messagesRemoved: data.messagesRemoved ?? 0,
+      },
+    });
+  }
+
+  /**
+   * Handle session.compaction event.
+   */
+  private handleSessionCompaction(event: AgentEvent<"session.compaction">): void {
+    const data = event.data as SessionCompactionEventData;
+    this.publishEvent({
+      type: "stream.session.compaction",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        phase: data.phase,
+        success: data.success,
+        error: data.error,
       },
     });
   }
@@ -675,5 +1076,6 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.pendingToolIdsByName.clear();
     this.toolNameById.clear();
     this.syntheticToolCounter = 0;
+    this.emittedToolStartIds.clear();
   }
 }

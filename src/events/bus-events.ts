@@ -37,12 +37,20 @@ export type BusEventType =
   | "stream.thinking.complete"
   | "stream.tool.start"
   | "stream.tool.complete"
+  | "stream.tool.partial_result"
   | "stream.agent.start"
   | "stream.agent.update"
   | "stream.agent.complete"
   | "stream.session.start"
   | "stream.session.idle"
   | "stream.session.error"
+  | "stream.session.info"
+  | "stream.session.warning"
+  | "stream.session.title_changed"
+  | "stream.session.truncation"
+  | "stream.session.compaction"
+  | "stream.turn.start"
+  | "stream.turn.end"
   | "workflow.step.start"
   | "workflow.step.complete"
   | "workflow.task.update"
@@ -137,6 +145,16 @@ export interface BusEventDataMap {
   };
 
   /**
+   * Streaming partial output from a tool in progress (e.g., bash command output)
+   */
+  "stream.tool.partial_result": {
+    /** Tool call ID this output belongs to */
+    toolCallId: string;
+    /** Incremental output text */
+    partialOutput: string;
+  };
+
+  /**
    * Sub-agent spawned and started
    */
   "stream.agent.start": {
@@ -202,6 +220,74 @@ export interface BusEventDataMap {
     error: string;
     /** Error code if available */
     code?: string;
+  };
+
+  /**
+   * Session informational notification
+   */
+  "stream.session.info": {
+    /** Information category */
+    infoType: string;
+    /** Human-readable message */
+    message: string;
+  };
+
+  /**
+   * Session warning notification
+   */
+  "stream.session.warning": {
+    /** Warning category */
+    warningType: string;
+    /** Human-readable message */
+    message: string;
+  };
+
+  /**
+   * Session title changed
+   */
+  "stream.session.title_changed": {
+    /** New session title */
+    title: string;
+  };
+
+  /**
+   * Session context truncation event
+   */
+  "stream.session.truncation": {
+    /** Maximum token budget */
+    tokenLimit: number;
+    /** Tokens removed during truncation */
+    tokensRemoved: number;
+    /** Messages removed during truncation */
+    messagesRemoved: number;
+  };
+
+  /**
+   * Session compaction lifecycle event
+   */
+  "stream.session.compaction": {
+    /** Whether this is a start or complete event */
+    phase: "start" | "complete";
+    /** Whether compaction succeeded (only for complete phase) */
+    success?: boolean;
+    /** Error message on failure (only for complete phase) */
+    error?: string;
+  };
+
+  /**
+   * Turn started (agent begins processing)
+   */
+  "stream.turn.start": {
+    /** Unique turn identifier */
+    turnId: string;
+  };
+
+  /**
+   * Turn ended (agent finished processing)
+   */
+  "stream.turn.end": {
+    /** Unique turn identifier */
+    turnId: string;
   };
 
   /**
@@ -380,6 +466,10 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
     error: z.string().optional(),
     sdkCorrelationId: z.string().optional(),
   }),
+  "stream.tool.partial_result": z.object({
+    toolCallId: z.string(),
+    partialOutput: z.string(),
+  }),
   "stream.agent.start": z.object({
     agentId: z.string(),
     agentType: z.string(),
@@ -407,6 +497,33 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
   "stream.session.error": z.object({
     error: z.string(),
     code: z.string().optional(),
+  }),
+  "stream.session.info": z.object({
+    infoType: z.string(),
+    message: z.string(),
+  }),
+  "stream.session.warning": z.object({
+    warningType: z.string(),
+    message: z.string(),
+  }),
+  "stream.session.title_changed": z.object({
+    title: z.string(),
+  }),
+  "stream.session.truncation": z.object({
+    tokenLimit: z.number(),
+    tokensRemoved: z.number(),
+    messagesRemoved: z.number(),
+  }),
+  "stream.session.compaction": z.object({
+    phase: z.enum(["start", "complete"]),
+    success: z.boolean().optional(),
+    error: z.string().optional(),
+  }),
+  "stream.turn.start": z.object({
+    turnId: z.string(),
+  }),
+  "stream.turn.end": z.object({
+    turnId: z.string(),
   }),
   "workflow.step.start": z.object({
     workflowId: z.string(),

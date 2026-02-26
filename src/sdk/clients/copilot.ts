@@ -158,10 +158,22 @@ function mapSdkEventToEventType(sdkEventType: SdkSessionEventType | string): Eve
     "session.resume": "session.start",
     "session.idle": "session.idle",
     "session.error": "session.error",
+    "session.info": "session.info",
+    "session.warning": "session.warning",
+    "session.title_changed": "session.title_changed",
+    "session.truncation": "session.truncation",
+    "session.compaction_start": "session.compaction",
+    "session.compaction_complete": "session.compaction",
     "assistant.message_delta": "message.delta",
     "assistant.message": "message.complete",
+    "assistant.reasoning_delta": "reasoning.delta",
+    "assistant.reasoning": "reasoning.complete",
+    "assistant.turn_start": "turn.start",
+    "assistant.turn_end": "turn.end",
+    "assistant.usage": "usage",
     "tool.execution_start": "tool.start",
     "tool.execution_complete": "tool.complete",
+    "tool.execution_partial_result": "tool.partial_result",
     "skill.invoked": "skill.invoked",
     "subagent.started": "subagent.start",
     "subagent.completed": "subagent.complete",
@@ -394,6 +406,12 @@ export class CopilotClient implements CodingAgentClient {
 
             const eventHandler = (event: SdkSessionEvent) => {
               if (event.type === "assistant.message_delta") {
+                // Skip sub-agent deltas: they have parentToolCallId and are
+                // handled separately by the event bus adapter. Mixing them
+                // into the main stream garbles text.
+                const deltaData = event.data as Record<string, unknown>;
+                if (deltaData.parentToolCallId) return;
+
                 // Accumulate reasoning duration when transitioning away from reasoning
                 if (reasoningStartMs !== null) {
                   reasoningDurationMs += Date.now() - reasoningStartMs;
@@ -446,6 +464,10 @@ export class CopilotClient implements CodingAgentClient {
                 });
                 notifyConsumer();
               } else if (event.type === "assistant.message") {
+                // Skip sub-agent complete messages
+                const msgData = event.data as Record<string, unknown>;
+                if (msgData.parentToolCallId) return;
+
                 // Only yield the complete message if we haven't streamed deltas
                 // (deltas already contain the full content incrementally)
                 if (!hasYieldedDeltas) {
@@ -602,8 +624,15 @@ export class CopilotClient implements CodingAgentClient {
 
     // Map to unified event type
     const eventType = mapSdkEventToEventType(event.type);
-    if (eventType) {
-      let eventData: Record<string, unknown> = {};
+    if (!eventType) {
+      // DEBUG: Log unmapped event types for Copilot debugging
+      if (event.type.startsWith("tool.")) {
+        console.warn(`[CopilotClient] Unmapped tool event: ${event.type}`);
+      }
+      return;
+    }
+
+    let eventData: Record<string, unknown> = {};
 
       // Cast event.data to access properties (type narrowing doesn't work after casting event.type)
       const data = event.data as Record<string, unknown>;
@@ -618,17 +647,31 @@ export class CopilotClient implements CodingAgentClient {
           eventData = { error: data.message };
           break;
         case "assistant.message_delta":
-          eventData = { delta: data.deltaContent };
+          eventData = {
+            delta: data.deltaContent,
+            messageId: asNonEmptyString(data.messageId),
+            parentToolCallId: asNonEmptyString(data.parentToolCallId),
+          };
           break;
-        case "assistant.message":
+        case "assistant.message": {
+          const toolRequests = Array.isArray(data.toolRequests)
+            ? (data.toolRequests as Array<Record<string, unknown>>).map((tr) => ({
+              toolCallId: String(tr.toolCallId ?? ""),
+              name: String(tr.name ?? ""),
+              arguments: tr.arguments,
+            }))
+            : undefined;
           eventData = {
             message: {
               type: "text",
               content: data.content,
               role: "assistant",
             },
+            toolRequests,
+            parentToolCallId: asNonEmptyString(data.parentToolCallId),
           };
           break;
+        }
         case "tool.execution_start": {
           // Track toolCallId -> toolName mapping for the complete event
           const toolCallId = asNonEmptyString(data.toolCallId);
@@ -701,6 +744,77 @@ export class CopilotClient implements CodingAgentClient {
             error: data.error,
           };
           break;
+        case "assistant.reasoning_delta":
+          eventData = {
+            delta: data.deltaContent,
+            reasoningId: data.reasoningId,
+          };
+          break;
+        case "assistant.reasoning":
+          eventData = {
+            reasoningId: data.reasoningId,
+            content: data.content,
+          };
+          break;
+        case "assistant.turn_start":
+          eventData = {
+            turnId: data.turnId,
+          };
+          break;
+        case "assistant.turn_end":
+          eventData = {
+            turnId: data.turnId,
+          };
+          break;
+        case "assistant.usage":
+          eventData = {
+            inputTokens: data.inputTokens ?? 0,
+            outputTokens: data.outputTokens ?? 0,
+            model: data.model,
+          };
+          break;
+        case "tool.execution_partial_result":
+          eventData = {
+            toolCallId: data.toolCallId,
+            partialOutput: data.partialOutput,
+          };
+          break;
+        case "session.info":
+          eventData = {
+            infoType: data.infoType ?? "general",
+            message: data.message ?? "",
+          };
+          break;
+        case "session.warning":
+          eventData = {
+            warningType: data.warningType ?? "general",
+            message: data.message ?? "",
+          };
+          break;
+        case "session.title_changed":
+          eventData = {
+            title: data.title ?? "",
+          };
+          break;
+        case "session.truncation":
+          eventData = {
+            tokenLimit: data.tokenLimit ?? 0,
+            tokensRemoved: data.tokensRemovedDuringTruncation ?? 0,
+            messagesRemoved: data.messagesRemovedDuringTruncation ?? 0,
+          };
+          break;
+        case "session.compaction_start":
+          eventData = {
+            phase: "start",
+          };
+          break;
+        case "session.compaction_complete":
+          eventData = {
+            phase: "complete",
+            success: typeof data.success === "boolean" ? data.success : true,
+            error: asNonEmptyString(data.error),
+          };
+          break;
         case "session.usage_info":
           eventData = {
             currentTokens: data.currentTokens,
@@ -710,7 +824,6 @@ export class CopilotClient implements CodingAgentClient {
       }
 
       this.emitEvent(eventType, sessionId, eventData);
-    }
   }
 
   /**
@@ -722,7 +835,9 @@ export class CopilotClient implements CodingAgentClient {
     data: Record<string, unknown>
   ): void {
     const handlers = this.eventHandlers.get(eventType);
-    if (!handlers) return;
+    if (!handlers || handlers.size === 0) {
+      return;
+    }
 
     const event: AgentEvent<T> = {
       type: eventType,

@@ -73,6 +73,13 @@ export class BatchDispatcher {
   private coalescingMap = new Map<string, number>(); // key → index in writeBuffer
   private timer: ReturnType<typeof setInterval> | null = null;
   private flushIntervalMs: number;
+  private _metrics: BatchMetrics = {
+    totalFlushed: 0,
+    totalCoalesced: 0,
+    flushCount: 0,
+    lastFlushDuration: 0,
+    lastFlushSize: 0,
+  };
 
   /**
    * Create a new batch dispatcher.
@@ -83,6 +90,16 @@ export class BatchDispatcher {
   constructor(bus: AtomicEventBus, flushIntervalMs = 16) {
     this.bus = bus;
     this.flushIntervalMs = flushIntervalMs;
+  }
+
+  /**
+   * Get read-only metrics for observability.
+   *
+   * Provides lightweight performance metrics including total events flushed,
+   * coalescing ratio, flush count, and timing information.
+   */
+  get metrics(): Readonly<BatchMetrics> {
+    return this._metrics;
   }
 
   /**
@@ -101,6 +118,7 @@ export class BatchDispatcher {
       if (idx !== undefined) {
         // Replace in-place — only latest state matters
         this.writeBuffer[idx] = event;
+        this._metrics.totalCoalesced++;
         return;
       }
       this.coalescingMap.set(key, this.writeBuffer.length);
@@ -117,6 +135,8 @@ export class BatchDispatcher {
    * published while the write buffer (now empty) accepts new events.
    */
   flush(): void {
+    const startTime = performance.now();
+
     // Double-buffer swap
     const toFlush = this.writeBuffer;
     this.writeBuffer = this.readBuffer;
@@ -128,6 +148,13 @@ export class BatchDispatcher {
     for (const event of toFlush) {
       this.bus.publish(event);
     }
+
+    // Update metrics
+    const flushSize = toFlush.length;
+    this._metrics.totalFlushed += flushSize;
+    this._metrics.flushCount++;
+    this._metrics.lastFlushSize = flushSize;
+    this._metrics.lastFlushDuration = performance.now() - startTime;
   }
 
   /**
@@ -163,5 +190,12 @@ export class BatchDispatcher {
     this.writeBuffer.length = 0;
     this.readBuffer.length = 0;
     this.coalescingMap.clear();
+    this._metrics = {
+      totalFlushed: 0,
+      totalCoalesced: 0,
+      flushCount: 0,
+      lastFlushDuration: 0,
+      lastFlushSize: 0,
+    };
   }
 }

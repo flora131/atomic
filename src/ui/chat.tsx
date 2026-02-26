@@ -53,10 +53,7 @@ import type { TaskItem } from "./components/task-list-indicator.tsx";
 import { TaskListPanel } from "./components/task-list-panel.tsx";
 import { sortTasksTopologically } from "./components/task-order.ts";
 import { saveTasksToActiveSession } from "./commands/workflow-commands.ts";
-import {
-  useStreamingState,
-  type ToolExecutionStatus,
-} from "./hooks/use-streaming-state.ts";
+import { type ToolExecutionStatus } from "./parts/types.ts";
 import { useMessageQueue, type QueuedMessage } from "./hooks/use-message-queue.ts";
 import {
   globalRegistry,
@@ -122,11 +119,9 @@ import {
   interruptRunningToolCalls,
   interruptRunningToolParts,
   isAskQuestionToolName,
-  isCurrentStreamCallback,
   shouldTrackToolAsBlocking,
   shouldDispatchQueuedMessage,
   shouldDeferComposerSubmit,
-  invalidateActiveStreamGeneration,
 } from "./utils/stream-continuation.ts";
 import { getNextKittyKeyboardDetectionState } from "./utils/kitty-keyboard-detection.ts";
 import {
@@ -518,7 +513,6 @@ export function mergeClosedThinkingSources(
 export function resolveValidatedThinkingMetaEvent(
   meta: StreamingMeta,
   expectedMessageId: string,
-  currentGeneration: number,
   closedSources?: ReadonlySet<string>,
   diagnostics?: ThinkingDropDiagnostics,
 ): {
@@ -572,9 +566,6 @@ export function resolveValidatedThinkingMetaEvent(
   const sourceGeneration = meta.thinkingGenerationBySource?.[sourceKey];
   if (typeof sourceGeneration !== "number" || !Number.isFinite(sourceGeneration)) {
     return recordDrop("missing_binding", sourceKey, "missing streamGeneration binding");
-  }
-  if (sourceGeneration !== currentGeneration) {
-    return recordDrop("stale_or_closed", sourceKey, "streamGeneration mismatch");
   }
 
   return {
@@ -1732,8 +1723,22 @@ export function ChatApp({
     }
   }, [renderer]);
 
-  // Streaming state hook for tool executions and pending questions
-  const streamingState = useStreamingState();
+  // Pending questions queue for HITL flow
+  const [pendingQuestions, setPendingQuestions] = useState<UserQuestion[]>([]);
+
+  const addPendingQuestion = useCallback((question: UserQuestion) => {
+    setPendingQuestions((prev) => [...prev, question]);
+  }, []);
+
+  const removePendingQuestion = useCallback((): UserQuestion | undefined => {
+    let removed: UserQuestion | undefined;
+    setPendingQuestions((prev) => {
+      if (prev.length === 0) return prev;
+      [removed] = prev;
+      return prev.slice(1);
+    });
+    return removed;
+  }, []);
 
   // Message queue for queuing messages during streaming
   const messageQueue = useMessageQueue();
@@ -1905,11 +1910,6 @@ export function ChatApp({
   // Tracks whether the current stream is an @mention-only stream (no SDK onComplete).
   // Prevents the agent-only completion path from firing for SDK-spawned sub-agents.
   const isAgentOnlyStreamRef = useRef(false);
-  // Stream generation counter — incremented each time a new stream starts.
-  // handleComplete closures capture the generation at creation time and skip
-  // if it no longer matches, preventing stale callbacks from corrupting a
-  // newer stream's state (e.g., after round-robin injection).
-  const streamGenerationRef = useRef(0);
   // Ref to track whether any tool call is currently running (synchronous check
   // for keyboard handler to avoid stale closure issues with React state).
   const hasRunningToolRef = useRef(false);
@@ -2154,7 +2154,6 @@ export function ChatApp({
 
   const stopSharedStreamState = useCallback((options?: {
     preserveStreamingStart?: boolean;
-    resetStreamingStateHook?: boolean;
   }) => {
     const next = createStoppedStreamControlState(
       {
@@ -2177,9 +2176,7 @@ export function ChatApp({
     isStreamingRef.current = next.isStreaming;
     hasRunningToolRef.current = next.hasRunningTool;
     runningBlockingToolIdsRef.current.clear();
-    if (options?.resetStreamingStateHook !== false) {
-      runningAskQuestionToolIdsRef.current.clear();
-    }
+    runningAskQuestionToolIdsRef.current.clear();
     setIsStreaming(next.isStreaming);
     setStreamingMeta(null);
 
@@ -2190,17 +2187,10 @@ export function ChatApp({
       applyAutoCompactionIndicator(nextCompactionState);
     }
 
-    if (options?.resetStreamingStateHook !== false) {
-      streamingState.reset();
-    }
-  }, [streamingState, applyAutoCompactionIndicator]);
+    // No longer need to reset streaming state hook (removed dead code)
+  }, [applyAutoCompactionIndicator]);
 
-  const handleStreamStartupError = useCallback((error: unknown, expectedGeneration: number) => {
-    // Ignore stale failures from an older stream generation.
-    if (streamGenerationRef.current !== expectedGeneration) {
-      return;
-    }
-
+  const handleStreamStartupError = useCallback((error: unknown) => {
     console.error("[stream] Failed to start stream:", error);
 
     const failedMessageId = streamingMessageIdRef.current;
@@ -2278,8 +2268,7 @@ export function ChatApp({
 
     toolNameByIdRef.current.set(toolId, toolName);
 
-    // Update streaming state
-    streamingState.handleToolStart(toolId, toolName, input);
+    // Tracking tool executions in streaming state was dead code (never read), removed
     // Track blocking tool lifecycles synchronously for stream finalization.
     if (shouldTrackToolAsBlocking(toolName)) {
       runningBlockingToolIdsRef.current.add(toolId);
@@ -2406,12 +2395,7 @@ export function ChatApp({
       continueQueuedConversation();
     }
 
-    // Update streaming state
-    if (success) {
-      streamingState.handleToolComplete(toolId, output);
-    } else {
-      streamingState.handleToolError(toolId, error || "Unknown error");
-    }
+    // Tracking tool completion/error in streaming state was dead code (never read), removed
 
     // Update tool call in current streaming message
     const messageId = streamingMessageIdRef.current;
@@ -2547,8 +2531,6 @@ export function ChatApp({
             resetTodoItemsForNewStream();
             clearDeferredCompletion();
 
-          // Increment stream generation so stale handleComplete callbacks become no-ops
-          const currentGeneration = ++streamGenerationRef.current;
           // Set streaming BEFORE calling onStreamMessage to prevent race conditions
           setIsStreaming(true);
           isStreamingRef.current = true;
@@ -2560,8 +2542,6 @@ export function ChatApp({
             promptToSend,
             // onChunk: append to current message
             (chunk) => {
-              // Drop chunks from stale streams (round-robin replaced this stream)
-              if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
               if (pendingCompleteRef.current) {
                 clearDeferredCompletion();
               }
@@ -2582,8 +2562,6 @@ export function ChatApp({
             },
             // onComplete: mark message as complete, finalize parallel agents
             () => {
-              // Stale generation guard: if a newer stream started, this callback is a no-op
-              if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
               // Finalize any still-running parallel agents and bake into message
               setParallelAgents((currentAgents) => {
                 if (currentAgents.length > 0) {
@@ -2644,7 +2622,6 @@ export function ChatApp({
               const thinkingMetaEvent = resolveValidatedThinkingMetaEvent(
                 meta,
                 messageId,
-                currentGeneration,
                 closedThinkingSourcesRef.current,
                 thinkingDropDiagnosticsRef.current,
               );
@@ -2666,7 +2643,7 @@ export function ChatApp({
               );
             }
           )).catch((error) => {
-            handleStreamStartupError(error, currentGeneration);
+            handleStreamStartupError(error);
           });
           } catch (error) {
             // Prevent unhandled errors from crashing the TUI
@@ -2729,11 +2706,11 @@ export function ChatApp({
     // Only add to queue if there's already an active question
     // Otherwise, show directly
     if (activeQuestion) {
-      streamingState.addPendingQuestion(question);
+      addPendingQuestion(question);
     } else {
       setActiveQuestion(question);
     }
-  }, [streamingState, activeQuestion]);
+  }, [addPendingQuestion, activeQuestion]);
 
   // Store the respond callback for permission requests
   const permissionRespondRef = useRef<((answer: string | string[]) => void) | null>(null);
@@ -3001,9 +2978,6 @@ export function ChatApp({
         )
       );
       finalizeThinkingSourceTracking();
-      // Invalidate the SDK handleComplete callback so it doesn't double-finalize
-      // this message after the agent-only path has already stopped the stream.
-      streamGenerationRef.current++;
       // Keep background agents in live state for post-stream completion tracking
       const remainingBg = getActiveBackgroundAgents(parallelAgents);
       if (remainingBg.length > 0 && messageId) {
@@ -3035,7 +3009,7 @@ export function ChatApp({
     const normalizedHitl = normalizeHitlAnswer(answer);
 
     // Advance to the next pending question (if any).
-    const nextQuestion = streamingState.removePendingQuestion();
+    const nextQuestion = removePendingQuestion();
     setActiveQuestion(nextQuestion ?? null);
 
     // If there's a permission respond callback, call it (SDK permission requests)
@@ -3127,7 +3101,7 @@ export function ChatApp({
 
     // Don't add "User selected" messages - Claude Code doesn't show these
     // The streaming response continues automatically after the callback
-  }, [streamingState, updateWorkflowState, workflowState.workflowActive, onWorkflowResumeWithAnswer, getSession]);
+  }, [removePendingQuestion, updateWorkflowState, workflowState.workflowActive, onWorkflowResumeWithAnswer, getSession]);
 
   /**
    * Update workflow progress state (called by workflow execution).
@@ -3527,8 +3501,6 @@ export function ChatApp({
             setMessagesWindowed((prev: ChatMessage[]) => reconcilePreviousStreamingPlaceholder(prev, prevStreamingId));
           }
 
-          // Increment stream generation so stale handleComplete callbacks become no-ops
-          const currentGeneration = ++streamGenerationRef.current;
           isStreamingRef.current = true;
           setIsStreaming(true);
           streamingStartRef.current = Date.now();
@@ -3550,8 +3522,6 @@ export function ChatApp({
 
           const handleChunk = (chunk: string) => {
             if (!isStreamingRef.current) return;
-            // Drop chunks from stale streams (round-robin replaced this stream)
-            if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
             // If completion was deferred waiting on sub-agents/tools but the
             // model resumes emitting chunks, cancel the deferred completion and
             // keep the current stream alive.
@@ -3576,9 +3546,6 @@ export function ChatApp({
           };
 
           const handleComplete = () => {
-            // Stale generation guard — a newer stream has started (round-robin inject),
-            // so this callback must not touch any shared refs/state.
-            if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
             const messageId = streamingMessageIdRef.current;
             const durationMs = streamingStartRef.current
               ? Date.now() - streamingStartRef.current
@@ -3725,7 +3692,6 @@ export function ChatApp({
             const thinkingMetaEvent = resolveValidatedThinkingMetaEvent(
               meta,
               messageId,
-              currentGeneration,
               closedThinkingSourcesRef.current,
               thinkingDropDiagnosticsRef.current,
             );
@@ -3748,7 +3714,7 @@ export function ChatApp({
           };
 
           void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete, handleMeta, options)).catch((error) => {
-            handleStreamStartupError(error, currentGeneration);
+            handleStreamStartupError(error);
           });
         }
       },
@@ -4273,7 +4239,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         
         // Only reset streaming state if the current stream is still the spinner stream
         if (streamingMessageIdRef.current === msgId) {
-          stopSharedStreamState({ resetStreamingStateHook: false });
+          stopSharedStreamState();
         }
       }
 
@@ -4295,7 +4261,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         
         // Only reset streaming state if the current stream is still the spinner stream
         if (streamingMessageIdRef.current === msgId) {
-          stopSharedStreamState({ resetStreamingStateHook: false });
+          stopSharedStreamState();
         }
       }
       // Handle execution error (as assistant message, not system)
@@ -4507,9 +4473,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           // Use ref for immediate check — avoids stale closure when React
           // hasn't re-rendered after setIsStreaming(true)
           if (isStreamingRef.current) {
-            // Invalidate current stream callbacks before interrupting the SDK,
-            // so synchronous onComplete callbacks from an interrupt become stale.
-            streamGenerationRef.current = invalidateActiveStreamGeneration(streamGenerationRef.current);
             clearDeferredCompletion();
             // Abort the stream FIRST so chunks stop arriving immediately
             onInterrupt?.();
@@ -4842,9 +4805,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           // Use ref for immediate check — avoids stale closure when React
           // hasn't re-rendered after setIsStreaming(true)
           if (isStreamingRef.current) {
-            // Invalidate current stream callbacks before interrupting the SDK,
-            // so synchronous onComplete callbacks from an interrupt become stale.
-            streamGenerationRef.current = invalidateActiveStreamGeneration(streamGenerationRef.current);
             clearDeferredCompletion();
             // Abort the stream FIRST so chunks stop arriving immediately
             onInterrupt?.();
@@ -5472,8 +5432,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
       // Handle streaming response if handler provided
       if (onStreamMessage) {
-        // Increment stream generation so stale handleComplete callbacks become no-ops
-        const currentGeneration = ++streamGenerationRef.current;
         // Set ref immediately (synchronous) so handleSubmit can check it
         isStreamingRef.current = true;
         setIsStreaming(true);
@@ -5497,8 +5455,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Handle stream chunks — guarded by ref to drop post-interrupt chunks
         const handleChunk = (chunk: string) => {
           if (!isStreamingRef.current) return;
-          // Drop chunks from stale streams (round-robin replaced this stream)
-          if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
           if (pendingCompleteRef.current) {
             clearDeferredCompletion();
           }
@@ -5517,9 +5473,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
         // Handle stream completion - process next queued message after delay
         const handleComplete = () => {
-          // Stale generation guard — a newer stream has started (round-robin inject),
-          // so this callback must not touch any shared refs/state.
-          if (!isCurrentStreamCallback(streamGenerationRef.current, currentGeneration)) return;
           const messageId = streamingMessageIdRef.current;
           // Calculate duration from streaming start
           const durationMs = streamingStartRef.current
@@ -5638,7 +5591,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           const thinkingMetaEvent = resolveValidatedThinkingMetaEvent(
             meta,
             messageId,
-            currentGeneration,
             closedThinkingSourcesRef.current,
             thinkingDropDiagnosticsRef.current,
           );
@@ -5661,7 +5613,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         };
 
         void Promise.resolve(onStreamMessage(content, handleChunk, handleComplete, handleMeta)).catch((error) => {
-          handleStreamStartupError(error, currentGeneration);
+          handleStreamStartupError(error);
         });
       }
     },
@@ -5914,8 +5866,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             )
           );
         }
-        // Invalidate callbacks for the interrupted stream before aborting.
-        streamGenerationRef.current = invalidateActiveStreamGeneration(streamGenerationRef.current);
         stopSharedStreamState();
         finalizeThinkingSourceTracking();
 

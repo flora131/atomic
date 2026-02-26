@@ -7,32 +7,6 @@
  */
 
 // ============================================================================
-// USE STREAMING STATE
-// ============================================================================
-
-export {
-  // Hook
-  useStreamingState,
-  default as useStreamingStateDefault,
-
-  // Types
-  type StreamingState,
-  type ToolExecutionState,
-  type ToolExecutionStatus,
-  type ToolExecutionTimestamps,
-  type UseStreamingStateReturn,
-
-  // Utility functions
-  createInitialStreamingState,
-  generateToolExecutionId,
-  getCurrentTimestamp,
-  createToolExecution,
-  getActiveToolExecutions,
-  getCompletedToolExecutions,
-  getErroredToolExecutions,
-} from "./use-streaming-state.ts";
-
-// ============================================================================
 // USE MESSAGE QUEUE
 // ============================================================================
 

@@ -41,17 +41,6 @@ const DEFAULT_QUEUE_DISPATCH_DELAY_MS = 50;
 const ASK_QUESTION_TOOL_SUFFIX = "ask_question";
 const NON_BLOCKING_TOOL_SUFFIX = "skill";
 
-export function invalidateActiveStreamGeneration(currentGeneration: number): number {
-  return currentGeneration + 1;
-}
-
-export function isCurrentStreamCallback(
-  activeGeneration: number,
-  callbackGeneration: number,
-): boolean {
-  return callbackGeneration >= activeGeneration;
-}
-
 export function createStoppedStreamControlState(
   current: StreamControlState,
   options?: StopStreamOptions,

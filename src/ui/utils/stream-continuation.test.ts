@@ -5,8 +5,6 @@ import {
   dispatchNextQueuedMessage,
   interruptRunningToolCalls,
   isAskQuestionToolName,
-  invalidateActiveStreamGeneration,
-  isCurrentStreamCallback,
   shouldTrackToolAsBlocking,
   shouldDispatchQueuedMessage,
   shouldDeferComposerSubmit,
@@ -53,19 +51,6 @@ describe("stream continuation helpers", () => {
 
     expect(dispatchedAny).toBe(false);
     expect(dispatched).toEqual([]);
-  });
-
-  test("interrupt invalidation advances generation with strict guard", () => {
-    const currentGeneration = 7;
-    const interruptedGeneration = invalidateActiveStreamGeneration(currentGeneration);
-
-    expect(interruptedGeneration).toBe(8);
-    expect(interruptedGeneration).not.toBe(currentGeneration);
-    // Strict guard: only current generation is accepted
-    expect(isCurrentStreamCallback(interruptedGeneration, currentGeneration)).toBe(false);
-    expect(isCurrentStreamCallback(interruptedGeneration, interruptedGeneration)).toBe(true);
-    // Older generations are rejected
-    expect(isCurrentStreamCallback(interruptedGeneration, currentGeneration - 1)).toBe(false);
   });
 
   test("guarded dispatch does not dequeue when streaming resumed", () => {

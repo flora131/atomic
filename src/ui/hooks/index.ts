@@ -58,13 +58,3 @@ export {
   // Types
   type UseVerboseModeReturn,
 } from "./use-verbose-mode.ts";
-
-// ============================================================================
-// USE THROTTLED VALUE
-// ============================================================================
-
-export {
-  // Hook
-  useThrottledValue,
-  default as useThrottledValueDefault,
-} from "./use-throttled-value.ts";

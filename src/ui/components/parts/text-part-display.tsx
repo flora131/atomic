@@ -10,7 +10,6 @@
 import React, { useMemo } from "react";
 import { MarkdownRenderable, type SyntaxStyle } from "@opentui/core";
 import type { TextPart } from "../../parts/types.ts";
-import { useThrottledValue } from "../../hooks/use-throttled-value.ts";
 import { createMarkdownSyntaxStyle, useTheme, useThemeColors } from "../../theme.tsx";
 import { normalizeMarkdownNewlines } from "../../utils/format.ts";
 
@@ -38,13 +37,12 @@ export interface TextPartDisplayProps {
 export function TextPartDisplay({ part, syntaxStyle }: TextPartDisplayProps) {
   const colors = useThemeColors();
   const { isDark } = useTheme();
-  const displayContent = useThrottledValue(part.content, part.isStreaming ? 100 : 0);
   const fallbackSyntaxStyle = useMemo(
     () => createMarkdownSyntaxStyle(colors, isDark),
     [colors, isDark],
   );
 
-  const normalizedContent = normalizeMarkdownNewlines(displayContent ?? "");
+  const normalizedContent = normalizeMarkdownNewlines(part.content ?? "");
 
   if (!normalizedContent) {
     return null;

@@ -31,12 +31,15 @@ import {
     getWorkflowSessionDir,
     type WorkflowSession,
 } from "../../workflows/session.ts";
-import type { BaseState } from "../../workflows/graph/types.ts";
+import type { BaseState, NodeDefinition, Edge } from "../../workflows/graph/types.ts";
 import { VERSION } from "../../version.ts";
 import { createRalphWorkflow } from "../../workflows/ralph/graph.ts";
 import { createRalphState } from "../../workflows/ralph/state.ts";
 import { streamGraph } from "../../workflows/graph/compiled.ts";
-import type { SubagentSpawnOptions, SubagentResult } from "../../workflows/graph/subagent-bridge.ts";
+import type {
+    SubagentSpawnOptions,
+    SubagentResult,
+} from "../../workflows/graph/subagent-bridge.ts";
 import { SubagentTypeRegistry } from "../../workflows/graph/subagent-registry.ts";
 import { discoverAgentInfos } from "./agent-commands.ts";
 
@@ -46,6 +49,24 @@ import { discoverAgentInfos } from "./agent-commands.ts";
 
 /** Maximum number of iterations for the main implementation loop to prevent infinite loops */
 const MAX_RALPH_ITERATIONS = 100;
+
+/**
+ * Get a human-readable description for a workflow node phase.
+ * Returns null if the node should not display progress updates.
+ */
+function getNodePhaseDescription(nodeId: string): string | null {
+    const phaseMap: Record<string, string> = {
+        planner:
+            "⌕ Planning: Analyzing requirements and decomposing into tasks...",
+        "parse-tasks": "☰ Parsing: Extracting task structure from plan...",
+        "select-ready-tasks":
+            "◎ Selecting: Identifying ready tasks for execution...",
+        worker: "⚙ Working: Implementing assigned task...",
+        reviewer: "◉ Reviewing: Evaluating completed work...",
+        fixer: "⚒ Fixing: Applying review feedback...",
+    };
+    return phaseMap[nodeId] ?? null;
+}
 
 // ============================================================================
 // RALPH COMMAND PARSING
@@ -107,6 +128,80 @@ export interface WorkflowMetadata {
     source?: "builtin" | "global" | "local";
     /** Hint text showing expected arguments (e.g., "PROMPT [--yolo]") */
     argumentHint?: string;
+}
+
+/**
+ * Standard task interface for workflow task list UI.
+ * All task-list-capable workflows must use this shape.
+ */
+export interface WorkflowTask {
+    /** Unique task identifier */
+    id: string;
+    /** Human-readable task title */
+    title: string;
+    /** Task status */
+    status: "pending" | "in_progress" | "completed" | "failed" | "blocked";
+    /** Optional task dependencies (IDs of tasks that must complete first) */
+    blockedBy?: string[];
+    /** Optional error message if status is "failed" */
+    error?: string;
+}
+
+/**
+ * Declarative graph configuration exported by custom workflows.
+ * The framework compiles this into a CompiledGraph.
+ */
+export interface WorkflowGraphConfig<TState extends BaseState = BaseState> {
+    /** Node definitions for the graph */
+    nodes: NodeDefinition<TState>[];
+    /** Edge definitions connecting nodes */
+    edges: Edge<TState>[];
+    /** The starting node ID */
+    startNode: string;
+    /** Maximum iterations for loops (default: 100) */
+    maxIterations?: number;
+}
+
+/**
+ * Parameters passed to a workflow's createState() factory function.
+ */
+export interface WorkflowStateParams {
+    /** The user's prompt text */
+    prompt: string;
+    /** UUID session ID for this execution */
+    sessionId: string;
+    /** Session directory path */
+    sessionDir: string;
+    /** Maximum iterations (from workflow config or global default) */
+    maxIterations: number;
+}
+
+/**
+ * Extended workflow definition that includes execution logic.
+ * Backward-compatible with WorkflowMetadata (all new fields optional).
+ * Fully declarative — capabilities are inferred from the graph definition.
+ */
+export interface WorkflowDefinition extends WorkflowMetadata {
+    /**
+     * Declarative graph configuration for this workflow.
+     * The framework validates and compiles this into a CompiledGraph.
+     * If absent, the workflow falls back to the generic chat handler.
+     */
+    graphConfig?: WorkflowGraphConfig;
+
+    /**
+     * Factory function to create the initial state for graph execution.
+     * Receives the user's prompt and session context.
+     */
+    createState?: (params: WorkflowStateParams) => BaseState;
+
+    /**
+     * Map of node IDs to human-readable progress descriptions.
+     * Replaces the hardcoded getNodePhaseDescription().
+     * Nodes not in this map are silently skipped in UI progress.
+     * Example: { "planner": "🧠 Planning tasks...", "worker": "⚡ Implementing..." }
+     */
+    nodeDescriptions?: Record<string, string>;
 }
 
 // ============================================================================
@@ -619,7 +714,16 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                 ralphConfig: { sessionId, userPrompt: parsed.prompt },
             });
 
+            // Set streaming state to show spinner during workflow execution
+            context.setStreaming(true);
+
             try {
+                // Add a status message to show workflow is starting
+                context.addMessage(
+                    "assistant",
+                    `Starting **${metadata.name}** workflow with prompt: "${parsed.prompt}"\n\nInitializing task decomposition...`,
+                );
+
                 // Create initial state for the Ralph workflow
                 const initialState = createRalphState(sessionId, {
                     yoloPrompt: parsed.prompt,
@@ -629,12 +733,20 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
 
                 // Build bridge adapter for sub-agent spawning
                 const bridge = {
-                    async spawn(agent: SubagentSpawnOptions, abortSignal?: AbortSignal): Promise<SubagentResult> {
-                        const [result] = await context.spawnSubagentParallel!([{ ...agent, abortSignal }], abortSignal);
+                    async spawn(
+                        agent: SubagentSpawnOptions,
+                        abortSignal?: AbortSignal,
+                    ): Promise<SubagentResult> {
+                        const [result] = await context.spawnSubagentParallel!(
+                            [{ ...agent, abortSignal }],
+                            abortSignal,
+                        );
                         return result!;
                     },
-                    spawnParallel: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal) => 
-                        context.spawnSubagentParallel!(agents, abortSignal),
+                    spawnParallel: (
+                        agents: SubagentSpawnOptions[],
+                        abortSignal?: AbortSignal,
+                    ) => context.spawnSubagentParallel!(agents, abortSignal),
                 };
 
                 // Build subagent registry with discovered agents
@@ -650,20 +762,38 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
 
                 // Get compiled graph and inject bridge + registry
                 const compiled = createRalphWorkflow();
-                compiled.config.runtime = { 
-                    ...compiled.config.runtime, 
+                compiled.config.runtime = {
+                    ...compiled.config.runtime,
                     subagentBridge: bridge,
                     subagentRegistry: registry,
                 };
 
                 // Track whether we've set up session tracking
                 let sessionTracked = false;
+                let lastNodeId: string | null = null;
 
                 // Execute workflow graph with streaming
-                for await (const step of streamGraph(compiled, { initialState })) {
+                for await (const step of streamGraph(compiled, {
+                    initialState,
+                })) {
+                    // Show progress for each node execution
+                    if (step.nodeId !== lastNodeId) {
+                        const nodePhase = getNodePhaseDescription(step.nodeId);
+                        if (nodePhase) {
+                            context.addMessage(
+                                "assistant",
+                                `**Workflow Progress:** ${nodePhase}`,
+                            );
+                        }
+                        lastNodeId = step.nodeId;
+                    }
+
                     // Update tasks UI as nodes complete
                     if (step.state.tasks && step.state.tasks.length > 0) {
-                        await saveTasksToActiveSession(step.state.tasks as NormalizedTodoItem[], sessionId);
+                        await saveTasksToActiveSession(
+                            step.state.tasks as NormalizedTodoItem[],
+                            sessionId,
+                        );
                         context.setTodoItems(step.state.tasks as TodoItem[]);
 
                         // Set up session tracking after first step with tasks
@@ -673,13 +803,25 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                             const taskIds = new Set(
                                 step.state.tasks
                                     .map((t: { id?: string }) => t.id)
-                                    .filter((id): id is string => id != null && id.length > 0),
+                                    .filter(
+                                        (id): id is string =>
+                                            id != null && id.length > 0,
+                                    ),
                             );
                             context.setRalphTaskIds(taskIds);
                             sessionTracked = true;
                         }
                     }
                 }
+
+                // Add completion message
+                context.addMessage(
+                    "assistant",
+                    `**${metadata.name}** workflow completed successfully.`,
+                );
+
+                // Clear streaming state
+                context.setStreaming(false);
 
                 return {
                     success: true,
@@ -690,11 +832,15 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                     },
                 };
             } catch (error) {
+                // Clear streaming state on error
+                context.setStreaming(false);
+
                 // Silent exit for workflow cancellation (double Ctrl+C)
                 if (
                     error instanceof Error &&
                     error.message === "Workflow cancelled"
                 ) {
+                    context.setStreaming(false);
                     return {
                         success: true,
                         stateUpdate: {
@@ -704,6 +850,8 @@ function createRalphCommand(metadata: WorkflowMetadata): CommandDefinition {
                         },
                     };
                 }
+
+                context.setStreaming(false);
                 return {
                     success: false,
                     message: `Workflow failed: ${error instanceof Error ? error.message : String(error)}`,

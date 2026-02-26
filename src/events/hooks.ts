@@ -33,9 +33,11 @@
  * ```
  */
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useEventBusContext } from "./event-bus-provider.tsx";
 import type { BusEvent, BusEventType, BusHandler, WildcardHandler } from "./bus-events.ts";
+import { wireConsumers } from "./consumers/wire-consumers.ts";
+import type { StreamPartEvent } from "../ui/parts/stream-pipeline.ts";
 
 /**
  * Hook to get the event bus instance.
@@ -166,4 +168,75 @@ export function useBusWildcard(handler: WildcardHandler): void {
     });
     return unsubscribe;
   }, [bus]);
+}
+
+/**
+ * Hook that wires up the full event bus consumer pipeline and
+ * delivers StreamPartEvents to the component.
+ *
+ * Replaces the legacy handleChunk/handleMeta/handleComplete callback pattern
+ * by setting up the complete event processing pipeline:
+ * - CorrelationService: Enriches events with metadata
+ * - EchoSuppressor: Filters duplicate text echoes
+ * - StreamPipelineConsumer: Transforms BusEvents to StreamPartEvents
+ *
+ * The hook manages the entire consumer lifecycle, including cleanup on unmount.
+ * Uses refs to avoid re-subscriptions when the callback identity changes.
+ *
+ * @param onStreamParts - Callback to receive batched StreamPartEvents
+ * @returns Object with resetConsumers function for cleanup between runs
+ *
+ * @example
+ * ```typescript
+ * function ChatComponent() {
+ *   const [message, setMessage] = useState<ChatMessage>(...);
+ *
+ *   const { resetConsumers } = useStreamConsumer((parts) => {
+ *     setMessage((prev) => {
+ *       let updated = prev;
+ *       for (const part of parts) {
+ *         updated = applyStreamPartEvent(updated, part);
+ *       }
+ *       return updated;
+ *     });
+ *   });
+ *
+ *   const handleNewStream = () => {
+ *     resetConsumers(); // Clean state before new stream
+ *     // ... start streaming
+ *   };
+ * }
+ * ```
+ */
+export function useStreamConsumer(
+  onStreamParts: (parts: StreamPartEvent[]) => void
+): {
+  resetConsumers: () => void;
+} {
+  const { bus } = useEventBusContext();
+  const callbackRef = useRef(onStreamParts);
+  callbackRef.current = onStreamParts;
+
+  const consumersRef = useRef<ReturnType<typeof wireConsumers> | null>(null);
+
+  useEffect(() => {
+    const consumers = wireConsumers(bus);
+    consumersRef.current = consumers;
+
+    const unsubscribe = consumers.pipeline.onStreamParts((parts) => {
+      callbackRef.current(parts);
+    });
+
+    return () => {
+      unsubscribe();
+      consumers.dispose();
+      consumersRef.current = null;
+    };
+  }, [bus]);
+
+  const resetConsumers = useCallback(() => {
+    consumersRef.current?.pipeline.reset();
+  }, []);
+
+  return { resetConsumers };
 }

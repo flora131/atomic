@@ -8,6 +8,7 @@ import {
     inferHasSubagentNodes,
     inferHasTaskList,
     createSubagentRegistry,
+    executeWorkflow,
 } from "./executor.ts";
 import type { WorkflowGraphConfig } from "../ui/commands/workflow-commands.ts";
 import type { BaseState, NodeDefinition } from "./graph/types.ts";
@@ -369,5 +370,260 @@ describe("createSubagentRegistry", () => {
         const agentNames = allAgents.map((a) => a.name);
         // Just verify we have some common agents
         expect(agentNames.length).toBeGreaterThan(0);
+    });
+});
+
+describe("executeWorkflow", () => {
+    // Create a minimal CommandContext mock
+    function createMockContext() {
+        const messages: Array<{ role: string; content: string }> = [];
+        const todoItems: any[] = [];
+        let streaming = false;
+        let workflowState: any = {};
+        let workflowSessionDir: string | null = null;
+        let workflowSessionId: string | null = null;
+        let workflowTaskIds: Set<string> = new Set();
+
+        return {
+            session: null,
+            state: {
+                isStreaming: false,
+                messageCount: 0,
+            },
+            addMessage: (role: string, content: string) => {
+                messages.push({ role, content });
+            },
+            setStreaming: (value: boolean) => {
+                streaming = value;
+            },
+            updateWorkflowState: (update: any) => {
+                workflowState = { ...workflowState, ...update };
+            },
+            setTodoItems: (items: any[]) => {
+                todoItems.push(...items);
+            },
+            setWorkflowSessionDir: (dir: string | null) => {
+                workflowSessionDir = dir;
+            },
+            setWorkflowSessionId: (id: string | null) => {
+                workflowSessionId = id;
+            },
+            setWorkflowTaskIds: (ids: Set<string>) => {
+                workflowTaskIds = ids;
+            },
+            // Expose for testing
+            _getMessages: () => messages,
+            _getStreaming: () => streaming,
+            _getWorkflowState: () => workflowState,
+            _getSessionDir: () => workflowSessionDir,
+            _getSessionId: () => workflowSessionId,
+            _getTaskIds: () => workflowTaskIds,
+        };
+    }
+
+    test("returns error when no graphConfig or compiledGraph provided", async () => {
+        const context = createMockContext();
+        const definition = {
+            name: "test-workflow",
+            description: "Test workflow without graph",
+            command: "/test",
+            // No graphConfig or createState
+        };
+
+        const result = await executeWorkflow(definition, "test prompt", context as any);
+
+        expect(result.success).toBe(false);
+        expect(result.message).toContain("no graphConfig");
+        expect(context._getStreaming()).toBe(false);
+    });
+
+    test("successfully executes with a pre-compiled graph", async () => {
+        const context = createMockContext();
+        
+        interface TestState extends BaseState {
+            value: string;
+        }
+
+        // Create a simple compiled graph
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "test-node",
+                    type: "tool",
+                    execute: async (ctx) => ({
+                        stateUpdate: { value: "executed" } as Partial<TestState>,
+                    }),
+                },
+            ],
+            edges: [],
+            startNode: "test-node",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Test workflow with compiled graph",
+            command: "/test",
+        };
+
+        const result = await executeWorkflow(
+            definition,
+            "test prompt",
+            context as any,
+            { compiledGraph: compiledGraph as any }
+        );
+
+        expect(result.success).toBe(true);
+        expect(context._getStreaming()).toBe(false);
+        const messages = context._getMessages();
+        expect(messages.length).toBeGreaterThan(0);
+        expect(messages.some((m: any) => m.content.includes("Starting"))).toBe(true);
+        expect(messages.some((m: any) => m.content.includes("completed successfully"))).toBe(true);
+    });
+
+    test("uses nodeDescriptions for progress messages", async () => {
+        const context = createMockContext();
+        
+        interface TestState extends BaseState {
+            step: number;
+        }
+
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "step1",
+                    type: "tool",
+                    execute: async (ctx) => ({
+                        stateUpdate: { step: 1 } as Partial<TestState>,
+                    }),
+                },
+                {
+                    id: "step2",
+                    type: "tool",
+                    execute: async (ctx) => ({
+                        stateUpdate: { step: 2 } as Partial<TestState>,
+                    }),
+                },
+            ],
+            edges: [{ from: "step1", to: "step2" }],
+            startNode: "step1",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Test workflow with node descriptions",
+            command: "/test",
+            nodeDescriptions: {
+                step1: "Executing first step",
+                step2: "Executing second step",
+            },
+        };
+
+        const result = await executeWorkflow(
+            definition,
+            "test prompt",
+            context as any,
+            { compiledGraph: compiledGraph as any }
+        );
+
+        expect(result.success).toBe(true);
+        const messages = context._getMessages();
+        expect(messages.some((m: any) => m.content.includes("Executing first step"))).toBe(true);
+        expect(messages.some((m: any) => m.content.includes("Executing second step"))).toBe(true);
+    });
+
+    test("handles workflow cancellation error gracefully", async () => {
+        const context = createMockContext();
+        
+        interface TestState extends BaseState {
+            value: string;
+        }
+
+        // Create a graph that throws cancellation error
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "cancel-node",
+                    type: "tool",
+                    execute: async () => {
+                        throw new Error("Workflow cancelled");
+                    },
+                },
+            ],
+            edges: [],
+            startNode: "cancel-node",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Test workflow with cancellation",
+            command: "/test",
+        };
+
+        const result = await executeWorkflow(
+            definition,
+            "test prompt",
+            context as any,
+            { compiledGraph: compiledGraph as any }
+        );
+
+        // Should return success:true for cancellation (silent exit)
+        expect(result.success).toBe(true);
+        expect(context._getStreaming()).toBe(false);
+        expect(result.stateUpdate?.workflowActive).toBe(false);
+    });
+
+    test("creates state using createState factory when provided", async () => {
+        const context = createMockContext();
+        
+        interface TestState extends BaseState {
+            customValue: string;
+            sessionId: string;
+        }
+
+        let capturedParams: any = null;
+
+        const definition = {
+            name: "test-workflow",
+            description: "Test workflow with state factory",
+            command: "/test",
+            graphConfig: {
+                nodes: [
+                    {
+                        id: "test-node",
+                        type: "tool" as const,
+                        execute: async (ctx: any) => {
+                            // Verify state was created with factory
+                            expect((ctx.state as TestState).customValue).toBe("factory-created");
+                            return { stateUpdate: {} };
+                        },
+                    },
+                ],
+                edges: [],
+                startNode: "test-node",
+            },
+            createState: (params: any) => {
+                capturedParams = params;
+                return {
+                    executionId: params.sessionId,
+                    lastUpdated: new Date().toISOString(),
+                    outputs: {},
+                    customValue: "factory-created",
+                    sessionId: params.sessionId,
+                } as TestState;
+            },
+        };
+
+        const result = await executeWorkflow(
+            definition as any,
+            "test prompt",
+            context as any
+        );
+
+        expect(result.success).toBe(true);
+        expect(capturedParams).not.toBeNull();
+        expect(capturedParams.prompt).toBe("test prompt");
+        expect(capturedParams.sessionId).toBeDefined();
+        expect(capturedParams.sessionDir).toBeDefined();
+        expect(capturedParams.maxIterations).toBe(100); // DEFAULT_MAX_ITERATIONS
     });
 });

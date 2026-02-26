@@ -70,13 +70,7 @@ import { join } from "node:path";
 import type { AskUserQuestionEventData } from "../workflows/graph/index.ts";
 import type { AgentType, ModelOperations } from "../models";
 import type {
-  CodingAgentClient,
-  EventHandler,
-  EventType,
   McpServerConfig,
-  ModelDisplayInfo,
-  Session,
-  ToolDefinition,
 } from "../sdk/types.ts";
 import { saveModelPreference, saveReasoningEffortPreference, clearReasoningEffortPreference } from "../utils/settings.ts";
 import { formatDuration, normalizeMarkdownNewlines } from "./utils/format.ts";

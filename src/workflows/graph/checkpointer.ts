@@ -593,14 +593,14 @@ export class ResearchDirSaver<TState extends BaseState = BaseState>
 // ============================================================================
 
 /**
- * Session directory checkpointer for Ralph sessions.
+ * Session directory checkpointer for workflow sessions.
  *
  * This checkpointer saves checkpoints to the session's checkpoints directory,
  * using sequential naming (node-001.json, node-002.json, etc.).
  *
  * Storage structure:
  * ```
- * .ralph/sessions/{sessionId}/
+ * .atomic/workflows/sessions/{sessionId}/
  *   checkpoints/
  *     node-001.json
  *     node-002.json

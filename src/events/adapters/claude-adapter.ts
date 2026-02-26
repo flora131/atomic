@@ -17,8 +17,7 @@
  * - AgentMessage (type: "thinking") with metadata.streamingStats → stream.thinking.complete
  * - Stream completion → stream.text.complete
  *
- * Note: Tool events, session events, and usage events from the SDK's event emitter
- * are handled at a higher level (where the adapter is instantiated), not by the adapter itself.
+ * All SDK event types (text, thinking, tool, agent) are handled within the adapter.
  *
  * Usage:
  * ```typescript
@@ -50,6 +49,8 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
   private sessionId: string;
   private abortController: AbortController | null = null;
   private textAccumulator = "";
+  /** Tracks thinking source start times for duration computation */
+  private thinkingStartTimes = new Map<string, number>();
 
   /**
    * Create a new Claude stream adapter.
@@ -106,7 +107,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       this.publishTextComplete(runId, messageId);
     } catch (error) {
       // Handle stream errors
-      if (!this.abortController.signal.aborted) {
+      if (this.abortController && !this.abortController.signal.aborted) {
         this.publishSessionError(runId, error);
       }
     }
@@ -145,9 +146,15 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     if (chunk.type === "thinking") {
       const metadata = chunk.metadata;
       const thinkingSourceKey = metadata?.thinkingSourceKey as string | undefined;
+      const sourceKey = thinkingSourceKey ?? "default";
 
       // Check if this is a thinking delta (has content)
       if (typeof chunk.content === "string" && chunk.content.length > 0) {
+        // Track start time for this thinking source
+        if (!this.thinkingStartTimes.has(sourceKey)) {
+          this.thinkingStartTimes.set(sourceKey, Date.now());
+        }
+
         const event: BusEvent<"stream.thinking.delta"> = {
           type: "stream.thinking.delta",
           sessionId: this.sessionId,
@@ -155,7 +162,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           timestamp: Date.now(),
           data: {
             delta: chunk.content,
-            sourceKey: thinkingSourceKey ?? "default",
+            sourceKey,
             messageId,
           },
         };
@@ -168,19 +175,97 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         | { thinkingMs?: number }
         | undefined;
       if (streamingStats?.thinkingMs !== undefined && chunk.content === "") {
+        // Prefer SDK-provided duration, fall back to computed from tracked start time
+        const startTime = this.thinkingStartTimes.get(sourceKey);
+        const durationMs = streamingStats.thinkingMs
+          ?? (startTime ? Date.now() - startTime : 0);
+        this.thinkingStartTimes.delete(sourceKey);
+
         const event: BusEvent<"stream.thinking.complete"> = {
           type: "stream.thinking.complete",
           sessionId: this.sessionId,
           runId,
           timestamp: Date.now(),
           data: {
-            sourceKey: thinkingSourceKey ?? "default",
-            durationMs: streamingStats.thinkingMs,
+            sourceKey,
+            durationMs,
           },
         };
 
         this.bus.publish(event);
       }
+    }
+
+    // Handle tool_use events → stream.tool.start
+    if (chunk.type === "tool_use") {
+      const event: BusEvent<"stream.tool.start"> = {
+        type: "stream.tool.start",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          toolId: (chunk as any).id ?? `tool_${Date.now()}`,
+          toolName: (chunk as any).name ?? "unknown",
+          toolInput: ((chunk as any).input ?? {}) as Record<string, unknown>,
+          sdkCorrelationId: (chunk as any).correlationId,
+        },
+      };
+      this.bus.publish(event);
+    }
+
+    // Handle tool_result events → stream.tool.complete
+    if (chunk.type === "tool_result") {
+      const content = (chunk as any).content;
+      const isError = (chunk as any).is_error ?? false;
+      const event: BusEvent<"stream.tool.complete"> = {
+        type: "stream.tool.complete",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          toolId: (chunk as any).tool_use_id ?? `tool_${Date.now()}`,
+          toolName: (chunk as any).toolName ?? "unknown",
+          toolResult: typeof content === "string" ? content : JSON.stringify(content),
+          success: !isError,
+          error: isError ? String(content) : undefined,
+          sdkCorrelationId: (chunk as any).correlationId,
+        },
+      };
+      this.bus.publish(event);
+    }
+
+    // Handle agent lifecycle events
+    if (chunk.type === "agent_start") {
+      const event: BusEvent<"stream.agent.start"> = {
+        type: "stream.agent.start",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          agentId: (chunk as any).agentId ?? `agent_${Date.now()}`,
+          agentType: (chunk as any).agentType ?? "unknown",
+          task: (chunk as any).task ?? "",
+          isBackground: (chunk as any).isBackground ?? false,
+          sdkCorrelationId: (chunk as any).correlationId,
+        },
+      };
+      this.bus.publish(event);
+    }
+
+    if (chunk.type === "agent_complete") {
+      const event: BusEvent<"stream.agent.complete"> = {
+        type: "stream.agent.complete",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          agentId: (chunk as any).agentId ?? `agent_${Date.now()}`,
+          success: (chunk as any).success ?? true,
+          result: (chunk as any).result ? String((chunk as any).result) : undefined,
+          error: (chunk as any).error ? String((chunk as any).error) : undefined,
+        },
+      };
+      this.bus.publish(event);
     }
   }
 
@@ -231,5 +316,6 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       this.abortController = null;
     }
     this.textAccumulator = "";
+    this.thinkingStartTimes.clear();
   }
 }

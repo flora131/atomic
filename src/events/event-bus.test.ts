@@ -416,4 +416,110 @@ describe("AtomicEventBus", () => {
       expect(bus.handlerCount).toBe(0);
     });
   });
+
+  describe("publish() - Zod schema validation", () => {
+    it("should reject event with invalid payload type (delta should be string)", () => {
+      const handler = mock();
+      bus.on("stream.text.delta", handler);
+
+      const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+
+      // delta should be string, not number
+      const invalidEvent = {
+        type: "stream.text.delta" as const,
+        sessionId: "s1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { delta: 123, messageId: "msg1" },
+      };
+
+      bus.publish(invalidEvent as any);
+      expect(handler).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining("[EventBus] Schema validation failed for stream.text.delta"),
+        expect.anything()
+      );
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it("should reject event with missing required fields", () => {
+      const handler = mock();
+      bus.on("stream.text.delta", handler);
+
+      const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+
+      // Missing messageId field
+      const invalidEvent = {
+        type: "stream.text.delta" as const,
+        sessionId: "s1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { delta: "hello" },
+      };
+
+      bus.publish(invalidEvent as any);
+      expect(handler).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it("should reject event with wrong nested types", () => {
+      const handler = mock();
+      bus.on("stream.tool.start", handler);
+
+      const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+
+      // toolInput should be Record<string, unknown>, not string
+      const invalidEvent = {
+        type: "stream.tool.start" as const,
+        sessionId: "s1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { toolId: "t1", toolName: "bash", toolInput: "not-an-object" },
+      };
+
+      bus.publish(invalidEvent as any);
+      expect(handler).not.toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+
+    it("should accept valid events and dispatch to handlers", () => {
+      const handler = mock();
+      bus.on("stream.text.delta", handler);
+
+      const validEvent: BusEvent<"stream.text.delta"> = {
+        type: "stream.text.delta",
+        sessionId: "s1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { delta: "hello", messageId: "msg1" },
+      };
+
+      bus.publish(validEvent);
+      expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("should not dispatch to wildcard handlers on validation failure", () => {
+      const wildcardHandler = mock();
+      bus.onAll(wildcardHandler);
+
+      const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+
+      const invalidEvent = {
+        type: "stream.thinking.complete" as const,
+        sessionId: "s1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { sourceKey: "k1", durationMs: "not-a-number" }, // should be number
+      };
+
+      bus.publish(invalidEvent as any);
+      expect(wildcardHandler).not.toHaveBeenCalled();
+
+      consoleErrorSpy.mockRestore();
+    });
+  });
 });

@@ -194,7 +194,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       }
     } catch (error) {
       // Handle stream errors
-      if (!this.abortController.signal.aborted) {
+      if (this.abortController && !this.abortController.signal.aborted) {
         this.publishSessionError(runId, error);
       }
     } finally {

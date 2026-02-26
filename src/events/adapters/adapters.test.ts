@@ -20,6 +20,7 @@ import { AtomicEventBus } from "../event-bus.ts";
 import { OpenCodeStreamAdapter } from "./opencode-adapter.ts";
 import { ClaudeStreamAdapter } from "./claude-adapter.ts";
 import { CopilotStreamAdapter } from "./copilot-adapter.ts";
+import { WorkflowEventAdapter } from "./workflow-adapter.ts";
 import type { BusEvent } from "../bus-events.ts";
 import type {
   Session,
@@ -249,17 +250,7 @@ describe("OpenCodeStreamAdapter", () => {
     expect(errorEvents[0].runId).toBe(42);
   });
 
-  test.skip("dispose() stops processing via AbortController", async () => {
-    // KNOWN BUG: When dispose() is called during streaming, it sets abortController
-    // to null, but then when the stream completes/errors, the error handler tries
-    // to check this.abortController.signal.aborted when it's null, causing a TypeError.
-    // This is a bug in OpenCodeStreamAdapter that should be fixed.
-    // 
-    // To fix: Change line 197 in opencode-adapter.ts from:
-    //   if (!this.abortController.signal.aborted) {
-    // to:
-    //   if (this.abortController && !this.abortController.signal.aborted) {
-    
+  test("dispose() stops processing via AbortController", async () => {
     const events = collectEvents(bus);
 
     async function* controlledStream(): AsyncGenerator<AgentMessage> {
@@ -517,17 +508,7 @@ describe("ClaudeStreamAdapter", () => {
     expect(errorEvents[0].runId).toBe(100);
   });
 
-  test.skip("dispose() stops processing via AbortController", async () => {
-    // KNOWN BUG: When dispose() is called during streaming, it sets abortController
-    // to null, but then when the stream completes/errors, the error handler tries
-    // to check this.abortController.signal.aborted when it's null, causing a TypeError.
-    // This is a bug in ClaudeStreamAdapter that should be fixed.
-    // 
-    // To fix: Change line 109 in claude-adapter.ts from:
-    //   if (!this.abortController.signal.aborted) {
-    // to:
-    //   if (this.abortController && !this.abortController.signal.aborted) {
-    
+  test("dispose() stops processing via AbortController", async () => {
     const events = collectEvents(bus);
 
     async function* controlledStream(): AsyncGenerator<AgentMessage> {
@@ -612,6 +593,128 @@ describe("ClaudeStreamAdapter", () => {
     const lastEvent = events[events.length - 1];
     expect(lastEvent.type).toBe("stream.text.complete");
     expect(lastEvent.data.fullText).toBe("First Second");
+  });
+
+  test("publishes tool start events from stream (tool_use)", async () => {
+    const events = collectEvents(bus);
+
+    const chunks: AgentMessage[] = [
+      {
+        type: "tool_use" as any,
+        content: "",
+        id: "tool-abc",
+        name: "bash",
+        input: { command: "ls" },
+      } as any,
+      { type: "text", content: "done" },
+    ];
+
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream);
+
+    await adapter.startStreaming(session, "test", {
+      runId: 100,
+      messageId: "msg-2",
+    });
+
+    const toolStartEvents = events.filter((e) => e.type === "stream.tool.start");
+    expect(toolStartEvents.length).toBe(1);
+    expect(toolStartEvents[0].data.toolName).toBe("bash");
+    expect(toolStartEvents[0].data.toolId).toBe("tool-abc");
+    expect(toolStartEvents[0].data.toolInput).toEqual({ command: "ls" });
+    expect(toolStartEvents[0].runId).toBe(100);
+  });
+
+  test("publishes tool complete events from stream (tool_result)", async () => {
+    const events = collectEvents(bus);
+
+    const chunks: AgentMessage[] = [
+      {
+        type: "tool_result" as any,
+        content: "file1.txt\nfile2.txt",
+        tool_use_id: "tool-abc",
+        toolName: "bash",
+        is_error: false,
+      } as any,
+      { type: "text", content: "done" },
+    ];
+
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream);
+
+    await adapter.startStreaming(session, "test", {
+      runId: 100,
+      messageId: "msg-2",
+    });
+
+    const toolCompleteEvents = events.filter((e) => e.type === "stream.tool.complete");
+    expect(toolCompleteEvents.length).toBe(1);
+    expect(toolCompleteEvents[0].data.toolName).toBe("bash");
+    expect(toolCompleteEvents[0].data.toolId).toBe("tool-abc");
+    expect(toolCompleteEvents[0].data.toolResult).toBe("file1.txt\nfile2.txt");
+    expect(toolCompleteEvents[0].data.success).toBe(true);
+    expect(toolCompleteEvents[0].runId).toBe(100);
+  });
+
+  test("publishes agent start events from stream", async () => {
+    const events = collectEvents(bus);
+
+    const chunks: AgentMessage[] = [
+      {
+        type: "agent_start" as any,
+        content: "",
+        agentId: "agent-001",
+        agentType: "explore",
+        task: "Find files",
+        isBackground: false,
+      } as any,
+      { type: "text", content: "done" },
+    ];
+
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream);
+
+    await adapter.startStreaming(session, "test", {
+      runId: 100,
+      messageId: "msg-2",
+    });
+
+    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    expect(agentStartEvents.length).toBe(1);
+    expect(agentStartEvents[0].data.agentId).toBe("agent-001");
+    expect(agentStartEvents[0].data.agentType).toBe("explore");
+    expect(agentStartEvents[0].data.task).toBe("Find files");
+    expect(agentStartEvents[0].runId).toBe(100);
+  });
+
+  test("publishes agent complete events from stream", async () => {
+    const events = collectEvents(bus);
+
+    const chunks: AgentMessage[] = [
+      {
+        type: "agent_complete" as any,
+        content: "",
+        agentId: "agent-001",
+        success: true,
+        result: "Found 3 files",
+      } as any,
+      { type: "text", content: "done" },
+    ];
+
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream);
+
+    await adapter.startStreaming(session, "test", {
+      runId: 100,
+      messageId: "msg-2",
+    });
+
+    const agentCompleteEvents = events.filter((e) => e.type === "stream.agent.complete");
+    expect(agentCompleteEvents.length).toBe(1);
+    expect(agentCompleteEvents[0].data.agentId).toBe("agent-001");
+    expect(agentCompleteEvents[0].data.success).toBe(true);
+    expect(agentCompleteEvents[0].data.result).toBe("Found 3 files");
+    expect(agentCompleteEvents[0].runId).toBe(100);
   });
 });
 
@@ -991,5 +1094,147 @@ describe("CopilotStreamAdapter", () => {
     );
     expect(thinkingCompleteEvents.length).toBe(1);
     expect(thinkingCompleteEvents[0].data.sourceKey).toBe("reason-1");
+  });
+});
+
+// ============================================================================
+// WorkflowEventAdapter Tests
+// ============================================================================
+
+describe("WorkflowEventAdapter", () => {
+  let bus: AtomicEventBus;
+  let adapter: WorkflowEventAdapter;
+
+  beforeEach(() => {
+    bus = new AtomicEventBus();
+    adapter = new WorkflowEventAdapter(bus, "workflow-session-1", 1);
+  });
+
+  test("publishStepStart() publishes workflow.step.start event", () => {
+    const events = collectEvents(bus);
+
+    adapter.publishStepStart("wf-001", "analyze-code", "node-1");
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe("workflow.step.start");
+    expect(events[0].sessionId).toBe("workflow-session-1");
+    expect(events[0].runId).toBe(1);
+    expect(events[0].data.workflowId).toBe("wf-001");
+    expect(events[0].data.nodeId).toBe("node-1");
+    expect(events[0].data.nodeName).toBe("analyze-code");
+  });
+
+  test("publishStepComplete() publishes workflow.step.complete with status", () => {
+    const events = collectEvents(bus);
+
+    adapter.publishStepComplete("wf-001", "analyze-code", "node-1", "success", { output: "done" });
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe("workflow.step.complete");
+    expect(events[0].data.workflowId).toBe("wf-001");
+    expect(events[0].data.nodeId).toBe("node-1");
+    expect(events[0].data.status).toBe("success");
+    expect(events[0].data.result).toEqual({ output: "done" });
+    expect(events[0].runId).toBe(1);
+  });
+
+  test("publishStepComplete() defaults to success status", () => {
+    const events = collectEvents(bus);
+
+    adapter.publishStepComplete("wf-001", "step", "node-1");
+
+    expect(events[0].data.status).toBe("success");
+  });
+
+  test("publishTaskUpdate() publishes workflow.task.update with tasks", () => {
+    const events = collectEvents(bus);
+
+    const tasks = [
+      { id: "t1", title: "First task", status: "complete" },
+      { id: "t2", title: "Second task", status: "in_progress" },
+      { id: "t3", title: "Third task", status: "pending" },
+    ];
+
+    adapter.publishTaskUpdate("wf-001", tasks);
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe("workflow.task.update");
+    expect(events[0].data.workflowId).toBe("wf-001");
+    expect(events[0].data.tasks).toEqual(tasks);
+    expect(events[0].data.tasks.length).toBe(3);
+  });
+
+  test("publishAgentStart() publishes stream.agent.start event", () => {
+    const events = collectEvents(bus);
+
+    adapter.publishAgentStart("agent-001", "explore", "Find relevant files", false);
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe("stream.agent.start");
+    expect(events[0].data.agentId).toBe("agent-001");
+    expect(events[0].data.agentType).toBe("explore");
+    expect(events[0].data.task).toBe("Find relevant files");
+    expect(events[0].data.isBackground).toBe(false);
+    expect(events[0].runId).toBe(1);
+  });
+
+  test("publishAgentStart() defaults isBackground to false", () => {
+    const events = collectEvents(bus);
+
+    adapter.publishAgentStart("agent-001", "task", "Run tests");
+
+    expect(events[0].data.isBackground).toBe(false);
+  });
+
+  test("publishAgentUpdate() publishes stream.agent.update event", () => {
+    const events = collectEvents(bus);
+
+    adapter.publishAgentUpdate("agent-001", "bash", 5);
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe("stream.agent.update");
+    expect(events[0].data.agentId).toBe("agent-001");
+    expect(events[0].data.currentTool).toBe("bash");
+    expect(events[0].data.toolUses).toBe(5);
+  });
+
+  test("publishAgentComplete() publishes stream.agent.complete event", () => {
+    const events = collectEvents(bus);
+
+    adapter.publishAgentComplete("agent-001", true, "Found 3 files");
+
+    expect(events.length).toBe(1);
+    expect(events[0].type).toBe("stream.agent.complete");
+    expect(events[0].data.agentId).toBe("agent-001");
+    expect(events[0].data.success).toBe(true);
+    expect(events[0].data.result).toBe("Found 3 files");
+    expect(events[0].data.error).toBeUndefined();
+  });
+
+  test("publishAgentComplete() with error", () => {
+    const events = collectEvents(bus);
+
+    adapter.publishAgentComplete("agent-001", false, undefined, "Agent timeout");
+
+    expect(events[0].data.success).toBe(false);
+    expect(events[0].data.error).toBe("Agent timeout");
+    expect(events[0].data.result).toBeUndefined();
+  });
+
+  test("all events use correct sessionId and runId", () => {
+    const events = collectEvents(bus);
+
+    adapter.publishStepStart("wf", "step", "n1");
+    adapter.publishAgentStart("a1", "task", "do stuff");
+    adapter.publishAgentUpdate("a1", "bash");
+    adapter.publishAgentComplete("a1", true);
+    adapter.publishStepComplete("wf", "step", "n1");
+    adapter.publishTaskUpdate("wf", [{ id: "t1", title: "T", status: "done" }]);
+
+    expect(events.length).toBe(6);
+    for (const event of events) {
+      expect(event.sessionId).toBe("workflow-session-1");
+      expect(event.runId).toBe(1);
+    }
   });
 });

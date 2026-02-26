@@ -71,6 +71,24 @@ export class CorrelationService {
   private mainAgentId: string | null = null;
 
   /**
+   * Active run ID for this correlation service instance.
+   * Set via startRun() to track which run this service is processing.
+   */
+  private _activeRunId: number | null = null;
+
+  /**
+   * Set of session IDs that this service owns.
+   * Events from these sessions are considered "owned" by this service.
+   */
+  private ownedSessionIds = new Set<string>();
+
+  /**
+   * Maps tool IDs to their run IDs.
+   * Populated when processing stream.tool.start events.
+   */
+  private toolIdToRunMap = new Map<string, number>();
+
+  /**
    * Enrich a BusEvent with correlation metadata.
    *
    * This method takes a raw BusEvent from the event bus and enriches it
@@ -112,6 +130,9 @@ export class CorrelationService {
       case "stream.tool.start": {
         const data = event.data as BusEventDataMap["stream.tool.start"];
         enriched.resolvedToolId = data.toolId;
+        
+        // Track which run this tool belongs to
+        this.toolIdToRunMap.set(data.toolId, event.runId);
         
         // If we know which agent spawned this tool, correlate it
         // For tools without explicit agent correlation, use the main agent
@@ -170,6 +191,61 @@ export class CorrelationService {
   }
 
   /**
+   * Start tracking a new run.
+   *
+   * This method sets the active run ID and adds the session ID to the
+   * set of owned sessions. It also calls reset() to clear any previous
+   * run state (tool mappings, agent IDs, etc.).
+   *
+   * @param runId - The run ID to start tracking
+   * @param sessionId - The session ID associated with this run
+   */
+  startRun(runId: number, sessionId: string): void {
+    this.reset();
+    this._activeRunId = runId;
+    this.ownedSessionIds.add(sessionId);
+  }
+
+  /**
+   * Check if an event is owned by this service.
+   *
+   * An event is considered "owned" if:
+   * - Its runId matches the active run ID, OR
+   * - Its sessionId is in the set of owned session IDs
+   *
+   * @param event - The event to check
+   * @returns true if the event is owned by this service
+   */
+  isOwnedEvent(event: BusEvent): boolean {
+    return (
+      event.runId === this._activeRunId ||
+      this.ownedSessionIds.has(event.sessionId)
+    );
+  }
+
+  /**
+   * Get the active run ID.
+   *
+   * @returns The active run ID, or null if no run is active
+   */
+  get activeRunId(): number | null {
+    return this._activeRunId;
+  }
+
+  /**
+   * Process a batch of events.
+   *
+   * This method enriches all events in the batch by calling enrich()
+   * on each event.
+   *
+   * @param events - The batch of events to process
+   * @returns An array of enriched events
+   */
+  processBatch(events: BusEvent[]): EnrichedBusEvent[] {
+    return events.map(e => this.enrich(e));
+  }
+
+  /**
    * Reset all correlation state (call between runs).
    *
    * This method clears all internal tracking state, preparing the service
@@ -184,5 +260,8 @@ export class CorrelationService {
     this.toolToAgent.clear();
     this.subAgentTools.clear();
     this.mainAgentId = null;
+    this._activeRunId = null;
+    this.ownedSessionIds.clear();
+    this.toolIdToRunMap.clear();
   }
 }

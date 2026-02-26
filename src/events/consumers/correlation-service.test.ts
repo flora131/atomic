@@ -309,4 +309,91 @@ describe("CorrelationService", () => {
     expect(enriched.isSubagentTool).toBe(false);
     expect(enriched.suppressFromMainChat).toBe(false);
   });
+
+  test("startRun() sets activeRunId and ownedSessionIds", () => {
+    service.startRun(42, "session-abc");
+    expect(service.activeRunId).toBe(42);
+  });
+
+  test("startRun() resets previous state", () => {
+    // Set up some state
+    service.registerTool("tool-1", "agent-1");
+    service.startRun(1, "session-1");
+    
+    // After startRun, the previous tool registration should be cleared
+    const toolEvent: BusEvent<"stream.tool.complete"> = {
+      type: "stream.tool.complete",
+      sessionId: "session-1",
+      runId: 1,
+      timestamp: Date.now(),
+      data: { toolId: "tool-1", toolName: "test", toolResult: "", success: true },
+    };
+    const enriched = service.enrich(toolEvent);
+    expect(enriched.resolvedAgentId).toBeUndefined();
+  });
+
+  test("isOwnedEvent() returns true for matching runId", () => {
+    service.startRun(5, "session-x");
+    const event: BusEvent = {
+      type: "stream.text.delta",
+      sessionId: "session-other",
+      runId: 5,
+      timestamp: Date.now(),
+      data: { delta: "hi", messageId: "m1" },
+    };
+    expect(service.isOwnedEvent(event)).toBe(true);
+  });
+
+  test("isOwnedEvent() returns true for owned sessionId", () => {
+    service.startRun(5, "session-x");
+    const event: BusEvent = {
+      type: "stream.text.delta",
+      sessionId: "session-x",
+      runId: 999,
+      timestamp: Date.now(),
+      data: { delta: "hi", messageId: "m1" },
+    };
+    expect(service.isOwnedEvent(event)).toBe(true);
+  });
+
+  test("isOwnedEvent() returns false for unrelated event", () => {
+    service.startRun(5, "session-x");
+    const event: BusEvent = {
+      type: "stream.text.delta",
+      sessionId: "session-other",
+      runId: 99,
+      timestamp: Date.now(),
+      data: { delta: "hi", messageId: "m1" },
+    };
+    expect(service.isOwnedEvent(event)).toBe(false);
+  });
+
+  test("activeRunId is null initially", () => {
+    expect(service.activeRunId).toBeNull();
+  });
+
+  test("processBatch() enriches all events", () => {
+    const events: BusEvent[] = [
+      { type: "stream.text.delta", sessionId: "s1", runId: 1, timestamp: Date.now(), data: { delta: "a", messageId: "m1" } },
+      { type: "stream.text.delta", sessionId: "s1", runId: 1, timestamp: Date.now(), data: { delta: "b", messageId: "m1" } },
+    ];
+    const enriched = service.processBatch(events);
+    expect(enriched.length).toBe(2);
+    expect(enriched[0]).toHaveProperty("resolvedToolId");
+    expect(enriched[1]).toHaveProperty("isSubagentTool");
+  });
+
+  test("reset() clears run ownership state", () => {
+    service.startRun(10, "session-owned");
+    service.reset();
+    expect(service.activeRunId).toBeNull();
+    const event: BusEvent = {
+      type: "stream.text.delta",
+      sessionId: "session-owned",
+      runId: 10,
+      timestamp: Date.now(),
+      data: { delta: "hi", messageId: "m1" },
+    };
+    expect(service.isOwnedEvent(event)).toBe(false);
+  });
 });

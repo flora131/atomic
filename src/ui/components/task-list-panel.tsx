@@ -6,7 +6,7 @@
  * visual progress bar, numbered task rows, and status-aware styling.
  *
  * TaskListPanel: Persistent, file-driven wrapper that reads from tasks.json
- * via file watcher during /ralph workflow execution, feeding data to TaskListBox.
+ * via file watcher during workflow execution, feeding data to TaskListBox.
  *
  * Reference: specs/ralph-task-list-ui.md
  */
@@ -151,7 +151,7 @@ export function TaskListBox({
 }
 
 // ============================================================================
-// TASK LIST PANEL (File-driven wrapper for /ralph workflow)
+// TASK LIST PANEL (File-driven wrapper for workflows)
 // ============================================================================
 
 export function TaskListPanel({

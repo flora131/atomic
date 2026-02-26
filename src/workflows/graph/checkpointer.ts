@@ -943,7 +943,7 @@ export interface CreateCheckpointerOptions<TState extends BaseState = BaseState>
  * const file = createCheckpointer("file", { baseDir: "/tmp/checkpoints" });
  * const research = createCheckpointer("research", { researchDir: "research" });
  * const session = createCheckpointer("session", {
- *   sessionDir: (state) => state.ralphSessionDir
+ *   sessionDir: (state) => state.sessionDir
  * });
  * ```
  */

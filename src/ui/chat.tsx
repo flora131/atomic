@@ -39,7 +39,6 @@ import {
   SubagentGraphBridge,
   type CreateSessionFn,
 } from "../workflows/graph/subagent-bridge.ts";
-import { WorkflowSDK } from "../workflows/graph/sdk.ts";
 import {
   UserQuestionDialog,
   type UserQuestion,
@@ -1901,7 +1900,6 @@ export function ChatApp({
   const wasInterruptedRef = useRef(false);
   // Ref to keep a synchronous copy of parallel agents (avoids nested dispatch issues)
   const parallelAgentsRef = useRef<ParallelAgent[]>([]);
-  const workflowSdkRef = useRef<WorkflowSDK | null>(null);
   const subagentBridgeRef = useRef<SubagentGraphBridge | null>(null);
   // Ref to hold a deferred handleComplete when sub-agents are still running.
   // When the last agent finishes, the stored function is called to finalize
@@ -2534,7 +2532,7 @@ export function ChatApp({
 
   // Auto-start workflow when workflowActive becomes true with an initialPrompt.
   // This handles non-context-clear workflow starts (e.g., generic workflow commands).
-  // For /ralph step 1 → step 2 transitions, the command handler uses streamAndWait directly.
+  // For workflow step transitions, the command handler uses streamAndWait directly.
   const workflowStartedRef = useRef<string | null>(null);
   useEffect(() => {
     if (
@@ -3034,48 +3032,19 @@ export function ChatApp({
   // Initialize SubagentGraphBridge when createSubagentSession is available
   useEffect(() => {
     if (!createSubagentSession) {
-      workflowSdkRef.current = null;
       subagentBridgeRef.current = null;
       return;
     }
 
-    const providerName = agentType ?? "claude";
-    const workflowClient: CodingAgentClient = {
-      agentType: providerName,
+    const bridge = new SubagentGraphBridge({
       createSession: createSubagentSession,
-      async resumeSession(_sessionId: string): Promise<Session | null> {
-        return null;
-      },
-      on<T extends EventType>(_eventType: T, _handler: EventHandler<T>): () => void {
-        return () => {};
-      },
-      registerTool(_tool: ToolDefinition): void {},
-      async start(): Promise<void> {},
-      async stop(): Promise<void> {},
-      async getModelDisplayInfo(): Promise<ModelDisplayInfo> {
-        return {
-          model: providerName,
-          tier: "workflow-sdk",
-        };
-      },
-      getSystemToolsTokens(): number | null {
-        return null;
-      },
-    };
-
-    const sdk = WorkflowSDK.init({
-      providers: { [providerName]: workflowClient },
-      subagentProvider: providerName,
     });
-    workflowSdkRef.current = sdk;
-    subagentBridgeRef.current = sdk.getSubagentBridge();
+    subagentBridgeRef.current = bridge;
 
     return () => {
-      workflowSdkRef.current = null;
       subagentBridgeRef.current = null;
-      void sdk.destroy();
     };
-  }, [agentType, createSubagentSession]);
+  }, [createSubagentSession]);
 
   /**
    * Handle user answering a question from UserQuestionDialog.
@@ -3415,7 +3384,7 @@ export function ChatApp({
   const addMessage = useCallback((role: "user" | "assistant" | "system", content: string) => {
     // When streaming is active and we're adding an assistant message,
     // mark it as streaming so the LoadingIndicator and task animations render.
-    // This is essential for workflow commands like /ralph that use setStreaming(true)
+    // This is essential for workflow commands (like /ralph or custom workflows) that use setStreaming(true)
     // and addMessage together.
     const streaming = role === "assistant" && isStreamingRef.current;
     const msg = createMessage(role, content, streaming);
@@ -3810,7 +3779,7 @@ export function ChatApp({
         // Inject into main session — SDK's native sub-agent dispatch handles it.
         // Wait for the streaming response so the caller gets the actual result.
         //
-        // IMPORTANT: For ralph review-fix loops, the sub-agent output must be
+        // IMPORTANT: For workflow review-fix loops, the sub-agent output must be
         // clean JSON without additional commentary. We hide the stream content
         // to avoid polluting the chat UI with intermediate steps.
         const agentName = options.name ?? options.model ?? "general-purpose";

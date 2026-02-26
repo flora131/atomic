@@ -4,10 +4,6 @@
  * Exports are organized by category to keep the SDK surface easy to navigate.
  */
 
-// === Core SDK ===
-export type { WorkflowRegistration, WorkflowSDKConfig } from "./sdk.ts";
-export { WorkflowSDK } from "./sdk.ts";
-
 // === Core graph types and utilities ===
 export type {
   NodeId,

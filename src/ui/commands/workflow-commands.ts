@@ -291,7 +291,7 @@ export async function saveTasksToActiveSession(
     }
     if (!sessionDir) {
         console.error(
-            "[ralph] saveTasksToActiveSession: no session directory found",
+            "[workflow] saveTasksToActiveSession: no session directory found",
         );
         return;
     }
@@ -304,7 +304,7 @@ export async function saveTasksToActiveSession(
         );
         await atomicWrite(tasksPath, content);
     } catch (error) {
-        console.error("[ralph] Failed to write tasks.json:", error);
+        console.error("[workflow] Failed to write tasks.json:", error);
     }
 }
 

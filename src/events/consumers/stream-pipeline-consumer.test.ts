@@ -148,8 +148,14 @@ describe("StreamPipelineConsumer", () => {
     consumer.processBatch(events);
 
     expect(receivedEvents).toHaveLength(2);
-    expect(receivedEvents[0]?.delta).toBe("Hello ");
-    expect(receivedEvents[1]?.delta).toBe("World");
+    expect(receivedEvents[0]?.type).toBe("text-delta");
+    expect(receivedEvents[1]?.type).toBe("text-delta");
+    if (receivedEvents[0]?.type === "text-delta") {
+      expect(receivedEvents[0].delta).toBe("Hello ");
+    }
+    if (receivedEvents[1]?.type === "text-delta") {
+      expect(receivedEvents[1].delta).toBe("World");
+    }
   });
 
   it("should ignore unmapped event types", () => {

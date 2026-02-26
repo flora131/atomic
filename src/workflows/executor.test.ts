@@ -411,6 +411,7 @@ describe("executeWorkflow", () => {
             setWorkflowTaskIds: (ids: Set<string>) => {
                 workflowTaskIds = ids;
             },
+            spawnSubagentParallel: async () => [],
             // Expose for testing
             _getMessages: () => messages,
             _getStreaming: () => streaming,

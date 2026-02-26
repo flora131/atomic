@@ -28,17 +28,27 @@ export interface WorkflowBridge {
 /**
  * Creates a WorkflowBridge backed by the TUI's spawnSubagentParallel.
  * This is the sole bridge implementation for runtime execution.
+ * @throws Error if context.spawnSubagentParallel is not available.
  */
 export function createTUIBridge(context: CommandContext): WorkflowBridge {
+    if (!context.spawnSubagentParallel) {
+        throw new Error(
+            "createTUIBridge requires a CommandContext with spawnSubagentParallel",
+        );
+    }
+    const spawnFn = context.spawnSubagentParallel;
     return {
         async spawn(agent, abortSignal) {
-            const [result] = await context.spawnSubagentParallel!(
+            const [result] = await spawnFn(
                 [{ ...agent, abortSignal }],
                 abortSignal,
             );
-            return result!;
+            if (!result) {
+                throw new Error("Subagent spawn returned no results");
+            }
+            return result;
         },
         spawnParallel: (agents, abortSignal) =>
-            context.spawnSubagentParallel!(agents, abortSignal),
+            spawnFn(agents, abortSignal),
     };
 }

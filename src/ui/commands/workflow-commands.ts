@@ -192,6 +192,13 @@ export function getActiveSession(): WorkflowSession | undefined {
 }
 
 /**
+ * Register an active workflow session for tracking.
+ */
+export function registerActiveSession(session: WorkflowSession): void {
+    activeSessions.set(session.sessionId, session);
+}
+
+/**
  * Complete and remove a session.
  */
 export function completeSession(sessionId: string): void {

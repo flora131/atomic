@@ -7,7 +7,7 @@
 import type { BaseState, CompiledGraph, NodeDefinition, Edge, GraphConfig } from "./graph/types.ts";
 import { SubagentTypeRegistry } from "./graph/subagent-registry.ts";
 import { discoverAgentInfos } from "../ui/commands/agent-commands.ts";
-import type { WorkflowDefinition, WorkflowGraphConfig } from "../ui/commands/workflow-commands.ts";
+import { type WorkflowDefinition, type WorkflowGraphConfig, registerActiveSession } from "../ui/commands/workflow-commands.ts";
 import type { CommandContext, CommandResult } from "../ui/commands/registry.ts";
 import { createTUIBridge } from "./graph/bridge.ts";
 import { streamGraph } from "./graph/compiled.ts";
@@ -109,12 +109,6 @@ export function createSubagentRegistry(): SubagentTypeRegistry {
 const DEFAULT_MAX_ITERATIONS = 100;
 
 /**
- * Active workflow sessions (keyed by sessionId).
- * Shared with workflow-commands.ts for session lookup.
- */
-const activeSessions = new Map<string, { sessionId: string; sessionDir: string }>();
-
-/**
  * Generic workflow executor that encapsulates the full execution lifecycle.
  * Replaces the ~200-line createRalphCommand() with a reusable function.
  *
@@ -139,7 +133,9 @@ export async function executeWorkflow(
     const sessionId = crypto.randomUUID();
     const sessionDir = getWorkflowSessionDir(sessionId);
     void initWorkflowSession(definition.name, sessionId).then((session) => {
-        activeSessions.set(session.sessionId, session);
+        registerActiveSession(session);
+    }).catch((err) => {
+        console.error("[workflow] Failed to initialize session:", err);
     });
 
     context.updateWorkflowState({

@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
   applyTaskSnapshotToLatestAssistantMessage,
-  hasRalphTaskIdOverlap,
+  hasWorkflowTaskIdOverlap,
   normalizeInterruptedTasks,
   preferTerminalTaskItems,
   snapshotTaskItems,
-  type RalphTaskStateItem,
-} from "./utils/ralph-task-state.ts";
+  type WorkflowTaskStateItem,
+} from "./utils/workflow-task-state.ts";
 import { mergeBlockedBy, type NormalizedTodoItem } from "./utils/task-status.ts";
 
-describe("ralph task state helpers", () => {
+describe("workflow task state helpers", () => {
   test("normalizeInterruptedTasks only resets in_progress to pending", () => {
-    const tasks: RalphTaskStateItem[] = [
+    const tasks: WorkflowTaskStateItem[] = [
       { id: "#1", content: "a", status: "pending" },
       { id: "#2", content: "b", status: "in_progress" },
       { id: "#3", content: "c", status: "completed" },
@@ -28,7 +28,7 @@ describe("ralph task state helpers", () => {
   });
 
   test("snapshotTaskItems preserves status values without coercion", () => {
-    const tasks: RalphTaskStateItem[] = [
+    const tasks: WorkflowTaskStateItem[] = [
       { id: "#1", content: "a", status: "pending" },
       { id: "#2", content: "b", status: "in_progress" },
       { id: "#3", content: "c", status: "completed" },
@@ -49,37 +49,37 @@ describe("ralph task state helpers", () => {
     expect(snapshotTaskItems([])).toBeUndefined();
   });
 
-  test("hasRalphTaskIdOverlap matches ids with and without # prefix", () => {
+  test("hasWorkflowTaskIdOverlap matches ids with and without # prefix", () => {
     const knownIds = new Set(["#1", "#2"]);
-    const todos: RalphTaskStateItem[] = [
+    const todos: WorkflowTaskStateItem[] = [
       { id: "1", content: "first", status: "completed" },
       { id: "2", content: "second", status: "pending" },
     ];
 
-    expect(hasRalphTaskIdOverlap(todos, knownIds)).toBe(true);
+    expect(hasWorkflowTaskIdOverlap(todos, knownIds)).toBe(true);
   });
 
-  test("hasRalphTaskIdOverlap rejects unrelated todo ids", () => {
+  test("hasWorkflowTaskIdOverlap rejects unrelated todo ids", () => {
     const knownIds = new Set(["#1", "#2"]);
-    const todos: RalphTaskStateItem[] = [
+    const todos: WorkflowTaskStateItem[] = [
       { id: "#9", content: "other", status: "completed" },
     ];
 
-    expect(hasRalphTaskIdOverlap(todos, knownIds)).toBe(false);
+    expect(hasWorkflowTaskIdOverlap(todos, knownIds)).toBe(false);
   });
 
-  test("hasRalphTaskIdOverlap rejects mixed payloads with foreign IDs", () => {
+  test("hasWorkflowTaskIdOverlap rejects mixed payloads with foreign IDs", () => {
     const knownIds = new Set(["#1", "#2"]);
-    const todos: RalphTaskStateItem[] = [
+    const todos: WorkflowTaskStateItem[] = [
       { id: "#1", content: "first", status: "completed" },
       { id: "#99", content: "foreign", status: "pending" },
     ];
 
-    expect(hasRalphTaskIdOverlap(todos, knownIds)).toBe(false);
+    expect(hasWorkflowTaskIdOverlap(todos, knownIds)).toBe(false);
   });
 
   test("supports restart resume by preserving ids and blockedBy", () => {
-    const interrupted: RalphTaskStateItem[] = [
+    const interrupted: WorkflowTaskStateItem[] = [
       { id: "#1", content: "bootstrap", status: "completed" },
       {
         id: "#2",
@@ -105,7 +105,7 @@ describe("ralph task state helpers", () => {
       blockedBy: ["#1"],
     });
     expect(
-      hasRalphTaskIdOverlap(snapshot ?? [], new Set(["1", "2", "3"])),
+      hasWorkflowTaskIdOverlap(snapshot ?? [], new Set(["1", "2", "3"])),
     ).toBe(true);
   });
 
@@ -121,7 +121,7 @@ describe("ralph task state helpers", () => {
     ];
 
     const merged = mergeBlockedBy(incomingWithoutIds, previous);
-    expect(hasRalphTaskIdOverlap(merged, knownIds)).toBe(true);
+    expect(hasWorkflowTaskIdOverlap(merged, knownIds)).toBe(true);
   });
 
   test("accepts no-id updates when known IDs are empty but content matches", () => {
@@ -135,7 +135,7 @@ describe("ralph task state helpers", () => {
       { content: "add tests", status: "in_progress", activeForm: "Adding tests" },
     ];
 
-    expect(hasRalphTaskIdOverlap(incomingWithoutIds, knownIds, previous)).toBe(true);
+    expect(hasWorkflowTaskIdOverlap(incomingWithoutIds, knownIds, previous)).toBe(true);
   });
 
   test("recognizes no-id updates when content prefixes include task IDs/checkboxes", () => {
@@ -150,7 +150,7 @@ describe("ralph task state helpers", () => {
     ];
 
     const merged = mergeBlockedBy(incomingWithoutIds, previous);
-    expect(hasRalphTaskIdOverlap(merged, knownIds, previous)).toBe(true);
+    expect(hasWorkflowTaskIdOverlap(merged, knownIds, previous)).toBe(true);
   });
 
   test("rejects no-id updates when prefixed content carries foreign task IDs", () => {
@@ -165,7 +165,7 @@ describe("ralph task state helpers", () => {
     ];
 
     const merged = mergeBlockedBy(incomingWithoutIds, previous);
-    expect(hasRalphTaskIdOverlap(merged, knownIds, previous)).toBe(false);
+    expect(hasWorkflowTaskIdOverlap(merged, knownIds, previous)).toBe(false);
   });
 
   test("rejects unrelated no-id TodoWrite payloads during /ralph", () => {
@@ -179,7 +179,7 @@ describe("ralph task state helpers", () => {
     ];
 
     const merged = mergeBlockedBy(unrelated, previous);
-    expect(hasRalphTaskIdOverlap(merged, knownIds)).toBe(false);
+    expect(hasWorkflowTaskIdOverlap(merged, knownIds)).toBe(false);
   });
 
   test("rejects no-id rows that do not match existing ralph tasks", () => {
@@ -193,15 +193,15 @@ describe("ralph task state helpers", () => {
       { content: "Completely new task", status: "pending", activeForm: "Adding a new task" },
     ];
 
-    expect(hasRalphTaskIdOverlap(mixed, knownIds, previous)).toBe(false);
+    expect(hasWorkflowTaskIdOverlap(mixed, knownIds, previous)).toBe(false);
   });
 
   test("preferTerminalTaskItems drops stale in_progress last-item snapshots", () => {
-    const inMemory: RalphTaskStateItem[] = [
+    const inMemory: WorkflowTaskStateItem[] = [
       { id: "#1", content: "prep", status: "completed" },
       { id: "#2", content: "finalize", status: "in_progress" },
     ];
-    const fromDisk: RalphTaskStateItem[] = [
+    const fromDisk: WorkflowTaskStateItem[] = [
       { id: "#1", content: "prep", status: "completed" },
       { id: "#2", content: "finalize", status: "completed" },
     ];
@@ -210,7 +210,7 @@ describe("ralph task state helpers", () => {
   });
 
   test("applyTaskSnapshotToLatestAssistantMessage refreshes final assistant task state", () => {
-    const messages: Array<{ id: string; role: string; taskItems?: RalphTaskStateItem[] }> = [
+    const messages: Array<{ id: string; role: string; taskItems?: WorkflowTaskStateItem[] }> = [
       {
         id: "m-user",
         role: "user",
@@ -225,7 +225,7 @@ describe("ralph task state helpers", () => {
       },
     ];
 
-    const nextTasks: RalphTaskStateItem[] = [
+    const nextTasks: WorkflowTaskStateItem[] = [
       { id: "#1", content: "prep", status: "completed" },
       { id: "#2", content: "finalize", status: "completed" },
     ];

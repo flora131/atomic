@@ -1,22 +1,22 @@
 /**
- * Ralph task-state helpers used by interrupt/resume and message snapshots.
+ * Workflow task-state helpers used by interrupt/resume and message snapshots.
  */
 
-export type RalphTaskStatus = "pending" | "in_progress" | "completed" | "error";
+export type WorkflowTaskStatus = "pending" | "in_progress" | "completed" | "error";
 
-export interface RalphTaskStateItem {
+export interface WorkflowTaskStateItem {
   id?: string;
   content: string;
-  status: RalphTaskStatus;
+  status: WorkflowTaskStatus;
   blockedBy?: string[];
 }
 
-export interface RalphTaskSnapshotMessage {
+export interface WorkflowTaskSnapshotMessage {
   role: string;
-  taskItems?: RalphTaskStateItem[];
+  taskItems?: WorkflowTaskStateItem[];
 }
 
-function normalizeRalphTaskId(id: string): string {
+function normalizeWorkflowTaskId(id: string): string {
   const trimmed = id.trim().toLowerCase();
   return trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
 }
@@ -46,10 +46,10 @@ function normalizeTaskContent(content: string): string {
 }
 
 /**
- * True when any incoming todo item belongs to the current ralph task set.
+ * True when any incoming todo item belongs to the current workflow task set.
  * ID matching is format-tolerant (`#1` and `1` are treated as equivalent).
  */
-export function hasRalphTaskIdOverlap<T extends { id?: string }>(
+export function hasWorkflowTaskIdOverlap<T extends { id?: string }>(
   todos: readonly T[],
   knownTaskIds: ReadonlySet<string>,
   previousTasks: readonly { content: string }[] = [],
@@ -59,7 +59,7 @@ export function hasRalphTaskIdOverlap<T extends { id?: string }>(
   const normalizedKnownIds = new Set(
     Array.from(knownTaskIds)
       .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
-      .map(normalizeRalphTaskId),
+      .map(normalizeWorkflowTaskId),
   );
 
   const previousContentKeys = new Set(
@@ -73,7 +73,7 @@ export function hasRalphTaskIdOverlap<T extends { id?: string }>(
   for (const todo of todos) {
     const rawId = todo.id;
     if (typeof rawId === "string" && rawId.trim().length > 0) {
-      const normalizedId = normalizeRalphTaskId(rawId);
+      const normalizedId = normalizeWorkflowTaskId(rawId);
       if (normalizedKnownIds.size > 0 && !normalizedKnownIds.has(normalizedId)) {
         return false;
       }
@@ -112,7 +112,7 @@ export function hasRalphTaskIdOverlap<T extends { id?: string }>(
 /**
  * Convert interrupted in-progress work back to pending so it stays unchecked/retryable.
  */
-export function normalizeInterruptedTasks<T extends RalphTaskStateItem>(
+export function normalizeInterruptedTasks<T extends WorkflowTaskStateItem>(
   tasks: readonly T[],
 ): T[] {
   return tasks.map((task) =>
@@ -126,8 +126,8 @@ export function normalizeInterruptedTasks<T extends RalphTaskStateItem>(
  * Capture task items for message snapshots without mutating semantic status.
  */
 export function snapshotTaskItems(
-  tasks: readonly RalphTaskStateItem[],
-): RalphTaskStateItem[] | undefined {
+  tasks: readonly WorkflowTaskStateItem[],
+): WorkflowTaskStateItem[] | undefined {
   if (tasks.length === 0) return undefined;
   return tasks.map((task) => ({
     id: task.id,
@@ -137,7 +137,7 @@ export function snapshotTaskItems(
   }));
 }
 
-function hasInProgressTasks(tasks: readonly RalphTaskStateItem[]): boolean {
+function hasInProgressTasks(tasks: readonly WorkflowTaskStateItem[]): boolean {
   return tasks.some((task) => task.status === "in_progress");
 }
 
@@ -147,7 +147,7 @@ function hasInProgressTasks(tasks: readonly RalphTaskStateItem[]): boolean {
  * If one source still reports in_progress tasks while the other does not, prefer the
  * source without in_progress so stale last-item snapshots do not survive cleanup.
  */
-export function preferTerminalTaskItems<T extends RalphTaskStateItem>(
+export function preferTerminalTaskItems<T extends WorkflowTaskStateItem>(
   inMemoryTasks: readonly T[],
   diskTasks: readonly T[],
 ): T[] {
@@ -170,8 +170,8 @@ export function preferTerminalTaskItems<T extends RalphTaskStateItem>(
  * in_progress rows do not remain visible after workflow cleanup.
  */
 export function applyTaskSnapshotToLatestAssistantMessage<
-  TMessage extends RalphTaskSnapshotMessage,
-  TTask extends RalphTaskStateItem,
+  TMessage extends WorkflowTaskSnapshotMessage,
+  TTask extends WorkflowTaskStateItem,
 >(
   messages: readonly TMessage[],
   tasks: readonly TTask[],

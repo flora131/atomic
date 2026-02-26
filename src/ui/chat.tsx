@@ -149,11 +149,11 @@ import {
 } from "./utils/mention-parsing.ts";
 import {
   applyTaskSnapshotToLatestAssistantMessage,
-  hasRalphTaskIdOverlap,
+  hasWorkflowTaskIdOverlap,
   normalizeInterruptedTasks,
   preferTerminalTaskItems,
   snapshotTaskItems,
-} from "./utils/ralph-task-state.ts";
+} from "./utils/workflow-task-state.ts";
 import type {
   Part,
   TextPart,
@@ -2106,7 +2106,7 @@ export function ChatApp({
     todos: NormalizedTodoItem[],
     previousTodos: readonly NormalizedTodoItem[] = todoItemsRef.current,
   ): boolean => {
-    return hasRalphTaskIdOverlap(todos, workflowTaskIdsRef.current, previousTodos);
+    return hasWorkflowTaskIdOverlap(todos, workflowTaskIdsRef.current, previousTodos);
   }, []);
 
   /**

@@ -49,6 +49,7 @@ import type {
   ToolCompleteEventData,
   SubagentStartEventData,
   SubagentCompleteEventData,
+  SubagentUpdateEventData,
   MessageDeltaEventData,
   PermissionRequestedEventData,
   HumanInputRequiredEventData,
@@ -181,6 +182,13 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         this.createSubagentCompleteHandler(runId),
       );
       this.unsubscribers.push(unsubAgentComplete);
+
+      // Subscribe to subagent.update events (tool progress for sub-agents)
+      const unsubAgentUpdate = client.on(
+        "subagent.update",
+        this.createSubagentUpdateHandler(runId),
+      );
+      this.unsubscribers.push(unsubAgentUpdate);
 
       // Subscribe to session.idle events
       const unsubIdle = client.on(
@@ -686,6 +694,32 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         },
       };
 
+      this.bus.publish(busEvent);
+    };
+  }
+
+  /**
+   * Create a handler for subagent.update events from the SDK.
+   * Publishes stream.agent.update to the bus.
+   */
+  private createSubagentUpdateHandler(
+    runId: number,
+  ): EventHandler<"subagent.update"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+
+      const data = event.data as SubagentUpdateEventData;
+      const busEvent: BusEvent<"stream.agent.update"> = {
+        type: "stream.agent.update",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          agentId: data.subagentId,
+          currentTool: data.currentTool,
+          toolUses: data.toolUses,
+        },
+      };
       this.bus.publish(busEvent);
     };
   }

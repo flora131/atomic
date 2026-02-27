@@ -43,4 +43,6 @@ export interface StreamAdapterOptions {
   messageId: string;
   /** Optional agent name for sub-agent dispatch (used by OpenCode) */
   agent?: string;
+  /** Known agent names that should be treated as task/agent tools (Copilot SDK) */
+  knownAgentNames?: string[];
 }

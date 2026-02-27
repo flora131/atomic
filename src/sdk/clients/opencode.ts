@@ -380,6 +380,20 @@ export class OpenCodeClient implements CodingAgentClient {
    */
   private pendingAgentParts: Array<{ partId: string; agentName: string }> = [];
   private childSessionToAgentPart = new Map<string, string>();
+  /** Tool use counts per sub-agent (agentPartId → count) for subagent.update events */
+  private subagentToolCounts = new Map<string, number>();
+
+  /**
+   * Pending Task-tool ToolPart IDs.
+   *
+   * When a ToolPart for the "task" tool arrives (pending/running), we record
+   * its `part.id` here.  When the corresponding AgentPart or SubtaskPart
+   * arrives we shift the oldest entry and pass it as `toolCallId` on the
+   * `subagent.start` event.  This ensures the UI's ToolPart.toolCallId and
+   * ParallelAgent.taskToolCallId use the same value, enabling the suppression
+   * logic in `getConsumedTaskToolCallIds` to hide the Task tool card.
+   */
+  private pendingTaskToolPartIds: string[] = [];
 
   /**
    * Create a new OpenCodeClient
@@ -771,6 +785,27 @@ export class OpenCodeClient implements CodingAgentClient {
               toolUseId: part?.id as string,
               toolCallId: part?.callID as string,
             });
+
+            // Track Task tool ToolPart IDs so the corresponding AgentPart
+            // can carry the same ID for UI suppression correlation.
+            if (toolName === "task" || toolName === "Task") {
+              const taskPartId = part?.id as string;
+              if (taskPartId && !this.pendingTaskToolPartIds.includes(taskPartId)) {
+                this.pendingTaskToolPartIds.push(taskPartId);
+              }
+            }
+
+            // Emit subagent.update for child session tools
+            const agentPartId = this.childSessionToAgentPart.get(partSessionId);
+            if (agentPartId && toolState?.status === "running") {
+              const count = (this.subagentToolCounts.get(agentPartId) ?? 0) + 1;
+              this.subagentToolCounts.set(agentPartId, count);
+              this.emitEvent("subagent.update", this.currentSessionId ?? partSessionId, {
+                subagentId: agentPartId,
+                currentTool: toolName,
+                toolUses: count,
+              });
+            }
           } else if (toolState?.status === "completed") {
             // Always emit tool.complete when status is "completed", even
             // if output is undefined.  Sub-agent Task tools may finish
@@ -806,17 +841,25 @@ export class OpenCodeClient implements CodingAgentClient {
           // child tool event reveals the child session.
           const agentPartId = (part?.id as string) ?? "";
           const agentName = (part?.name as string) ?? "";
+
+          // Use the pending Task ToolPart ID as the correlation ID so the
+          // UI can match the agent tree to the Task tool card and suppress
+          // the redundant tool card display.  The ToolPart for "task" is
+          // always emitted before the AgentPart it spawns.
+          const taskToolPartId = this.pendingTaskToolPartIds.shift();
+          const correlationId = taskToolPartId ?? (part?.callID as string) ?? agentPartId;
           debugLog("subagent.start", {
             partType: "agent",
             subagentId: agentPartId,
             subagentType: agentName,
-            toolCallId: (part?.callID as string) ?? agentPartId,
+            toolCallId: correlationId,
+            taskToolPartId: taskToolPartId ?? "none",
           });
           this.pendingAgentParts.push({ partId: agentPartId, agentName });
           this.emitEvent("subagent.start", partSessionId, {
             subagentId: agentPartId,
             subagentType: agentName,
-            toolCallId: (part?.callID as string) ?? agentPartId,
+            toolCallId: correlationId,
             // subagentSessionId intentionally omitted — part.sessionID is
             // the parent session, not the child.  The correct child session
             // will be registered via a follow-up subagent.start when the
@@ -833,16 +876,23 @@ export class OpenCodeClient implements CodingAgentClient {
           const subtaskPrompt = (part?.prompt as string) ?? "";
           const subtaskDescription = (part?.description as string) ?? "";
           const subtaskAgent = (part?.agent as string) ?? "";
+
+          // Use the pending Task ToolPart ID for correlation (same as AgentPart above).
+          const taskToolPartId = this.pendingTaskToolPartIds.shift();
+          const correlationId = taskToolPartId ?? subtaskPartId;
           debugLog("subagent.start", {
             partType: "subtask",
             subagentId: subtaskPartId,
             subagentType: subtaskAgent,
+            toolCallId: correlationId,
+            taskToolPartId: taskToolPartId ?? "none",
           });
           this.pendingAgentParts.push({ partId: subtaskPartId, agentName: subtaskAgent });
           this.emitEvent("subagent.start", partSessionId, {
             subagentId: subtaskPartId,
             subagentType: subtaskAgent,
             task: subtaskDescription || subtaskPrompt,
+            toolCallId: correlationId,
             toolInput: {
               prompt: subtaskPrompt,
               description: subtaskDescription,
@@ -861,7 +911,8 @@ export class OpenCodeClient implements CodingAgentClient {
             result: reason,
           });
 
-          // Clean up child session tracking for the completed agent.
+          // Clean up child session tracking and tool counts for the completed agent.
+          this.subagentToolCounts.delete(finishedPartId);
           for (const [childSid, agentPartId] of this.childSessionToAgentPart) {
             if (agentPartId === finishedPartId) {
               this.childSessionToAgentPart.delete(childSid);

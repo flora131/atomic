@@ -36,6 +36,10 @@ export function coalescingKey(event: BusEvent): string | undefined {
       const data = event.data as BusEventDataMap["stream.agent.start"];
       return `agent.start:${data.agentId}`;
     }
+    case "stream.agent.complete": {
+      const data = event.data as BusEventDataMap["stream.agent.complete"];
+      return `agent.complete:${data.agentId}`;
+    }
 
     // Session status: each type gets its own key to prevent start being
     // replaced by idle/error within the same batch window (which would

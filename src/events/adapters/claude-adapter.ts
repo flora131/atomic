@@ -40,7 +40,11 @@ import type {
   EventHandler,
   ToolStartEventData,
   ToolCompleteEventData,
+  SubagentStartEventData,
+  SubagentCompleteEventData,
+  SubagentUpdateEventData,
 } from "../../sdk/types.ts";
+import { SubagentToolTracker } from "./subagent-tool-tracker.ts";
 
 /**
  * Stream adapter for Claude Agent SDK.
@@ -60,6 +64,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
   private pendingToolIdsByName = new Map<string, string[]>();
   private syntheticToolCounter = 0;
   private accumulatedOutputTokens = 0;
+  private subagentTracker: SubagentToolTracker | null = null;
 
   /**
    * Create a new Claude stream adapter.
@@ -102,6 +107,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.pendingToolIdsByName.clear();
     this.syntheticToolCounter = 0;
     this.accumulatedOutputTokens = 0;
+    this.subagentTracker = new SubagentToolTracker(this.bus, this.sessionId, runId);
 
     this.publishSessionStart(runId);
 
@@ -118,6 +124,26 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         this.createToolCompleteHandler(runId),
       );
       this.unsubscribers.push(unsubToolComplete);
+
+      // Subscribe to subagent lifecycle events from SDK hooks
+      const unsubSubagentStart = client.on(
+        "subagent.start",
+        this.createSubagentStartHandler(runId),
+      );
+      this.unsubscribers.push(unsubSubagentStart);
+
+      const unsubSubagentComplete = client.on(
+        "subagent.complete",
+        this.createSubagentCompleteHandler(runId),
+      );
+      this.unsubscribers.push(unsubSubagentComplete);
+
+      // Subscribe to subagent.update events (tool progress for sub-agents)
+      const unsubAgentUpdate = client.on(
+        "subagent.update",
+        this.createSubagentUpdateHandler(runId),
+      );
+      this.unsubscribers.push(unsubAgentUpdate);
 
       const unsubUsage = client.on(
         "usage",
@@ -324,39 +350,11 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     // stream.usage here to avoid emitting raw per-request values
     // that bypass the accumulator.
 
-    // Handle agent lifecycle events
-    if ((chunk.type as string) === "agent_start") {
-      const event: BusEvent<"stream.agent.start"> = {
-        type: "stream.agent.start",
-        sessionId: this.sessionId,
-        runId,
-        timestamp: Date.now(),
-        data: {
-          agentId: (chunk as any).agentId ?? `agent_${Date.now()}`,
-          agentType: (chunk as any).agentType ?? "unknown",
-          task: (chunk as any).task ?? "",
-          isBackground: (chunk as any).isBackground ?? false,
-          sdkCorrelationId: (chunk as any).correlationId,
-        },
-      };
-      this.bus.publish(event);
-    }
-
-    if ((chunk.type as string) === "agent_complete") {
-      const event: BusEvent<"stream.agent.complete"> = {
-        type: "stream.agent.complete",
-        sessionId: this.sessionId,
-        runId,
-        timestamp: Date.now(),
-        data: {
-          agentId: (chunk as any).agentId ?? `agent_${Date.now()}`,
-          success: (chunk as any).success ?? true,
-          result: (chunk as any).result ? String((chunk as any).result) : undefined,
-          error: (chunk as any).error ? String((chunk as any).error) : undefined,
-        },
-      };
-      this.bus.publish(event);
-    }
+    // Note: Agent lifecycle events (agent_start/agent_complete) are NOT
+    // emitted as stream chunks by the Claude SDK. Sub-agent lifecycle is
+    // delivered through SubagentStart/SubagentStop hooks, which are handled
+    // by createSubagentStartHandler and createSubagentCompleteHandler via
+    // client.on("subagent.start") and client.on("subagent.complete").
   }
 
   private createToolStartHandler(runId: number): EventHandler<"tool.start"> {
@@ -449,6 +447,95 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           inputTokens,
           outputTokens: this.accumulatedOutputTokens,
           model,
+        },
+      };
+      this.bus.publish(busEvent);
+    };
+  }
+
+  /**
+   * Create a handler for subagent.start events from the SDK.
+   * Publishes stream.agent.start to the bus.
+   */
+  private createSubagentStartHandler(
+    runId: number,
+  ): EventHandler<"subagent.start"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+
+      const data = event.data as SubagentStartEventData;
+
+      // Register agent with tracker for tool counting
+      this.subagentTracker?.registerAgent(data.subagentId);
+
+      const busEvent: BusEvent<"stream.agent.start"> = {
+        type: "stream.agent.start",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          agentId: data.subagentId,
+          agentType: data.subagentType ?? "unknown",
+          task: data.task ?? "",
+          isBackground: false,
+          sdkCorrelationId: data.toolUseID,
+        },
+      };
+      this.bus.publish(busEvent);
+    };
+  }
+
+  /**
+   * Create a handler for subagent.complete events from the SDK.
+   * Publishes stream.agent.complete to the bus.
+   */
+  private createSubagentCompleteHandler(
+    runId: number,
+  ): EventHandler<"subagent.complete"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+
+      const data = event.data as SubagentCompleteEventData;
+      this.subagentTracker?.removeAgent(data.subagentId);
+
+      const busEvent: BusEvent<"stream.agent.complete"> = {
+        type: "stream.agent.complete",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          agentId: data.subagentId,
+          success: data.success,
+          result: typeof data.result === "string" ? data.result : undefined,
+          error: typeof (data as Record<string, unknown>).error === "string"
+            ? (data as Record<string, unknown>).error as string
+            : undefined,
+        },
+      };
+      this.bus.publish(busEvent);
+    };
+  }
+
+  /**
+   * Create a handler for subagent.update events from the SDK.
+   * Publishes stream.agent.update to the bus.
+   */
+  private createSubagentUpdateHandler(
+    runId: number,
+  ): EventHandler<"subagent.update"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+
+      const data = event.data as SubagentUpdateEventData;
+      const busEvent: BusEvent<"stream.agent.update"> = {
+        type: "stream.agent.update",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          agentId: data.subagentId,
+          currentTool: data.currentTool,
+          toolUses: data.toolUses,
         },
       };
       this.bus.publish(busEvent);
@@ -599,5 +686,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.pendingToolIdsByName.clear();
     this.syntheticToolCounter = 0;
     this.accumulatedOutputTokens = 0;
+    this.subagentTracker?.reset();
+    this.subagentTracker = null;
   }
 }

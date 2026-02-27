@@ -315,6 +315,7 @@ export type EventType =
   | "skill.invoked"
   | "subagent.start"
   | "subagent.complete"
+  | "subagent.update"
   | "permission.requested"
   | "human_input_required"
   | "usage";
@@ -546,6 +547,18 @@ export interface SubagentStartEventData extends BaseEventData {
 }
 
 /**
+ * Event data for subagent.update events (progress notification)
+ */
+export interface SubagentUpdateEventData extends BaseEventData {
+  /** Subagent identifier */
+  subagentId: string;
+  /** Current tool being used by the sub-agent */
+  currentTool?: string;
+  /** Number of tool uses so far */
+  toolUses?: number;
+}
+
+/**
  * Event data for subagent.complete events
  */
 export interface SubagentCompleteEventData extends BaseEventData {
@@ -646,6 +659,7 @@ export interface EventDataMap {
   "skill.invoked": SkillInvokedEventData;
   "subagent.start": SubagentStartEventData;
   "subagent.complete": SubagentCompleteEventData;
+  "subagent.update": SubagentUpdateEventData;
   "permission.requested": PermissionRequestedEventData;
   "human_input_required": HumanInputRequiredEventData;
 }
@@ -789,6 +803,9 @@ export interface CodingAgentClient {
    * Returns null if the baseline is not yet available.
    */
   getSystemToolsTokens(): number | null;
+
+  /** Known agent/sub-agent tool names (Copilot uses agent names as tool names) */
+  getKnownAgentNames?(): string[];
 }
 
 /**

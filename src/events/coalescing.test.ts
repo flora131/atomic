@@ -439,7 +439,7 @@ describe("coalescingKey()", () => {
       expect(key).toBeUndefined();
     });
 
-    it("should return undefined for stream.agent.complete", () => {
+    it("should return agent.complete:${agentId} for stream.agent.complete", () => {
       const event: BusEvent<"stream.agent.complete"> = {
         type: "stream.agent.complete",
         sessionId: "test-session",
@@ -453,7 +453,7 @@ describe("coalescingKey()", () => {
       };
 
       const key = coalescingKey(event);
-      expect(key).toBeUndefined();
+      expect(key).toBe("agent.complete:agent-123");
     });
 
     it("should return undefined for workflow.step.start", () => {

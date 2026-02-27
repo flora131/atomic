@@ -65,6 +65,7 @@ import type {
 import type { AtomicEventBus } from "../event-bus.ts";
 import type { BusEvent } from "../bus-events.ts";
 import type { SDKStreamAdapter, StreamAdapterOptions } from "./types.ts";
+import { SubagentToolTracker } from "./subagent-tool-tracker.ts";
 
 /**
  * Maximum number of events to buffer before dropping oldest events.
@@ -91,6 +92,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
   private pendingToolIdsByName = new Map<string, string[]>();
   private toolNameById = new Map<string, string>();
   private syntheticToolCounter = 0;
+  private subagentTracker: SubagentToolTracker | null = null;
 
   /**
    * Track tool call IDs that have already had a `stream.tool.start` emitted
@@ -98,6 +100,32 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
    * for the same ID is deduplicated.
    */
   private emittedToolStartIds = new Set<string>();
+
+  /** Maps task tool toolCallId -> metadata extracted from tool arguments */
+  private taskToolMetadata = new Map<string, { description: string; isBackground: boolean }>();
+
+  /** Buffers tool events that arrive before their parent subagent.started */
+  private earlyToolEvents = new Map<string, Array<{ toolName: string }>>();
+
+  /** Known agent names that should be treated as task tools (Copilot SDK) */
+  private knownAgentNames = new Set<string>();
+
+  /**
+   * Maps task-tool toolCallId → subagentId.
+   * Copilot SDK tool events from within a sub-agent carry `parentToolCallId`
+   * (the ID of the Task tool call that spawned the agent), NOT the sub-agent's
+   * own ID. This map lets us resolve the former to the latter for
+   * SubagentToolTracker lookups.
+   */
+  private toolCallIdToSubagentId = new Map<string, string>();
+
+  /**
+   * Tool call IDs that belong to a sub-agent (have parentAgentId).
+   * Used to detect nested sub-agents in handleSubagentStart: if a
+   * subagent.start's toolCallId is in this set, it was spawned by
+   * another sub-agent and should NOT appear as a top-level tree entry.
+   */
+  private innerToolCallIds = new Set<string>();
 
   /**
    * Track thinking streams for timing and correlation.
@@ -153,6 +181,14 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.toolNameById.clear();
     this.syntheticToolCounter = 0;
     this.emittedToolStartIds.clear();
+    this.taskToolMetadata.clear();
+    this.earlyToolEvents.clear();
+    this.toolCallIdToSubagentId.clear();
+    this.innerToolCallIds.clear();
+    this.knownAgentNames = new Set(
+      (options.knownAgentNames ?? []).map(n => n.toLowerCase())
+    );
+    this.subagentTracker = new SubagentToolTracker(this.bus, this.sessionId, this.runId);
     this.isActive = true;
 
     this.publishEvent({
@@ -353,6 +389,16 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
   }
 
   /**
+   * Check if a tool name corresponds to a task/agent-launching tool.
+   */
+  private isTaskTool(toolName: string): boolean {
+    const normalized = toolName.toLowerCase();
+    return normalized === "task"
+      || normalized === "launch_agent"
+      || this.knownAgentNames.has(normalized);
+  }
+
+  /**
    * Handle message.delta event (text or thinking content).
    */
   private handleMessageDelta(event: AgentEvent<"message.delta">): void {
@@ -408,6 +454,12 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
    * the later `tool.execution_start` in `handleToolStart`.
    */
   private handleMessageComplete(event: AgentEvent<"message.complete">): void {
+    // Skip sub-agent message completions — they belong to a child agent.
+    // Inner tool calls are tracked via tool.execution_start (which carries
+    // parentId) and the SubagentToolTracker, NOT from message.complete.
+    const parentToolCallId = (event.data as Record<string, unknown>).parentToolCallId;
+    if (parentToolCallId) return;
+
     // Publish thinking complete events for any active thinking streams
     for (const [sourceKey, startTime] of this.thinkingStreams.entries()) {
       const durationMs = Date.now() - startTime;
@@ -438,6 +490,17 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
         const toolName = this.normalizeToolName(request.name);
         const toolInput = this.normalizeToolInput(request.arguments);
         if (!toolCallId) continue;
+
+        // Extract metadata from task tool arguments for subagent enrichment
+        if (this.isTaskTool(toolName) && request.arguments) {
+          const args = this.asRecord(request.arguments) ?? {};
+          this.taskToolMetadata.set(toolCallId, {
+            description: typeof args.description === "string" ? args.description
+              : typeof args.prompt === "string" ? args.prompt
+              : "",
+            isBackground: args.mode === "background" || args.run_in_background === true,
+          });
+        }
 
         this.emittedToolStartIds.add(toolCallId);
         const toolId = this.resolveToolStartId(toolCallId, toolName);
@@ -502,6 +565,14 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     const resolvedToolName = this.normalizeToolName(toolName);
     const toolId = this.resolveToolStartId(explicitToolId, resolvedToolName);
 
+    // Resolve the parent agent ID from either parentId (direct) or
+    // parentToolCallId (Copilot SDK: the task tool call ID that spawned the agent).
+    const rawParentId = this.asString((event.data as Record<string, unknown>).parentId);
+    const rawParentToolCallId = this.asString((event.data as Record<string, unknown>).parentToolCallId);
+    const parentAgentId = rawParentId
+      ?? (rawParentToolCallId ? this.toolCallIdToSubagentId.get(rawParentToolCallId) : undefined)
+      ?? undefined;
+
     this.publishEvent({
       type: "stream.tool.start",
       sessionId: this.sessionId,
@@ -512,9 +583,36 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
         toolName: resolvedToolName,
         toolInput: this.normalizeToolInput(toolInput),
         sdkCorrelationId: explicitToolId ?? toolId,
-        parentAgentId: this.asString((event.data as Record<string, unknown>).parentId),
+        parentAgentId,
       },
     });
+
+    // Track tool start for sub-agent if this tool belongs to one.
+    // Also record the tool call ID as an "inner" tool call so that
+    // nested subagent.start events (whose toolCallId matches) can be
+    // detected and suppressed from the top-level agent tree.
+    if (parentAgentId) {
+      if (explicitToolId) {
+        this.innerToolCallIds.add(explicitToolId);
+      }
+      if (this.subagentTracker?.hasAgent(parentAgentId)) {
+        this.subagentTracker.onToolStart(parentAgentId, resolvedToolName);
+      } else {
+        // Buffer for subagents not yet registered (race condition).
+        // Key by parentAgentId when available, otherwise by the raw
+        // parentToolCallId so handleSubagentStart can replay them.
+        const bufferKey = parentAgentId;
+        const queue = this.earlyToolEvents.get(bufferKey) ?? [];
+        queue.push({ toolName: resolvedToolName });
+        this.earlyToolEvents.set(bufferKey, queue);
+      }
+    } else if (rawParentToolCallId) {
+      // parentToolCallId present but mapping not yet established
+      // (subagent.start hasn't arrived). Buffer by toolCallId.
+      const queue = this.earlyToolEvents.get(rawParentToolCallId) ?? [];
+      queue.push({ toolName: resolvedToolName });
+      this.earlyToolEvents.set(rawParentToolCallId, queue);
+    }
   }
 
   /**
@@ -536,6 +634,16 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       this.emittedToolStartIds.delete(explicitToolId);
     }
     const normalizedSuccess = typeof success === "boolean" ? success : true;
+
+    // Track tool completion for sub-agent if this tool belongs to one
+    const rawParentIdComplete = this.asString((event.data as Record<string, unknown>).parentId);
+    const rawParentToolCallIdComplete = this.asString((event.data as Record<string, unknown>).parentToolCallId);
+    const resolvedParentId = rawParentIdComplete
+      ?? (rawParentToolCallIdComplete ? this.toolCallIdToSubagentId.get(rawParentToolCallIdComplete) : undefined)
+      ?? undefined;
+    if (resolvedParentId && this.subagentTracker?.hasAgent(resolvedParentId)) {
+      this.subagentTracker.onToolComplete(resolvedParentId);
+    }
 
     this.publishEvent({
       type: "stream.tool.complete",
@@ -735,6 +843,44 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
    */
   private handleSubagentStart(event: AgentEvent<"subagent.start">): void {
     const data = event.data as SubagentStartEventData;
+    const toolCallId = data.toolCallId ?? data.subagentId;
+
+    // Skip nested sub-agents (spawned by another sub-agent).
+    // If toolCallId was recorded as an inner tool call (from handleToolStart
+    // with parentAgentId), this is a nested agent and should not appear as
+    // a top-level entry in the agent tree.
+    if (this.innerToolCallIds.has(toolCallId)) {
+      return;
+    }
+
+    // Look up task metadata from the parent task tool call
+    const metadata = this.taskToolMetadata.get(toolCallId);
+    const isBackground = metadata?.isBackground ?? false;
+    // Prefer task description from tool arguments over agent type description
+    const task = metadata?.description || data.task || "";
+
+    // Register agent with tracker for tool counting
+    this.subagentTracker?.registerAgent(data.subagentId);
+
+    // Map task-tool toolCallId → subagentId so inner tool events
+    // (which carry parentToolCallId, not parentId) can be resolved.
+    if (toolCallId !== data.subagentId) {
+      this.toolCallIdToSubagentId.set(toolCallId, data.subagentId);
+    }
+
+    // Replay any early tool events that arrived before this subagent.started.
+    // Events may be keyed by subagentId (parentId path) or toolCallId
+    // (parentToolCallId path, before the mapping existed).
+    for (const key of [data.subagentId, toolCallId]) {
+      const earlyTools = this.earlyToolEvents.get(key);
+      if (earlyTools) {
+        for (const tool of earlyTools) {
+          this.subagentTracker?.onToolStart(data.subagentId, tool.toolName);
+        }
+        this.earlyToolEvents.delete(key);
+      }
+    }
+
     this.publishEvent({
       type: "stream.agent.start",
       sessionId: this.sessionId,
@@ -743,9 +889,9 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       data: {
         agentId: data.subagentId,
         agentType: data.subagentType ?? "unknown",
-        task: data.task ?? "",
-        isBackground: false,
-        sdkCorrelationId: data.toolCallId,
+        task,
+        isBackground,
+        sdkCorrelationId: toolCallId,
       },
     });
   }
@@ -755,6 +901,16 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
    */
   private handleSubagentComplete(event: AgentEvent<"subagent.complete">): void {
     const data = event.data as SubagentCompleteEventData;
+    this.subagentTracker?.removeAgent(data.subagentId);
+    this.taskToolMetadata.delete(data.subagentId);
+    this.earlyToolEvents.delete(data.subagentId);
+    // Clean up toolCallId → subagentId mapping
+    for (const [tcId, agentId] of this.toolCallIdToSubagentId) {
+      if (agentId === data.subagentId) {
+        this.toolCallIdToSubagentId.delete(tcId);
+        break;
+      }
+    }
     this.publishEvent({
       type: "stream.agent.complete",
       sessionId: this.sessionId,
@@ -1085,5 +1241,12 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.toolNameById.clear();
     this.syntheticToolCounter = 0;
     this.emittedToolStartIds.clear();
+    this.taskToolMetadata.clear();
+    this.earlyToolEvents.clear();
+    this.toolCallIdToSubagentId.clear();
+    this.innerToolCallIds.clear();
+    this.knownAgentNames.clear();
+    this.subagentTracker?.reset();
+    this.subagentTracker = null;
   }
 }

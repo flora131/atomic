@@ -242,6 +242,7 @@ export class CopilotClient implements CodingAgentClient {
   private isRunning = false;
   private probeSystemToolsBaseline: number | null = null;
   private probePromise: Promise<void> | null = null;
+  private knownAgentNames: string[] = [];
 
   /**
    * Create a new CopilotClient
@@ -964,6 +965,10 @@ export class CopilotClient implements CodingAgentClient {
     // Load custom agents from project and global directories
     const projectRoot = this.clientOptions.cwd ?? process.cwd();
     const loadedAgents = await loadCopilotAgents(projectRoot);
+    this.knownAgentNames = [
+      "general-purpose",
+      ...loadedAgents.map(a => a.name),
+    ];
     const customAgents: SdkCustomAgentConfig[] = loadedAgents.map((agent) => ({
       name: agent.name,
       description: agent.description,
@@ -1387,6 +1392,10 @@ export class CopilotClient implements CodingAgentClient {
    */
   getSystemToolsTokens(): number | null {
     return this.probeSystemToolsBaseline;
+  }
+
+  getKnownAgentNames(): string[] {
+    return this.knownAgentNames;
   }
 }
 

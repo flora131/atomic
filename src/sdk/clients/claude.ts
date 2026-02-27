@@ -334,6 +334,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
     private pendingHookSessionBindings: string[] = [];
 
     /**
+     * Maps tool_use_id (from SubagentStart hook) → agent_id.
+     * Used to correlate SDKTaskProgressMessage/SDKTaskNotificationMessage
+     * with the correct sub-agent for emitting subagent.update events.
+     */
+    private toolUseIdToAgentId = new Map<string, string>();
+
+    /**
      * Register native SDK hooks for event handling.
      * Should be called before start() to ensure hooks are active.
      */
@@ -1094,6 +1101,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 }
             },
 
+            abort: async (): Promise<void> => {
+                // Close the active query to terminate in-flight SDK work
+                // (including sub-agent invocations). The session remains
+                // reusable for subsequent queries via resume.
+                state.query?.close();
+            },
+
             destroy: async (): Promise<void> => {
                 if (!state.isClosed) {
                     state.isClosed = true;
@@ -1151,6 +1165,38 @@ export class ClaudeAgentClient implements CodingAgentClient {
             const systemMsg = sdkMessage as SDKSystemMessage;
             if (systemMsg.model && !this.detectedModel) {
                 this.detectedModel = systemMsg.model;
+            }
+        }
+
+        // Handle task_progress messages from sub-agents (periodic progress updates)
+        if (sdkMessage.type === "system" && sdkMessage.subtype === "task_progress") {
+            const msg = sdkMessage as Record<string, unknown>;
+            const toolUseId = msg.tool_use_id as string | undefined;
+            const agentId = toolUseId ? this.toolUseIdToAgentId.get(toolUseId) : undefined;
+            if (agentId) {
+                const usage = msg.usage as { tool_uses?: number } | undefined;
+                this.emitEvent("subagent.update", sessionId, {
+                    subagentId: agentId,
+                    currentTool: (msg.last_tool_name as string | undefined),
+                    toolUses: usage?.tool_uses,
+                });
+            }
+        }
+
+        // Handle task_notification messages (sub-agent completion notification)
+        if (sdkMessage.type === "system" && sdkMessage.subtype === "task_notification") {
+            const msg = sdkMessage as Record<string, unknown>;
+            const toolUseId = msg.tool_use_id as string | undefined;
+            const agentId = toolUseId ? this.toolUseIdToAgentId.get(toolUseId) : undefined;
+            if (agentId) {
+                this.emitEvent("subagent.complete", sessionId, {
+                    subagentId: agentId,
+                    success: msg.status === "completed",
+                    result: msg.summary as string | undefined,
+                });
+                if (toolUseId) {
+                    this.toolUseIdToAgentId.delete(toolUseId);
+                }
             }
         }
 
@@ -1548,6 +1594,15 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     if (targetHookEvent === "SubagentStop") {
                         // SubagentStop implies successful completion
                         eventData.success = true;
+                        // Clean up tool use ID mapping
+                        if (toolUseID) {
+                            this.toolUseIdToAgentId.delete(toolUseID);
+                        }
+                    }
+
+                    // Store toolUseID → agent_id mapping for task_progress correlation
+                    if (targetHookEvent === "SubagentStart" && toolUseID && hookInput.agent_id) {
+                        this.toolUseIdToAgentId.set(toolUseID, hookInput.agent_id as string);
                     }
 
                     const hookSessionId =

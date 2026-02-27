@@ -59,6 +59,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
   private thinkingStartTimes = new Map<string, number>();
   private pendingToolIdsByName = new Map<string, string[]>();
   private syntheticToolCounter = 0;
+  private accumulatedOutputTokens = 0;
 
   /**
    * Create a new Claude stream adapter.
@@ -100,6 +101,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.thinkingStartTimes.clear();
     this.pendingToolIdsByName.clear();
     this.syntheticToolCounter = 0;
+    this.accumulatedOutputTokens = 0;
 
     this.publishSessionStart(runId);
 
@@ -116,6 +118,12 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         this.createToolCompleteHandler(runId),
       );
       this.unsubscribers.push(unsubToolComplete);
+
+      const unsubUsage = client.on(
+        "usage",
+        this.createUsageHandler(runId),
+      );
+      this.unsubscribers.push(unsubUsage);
     }
 
     try {
@@ -203,7 +211,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
 
       // Check if this is a thinking complete event (has streamingStats but no content)
       const streamingStats = metadata?.streamingStats as
-        | { thinkingMs?: number }
+        | { thinkingMs?: number; outputTokens?: number }
         | undefined;
       if (streamingStats?.thinkingMs !== undefined && chunk.content === "") {
         // Prefer SDK-provided duration, fall back to computed from tracked start time
@@ -225,6 +233,10 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
 
         this.bus.publish(event);
       }
+
+      // Note: streamingStats.outputTokens is NOT used for stream.usage here.
+      // Real token counts come from the client "usage" event (via createUsageHandler)
+      // to avoid double-counting.
     }
 
     // Handle tool_use events → stream.tool.start
@@ -306,6 +318,11 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       };
       this.bus.publish(event);
     }
+
+    // Token usage from chunk.metadata.tokenUsage is handled by
+    // createUsageHandler (from client "usage" events). Do NOT emit
+    // stream.usage here to avoid emitting raw per-request values
+    // that bypass the accumulator.
 
     // Handle agent lifecycle events
     if ((chunk.type as string) === "agent_start") {
@@ -398,6 +415,40 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           success: data.success,
           error: data.error,
           sdkCorrelationId: sdkCorrelationId ?? toolId,
+        },
+      };
+      this.bus.publish(busEvent);
+    };
+  }
+
+  private createUsageHandler(runId: number): EventHandler<"usage"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) {
+        return;
+      }
+
+      const data = event.data as Record<string, unknown>;
+      const inputTokens = (data.inputTokens as number) || 0;
+      const outputTokens = (data.outputTokens as number) || 0;
+      const model = data.model as string | undefined;
+
+      // Filter out diagnostics markers that carry no real token data
+      if (outputTokens <= 0 && inputTokens <= 0) {
+        return;
+      }
+
+      // Accumulate output tokens across multi-turn tool-use flows
+      this.accumulatedOutputTokens += outputTokens;
+
+      const busEvent: BusEvent<"stream.usage"> = {
+        type: "stream.usage",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          inputTokens,
+          outputTokens: this.accumulatedOutputTokens,
+          model,
         },
       };
       this.bus.publish(busEvent);
@@ -547,5 +598,6 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     this.thinkingStartTimes.clear();
     this.pendingToolIdsByName.clear();
     this.syntheticToolCounter = 0;
+    this.accumulatedOutputTokens = 0;
   }
 }

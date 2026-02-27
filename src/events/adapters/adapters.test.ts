@@ -688,6 +688,125 @@ describe("ClaudeStreamAdapter", () => {
     expect(agentStartEvents[0].runId).toBe(100);
   });
 
+  test("real usage events publish stream.usage with accumulated tokens", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 100,
+      messageId: "msg-2",
+    });
+
+    // Emit first usage event (e.g., first API turn)
+    client.emit("usage" as EventType, {
+      type: "usage",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        inputTokens: 100,
+        outputTokens: 50,
+        model: "claude-sonnet-4-20250514",
+      },
+    } as AgentEvent);
+
+    // Emit second usage event (e.g., second API turn after tool use)
+    client.emit("usage" as EventType, {
+      type: "usage",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        inputTokens: 200,
+        outputTokens: 75,
+        model: "claude-sonnet-4-20250514",
+      },
+    } as AgentEvent);
+
+    await streamPromise;
+
+    const usageEvents = events.filter((e) => e.type === "stream.usage");
+    expect(usageEvents.length).toBe(2);
+    // First event: accumulated outputTokens = 50
+    expect(usageEvents[0].data.inputTokens).toBe(100);
+    expect(usageEvents[0].data.outputTokens).toBe(50);
+    expect(usageEvents[0].data.model).toBe("claude-sonnet-4-20250514");
+    // Second event: accumulated outputTokens = 50 + 75 = 125
+    expect(usageEvents[1].data.inputTokens).toBe(200);
+    expect(usageEvents[1].data.outputTokens).toBe(125);
+  });
+
+  test("zero-valued diagnostics markers are filtered (no stream.usage emitted)", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 100,
+      messageId: "msg-2",
+    });
+
+    // Emit a diagnostics marker with no real token data
+    client.emit("usage" as EventType, {
+      type: "usage",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: {
+        provider: "claude",
+        marker: "claude.stream.integrity",
+      },
+    } as AgentEvent);
+
+    await streamPromise;
+
+    const usageEvents = events.filter((e) => e.type === "stream.usage");
+    expect(usageEvents.length).toBe(0);
+  });
+
+  test("thinking chunks emit stream.thinking.complete but NOT stream.usage", async () => {
+    const events = collectEvents(bus);
+
+    const chunks: AgentMessage[] = [
+      {
+        type: "thinking",
+        content: "Let me think...",
+        metadata: { thinkingSourceKey: "block-1" },
+      },
+      {
+        type: "thinking",
+        content: "",
+        metadata: {
+          thinkingSourceKey: "block-1",
+          streamingStats: { thinkingMs: 2000, outputTokens: 150 },
+        },
+      },
+    ];
+
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream);
+
+    await adapter.startStreaming(session, "test message", {
+      runId: 100,
+      messageId: "msg-2",
+    });
+
+    // Should have thinking.complete
+    const thinkingCompleteEvents = events.filter(
+      (e) => e.type === "stream.thinking.complete",
+    );
+    expect(thinkingCompleteEvents.length).toBe(1);
+    expect(thinkingCompleteEvents[0].data.durationMs).toBe(2000);
+
+    // Should NOT have stream.usage from thinking chunks
+    const usageEvents = events.filter((e) => e.type === "stream.usage");
+    expect(usageEvents.length).toBe(0);
+  });
+
   test("publishes agent complete events from stream", async () => {
     const events = collectEvents(bus);
 

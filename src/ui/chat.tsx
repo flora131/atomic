@@ -90,7 +90,6 @@ import {
   isBackgroundTerminationKey,
 } from "./utils/background-agent-termination.ts";
 import { loadCommandHistory, appendCommandHistory } from "./utils/command-history.ts";
-import { getRandomVerb, getRandomCompletionVerb } from "./constants/index.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "./utils/mcp-output.ts";
 import {
   normalizeHitlAnswer,
@@ -995,10 +994,6 @@ export function formatTimestamp(isoString: string): string {
 
 // SPINNER_FRAMES imported from ./constants/icons.ts
 
-// Re-export SPINNER_VERBS from constants for backward compatibility
-export { SPINNER_VERBS } from "./constants/index.ts";
-// Re-export getRandomVerb as getRandomSpinnerVerb for backward compatibility
-export { getRandomVerb as getRandomSpinnerVerb } from "./constants/index.ts";
 
 /**
  * Props for the LoadingIndicator component.
@@ -1042,8 +1037,9 @@ function formatTokenCount(tokens: number): string {
 export function LoadingIndicator({ speed = 100, verbOverride, elapsedMs, outputTokens, thinkingMs }: LoadingIndicatorProps): React.ReactNode {
   const themeColors = useThemeColors();
   const [frameIndex, setFrameIndex] = useState(0);
-  // Select random verb only on mount (empty dependency array)
-  const [verb] = useState(() => verbOverride ?? getRandomVerb());
+  // Derive verb from reasoning state: "Reasoning" when thinking, "Composing" otherwise.
+  // verbOverride (e.g. from /compact) still takes precedence.
+  const verb = verbOverride ?? (thinkingMs != null && thinkingMs > 0 ? "Reasoning" : "Composing");
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -1119,7 +1115,8 @@ interface CompletionSummaryProps {
  */
 export function CompletionSummary({ durationMs, outputTokens, thinkingMs }: CompletionSummaryProps): React.ReactNode {
   const themeColors = useThemeColors();
-  const [verb] = useState(() => getRandomCompletionVerb());
+  // Deterministic verb: "Reasoned" when thinking was used, "Composed" otherwise.
+  const verb = thinkingMs != null && thinkingMs >= 1000 ? "Reasoned" : "Composed";
   const [spinChar] = useState(() => getCompletionChar());
 
   const parts: string[] = [`${verb} for ${formatCompletionDuration(durationMs)}`];
@@ -1542,8 +1539,8 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
                 speed={120}
                 verbOverride={message.spinnerVerb}
                 elapsedMs={elapsedMs}
-                outputTokens={streamingMeta?.outputTokens}
-                thinkingMs={streamingMeta?.thinkingMs}
+                outputTokens={streamingMeta?.outputTokens ?? message.outputTokens}
+                thinkingMs={streamingMeta?.thinkingMs ?? message.thinkingMs}
               />
             </text>
           </box>
@@ -1846,6 +1843,10 @@ export function ChatApp({
 
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
+  // Persists the message ID after handleStreamComplete clears streamingMessageIdRef,
+  // so late-arriving bus events (stream.usage, stream.thinking.complete) can still
+  // bake metadata onto the completed message.
+  const lastStreamedMessageIdRef = useRef<string | null>(null);
   // Ref to track message ID for background agent updates after stream ends
   const backgroundAgentMessageIdRef = useRef<string | null>(null);
   // Ref to track when streaming started for duration calculation
@@ -2461,6 +2462,9 @@ export function ChatApp({
       return;
     }
 
+    // Persist so late-arriving bus events (stream.usage) can still update this message
+    lastStreamedMessageIdRef.current = messageId;
+
     const durationMs = streamingStartRef.current
       ? Date.now() - streamingStartRef.current
       : undefined;
@@ -2476,9 +2480,9 @@ export function ChatApp({
               streaming: false,
               durationMs,
               modelId: currentModelRef.current,
-              outputTokens: finalMeta?.outputTokens,
-              thinkingMs: finalMeta?.thinkingMs,
-              thinkingText: finalMeta?.thinkingText || undefined,
+              outputTokens: finalMeta?.outputTokens || msg.outputTokens,
+              thinkingMs: finalMeta?.thinkingMs || msg.thinkingMs,
+              thinkingText: finalMeta?.thinkingText || msg.thinkingText || undefined,
             }
             : msg
         )
@@ -2563,9 +2567,11 @@ export function ChatApp({
               streaming: false,
               durationMs,
               modelId: currentModelRef.current,
-              outputTokens: finalMeta?.outputTokens,
-              thinkingMs: finalMeta?.thinkingMs,
-              thinkingText: finalMeta?.thinkingText || undefined,
+              // Prefer finalMeta values, but fall back to already-baked message values
+              // (bus subscriptions may have baked values before handleStreamComplete runs)
+              outputTokens: finalMeta?.outputTokens || msg.outputTokens,
+              thinkingMs: finalMeta?.thinkingMs || msg.thinkingMs,
+              thinkingText: finalMeta?.thinkingText || msg.thinkingText || undefined,
               toolCalls: interruptRunningToolCalls(msg.toolCalls),
               parts: interruptRunningToolParts(msg.parts),
               parallelAgents: finalizedAgents,
@@ -2735,12 +2741,32 @@ export function ChatApp({
       thinkingMs: 0,
       thinkingText: "",
     };
+    // Adapters emit stream.usage with cumulative (running-total) outputTokens.
+    // Use the maximum of incoming and previous to handle out-of-order delivery
+    // and avoid regressions from stale events. Ignore 0-valued events (they
+    // carry no meaningful token data, e.g. from unmapped SDK metadata events).
+    const incoming = event.data.outputTokens ?? 0;
     const nextMeta: StreamingMeta = {
       ...prevMeta,
-      outputTokens: event.data.outputTokens ?? prevMeta.outputTokens,
+      outputTokens: incoming > 0
+        ? Math.max(prevMeta.outputTokens, incoming)
+        : prevMeta.outputTokens,
     };
     streamingMetaRef.current = nextMeta;
     setStreamingMeta(nextMeta);
+
+    // Bake outputTokens directly onto the message so the value survives
+    // React state batching AND late-arriving usage events (after handleStreamComplete).
+    // Falls back to lastStreamedMessageIdRef for events that arrive after
+    // stopSharedStreamState has nulled streamingMessageIdRef.
+    const messageId = streamingMessageIdRef.current ?? lastStreamedMessageIdRef.current;
+    if (messageId && nextMeta.outputTokens > 0) {
+      setMessagesWindowed((prev: ChatMessage[]) =>
+        prev.map((msg: ChatMessage) =>
+          msg.id === messageId ? { ...msg, outputTokens: nextMeta.outputTokens } : msg
+        )
+      );
+    }
   });
 
   useBusSubscription("stream.thinking.complete", (event) => {
@@ -2755,6 +2781,16 @@ export function ChatApp({
     };
     streamingMetaRef.current = nextMeta;
     setStreamingMeta(nextMeta);
+
+    // Bake thinkingMs directly onto the message (same late-arrival fallback).
+    const messageId = streamingMessageIdRef.current ?? lastStreamedMessageIdRef.current;
+    if (messageId && nextMeta.thinkingMs > 0) {
+      setMessagesWindowed((prev: ChatMessage[]) =>
+        prev.map((msg: ChatMessage) =>
+          msg.id === messageId ? { ...msg, thinkingMs: nextMeta.thinkingMs } : msg
+        )
+      );
+    }
   });
 
   useBusSubscription("stream.agent.start", (event) => {
@@ -2856,6 +2892,7 @@ export function ChatApp({
     isStreamingRef.current = true;
     setIsStreaming(true);
     streamingStartRef.current = Date.now();
+    lastStreamedMessageIdRef.current = null;
     resetThinkingSourceTracking();
     resetTodoItemsForNewStream();
     lastStreamingContentRef.current = "";

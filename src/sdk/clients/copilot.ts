@@ -178,7 +178,12 @@ function mapSdkEventToEventType(sdkEventType: SdkSessionEventType | string): Eve
     "subagent.started": "subagent.start",
     "subagent.completed": "subagent.complete",
     "subagent.failed": "subagent.complete",
-    "session.usage_info": "usage",
+    // session.usage_info is NOT mapped to "usage" — it carries context-window
+    // metadata (currentTokens, tokenLimit), not per-turn token counts. Mapping
+    // it to "usage" would cause the adapter to publish stream.usage with
+    // { inputTokens: 0, outputTokens: 0 }, zeroing out the real counts from
+    // assistant.usage events.
+    // "session.usage_info": handled separately in handleSdkEvent (state only)
   };
   return mapping[sdkEventType] ?? null;
 }
@@ -815,12 +820,8 @@ export class CopilotClient implements CodingAgentClient {
             error: asNonEmptyString(data.error),
           };
           break;
-        case "session.usage_info":
-          eventData = {
-            currentTokens: data.currentTokens,
-            tokenLimit: data.tokenLimit,
-          };
-          break;
+        // session.usage_info is no longer mapped to a unified event type —
+        // it is handled above for state tracking only (context window metadata).
       }
 
       this.emitEvent(eventType, sessionId, eventData);

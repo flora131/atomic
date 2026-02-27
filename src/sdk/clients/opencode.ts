@@ -670,13 +670,22 @@ export class OpenCodeClient implements CodingAgentClient {
         // Handle message updates (info contains the message)
         const info = properties?.info as Record<string, unknown> | undefined;
         if (info?.role === "assistant") {
-          this.emitEvent(
-            "message.complete",
-            (info?.sessionID as string) ?? "",
-            {
-              message: info,
-            }
-          );
+          const msgSessionId = (info?.sessionID as string) ?? "";
+          this.emitEvent("message.complete", msgSessionId, {
+            message: info,
+          });
+
+          // Extract token usage from assistant message updates (carries
+          // cumulative tokens at each step boundary, delivered via SSE)
+          const msgTokens = info?.tokens as
+            | { input?: number; output?: number; reasoning?: number }
+            | undefined;
+          if (msgTokens && (msgTokens.input || msgTokens.output)) {
+            this.emitEvent("usage", msgSessionId, {
+              inputTokens: msgTokens.input ?? 0,
+              outputTokens: msgTokens.output ?? 0,
+            });
+          }
         }
         break;
       }

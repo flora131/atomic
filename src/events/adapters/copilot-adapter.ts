@@ -111,6 +111,13 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
   private accumulatedText = "";
 
   /**
+   * Running total of output tokens across all API calls in the current stream.
+   * Each assistant.usage event reports per-API-call values; we sum them so
+   * the bus event carries the cumulative total.
+   */
+  private accumulatedOutputTokens = 0;
+
+  /**
    * Create a new Copilot stream adapter.
    *
    * @param bus - The event bus to publish events to
@@ -140,6 +147,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.runId = options.runId;
     this.messageId = options.messageId;
     this.accumulatedText = "";
+    this.accumulatedOutputTokens = 0;
     this.thinkingStreams.clear();
     this.pendingToolIdsByName.clear();
     this.toolNameById.clear();
@@ -583,15 +591,23 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
 
   /**
    * Handle usage event.
+   *
+   * Copilot SDK emits `assistant.usage` per API call with per-call token
+   * counts. We accumulate output tokens across calls so the bus event
+   * carries a running total (suitable for direct display in the UI).
    */
   private handleUsage(event: AgentEvent<"usage">): void {
-    // The usage event data structure varies by SDK
-    // For Copilot, it might be in different formats
     const data = event.data as Record<string, unknown>;
 
     const inputTokens = (data.inputTokens as number) || 0;
     const outputTokens = (data.outputTokens as number) || 0;
     const model = data.model as string | undefined;
+
+    // Skip zero-valued events (e.g. from unmapped metadata events)
+    if (outputTokens <= 0 && inputTokens <= 0) return;
+
+    // Accumulate output tokens across multi-turn API calls
+    this.accumulatedOutputTokens += outputTokens;
 
     this.publishEvent({
       type: "stream.usage",
@@ -600,7 +616,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       timestamp: Date.now(),
       data: {
         inputTokens,
-        outputTokens,
+        outputTokens: this.accumulatedOutputTokens,
         model,
       },
     });
@@ -1064,6 +1080,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     this.eventBuffer = [];
     this.thinkingStreams.clear();
     this.accumulatedText = "";
+    this.accumulatedOutputTokens = 0;
     this.pendingToolIdsByName.clear();
     this.toolNameById.clear();
     this.syntheticToolCounter = 0;

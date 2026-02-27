@@ -82,6 +82,15 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
   private syntheticToolCounter = 0;
 
   /**
+   * Running total of output tokens across all messages in the current stream.
+   * OpenCode's `message.updated` SSE carries cumulative-within-message tokens
+   * (updated multiple times per message). We track the latest per-message value
+   * and the total across messages so the bus event carries a session-wide total.
+   */
+  private lastSeenOutputTokens = 0;
+  private accumulatedOutputTokens = 0;
+
+  /**
    * Create a new OpenCode stream adapter.
    *
    * @param bus - The event bus to publish events to
@@ -122,6 +131,8 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.thinkingBlocks.clear();
     this.pendingToolIdsByName.clear();
     this.syntheticToolCounter = 0;
+    this.lastSeenOutputTokens = 0;
+    this.accumulatedOutputTokens = 0;
 
     this.publishSessionStart(runId);
 
@@ -311,18 +322,24 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       const delta = chunk.content;
       this.textAccumulator += delta;
 
-      const event: BusEvent<"stream.text.delta"> = {
-        type: "stream.text.delta",
-        sessionId: this.sessionId,
-        runId,
-        timestamp: Date.now(),
-        data: {
-          delta,
-          messageId,
-        },
-      };
+      if (delta.length > 0) {
+        const event: BusEvent<"stream.text.delta"> = {
+          type: "stream.text.delta",
+          sessionId: this.sessionId,
+          runId,
+          timestamp: Date.now(),
+          data: {
+            delta,
+            messageId,
+          },
+        };
 
-      this.bus.publish(event);
+        this.bus.publish(event);
+      }
+
+      // Token usage is handled by createUsageHandler (from client "usage" events).
+      // Do NOT emit stream.usage here from streamingStats to avoid double-counting
+      // when chat.tsx accumulates per-turn values.
     }
 
     // Handle thinking deltas
@@ -355,7 +372,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
 
       // Check if this is a thinking complete event (has streamingStats)
       const streamingStats = metadata?.streamingStats as
-        | { thinkingMs?: number }
+        | { thinkingMs?: number; outputTokens?: number }
         | undefined;
       if (streamingStats?.thinkingMs !== undefined) {
         const durationMs = streamingStats.thinkingMs;
@@ -374,6 +391,9 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         this.bus.publish(event);
         this.thinkingBlocks.delete(sourceKey);
       }
+
+      // Token usage is handled by createUsageHandler (from client "usage" events).
+      // Do NOT emit stream.usage here from streamingStats to avoid double-counting.
     }
 
     if (chunk.type === "tool_use") {
@@ -730,6 +750,12 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
 
   /**
    * Create a handler for usage events from the SDK.
+   *
+   * OpenCode's `message.updated` SSE fires multiple times per message with
+   * cumulative-within-message token counts. Across messages (in multi-turn
+   * agentic flows), each message starts from 0. We track both the latest
+   * within-message value and the cross-message total so the bus event carries
+   * a monotonically increasing session-wide total.
    */
   private createUsageHandler(runId: number): EventHandler<"usage"> {
     return (event) => {
@@ -738,11 +764,21 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         return;
       }
 
-      // Usage events from the SDK might have inputTokens/outputTokens
-      const data = event.data as any;
-      const inputTokens = data.inputTokens ?? data.input_tokens ?? 0;
-      const outputTokens = data.outputTokens ?? data.output_tokens ?? 0;
-      const model = data.model;
+      const data = event.data as Record<string, number | string | undefined>;
+      const inputTokens = (data.inputTokens as number) ?? (data.input_tokens as number) ?? 0;
+      const outputTokens = (data.outputTokens as number) ?? (data.output_tokens as number) ?? 0;
+      const model = data.model as string | undefined;
+
+      // Skip zero-valued events
+      if (outputTokens <= 0 && inputTokens <= 0) return;
+
+      // Detect new message: when the incoming outputTokens is LESS than the
+      // last seen value, it means a new message started. Add the previous
+      // message's final count to the running total and start fresh.
+      if (outputTokens < this.lastSeenOutputTokens) {
+        this.accumulatedOutputTokens += this.lastSeenOutputTokens;
+      }
+      this.lastSeenOutputTokens = outputTokens;
 
       const busEvent: BusEvent<"stream.usage"> = {
         type: "stream.usage",
@@ -751,7 +787,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         timestamp: Date.now(),
         data: {
           inputTokens,
-          outputTokens,
+          outputTokens: this.accumulatedOutputTokens + outputTokens,
           model,
         },
       };
@@ -1177,5 +1213,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.thinkingBlocks.clear();
     this.pendingToolIdsByName.clear();
     this.syntheticToolCounter = 0;
+    this.lastSeenOutputTokens = 0;
+    this.accumulatedOutputTokens = 0;
   }
 }

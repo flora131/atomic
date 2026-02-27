@@ -1139,7 +1139,10 @@ export class ClaudeAgentClient implements CodingAgentClient {
             }
         }
 
-        // Track token usage
+        // Track token usage from assistant messages (state only — values are
+        // stale during streaming because the SDK yields assistant messages at
+        // content_block_stop before message_delta delivers the real count).
+        // The authoritative usage event is emitted from the result message below.
         if (sdkMessage.type === "assistant") {
             const usage = sdkMessage.message.usage;
             if (usage) {
@@ -1166,6 +1169,20 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 this.emitEvent("session.error", sessionId, {
                     error: "Budget exceeded",
                     code: "MAX_BUDGET",
+                });
+            }
+
+            // Emit authoritative cumulative usage from the result message.
+            // The result carries the correct totals for all API calls in
+            // this interaction (unlike assistant messages which have stale
+            // initial values during streaming).
+            if (result.usage) {
+                state.inputTokens = result.usage.input_tokens;
+                state.outputTokens = result.usage.output_tokens;
+                this.emitEvent("usage", sessionId, {
+                    inputTokens: result.usage.input_tokens ?? 0,
+                    outputTokens: result.usage.output_tokens ?? 0,
+                    model: this.detectedModel,
                 });
             }
 

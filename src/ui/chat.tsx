@@ -40,6 +40,7 @@ import type {
   SubagentSpawnOptions,
   SubagentResult,
 } from "../workflows/graph/types.ts";
+import { SubagentStreamAdapter } from "../events/adapters/subagent-adapter.ts";
 import {
   UserQuestionDialog,
   type UserQuestion,
@@ -1738,9 +1739,9 @@ export function ChatApp({
   const { theme, toggleTheme, setTheme } = useTheme();
   const themeColors = theme.colors;
 
-  // Event bus dispatcher — used to flush pending batched text deltas before
-  // stream finalization so no trailing content is lost.
-  const { dispatcher: batchDispatcher } = useEventBusContext();
+  // Event bus — used to publish sub-agent stream events and flush pending
+  // batched text deltas before stream finalization.
+  const { bus: eventBus, dispatcher: batchDispatcher } = useEventBusContext();
 
   // Component-scoped SyntaxStyle for textarea slash command and @ mention highlighting
   const inputSyntaxStyleRef = useRef<SyntaxStyle | null>(null);
@@ -2223,7 +2224,8 @@ export function ChatApp({
   const handleToolStart = useCallback((
     toolId: string,
     toolName: string,
-    input: Record<string, unknown>
+    input: Record<string, unknown>,
+    agentId?: string,
   ) => {
     const nextCompactionState = startAutoCompactionIndicator(
       autoCompactionIndicatorRef.current,
@@ -2264,6 +2266,7 @@ export function ChatApp({
               toolId,
               toolName,
               input,
+              ...(agentId ? { agentId } : {}),
             });
           }
           return msg;
@@ -2292,6 +2295,7 @@ export function ChatApp({
               toolId,
               toolName,
               input,
+              ...(agentId ? { agentId } : {}),
             });
           }
           return msg;
@@ -2349,7 +2353,8 @@ export function ChatApp({
     output: unknown,
     success: boolean,
     error?: string,
-    input?: Record<string, unknown>
+    input?: Record<string, unknown>,
+    agentId?: string,
   ) => {
     const completedToolName = toolNameByIdRef.current.get(toolId) ?? toolName;
     if (completedToolName && completedToolName !== "unknown") {
@@ -2407,6 +2412,7 @@ export function ChatApp({
               success,
               error,
               input,
+              ...(agentId ? { agentId } : {}),
             });
           }
           return msg;
@@ -2623,29 +2629,35 @@ export function ChatApp({
     continueQueuedConversation();
   }, [continueQueuedConversation, finalizeThinkingSourceTracking, setMessagesWindowed, stopSharedStreamState]);
 
-  const { resetConsumers } = useStreamConsumer((parts) => {
+  const { resetConsumers, getCorrelationService } = useStreamConsumer((parts) => {
     for (const part of parts) {
       if (part.type === "tool-start") {
-        handleToolStart(part.toolId, part.toolName, part.input);
+        handleToolStart(part.toolId, part.toolName, part.input, part.agentId);
         continue;
       }
       if (part.type === "tool-complete") {
-        handleToolComplete(part.toolId, part.toolName ?? "unknown", part.output, part.success, part.error, part.input);
+        handleToolComplete(part.toolId, part.toolName ?? "unknown", part.output, part.success, part.error, part.input, part.agentId);
         continue;
       }
       if (part.type === "text-delta") {
-        if (!isStreamingRef.current) continue;
+        // For agent-scoped text, always process — sub-agents manage their own
+        // stream lifecycle independently of the main chat stream state.
+        if (!part.agentId && !isStreamingRef.current) continue;
         if (pendingCompleteRef.current) {
           clearDeferredCompletion();
         }
-        lastStreamingContentRef.current += part.delta;
+        // Only accumulate main-stream content; sub-agent text is routed to
+        // agent inline parts and must not pollute the reconciliation ref.
+        if (!part.agentId) {
+          lastStreamingContentRef.current += part.delta;
+        }
         if (hideStreamContentRef.current) continue;
         const messageId = streamingMessageIdRef.current;
         if (!messageId) continue;
         setMessagesWindowed((prev: ChatMessage[]) =>
           prev.map((msg: ChatMessage) =>
             msg.id === messageId
-              ? applyStreamPartEvent(msg, { type: "text-delta", delta: part.delta })
+              ? applyStreamPartEvent(msg, { type: "text-delta", delta: part.delta, ...(part.agentId ? { agentId: part.agentId } : {}) })
               : msg
           )
         );
@@ -3202,7 +3214,7 @@ export function ChatApp({
     if (messageId) {
       setMessagesWindowed((prev: ChatMessage[]) =>
         prev.map((msg: ChatMessage, index: number) => {
-          if (msg.id === messageId && msg.streaming) {
+          if (msg.id === messageId) {
             // Filter out terminal-status agents from previous messages.
             // Only include agents that are active (running/pending/background)
             // OR agents that just finished in THIS stream (no existing parallelAgents means they're new).
@@ -3220,6 +3232,25 @@ export function ChatApp({
             return applyStreamPartEvent(msg, {
               type: "parallel-agents",
               agents: filteredAgents,
+              isLastMessage: index === prev.length - 1,
+            });
+          }
+          return msg;
+        })
+      );
+      return;
+    }
+
+    // After streaming ends: bake agent status updates into the last streamed message
+    // so terminal statuses (completed/error) are reflected in the UI.
+    const lastMsgId = lastStreamedMessageIdRef.current;
+    if (lastMsgId) {
+      setMessagesWindowed((prev: ChatMessage[]) =>
+        prev.map((msg: ChatMessage, index: number) => {
+          if (msg.id === lastMsgId && msg.parallelAgents) {
+            return applyStreamPartEvent(msg, {
+              type: "parallel-agents",
+              agents: parallelAgents,
               isLastMessage: index === prev.length - 1,
             });
           }
@@ -3687,6 +3718,12 @@ export function ChatApp({
     // and addMessage together.
     const streaming = role === "assistant" && isStreamingRef.current;
     const msg = createMessage(role, content, streaming);
+    // Set streamingMessageIdRef so downstream handlers (text-delta, parallel-agents sync,
+    // tool events) can target this message. Without this, workflow sub-agent events have
+    // no target message and get silently dropped.
+    if (streaming) {
+      streamingMessageIdRef.current = msg.id;
+    }
     setMessagesWindowed((prev) => {
       // Finalize any previously streaming messages so only the newest one
       // shows the spinner. This prevents stale spinners on earlier messages
@@ -3891,8 +3928,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           throw new Error("createSubagentSession not available. Cannot spawn parallel sub-agents.");
         }
 
-        const MAX_SUMMARY_LENGTH = 4000;
-
         // Create an AbortController so Ctrl+C can cancel all sessions.
         // Mark streaming as active so the Ctrl+C handler enters the abort path.
         const parallelAbortController = new AbortController();
@@ -3921,15 +3956,26 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           parallelAbortController.abort();
         };
 
+        // Parent session ID for event bus publication — sub-agent events
+        // are published under the parent session so the correlation pipeline
+        // recognises them as owned events.
+        const parentSessionId = getSession?.()?.id ?? "workflow";
+        // Monotonic runId for staleness detection across all sub-agents
+        const subagentRunId = Date.now();
+
+        // Register the parent session as owned so the correlation pipeline
+        // doesn't drop sub-agent events published with this sessionId.
+        const correlationServiceOuter = getCorrelationService();
+        correlationServiceOuter?.addOwnedSession(parentSessionId);
+
         /**
-         * Spawn a single sub-agent by creating an isolated session, streaming
-         * its response, and destroying the session when done.
+         * Spawn a single sub-agent by creating an isolated session,
+         * streaming its response through SubagentStreamAdapter, and
+         * destroying the session when done.
          */
         const spawnOne = async (options: SubagentSpawnOptions): Promise<SubagentResult> => {
-          const startTime = Date.now();
-          let toolUses = 0;
-          const summaryParts: string[] = [];
           let session: import("../sdk/types.ts").Session | null = null;
+          const correlationService = getCorrelationService();
 
           try {
             const sessionConfig: import("../sdk/types.ts").SessionConfig = {};
@@ -3953,80 +3999,58 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               parentSignal.addEventListener("abort", () => agentAbort.abort(), { once: true });
             }
 
+            // Create SubagentStreamAdapter to bridge sub-agent SDK stream to the
+            // shared event bus. Events are published with the parent sessionId so
+            // the CorrelationService recognises and enriches them.
+            const adapter = new SubagentStreamAdapter({
+              bus: eventBus,
+              sessionId: parentSessionId,
+              agentId: options.agentId,
+              parentAgentId: parentSessionId,
+              runId: subagentRunId,
+            });
+
+            // Register with correlation service for event attribution
+            correlationService?.registerSubagent(options.agentId, {
+              parentAgentId: parentSessionId,
+              workflowRunId: String(subagentRunId),
+            });
+
             try {
               const stream = session.stream(options.task, { agent: options.agentName });
-              const iterator = stream[Symbol.asyncIterator]();
-              const abortPromise = new Promise<never>((_, reject) => {
-                if (agentAbort.signal.aborted) {
-                  reject(new DOMException("The operation was aborted", "AbortError"));
-                  return;
-                }
-                agentAbort.signal.addEventListener(
-                  "abort",
-                  () => reject(new DOMException("The operation was aborted", "AbortError")),
-                  { once: true },
-                );
-              });
 
-              try {
-                while (true) {
-                  const result = await Promise.race([iterator.next(), abortPromise]);
-                  if (result.done) break;
-                  const msg = result.value;
-                  if (msg.type === "tool_use") {
-                    toolUses++;
-                  } else if (msg.type === "text" && typeof msg.content === "string") {
-                    summaryParts.push(msg.content);
-                  }
+              // Adapter consumes stream, publishes events to the bus,
+              // and returns SubagentStreamResult with full metadata
+              const result = await adapter.consumeStream(stream, agentAbort.signal);
+
+              // If aborted, call session.abort() and refine the error message
+              if (agentAbort.signal.aborted && result.success) {
+                if (session.abort) {
+                  await session.abort().catch(() => {});
                 }
-              } finally {
-                void iterator.return?.();
+                const wasExternalAbort = options.abortSignal?.aborted || parallelAbortController.signal.aborted;
+                return {
+                  ...result,
+                  success: false,
+                  error: wasExternalAbort
+                    ? `Sub-agent "${options.agentName}" was cancelled`
+                    : `Sub-agent "${options.agentName}" timed out after ${options.timeout}ms`,
+                };
               }
-            } catch (err) {
-              if (!(err instanceof DOMException && err.name === "AbortError")) {
-                throw err;
-              }
+
+              return result;
             } finally {
               if (timeoutId) clearTimeout(timeoutId);
+              correlationService?.unregisterSubagent(options.agentId);
             }
-
-            if (agentAbort.signal.aborted) {
-              if (session.abort) {
-                await session.abort().catch(() => {});
-              }
-              const wasExternalAbort = options.abortSignal?.aborted || parallelAbortController.signal.aborted;
-              return {
-                agentId: options.agentId,
-                success: false,
-                output: summaryParts.join(""),
-                error: wasExternalAbort
-                  ? `Sub-agent "${options.agentName}" was cancelled`
-                  : `Sub-agent "${options.agentName}" timed out after ${options.timeout}ms`,
-                toolUses,
-                durationMs: Date.now() - startTime,
-              };
-            }
-
-            const fullSummary = summaryParts.join("");
-            const output = fullSummary.length > MAX_SUMMARY_LENGTH
-              ? fullSummary.slice(0, MAX_SUMMARY_LENGTH) + "..."
-              : fullSummary;
-
-            return {
-              agentId: options.agentId,
-              success: true,
-              output,
-              toolUses,
-              durationMs: Date.now() - startTime,
-            };
           } catch (error) {
             return {
               agentId: options.agentId,
               success: false,
               output: "",
               error: error instanceof Error ? error.message : String(error ?? "Unknown error"),
-              toolUses,
-              durationMs: Date.now() - startTime,
+              toolUses: 0,
+              durationMs: 0,
             };
           } finally {
             if (session) {
@@ -4139,6 +4163,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       setSessionMcpServers: (servers: McpServerConfig[]) => {
         onSessionMcpServersChange?.(servers);
       },
+      eventBus,
     };
 
     // Delayed spinner: show loading indicator if command takes >250ms

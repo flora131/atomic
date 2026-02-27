@@ -32,6 +32,18 @@
 import type { BusEvent, EnrichedBusEvent, BusEventDataMap } from "../bus-events.ts";
 
 /**
+ * Context for a registered sub-agent, mapping it to its parent workflow agent.
+ */
+export interface SubagentContext {
+  /** The parent agent ID that spawned this sub-agent */
+  parentAgentId: string;
+  /** The workflow run ID this sub-agent belongs to */
+  workflowRunId: string;
+  /** The graph node ID this sub-agent is executing within (optional) */
+  nodeId?: string;
+}
+
+/**
  * Service for enriching BusEvents with correlation metadata.
  *
  * The CorrelationService maintains mappings between tools and agents,
@@ -89,6 +101,12 @@ export class CorrelationService {
   private toolIdToRunMap = new Map<string, number>();
 
   /**
+   * Maps sub-agent agentId to parent context.
+   * Used to attribute events from workflow sub-agents to their parent agent.
+   */
+  private subagentRegistry = new Map<string, SubagentContext>();
+
+  /**
    * Enrich a BusEvent with correlation metadata.
    *
    * This method takes a raw BusEvent from the event bus and enriches it
@@ -109,6 +127,7 @@ export class CorrelationService {
       ...event,
       resolvedToolId: undefined,
       resolvedAgentId: undefined,
+      parentAgentId: undefined,
       isSubagentTool: false,
       suppressFromMainChat: false,
     };
@@ -117,23 +136,71 @@ export class CorrelationService {
     switch (event.type) {
       case "stream.agent.start": {
         const data = event.data as BusEventDataMap["stream.agent.start"];
-        
+
         // First agent started becomes the main agent
         if (!this.mainAgentId) {
           this.mainAgentId = data.agentId;
         }
-        
+
         enriched.resolvedAgentId = data.agentId;
+
+        // Check if this agent is a registered sub-agent
+        const agentCtx = this.subagentRegistry.get(data.agentId);
+        if (agentCtx) {
+          enriched.parentAgentId = agentCtx.parentAgentId;
+          enriched.suppressFromMainChat = false;
+        }
+        break;
+      }
+
+      case "stream.agent.update": {
+        const data = event.data as BusEventDataMap["stream.agent.update"];
+        enriched.resolvedAgentId = data.agentId;
+
+        // Check if this agent is a registered sub-agent
+        const updateCtx = this.subagentRegistry.get(data.agentId);
+        if (updateCtx) {
+          enriched.parentAgentId = updateCtx.parentAgentId;
+          enriched.suppressFromMainChat = false;
+        }
+        break;
+      }
+
+      case "stream.agent.complete": {
+        const data = event.data as BusEventDataMap["stream.agent.complete"];
+        enriched.resolvedAgentId = data.agentId;
+
+        // Check if this agent is a registered sub-agent
+        const completeCtx = this.subagentRegistry.get(data.agentId);
+        if (completeCtx) {
+          enriched.parentAgentId = completeCtx.parentAgentId;
+          enriched.suppressFromMainChat = false;
+        }
         break;
       }
 
       case "stream.tool.start": {
         const data = event.data as BusEventDataMap["stream.tool.start"];
         enriched.resolvedToolId = data.toolId;
-        
+
         // Track which run this tool belongs to
         this.toolIdToRunMap.set(data.toolId, event.runId);
-        
+
+        // Check if this tool's parentAgentId refers to a registered sub-agent
+        if (data.parentAgentId) {
+          const toolSubCtx = this.subagentRegistry.get(data.parentAgentId);
+          if (toolSubCtx) {
+            enriched.resolvedAgentId = data.parentAgentId;
+            enriched.parentAgentId = toolSubCtx.parentAgentId;
+            enriched.isSubagentTool = true;
+            enriched.suppressFromMainChat = false;
+            // Register tool ID so stream.tool.complete can look up the agent
+            this.toolToAgent.set(data.toolId, data.parentAgentId);
+            this.subAgentTools.add(data.toolId);
+            break;
+          }
+        }
+
         // If we know which agent spawned this tool, correlate it
         // For tools without explicit agent correlation, use the main agent
         if (this.mainAgentId) {
@@ -145,19 +212,81 @@ export class CorrelationService {
       case "stream.tool.complete": {
         const data = event.data as BusEventDataMap["stream.tool.complete"];
         enriched.resolvedToolId = data.toolId;
-        
+
         // Look up which agent owns this tool
         const agentId = this.toolToAgent.get(data.toolId);
         if (agentId) {
           enriched.resolvedAgentId = agentId;
           enriched.isSubagentTool = this.subAgentTools.has(data.toolId);
+
+          // Check if the owning agent is a registered sub-agent
+          const completeToolCtx = this.subagentRegistry.get(agentId);
+          if (completeToolCtx) {
+            enriched.parentAgentId = completeToolCtx.parentAgentId;
+            enriched.isSubagentTool = true;
+            enriched.suppressFromMainChat = false;
+          }
         }
         break;
       }
 
-      case "stream.text.delta":
+      case "stream.text.delta": {
+        const textDeltaData = event.data as BusEventDataMap["stream.text.delta"];
+        // Check if agentId maps to a registered sub-agent
+        if (textDeltaData.agentId) {
+          const subCtx = this.subagentRegistry.get(textDeltaData.agentId);
+          if (subCtx) {
+            enriched.resolvedAgentId = textDeltaData.agentId;
+            enriched.parentAgentId = subCtx.parentAgentId;
+            break;
+          }
+        }
+        enriched.resolvedAgentId = this.mainAgentId ?? undefined;
+        break;
+      }
+
       case "stream.text.complete": {
-        // Text events belong to the main agent by default
+        const textCompleteData = event.data as BusEventDataMap["stream.text.complete"];
+        // Sub-agent text-complete events must not trigger main stream completion.
+        // Detect by messageId prefix set by SubagentStreamAdapter.
+        if (textCompleteData.messageId?.startsWith("subagent-")) {
+          const subAgentId = textCompleteData.messageId.slice("subagent-".length);
+          const subCtx = this.subagentRegistry.get(subAgentId);
+          if (subCtx) {
+            enriched.resolvedAgentId = subAgentId;
+            enriched.parentAgentId = subCtx.parentAgentId;
+          }
+          enriched.suppressFromMainChat = true;
+        } else {
+          enriched.resolvedAgentId = this.mainAgentId ?? undefined;
+        }
+        break;
+      }
+
+      case "stream.thinking.delta": {
+        const thinkingData = event.data as BusEventDataMap["stream.thinking.delta"];
+        if (thinkingData.agentId) {
+          const subCtx = this.subagentRegistry.get(thinkingData.agentId);
+          if (subCtx) {
+            enriched.resolvedAgentId = thinkingData.agentId;
+            enriched.parentAgentId = subCtx.parentAgentId;
+            break;
+          }
+        }
+        enriched.resolvedAgentId = this.mainAgentId ?? undefined;
+        break;
+      }
+
+      case "stream.usage": {
+        const usageData = event.data as BusEventDataMap["stream.usage"];
+        if (usageData.agentId) {
+          const subCtx = this.subagentRegistry.get(usageData.agentId);
+          if (subCtx) {
+            enriched.resolvedAgentId = usageData.agentId;
+            enriched.parentAgentId = subCtx.parentAgentId;
+            break;
+          }
+        }
         enriched.resolvedAgentId = this.mainAgentId ?? undefined;
         break;
       }
@@ -184,10 +313,38 @@ export class CorrelationService {
    */
   registerTool(toolId: string, agentId: string, isSubagent = false): void {
     this.toolToAgent.set(toolId, agentId);
-    
+
     if (isSubagent) {
       this.subAgentTools.add(toolId);
     }
+  }
+
+  /**
+   * Register a sub-agent with its parent context.
+   *
+   * This enables the correlation service to attribute events from workflow
+   * sub-agents to their parent agent and workflow run. When events with
+   * the registered agentId are processed, the enrichment will include
+   * parentAgentId and workflowRunId from the provided context.
+   *
+   * @param agentId - The unique sub-agent ID to register
+   * @param context - Parent context including parentAgentId, workflowRunId, and optional nodeId
+   */
+  registerSubagent(agentId: string, context: SubagentContext): void {
+    this.subagentRegistry.set(agentId, context);
+  }
+
+  /**
+   * Unregister a sub-agent from the registry.
+   *
+   * Should be called when a sub-agent completes or is aborted to clean up
+   * the registry entry. Events from the unregistered agentId will no longer
+   * receive parent context enrichment.
+   *
+   * @param agentId - The sub-agent ID to unregister
+   */
+  unregisterSubagent(agentId: string): void {
+    this.subagentRegistry.delete(agentId);
   }
 
   /**
@@ -203,6 +360,20 @@ export class CorrelationService {
   startRun(runId: number, sessionId: string): void {
     this.reset();
     this._activeRunId = runId;
+    this.ownedSessionIds.add(sessionId);
+  }
+
+  /**
+   * Add a session ID to the set of owned sessions without resetting state.
+   *
+   * Unlike startRun() which clears all state, this method only adds the
+   * session ID to the ownership set. Use this to register additional sessions
+   * (e.g., parent sessions for workflow sub-agents) that should be recognized
+   * by isOwnedEvent().
+   *
+   * @param sessionId - The session ID to add to the owned set
+   */
+  addOwnedSession(sessionId: string): void {
     this.ownedSessionIds.add(sessionId);
   }
 
@@ -263,5 +434,6 @@ export class CorrelationService {
     this._activeRunId = null;
     this.ownedSessionIds.clear();
     this.toolIdToRunMap.clear();
+    this.subagentRegistry.clear();
   }
 }

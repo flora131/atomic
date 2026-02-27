@@ -45,7 +45,13 @@ export function shouldShowMessageLoadingIndicator(
     (agent) => agent.background && agent.status === "background",
   );
 
-  return Boolean(message.streaming) || hasActiveBackgroundAgents;
+  // Also drive re-renders while foreground agents are running/pending
+  // so the elapsed timer in ParallelAgentsTree stays live.
+  const hasActiveForegroundAgents = (message.parallelAgents ?? []).some(
+    (agent) => !agent.background && (agent.status === "running" || agent.status === "pending"),
+  );
+
+  return Boolean(message.streaming) || hasActiveBackgroundAgents || hasActiveForegroundAgents;
 }
 
 export function hasLiveLoadingIndicator(

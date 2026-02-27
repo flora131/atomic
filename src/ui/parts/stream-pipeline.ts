@@ -17,9 +17,11 @@ import type {
   AgentPart,
   Part,
   ReasoningPart,
+  TaskListPart,
   TextPart,
   ToolPart,
   ToolState,
+  WorkflowStepPart,
 } from "./types.ts";
 
 type ToolStatus = MessageToolCall["status"];
@@ -30,6 +32,8 @@ interface ToolStartEvent {
   toolName: string;
   input: Record<string, unknown>;
   startedAt?: string;
+  /** Sub-agent ID if this event is scoped to a workflow sub-agent */
+  agentId?: string;
 }
 
 interface ToolCompleteEvent {
@@ -40,11 +44,15 @@ interface ToolCompleteEvent {
   success: boolean;
   error?: string;
   input?: Record<string, unknown>;
+  /** Sub-agent ID if this event is scoped to a workflow sub-agent */
+  agentId?: string;
 }
 
 interface TextDeltaEvent {
   type: "text-delta";
   delta: string;
+  /** Sub-agent ID if this event is scoped to a workflow sub-agent */
+  agentId?: string;
 }
 
 interface TextCompleteEvent {
@@ -95,6 +103,30 @@ interface ParallelAgentsEvent {
   isLastMessage: boolean;
 }
 
+interface WorkflowStepStartEvent {
+  type: "workflow-step-start";
+  nodeId: string;
+  nodeName: string;
+  startedAt: number;
+}
+
+interface WorkflowStepCompleteEvent {
+  type: "workflow-step-complete";
+  nodeId: string;
+  status: "success" | "error" | "skipped";
+  completedAt: number;
+  durationMs?: number;
+}
+
+interface TaskListUpdateEvent {
+  type: "task-list-update";
+  tasks: Array<{
+    id: string;
+    title: string;
+    status: string;
+  }>;
+}
+
 export type StreamPartEvent =
   | TextDeltaEvent
   | TextCompleteEvent
@@ -103,7 +135,10 @@ export type StreamPartEvent =
   | ToolCompleteEvent
   | HitlRequestEvent
   | HitlResponseEvent
-  | ParallelAgentsEvent;
+  | ParallelAgentsEvent
+  | WorkflowStepStartEvent
+  | WorkflowStepCompleteEvent
+  | TaskListUpdateEvent;
 
 const reasoningPartIdBySourceRegistry = new WeakMap<ChatMessage, Map<string, PartId>>();
 
@@ -796,12 +831,67 @@ export function syncToolCallsIntoParts(
   return nextParts;
 }
 
+/**
+ * Route a part event into a specific agent's inlineParts sub-array.
+ * Returns updated top-level parts array, or null if the agent was not found.
+ */
+function routeToAgentInlineParts(
+  parts: Part[],
+  agentId: string,
+  applyFn: (inlineParts: Part[]) => Part[],
+): Part[] | null {
+  for (let i = 0; i < parts.length; i++) {
+    const part = parts[i];
+    if (part?.type !== "agent") continue;
+    const agentPart = part as AgentPart;
+    const agentIdx = agentPart.agents.findIndex((a) => a.id === agentId);
+    if (agentIdx < 0) continue;
+
+    const agent = agentPart.agents[agentIdx]!;
+    const updatedInlineParts = applyFn(agent.inlineParts ?? []);
+    const updatedAgents = [...agentPart.agents];
+    updatedAgents[agentIdx] = { ...agent, inlineParts: updatedInlineParts };
+    const updatedParts = [...parts];
+    updatedParts[i] = { ...agentPart, agents: updatedAgents };
+    return updatedParts;
+  }
+  return null;
+}
+
 export function applyStreamPartEvent(
   message: ChatMessage,
   event: StreamPartEvent,
 ): ChatMessage {
   switch (event.type) {
     case "text-delta": {
+      // Agent-scoped routing: append text to agent's inline parts
+      if (event.agentId && message.parts) {
+        const routed = routeToAgentInlineParts(message.parts, event.agentId, (inlineParts) => {
+          const lastText = inlineParts.length > 0 ? inlineParts[inlineParts.length - 1] : undefined;
+          if (lastText && lastText.type === "text" && (lastText as TextPart).isStreaming) {
+            const updated = [...inlineParts];
+            updated[updated.length - 1] = {
+              ...(lastText as TextPart),
+              content: (lastText as TextPart).content + event.delta,
+            };
+            return updated;
+          }
+          return [...inlineParts, {
+            id: createPartId(),
+            type: "text",
+            content: event.delta,
+            isStreaming: true,
+            createdAt: new Date().toISOString(),
+          } as TextPart];
+        });
+        if (routed) {
+          const nextMessage: ChatMessage = { ...message, parts: routed };
+          return carryReasoningPartRegistry(message, nextMessage);
+        }
+        // Agent not yet in parts (race with useEffect baking) — drop the
+        // delta rather than leaking sub-agent text into the main chat body.
+        return message;
+      }
       const withParts = handleTextDelta(message, event.delta);
       const nextMessage: ChatMessage = {
         ...withParts,
@@ -814,6 +904,19 @@ export function applyStreamPartEvent(
       return upsertThinkingMeta(message, event);
 
     case "tool-start": {
+      // Agent-scoped routing: add tool to agent's inline parts
+      if (event.agentId && message.parts) {
+        const routed = routeToAgentInlineParts(message.parts, event.agentId, (inlineParts) => {
+          return upsertToolPartStart(inlineParts, event);
+        });
+        if (routed) {
+          const nextToolCalls = upsertToolCallStart(message.toolCalls, event);
+          const nextMessage: ChatMessage = { ...message, toolCalls: nextToolCalls, parts: routed };
+          return carryReasoningPartRegistry(message, nextMessage);
+        }
+        // Agent not yet in parts — drop rather than adding to main chat
+        return message;
+      }
       const nextToolCalls = upsertToolCallStart(message.toolCalls, event);
       const nextParts = upsertToolPartStart(message.parts ?? [], event);
       const nextMessage: ChatMessage = {
@@ -825,6 +928,19 @@ export function applyStreamPartEvent(
     }
 
     case "tool-complete": {
+      // Agent-scoped routing: update tool in agent's inline parts
+      if (event.agentId && message.parts) {
+        const routed = routeToAgentInlineParts(message.parts, event.agentId, (inlineParts) => {
+          return upsertToolPartComplete(inlineParts, event);
+        });
+        if (routed) {
+          const nextToolCalls = upsertToolCallComplete(message.toolCalls, event);
+          const nextMessage: ChatMessage = { ...message, toolCalls: nextToolCalls, parts: routed };
+          return carryReasoningPartRegistry(message, nextMessage);
+        }
+        // Agent not yet in parts — drop rather than adding to main chat
+        return message;
+      }
       const nextToolCalls = upsertToolCallComplete(message.toolCalls, event);
       const nextParts = upsertToolPartComplete(message.parts ?? [], event);
       const nextMessage: ChatMessage = {
@@ -867,5 +983,82 @@ export function applyStreamPartEvent(
       };
       return carryReasoningPartRegistry(message, nextMessage);
     }
+
+    case "workflow-step-start": {
+      const stepPart: WorkflowStepPart = {
+        id: createPartId(),
+        type: "workflow-step",
+        nodeId: event.nodeId,
+        nodeName: event.nodeName,
+        status: "running",
+        startedAt: event.startedAt,
+        createdAt: new Date().toISOString(),
+      };
+      const nextParts = upsertPart(message.parts ?? [], stepPart);
+      const nextMessage: ChatMessage = { ...message, parts: nextParts };
+      return carryReasoningPartRegistry(message, nextMessage);
+    }
+
+    case "workflow-step-complete": {
+      const parts = [...(message.parts ?? [])];
+      const stepIdx = parts.findIndex(
+        (part) => part.type === "workflow-step" && (part as WorkflowStepPart).nodeId === event.nodeId,
+      );
+      if (stepIdx >= 0) {
+        const existing = parts[stepIdx] as WorkflowStepPart;
+        const durationMs = event.durationMs ?? (event.completedAt - existing.startedAt);
+        parts[stepIdx] = {
+          ...existing,
+          status: event.status === "success" ? "completed" : "error",
+          completedAt: event.completedAt,
+          durationMs,
+        };
+      }
+      const nextMessage: ChatMessage = { ...message, parts };
+      return carryReasoningPartRegistry(message, nextMessage);
+    }
+
+    case "task-list-update": {
+      const parts = [...(message.parts ?? [])];
+      const taskItems = event.tasks.map((t) => ({
+        id: t.id,
+        content: t.title,
+        status: normalizeTaskItemStatus(t.status),
+      }));
+      const existingIdx = parts.findIndex((part) => part.type === "task-list");
+      if (existingIdx >= 0) {
+        const existing = parts[existingIdx] as TaskListPart;
+        parts[existingIdx] = { ...existing, items: taskItems };
+      } else {
+        const taskListPart: TaskListPart = {
+          id: createPartId(),
+          type: "task-list",
+          items: taskItems,
+          expanded: false,
+          createdAt: new Date().toISOString(),
+        };
+        parts.push(taskListPart);
+      }
+      const nextMessage: ChatMessage = { ...message, parts };
+      return carryReasoningPartRegistry(message, nextMessage);
+    }
+  }
+}
+
+/** Map raw status strings from workflow.task.update to TaskItem status values. */
+function normalizeTaskItemStatus(status: string): "pending" | "in_progress" | "completed" | "error" {
+  switch (status) {
+    case "pending": return "pending";
+    case "in_progress": return "in_progress";
+    case "completed":
+    case "complete":
+    case "done":
+    case "success":
+      return "completed";
+    case "error":
+    case "failed":
+      return "error";
+    default:
+      return "pending";
   }
 }

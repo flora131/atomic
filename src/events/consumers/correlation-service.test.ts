@@ -7,6 +7,7 @@
 
 import { test, expect, describe, beforeEach } from "bun:test";
 import { CorrelationService } from "./correlation-service.ts";
+import type { SubagentContext } from "./correlation-service.ts";
 import type { BusEvent } from "../bus-events.ts";
 
 describe("CorrelationService", () => {
@@ -395,5 +396,485 @@ describe("CorrelationService", () => {
       data: { delta: "hi", messageId: "m1" },
     };
     expect(service.isOwnedEvent(event)).toBe(false);
+  });
+
+  // --- Sub-agent Registry Tests ---
+
+  describe("registerSubagent / unregisterSubagent", () => {
+    const subagentContext: SubagentContext = {
+      parentAgentId: "parent_001",
+      workflowRunId: "wf_run_1",
+      nodeId: "planner",
+    };
+
+    test("registerSubagent stores context for enrichment", () => {
+      service.registerSubagent("sub_agent_1", subagentContext);
+
+      const event: BusEvent<"stream.agent.start"> = {
+        type: "stream.agent.start",
+        sessionId: "session_123",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          agentId: "sub_agent_1",
+          agentType: "task",
+          task: "Analyze code",
+          isBackground: false,
+        },
+      };
+
+      const enriched = service.enrich(event);
+
+      expect(enriched.resolvedAgentId).toBe("sub_agent_1");
+      expect(enriched.parentAgentId).toBe("parent_001");
+      expect(enriched.suppressFromMainChat).toBe(false);
+    });
+
+    test("unregisterSubagent removes context so enrichment no longer applies", () => {
+      service.registerSubagent("sub_agent_2", subagentContext);
+      service.unregisterSubagent("sub_agent_2");
+
+      const event: BusEvent<"stream.agent.start"> = {
+        type: "stream.agent.start",
+        sessionId: "session_123",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          agentId: "sub_agent_2",
+          agentType: "task",
+          task: "Write tests",
+          isBackground: false,
+        },
+      };
+
+      const enriched = service.enrich(event);
+
+      expect(enriched.resolvedAgentId).toBe("sub_agent_2");
+      expect(enriched.parentAgentId).toBeUndefined();
+    });
+
+    test("unregisterSubagent is safe for non-existent agentId", () => {
+      // Should not throw
+      service.unregisterSubagent("nonexistent_agent");
+    });
+  });
+
+  describe("sub-agent enrichment for agent lifecycle events", () => {
+    const subagentContext: SubagentContext = {
+      parentAgentId: "workflow_main",
+      workflowRunId: "wf_42",
+    };
+
+    test("stream.agent.start enriches with parentAgentId for registered sub-agent", () => {
+      service.registerSubagent("worker_1", subagentContext);
+
+      const event: BusEvent<"stream.agent.start"> = {
+        type: "stream.agent.start",
+        sessionId: "session_1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          agentId: "worker_1",
+          agentType: "explore",
+          task: "Research docs",
+          isBackground: true,
+        },
+      };
+
+      const enriched = service.enrich(event);
+
+      expect(enriched.resolvedAgentId).toBe("worker_1");
+      expect(enriched.parentAgentId).toBe("workflow_main");
+      expect(enriched.suppressFromMainChat).toBe(false);
+    });
+
+    test("stream.agent.update enriches with parentAgentId for registered sub-agent", () => {
+      service.registerSubagent("worker_2", subagentContext);
+
+      const event: BusEvent<"stream.agent.update"> = {
+        type: "stream.agent.update",
+        sessionId: "session_1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          agentId: "worker_2",
+          currentTool: "read_file",
+          toolUses: 3,
+        },
+      };
+
+      const enriched = service.enrich(event);
+
+      expect(enriched.resolvedAgentId).toBe("worker_2");
+      expect(enriched.parentAgentId).toBe("workflow_main");
+      expect(enriched.suppressFromMainChat).toBe(false);
+    });
+
+    test("stream.agent.complete enriches with parentAgentId for registered sub-agent", () => {
+      service.registerSubagent("worker_3", subagentContext);
+
+      const event: BusEvent<"stream.agent.complete"> = {
+        type: "stream.agent.complete",
+        sessionId: "session_1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          agentId: "worker_3",
+          success: true,
+          result: "Done",
+        },
+      };
+
+      const enriched = service.enrich(event);
+
+      expect(enriched.resolvedAgentId).toBe("worker_3");
+      expect(enriched.parentAgentId).toBe("workflow_main");
+      expect(enriched.suppressFromMainChat).toBe(false);
+    });
+
+    test("agent events for non-registered agents have no parentAgentId", () => {
+      const event: BusEvent<"stream.agent.update"> = {
+        type: "stream.agent.update",
+        sessionId: "session_1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          agentId: "unregistered_agent",
+          currentTool: "bash",
+        },
+      };
+
+      const enriched = service.enrich(event);
+
+      expect(enriched.resolvedAgentId).toBe("unregistered_agent");
+      expect(enriched.parentAgentId).toBeUndefined();
+    });
+  });
+
+  describe("sub-agent enrichment for tool events", () => {
+    const subagentContext: SubagentContext = {
+      parentAgentId: "workflow_main",
+      workflowRunId: "wf_99",
+      nodeId: "coder",
+    };
+
+    test("stream.tool.start with parentAgentId matching registered sub-agent sets isSubagentTool", () => {
+      service.registerSubagent("sub_coder", subagentContext);
+
+      const event: BusEvent<"stream.tool.start"> = {
+        type: "stream.tool.start",
+        sessionId: "session_1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          toolId: "tool_abc",
+          toolName: "edit_file",
+          toolInput: { path: "src/main.ts" },
+          parentAgentId: "sub_coder",
+        },
+      };
+
+      const enriched = service.enrich(event);
+
+      expect(enriched.resolvedToolId).toBe("tool_abc");
+      expect(enriched.resolvedAgentId).toBe("sub_coder");
+      expect(enriched.parentAgentId).toBe("workflow_main");
+      expect(enriched.isSubagentTool).toBe(true);
+      expect(enriched.suppressFromMainChat).toBe(false);
+    });
+
+    test("stream.tool.start without parentAgentId falls back to mainAgentId", () => {
+      // Set up main agent
+      const agentEvent: BusEvent<"stream.agent.start"> = {
+        type: "stream.agent.start",
+        sessionId: "session_1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          agentId: "main_agent",
+          agentType: "general-purpose",
+          task: "Main task",
+          isBackground: false,
+        },
+      };
+      service.enrich(agentEvent);
+
+      const event: BusEvent<"stream.tool.start"> = {
+        type: "stream.tool.start",
+        sessionId: "session_1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          toolId: "tool_def",
+          toolName: "bash",
+          toolInput: { command: "ls" },
+        },
+      };
+
+      const enriched = service.enrich(event);
+
+      expect(enriched.resolvedAgentId).toBe("main_agent");
+      expect(enriched.parentAgentId).toBeUndefined();
+      expect(enriched.isSubagentTool).toBe(false);
+    });
+
+    test("stream.tool.complete for tool owned by registered sub-agent sets parentAgentId", () => {
+      service.registerSubagent("sub_writer", {
+        parentAgentId: "workflow_main",
+        workflowRunId: "wf_77",
+      });
+      service.registerTool("tool_write_1", "sub_writer", false);
+
+      const event: BusEvent<"stream.tool.complete"> = {
+        type: "stream.tool.complete",
+        sessionId: "session_1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          toolId: "tool_write_1",
+          toolName: "write_file",
+          toolResult: "Written",
+          success: true,
+        },
+      };
+
+      const enriched = service.enrich(event);
+
+      expect(enriched.resolvedToolId).toBe("tool_write_1");
+      expect(enriched.resolvedAgentId).toBe("sub_writer");
+      expect(enriched.parentAgentId).toBe("workflow_main");
+      expect(enriched.isSubagentTool).toBe(true);
+      expect(enriched.suppressFromMainChat).toBe(false);
+    });
+  });
+
+  describe("sub-agent registry cleanup", () => {
+    test("reset() clears the subagent registry", () => {
+      service.registerSubagent("sub_1", {
+        parentAgentId: "parent_1",
+        workflowRunId: "wf_1",
+      });
+      service.registerSubagent("sub_2", {
+        parentAgentId: "parent_1",
+        workflowRunId: "wf_1",
+      });
+
+      service.reset();
+
+      // After reset, registered sub-agents should no longer enrich events
+      const event: BusEvent<"stream.agent.start"> = {
+        type: "stream.agent.start",
+        sessionId: "session_1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          agentId: "sub_1",
+          agentType: "task",
+          task: "Test",
+          isBackground: false,
+        },
+      };
+
+      const enriched = service.enrich(event);
+      expect(enriched.parentAgentId).toBeUndefined();
+    });
+
+    test("startRun() clears the subagent registry via reset()", () => {
+      service.registerSubagent("sub_old", {
+        parentAgentId: "old_parent",
+        workflowRunId: "wf_old",
+      });
+
+      service.startRun(100, "new_session");
+
+      const event: BusEvent<"stream.agent.update"> = {
+        type: "stream.agent.update",
+        sessionId: "new_session",
+        runId: 100,
+        timestamp: Date.now(),
+        data: {
+          agentId: "sub_old",
+          currentTool: "bash",
+        },
+      };
+
+      const enriched = service.enrich(event);
+      expect(enriched.parentAgentId).toBeUndefined();
+    });
+  });
+
+  describe("sub-agent registry does not break existing behavior", () => {
+    test("non-sub-agent events still enrich correctly with no registry entries", () => {
+      // Main agent start
+      const agentEvent: BusEvent<"stream.agent.start"> = {
+        type: "stream.agent.start",
+        sessionId: "session_1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          agentId: "main_agent",
+          agentType: "general-purpose",
+          task: "Chat",
+          isBackground: false,
+        },
+      };
+      const agentEnriched = service.enrich(agentEvent);
+      expect(agentEnriched.resolvedAgentId).toBe("main_agent");
+      expect(agentEnriched.parentAgentId).toBeUndefined();
+
+      // Tool registration and completion
+      service.registerTool("tool_1", "main_agent", false);
+      const toolEvent: BusEvent<"stream.tool.complete"> = {
+        type: "stream.tool.complete",
+        sessionId: "session_1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          toolId: "tool_1",
+          toolName: "read",
+          toolResult: "content",
+          success: true,
+        },
+      };
+      const toolEnriched = service.enrich(toolEvent);
+      expect(toolEnriched.resolvedAgentId).toBe("main_agent");
+      expect(toolEnriched.isSubagentTool).toBe(false);
+      expect(toolEnriched.parentAgentId).toBeUndefined();
+
+      // Text delta
+      const textEvent: BusEvent<"stream.text.delta"> = {
+        type: "stream.text.delta",
+        sessionId: "session_1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { delta: "Hello", messageId: "msg_1" },
+      };
+      const textEnriched = service.enrich(textEvent);
+      expect(textEnriched.resolvedAgentId).toBe("main_agent");
+      expect(textEnriched.parentAgentId).toBeUndefined();
+    });
+
+    test("multiple sub-agents can be registered simultaneously", () => {
+      service.registerSubagent("worker_a", {
+        parentAgentId: "orchestrator",
+        workflowRunId: "wf_multi",
+        nodeId: "step_1",
+      });
+      service.registerSubagent("worker_b", {
+        parentAgentId: "orchestrator",
+        workflowRunId: "wf_multi",
+        nodeId: "step_2",
+      });
+
+      const eventA: BusEvent<"stream.agent.start"> = {
+        type: "stream.agent.start",
+        sessionId: "s1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { agentId: "worker_a", agentType: "task", task: "A", isBackground: false },
+      };
+      const eventB: BusEvent<"stream.agent.start"> = {
+        type: "stream.agent.start",
+        sessionId: "s1",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { agentId: "worker_b", agentType: "task", task: "B", isBackground: false },
+      };
+
+      const enrichedA = service.enrich(eventA);
+      const enrichedB = service.enrich(eventB);
+
+      expect(enrichedA.parentAgentId).toBe("orchestrator");
+      expect(enrichedB.parentAgentId).toBe("orchestrator");
+      expect(enrichedA.resolvedAgentId).toBe("worker_a");
+      expect(enrichedB.resolvedAgentId).toBe("worker_b");
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Sub-agent text-complete suppression
+  // --------------------------------------------------------------------------
+
+  describe("sub-agent text-complete suppression", () => {
+    test("stream.text.complete with subagent- messageId is suppressed", () => {
+      service.registerSubagent("worker-1", { parentAgentId: "main-agent" });
+
+      const event: BusEvent<"stream.text.complete"> = {
+        type: "stream.text.complete",
+        sessionId: "session_123",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { messageId: "subagent-worker-1", fullText: "done" },
+      };
+
+      const enriched = service.enrich(event);
+      expect(enriched.suppressFromMainChat).toBe(true);
+      expect(enriched.resolvedAgentId).toBe("worker-1");
+      expect(enriched.parentAgentId).toBe("main-agent");
+    });
+
+    test("stream.text.complete without subagent- prefix is NOT suppressed", () => {
+      const agentStartEvent: BusEvent<"stream.agent.start"> = {
+        type: "stream.agent.start",
+        sessionId: "session_123",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { agentId: "main-agent", agentType: "chat", task: "test" },
+      };
+      service.enrich(agentStartEvent);
+
+      const event: BusEvent<"stream.text.complete"> = {
+        type: "stream.text.complete",
+        sessionId: "session_123",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { messageId: "msg-123", fullText: "done" },
+      };
+
+      const enriched = service.enrich(event);
+      expect(enriched.suppressFromMainChat).toBe(false);
+      expect(enriched.resolvedAgentId).toBe("main-agent");
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Sub-agent tool registration in toolToAgent map
+  // --------------------------------------------------------------------------
+
+  describe("sub-agent tool ID registration on stream.tool.start", () => {
+    test("registers tool in toolToAgent so stream.tool.complete resolves agent", () => {
+      service.registerSubagent("worker-1", { parentAgentId: "main-agent" });
+
+      const toolStartEvent: BusEvent<"stream.tool.start"> = {
+        type: "stream.tool.start",
+        sessionId: "session_123",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          toolId: "tool-abc",
+          toolName: "grep",
+          parentAgentId: "worker-1",
+        },
+      };
+      service.enrich(toolStartEvent);
+
+      // Now stream.tool.complete should resolve the agent
+      const toolCompleteEvent: BusEvent<"stream.tool.complete"> = {
+        type: "stream.tool.complete",
+        sessionId: "session_123",
+        runId: 1,
+        timestamp: Date.now(),
+        data: {
+          toolId: "tool-abc",
+          toolName: "grep",
+          toolResult: "found",
+          success: true,
+        },
+      };
+      const enriched = service.enrich(toolCompleteEvent);
+      expect(enriched.resolvedAgentId).toBe("worker-1");
+      expect(enriched.isSubagentTool).toBe(true);
+      expect(enriched.parentAgentId).toBe("main-agent");
+    });
   });
 });

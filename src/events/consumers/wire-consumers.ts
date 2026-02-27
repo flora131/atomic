@@ -85,7 +85,9 @@ export function wireConsumers(bus: AtomicEventBus, dispatcher: BatchDispatcher):
       }
     }
     const enriched = owned.map((event) => correlation.enrich(event));
-    pipeline.processBatch(enriched);
+    // Filter out events marked for suppression (e.g., sub-agent text-complete)
+    const unsuppressed = enriched.filter((event) => !event.suppressFromMainChat);
+    pipeline.processBatch(unsuppressed);
   });
 
   return {

@@ -1,10 +1,13 @@
 /**
  * TextPartDisplay Component
  *
- * Renders a TextPart as markdown with optional throttling
- * during streaming to prevent UI thrashing. Uses <markdown>
- * when syntaxStyle is available, otherwise falls back to
- * <code filetype="markdown"> with conceal/streaming.
+ * Renders a TextPart as markdown with a ● bullet prefix per the
+ * UI design patterns. Uses <markdown> when syntaxStyle is available,
+ * otherwise falls back to <code filetype="markdown"> with conceal/streaming.
+ *
+ * Layout:
+ *   ● First line of markdown content
+ *     continuation lines are indented to align with text after the bullet
  */
 
 import React, { useMemo } from "react";
@@ -12,6 +15,7 @@ import { MarkdownRenderable, type SyntaxStyle } from "@opentui/core";
 import type { TextPart } from "../../parts/types.ts";
 import { createMarkdownSyntaxStyle, useTheme, useThemeColors } from "../../theme.tsx";
 import { normalizeMarkdownNewlines } from "../../utils/format.ts";
+import { STATUS } from "../../constants/icons.ts";
 
 // Patch MarkdownRenderable to support text selection.
 // MarkdownRenderable extends Renderable (not TextBufferRenderable), so its
@@ -48,28 +52,35 @@ export function TextPartDisplay({ part, syntaxStyle }: TextPartDisplayProps) {
     return null;
   }
 
+  // Static ● bullet prefix: always white (foreground) for text blocks.
+  // Green ● is reserved for tool/agent blocks on success.
+  const bullet = <text style={{ fg: colors.foreground }}>{STATUS.active}</text>;
+
   return (
-    <box flexDirection="column">
-      {syntaxStyle ? (
-        <markdown
-          content={normalizedContent}
-          syntaxStyle={syntaxStyle}
-          streaming={part.isStreaming}
-          conceal={true}
-          // @ts-expect-error selectable is a valid Renderable property but not typed in MarkdownOptions
-          selectable={true}
-        />
-      ) : (
-        <code
-          content={normalizedContent}
-          filetype="markdown"
-          drawUnstyledText={false}
-          streaming={part.isStreaming}
-          syntaxStyle={syntaxStyle ?? fallbackSyntaxStyle}
-          fg={colors.foreground}
-          conceal={true}
-        />
-      )}
+    <box flexDirection="row">
+      <box flexShrink={0} width={2}>{bullet}</box>
+      <box flexGrow={1} flexShrink={1} flexDirection="column">
+        {syntaxStyle ? (
+          <markdown
+            content={normalizedContent}
+            syntaxStyle={syntaxStyle}
+            streaming={part.isStreaming}
+            conceal={true}
+            // @ts-expect-error selectable is a valid Renderable property but not typed in MarkdownOptions
+            selectable={true}
+          />
+        ) : (
+          <code
+            content={normalizedContent}
+            filetype="markdown"
+            drawUnstyledText={false}
+            streaming={part.isStreaming}
+            syntaxStyle={syntaxStyle ?? fallbackSyntaxStyle}
+            fg={colors.foreground}
+            conceal={true}
+          />
+        )}
+      </box>
     </box>
   );
 }

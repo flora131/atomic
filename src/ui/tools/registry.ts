@@ -827,6 +827,7 @@ export const TOOL_RENDERERS: Record<string, ToolRenderer> = {
   todowrite: todoWriteToolRenderer,
   Task: taskToolRenderer,
   task: taskToolRenderer,
+  launch_agent: taskToolRenderer,
   // Copilot equivalents
   create: writeToolRenderer,
   view: readToolRenderer,
@@ -844,6 +845,20 @@ export const TOOL_RENDERERS: Record<string, ToolRenderer> = {
   Skill: skillToolRenderer,
   skill: skillToolRenderer,
 };
+
+/**
+ * Dynamically register agent names as task tool renderers.
+ * Called when agent names are discovered from config directories
+ * (.github/agents/, ~/.copilot/agents/, ~/.atomic/.copilot/agents/).
+ * Existing entries are not overwritten.
+ */
+export function registerAgentToolNames(agentNames: string[]): void {
+  for (const name of agentNames) {
+    if (!TOOL_RENDERERS[name]) {
+      TOOL_RENDERERS[name] = taskToolRenderer;
+    }
+  }
+}
 
 // ============================================================================
 // HELPER FUNCTIONS

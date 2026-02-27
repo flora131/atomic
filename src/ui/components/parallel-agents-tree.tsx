@@ -153,15 +153,19 @@ export function getStatusIcon(status: AgentStatus): string {
 
 /**
  * Get the color used for the status indicator dot.
- * Running/pending/background remain muted to avoid implying completion.
+ *
+ * - completed: green (success)
+ * - error: red (error)
+ * - pending/interrupted: yellow (warning)
+ * - running/background: muted (spinner animation conveys activity)
  */
 export function getStatusIndicatorColor(
   status: AgentStatus,
   colors: Pick<ThemeColors, "muted" | "success" | "warning" | "error">,
 ): string {
   if (status === "completed") return colors.success;
-  if (status === "interrupted") return colors.warning;
   if (status === "error") return colors.error;
+  if (status === "pending" || status === "interrupted") return colors.warning;
   return colors.muted;
 }
 

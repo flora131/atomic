@@ -37,6 +37,7 @@ import { OpenCodeStreamAdapter } from "../events/adapters/opencode-adapter.ts";
 import { ClaudeStreamAdapter } from "../events/adapters/claude-adapter.ts";
 import { CopilotStreamAdapter } from "../events/adapters/copilot-adapter.ts";
 import type { SDKStreamAdapter } from "../events/adapters/types.ts";
+import { registerAgentToolNames } from "./tools/registry.ts";
 
 /**
  * Build a system prompt section describing all registered capabilities.
@@ -441,11 +442,18 @@ export async function startChatUI(
     const runId = state.currentRunId;
     const messageId = crypto.randomUUID();
 
+    // Discover agent names for Copilot adapter + tool registry
+    const knownAgentNames = client.getKnownAgentNames?.() ?? [];
+    if (knownAgentNames.length > 0) {
+      registerAgentToolNames(knownAgentNames);
+    }
+
     try {
       await adapter.startStreaming(state.session!, content, {
         runId,
         messageId,
         agent: options?.agent,
+        knownAgentNames,
       });
 
       state.messageCount++;
@@ -916,6 +924,7 @@ export {
   getRegisteredToolNames,
   hasCustomRenderer,
   getLanguageFromExtension,
+  registerAgentToolNames,
 } from "./tools/index.ts";
 
 // Commands module

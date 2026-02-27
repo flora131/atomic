@@ -16,14 +16,17 @@ describe("ParallelAgentsTree status indicator colors", () => {
     error: "#ff0000",
   };
 
-  test("renders running and pending as muted static indicators", () => {
+  test("renders running and background as muted static indicators", () => {
     expect(getStatusIndicatorColor("running", colors)).toBe(colors.muted);
-    expect(getStatusIndicatorColor("pending", colors)).toBe(colors.muted);
     expect(getStatusIndicatorColor("background", colors)).toBe(colors.muted);
   });
 
-  test("renders completed as success and interrupted as warning", () => {
+  test("renders completed as success", () => {
     expect(getStatusIndicatorColor("completed", colors)).toBe(colors.success);
+  });
+
+  test("renders pending and interrupted as warning", () => {
+    expect(getStatusIndicatorColor("pending", colors)).toBe(colors.warning);
     expect(getStatusIndicatorColor("interrupted", colors)).toBe(colors.warning);
   });
 

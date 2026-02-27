@@ -12,14 +12,14 @@ import type { Part, ToolPart, AgentPart } from "../../parts/types.ts";
 import { PART_REGISTRY } from "./registry.tsx";
 import { SPACING } from "../../constants/spacing.ts";
 
-function isTaskToolName(name: string): boolean {
-  return name === "Task" || name === "task";
-}
-
 /**
- * Build a set of Task-tool toolCallIds that are represented by an AgentPart.
+ * Build a set of task-tool toolCallIds that are represented by an AgentPart.
  * These ToolParts should be hidden because the agent tree already displays
  * the same information (task description, status, tool uses, result).
+ *
+ * The check is purely ID-based (agentTaskToolCallIds set) — no tool-name
+ * guard is needed because Copilot uses the agent's own name as the tool
+ * name (e.g., "general-purpose", "codebase-analyzer") rather than "task".
  */
 export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<string> {
   const hasAgentPart = parts.some((p) => p.type === "agent");
@@ -39,7 +39,7 @@ export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<stri
   for (const part of parts) {
     if (part.type !== "tool") continue;
     const toolPart = part as ToolPart;
-    if (isTaskToolName(toolPart.toolName) && agentTaskToolCallIds.has(toolPart.toolCallId)) {
+    if (agentTaskToolCallIds.has(toolPart.toolCallId)) {
       consumed.add(toolPart.toolCallId);
     }
   }
@@ -117,7 +117,6 @@ export function MessageBubbleParts({ message, syntaxStyle }: MessageBubblePartsP
         // Skip Task ToolParts consumed by the agent tree
         if (
           part.type === "tool" &&
-          isTaskToolName((part as ToolPart).toolName) &&
           consumedTaskIds.has((part as ToolPart).toolCallId)
         ) {
           return null;

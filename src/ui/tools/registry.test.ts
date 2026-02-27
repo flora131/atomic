@@ -16,6 +16,8 @@ import {
   taskToolRenderer,
   todoWriteToolRenderer,
   parseTaskToolResult,
+  registerAgentToolNames,
+  TOOL_RENDERERS,
   type ToolRenderProps,
 } from "./registry";
 import { STATUS, CHECKBOX } from "../constants/icons";
@@ -28,6 +30,7 @@ describe("getToolRenderer", () => {
     expect(getToolRenderer("bash")).toBe(bashToolRenderer);
     expect(getToolRenderer("Task")).toBe(taskToolRenderer);
     expect(getToolRenderer("task")).toBe(taskToolRenderer);
+    expect(getToolRenderer("launch_agent")).toBe(taskToolRenderer);
   });
 
   test("returns MCP renderer for MCP tool names", () => {
@@ -1266,5 +1269,30 @@ describe("todoWriteToolRenderer.render()", () => {
     };
     const result = todoWriteToolRenderer.render(props);
     expect(result.title).toBe("0 tasks (0 done, 0 open)");
+  });
+});
+
+describe("registerAgentToolNames", () => {
+  test("registers agent names as task tool renderers", () => {
+    registerAgentToolNames(["my-custom-agent"]);
+    expect(getToolRenderer("my-custom-agent")).toBe(taskToolRenderer);
+  });
+
+  test("does not overwrite existing renderer entries", () => {
+    // "Read" already maps to readToolRenderer
+    registerAgentToolNames(["Read"]);
+    expect(getToolRenderer("Read")).toBe(readToolRenderer);
+  });
+
+  test("registers multiple agent names at once", () => {
+    registerAgentToolNames(["agent-alpha", "agent-beta"]);
+    expect(getToolRenderer("agent-alpha")).toBe(taskToolRenderer);
+    expect(getToolRenderer("agent-beta")).toBe(taskToolRenderer);
+  });
+
+  test("handles empty array without error", () => {
+    registerAgentToolNames([]);
+    // No error thrown, existing registry unaffected
+    expect(getToolRenderer("Task")).toBe(taskToolRenderer);
   });
 });

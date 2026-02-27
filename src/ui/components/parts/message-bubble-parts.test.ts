@@ -122,13 +122,14 @@ describe("getConsumedTaskToolCallIds", () => {
     expect(consumed.has("tool-2")).toBe(true);
   });
 
-  test("does not consume non-Task ToolParts", () => {
+  test("consumes any ToolPart whose toolCallId matches an AgentPart (Copilot agent-named tools)", () => {
     const parts: Part[] = [
-      createToolPart("tool-1", "bash"),
+      createToolPart("tool-1", "codebase-analyzer"),
       createAgentPart([createAgent("tool-1", "explorer")]),
     ];
     const consumed = getConsumedTaskToolCallIds(parts);
-    expect(consumed.size).toBe(0);
+    expect(consumed.size).toBe(1);
+    expect(consumed.has("tool-1")).toBe(true);
   });
 
   test("does not consume Task ToolParts without matching agents", () => {
@@ -150,5 +151,23 @@ describe("getConsumedTaskToolCallIds", () => {
     ];
     const consumed = getConsumedTaskToolCallIds(parts);
     expect(consumed.has("tool-1")).toBe(true);
+  });
+
+  test("consumes Copilot agent-name ToolPart when matching AgentPart exists", () => {
+    const parts: Part[] = [
+      createToolPart("tool-1", "general-purpose"),
+      createToolPart("tool-2", "codebase-analyzer"),
+      createToolPart("tool-3", "bash"),
+      createAgentPart([
+        createAgent("tool-1", "general-purpose"),
+        createAgent("tool-2", "codebase-analyzer"),
+      ]),
+    ];
+    const consumed = getConsumedTaskToolCallIds(parts);
+    expect(consumed.size).toBe(2);
+    expect(consumed.has("tool-1")).toBe(true);
+    expect(consumed.has("tool-2")).toBe(true);
+    // tool-3 (bash) has no matching AgentPart, so it should NOT be consumed
+    expect(consumed.has("tool-3")).toBe(false);
   });
 });

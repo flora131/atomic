@@ -33,4 +33,7 @@ export {
   getRegisteredToolNames,
   hasCustomRenderer,
   getLanguageFromExtension,
+
+  // Dynamic registration
+  registerAgentToolNames,
 } from "./registry.ts";

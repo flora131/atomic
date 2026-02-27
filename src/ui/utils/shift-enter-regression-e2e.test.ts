@@ -4,6 +4,7 @@ import { getNextKittyKeyboardDetectionState } from "./kitty-keyboard-detection.t
 import {
   shouldApplyBackslashLineContinuation,
   shouldEnqueueMessageFromKeyEvent,
+  shouldInsertNewlineFallbackFromKeyEvent,
   shouldInsertNewlineFromKeyEvent,
   type NewlineKeyEventLike,
 } from "./newline-strategies.ts";
@@ -54,7 +55,7 @@ function createInputHarness(options: InputHarnessOptions = {}): InputHarness {
       return;
     }
 
-    if (state.isStreaming && shouldEnqueueMessageFromKeyEvent(event, state.platform)) {
+    if (shouldEnqueueMessageFromKeyEvent(event, state.platform)) {
       const trimmed = state.value.trim();
       if (trimmed) {
         state.enqueued.push(trimmed);
@@ -63,6 +64,15 @@ function createInputHarness(options: InputHarnessOptions = {}): InputHarness {
       return;
     }
 
+    // Terminal-specific fallback newline detection (global hook tier).
+    if (shouldInsertNewlineFallbackFromKeyEvent(event)) {
+      state.value += "\n";
+      return;
+    }
+
+    // Standard newline detection (OpenTUI textarea keyBindings tier).
+    // In the real app, shift+enter / meta+enter / Ctrl+J are handled by the
+    // textarea's keyBindings prop rather than the global hook.
     if (shouldInsertNewlineFromKeyEvent(event)) {
       state.value += "\n";
       return;
@@ -234,17 +244,17 @@ describe("Shift+Enter repeated newline regression E2E", () => {
     expect(input.value).toBe("");
   });
 
-  test("Cmd/Ctrl+Shift+Enter keeps newline behavior when not streaming", () => {
+  test("Cmd/Ctrl+Shift+Enter enqueues even when not streaming", () => {
     const macInput = createInputHarness({ platform: "darwin", isStreaming: false });
     macInput.typeText("mac line");
     macInput.pressKey({ name: "return", shift: true, meta: true, raw: "\r" });
-    expect(macInput.enqueued).toEqual([]);
-    expect(macInput.value).toBe("mac line\n");
+    expect(macInput.enqueued).toEqual(["mac line"]);
+    expect(macInput.value).toBe("");
 
     const linuxInput = createInputHarness({ platform: "linux", isStreaming: false });
     linuxInput.typeText("linux line");
     linuxInput.pressKey({ name: "return", shift: true, ctrl: true, raw: "\r" });
-    expect(linuxInput.enqueued).toEqual([]);
-    expect(linuxInput.value).toBe("linux line\n");
+    expect(linuxInput.enqueued).toEqual(["linux line"]);
+    expect(linuxInput.value).toBe("");
   });
 });

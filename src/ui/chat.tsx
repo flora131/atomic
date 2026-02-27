@@ -125,9 +125,10 @@ import {
 import { getNextKittyKeyboardDetectionState } from "./utils/kitty-keyboard-detection.ts";
 import {
   getEnqueueShortcutLabel,
+  isBareLinefeedEvent,
   shouldApplyBackslashLineContinuation,
   shouldEnqueueMessageFromKeyEvent,
-  shouldInsertNewlineFromKeyEvent,
+  shouldInsertNewlineFallbackFromKeyEvent,
 } from "./utils/newline-strategies.ts";
 import {
   hasAnyAtReferenceToken,
@@ -5263,14 +5264,12 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
 
         // Shift+Enter or Alt+Enter - insert newline
         // (unless streaming + enqueue shortcut is used)
-        // Must be handled here (before autocomplete Enter handler) with stopPropagation
-        // to prevent the textarea's built-in "return → submit" key binding from firing.
-        // Ctrl+J (linefeed without shift) also inserts newline as a universal fallback
-        // for terminals that don't support the Kitty keyboard protocol.
-        // Fallback: some terminals send Shift+Enter as a Kitty-protocol escape sequence
-        // that gets misinterpreted (e.g., "/" extracted from the CSI sequence).
-        // Detect by checking event.raw for Enter codepoint (13/10) with a modifier.
-        if (isStreamingRef.current && shouldEnqueueMessageFromKeyEvent(event)) {
+        // Standard modifier+Enter newlines (Shift+Enter, Alt+Enter, Ctrl+J) are
+        // now handled by the OpenTUI textarea's keyBindings prop, so they are NOT
+        // intercepted here. Only the enqueue shortcut (Ctrl/Cmd+Shift+Enter) and
+        // terminal-specific fallbacks (CSI-u, modifyOtherKeys) are handled in
+        // this global hook with stopPropagation.
+        if (shouldEnqueueMessageFromKeyEvent(event)) {
           const textarea = textareaRef.current;
           const value = textarea?.plainText?.trim() ?? "";
           if (value) {
@@ -5294,7 +5293,40 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           return;
         }
 
-        if (shouldInsertNewlineFromKeyEvent(event)) {
+        // In non-Kitty terminals, Ctrl+Shift+Enter produces a bare `\n` byte
+        // that is identical to Ctrl+J — the terminal can't encode modifiers.
+        // Treat bare linefeed as an enqueue action so Ctrl+Shift+Enter works.
+        // (Ctrl+J also triggers enqueue as a side-effect; users can use `\` +
+        // Enter for newlines in non-Kitty terminals instead.)
+        if (isBareLinefeedEvent(event) && !kittyKeyboardDetectedRef.current) {
+          const textarea = textareaRef.current;
+          const value = textarea?.plainText?.trim() ?? "";
+          if (value) {
+            const hasAgentMentions = parseAtMentions(value).length > 0;
+            const hasAnyMentionToken = hasAnyAtReferenceToken(value);
+            emitMessageSubmitTelemetry({
+              messageLength: value.length,
+              queued: true,
+              fromInitialPrompt: false,
+              hasFileMentions: hasAnyMentionToken && !hasAgentMentions,
+              hasAgentMentions,
+            });
+            messageQueue.enqueue(value);
+            if (textarea) {
+              textarea.gotoBufferHome();
+              textarea.gotoBufferEnd({ select: true });
+              textarea.deleteChar();
+            }
+          }
+          event.stopPropagation();
+          return;
+        }
+
+        // Terminal-specific fallback: handle escape-sequence-based newlines
+        // (CSI-u / modifyOtherKeys) that the textarea's keyBindings can't match.
+        // Standard shift+enter / meta+enter / Ctrl+J newlines are delegated to
+        // the OpenTUI textarea's keyBindings (see textareaKeyBindings above).
+        if (shouldInsertNewlineFallbackFromKeyEvent(event)) {
           const textarea = textareaRef.current;
           if (textarea) {
             textarea.insertText("\n");

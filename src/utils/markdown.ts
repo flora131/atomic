@@ -15,8 +15,10 @@
 export function parseMarkdownFrontmatter(
   content: string
 ): { frontmatter: Record<string, unknown>; body: string } | null {
+  // Normalize CRLF to LF so the regex and line splitting work on all platforms
+  const normalized = content.replace(/\r\n/g, "\n");
   const frontmatterRegex = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
-  const match = content.match(frontmatterRegex);
+  const match = normalized.match(frontmatterRegex);
 
   if (!match) {
     return null;

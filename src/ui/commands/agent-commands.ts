@@ -321,8 +321,12 @@ export function createAgentCommand(agent: AgentInfo): CommandDefinition {
         // Claude SDK and Copilot SDK use the Task tool for sub-agent dispatch.
         // Strongly steer the model to use Task-tool sub-agent dispatch so
         // sub-agent lifecycle events (and tree rendering) are emitted.
-        const instruction = `Use the Task tool to invoke the ${agent.name} sub-agent for this exact task: ${task}`;
-        context.sendSilentMessage(instruction, { isAgentOnlyStream: true });
+        // NOTE: Do NOT set isAgentOnlyStream here — these SDKs fire normal
+        // stream completion callbacks (handleStreamComplete). Setting it
+        // would trigger the premature agent-only finalizer, stopping the
+        // spinner while the main agent is still streaming its summary.
+        const instruction = `Use the Task tool to invoke the ${agent.name} sub-agent for this exact task: ${task}\n\nAfter the sub-agent completes, provide a concise summary of the outcome to the user.`;
+        context.sendSilentMessage(instruction);
       }
 
       return { success: true };

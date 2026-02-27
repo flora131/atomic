@@ -7,7 +7,7 @@
 import { spinner, log } from "@clack/prompts";
 import { join } from "path";
 import { tmpdir } from "os";
-import { mkdir, rm, rename, chmod } from "fs/promises";
+import { mkdir, rm, rename, chmod, copyFile as fsCopyFile, unlink } from "fs/promises";
 import { existsSync } from "fs";
 
 import {
@@ -54,7 +54,25 @@ export function isNewerVersion(v1: string, v2: string): boolean {
 }
 
 /**
+ * Move a file across filesystems by falling back to copy + unlink
+ * when rename fails with EXDEV (cross-device link).
+ */
+async function crossDeviceRename(src: string, dest: string): Promise<void> {
+  try {
+    await rename(src, dest);
+  } catch (err: unknown) {
+    if (err && typeof err === "object" && "code" in err && err.code === "EXDEV") {
+      await fsCopyFile(src, dest);
+      await unlink(src);
+    } else {
+      throw err;
+    }
+  }
+}
+
+/**
  * Replace binary on Unix systems using atomic rename.
+ * Falls back to copy + unlink for cross-device moves (e.g. WSL).
  *
  * @param newBinaryPath - Path to the new binary in temp directory
  * @param targetPath - Path where the binary should be installed
@@ -62,8 +80,8 @@ export function isNewerVersion(v1: string, v2: string): boolean {
 async function replaceBinaryUnix(newBinaryPath: string, targetPath: string): Promise<void> {
   // Make executable
   await chmod(newBinaryPath, 0o755);
-  // Atomic rename (replaces existing)
-  await rename(newBinaryPath, targetPath);
+  // Atomic rename (replaces existing), with cross-device fallback
+  await crossDeviceRename(newBinaryPath, targetPath);
 }
 
 /**
@@ -92,8 +110,8 @@ async function replaceBinaryWindows(newBinaryPath: string, targetPath: string): 
   await rename(targetPath, oldPath);
 
   try {
-    // Move new binary to target location
-    await rename(newBinaryPath, targetPath);
+    // Move new binary to target location (with cross-device fallback)
+    await crossDeviceRename(newBinaryPath, targetPath);
   } catch (e) {
     // Rollback: restore old binary
     await rename(oldPath, targetPath);

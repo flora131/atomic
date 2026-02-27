@@ -1223,7 +1223,9 @@ export class CopilotClient implements CodingAgentClient {
     // reason to block startup on it.
     this.probePromise = (async () => {
       try {
-        const probeSession = await this.sdkClient!.createSession({});
+        const probeSession = await this.sdkClient!.createSession({
+          onPermissionRequest: () => ({ kind: "denied-by-rules" as const }),
+        } as SdkSessionConfig);
         const baseline = await new Promise<number | null>((resolve) => {
           let unsub: (() => void) | null = null;
           const timeout = setTimeout(() => {

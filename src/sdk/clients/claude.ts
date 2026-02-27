@@ -96,6 +96,8 @@ interface ClaudeSessionState {
     contextWindow: number | null;
     /** System tools baseline tokens captured from cache tokens */
     systemToolsBaseline: number | null;
+    /** Whether per-turn usage events were emitted from message_delta during streaming */
+    hasEmittedStreamingUsage: boolean;
 }
 
 interface StreamIntegrityCounters {
@@ -631,6 +633,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
             contextWindow: persisted?.contextWindow ?? this.probeContextWindow,
             systemToolsBaseline:
                 persisted?.systemToolsBaseline ?? this.probeSystemToolsBaseline,
+            hasEmittedStreamingUsage: false,
         };
 
         this.sessions.set(sessionId, state);
@@ -736,12 +739,21 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     }
                     return buildSubagentInvocationPrompt(requestedAgent, message);
                 };
+                const emitStreamingUsage = (outputTokens: number) => {
+                    state.hasEmittedStreamingUsage = true;
+                    this.emitEvent("usage", sessionId, {
+                        inputTokens: 0,
+                        outputTokens,
+                        model: this.detectedModel,
+                    });
+                };
 
                 return {
                     [Symbol.asyncIterator]: async function* () {
                         if (state.isClosed) {
                             throw new Error("Session is closed");
                         }
+                        state.hasEmittedStreamingUsage = false;
                         emitRuntimeSelection();
                         const options = {
                             ...buildOptions(),
@@ -852,6 +864,9 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                         | undefined;
                                     if (usage?.output_tokens) {
                                         outputTokens += usage.output_tokens;
+                                        // Emit per-API-call token count so the adapter can publish
+                                        // stream.usage for live token display during streaming
+                                        emitStreamingUsage(usage.output_tokens);
                                     }
                                 }
 
@@ -1179,11 +1194,24 @@ export class ClaudeAgentClient implements CodingAgentClient {
             if (result.usage) {
                 state.inputTokens = result.usage.input_tokens;
                 state.outputTokens = result.usage.output_tokens;
-                this.emitEvent("usage", sessionId, {
-                    inputTokens: result.usage.input_tokens ?? 0,
-                    outputTokens: result.usage.output_tokens ?? 0,
-                    model: this.detectedModel,
-                });
+                if (!state.hasEmittedStreamingUsage) {
+                    // Non-streaming path (send): emit full usage
+                    this.emitEvent("usage", sessionId, {
+                        inputTokens: result.usage.input_tokens ?? 0,
+                        outputTokens: result.usage.output_tokens ?? 0,
+                        model: this.detectedModel,
+                    });
+                } else {
+                    // Streaming path: output tokens already accumulated from message_delta.
+                    // Emit input tokens only (outputTokens: 0 adds nothing to accumulator).
+                    this.emitEvent("usage", sessionId, {
+                        inputTokens: result.usage.input_tokens ?? 0,
+                        outputTokens: 0,
+                        model: this.detectedModel,
+                    });
+                }
+                // Reset so subsequent queries on this session (send, summarize) emit normally
+                state.hasEmittedStreamingUsage = false;
             }
 
             // Extract contextWindow and systemToolsBaseline from modelUsage

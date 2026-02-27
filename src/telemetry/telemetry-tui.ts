@@ -219,7 +219,7 @@ export class TuiTelemetrySessionTracker {
     appendEvent(event, this.agentType);
   }
 
-  trackBackgroundTermination(action: "noop" | "warn" | "execute", activeAgentCount: number, interruptedCount?: number): void {
+  trackBackgroundTermination(action: "noop" | "warn" | "execute" | "fallback", activeAgentCount: number, interruptedCount?: number): void {
     if (!this.enabled || !this.anonymousId || this.ended) {
       return;
     }
@@ -228,7 +228,7 @@ export class TuiTelemetrySessionTracker {
       this.backgroundTerminationNoopCount++;
     } else if (action === "warn") {
       this.backgroundTerminationWarnCount++;
-    } else if (action === "execute") {
+    } else if (action === "execute" || action === "fallback") {
       this.backgroundTerminationExecuteCount++;
     }
 

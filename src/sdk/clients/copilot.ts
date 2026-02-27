@@ -575,6 +575,14 @@ export class CopilotClient implements CodingAgentClient {
         await state.sdkSession.abort();
       },
 
+      abortBackgroundAgents: async (): Promise<void> => {
+        // Abort background agents by terminating all in-flight SDK work.
+        // The Copilot SDK does not expose individual sub-agent session
+        // handles, so we abort the entire session. This is safe because
+        // Ctrl+F only fires when NOT streaming (no foreground to preserve).
+        await state.sdkSession.abort();
+      },
+
       getSystemToolsTokens: (): number => {
         if (state.systemToolsBaseline === null) {
           throw new Error("System tools baseline unavailable: no session.usage_info received yet.");

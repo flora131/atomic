@@ -168,6 +168,8 @@ interface ChatUIState {
   bus: AtomicEventBus;
   /** Singleton batch dispatcher for frame-aligned event batching */
   dispatcher: BatchDispatcher;
+  /** Whether background agents were terminated via Ctrl+F (pending notification to model) */
+  backgroundAgentsTerminated: boolean;
 }
 
 // ============================================================================
@@ -263,6 +265,7 @@ export async function startChatUI(
       : null,
     bus: sharedBus,
     dispatcher: sharedDispatcher,
+    backgroundAgentsTerminated: false,
   };
 
   // Create a promise that resolves when the UI exits
@@ -423,6 +426,17 @@ export async function startChatUI(
       return;
     }
 
+    // If background agents were terminated via Ctrl+F, prepend a system
+    // notification so the model knows not to reference killed agents.
+    let effectiveContent = content;
+    if (state.backgroundAgentsTerminated) {
+      state.backgroundAgentsTerminated = false;
+      effectiveContent =
+        "[System: All background agents were terminated by the user (Ctrl+F). " +
+        "Do not reference or wait for any previously running background agents.]\n\n" +
+        content;
+    }
+
     // Create AbortController for this stream so it can be interrupted
     state.streamAbortController = new AbortController();
     state.currentRunId = ++state.runCounter;
@@ -449,7 +463,7 @@ export async function startChatUI(
     }
 
     try {
-      await adapter.startStreaming(state.session!, content, {
+      await adapter.startStreaming(state.session!, effectiveContent, {
         runId,
         messageId,
         agent: options?.agent,
@@ -628,15 +642,28 @@ export async function startChatUI(
     };
 
     const handleTerminateBackgroundAgentsFromUI: OnTerminateBackgroundAgents = () => {
-      // Abort the SDK session to actually kill background agent processes.
-      // This is safe because ctrl+f only fires when NOT streaming (guarded
-      // by isStreamingRef.current check in chat.tsx), so no foreground work
-      // will be affected.
+      // Mark that background agents were terminated so the next user message
+      // includes a system notification in the model context.
+      state.backgroundAgentsTerminated = true;
+
+      // Prefer the selective abortBackgroundAgents method which targets only
+      // background agents. Falls back to full abort for clients that don't
+      // implement the selective method yet.
+      if (state.session?.abortBackgroundAgents) {
+        void state.session.abortBackgroundAgents().catch((error) => {
+          console.error("Failed to abort background agents:", error);
+        });
+        state.telemetryTracker?.trackBackgroundTermination("execute", 1, 1);
+        return;
+      }
+
+      // Fallback: abort the entire session (safe because Ctrl+F only fires
+      // when NOT streaming, so no foreground work will be affected).
       if (state.session?.abort) {
         void state.session.abort().catch((error) => {
           console.error("Failed to abort session during background-agent termination:", error);
         });
-        state.telemetryTracker?.trackBackgroundTermination("execute", 1, 1);
+        state.telemetryTracker?.trackBackgroundTermination("fallback", 1, 1);
         return;
       }
 

@@ -2550,13 +2550,29 @@ export function ChatApp({
     }
 
     setParallelAgents((currentAgents) => {
+      // Filter agents to only include those that belong to this message
+      // (agents that were part of the streaming message's parallelAgents array).
+      // This prevents orphaned agents from previous messages from being baked into this message.
+      const existingAgentIds = new Set<string>();
+      setMessagesWindowed((prev: ChatMessage[]) => {
+        const msg = prev.find((m) => m.id === messageId);
+        if (msg?.parallelAgents) {
+          for (const agent of msg.parallelAgents) {
+            existingAgentIds.add(agent.id);
+          }
+        }
+        return prev;
+      });
+      
       const finalizedAgents = currentAgents.length > 0
-        ? currentAgents.map((a) => {
-          if (a.background) return a;
-          return a.status === "running" || a.status === "pending"
-            ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
-            : a;
-        })
+        ? currentAgents
+          .filter((a) => existingAgentIds.has(a.id)) // Only include agents that belong to this message
+          .map((a) => {
+            if (a.background) return a;
+            return a.status === "running" || a.status === "pending"
+              ? { ...a, status: "completed" as const, currentTool: undefined, durationMs: Date.now() - new Date(a.startedAt).getTime() }
+              : a;
+          })
         : undefined;
 
       setMessagesWindowed((prev: ChatMessage[]) =>
@@ -2800,13 +2816,33 @@ export function ChatApp({
     setParallelAgents((current) => {
       const existingIndex = current.findIndex((agent) => agent.id === data.agentId);
       if (existingIndex >= 0) {
+        const existing = current[existingIndex];
+        // If agent already has a terminal status (completed, error, interrupted),
+        // it's from a previous stream. Filter it out instead of preserving it.
+        if (existing && (existing.status === "completed" || existing.status === "error" || existing.status === "interrupted")) {
+          // Remove the old agent and add the new one
+          return [
+            ...current.filter((agent) => agent.id !== data.agentId),
+            {
+              id: data.agentId,
+              taskToolCallId: data.sdkCorrelationId,
+              name: data.agentType || "agent",
+              task: data.task || data.agentType || "sub-agent task",
+              status,
+              startedAt,
+              background: data.isBackground,
+              currentTool: data.agentType ? `Running ${data.agentType}...` : undefined,
+            },
+          ];
+        }
+        // Update existing agent that's still active
         return current.map((agent) =>
           agent.id === data.agentId
             ? {
               ...agent,
               name: data.agentType || agent.name,
               task: data.task || agent.task,
-              status: agent.status === "completed" || agent.status === "error" ? agent.status : status,
+              status,
               background: data.isBackground || agent.background,
               taskToolCallId: data.sdkCorrelationId ?? agent.taskToolCallId,
               currentTool: data.agentType ? `Running ${data.agentType}...` : agent.currentTool,
@@ -3150,9 +3186,23 @@ export function ChatApp({
       setMessagesWindowed((prev: ChatMessage[]) =>
         prev.map((msg: ChatMessage, index: number) => {
           if (msg.id === messageId && msg.streaming) {
+            // Filter out terminal-status agents from previous messages.
+            // Only include agents that are active (running/pending/background)
+            // OR agents that just finished in THIS stream (no existing parallelAgents means they're new).
+            const existingAgentIds = new Set((msg.parallelAgents ?? []).map((a) => a.id));
+            const filteredAgents = parallelAgents.filter((agent) => {
+              // Keep agents that are active
+              if (agent.status === "running" || agent.status === "pending" || agent.status === "background") {
+                return true;
+              }
+              // Keep agents with terminal status only if they were already in this message
+              // (they just finished in this stream)
+              return existingAgentIds.has(agent.id);
+            });
+            
             return applyStreamPartEvent(msg, {
               type: "parallel-agents",
-              agents: parallelAgents,
+              agents: filteredAgents,
               isLastMessage: index === prev.length - 1,
             });
           }
@@ -3484,6 +3534,9 @@ export function ChatApp({
    * or when "@" appears at any position near the cursor.
    */
   const handleInputChange = useCallback((rawValue: string, cursorOffset: number) => {
+    // Skip autocomplete logic during history navigation to prevent breaking history nav
+    if (historyNavigatingRef.current) return;
+    
     // Trim leading whitespace to prevent leading space from breaking slash command detection
     const value = rawValue.trimStart();
     // Check if input starts with "/" (slash command)

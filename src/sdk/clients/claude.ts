@@ -1108,6 +1108,14 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 state.query?.close();
             },
 
+            abortBackgroundAgents: async (): Promise<void> => {
+                // Close the active query to terminate background agents.
+                // The Claude SDK manages sub-agents internally within the
+                // query; closing it terminates all in-flight work including
+                // background sub-agent invocations.
+                state.query?.close();
+            },
+
             destroy: async (): Promise<void> => {
                 if (!state.isClosed) {
                     state.isClosed = true;

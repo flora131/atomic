@@ -302,6 +302,8 @@ describe("OpenCodeClient event mapping", () => {
   });
 
   test("emits tool.complete when tool status is completed but output is undefined", () => {
+    // Uses a non-Task tool because Task tools are intentionally suppressed
+    // from tool.start/tool.complete — they use synthesized subagent events.
     const client = new OpenCodeClient();
     const completes: Array<{
       sessionId: string;
@@ -328,15 +330,15 @@ describe("OpenCodeClient event mapping", () => {
       type: "message.part.updated",
       properties: {
         part: {
-          id: "prt_task_1",
-          callID: "call_task_1",
+          id: "prt_bash_1",
+          callID: "call_bash_1",
           sessionID: "ses_task",
           messageID: "msg_1",
           type: "tool",
-          tool: "Task",
+          tool: "bash",
           state: {
             status: "completed",
-            input: { prompt: "Do something" },
+            input: { command: "echo hello" },
             // output is intentionally omitted (undefined)
           },
         },
@@ -347,7 +349,7 @@ describe("OpenCodeClient event mapping", () => {
 
     expect(completes).toHaveLength(1);
     expect(completes[0]!.sessionId).toBe("ses_task");
-    expect(completes[0]!.toolName).toBe("Task");
+    expect(completes[0]!.toolName).toBe("bash");
     expect(completes[0]!.toolResult).toBeUndefined();
     expect(completes[0]!.success).toBe(true);
   });

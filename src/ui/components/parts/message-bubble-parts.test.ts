@@ -170,4 +170,55 @@ describe("getConsumedTaskToolCallIds", () => {
     // tool-3 (bash) has no matching AgentPart, so it should NOT be consumed
     expect(consumed.has("tool-3")).toBe(false);
   });
+
+  test("consumes task ToolPart when agent lacks taskToolCallId (Claude SDK fallback)", () => {
+    const agentWithoutId: ParallelAgent = {
+      id: "agent-no-id",
+      taskToolCallId: undefined,
+      name: "codebase-analyzer",
+      task: "Explore the repo",
+      status: "running",
+      startedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const parts: Part[] = [
+      createToolPart("synth-tool-1", "Task"),
+      createAgentPart([agentWithoutId]),
+    ];
+    const consumed = getConsumedTaskToolCallIds(parts);
+    expect(consumed.size).toBe(1);
+    expect(consumed.has("synth-tool-1")).toBe(true);
+  });
+
+  test("consumes task ToolPart when agent taskToolCallId does not match any ToolPart", () => {
+    const parts: Part[] = [
+      createToolPart("synth-tool-1", "task"),
+      createAgentPart([createAgent("toolu_ABC", "explorer")]),
+    ];
+    const consumed = getConsumedTaskToolCallIds(parts);
+    expect(consumed.size).toBe(1);
+    expect(consumed.has("synth-tool-1")).toBe(true);
+  });
+
+  test("limits fallback consumption to unmatched agent count", () => {
+    const agentWithoutId: ParallelAgent = {
+      id: "agent-no-id",
+      taskToolCallId: undefined,
+      name: "explorer",
+      task: "Explore",
+      status: "running",
+      startedAt: "2026-01-01T00:00:00.000Z",
+    };
+    const parts: Part[] = [
+      createToolPart("tool-1", "task"),
+      createToolPart("tool-2", "task"),
+      createToolPart("tool-3", "task"),
+      createAgentPart([agentWithoutId]),
+    ];
+    const consumed = getConsumedTaskToolCallIds(parts);
+    // Only 1 agent without ID, so only 1 task ToolPart consumed by fallback
+    expect(consumed.size).toBe(1);
+    expect(consumed.has("tool-1")).toBe(true);
+    expect(consumed.has("tool-2")).toBe(false);
+    expect(consumed.has("tool-3")).toBe(false);
+  });
 });

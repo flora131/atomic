@@ -43,6 +43,35 @@ export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<stri
       consumed.add(toolPart.toolCallId);
     }
   }
+
+  // Fallback: count agents not matched to a consumed ToolPart.
+  // Handles (a) agents without taskToolCallId (e.g., Claude Agent SDK where
+  // SubagentStart hooks may not provide toolUseID), and (b) agents whose
+  // taskToolCallId doesn't match any ToolPart's toolCallId.
+  let unmatchedAgents = 0;
+  for (const part of parts) {
+    if (part.type !== "agent") continue;
+    for (const agent of (part as AgentPart).agents) {
+      if (!agent.taskToolCallId || !consumed.has(agent.taskToolCallId)) {
+        unmatchedAgents++;
+      }
+    }
+  }
+
+  if (unmatchedAgents > 0) {
+    let remaining = unmatchedAgents;
+    for (const part of parts) {
+      if (remaining <= 0) break;
+      if (part.type !== "tool") continue;
+      const toolPart = part as ToolPart;
+      if (consumed.has(toolPart.toolCallId)) continue;
+      if (toolPart.toolName === "task" || toolPart.toolName === "Task") {
+        consumed.add(toolPart.toolCallId);
+        remaining--;
+      }
+    }
+  }
+
   return consumed;
 }
 

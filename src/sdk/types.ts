@@ -288,6 +288,16 @@ export interface Session {
    * @returns Promise resolving when the abort request is acknowledged
    */
   abort?(): Promise<void>;
+
+  /**
+   * Abort only background agents while preserving foreground work.
+   * Used for Ctrl+F background agent termination.
+   * Implementations should selectively terminate background agent
+   * sessions/queries without affecting the main foreground session.
+   * Falls back to full session abort when granular control is unavailable.
+   * @returns Promise resolving when all background agents are aborted
+   */
+  abortBackgroundAgents?(): Promise<void>;
 }
 
 /**

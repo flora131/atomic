@@ -297,6 +297,20 @@ describe("applyStreamPartEvent", () => {
     expect((next.parts ?? []).filter((part) => part.type === "reasoning")).toHaveLength(1);
   });
 
+  test("text-complete is a no-op in the reducer (reconciliation handled upstream)", () => {
+    const msg = createAssistantMessage();
+    const withDelta = applyStreamPartEvent(msg, { type: "text-delta", delta: "Hello" });
+    const next = applyStreamPartEvent(withDelta, {
+      type: "text-complete",
+      fullText: "Hello World",
+      messageId: "msg-test",
+    });
+
+    // The reducer returns the message unchanged — reconciliation happens in useStreamConsumer
+    expect(next).toBe(withDelta);
+    expect(next.content).toBe("Hello");
+  });
+
   test("handles tool start by finalizing text and inserting a tool part", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, { type: "text-delta", delta: "Before tool" });

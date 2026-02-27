@@ -169,6 +169,11 @@ export class StreamPipelineConsumer {
         return [mapped];
       }
 
+      case "stream.text.complete": {
+        const data = event.data as BusEventDataMap["stream.text.complete"];
+        return [{ type: "text-complete", fullText: data.fullText, messageId: data.messageId }];
+      }
+
       default:
         // Other event types are not mapped to StreamPartEvents
         // (they may be handled by other consumers)

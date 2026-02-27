@@ -1055,9 +1055,19 @@ describe("CopilotStreamAdapter", () => {
       },
     } as AgentEvent<"message.complete">);
 
+    // Emit session.idle — mirrors the real Copilot SDK, which dispatches
+    // session.idle through the client-level event system after all
+    // agentic processing completes.
+    client.emit("session.idle" as EventType, {
+      type: "session.idle",
+      sessionId: session.id,
+      timestamp: Date.now(),
+      data: { reason: "idle" },
+    } as AgentEvent<"session.idle">);
+
     await streamPromise;
 
-    // Should have idle event at the end (stream completed successfully)
+    // Should have idle event from the client-level session.idle subscription
     const idleEvents = events.filter((e) => e.type === "stream.session.idle");
     expect(idleEvents.length).toBeGreaterThanOrEqual(1);
 

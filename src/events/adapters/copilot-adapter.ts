@@ -163,23 +163,14 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       // This triggers the SDK to start emitting events through the client
       const streamIterator = session.stream(message, options);
 
-      // Consume the stream to completion
+      // Consume the stream to completion.
+      // The chunks are handled by our event subscribers (subscribeToEvents);
+      // we just need to iterate so the underlying generator stays alive.
+      // The client-level session.idle subscription (handleSessionIdle)
+      // already publishes stream.session.idle to the bus, so we do NOT
+      // publish a duplicate idle event when the loop exits.
       for await (const _chunk of streamIterator) {
-        // The chunks are handled by our event subscribers
-        // We just need to consume the iterator to keep it running
-      }
-
-      // Stream completed successfully
-      if (this.isActive) {
-        this.publishEvent({
-          type: "stream.session.idle",
-          sessionId: this.sessionId,
-          runId: this.runId,
-          timestamp: Date.now(),
-          data: {
-            reason: "stream_complete",
-          },
-        });
+        // no-op: event subscribers handle content
       }
     } catch (error) {
       // Publish error event if streaming fails

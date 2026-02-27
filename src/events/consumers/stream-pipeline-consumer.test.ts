@@ -159,6 +159,25 @@ describe("StreamPipelineConsumer", () => {
     }
   });
 
+  it("should map stream.text.complete to text-complete event", () => {
+    const event: EnrichedBusEvent = {
+      type: "stream.text.complete",
+      sessionId: "test",
+      runId: 1,
+      timestamp: Date.now(),
+      data: { messageId: "msg1", fullText: "Hello World" },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "text-complete",
+      fullText: "Hello World",
+      messageId: "msg1",
+    });
+  });
+
   it("should ignore unmapped event types", () => {
     const event: EnrichedBusEvent = {
       type: "stream.session.start",

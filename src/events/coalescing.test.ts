@@ -379,8 +379,8 @@ describe("coalescingKey()", () => {
     });
   });
 
-  describe("unknown/unmapped events (return undefined)", () => {
-    it("should return undefined for stream.text.complete", () => {
+  describe("text completion events (coalesce by messageId)", () => {
+    it("should return text.complete:${messageId} for stream.text.complete", () => {
       const event: BusEvent<"stream.text.complete"> = {
         type: "stream.text.complete",
         sessionId: "test-session",
@@ -393,9 +393,36 @@ describe("coalescingKey()", () => {
       };
 
       const key = coalescingKey(event);
-      expect(key).toBeUndefined();
+      expect(key).toBe("text.complete:msg1");
     });
 
+    it("should generate different keys for different messageIds", () => {
+      const event1: BusEvent<"stream.text.complete"> = {
+        type: "stream.text.complete",
+        sessionId: "test-session",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { messageId: "msg1", fullText: "First" },
+      };
+
+      const event2: BusEvent<"stream.text.complete"> = {
+        type: "stream.text.complete",
+        sessionId: "test-session",
+        runId: 1,
+        timestamp: Date.now(),
+        data: { messageId: "msg2", fullText: "Second" },
+      };
+
+      const key1 = coalescingKey(event1);
+      const key2 = coalescingKey(event2);
+
+      expect(key1).toBe("text.complete:msg1");
+      expect(key2).toBe("text.complete:msg2");
+      expect(key1).not.toBe(key2);
+    });
+  });
+
+  describe("unknown/unmapped events (return undefined)", () => {
     it("should return undefined for stream.thinking.complete", () => {
       const event: BusEvent<"stream.thinking.complete"> = {
         type: "stream.thinking.complete",

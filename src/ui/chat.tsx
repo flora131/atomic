@@ -164,6 +164,7 @@ import {
 } from "./parts/index.ts";
 import { MessageBubbleParts } from "./components/parts/message-bubble-parts.tsx";
 import { useBusSubscription, useStreamConsumer } from "../events/hooks.ts";
+import { useEventBusContext } from "../events/event-bus-provider.tsx";
 
 
 export { shouldGroupSubagentTrees };
@@ -1739,6 +1740,10 @@ export function ChatApp({
   const { theme, toggleTheme, setTheme } = useTheme();
   const themeColors = theme.colors;
 
+  // Event bus dispatcher — used to flush pending batched text deltas before
+  // stream finalization so no trailing content is lost.
+  const { dispatcher: batchDispatcher } = useEventBusContext();
+
   // Component-scoped SyntaxStyle for textarea slash command and @ mention highlighting
   const inputSyntaxStyleRef = useRef<SyntaxStyle | null>(null);
   const commandStyleIdRef = useRef<number>(0);
@@ -2623,6 +2628,35 @@ export function ChatApp({
         );
         continue;
       }
+      if (part.type === "text-complete") {
+        // Reconciliation: compare the authoritative fullText from the adapter
+        // with what we've accumulated via deltas. If any text was lost, apply
+        // the missing suffix through the normal text-delta path so both
+        // message.content and message.parts stay consistent.
+        const accumulated = lastStreamingContentRef.current;
+        const fullText = part.fullText;
+        if (fullText.length > accumulated.length && fullText.startsWith(accumulated)) {
+          const missing = fullText.slice(accumulated.length);
+          lastStreamingContentRef.current = fullText;
+          if (!hideStreamContentRef.current) {
+            const messageId = streamingMessageIdRef.current;
+            if (messageId) {
+              setMessagesWindowed((prev: ChatMessage[]) =>
+                prev.map((msg: ChatMessage) =>
+                  msg.id === messageId
+                    ? applyStreamPartEvent(msg, { type: "text-delta", delta: missing })
+                    : msg
+                )
+              );
+            }
+          }
+        } else {
+          // Even if no missing text, update the ref to the authoritative value
+          lastStreamingContentRef.current = fullText;
+        }
+        handleStreamComplete();
+        continue;
+      }
       if (part.type === "thinking-meta") {
         const messageId = streamingMessageIdRef.current;
         if (!messageId) continue;
@@ -2682,12 +2716,11 @@ export function ChatApp({
     }
   });
 
-  useBusSubscription("stream.text.complete", () => {
-    handleStreamComplete();
-  });
-
   useBusSubscription("stream.session.idle", () => {
     if (isStreamingRef.current) {
+      // Flush pending batched events before finalization so no trailing
+      // content is lost (e.g. tool-only responses where text.complete never fires).
+      batchDispatcher.flush();
       handleStreamComplete();
     }
   });

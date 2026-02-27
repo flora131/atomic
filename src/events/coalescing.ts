@@ -12,6 +12,13 @@ export function coalescingKey(event: BusEvent): string | undefined {
     case "stream.thinking.delta":
       return undefined;
 
+    // Text completion coalesces by messageId — if duplicates arrive in the
+    // same batch window, only the latest (most accumulated text) is kept.
+    case "stream.text.complete": {
+      const data = event.data as BusEventDataMap["stream.text.complete"];
+      return `text.complete:${data.messageId}`;
+    }
+
     // Tool/agent state updates coalesce by entity ID
     case "stream.tool.start": {
       const data = event.data as BusEventDataMap["stream.tool.start"];

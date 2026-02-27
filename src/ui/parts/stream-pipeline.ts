@@ -47,6 +47,12 @@ interface TextDeltaEvent {
   delta: string;
 }
 
+interface TextCompleteEvent {
+  type: "text-complete";
+  fullText: string;
+  messageId: string;
+}
+
 export type ThinkingProvider = "claude" | "opencode" | "copilot" | "unknown";
 
 export interface ThinkingMetaEvent {
@@ -91,6 +97,7 @@ interface ParallelAgentsEvent {
 
 export type StreamPartEvent =
   | TextDeltaEvent
+  | TextCompleteEvent
   | ThinkingMetaEvent
   | ToolStartEvent
   | ToolCompleteEvent
@@ -839,6 +846,11 @@ export function applyStreamPartEvent(
 
     case "tool-hitl-response":
       return carryReasoningPartRegistry(message, applyHitlResponse(message, event));
+
+    case "text-complete":
+      // Reconciliation is handled in useStreamConsumer (chat.tsx) — the
+      // reducer does not need to act on this event directly.
+      return message;
 
     case "parallel-agents": {
       const normalizedAgents = normalizeParallelAgents(event.agents);

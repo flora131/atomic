@@ -2884,6 +2884,11 @@ export function ChatApp({
 
   useBusSubscription("stream.agent.complete", (event) => {
     const data = event.data;
+
+    // Check if the completing agent is a background agent before state update
+    const completingAgent = parallelAgentsRef.current.find(a => a.id === data.agentId);
+    const isBgAgent = completingAgent && isBackgroundAgent(completingAgent);
+
     setParallelAgents((current) =>
       current.map((agent) => {
         if (agent.id !== data.agentId) return agent;
@@ -2900,6 +2905,17 @@ export function ChatApp({
         };
       })
     );
+
+    // Enqueue background agent result for round-robin dispatch so the
+    // main agent incorporates it when the stream is idle.
+    if (isBgAgent && data.success) {
+      const result = data.result ?? completingAgent?.result;
+      if (typeof result === "string" && result.trim().length > 0) {
+        const agentName = completingAgent?.name ?? data.agentId;
+        const content = `Background task "${agentName}" completed:\n\n${result}`;
+        messageQueue.enqueue(content, { skipUserMessage: true });
+      }
+    }
   });
 
   // Cleanup timeouts on unmount
@@ -5780,22 +5796,18 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       const { message: processedValue, filesRead } = processFileMentions(trimmedValue);
       const hasFileMentions = filesRead.length > 0;
 
-      // If streaming, interrupt: inject immediately unless sub-agents are active
+      // If streaming, always interrupt: cancel active stream and send new message immediately.
+      // Background agents are preserved — they continue running independently.
       if (isStreamingRef.current) {
-        // Defer interrupt if sub-agents are actively working — fires when they finish
-        // Background agents are excluded — they must not block interrupt.
-        const hasActiveSubagents = hasActiveForegroundAgents(parallelAgentsRef.current);
-        if (hasActiveSubagents) {
-          emitMessageSubmitTelemetry({
-            messageLength: trimmedValue.length,
-            queued: true,
-            fromInitialPrompt: false,
-            hasFileMentions,
-            hasAgentMentions: false,
-          });
-          messageQueue.enqueue(processedValue);
-          return;
-        }
+        clearDeferredCompletion();
+
+        // Separate foreground agents (interrupt) from background agents (preserve)
+        const currentAgents = parallelAgentsRef.current;
+        const { interruptedAgents, remainingLiveAgents } = separateAndInterruptAgents(currentAgents);
+
+        // Keep background agents alive in refs
+        parallelAgentsRef.current = remainingLiveAgents;
+        setParallelAgents(remainingLiveAgents);
 
         // Round-robin inject: finalize current stream and send new message immediately
         const interruptedId = streamingMessageIdRef.current;
@@ -5817,6 +5829,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                   toolCalls: interruptRunningToolCalls(msg.toolCalls),
                   parts: interruptRunningToolParts(msg.parts),
                   taskItems: interruptedTaskItems,
+                  parallelAgents: interruptedAgents,
                 }
                 : msg
             )
@@ -5862,7 +5875,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       });
       sendMessage(processedValue);
     },
-    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt, emitMessageSubmitTelemetry, finalizeTaskItemsOnInterrupt, stopSharedStreamState, finalizeThinkingSourceTracking, resetThinkingSourceTracking]
+    [workflowState.showAutocomplete, workflowState.argumentHint, updateWorkflowState, addMessage, executeCommand, messageQueue, sendMessage, model, onInterrupt, emitMessageSubmitTelemetry, finalizeTaskItemsOnInterrupt, stopSharedStreamState, finalizeThinkingSourceTracking, resetThinkingSourceTracking, clearDeferredCompletion, separateAndInterruptAgents]
   );
 
   // All messages are kept in memory; no windowing/eviction.

@@ -651,6 +651,14 @@ esc to interrupt · ctrl+shift+enter enqueue · [N] local agents · ctrl+f to ki
 
 2. During execution: N/A, under the chatbox ui contains status and should be updated
 
+3. Finished state:
+
+```
+● Agent "Explore Claude adapter for comparison" completed
+
+● Agent [TASK_DESCRIPTION] completed
+```
+
 #### 5.2 — Skill Invocation (`/research-codebase`)
 
 ```bash

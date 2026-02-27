@@ -43,6 +43,7 @@ import type {
   SubagentStartEventData,
   SubagentCompleteEventData,
   SubagentUpdateEventData,
+  PermissionRequestedEventData,
 } from "../../sdk/types.ts";
 import { SubagentToolTracker } from "./subagent-tool-tracker.ts";
 
@@ -150,6 +151,13 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
         this.createUsageHandler(runId),
       );
       this.unsubscribers.push(unsubUsage);
+
+      // Subscribe to permission request events (HITL)
+      const unsubPermission = client.on(
+        "permission.requested",
+        this.createPermissionRequestedHandler(runId),
+      );
+      this.unsubscribers.push(unsubPermission);
     }
 
     try {
@@ -449,6 +457,41 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
           model,
         },
       };
+      this.bus.publish(busEvent);
+    };
+  }
+
+  /**
+   * Create a handler for permission.requested events from the Claude SDK.
+   * Forwards the event (including the respond callback) to the event bus.
+   */
+  private createPermissionRequestedHandler(
+    runId: number,
+  ): EventHandler<"permission.requested"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) {
+        return;
+      }
+
+      const data = event.data as PermissionRequestedEventData;
+      const busEvent: BusEvent<"stream.permission.requested"> = {
+        type: "stream.permission.requested",
+        sessionId: this.sessionId,
+        runId,
+        timestamp: Date.now(),
+        data: {
+          requestId: data.requestId,
+          toolName: data.toolName,
+          toolInput: (data.toolInput as Record<string, unknown> | undefined),
+          question: data.question,
+          header: data.header,
+          options: data.options,
+          multiSelect: data.multiSelect,
+          respond: data.respond,
+          toolCallId: data.toolCallId,
+        },
+      };
+
       this.bus.publish(busEvent);
     };
   }

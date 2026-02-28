@@ -105,6 +105,73 @@ describe("OpenCodeClient event mapping", () => {
     ]);
   });
 
+  test("emits task tool lifecycle for parent-session task parts", () => {
+    const client = new OpenCodeClient();
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent";
+
+    const starts: Array<{ toolName?: string; toolCallId?: string }> = [];
+    const completes: Array<{ toolName?: string; toolCallId?: string }> = [];
+
+    const unsubStart = client.on("tool.start", (event) => {
+      const data = event.data as { toolName?: string; toolCallId?: string };
+      starts.push({ toolName: data.toolName, toolCallId: data.toolCallId });
+    });
+
+    const unsubComplete = client.on("tool.complete", (event) => {
+      const data = event.data as { toolName?: string; toolCallId?: string };
+      completes.push({ toolName: data.toolName, toolCallId: data.toolCallId });
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "task_tool_parent",
+          callID: "call_task_parent",
+          sessionID: "ses_parent",
+          messageID: "msg_task_1",
+          type: "tool",
+          tool: "task",
+          state: {
+            status: "running",
+            input: {
+              subagent_type: "debugger",
+              description: "debug stream ordering",
+            },
+          },
+        },
+      },
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "task_tool_parent",
+          callID: "call_task_parent",
+          sessionID: "ses_parent",
+          messageID: "msg_task_1",
+          type: "tool",
+          tool: "task",
+          state: {
+            status: "completed",
+            input: {
+              subagent_type: "debugger",
+              description: "debug stream ordering",
+            },
+            output: "done",
+          },
+        },
+      },
+    });
+
+    unsubStart();
+    unsubComplete();
+
+    expect(starts).toEqual([{ toolName: "task", toolCallId: "call_task_parent" }]);
+    expect(completes).toEqual([{ toolName: "task", toolCallId: "call_task_parent" }]);
+  });
+
   test("maps subtask parts to subagent.start with agent name and task", () => {
     const client = new OpenCodeClient();
     const starts: Array<{
@@ -301,9 +368,145 @@ describe("OpenCodeClient event mapping", () => {
     ]);
   });
 
+  test("uses preceding task tool part id as correlation for subsequent agent part", () => {
+    const client = new OpenCodeClient();
+    const starts: Array<{
+      subagentId?: string;
+      toolCallId?: string;
+    }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as {
+        subagentId?: string;
+        toolCallId?: string;
+      };
+      starts.push({
+        subagentId: data.subagentId,
+        toolCallId: data.toolCallId,
+      });
+    });
+
+    // Task tool part arrives first.
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "task_tool_1",
+          callID: "task_call_1",
+          sessionID: "ses_parent",
+          messageID: "msg_1",
+          type: "tool",
+          tool: "task",
+          state: {
+            status: "pending",
+            input: {
+              subagent_type: "debugger",
+              description: "Inspect workflow stream issues",
+            },
+          },
+        },
+      },
+    });
+
+    // Agent part should correlate to task_tool_1 (not callID fallback).
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "agent_from_task",
+          callID: "call_agent_1",
+          sessionID: "ses_parent",
+          messageID: "msg_2",
+          type: "agent",
+          name: "debugger",
+        },
+      },
+    });
+
+    unsubStart();
+
+    const mappedAgentStart = starts.find((entry) => entry.subagentId === "agent_from_task");
+    expect(mappedAgentStart?.toolCallId).toBe("task_tool_1");
+  });
+
+  test("does not leak completed synthesized task correlation into later agent parts", () => {
+    const client = new OpenCodeClient();
+    const starts: Array<{
+      subagentId?: string;
+      toolCallId?: string;
+    }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as { subagentId?: string; toolCallId?: string };
+      starts.push({
+        subagentId: data.subagentId,
+        toolCallId: data.toolCallId,
+      });
+    });
+
+    // Task tool starts + completes without any agent/subtask part.
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "task_tool_stale",
+          sessionID: "ses_parent",
+          messageID: "msg_1",
+          type: "tool",
+          tool: "task",
+          state: {
+            status: "running",
+            input: {
+              subagent_type: "debugger",
+              description: "initial task",
+            },
+          },
+        },
+      },
+    });
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "task_tool_stale",
+          sessionID: "ses_parent",
+          messageID: "msg_1",
+          type: "tool",
+          tool: "task",
+          state: {
+            status: "completed",
+            input: {
+              subagent_type: "debugger",
+              description: "initial task",
+            },
+          },
+        },
+      },
+    });
+
+    // Later unrelated agent part should not consume stale task_tool_stale.
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "agent_after_task",
+          callID: "call_after_task",
+          sessionID: "ses_parent",
+          messageID: "msg_2",
+          type: "agent",
+          name: "worker",
+        },
+      },
+    });
+
+    unsubStart();
+
+    const start = starts.find((entry) => entry.subagentId === "agent_after_task");
+    expect(start?.toolCallId).toBe("call_after_task");
+  });
+
   test("emits tool.complete when tool status is completed but output is undefined", () => {
-    // Uses a non-Task tool because Task tools are intentionally suppressed
-    // from tool.start/tool.complete — they use synthesized subagent events.
+    // Uses a non-Task tool to validate the generic tool.complete path.
     const client = new OpenCodeClient();
     const completes: Array<{
       sessionId: string;
@@ -635,5 +838,183 @@ describe("OpenCodeClient event mapping", () => {
 
     // Only 2 subagent.start events: initial + one re-emit
     expect(starts).toHaveLength(2);
+  });
+
+  test("does not synthesize nested task tool events from child sessions", () => {
+    const client = new OpenCodeClient();
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent";
+
+    const starts: Array<{ subagentId?: string; subagentType?: string; subagentSessionId?: string }> = [];
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as {
+        subagentId?: string;
+        subagentType?: string;
+        subagentSessionId?: string;
+      };
+      starts.push({
+        subagentId: data.subagentId,
+        subagentType: data.subagentType,
+        subagentSessionId: data.subagentSessionId,
+      });
+    });
+
+    // Seed a pending agent and discover its child session.
+    handle({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "agent_debugger",
+          sessionID: "ses_parent",
+          messageID: "msg_1",
+          type: "agent",
+          name: "debugger",
+        },
+      },
+    });
+    handle({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "tool_read_1",
+          sessionID: "ses_child_debugger",
+          messageID: "msg_child_1",
+          type: "tool",
+          tool: "Read",
+          callID: "call_read_1",
+          state: { status: "pending", input: { file: "src/index.ts" } },
+        },
+      },
+    });
+
+    const beforeNestedTask = starts.length;
+    // Nested task tool under child session should NOT synthesize a new top-level task-agent row.
+    handle({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "nested_task_1",
+          sessionID: "ses_child_debugger",
+          messageID: "msg_child_2",
+          type: "tool",
+          tool: "task",
+          state: {
+            status: "running",
+            input: {
+              subagent_type: "worker",
+              description: "Debug message routing",
+            },
+          },
+        },
+      },
+    });
+
+    unsubStart();
+
+    expect(starts).toHaveLength(beforeNestedTask);
+    expect(starts.find((entry) => entry.subagentId === "task-agent-nested_task_1")).toBeUndefined();
+  });
+
+  test("keeps synthesized task subagent type stable across running and completion updates", () => {
+    const client = new OpenCodeClient();
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parent";
+
+    const starts: Array<{
+      subagentId?: string;
+      subagentType?: string;
+      task?: string;
+      subagentSessionId?: string;
+    }> = [];
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as {
+        subagentId?: string;
+        subagentType?: string;
+        task?: string;
+        subagentSessionId?: string;
+      };
+      starts.push({
+        subagentId: data.subagentId,
+        subagentType: data.subagentType,
+        task: data.task,
+        subagentSessionId: data.subagentSessionId,
+      });
+    });
+
+    // First running event has type but no task text yet.
+    handle({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "task_debugger_1",
+          sessionID: "ses_parent",
+          messageID: "msg_1",
+          type: "tool",
+          tool: "task",
+          state: {
+            status: "running",
+            input: {
+              subagent_type: "debugger",
+            },
+          },
+        },
+      },
+    });
+
+    // Second running event provides task text but omits subagent_type.
+    handle({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "task_debugger_1",
+          sessionID: "ses_parent",
+          messageID: "msg_1",
+          type: "tool",
+          tool: "task",
+          state: {
+            status: "running",
+            input: {
+              description: "Inspect workflow stream issues",
+            },
+          },
+        },
+      },
+    });
+
+    // Completion re-emits subagent.start with child session registration.
+    handle({
+      type: "message.part.updated",
+      properties: {
+        part: {
+          id: "task_debugger_1",
+          sessionID: "ses_parent",
+          messageID: "msg_1",
+          type: "tool",
+          tool: "task",
+          state: {
+            status: "completed",
+            input: {
+              description: "Inspect workflow stream issues",
+            },
+            metadata: {
+              sessionId: "ses_child_debugger",
+            },
+          },
+        },
+      },
+    });
+
+    unsubStart();
+
+    const debuggerStarts = starts.filter((entry) => entry.subagentId === "task-agent-task_debugger_1");
+    expect(debuggerStarts).toHaveLength(3);
+    expect(debuggerStarts[0]?.subagentType).toBe("debugger");
+    expect(debuggerStarts[1]?.subagentType).toBe("debugger");
+    expect(debuggerStarts[2]?.subagentType).toBe("debugger");
+    expect(debuggerStarts[2]?.subagentSessionId).toBe("ses_child_debugger");
   });
 });

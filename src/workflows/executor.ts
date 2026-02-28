@@ -15,7 +15,7 @@ import {
     getWorkflowSessionDir,
 } from "./session.ts";
 import type { NormalizedTodoItem, TaskStatus } from "../ui/utils/task-status.ts";
-import type { AtomicEventBus } from "../events/event-bus.ts";
+import type { EventBus } from "../events/event-bus.ts";
 import { WorkflowEventAdapter } from "../events/adapters/workflow-adapter.ts";
 
 /**
@@ -127,7 +127,7 @@ export async function executeWorkflow(
     options?: {
         compiledGraph?: CompiledGraph<BaseState>;
         saveTasksToSession?: (tasks: NormalizedTodoItem[], sessionId: string) => Promise<void>;
-        eventBus?: AtomicEventBus;
+        eventBus?: EventBus;
     },
 ): Promise<CommandResult> {
     // Phase 1: Session initialization
@@ -215,7 +215,7 @@ export async function executeWorkflow(
                         agent.agentId,
                         agent.agentName,
                         agent.task,
-                        false, // isBackground = false for single agent spawn
+                        true, // Single workflow spawns also run as background agents
                     );
                 }
 
@@ -265,7 +265,11 @@ export async function executeWorkflow(
             },
             subagentRegistry: registry,
             notifyTaskStatusChange: options?.eventBus
-                ? (taskIds: string[], newStatus: string, tasks: Array<{ id: string; title: string; status: string }>) => {
+                ? (
+                    taskIds: string[],
+                    newStatus: string,
+                    tasks: Array<{ id: string; title: string; status: string; blockedBy?: string[] }>,
+                ) => {
                     options.eventBus!.publish({
                         type: "workflow.task.statusChange",
                         sessionId,
@@ -287,8 +291,15 @@ export async function executeWorkflow(
         // Debounced saveTasksToSession to avoid I/O contention during rapid updates
         let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
         let pendingSaveTasks: NormalizedTodoItem[] | null = null;
+        const normalizeTaskKey = (taskId?: string): string | null => {
+            if (typeof taskId !== "string") return null;
+            const normalized = taskId.trim().toLowerCase().replace(/^#/, "");
+            return normalized.length > 0 ? normalized : null;
+        };
+        let latestWorkflowTasks: NormalizedTodoItem[] = [];
         const debouncedSaveTasksToSession = options?.saveTasksToSession
             ? (tasks: NormalizedTodoItem[], sid: string) => {
+                latestWorkflowTasks = tasks;
                 pendingSaveTasks = tasks;
                 if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
                 saveDebounceTimer = setTimeout(async () => {
@@ -313,12 +324,25 @@ export async function executeWorkflow(
             unsubscribeStatusChange = options.eventBus.on("workflow.task.statusChange", (event) => {
                 if (event.sessionId !== sessionId) return;
                 const { tasks } = event.data;
-                const normalized: NormalizedTodoItem[] = tasks.map((t) => ({
-                    id: t.id,
-                    content: t.title,
-                    status: t.status as TaskStatus,
-                    activeForm: t.title,
-                }));
+
+                const previousById = new Map<string, NormalizedTodoItem>();
+                for (const task of latestWorkflowTasks) {
+                    const key = normalizeTaskKey(task.id);
+                    if (!key || previousById.has(key)) continue;
+                    previousById.set(key, task);
+                }
+
+                const normalized: NormalizedTodoItem[] = tasks.map((t) => {
+                    const taskKey = normalizeTaskKey(t.id);
+                    return {
+                        id: t.id,
+                        content: t.title,
+                        status: t.status as TaskStatus,
+                        activeForm: t.title,
+                        blockedBy: t.blockedBy
+                            ?? (taskKey ? previousById.get(taskKey)?.blockedBy : undefined),
+                    };
+                });
                 debouncedSaveTasksToSession(normalized, sessionId);
             });
         }
@@ -369,6 +393,7 @@ export async function executeWorkflow(
                         id: task.id ?? crypto.randomUUID(),
                         title: task.content,
                         status: task.status,
+                        blockedBy: task.blockedBy,
                     }));
                     eventAdapter.publishTaskUpdate(sessionId, formattedTasks);
                 }

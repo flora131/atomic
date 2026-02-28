@@ -7,14 +7,17 @@
  * Reference: Issue #4 - Add UI for visualizing parallel agents
  */
 
-import React from "react";
+import React, { useEffect, useState } from "react";
+import type { SyntaxStyle } from "@opentui/core";
 import { useTheme, getCatppuccinPalette } from "../theme.tsx";
-import { formatDuration as formatDurationObj, truncateText, normalizeMarkdownNewlines } from "../utils/format.ts";
-import { STATUS, TREE, CONNECTOR, MISC } from "../constants/icons.ts";
+import { formatDuration as formatDurationObj, truncateText } from "../utils/format.ts";
+import { STATUS, TREE, CONNECTOR, MISC, ARROW } from "../constants/icons.ts";
 import { SPACING } from "../constants/spacing.ts";
 import { buildParallelAgentsHeaderHint } from "../utils/background-agent-tree-hints.ts";
-import type { Part, TextPart, ToolPart } from "../parts/types.ts";
+import type { Part, ToolPart } from "../parts/types.ts";
+import { PART_REGISTRY } from "./parts/registry.tsx";
 import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
+import { buildPartRenderKeys, getConsumedTaskToolCallIds } from "./parts/message-bubble-parts.tsx";
 
 // Re-export for backward compatibility
 export { truncateText };
@@ -58,6 +61,8 @@ export interface ParallelAgent {
   toolUses?: number;
   /** Token count (for progress display) */
   tokens?: number;
+  /** Thinking/reasoning duration in milliseconds */
+  thinkingMs?: number;
   /** Current tool operation (e.g., "Bash: Find files...") */
   currentTool?: string;
   /** Inline parts for agent-scoped streaming content */
@@ -70,6 +75,8 @@ export interface ParallelAgent {
 export interface ParallelAgentsTreeProps {
   /** List of parallel agents */
   agents: ParallelAgent[];
+  /** Optional syntax style for markdown/code part renderers */
+  syntaxStyle?: SyntaxStyle;
   /** Whether to show in compact mode (default: false) */
   compact?: boolean;
   /** Maximum agents to show before collapsing (default: 5) */
@@ -137,6 +144,17 @@ export const AGENT_COLORS: Record<string, string> = getAgentColors(true);
  */
 const SUB_STATUS_PAD = "   ";
 
+export function getAgentInlineDisplayParts(
+  parts: ReadonlyArray<Part>,
+): Part[] {
+  if (parts.length === 0) return [];
+  return [...parts];
+}
+
+export function buildAgentInlinePrefix(continuationPrefix: string): string {
+  return `${continuationPrefix}${SUB_STATUS_PAD}${CONNECTOR.subStatus}  `;
+}
+
 // ============================================================================
 // UTILITY FUNCTIONS
 // ============================================================================
@@ -176,12 +194,49 @@ export function getStatusIndicatorColor(
   return colors.muted;
 }
 
+export function shouldAnimateAgentStatus(status: AgentStatus): boolean {
+  return status === "running" || status === "background";
+}
+
 /**
  * Format duration in a human-readable way.
  */
 export function formatDuration(ms: number | undefined): string {
   if (ms === undefined) return "";
   return formatDurationObj(ms).text;
+}
+
+function formatTokenCount(tokens: number): string {
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}M`;
+  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}k`;
+  return `${tokens}`;
+}
+
+function formatThinkingDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000);
+  if (totalSeconds <= 0) return "1s";
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes === 0) return `${seconds}s`;
+  if (seconds === 0) return `${minutes}m`;
+  return `${minutes}m ${seconds}s`;
+}
+
+function buildAgentProgressInfo(agent: ParallelAgent, nowMs: number): string {
+  const isActive = agent.status === "running" || agent.status === "pending" || agent.status === "background";
+  if (!isActive) return "";
+
+  const parts: string[] = [];
+  const elapsed = getElapsedTime(agent.startedAt, nowMs);
+  if (elapsed) parts.push(elapsed);
+  if ((agent.tokens ?? 0) > 0) {
+    parts.push(`${ARROW.down} ${formatTokenCount(agent.tokens!)} tokens`);
+  }
+  if ((agent.thinkingMs ?? 0) >= 1000) {
+    parts.push(`thought for ${formatThinkingDuration(agent.thinkingMs!)}`);
+  }
+  if (parts.length === 0) return "";
+  return ` (${parts.join(` ${MISC.separator} `)})`;
 }
 
 export function isGenericSubagentTask(task: string): boolean {
@@ -282,6 +337,7 @@ function mergeAgentPair(a: ParallelAgent, b: ParallelAgent): ParallelAgent {
     error: a.error ?? b.error,
     durationMs: a.durationMs ?? b.durationMs,
     tokens: Math.max(a.tokens ?? 0, b.tokens ?? 0) || undefined,
+    thinkingMs: Math.max(a.thinkingMs ?? 0, b.thinkingMs ?? 0) || undefined,
   };
 }
 
@@ -389,10 +445,9 @@ export function buildAgentHeaderLabel(count: number, dominantType: string): stri
 /**
  * Get elapsed time since start.
  */
-export function getElapsedTime(startedAt: string): string {
+export function getElapsedTime(startedAt: string, nowMs: number = Date.now()): string {
   const start = new Date(startedAt).getTime();
-  const now = Date.now();
-  return formatDuration(now - start);
+  return formatDuration(nowMs - start);
 }
 
 /**
@@ -457,7 +512,9 @@ interface AgentRowProps {
   agent: ParallelAgent;
   isLast: boolean;
   compact: boolean;
+  syntaxStyle?: SyntaxStyle;
   themeColors: ThemeColors;
+  nowMs: number;
 }
 
 /**
@@ -467,23 +524,30 @@ interface BackgroundAgentRowProps {
   agent: ParallelAgent;
   isLast: boolean;
   themeColors: ThemeColors;
+  nowMs: number;
 }
 
 /**
  * Agent row for background-mode tree.
  * Shows task name with ● indicator and "Running in the background" sub-status.
  */
-function BackgroundAgentRow({ agent, isLast, themeColors }: BackgroundAgentRowProps): React.ReactNode {
+function BackgroundAgentRow({ agent, isLast, themeColors, nowMs }: BackgroundAgentRowProps): React.ReactNode {
   const treeChar = isLast ? TREE.lastBranch : TREE.branch;
   const continuationPrefix = isLast ? TREE.space : TREE.vertical;
   const subStatus = getBackgroundSubStatusText(agent);
+  const progressInfo = buildAgentProgressInfo(agent, nowMs);
+  const animateRowIndicator = shouldAnimateAgentStatus(agent.status);
 
   return (
     <box flexDirection="column">
       <box flexDirection="row">
         <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar}</text></box>
         <box flexShrink={0}>
-          <text style={{ fg: themeColors.success }}>●</text>
+          {animateRowIndicator ? (
+            <text><AnimatedBlinkIndicator color={themeColors.success} speed={500} /></text>
+          ) : (
+            <text style={{ fg: themeColors.success }}>●</text>
+          )}
         </box>
         <text style={{ fg: themeColors.foreground, attributes: 1 }}>
           {" "}{getAgentTaskLabel(agent)}
@@ -492,7 +556,7 @@ function BackgroundAgentRow({ agent, isLast, themeColors }: BackgroundAgentRowPr
       {subStatus && (
         <box flexDirection="row">
           <text style={{ fg: themeColors.muted }}>
-            {continuationPrefix}{SUB_STATUS_PAD}{CONNECTOR.subStatus}  {subStatus}
+            {continuationPrefix}{SUB_STATUS_PAD}{CONNECTOR.subStatus}  {subStatus}{progressInfo}
           </text>
         </box>
       )}
@@ -511,22 +575,23 @@ function BackgroundAgentRow({ agent, isLast, themeColors }: BackgroundAgentRowPr
  *   ├─● {task}
  *   │    ╰  Initializing {agent-name}… (Ns)  — during initialization
  */
-function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React.ReactNode {
+function AgentRow({ agent, isLast, compact, syntaxStyle, themeColors, nowMs }: AgentRowProps): React.ReactNode {
   const treeChar = isLast ? TREE.lastBranch : TREE.branch;
   const continuationPrefix = isLast ? TREE.space : TREE.vertical;
   const isRunning = agent.status === "running" || agent.status === "pending";
 
   const rowIndicatorColor = getStatusIndicatorColor(agent.status, themeColors);
+  const animateRowIndicator = shouldAnimateAgentStatus(agent.status);
   const displayTask = truncateText(getAgentTaskLabel(agent), compact ? 40 : 50);
+  const progressInfo = buildAgentProgressInfo(agent, nowMs);
 
   // Build sub-status text based on agent state
   let subStatusText: string | null = null;
   if (isRunning) {
     if (agent.toolUses !== undefined && agent.toolUses > 0) {
-      subStatusText = `${agent.name}: (${agent.toolUses} tool use${agent.toolUses !== 1 ? "s" : ""})`;
+      subStatusText = `${agent.name}: (${agent.toolUses} tool use${agent.toolUses !== 1 ? "s" : ""})${progressInfo}`;
     } else {
-      const elapsed = getElapsedTime(agent.startedAt);
-      subStatusText = `Initializing ${agent.name}…${elapsed ? ` (${elapsed})` : ""}`;
+      subStatusText = `Initializing ${agent.name}…${progressInfo}`;
     }
   } else if (agent.status === "completed") {
     subStatusText = agent.result ? truncateText(agent.result, 60) : "Done";
@@ -535,23 +600,13 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
   } else if (agent.status === "interrupted") {
     subStatusText = "Interrupted";
   } else if (agent.status === "background") {
-    subStatusText = `Running ${agent.name} in background…`;
+    subStatusText = `Running ${agent.name} in background…${progressInfo}`;
   }
 
   // Current tool shown on separate line only during active execution
   const showCurrentTool = isRunning && agent.currentTool && agent.toolUses !== undefined && agent.toolUses > 0;
 
-  // Inline parts from sub-agent streaming content.
-  // Suppress the last inline part when it's a tool that duplicates currentTool
-  // to avoid showing the same tool call twice (once as name-only, once with args).
-  const rawInlineParts = agent.inlineParts ?? [];
-  const inlineParts = showCurrentTool && rawInlineParts.length > 0
-    ? (() => {
-      const last = rawInlineParts[rawInlineParts.length - 1];
-      if (last && last.type === "tool") return rawInlineParts.slice(0, -1);
-      return rawInlineParts;
-    })()
-    : rawInlineParts;
+  const inlineParts = agent.inlineParts ?? [];
   const hasInlineParts = inlineParts.length > 0;
 
   return (
@@ -560,7 +615,11 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
       <box flexDirection="row">
         <box flexShrink={0}><text style={{ fg: themeColors.muted }}>{treeChar}</text></box>
         <box flexShrink={0}>
-          <text style={{ fg: rowIndicatorColor }}>●</text>
+          {animateRowIndicator ? (
+            <text><AnimatedBlinkIndicator color={rowIndicatorColor} speed={500} /></text>
+          ) : (
+            <text style={{ fg: rowIndicatorColor }}>●</text>
+          )}
         </box>
         <text style={{ fg: themeColors.foreground, attributes: 1 }}>
           {" "}{displayTask}
@@ -582,11 +641,12 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
           </text>
         </box>
       )}
-      {/* Inline parts from sub-agent (text blocks, tool blocks) */}
+      {/* Inline parts from sub-agent */}
       {hasInlineParts && (
-        <AgentInlineParts
+        <AgentInlinePartsDisplay
           parts={inlineParts}
           continuationPrefix={continuationPrefix}
+          syntaxStyle={syntaxStyle}
           themeColors={themeColors}
         />
       )}
@@ -599,152 +659,55 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
 // ============================================================================
 
 /**
- * Renders inline parts (text and tool blocks) from a sub-agent's
+ * Renders inline parts from a sub-agent's
  * streaming content, nested under the agent row with tree connectors.
  */
-function AgentInlineParts({
+function AgentInlinePartsDisplay({
   parts,
   continuationPrefix,
+  syntaxStyle,
   themeColors,
 }: {
   parts: Part[];
   continuationPrefix: string;
+  syntaxStyle?: SyntaxStyle;
   themeColors: ThemeColors;
 }): React.ReactNode {
-  // Only display the latest part to avoid cluttering the tree
-  const latestPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
-
-  if (!latestPart) return null;
+  const visibleParts = getAgentInlineDisplayParts(parts);
+  if (visibleParts.length === 0) return null;
+  const inlinePrefix = buildAgentInlinePrefix(continuationPrefix);
+  const consumedTaskIds = getConsumedTaskToolCallIds(visibleParts);
+  const renderKeys = buildPartRenderKeys(visibleParts);
+  const renderQueue = visibleParts.flatMap((part, index) => {
+    if (part.type === "tool" && consumedTaskIds.has((part as ToolPart).toolCallId)) {
+      return [];
+    }
+    return [{ part, index }];
+  });
 
   return (
     <box flexDirection="column">
-      {latestPart.type === "text" ? (
-        <AgentInlineText
-          key={latestPart.id}
-          part={latestPart as TextPart}
-          continuationPrefix={continuationPrefix}
-          themeColors={themeColors}
-        />
-      ) : latestPart.type === "tool" ? (
-        <AgentInlineTool
-          key={latestPart.id}
-          part={latestPart as ToolPart}
-          continuationPrefix={continuationPrefix}
-          themeColors={themeColors}
-          isLast={true}
-        />
-      ) : null}
+      {renderQueue.map(({ part, index }, renderedIndex) => {
+        const Renderer = PART_REGISTRY[part.type];
+        if (!Renderer) return null;
+
+        return (
+          <box key={renderKeys[index] ?? part.id} flexDirection="row">
+            <box flexShrink={0}>
+              <text style={{ fg: themeColors.muted }}>{inlinePrefix}</text>
+            </box>
+            <box flexGrow={1} flexShrink={1}>
+              <Renderer
+                part={part}
+                isLast={renderedIndex === renderQueue.length - 1}
+                syntaxStyle={syntaxStyle}
+              />
+            </box>
+          </box>
+        );
+      })}
     </box>
   );
-}
-
-/** Renders a text block from a sub-agent, indented under the tree connector. */
-function AgentInlineText({
-  part,
-  continuationPrefix,
-  themeColors,
-}: {
-  part: TextPart;
-  continuationPrefix: string;
-  themeColors: ThemeColors;
-}): React.ReactNode {
-  const content = normalizeMarkdownNewlines(part.content ?? "");
-  if (!content) return null;
-
-  // Truncate long text from sub-agents
-  const maxLen = 200;
-  const display = content.length > maxLen ? content.slice(0, maxLen) + "…" : content;
-
-  return (
-    <box flexDirection="row">
-      <box flexShrink={0}>
-        <text style={{ fg: themeColors.muted }}>{continuationPrefix}{SUB_STATUS_PAD}  </text>
-      </box>
-      <box flexGrow={1} flexShrink={1}>
-        <text style={{ fg: themeColors.foreground }}>{STATUS.active} {display}</text>
-      </box>
-    </box>
-  );
-}
-
-/** Renders a tool block from a sub-agent, indented under the tree connector. */
-function AgentInlineTool({
-  part,
-  continuationPrefix,
-  themeColors,
-  isLast: _isLast,
-}: {
-  part: ToolPart;
-  continuationPrefix: string;
-  themeColors: ThemeColors;
-  isLast: boolean;
-}): React.ReactNode {
-  const status = part.state.status;
-  const isComplete = status === "completed";
-  const isError = status === "error";
-  const isActive = status === "running";
-
-  const statusColor = isComplete
-    ? themeColors.success
-    : isError
-      ? themeColors.error
-      : isActive
-        ? themeColors.accent
-        : themeColors.muted;
-
-  const toolLabel = truncateText(part.toolName, 30);
-
-  // Build a brief summary of tool input for display
-  const inputSummary = getToolInputSummary(part);
-
-  return (
-    <box flexDirection="column">
-      <box flexDirection="row">
-        <box flexShrink={0}>
-          <text style={{ fg: themeColors.muted }}>{continuationPrefix}{SUB_STATUS_PAD}  </text>
-        </box>
-        <box flexShrink={0}>
-          {isActive ? (
-            <text><AnimatedBlinkIndicator color={statusColor} speed={500} /></text>
-          ) : (
-            <text style={{ fg: statusColor }}>{isComplete ? STATUS.active : isError ? STATUS.error : STATUS.pending}</text>
-          )}
-        </box>
-        <text style={{ fg: themeColors.foreground }}> {toolLabel}</text>
-        {inputSummary && (
-          <text style={{ fg: themeColors.muted }}> {inputSummary}</text>
-        )}
-      </box>
-    </box>
-  );
-}
-
-/** Extract a brief summary from tool input for inline display. */
-function getToolInputSummary(part: ToolPart): string {
-  const input = part.input;
-  if (!input) return "";
-
-  // Common tool input patterns
-  if (typeof input.command === "string") {
-    return truncateText(input.command as string, 40);
-  }
-  if (typeof input.pattern === "string") {
-    return truncateText(input.pattern as string, 40);
-  }
-  if (typeof input.path === "string") {
-    return truncateText(input.path as string, 40);
-  }
-  if (typeof input.query === "string") {
-    return truncateText(input.query as string, 40);
-  }
-  if (typeof input.description === "string") {
-    return truncateText(input.description as string, 40);
-  }
-  if (typeof input.prompt === "string") {
-    return truncateText(input.prompt as string, 40);
-  }
-
-  return "";
 }
 
 // ============================================================================
@@ -773,6 +736,7 @@ function getToolInputSummary(part: ToolPart): string {
  */
 export function ParallelAgentsTree({
   agents,
+  syntaxStyle,
   compact = false,
   maxVisible = 5,
   noTopMargin = false,
@@ -780,36 +744,32 @@ export function ParallelAgentsTree({
   showExpandHint = false,
 }: ParallelAgentsTreeProps): React.ReactNode {
   const { theme } = useTheme();
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const hasActiveAgents = agents.some(
+    (agent) => shouldAnimateAgentStatus(agent.status) || agent.status === "pending",
+  );
+  useEffect(() => {
+    if (!hasActiveAgents) return;
+    setNowMs(Date.now());
+    const interval = setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [hasActiveAgents]);
 
   // Don't render if no agents
   if (agents.length === 0) {
     return null;
   }
 
-  // Deduplicate agents that share the same taskToolCallId (eager + real entries)
-  const dedupedAgents = deduplicateAgents(agents);
-
-  // Sort agents: running first, then pending, then completed, then error
-  const sortedAgents = [...dedupedAgents].sort((a, b) => {
-    const order: Record<AgentStatus, number> = {
-      running: 0,
-      pending: 1,
-      background: 2,
-      completed: 3,
-      interrupted: 4,
-      error: 5,
-    };
-    return order[a.status] - order[b.status];
-  });
-
-  // Limit visible agents if needed
-  const visibleAgents = sortedAgents.slice(0, maxVisible);
-  const hiddenCount = sortedAgents.length - visibleAgents.length;
+  // Preserve arrival order for stable chronological rendering.
+  const visibleAgents = agents.slice(0, maxVisible);
+  const hiddenCount = agents.length - visibleAgents.length;
 
   // Count agents by status
-  const runningCount = dedupedAgents.filter(a => a.status === "running" || a.status === "background").length;
-  const completedCount = dedupedAgents.filter(a => a.status === "completed").length;
-  const pendingCount = dedupedAgents.filter(a => a.status === "pending").length;
+  const runningCount = agents.filter(a => a.status === "running" || a.status === "background").length;
+  const completedCount = agents.filter(a => a.status === "completed").length;
+  const pendingCount = agents.filter(a => a.status === "pending").length;
 
   // Dominant type removed — header always says "Task" for background, "agents" for foreground
 
@@ -832,6 +792,7 @@ export function ParallelAgentsTree({
   // Background mode: green dot header with "N Task agents launched"
   if (background) {
     const bgHeaderColor = themeColors.success;
+    const hasActiveBackground = agents.some((agent) => shouldAnimateAgentStatus(agent.status));
     const bgHeaderText = `${agents.length} Task agent${agents.length !== 1 ? "s" : ""} launched…`;
     const bgHintText = buildParallelAgentsHeaderHint(agents, showExpandHint);
 
@@ -843,7 +804,11 @@ export function ParallelAgentsTree({
       >
         {/* Background header */}
         <box flexDirection="row">
-          <text style={{ fg: bgHeaderColor }}>●</text>
+          {hasActiveBackground ? (
+            <text><AnimatedBlinkIndicator color={bgHeaderColor} speed={500} /></text>
+          ) : (
+            <text style={{ fg: bgHeaderColor }}>●</text>
+          )}
           <text style={{ fg: themeColors.foreground }}> {bgHeaderText}</text>
           {bgHintText !== "" && (
             <text style={{ fg: themeColors.muted }}> · {bgHintText}</text>
@@ -857,6 +822,7 @@ export function ParallelAgentsTree({
             agent={agent}
             isLast={index === visibleAgents.length - 1 && hiddenCount === 0}
             themeColors={themeColors}
+            nowMs={nowMs}
           />
         ))}
 
@@ -898,7 +864,11 @@ export function ParallelAgentsTree({
     >
       {/* Header */}
       <box flexDirection="row">
-        <text style={{ fg: headerColor }}>{headerIcon}</text>
+        {runningCount > 0 ? (
+          <text><AnimatedBlinkIndicator color={headerColor} speed={500} /></text>
+        ) : (
+          <text style={{ fg: headerColor }}>{headerIcon}</text>
+        )}
         <text style={{ fg: headerColor }}> {headerText}</text>
         {headerHintText !== "" && (
           <text style={{ fg: themeColors.muted }}> · {headerHintText}</text>
@@ -912,7 +882,9 @@ export function ParallelAgentsTree({
           agent={agent}
           isLast={index === visibleAgents.length - 1 && hiddenCount === 0}
           compact={compact}
+          syntaxStyle={syntaxStyle}
           themeColors={themeColors}
+          nowMs={nowMs}
         />
       ))}
 

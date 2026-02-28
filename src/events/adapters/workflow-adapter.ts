@@ -19,7 +19,7 @@
  * ```
  */
 
-import type { AtomicEventBus } from "../event-bus.ts";
+import type { EventBus } from "../event-bus.ts";
 import type { BusEvent } from "../bus-events.ts";
 
 /**
@@ -29,7 +29,7 @@ import type { BusEvent } from "../bus-events.ts";
  * onto the bus, which can then be consumed by UI components and other subscribers.
  */
 export class WorkflowEventAdapter {
-  private bus: AtomicEventBus;
+  private bus: EventBus;
   private sessionId: string;
   private runId: number;
 
@@ -40,7 +40,7 @@ export class WorkflowEventAdapter {
    * @param sessionId - Session ID for this workflow execution
    * @param runId - Run ID for staleness detection
    */
-  constructor(bus: AtomicEventBus, sessionId: string, runId: number) {
+  constructor(bus: EventBus, sessionId: string, runId: number) {
     this.bus = bus;
     this.sessionId = sessionId;
     this.runId = runId;
@@ -105,11 +105,11 @@ export class WorkflowEventAdapter {
    * Publish a workflow task list update event.
    *
    * @param workflowId - Workflow instance ID
-   * @param tasks - Updated task list with id, title, and status
+   * @param tasks - Updated task list with id/title/status and optional dependencies
    */
   publishTaskUpdate(
     workflowId: string,
-    tasks: Array<{ id: string; title: string; status: string }>,
+    tasks: Array<{ id: string; title: string; status: string; blockedBy?: string[] }>,
   ): void {
     const event: BusEvent<"workflow.task.update"> = {
       type: "workflow.task.update",

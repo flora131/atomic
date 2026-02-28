@@ -144,6 +144,7 @@ export class StreamPipelineConsumer {
           streamGeneration: 0, // Default value - updated by correlation service if needed
           thinkingText: data.delta,
           thinkingMs: 0, // Duration tracking handled elsewhere
+          ...(data.agentId ? { agentId: data.agentId } : {}),
         }];
       }
 
@@ -185,26 +186,6 @@ export class StreamPipelineConsumer {
       case "stream.text.complete": {
         const data = event.data as BusEventDataMap["stream.text.complete"];
         return [{ type: "text-complete", fullText: data.fullText, messageId: data.messageId }];
-      }
-
-      case "workflow.step.start": {
-        const data = event.data as BusEventDataMap["workflow.step.start"];
-        return [{
-          type: "workflow-step-start",
-          nodeId: data.nodeId,
-          nodeName: data.nodeName,
-          startedAt: event.timestamp,
-        }];
-      }
-
-      case "workflow.step.complete": {
-        const data = event.data as BusEventDataMap["workflow.step.complete"];
-        return [{
-          type: "workflow-step-complete",
-          nodeId: data.nodeId,
-          status: data.status,
-          completedAt: event.timestamp,
-        }];
       }
 
       case "workflow.task.update": {

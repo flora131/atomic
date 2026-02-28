@@ -81,6 +81,38 @@ function computeFinalizedAgents(
     : undefined;
 }
 
+function appendBackgroundMessageInOrder(
+  prev: ChatMessage[],
+  message: ChatMessage,
+  refs: {
+    backgroundAgentMessageId: string | null;
+    streamingMessageId: string | null;
+    lastStreamedMessageId: string | null;
+  },
+): ChatMessage[] {
+  refs.backgroundAgentMessageId = message.id;
+  return [...prev, message];
+}
+
+function finalizeActiveStreamingMessage(
+  prev: ChatMessage[],
+  activeStreamingMessageId: string | null,
+): ChatMessage[] {
+  if (!activeStreamingMessageId) {
+    return prev;
+  }
+
+  return prev.map((msg) =>
+    msg.id === activeStreamingMessageId && msg.role === "assistant" && msg.streaming
+      ? {
+          ...finalizeStreamingReasoningInMessage(msg),
+          streaming: false,
+          completedAt: new Date(),
+        }
+      : msg,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Tests — Consolidated completion path
 // ---------------------------------------------------------------------------
@@ -397,6 +429,78 @@ describe("Consolidated completion state updates (Fix 5C)", () => {
       const otherMsg = updatedMessages.find((m) => m.id === "msg-other");
       expect(otherMsg).toBeDefined();
       expect(otherMsg!.content).toBe("other");
+    });
+
+    test("background updates insert after anchor message", () => {
+      const start = createMessage({
+        id: "start",
+        content: "Starting workflow",
+        streaming: true,
+      });
+      const bg1 = createMessage({
+        id: "bg1",
+        content: "Background update 1",
+        streaming: false,
+      });
+      const refs = {
+        backgroundAgentMessageId: null as string | null,
+        streamingMessageId: "start",
+        lastStreamedMessageId: null as string | null,
+      };
+
+      const result = appendBackgroundMessageInOrder([start], bg1, refs);
+
+      expect(result.map((m) => m.id)).toEqual(["start", "bg1"]);
+      expect(refs.backgroundAgentMessageId).toBe("bg1");
+    });
+
+    test("background updates chain in chronological order", () => {
+      const start = createMessage({
+        id: "start",
+        content: "Starting workflow",
+        streaming: true,
+      });
+      const bg1 = createMessage({
+        id: "bg1",
+        content: "Background update 1",
+        streaming: false,
+      });
+      const bg2 = createMessage({
+        id: "bg2",
+        content: "Background update 2",
+        streaming: false,
+      });
+      const refs = {
+        backgroundAgentMessageId: null as string | null,
+        streamingMessageId: "start",
+        lastStreamedMessageId: null as string | null,
+      };
+
+      const afterBg1 = appendBackgroundMessageInOrder([start], bg1, refs);
+      const afterBg2 = appendBackgroundMessageInOrder(afterBg1, bg2, refs);
+
+      expect(afterBg2.map((m) => m.id)).toEqual(["start", "bg1", "bg2"]);
+      expect(refs.backgroundAgentMessageId).toBe("bg2");
+    });
+
+    test("finalizes the active streaming message even when it is not last", () => {
+      const start = createMessage({
+        id: "start",
+        content: "Starting workflow",
+        streaming: true,
+      });
+      const bg1 = createMessage({
+        id: "bg1",
+        content: "Background update 1",
+        streaming: false,
+      });
+
+      const result = finalizeActiveStreamingMessage([start, bg1], "start");
+
+      expect(result.map((m) => m.id)).toEqual(["start", "bg1"]);
+      expect(result[0]!.streaming).toBe(false);
+      expect(result[1]!.streaming).toBe(false);
+      expect(result[1]!.content).toBe("Background update 1");
     });
   });
 });

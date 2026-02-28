@@ -20,6 +20,7 @@ export const ralphNodeDescriptions: Record<string, string> = {
     "select-ready-tasks": "◎ Selecting: Identifying ready tasks for execution...",
     worker: "⚙ Working: Implementing assigned task...",
     reviewer: "◉ Reviewing: Evaluating completed work...",
+    "prepare-fix-tasks": "☰ Planning Fixes: Converting review findings into fix tasks...",
     fixer: "⚒ Fixing: Applying review feedback...",
 };
 

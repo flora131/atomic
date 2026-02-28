@@ -154,7 +154,7 @@ export interface CommandContext {
    */
   updateWorkflowState: (update: Partial<CommandContextState>) => void;
   /** The event bus for publishing/subscribing to streaming events */
-  eventBus?: import("../../events/event-bus.ts").AtomicEventBus;
+  eventBus?: import("../../events/event-bus.ts").EventBus;
   /** The type of agent currently in use (claude, opencode, copilot) */
   agentType?: AgentType;
   /** Model operations interface for listing, setting, and resolving models */

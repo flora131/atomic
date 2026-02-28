@@ -21,7 +21,7 @@
  * - stream completion                  -> stream.text.complete
  */
 
-import type { AtomicEventBus } from "../event-bus.ts";
+import type { EventBus } from "../event-bus.ts";
 import type { BusEvent } from "../bus-events.ts";
 import type { AgentMessage } from "../../sdk/types.ts";
 import type {
@@ -35,7 +35,7 @@ import { SubagentToolTracker } from "./subagent-tool-tracker.ts";
  */
 export interface SubagentStreamAdapterOptions {
   /** The event bus to publish events to */
-  bus: AtomicEventBus;
+  bus: EventBus;
   /** Parent session ID — events are published with this sessionId */
   sessionId: string;
   /** Sub-agent ID for correlation and attribution */
@@ -60,7 +60,7 @@ export interface SubagentStreamAdapterOptions {
  * SubagentStreamResult containing full streaming metadata.
  */
 export class SubagentStreamAdapter {
-  private readonly bus: AtomicEventBus;
+  private readonly bus: EventBus;
   private readonly sessionId: string;
   private readonly agentId: string;
   private readonly parentAgentId: string | undefined;
@@ -280,6 +280,7 @@ export class SubagentStreamAdapter {
         data: {
           sourceKey: thinkingSourceKey,
           durationMs,
+          agentId: this.agentId,
         },
       };
 
@@ -622,4 +623,3 @@ export class SubagentStreamAdapter {
     return this.createSyntheticToolId(toolName);
   }
 }
-

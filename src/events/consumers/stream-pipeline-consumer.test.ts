@@ -81,6 +81,27 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
+  it("should map stream.thinking.delta agentId to thinking-meta agentId", () => {
+    const event: EnrichedBusEvent = {
+      type: "stream.thinking.delta",
+      sessionId: "test",
+      runId: 1,
+      timestamp: Date.now(),
+      data: { delta: "Thinking...", sourceKey: "block1", messageId: "msg1", agentId: "agent_1" },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toMatchObject({
+      type: "thinking-meta",
+      thinkingSourceKey: "block1",
+      targetMessageId: "msg1",
+      thinkingText: "Thinking...",
+      agentId: "agent_1",
+    });
+  });
+
   it("should map stream.tool.start to tool-start event", () => {
     const event: EnrichedBusEvent = {
       type: "stream.tool.start",
@@ -178,46 +199,32 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
-  it("should map workflow.step.start to workflow-step-start event", () => {
-    const now = Date.now();
+  it("should ignore workflow.step.start events", () => {
     const event: EnrichedBusEvent = {
       type: "workflow.step.start",
       sessionId: "test",
       runId: 1,
-      timestamp: now,
+      timestamp: Date.now(),
       data: { workflowId: "wf1", nodeId: "node1", nodeName: "Planner" },
     };
 
     consumer.processBatch([event]);
 
-    expect(receivedEvents).toHaveLength(1);
-    expect(receivedEvents[0]).toEqual({
-      type: "workflow-step-start",
-      nodeId: "node1",
-      nodeName: "Planner",
-      startedAt: now,
-    });
+    expect(receivedEvents).toHaveLength(0);
   });
 
-  it("should map workflow.step.complete to workflow-step-complete event", () => {
-    const now = Date.now();
+  it("should ignore workflow.step.complete events", () => {
     const event: EnrichedBusEvent = {
       type: "workflow.step.complete",
       sessionId: "test",
       runId: 1,
-      timestamp: now,
+      timestamp: Date.now(),
       data: { workflowId: "wf1", nodeId: "node1", status: "success" },
     };
 
     consumer.processBatch([event]);
 
-    expect(receivedEvents).toHaveLength(1);
-    expect(receivedEvents[0]).toEqual({
-      type: "workflow-step-complete",
-      nodeId: "node1",
-      status: "success",
-      completedAt: now,
-    });
+    expect(receivedEvents).toHaveLength(0);
   });
 
   it("should map workflow.task.update to task-list-update event", () => {
@@ -229,7 +236,7 @@ describe("StreamPipelineConsumer", () => {
       data: {
         workflowId: "wf1",
         tasks: [
-          { id: "t1", title: "Plan", status: "complete" },
+          { id: "t1", title: "Plan", status: "complete", blockedBy: [] },
           { id: "t2", title: "Implement", status: "pending" },
         ],
       },
@@ -241,7 +248,7 @@ describe("StreamPipelineConsumer", () => {
     expect(receivedEvents[0]).toEqual({
       type: "task-list-update",
       tasks: [
-        { id: "t1", title: "Plan", status: "complete" },
+        { id: "t1", title: "Plan", status: "complete", blockedBy: [] },
         { id: "t2", title: "Implement", status: "pending" },
       ],
     });

@@ -21,7 +21,6 @@ import type {
   TextPart,
   ToolPart,
   ToolState,
-  WorkflowStepPart,
 } from "./types.ts";
 
 type ToolStatus = MessageToolCall["status"];
@@ -70,6 +69,8 @@ export interface ThinkingMetaEvent {
   streamGeneration: number;
   thinkingText: string;
   thinkingMs: number;
+  /** Sub-agent ID if this event is scoped to a workflow sub-agent */
+  agentId?: string;
   /**
    * Off by default to keep current UI behavior until dedicated
    * reasoning rendering task is complete.
@@ -103,27 +104,13 @@ interface ParallelAgentsEvent {
   isLastMessage: boolean;
 }
 
-interface WorkflowStepStartEvent {
-  type: "workflow-step-start";
-  nodeId: string;
-  nodeName: string;
-  startedAt: number;
-}
-
-interface WorkflowStepCompleteEvent {
-  type: "workflow-step-complete";
-  nodeId: string;
-  status: "success" | "error" | "skipped";
-  completedAt: number;
-  durationMs?: number;
-}
-
 interface TaskListUpdateEvent {
   type: "task-list-update";
   tasks: Array<{
     id: string;
     title: string;
     status: string;
+    blockedBy?: string[];
   }>;
 }
 
@@ -143,8 +130,6 @@ export type StreamPartEvent =
   | HitlRequestEvent
   | HitlResponseEvent
   | ParallelAgentsEvent
-  | WorkflowStepStartEvent
-  | WorkflowStepCompleteEvent
   | TaskListUpdateEvent;
 
 const reasoningPartIdBySourceRegistry = new WeakMap<ChatMessage, Map<string, PartId>>();
@@ -555,6 +540,51 @@ function upsertThinkingMeta(
   return nextMessage;
 }
 
+function upsertThinkingMetaPart(parts: Part[], event: ThinkingMetaEvent): Part[] {
+  if (!event.includeReasoningPart) {
+    return parts;
+  }
+
+  const existingIdx = parts.findIndex(
+    (part) => part.type === "reasoning" && (part as ReasoningPart).thinkingSourceKey === event.thinkingSourceKey,
+  );
+
+  if (existingIdx >= 0) {
+    const existing = parts[existingIdx] as ReasoningPart;
+    const updated = [...parts];
+    updated[existingIdx] = {
+      ...existing,
+      thinkingSourceKey: event.thinkingSourceKey,
+      content: event.thinkingText,
+      durationMs: event.thinkingMs,
+      isStreaming: true,
+    };
+    return updated;
+  }
+
+  if (event.thinkingText.trim().length === 0) {
+    return parts;
+  }
+
+  const reasoningPart: ReasoningPart = {
+    id: createPartId(),
+    type: "reasoning",
+    thinkingSourceKey: event.thinkingSourceKey,
+    content: event.thinkingText,
+    durationMs: event.thinkingMs,
+    isStreaming: true,
+    createdAt: new Date().toISOString(),
+  };
+  const updated = [...parts];
+  const firstTextIdx = updated.findIndex((part) => part.type === "text");
+  if (firstTextIdx >= 0) {
+    updated.splice(firstTextIdx, 0, reasoningPart);
+  } else {
+    updated.push(reasoningPart);
+  }
+  return updated;
+}
+
 function cloneReasoningPartRegistry(message: ChatMessage): Map<string, PartId> {
   const existing = reasoningPartIdBySourceRegistry.get(message);
   if (existing) {
@@ -713,6 +743,11 @@ function drainBufferedEvents(parts: Part[], agentId: string): Part[] {
     } else if (event.type === "tool-complete" && event.agentId) {
       const routed = routeToAgentInlineParts(currentParts, event.agentId, (inlineParts) => {
         return upsertToolPartComplete(inlineParts, event);
+      });
+      if (routed) currentParts = routed;
+    } else if (event.type === "thinking-meta" && event.agentId) {
+      const routed = routeToAgentInlineParts(currentParts, event.agentId, (inlineParts) => {
+        return upsertThinkingMetaPart(inlineParts, event);
       });
       if (routed) currentParts = routed;
     }
@@ -1000,8 +1035,23 @@ export function applyStreamPartEvent(
       return carryReasoningPartRegistry(message, nextMessage);
     }
 
-    case "thinking-meta":
+    case "thinking-meta": {
+      if (event.agentId) {
+        const routed = message.parts
+          ? routeToAgentInlineParts(message.parts, event.agentId, (inlineParts) => {
+            return upsertThinkingMetaPart(inlineParts, event);
+          })
+          : null;
+        if (routed) {
+          const nextMessage: ChatMessage = { ...message, parts: routed };
+          return carryReasoningPartRegistry(message, nextMessage);
+        }
+        // Agent not yet in parts — buffer for replay when AgentPart is created
+        bufferAgentEvent(event.agentId, event);
+        return message;
+      }
       return upsertThinkingMeta(message, event);
+    }
 
     case "tool-start": {
       // Agent-scoped routing: add tool to agent's inline parts
@@ -1106,46 +1156,13 @@ export function applyStreamPartEvent(
       return carryReasoningPartRegistry(message, nextMessage);
     }
 
-    case "workflow-step-start": {
-      const stepPart: WorkflowStepPart = {
-        id: createPartId(),
-        type: "workflow-step",
-        nodeId: event.nodeId,
-        nodeName: event.nodeName,
-        status: "running",
-        startedAt: event.startedAt,
-        createdAt: new Date().toISOString(),
-      };
-      const nextParts = upsertPart(message.parts ?? [], stepPart);
-      const nextMessage: ChatMessage = { ...message, parts: nextParts };
-      return carryReasoningPartRegistry(message, nextMessage);
-    }
-
-    case "workflow-step-complete": {
-      const parts = [...(message.parts ?? [])];
-      const stepIdx = parts.findIndex(
-        (part) => part.type === "workflow-step" && (part as WorkflowStepPart).nodeId === event.nodeId,
-      );
-      if (stepIdx >= 0) {
-        const existing = parts[stepIdx] as WorkflowStepPart;
-        const durationMs = event.durationMs ?? (event.completedAt - (existing.startedAt ?? event.completedAt));
-        parts[stepIdx] = {
-          ...existing,
-          status: event.status === "success" ? "completed" : "error",
-          completedAt: event.completedAt,
-          durationMs,
-        };
-      }
-      const nextMessage: ChatMessage = { ...message, parts };
-      return carryReasoningPartRegistry(message, nextMessage);
-    }
-
     case "task-list-update": {
       const parts = [...(message.parts ?? [])];
       const taskItems = event.tasks.map((t) => ({
         id: t.id,
         content: t.title,
         status: normalizeTaskItemStatus(t.status),
+        blockedBy: t.blockedBy,
       }));
       const existingIdx = parts.findIndex((part) => part.type === "task-list");
       if (existingIdx >= 0) {

@@ -41,6 +41,8 @@ export interface TaskListPanelProps {
   sessionDir: string;
   /** Whether to show full task content without truncation */
   expanded?: boolean;
+  /** Whether the parent workflow is currently active */
+  workflowActive?: boolean;
 }
 
 // ============================================================================
@@ -157,6 +159,7 @@ export function TaskListBox({
 export function TaskListPanel({
   sessionDir,
   expanded = false,
+  workflowActive = false,
 }: TaskListPanelProps): React.ReactNode {
   const [tasks, setTasks] = useState<TaskItem[]>([]);
 
@@ -169,7 +172,8 @@ export function TaskListPanel({
     return cleanup;
   }, [sessionDir]);
 
-  if (tasks.length === 0 || shouldAutoClearTaskPanel(tasks)) return null;
+  if (tasks.length === 0) return null;
+  if (!workflowActive && shouldAutoClearTaskPanel(tasks)) return null;
 
   return (
     <box flexDirection="column" paddingLeft={SPACING.INDENT} paddingRight={SPACING.INDENT} marginTop={SPACING.ELEMENT} flexShrink={0}>

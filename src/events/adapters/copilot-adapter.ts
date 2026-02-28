@@ -62,7 +62,7 @@ import type {
   SubagentStartEventData,
   SubagentCompleteEventData,
 } from "../../sdk/types.ts";
-import type { AtomicEventBus } from "../event-bus.ts";
+import type { EventBus } from "../event-bus.ts";
 import type { BusEvent } from "../bus-events.ts";
 import type { SDKStreamAdapter, StreamAdapterOptions } from "./types.ts";
 import { SubagentToolTracker } from "./subagent-tool-tracker.ts";
@@ -80,7 +80,7 @@ const MAX_BUFFER_SIZE = 1000;
  * push-based event delivery from the Copilot SDK client.
  */
 export class CopilotStreamAdapter implements SDKStreamAdapter {
-  private bus: AtomicEventBus;
+  private bus: EventBus;
   private client: CodingAgentClient;
   private unsubscribers: Array<() => void> = [];
   private eventBuffer: BusEvent[] = [];
@@ -151,7 +151,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
    * @param bus - The event bus to publish events to
    * @param client - The Copilot client to subscribe to events from
    */
-  constructor(bus: AtomicEventBus, client: CodingAgentClient) {
+  constructor(bus: EventBus, client: CodingAgentClient) {
     this.bus = bus;
     this.client = client;
   }

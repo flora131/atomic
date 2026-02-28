@@ -83,6 +83,41 @@ function hasActionableTasks(tasks: TaskItem[]): boolean {
   });
 }
 
+function stripPriorityPrefix(title: string): string {
+  return title.replace(/^\s*\[(?:P\d|p\d)\]\s*/u, "").trim();
+}
+
+function buildReviewFixTasks(findings: ReadonlyArray<{
+  title?: string;
+  body?: string;
+}>): TaskItem[] {
+  if (findings.length === 0) {
+    return [{
+      id: "#review-fix-1",
+      content: "Address review feedback",
+      status: "pending",
+      activeForm: "Addressing review feedback",
+      blockedBy: [],
+    }];
+  }
+
+  return findings.map((finding, index) => {
+    const fallback = `Address review finding ${index + 1}`;
+    const normalizedTitle = typeof finding.title === "string"
+      ? stripPriorityPrefix(finding.title)
+      : "";
+    const content = normalizedTitle.length > 0 ? normalizedTitle : fallback;
+
+    return {
+      id: `#review-fix-${index + 1}`,
+      content,
+      status: "pending",
+      activeForm: `Addressing ${content}`,
+      blockedBy: [],
+    } satisfies TaskItem;
+  });
+}
+
 // ============================================================================
 // RALPH GRAPH WORKFLOW
 // ============================================================================
@@ -165,7 +200,11 @@ export function createRalphWorkflow() {
             // notifyTaskStatusChange is injected at runtime by the executor when an eventBus is available.
             const notifyFn = (ctx.config.runtime as Record<string, unknown> | undefined)
               ?.notifyTaskStatusChange as
-              | ((taskIds: string[], newStatus: string, tasks: Array<{ id: string; title: string; status: string }>) => void)
+              | ((
+                taskIds: string[],
+                newStatus: string,
+                tasks: Array<{ id: string; title: string; status: string; blockedBy?: string[] }>,
+              ) => void)
               | undefined;
             notifyFn?.(
               ready.map((r) => r.id).filter((id): id is string => Boolean(id)),
@@ -174,6 +213,7 @@ export function createRalphWorkflow() {
                 id: t.id ?? "",
                 title: t.content,
                 status: t.status,
+                blockedBy: t.blockedBy,
               })),
             );
 
@@ -240,23 +280,101 @@ export function createRalphWorkflow() {
         state.reviewResult.findings.length > 0 &&
         state.reviewResult.overall_correctness !== "patch is correct",
       then: [
-        subagentNode<RalphWorkflowState>({
-          id: "fixer",
-          agentName: "debugger",
-          task: (state) => {
-            const fixSpec = buildFixSpecFromReview(
-              state.reviewResult!,
-              state.tasks,
-              state.yoloPrompt ?? ""
-            );
-            return fixSpec || "No fixes needed";
-          },
-          outputMapper: (_result, _state) => ({
-            fixesApplied: true,
+        toolNode<RalphWorkflowState, { findings: NonNullable<RalphWorkflowState["reviewResult"]>["findings"] }, TaskItem[]>({
+          id: "prepare-fix-tasks",
+          toolName: "prepare-fix-tasks",
+          execute: async (args) => buildReviewFixTasks(args.findings),
+          args: (state) => ({ findings: state.reviewResult?.findings ?? [] }),
+          outputMapper: (fixTasks) => ({
+            tasks: fixTasks,
+            currentTasks: fixTasks,
           }),
+          name: "Fix Task Planner",
+          description: "Converts review findings into actionable fix tasks",
+        }),
+        {
+          id: "fixer",
+          type: "agent",
           name: "Fixer",
           description: "Applies review fixes",
-        }),
+          retry: { maxAttempts: 1, backoffMs: 0, backoffMultiplier: 1 },
+          async execute(ctx: ExecutionContext<RalphWorkflowState>): Promise<NodeResult<RalphWorkflowState>> {
+            const spawnSubagent = ctx.config.runtime?.spawnSubagent;
+            if (!spawnSubagent) {
+              throw new Error("spawnSubagent not available in runtime config");
+            }
+
+            const review = ctx.state.reviewResult;
+            if (!review) {
+              return {
+                stateUpdate: {
+                  fixesApplied: false,
+                } as Partial<RalphWorkflowState>,
+              };
+            }
+
+            const fixSpec = buildFixSpecFromReview(
+              review,
+              ctx.state.tasks,
+              ctx.state.yoloPrompt ?? "",
+            );
+            if (!fixSpec.trim()) {
+              return {
+                stateUpdate: {
+                  fixesApplied: false,
+                } as Partial<RalphWorkflowState>,
+              };
+            }
+
+            const tasksInProgress = ctx.state.tasks.map((task) =>
+              task.status === "pending" ? { ...task, status: "in_progress" } : task,
+            );
+
+            const activeFixTaskIds = tasksInProgress
+              .filter((task) => task.status === "in_progress")
+              .map((task) => task.id)
+              .filter((id): id is string => Boolean(id));
+
+            const notifyFn = (ctx.config.runtime as Record<string, unknown> | undefined)
+              ?.notifyTaskStatusChange as
+              | ((
+                taskIds: string[],
+                newStatus: string,
+                tasks: Array<{ id: string; title: string; status: string; blockedBy?: string[] }>,
+              ) => void)
+              | undefined;
+            notifyFn?.(
+              activeFixTaskIds,
+              "in_progress",
+              tasksInProgress.map((task) => ({
+                id: task.id ?? "",
+                title: task.content,
+                status: task.status,
+                blockedBy: task.blockedBy,
+              })),
+            );
+
+            const result = await spawnSubagent({
+              agentId: `fixer-${ctx.state.executionId}`,
+              agentName: "debugger",
+              task: fixSpec,
+              abortSignal: ctx.abortSignal,
+            }, ctx.abortSignal);
+
+            const terminalStatus = result.success ? "completed" : "error";
+            const finalizedTasks = tasksInProgress.map((task) =>
+              task.status === "in_progress" ? { ...task, status: terminalStatus } : task,
+            );
+
+            return {
+              stateUpdate: {
+                tasks: finalizedTasks,
+                currentTasks: finalizedTasks,
+                fixesApplied: result.success,
+              } as Partial<RalphWorkflowState>,
+            };
+          },
+        } satisfies NodeDefinition<RalphWorkflowState>,
       ],
     })
     .compile();

@@ -17,7 +17,7 @@
  * ```
  */
 
-import type { AtomicEventBus } from "../event-bus.ts";
+import type { EventBus } from "../event-bus.ts";
 import type { BusEvent } from "../bus-events.ts";
 
 interface AgentToolState {
@@ -27,11 +27,11 @@ interface AgentToolState {
 
 export class SubagentToolTracker {
   private agents = new Map<string, AgentToolState>();
-  private bus: AtomicEventBus;
+  private bus: EventBus;
   private sessionId: string;
   private runId: number;
 
-  constructor(bus: AtomicEventBus, sessionId: string, runId: number) {
+  constructor(bus: EventBus, sessionId: string, runId: number) {
     this.bus = bus;
     this.sessionId = sessionId;
     this.runId = runId;

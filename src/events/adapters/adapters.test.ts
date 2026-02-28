@@ -17,7 +17,7 @@
  */
 
 import { describe, expect, test, beforeEach, mock } from "bun:test";
-import { AtomicEventBus } from "../event-bus.ts";
+import { EventBus } from "../event-bus.ts";
 import { OpenCodeStreamAdapter } from "./opencode-adapter.ts";
 import { ClaudeStreamAdapter } from "./claude-adapter.ts";
 import { CopilotStreamAdapter } from "./copilot-adapter.ts";
@@ -95,7 +95,7 @@ function createMockClient(): CodingAgentClient {
 /**
  * Helper to collect published events from the event bus
  */
-function collectEvents(bus: AtomicEventBus): BusEvent[] {
+function collectEvents(bus: EventBus): BusEvent[] {
   const events: BusEvent[] = [];
   bus.onAll((event) => {
     events.push(event);
@@ -108,11 +108,11 @@ function collectEvents(bus: AtomicEventBus): BusEvent[] {
 // ============================================================================
 
 describe("OpenCodeStreamAdapter", () => {
-  let bus: AtomicEventBus;
+  let bus: EventBus;
   let adapter: OpenCodeStreamAdapter;
 
   beforeEach(() => {
-    bus = new AtomicEventBus();
+    bus = new EventBus();
     adapter = new OpenCodeStreamAdapter(bus, "test-session-123");
   });
 
@@ -398,11 +398,11 @@ describe("OpenCodeStreamAdapter", () => {
 // ============================================================================
 
 describe("ClaudeStreamAdapter", () => {
-  let bus: AtomicEventBus;
+  let bus: EventBus;
   let adapter: ClaudeStreamAdapter;
 
   beforeEach(() => {
-    bus = new AtomicEventBus();
+    bus = new EventBus();
     adapter = new ClaudeStreamAdapter(bus, "test-session-123");
   });
 
@@ -854,12 +854,12 @@ describe("ClaudeStreamAdapter", () => {
 // ============================================================================
 
 describe("CopilotStreamAdapter", () => {
-  let bus: AtomicEventBus;
+  let bus: EventBus;
   let client: CodingAgentClient;
   let adapter: CopilotStreamAdapter;
 
   beforeEach(() => {
-    bus = new AtomicEventBus();
+    bus = new EventBus();
     client = createMockClient();
     adapter = new CopilotStreamAdapter(bus, client);
   });
@@ -1892,11 +1892,11 @@ describe("CopilotStreamAdapter", () => {
 // ============================================================================
 
 describe("WorkflowEventAdapter", () => {
-  let bus: AtomicEventBus;
+  let bus: EventBus;
   let adapter: WorkflowEventAdapter;
 
   beforeEach(() => {
-    bus = new AtomicEventBus();
+    bus = new EventBus();
     adapter = new WorkflowEventAdapter(bus, "workflow-session-1", 1);
   });
 

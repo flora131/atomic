@@ -5,6 +5,7 @@
  */
 
 import React from "react";
+import type { SyntaxStyle } from "@opentui/core";
 import type { AgentPart } from "../../parts/types.ts";
 import { ParallelAgentsTree, deduplicateAgents } from "../parallel-agents-tree.tsx";
 import type { ParallelAgent } from "../parallel-agents-tree.tsx";
@@ -13,6 +14,7 @@ import { isBackgroundAgent, isShadowForegroundAgent } from "../../utils/backgrou
 export interface AgentPartDisplayProps {
   part: AgentPart;
   isLast: boolean;
+  syntaxStyle?: SyntaxStyle;
 }
 
 export function getForegroundTreeAgents(
@@ -50,7 +52,7 @@ export function getAgentTreeDisplayMode(
   return "mixed";
 }
 
-export function AgentPartDisplay({ part }: AgentPartDisplayProps): React.ReactNode {
+export function AgentPartDisplay({ part, syntaxStyle }: AgentPartDisplayProps): React.ReactNode {
   // Deduplicate before splitting so eager+real entries merge and
   // the `background` flag is preserved on the winner.
   const allAgents = deduplicateAgents([...part.agents]);
@@ -67,6 +69,7 @@ export function AgentPartDisplay({ part }: AgentPartDisplayProps): React.ReactNo
     return (
       <ParallelAgentsTree
         agents={backgroundAgents}
+        syntaxStyle={syntaxStyle}
         background
         maxVisible={5}
         noTopMargin
@@ -81,12 +84,14 @@ export function AgentPartDisplay({ part }: AgentPartDisplayProps): React.ReactNo
       <box flexDirection="column">
         <ParallelAgentsTree
           agents={foregroundAgents}
+          syntaxStyle={syntaxStyle}
           compact={!hasActiveAgents}
           maxVisible={5}
           noTopMargin
         />
         <ParallelAgentsTree
           agents={backgroundAgents}
+          syntaxStyle={syntaxStyle}
           background
           maxVisible={5}
         />
@@ -97,6 +102,7 @@ export function AgentPartDisplay({ part }: AgentPartDisplayProps): React.ReactNo
   return (
     <ParallelAgentsTree
       agents={foregroundAgents}
+      syntaxStyle={syntaxStyle}
       compact={!hasActiveAgents}
       maxVisible={5}
       noTopMargin

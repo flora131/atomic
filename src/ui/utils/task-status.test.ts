@@ -182,6 +182,19 @@ describe("mergeBlockedBy", () => {
     expect(merged[0]!.blockedBy).toEqual(["#2"]);
   });
 
+  test("matches IDs with and without leading #", () => {
+    const previous: NormalizedTaskItem[] = [
+      { id: "#1", content: "A", status: "pending", blockedBy: ["#0"] },
+    ];
+
+    const updated: NormalizedTaskItem[] = [
+      { id: "1", content: "A", status: "in_progress" },
+    ];
+
+    const merged = mergeBlockedBy(updated, previous);
+    expect(merged[0]!.blockedBy).toEqual(["#0"]);
+  });
+
   test("restores missing IDs by matching task content", () => {
     const previous: NormalizedTaskItem[] = [
       { id: "#1", content: "Implement login flow", status: "pending", blockedBy: ["#0"] },

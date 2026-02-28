@@ -14,7 +14,7 @@
  */
 
 import { describe, expect, test, beforeEach } from "bun:test";
-import { AtomicEventBus } from "../event-bus.ts";
+import { EventBus } from "../event-bus.ts";
 import { SubagentStreamAdapter } from "./subagent-adapter.ts";
 import type { BusEvent, BusEventType } from "../bus-events.ts";
 import type { AgentMessage } from "../../sdk/types.ts";
@@ -50,7 +50,7 @@ async function* errorStream(
 /**
  * Collect all events published to the bus.
  */
-function collectEvents(bus: AtomicEventBus): BusEvent[] {
+function collectEvents(bus: EventBus): BusEvent[] {
   const events: BusEvent[] = [];
   bus.onAll((event) => events.push(event));
   return events;
@@ -71,7 +71,7 @@ function filterByType<T extends BusEventType>(
 // ============================================================================
 
 describe("SubagentStreamAdapter", () => {
-  let bus: AtomicEventBus;
+  let bus: EventBus;
   let events: BusEvent[];
 
   const SESSION_ID = "parent-session-123";
@@ -79,7 +79,7 @@ describe("SubagentStreamAdapter", () => {
   const RUN_ID = 42;
 
   beforeEach(() => {
-    bus = new AtomicEventBus();
+    bus = new EventBus();
     events = collectEvents(bus);
   });
 

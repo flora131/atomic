@@ -16,7 +16,6 @@ import { TaskListPartDisplay } from "./task-list-part-display.tsx";
 import { SkillLoadPartDisplay } from "./skill-load-part-display.tsx";
 import { McpSnapshotPartDisplay } from "./mcp-snapshot-part-display.tsx";
 import { CompactionPartDisplay } from "./compaction-part-display.tsx";
-import { WorkflowStepPartDisplay } from "./workflow-step-part-display.tsx";
 
 export type PartRenderer = (props: { part: any; isLast: boolean; syntaxStyle?: SyntaxStyle }) => React.ReactNode;
 
@@ -29,5 +28,4 @@ export const PART_REGISTRY: Record<Part["type"], PartRenderer> = {
   "skill-load": SkillLoadPartDisplay,
   "mcp-snapshot": McpSnapshotPartDisplay,
   "compaction": CompactionPartDisplay,
-  "workflow-step": WorkflowStepPartDisplay,
 };

@@ -15,7 +15,7 @@
 
 import type { BusEvent } from "./bus-events.ts";
 import { coalescingKey } from "./coalescing.ts";
-import type { AtomicEventBus } from "./event-bus.ts";
+import type { EventBus } from "./event-bus.ts";
 import { pipelineLog } from "./pipeline-logger.ts";
 
 const FLUSH_INTERVAL_MS = 16; // ~60 FPS alignment
@@ -49,7 +49,7 @@ export interface BatchMetrics {
  *
  * Usage:
  * ```typescript
- * const bus = new AtomicEventBus();
+ * const bus = new EventBus();
  * const dispatcher = new BatchDispatcher(bus, 16); // 16ms = ~60fps
  *
  * // Enqueue events - they batch automatically
@@ -70,7 +70,7 @@ export interface BatchMetrics {
  * ```
  */
 export class BatchDispatcher {
-  private bus: AtomicEventBus;
+  private bus: EventBus;
   private writeBuffer: BusEvent[] = [];
   private readBuffer: BusEvent[] = [];
   private coalescingMap = new Map<string, number>(); // key → index in writeBuffer
@@ -92,7 +92,7 @@ export class BatchDispatcher {
    * @param bus - The event bus to flush events to
    * @param flushIntervalMs - Milliseconds between automatic flushes (default: 16ms ~= 60fps)
    */
-  constructor(bus: AtomicEventBus, flushIntervalMs = FLUSH_INTERVAL_MS) {
+  constructor(bus: EventBus, flushIntervalMs = FLUSH_INTERVAL_MS) {
     this.bus = bus;
     this.flushIntervalMs = flushIntervalMs;
   }

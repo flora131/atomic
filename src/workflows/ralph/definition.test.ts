@@ -15,6 +15,7 @@ describe("Ralph Workflow Definition", () => {
             "select-ready-tasks",
             "worker",
             "reviewer",
+            "prepare-fix-tasks",
             "fixer",
         ];
 

@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile as fsWriteFile, rm } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { CommandContext } from "./registry.ts";
+import { EventBus } from "../../events/event-bus.ts";
 import { VERSION } from "../../version.ts";
 import {
   CUSTOM_WORKFLOW_SEARCH_PATHS,
@@ -234,6 +235,39 @@ describe("workflow-commands /ralph", () => {
     const result = await ralphCommand!.execute("", context);
     expect(result.success).toBe(false);
     expect(result.message).toContain("A prompt argument is required");
+  });
+
+  test("forwards context.eventBus to executeWorkflow and publishes stream.session.start", async () => {
+    const bus = new EventBus();
+    const seenEvents: string[] = [];
+    const unsubscribe = bus.on("stream.session.start", () => {
+      seenEvents.push("stream.session.start");
+    });
+
+    let sessionDir: string | null = null;
+    const context = createMockContext({
+      eventBus: bus,
+      setWorkflowSessionDir: (dir: string | null) => {
+        sessionDir = dir;
+        if (dir) {
+          const { mkdirSync } = require("fs");
+          mkdirSync(dir, { recursive: true });
+        }
+      },
+    });
+
+    try {
+      const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
+      expect(ralphCommand).toBeDefined();
+
+      await ralphCommand!.execute("Build a feature", context);
+      expect(seenEvents.length).toBeGreaterThan(0);
+    } finally {
+      unsubscribe();
+      if (sessionDir) {
+        await rm(sessionDir, { recursive: true, force: true });
+      }
+    }
   });
 });
 

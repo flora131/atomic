@@ -7,7 +7,7 @@
  */
 
 import { describe, test, expect, mock } from "bun:test";
-import { AtomicEventBus } from "./event-bus.ts";
+import { EventBus } from "./event-bus.ts";
 import { BatchDispatcher } from "./batch-dispatcher.ts";
 import type { BusEvent } from "./bus-events.ts";
 
@@ -17,7 +17,7 @@ import type { BusEvent } from "./bus-events.ts";
 
 describe("Event Bus Hook Integration", () => {
   test("bus.on() subscribes to specific event type", () => {
-    const bus = new AtomicEventBus();
+    const bus = new EventBus();
     const handler = mock(() => {});
 
     const unsubscribe = bus.on("stream.text.delta", handler);
@@ -40,7 +40,7 @@ describe("Event Bus Hook Integration", () => {
   });
 
   test("unsubscribe function removes handler", () => {
-    const bus = new AtomicEventBus();
+    const bus = new EventBus();
     const handler = mock(() => {});
 
     const unsubscribe = bus.on("stream.text.delta", handler);
@@ -65,7 +65,7 @@ describe("Event Bus Hook Integration", () => {
   });
 
   test("bus.onAll() subscribes to all event types", () => {
-    const bus = new AtomicEventBus();
+    const bus = new EventBus();
     const handler = mock(() => {});
 
     const unsubscribe = bus.onAll(handler);
@@ -102,7 +102,7 @@ describe("Event Bus Hook Integration", () => {
   });
 
   test("onAll unsubscribe function removes handler", () => {
-    const bus = new AtomicEventBus();
+    const bus = new EventBus();
     const handler = mock(() => {});
 
     const unsubscribe = bus.onAll(handler);
@@ -127,7 +127,7 @@ describe("Event Bus Hook Integration", () => {
   });
 
   test("multiple subscriptions to same event type work independently", () => {
-    const bus = new AtomicEventBus();
+    const bus = new EventBus();
     const handler1 = mock(() => {});
     const handler2 = mock(() => {});
 
@@ -161,7 +161,7 @@ describe("Event Bus Hook Integration", () => {
   });
 
   test("typed subscription only receives correct event type", () => {
-    const bus = new AtomicEventBus();
+    const bus = new EventBus();
     const handler = mock(() => {});
 
     const unsubscribe = bus.on("stream.text.delta", handler);
@@ -200,7 +200,7 @@ describe("Event Bus Hook Integration", () => {
   });
 
   test("dispatcher enqueues events to bus", async () => {
-    const bus = new AtomicEventBus();
+    const bus = new EventBus();
     const dispatcher = new BatchDispatcher(bus, 10); // 10ms flush interval
     const receivedEvents: BusEvent[] = [];
 
@@ -235,7 +235,7 @@ describe("Event Bus Hook Integration", () => {
 
 describe("useStreamConsumer integration logic", () => {
   test("SDKStreamAdapter interface supports startStreaming/dispose lifecycle", async () => {
-    const bus = new AtomicEventBus();
+    const bus = new EventBus();
     const events: BusEvent[] = [];
     bus.onAll((event) => events.push(event));
 
@@ -274,7 +274,7 @@ describe("useStreamConsumer integration logic", () => {
   });
 
   test("streaming lifecycle: start → events → stop", async () => {
-    const bus = new AtomicEventBus();
+    const bus = new EventBus();
     const events: BusEvent[] = [];
     bus.onAll((event) => events.push(event));
 

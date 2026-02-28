@@ -1,5 +1,5 @@
 /**
- * Unit tests for AtomicEventBus
+ * Unit tests for EventBus
  *
  * Tests the core event bus functionality including:
  * - Type-safe event subscription and publishing
@@ -9,14 +9,14 @@
  */
 
 import { describe, it, expect, beforeEach, mock, spyOn } from "bun:test";
-import { AtomicEventBus } from "./event-bus.ts";
+import { EventBus } from "./event-bus.ts";
 import type { BusEvent } from "./bus-events.ts";
 
-describe("AtomicEventBus", () => {
-  let bus: AtomicEventBus;
+describe("EventBus", () => {
+  let bus: EventBus;
 
   beforeEach(() => {
-    bus = new AtomicEventBus();
+    bus = new EventBus();
   });
 
   describe("on() - typed subscriptions", () => {

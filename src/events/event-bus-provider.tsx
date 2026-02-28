@@ -1,7 +1,7 @@
 /**
  * Event Bus Provider for React Context
  *
- * This module provides a React context provider for the AtomicEventBus singleton.
+ * This module provides a React context provider for the EventBus singleton.
  * The event bus and batch dispatcher are created once and shared across the
  * entire application via React context.
  *
@@ -23,7 +23,7 @@
  */
 
 import React, { createContext, useContext, useMemo } from "react";
-import { AtomicEventBus } from "./event-bus.ts";
+import { EventBus } from "./event-bus.ts";
 import { BatchDispatcher } from "./batch-dispatcher.ts";
 
 /**
@@ -31,7 +31,7 @@ import { BatchDispatcher } from "./batch-dispatcher.ts";
  */
 interface EventBusContextValue {
   /** The global event bus for pub/sub operations */
-  bus: AtomicEventBus;
+  bus: EventBus;
   /** The batch dispatcher for efficient event batching */
   dispatcher: BatchDispatcher;
 }
@@ -45,7 +45,7 @@ const EventBusContext = createContext<EventBusContextValue | null>(null);
 /**
  * Provider component for the event bus singleton.
  *
- * Creates a singleton instance of the AtomicEventBus and BatchDispatcher
+ * Creates a singleton instance of the EventBus and BatchDispatcher
  * that persists for the lifetime of the application. These instances are
  * shared across all components via React context.
  *
@@ -65,13 +65,13 @@ const EventBusContext = createContext<EventBusContextValue | null>(null);
  */
 interface EventBusProviderProps {
   children: React.ReactNode;
-  bus?: AtomicEventBus;
+  bus?: EventBus;
   dispatcher?: BatchDispatcher;
 }
 
 export function EventBusProvider({ children, bus: externalBus, dispatcher: externalDispatcher }: EventBusProviderProps) {
   const value = useMemo(() => {
-    const bus = externalBus ?? new AtomicEventBus();
+    const bus = externalBus ?? new EventBus();
     const dispatcher = externalDispatcher ?? new BatchDispatcher(bus);
     return { bus, dispatcher };
   }, [externalBus, externalDispatcher]);

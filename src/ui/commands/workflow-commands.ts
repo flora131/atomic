@@ -661,6 +661,7 @@ function createWorkflowCommand(metadata: WorkflowMetadata): CommandDefinition {
                 return executeWorkflow(definition, parsed.prompt, context, {
                     compiledGraph,
                     saveTasksToSession: saveTasksToActiveSession,
+                    eventBus: context.eventBus,
                 });
             },
         };

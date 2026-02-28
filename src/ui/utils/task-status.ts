@@ -92,6 +92,12 @@ function normalizeStableTaskContent(content: string): string {
   return content.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function normalizeDependencyTaskId(id: string | undefined): string | undefined {
+  if (typeof id !== "string") return undefined;
+  const normalized = id.trim().toLowerCase().replace(/^#/, "");
+  return normalized.length > 0 ? normalized : undefined;
+}
+
 function getStableTaskKey(task: { id?: string; content: string }): string {
   const normalizedId = task.id?.trim().toLowerCase();
   if (normalizedId) {
@@ -218,7 +224,7 @@ export function mergeBlockedBy<T extends NormalizedTaskItem>(
   const prevBlockedById = new Map<string, string[]>();
   const prevByContent = new Map<string, NormalizedTaskItem>();
   for (const task of previous) {
-    const id = task.id?.trim().toLowerCase();
+    const id = normalizeDependencyTaskId(task.id);
     if (id && task.blockedBy) {
       prevBlockedById.set(id, task.blockedBy);
     }
@@ -240,7 +246,7 @@ export function mergeBlockedBy<T extends NormalizedTaskItem>(
       : undefined;
 
     const restoredId = hasExplicitId ? task.id : prevByMatchingContent?.id;
-    const normalizedId = restoredId?.trim().toLowerCase();
+    const normalizedId = normalizeDependencyTaskId(restoredId);
 
     const restoredBlockedBy = task.blockedBy
       ?? (normalizedId ? prevBlockedById.get(normalizedId) : undefined)

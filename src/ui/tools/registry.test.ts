@@ -8,6 +8,7 @@ import {
   defaultToolRenderer,
   readToolRenderer,
   editToolRenderer,
+  applyPatchToolRenderer,
   bashToolRenderer,
   writeToolRenderer,
   globToolRenderer,
@@ -31,6 +32,7 @@ describe("getToolRenderer", () => {
     expect(getToolRenderer("Task")).toBe(taskToolRenderer);
     expect(getToolRenderer("task")).toBe(taskToolRenderer);
     expect(getToolRenderer("launch_agent")).toBe(taskToolRenderer);
+    expect(getToolRenderer("apply_patch")).toBe(applyPatchToolRenderer);
   });
 
   test("returns MCP renderer for MCP tool names", () => {
@@ -664,6 +666,108 @@ describe("editToolRenderer.render()", () => {
     expect(result.title).toBe("unknown");
     expect(result.content[0]).toBe("--- unknown");
     expect(result.content[1]).toBe("+++ unknown");
+  });
+});
+
+describe("applyPatchToolRenderer.render()", () => {
+  test("renders patchText content instead of unknown file placeholders", () => {
+    const props: ToolRenderProps = {
+      input: {
+        patchText: [
+          "*** Begin Patch",
+          "*** Update File: src/ui/chat.tsx",
+          "@@",
+          "-old line",
+          "+new line",
+          "*** End Patch",
+        ].join("\n"),
+      },
+    };
+
+    const result = applyPatchToolRenderer.render(props);
+    expect(result.title).toBe("chat.tsx");
+    expect(result.content).toContain("*** Update File: src/ui/chat.tsx");
+    expect(result.content).not.toContain("--- unknown");
+    expect(result.content).not.toContain("+++ unknown");
+  });
+
+  test("summarizes multi-file patches in title", () => {
+    const props: ToolRenderProps = {
+      input: {
+        patchText: [
+          "*** Begin Patch",
+          "*** Update File: src/a.ts",
+          "@@",
+          "-a",
+          "+b",
+          "*** Add File: src/new.ts",
+          "+export const v = 1;",
+          "*** End Patch",
+        ].join("\n"),
+      },
+    };
+
+    const result = applyPatchToolRenderer.render(props);
+    expect(result.title).toBe("2 files");
+    expect(result.content).toContain("*** Update File: src/a.ts");
+    expect(result.content).toContain("*** Add File: src/new.ts");
+  });
+
+  test("uses output metadata files when patchText is unavailable", () => {
+    const props: ToolRenderProps = {
+      input: {},
+      output: {
+        metadata: {
+          files: [
+            { relativePath: "src/one.ts", type: "update" },
+            { relativePath: "src/two.ts", type: "add" },
+          ],
+        },
+      },
+    };
+
+    const result = applyPatchToolRenderer.render(props);
+    expect(result.title).toBe("2 files");
+    expect(result.content).toContain("*** Update File: src/one.ts");
+    expect(result.content).toContain("*** Add File: src/two.ts");
+  });
+
+  test("extracts patch text from alternate input keys", () => {
+    const props: ToolRenderProps = {
+      input: {
+        patch_text: [
+          "*** Begin Patch",
+          "*** Update File: src/alt.ts",
+          "@@",
+          "-before",
+          "+after",
+          "*** End Patch",
+        ].join("\n"),
+      },
+    };
+
+    const result = applyPatchToolRenderer.render(props);
+    expect(result.title).toBe("alt.ts");
+    expect(result.content).toContain("*** Update File: src/alt.ts");
+    expect(result.content).not.toContain("--- unknown");
+    expect(result.content).not.toContain("+++ unknown");
+  });
+
+  test("parses metadata files from JSON string output", () => {
+    const props: ToolRenderProps = {
+      input: {},
+      output: JSON.stringify({
+        metadata: {
+          files: [
+            { relativePath: "src/three.ts", type: "update" },
+          ],
+        },
+      }),
+    };
+
+    const result = applyPatchToolRenderer.render(props);
+    expect(result.title).toBe("three.ts");
+    expect(result.content).toContain("*** Update File: src/three.ts");
   });
 });
 

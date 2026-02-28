@@ -10,17 +10,17 @@
  */
 
 import { describe, it, expect, beforeEach } from "bun:test";
-import { AtomicEventBus } from "../event-bus.ts";
+import { EventBus } from "../event-bus.ts";
 import { SubagentToolTracker } from "./subagent-tool-tracker.ts";
 import type { BusEvent, BusEventDataMap } from "../bus-events.ts";
 
 describe("SubagentToolTracker", () => {
-  let bus: AtomicEventBus;
+  let bus: EventBus;
   let tracker: SubagentToolTracker;
   let publishedEvents: BusEvent<"stream.agent.update">[];
 
   beforeEach(() => {
-    bus = new AtomicEventBus();
+    bus = new EventBus();
     publishedEvents = [];
     bus.on("stream.agent.update", (event) => {
       publishedEvents.push(event);

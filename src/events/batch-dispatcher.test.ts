@@ -13,11 +13,11 @@
 
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { BatchDispatcher } from "./batch-dispatcher.ts";
-import { AtomicEventBus } from "./event-bus.ts";
+import { EventBus } from "./event-bus.ts";
 import type { BusEvent } from "./bus-events.ts";
 
 describe("BatchDispatcher", () => {
-  let bus: AtomicEventBus;
+  let bus: EventBus;
   let dispatcher: BatchDispatcher;
   let publishedEvents: BusEvent[];
 
@@ -31,7 +31,7 @@ describe("BatchDispatcher", () => {
   }
 
   beforeEach(() => {
-    bus = new AtomicEventBus();
+    bus = new EventBus();
     publishedEvents = [];
   });
 

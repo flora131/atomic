@@ -149,6 +149,9 @@ export function TaskListIndicator({
             <text><AnimatedBlinkIndicator color={color} speed={500} /></text>
             <text wrapMode="none">
               <span style={{ fg: contentColor }}>{` ${displayContent}`}</span>
+              {hasBlockers && (
+                <span style={{ fg: themeColors.muted }}>{blockersSuffix}</span>
+              )}
             </text>
           </box>
         ) : (

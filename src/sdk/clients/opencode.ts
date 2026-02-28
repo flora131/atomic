@@ -399,6 +399,7 @@ export class OpenCodeClient implements CodingAgentClient {
    * logic in `getConsumedTaskToolCallIds` to hide the Task tool card.
    */
   private pendingTaskToolPartIds: string[] = [];
+  private queuedTaskToolPartIds = new Set<string>();
 
   /**
    * Tracks Task ToolPart IDs for which we have already synthesized a
@@ -409,6 +410,7 @@ export class OpenCodeClient implements CodingAgentClient {
    * of a raw tool card.
    */
   private synthesizedTaskAgentIds = new Set<string>();
+  private synthesizedTaskAgentTypes = new Map<string, string>();
 
   /**
    * Create a new OpenCodeClient
@@ -552,7 +554,13 @@ export class OpenCodeClient implements CodingAgentClient {
     this.isConnected = false;
     this.sdkClient = null;
     this.currentSessionId = null;
+    this.pendingAgentParts = [];
+    this.childSessionToAgentPart.clear();
+    this.subagentToolCounts.clear();
+    this.pendingTaskToolPartIds = [];
+    this.queuedTaskToolPartIds.clear();
     this.synthesizedTaskAgentIds.clear();
+    this.synthesizedTaskAgentTypes.clear();
 
     this.emitEvent("session.idle", "connection", { reason: "disconnected" });
   }
@@ -641,6 +649,28 @@ export class OpenCodeClient implements CodingAgentClient {
         throw error;
       }
     }
+  }
+
+  private enqueuePendingTaskToolPartId(taskPartId: string): void {
+    if (this.queuedTaskToolPartIds.has(taskPartId)) return;
+    this.pendingTaskToolPartIds.push(taskPartId);
+    this.queuedTaskToolPartIds.add(taskPartId);
+  }
+
+  private dequeuePendingTaskToolPartId(): string | undefined {
+    const taskPartId = this.pendingTaskToolPartIds.shift();
+    if (taskPartId) {
+      this.queuedTaskToolPartIds.delete(taskPartId);
+    }
+    return taskPartId;
+  }
+
+  private removePendingTaskToolPartId(taskPartId: string): void {
+    const idx = this.pendingTaskToolPartIds.indexOf(taskPartId);
+    if (idx !== -1) {
+      this.pendingTaskToolPartIds.splice(idx, 1);
+    }
+    this.queuedTaskToolPartIds.delete(taskPartId);
   }
 
   /**
@@ -791,11 +821,20 @@ export class OpenCodeClient implements CodingAgentClient {
           // the same logical tool call (pending → running transitions).
           if (toolState?.status === "pending" || toolState?.status === "running") {
             const isTaskTool = toolName === "task" || toolName === "Task";
+            const isParentSessionTaskTool =
+              !this.currentSessionId || partSessionId === this.currentSessionId;
 
-            // Skip tool.start for Task tools — the agent tree renders via
-            // synthesized subagent events, so emitting tool.start would
-            // briefly flash a raw tool card before the tree replaces it.
-            if (!isTaskTool) {
+            if (isTaskTool) {
+              const taskPartId = part?.id as string;
+              if (taskPartId && isParentSessionTaskTool) {
+                this.enqueuePendingTaskToolPartId(taskPartId);
+              }
+            }
+
+            // Emit tool.start for non-task tools and parent-session task tools.
+            // Parent task tools provide an anchor so the sub-agent tree renders
+            // inline with the task invocation instead of pinning at the bottom.
+            if (!isTaskTool || isParentSessionTaskTool) {
               debugLog("tool.start", {
                 toolName,
                 toolId: part?.id as string,
@@ -816,13 +855,15 @@ export class OpenCodeClient implements CodingAgentClient {
             // (OpenCode streams input incrementally).  Subsequent "running"
             // events re-emit subagent.start to update the task label once
             // the full description/prompt is available.
-            if (isTaskTool) {
+            if (isTaskTool && isParentSessionTaskTool) {
               const taskPartId = part?.id as string;
               if (taskPartId) {
-                const agentType =
+                const explicitAgentType =
                   (toolInput?.subagent_type as string) ||
                   (toolInput?.agent_type as string) ||
-                  "task";
+                  "";
+                const knownAgentType = this.synthesizedTaskAgentTypes.get(taskPartId) ?? "";
+                const agentType = explicitAgentType || knownAgentType || "task";
                 const agentId = `task-agent-${taskPartId}`;
                 const task =
                   (toolInput?.description as string) ||
@@ -832,6 +873,7 @@ export class OpenCodeClient implements CodingAgentClient {
                 if (!this.synthesizedTaskAgentIds.has(taskPartId)) {
                   // First event for this Task tool: create the agent.
                   this.synthesizedTaskAgentIds.add(taskPartId);
+                  this.synthesizedTaskAgentTypes.set(taskPartId, agentType);
 
                   debugLog("synthesized-subagent-start", {
                     agentId,
@@ -849,12 +891,17 @@ export class OpenCodeClient implements CodingAgentClient {
                     toolInput: toolInput as Record<string, unknown>,
                   });
                 } else if (task && toolState?.status === "running") {
+                  if (explicitAgentType) {
+                    this.synthesizedTaskAgentTypes.set(taskPartId, explicitAgentType);
+                  }
+                  const stableAgentType =
+                    this.synthesizedTaskAgentTypes.get(taskPartId) ?? agentType;
                   // Subsequent "running" event with a real task description:
                   // re-emit to update the agent label (chat.tsx merges
                   // via data.task || agent.task so empty strings are safe).
                   this.emitEvent("subagent.start", this.currentSessionId ?? partSessionId, {
                     subagentId: agentId,
-                    subagentType: agentType,
+                    subagentType: stableAgentType,
                     toolCallId: taskPartId,
                     task,
                   });
@@ -875,10 +922,11 @@ export class OpenCodeClient implements CodingAgentClient {
             }
           } else if (toolState?.status === "completed") {
             const isTaskTool = toolName === "task" || toolName === "Task";
+            const isParentSessionTaskTool =
+              !this.currentSessionId || partSessionId === this.currentSessionId;
 
-            // Skip tool.complete for Task tools — the agent tree handles
-            // lifecycle via synthesized subagent.complete events.
-            if (!isTaskTool) {
+            // Emit tool.complete for non-task tools and parent-session task tools.
+            if (!isTaskTool || isParentSessionTaskTool) {
               this.emitEvent("tool.complete", partSessionId, {
                 toolName,
                 toolResult: toolState?.output,
@@ -893,16 +941,28 @@ export class OpenCodeClient implements CodingAgentClient {
             // register the child session (discovered from tool metadata).
             if (isTaskTool) {
               const taskPartId = part?.id as string;
-              if (taskPartId && this.synthesizedTaskAgentIds.has(taskPartId)) {
+              if (taskPartId) {
+                this.removePendingTaskToolPartId(taskPartId);
+              }
+              if (
+                taskPartId &&
+                isParentSessionTaskTool &&
+                this.synthesizedTaskAgentIds.has(taskPartId)
+              ) {
                 const agentId = `task-agent-${taskPartId}`;
                 const metadata = toolState?.metadata as Record<string, unknown> | undefined;
                 const childSessionId = metadata?.sessionId as string | undefined;
+                const agentType =
+                  this.synthesizedTaskAgentTypes.get(taskPartId) ||
+                  (toolInput?.subagent_type as string) ||
+                  (toolInput?.agent_type as string) ||
+                  "task";
 
                 if (childSessionId) {
                   this.childSessionToAgentPart.set(childSessionId, agentId);
                   this.emitEvent("subagent.start", this.currentSessionId ?? partSessionId, {
                     subagentId: agentId,
-                    subagentType: "task",
+                    subagentType: agentType,
                     subagentSessionId: childSessionId,
                   });
                 }
@@ -915,14 +975,16 @@ export class OpenCodeClient implements CodingAgentClient {
                 });
 
                 this.synthesizedTaskAgentIds.delete(taskPartId);
+                this.synthesizedTaskAgentTypes.delete(taskPartId);
               }
             }
           } else if (toolState?.status === "error") {
             const isTaskTool = toolName === "task" || toolName === "Task";
+            const isParentSessionTaskTool =
+              !this.currentSessionId || partSessionId === this.currentSessionId;
 
-            // Skip tool.complete for Task tools on error — handled by
-            // synthesized subagent.complete with failure status.
-            if (!isTaskTool) {
+            // Emit tool.complete for non-task tools and parent-session task tools.
+            if (!isTaskTool || isParentSessionTaskTool) {
               this.emitEvent("tool.complete", partSessionId, {
                 toolName,
                 toolResult: toolState?.error ?? "Tool execution failed",
@@ -936,7 +998,14 @@ export class OpenCodeClient implements CodingAgentClient {
             // For synthesized Task agents, emit subagent.complete with failure.
             if (isTaskTool) {
               const taskPartId = part?.id as string;
-              if (taskPartId && this.synthesizedTaskAgentIds.has(taskPartId)) {
+              if (taskPartId) {
+                this.removePendingTaskToolPartId(taskPartId);
+              }
+              if (
+                taskPartId &&
+                isParentSessionTaskTool &&
+                this.synthesizedTaskAgentIds.has(taskPartId)
+              ) {
                 const agentId = `task-agent-${taskPartId}`;
                 this.emitEvent("subagent.complete", this.currentSessionId ?? partSessionId, {
                   subagentId: agentId,
@@ -944,6 +1013,7 @@ export class OpenCodeClient implements CodingAgentClient {
                   result: (toolState?.error as string) ?? "Task execution failed",
                 });
                 this.synthesizedTaskAgentIds.delete(taskPartId);
+                this.synthesizedTaskAgentTypes.delete(taskPartId);
               }
             }
           }
@@ -964,7 +1034,7 @@ export class OpenCodeClient implements CodingAgentClient {
           // UI can match the agent tree to the Task tool card and suppress
           // the redundant tool card display.  The ToolPart for "task" is
           // always emitted before the AgentPart it spawns.
-          const taskToolPartId = this.pendingTaskToolPartIds.shift();
+          const taskToolPartId = this.dequeuePendingTaskToolPartId();
           const correlationId = taskToolPartId ?? (part?.callID as string) ?? agentPartId;
           debugLog("subagent.start", {
             partType: "agent",
@@ -996,7 +1066,7 @@ export class OpenCodeClient implements CodingAgentClient {
           const subtaskAgent = (part?.agent as string) ?? "";
 
           // Use the pending Task ToolPart ID for correlation (same as AgentPart above).
-          const taskToolPartId = this.pendingTaskToolPartIds.shift();
+          const taskToolPartId = this.dequeuePendingTaskToolPartId();
           const correlationId = taskToolPartId ?? subtaskPartId;
           debugLog("subagent.start", {
             partType: "subtask",

@@ -56,6 +56,26 @@ describe("applyStreamPartEvent", () => {
     expect(next.parts).toHaveLength(0);
   });
 
+  test("maps workflow task updates with blockedBy into task-list parts", () => {
+    const msg = createAssistantMessage();
+    const next = applyStreamPartEvent(msg, {
+      type: "task-list-update",
+      tasks: [
+        { id: "#1", title: "Plan", status: "completed", blockedBy: [] },
+        { id: "#2", title: "Implement", status: "pending", blockedBy: ["#1"] },
+      ],
+    });
+
+    const taskListPart = next.parts?.find((part) => part.type === "task-list");
+    expect(taskListPart?.type).toBe("task-list");
+    if (taskListPart?.type === "task-list") {
+      expect(taskListPart.items).toEqual([
+        { id: "#1", content: "Plan", status: "completed", blockedBy: [] },
+        { id: "#2", content: "Implement", status: "pending", blockedBy: ["#1"] },
+      ]);
+    }
+  });
+
   test("streams thinking as a dedicated reasoning part when enabled", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {
@@ -556,6 +576,104 @@ describe("applyStreamPartEvent", () => {
     if (agentPart?.type === "agent") {
       expect(agentPart.agents[0]?.background).toBe(true);
       expect(agentPart.agents[0]?.status).toBe("background");
+    }
+  });
+
+  test("routes agent thinking-meta into inlineParts", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "task_1",
+      toolName: "Task",
+      input: { description: "Investigate" },
+    });
+    msg = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "agent_1",
+          taskToolCallId: "task_1",
+          name: "researcher",
+          task: "Investigate",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    const next = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "agent:source",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 350,
+      thinkingText: "agent reasoning",
+      includeReasoningPart: true,
+      agentId: "agent_1",
+    });
+
+    expect((next.parts ?? []).some((part) => part.type === "reasoning")).toBe(false);
+    const agentPart = next.parts?.find((part) => part.type === "agent");
+    expect(agentPart?.type).toBe("agent");
+    if (agentPart?.type === "agent") {
+      const inlineReasoning = agentPart.agents[0]?.inlineParts?.find((part) => part.type === "reasoning");
+      expect(inlineReasoning?.type).toBe("reasoning");
+      if (inlineReasoning?.type === "reasoning") {
+        expect(inlineReasoning.content).toBe("agent reasoning");
+        expect(inlineReasoning.thinkingSourceKey).toBe("agent:source");
+        expect(inlineReasoning.durationMs).toBe(350);
+      }
+    }
+  });
+
+  test("replays buffered agent thinking-meta into inlineParts when agent appears", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "task_1",
+      toolName: "Task",
+      input: { description: "Investigate" },
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "thinking-meta",
+      thinkingSourceKey: "agent:source",
+      targetMessageId: "msg-test",
+      streamGeneration: 1,
+      thinkingMs: 510,
+      thinkingText: "buffered agent reasoning",
+      includeReasoningPart: true,
+      agentId: "agent_1",
+    });
+
+    expect((msg.parts ?? []).some((part) => part.type === "reasoning")).toBe(false);
+
+    const next = applyStreamPartEvent(msg, {
+      type: "parallel-agents",
+      agents: [
+        {
+          id: "agent_1",
+          taskToolCallId: "task_1",
+          name: "researcher",
+          task: "Investigate",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        },
+      ],
+      isLastMessage: true,
+    });
+
+    const agentPart = next.parts?.find((part) => part.type === "agent");
+    expect(agentPart?.type).toBe("agent");
+    if (agentPart?.type === "agent") {
+      const inlineReasoning = agentPart.agents[0]?.inlineParts?.find((part) => part.type === "reasoning");
+      expect(inlineReasoning?.type).toBe("reasoning");
+      if (inlineReasoning?.type === "reasoning") {
+        expect(inlineReasoning.content).toBe("buffered agent reasoning");
+        expect(inlineReasoning.thinkingSourceKey).toBe("agent:source");
+        expect(inlineReasoning.durationMs).toBe(510);
+      }
     }
   });
 

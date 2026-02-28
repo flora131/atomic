@@ -13,7 +13,7 @@
  *
  * Usage:
  * ```typescript
- * const bus = new AtomicEventBus();
+ * const bus = new EventBus();
  * const { unsubscribe, logPath } = await attachDebugSubscriber(bus);
  *
  * // Events are now logged to JSONL files at ~/.local/share/atomic/log/events/
@@ -25,7 +25,7 @@
 import { join } from "path";
 import { homedir } from "os";
 import { mkdir, unlink } from "fs/promises";
-import type { AtomicEventBus } from "./event-bus.ts";
+import type { EventBus } from "./event-bus.ts";
 import type { BusEvent } from "./bus-events.ts";
 
 const LOG_DIR = join(homedir(), ".local", "share", "atomic", "log", "events");
@@ -150,7 +150,7 @@ export async function listEventLogs(dir: string = LOG_DIR): Promise<string[]> {
  * @param bus - The event bus to attach the debug subscriber to
  * @returns Promise with unsubscribe function and log file path
  */
-export async function attachDebugSubscriber(bus: AtomicEventBus): Promise<{
+export async function attachDebugSubscriber(bus: EventBus): Promise<{
   unsubscribe: () => Promise<void>;
   logPath: string | null;
 }> {

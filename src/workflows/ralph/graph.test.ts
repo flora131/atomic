@@ -118,6 +118,7 @@ describe("createRalphWorkflow - Basic Compilation", () => {
     expect(workflow.nodes.has("select-ready-tasks")).toBe(true);
     expect(workflow.nodes.has("worker")).toBe(true);
     expect(workflow.nodes.has("reviewer")).toBe(true);
+    expect(workflow.nodes.has("prepare-fix-tasks")).toBe(true);
     expect(workflow.nodes.has("fixer")).toBe(true);
   });
 });
@@ -374,6 +375,9 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
     expect(result.state.reviewResult?.findings).toHaveLength(1);
     expect(fixerCalled).toBe(true);
     expect(result.state.fixesApplied).toBe(true);
+    const reviewFixTask = result.state.tasks.find((task: any) => task.id === "#review-fix-1");
+    expect(reviewFixTask).toBeDefined();
+    expect(reviewFixTask?.status).toBe("completed");
   });
 
   test("skips fixer when review is clean", async () => {

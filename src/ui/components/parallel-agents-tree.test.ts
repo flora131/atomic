@@ -1,12 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
   buildAgentHeaderLabel,
+  buildAgentInlinePrefix,
   deduplicateAgents,
+  getAgentInlineDisplayParts,
   getAgentTaskLabel,
   getBackgroundSubStatusText,
   getStatusIndicatorColor,
+  shouldAnimateAgentStatus,
 } from "./parallel-agents-tree.tsx";
+import type { Part } from "../parts/types.ts";
 import type { ParallelAgent } from "./parallel-agents-tree.tsx";
+import { PART_REGISTRY } from "./parts/registry.tsx";
 import { buildParallelAgentsHeaderHint } from "../utils/background-agent-tree-hints.ts";
 import { BACKGROUND_TREE_HINT_CONTRACT } from "../utils/background-agent-contracts.ts";
 
@@ -34,6 +39,15 @@ describe("ParallelAgentsTree status indicator colors", () => {
 
   test("renders error as error color", () => {
     expect(getStatusIndicatorColor("error", colors)).toBe(colors.error);
+  });
+
+  test("animates running-style statuses", () => {
+    expect(shouldAnimateAgentStatus("running")).toBe(true);
+    expect(shouldAnimateAgentStatus("background")).toBe(true);
+    expect(shouldAnimateAgentStatus("pending")).toBe(false);
+    expect(shouldAnimateAgentStatus("completed")).toBe(false);
+    expect(shouldAnimateAgentStatus("error")).toBe(false);
+    expect(shouldAnimateAgentStatus("interrupted")).toBe(false);
   });
 });
 
@@ -292,5 +306,59 @@ describe("buildParallelAgentsHeaderHint integration with ParallelAgent", () => {
       makeAgent({ id: "fg-1", status: "completed" }),
     ];
     expect(buildParallelAgentsHeaderHint(agents, false)).toBe("");
+  });
+});
+
+describe("agent inline display helpers", () => {
+  const expectedInlinePartTypes: Array<Part["type"]> = [
+    "agent",
+    "compaction",
+    "mcp-snapshot",
+    "reasoning",
+    "skill-load",
+    "task-list",
+    "text",
+    "tool",
+  ];
+
+  const inlineParts: Part[] = [
+    {
+      id: "part-1",
+      type: "text",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      content: "first",
+      isStreaming: false,
+    },
+    {
+      id: "part-2",
+      type: "reasoning",
+      createdAt: "2026-01-01T00:00:01.000Z",
+      content: "second",
+      durationMs: 0,
+      isStreaming: false,
+    },
+  ];
+
+  test("uses registry renderers for all supported inline part types", () => {
+    expect(Object.keys(PART_REGISTRY).sort()).toEqual(expectedInlinePartTypes);
+  });
+
+  test("shows all inline parts in compact mode", () => {
+    const result = getAgentInlineDisplayParts(inlineParts);
+    expect(result).toHaveLength(2);
+    expect(result.map((part) => part.id)).toEqual(["part-1", "part-2"]);
+    expect(result.every((part) => Boolean(PART_REGISTRY[part.type]))).toBe(true);
+  });
+
+  test("shows all inline parts in verbose mode", () => {
+    const result = getAgentInlineDisplayParts(inlineParts);
+    expect(result).toHaveLength(2);
+    expect(result.map((part) => part.id)).toEqual(["part-1", "part-2"]);
+    expect(result.every((part) => Boolean(PART_REGISTRY[part.type]))).toBe(true);
+  });
+
+  test("builds tree connector prefix for inline part rows", () => {
+    expect(buildAgentInlinePrefix("│ ")).toBe("│    ╰  ");
+    expect(buildAgentInlinePrefix("  ")).toBe("     ╰  ");
   });
 });

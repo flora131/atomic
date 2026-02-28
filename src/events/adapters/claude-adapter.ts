@@ -27,7 +27,7 @@
  * ```
  */
 
-import type { AtomicEventBus } from "../event-bus.ts";
+import type { EventBus } from "../event-bus.ts";
 import type { BusEvent } from "../bus-events.ts";
 import type {
   SDKStreamAdapter,
@@ -54,7 +54,7 @@ import { SubagentToolTracker } from "./subagent-tool-tracker.ts";
  * normalized BusEvents to the event bus.
  */
 export class ClaudeStreamAdapter implements SDKStreamAdapter {
-  private bus: AtomicEventBus;
+  private bus: EventBus;
   private sessionId: string;
   private client?: CodingAgentClient;
   private abortController: AbortController | null = null;
@@ -73,7 +73,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
    * @param bus - The event bus to publish events to
    * @param sessionId - Session ID for event correlation
    */
-  constructor(bus: AtomicEventBus, sessionId: string, client?: CodingAgentClient) {
+  constructor(bus: EventBus, sessionId: string, client?: CodingAgentClient) {
     this.bus = bus;
     this.sessionId = sessionId;
     this.client = client;

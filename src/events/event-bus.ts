@@ -2,7 +2,7 @@
  * Event Bus Implementation
  *
  * This module provides the core event bus implementation for the streaming architecture.
- * The AtomicEventBus class manages type-safe pub/sub for all streaming events across
+ * The EventBus class manages type-safe pub/sub for all streaming events across
  * multiple SDK adapters and workflow nodes.
  *
  * Key features:
@@ -29,7 +29,7 @@ import { pipelineLog } from "./pipeline-logger.ts";
  *
  * Usage:
  * ```typescript
- * const bus = new AtomicEventBus();
+ * const bus = new EventBus();
  *
  * // Subscribe to specific event type
  * const unsubscribe = bus.on("stream.text.delta", (event) => {
@@ -55,7 +55,7 @@ import { pipelineLog } from "./pipeline-logger.ts";
  * unsubscribeAll();
  * ```
  */
-export class AtomicEventBus {
+export class EventBus {
   private handlers = new Map<BusEventType, Set<BusHandler<BusEventType>>>();
   private wildcardHandlers = new Set<WildcardHandler>();
 

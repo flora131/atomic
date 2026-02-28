@@ -869,6 +869,96 @@ describe("executeWorkflow", () => {
         });
     });
 
+    test("preserves blockedBy when subsequent statusChange snapshots omit it", async () => {
+        const context = createMockContext();
+        const saveCalls: Array<{ tasks: any[]; sessionId: string }> = [];
+        const saveTasksToSession = async (tasks: any[], sessionId: string) => {
+            saveCalls.push({ tasks, sessionId });
+        };
+
+        const subscriptions: Array<{ type: string; handler: any }> = [];
+        const mockEventBus = {
+            publish: (event: any) => {
+                for (const sub of subscriptions) {
+                    if (sub.type === event.type) {
+                        sub.handler(event);
+                    }
+                }
+            },
+            on: (type: string, handler: any) => {
+                subscriptions.push({ type, handler });
+                return () => {};
+            },
+            onAll: () => () => {},
+            clear: () => {},
+            hasHandlers: () => false,
+            get handlerCount() { return 0; },
+        };
+
+        interface TestState extends BaseState {
+            value: string;
+        }
+
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "test-node",
+                    type: "tool",
+                    execute: async (ctx: any) => {
+                        const notifyFn = (ctx.config.runtime as any)?.notifyTaskStatusChange;
+                        if (notifyFn) {
+                            notifyFn(
+                                ["#2"],
+                                "pending",
+                                [
+                                    { id: "#1", title: "Task 1", status: "completed", blockedBy: [] },
+                                    { id: "#2", title: "Task 2", status: "pending", blockedBy: ["#1"] },
+                                ],
+                            );
+                            notifyFn(
+                                ["2"],
+                                "in_progress",
+                                [
+                                    { id: "#1", title: "Task 1", status: "completed" },
+                                    { id: "2", title: "Task 2", status: "in_progress" },
+                                ],
+                            );
+                        }
+                        return { stateUpdate: { value: "done" } as Partial<TestState> };
+                    },
+                },
+            ],
+            edges: [],
+            startNode: "test-node",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Test blockedBy preservation",
+            command: "/test",
+        };
+
+        const result = await executeWorkflow(
+            definition,
+            "test prompt",
+            context as any,
+            {
+                compiledGraph: compiledGraph as any,
+                eventBus: mockEventBus as any,
+                saveTasksToSession,
+            },
+        );
+
+        expect(result.success).toBe(true);
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(saveCalls.length).toBeGreaterThanOrEqual(1);
+
+        const lastSave = saveCalls[saveCalls.length - 1]!;
+        const task2 = lastSave.tasks.find((task: any) => task.id === "2" || task.id === "#2");
+        expect(task2).toBeDefined();
+        expect(task2.blockedBy).toEqual(["#1"]);
+    });
+
     test("unsubscribes from statusChange events on error", async () => {
         let unsubscribeCalled = false;
 

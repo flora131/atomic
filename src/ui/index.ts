@@ -31,7 +31,7 @@ import {
   createTuiTelemetrySessionTracker,
   type TuiTelemetrySessionTracker,
 } from "../telemetry/index.ts";
-import { AtomicEventBus } from "../events/event-bus.ts";
+import { EventBus } from "../events/event-bus.ts";
 import { BatchDispatcher } from "../events/batch-dispatcher.ts";
 import { OpenCodeStreamAdapter } from "../events/adapters/opencode-adapter.ts";
 import { ClaudeStreamAdapter } from "../events/adapters/claude-adapter.ts";
@@ -167,7 +167,7 @@ interface ChatUIState {
   /** Native TUI telemetry tracker (null when telemetry is disabled or agent type is unknown) */
   telemetryTracker: TuiTelemetrySessionTracker | null;
   /** Singleton event bus shared across all streams */
-  bus: AtomicEventBus;
+  bus: EventBus;
   /** Singleton batch dispatcher for frame-aligned event batching */
   dispatcher: BatchDispatcher;
   /** Whether background agents were terminated via Ctrl+F (pending notification to model) */
@@ -239,7 +239,7 @@ export async function startChatUI(
   const modelOps = agentType ? new UnifiedModelOperations(agentType, sdkSetModel, sdkListModels, sessionConfig?.model) : undefined;
 
   // Initialize singleton event bus and batch dispatcher
-  const sharedBus = new AtomicEventBus();
+  const sharedBus = new EventBus();
   const sharedDispatcher = new BatchDispatcher(sharedBus);
 
   // Attach file-based debug subscriber when ATOMIC_DEBUG=1

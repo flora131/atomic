@@ -11,7 +11,7 @@
  *
  * Usage:
  * ```typescript
- * const bus = new AtomicEventBus();
+ * const bus = new EventBus();
  * const consumers = wireConsumers(bus);
  *
  * // Consumers are now wired and processing events
@@ -23,7 +23,7 @@
  * ```
  */
 
-import type { AtomicEventBus } from "../event-bus.ts";
+import type { EventBus } from "../event-bus.ts";
 import type { BatchDispatcher } from "../batch-dispatcher.ts";
 import { CorrelationService } from "./correlation-service.ts";
 import { EchoSuppressor } from "./echo-suppressor.ts";
@@ -62,7 +62,7 @@ export interface WiredConsumers {
  * @param dispatcher - The batch dispatcher for frame-aligned batching
  * @returns Container with consumer instances and dispose function
  */
-export function wireConsumers(bus: AtomicEventBus, dispatcher: BatchDispatcher): WiredConsumers {
+export function wireConsumers(bus: EventBus, dispatcher: BatchDispatcher): WiredConsumers {
   const correlation = new CorrelationService();
   const echoSuppressor = new EchoSuppressor();
   const pipeline = new StreamPipelineConsumer(correlation, echoSuppressor);

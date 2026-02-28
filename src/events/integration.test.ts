@@ -16,7 +16,7 @@
  */
 
 import { describe, expect, test, beforeEach, mock } from "bun:test";
-import { AtomicEventBus } from "./event-bus.ts";
+import { EventBus } from "./event-bus.ts";
 import { BatchDispatcher } from "./batch-dispatcher.ts";
 import { wireConsumers } from "./consumers/wire-consumers.ts";
 import { OpenCodeStreamAdapter } from "./adapters/opencode-adapter.ts";
@@ -112,11 +112,11 @@ async function waitForBatchFlush(): Promise<void> {
 // ============================================================================
 
 describe("Event Bus Integration", () => {
-  let bus: AtomicEventBus;
+  let bus: EventBus;
   let dispatcher: BatchDispatcher;
 
   beforeEach(() => {
-    bus = new AtomicEventBus();
+    bus = new EventBus();
     dispatcher = new BatchDispatcher(bus);
   });
 
@@ -314,7 +314,7 @@ describe("Event Bus Integration", () => {
 
   test("multiple adapters: verify all three SDK adapters produce same bus events", async () => {
     // Test OpenCode adapter
-    const opencodeBus = new AtomicEventBus();
+    const opencodeBus = new EventBus();
     const opencodeEvents: BusEvent[] = [];
     opencodeBus.onAll((event) => opencodeEvents.push(event));
 
@@ -331,7 +331,7 @@ describe("Event Bus Integration", () => {
     });
 
     // Test Claude adapter
-    const claudeBus = new AtomicEventBus();
+    const claudeBus = new EventBus();
     const claudeEvents: BusEvent[] = [];
     claudeBus.onAll((event) => claudeEvents.push(event));
 

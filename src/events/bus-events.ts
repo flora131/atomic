@@ -111,6 +111,8 @@ export interface BusEventDataMap {
     sourceKey: string;
     /** Duration of thinking in milliseconds */
     durationMs: number;
+    /** Agent ID for sub-agent scoped events */
+    agentId?: string;
   };
 
   /**
@@ -337,6 +339,8 @@ export interface BusEventDataMap {
       title: string;
       /** Task status (e.g., "pending", "in_progress", "complete") */
       status: string;
+      /** Optional dependency task IDs */
+      blockedBy?: string[];
     }>;
   };
 
@@ -356,6 +360,8 @@ export interface BusEventDataMap {
       title: string;
       /** Task status */
       status: string;
+      /** Optional dependency task IDs */
+      blockedBy?: string[];
     }>;
   };
 
@@ -479,6 +485,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
   "stream.thinking.complete": z.object({
     sourceKey: z.string(),
     durationMs: z.number(),
+    agentId: z.string().optional(),
   }),
   "stream.tool.start": z.object({
     toolId: z.string(),
@@ -573,6 +580,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
       id: z.string(),
       title: z.string(),
       status: z.string(),
+      blockedBy: z.array(z.string()).optional(),
     })),
   }),
   "workflow.task.statusChange": z.object({
@@ -582,6 +590,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
       id: z.string(),
       title: z.string(),
       status: z.string(),
+      blockedBy: z.array(z.string()).optional(),
     })),
   }),
   "stream.permission.requested": z.object({

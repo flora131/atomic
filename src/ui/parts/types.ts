@@ -118,16 +118,6 @@ export interface CompactionPart extends BasePart {
   summary: string;
 }
 
-export interface WorkflowStepPart extends BasePart {
-  type: "workflow-step";
-  nodeId: string;
-  nodeName: string;
-  status: "running" | "completed" | "error";
-  startedAt?: number;
-  completedAt?: number;
-  durationMs?: number;
-}
-
 // ============================================================================
 // PART UNION
 // ============================================================================
@@ -141,5 +131,4 @@ export type Part =
   | TaskListPart
   | SkillLoadPart
   | McpSnapshotPart
-  | CompactionPart
-  | WorkflowStepPart;
+  | CompactionPart;

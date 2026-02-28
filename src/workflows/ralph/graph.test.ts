@@ -756,3 +756,452 @@ describe("createRalphWorkflow - Edge Cases", () => {
     expect(fixerCalled).toBe(false);
   });
 });
+
+// ============================================================================
+// PARALLEL DISPATCH TESTS
+// ============================================================================
+
+describe("createRalphWorkflow - Parallel Worker Dispatch", () => {
+  test("dispatches all independent tasks in a single spawnSubagentParallel call", async () => {
+    const mockResponses = new Map<
+      string,
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
+    >();
+
+    // Phase 1: Planner returns 3 independent tasks (no dependencies)
+    mockResponses.set("planner", () => ({
+      agentId: "planner-1",
+      success: true,
+      output: JSON.stringify([
+        { id: "#1", content: "Task 1", status: "pending", activeForm: "Doing 1", blockedBy: [] },
+        { id: "#2", content: "Task 2", status: "pending", activeForm: "Doing 2", blockedBy: [] },
+        { id: "#3", content: "Task 3", status: "pending", activeForm: "Doing 3", blockedBy: [] },
+      ]),
+      toolUses: 0,
+      durationMs: 10,
+    }));
+
+    // Phase 2: Worker succeeds for all
+    mockResponses.set("worker", (opts) => ({
+      agentId: opts.agentId,
+      success: true,
+      output: `Completed ${opts.agentId}`,
+      toolUses: 1,
+      durationMs: 10,
+    }));
+
+    // Phase 3: Reviewer
+    mockResponses.set("reviewer", () => ({
+      agentId: "reviewer-1",
+      success: true,
+      output: JSON.stringify({
+        findings: [],
+        overall_correctness: "patch is correct",
+        overall_explanation: "All good",
+      }),
+      toolUses: 1,
+      durationMs: 10,
+    }));
+
+    // Track spawnSubagentParallel calls to verify batching
+    const parallelCalls: SubagentSpawnOptions[][] = [];
+    const { spawnSubagent, spawnSubagentParallel } = createMockSpawnFunctions(mockResponses);
+
+    const trackingSpawnParallel = async (
+      agents: SubagentSpawnOptions[],
+      abortSignal?: AbortSignal
+    ): Promise<SubagentStreamResult[]> => {
+      parallelCalls.push([...agents]);
+      return spawnSubagentParallel(agents);
+    };
+
+    const workflow = createRalphWorkflow();
+    const workflowWithMocks = {
+      ...workflow,
+      config: {
+        ...workflow.config,
+        runtime: {
+          spawnSubagent,
+          spawnSubagentParallel: trackingSpawnParallel,
+          subagentRegistry: createMockRegistry(),
+        },
+      },
+    };
+
+    const initialState: Partial<RalphWorkflowState> = {
+      ...createRalphState("test-parallel-1", { yoloPrompt: "test prompt" }),
+      maxIterations: 10,
+      ralphSessionDir: "/tmp/test-session",
+    };
+
+    const result = await executeGraph(workflowWithMocks, {
+      initialState,
+      executionId: "test-parallel-1",
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.state.tasks).toHaveLength(3);
+    expect(result.state.tasks.every((t: any) => t.status === "completed")).toBe(true);
+
+    // All 3 independent tasks dispatched in one spawnSubagentParallel call (1 batch for workers)
+    const workerBatches = parallelCalls.filter(
+      (batch) => batch.some((a) => a.agentName === "worker")
+    );
+    expect(workerBatches).toHaveLength(1);
+    expect(workerBatches[0]).toHaveLength(3);
+    expect(workerBatches[0]!.map((a) => a.agentId).sort()).toEqual([
+      "worker-#1",
+      "worker-#2",
+      "worker-#3",
+    ]);
+  });
+
+  test("returns error when spawnSubagentParallel is not available", async () => {
+    const mockResponses = new Map<
+      string,
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
+    >();
+
+    // Phase 1: Planner returns a task
+    mockResponses.set("planner", () => ({
+      agentId: "planner-1",
+      success: true,
+      output: JSON.stringify([
+        { id: "#1", content: "Task 1", status: "pending", activeForm: "Doing 1", blockedBy: [] },
+      ]),
+      toolUses: 0,
+      durationMs: 10,
+    }));
+
+    const { spawnSubagent } = createMockSpawnFunctions(mockResponses);
+
+    // Deliberately omit spawnSubagentParallel from runtime
+    const workflow = createRalphWorkflow();
+    const workflowWithMocks = {
+      ...workflow,
+      config: {
+        ...workflow.config,
+        runtime: {
+          spawnSubagent,
+          // spawnSubagentParallel intentionally NOT provided
+          subagentRegistry: createMockRegistry(),
+        },
+      },
+    };
+
+    const initialState: Partial<RalphWorkflowState> = {
+      ...createRalphState("test-no-parallel", { yoloPrompt: "test prompt" }),
+      maxIterations: 10,
+      ralphSessionDir: "/tmp/test-session",
+    };
+
+    // executeGraph catches errors and returns status "error"
+    const result = await executeGraph(workflowWithMocks, {
+      initialState,
+      executionId: "test-no-parallel",
+    });
+
+    expect(result.status).toBe("failed");
+    // Error is in the snapshot's errors array
+    const errorMessages = result.snapshot.errors.map((e: any) => {
+      const err = e.error;
+      return typeof err === "string" ? err : err?.message ?? "";
+    });
+    expect(errorMessages.some((m: string) => m.includes("spawnSubagentParallel not available in runtime config"))).toBe(true);
+  });
+
+  test("maps results independently — failed tasks get error, successful get completed", async () => {
+    const mockResponses = new Map<
+      string,
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
+    >();
+
+    // Phase 1: Planner returns 3 independent tasks
+    mockResponses.set("planner", () => ({
+      agentId: "planner-1",
+      success: true,
+      output: JSON.stringify([
+        { id: "#1", content: "Task 1", status: "pending", activeForm: "Doing 1", blockedBy: [] },
+        { id: "#2", content: "Task 2", status: "pending", activeForm: "Doing 2", blockedBy: [] },
+        { id: "#3", content: "Task 3", status: "pending", activeForm: "Doing 3", blockedBy: [] },
+      ]),
+      toolUses: 0,
+      durationMs: 10,
+    }));
+
+    // Phase 2: Worker — #1 succeeds, #2 fails, #3 succeeds
+    mockResponses.set("worker", (opts) => {
+      const isTask2 = opts.agentId === "worker-#2";
+      return {
+        agentId: opts.agentId,
+        success: !isTask2,
+        output: isTask2 ? "Failed" : "Completed",
+        error: isTask2 ? "Task 2 failed" : undefined,
+        toolUses: 1,
+        durationMs: 10,
+      };
+    });
+
+    // Phase 3: Reviewer
+    mockResponses.set("reviewer", () => ({
+      agentId: "reviewer-1",
+      success: true,
+      output: JSON.stringify({
+        findings: [],
+        overall_correctness: "patch is correct",
+        overall_explanation: "Mixed results",
+      }),
+      toolUses: 1,
+      durationMs: 10,
+    }));
+
+    const workflow = createWorkflowWithMockBridge(mockResponses);
+
+    const initialState: Partial<RalphWorkflowState> = {
+      ...createRalphState("test-mixed-results", { yoloPrompt: "test prompt" }),
+      maxIterations: 10,
+      ralphSessionDir: "/tmp/test-session",
+    };
+
+    const result = await executeGraph(workflow, {
+      initialState,
+      executionId: "test-mixed-results",
+      maxSteps: 50,
+    });
+
+    expect(result.status).toBe("completed");
+    const task1 = result.state.tasks.find((t: any) => t.id === "#1");
+    const task2 = result.state.tasks.find((t: any) => t.id === "#2");
+    const task3 = result.state.tasks.find((t: any) => t.id === "#3");
+    expect(task1?.status).toBe("completed");
+    expect(task2?.status).toBe("error");
+    expect(task3?.status).toBe("completed");
+  });
+
+  test("increments iteration by 1 per batch, not per task", async () => {
+    const mockResponses = new Map<
+      string,
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
+    >();
+
+    // Phase 1: Planner returns 4 independent tasks
+    mockResponses.set("planner", () => ({
+      agentId: "planner-1",
+      success: true,
+      output: JSON.stringify([
+        { id: "#1", content: "Task 1", status: "pending", activeForm: "Doing 1", blockedBy: [] },
+        { id: "#2", content: "Task 2", status: "pending", activeForm: "Doing 2", blockedBy: [] },
+        { id: "#3", content: "Task 3", status: "pending", activeForm: "Doing 3", blockedBy: [] },
+        { id: "#4", content: "Task 4", status: "pending", activeForm: "Doing 4", blockedBy: [] },
+      ]),
+      toolUses: 0,
+      durationMs: 10,
+    }));
+
+    // Phase 2: Worker succeeds
+    mockResponses.set("worker", (opts) => ({
+      agentId: opts.agentId,
+      success: true,
+      output: `Completed`,
+      toolUses: 1,
+      durationMs: 10,
+    }));
+
+    // Phase 3: Reviewer
+    mockResponses.set("reviewer", () => ({
+      agentId: "reviewer-1",
+      success: true,
+      output: JSON.stringify({
+        findings: [],
+        overall_correctness: "patch is correct",
+        overall_explanation: "All done",
+      }),
+      toolUses: 1,
+      durationMs: 10,
+    }));
+
+    const workflow = createWorkflowWithMockBridge(mockResponses);
+
+    const initialState: Partial<RalphWorkflowState> = {
+      ...createRalphState("test-iteration-count", { yoloPrompt: "test prompt" }),
+      maxIterations: 10,
+      ralphSessionDir: "/tmp/test-session",
+    };
+
+    const result = await executeGraph(workflow, {
+      initialState,
+      executionId: "test-iteration-count",
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.state.tasks).toHaveLength(4);
+    expect(result.state.tasks.every((t: any) => t.status === "completed")).toBe(true);
+    // All 4 independent tasks dispatched in 1 batch → 1 iteration
+    expect(result.state.iteration).toBe(1);
+  });
+
+  test("calls notifyTaskStatusChange with in_progress before spawning", async () => {
+    const mockResponses = new Map<
+      string,
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
+    >();
+
+    // Phase 1: Planner returns 2 independent tasks
+    mockResponses.set("planner", () => ({
+      agentId: "planner-1",
+      success: true,
+      output: JSON.stringify([
+        { id: "#1", content: "Task 1", status: "pending", activeForm: "Doing 1", blockedBy: [] },
+        { id: "#2", content: "Task 2", status: "pending", activeForm: "Doing 2", blockedBy: [] },
+      ]),
+      toolUses: 0,
+      durationMs: 10,
+    }));
+
+    // Phase 2: Worker succeeds
+    mockResponses.set("worker", (opts) => ({
+      agentId: opts.agentId,
+      success: true,
+      output: "Completed",
+      toolUses: 1,
+      durationMs: 10,
+    }));
+
+    // Phase 3: Reviewer
+    mockResponses.set("reviewer", () => ({
+      agentId: "reviewer-1",
+      success: true,
+      output: JSON.stringify({
+        findings: [],
+        overall_correctness: "patch is correct",
+        overall_explanation: "Done",
+      }),
+      toolUses: 1,
+      durationMs: 10,
+    }));
+
+    // Track notifyTaskStatusChange calls
+    const statusChangeCalls: Array<{
+      taskIds: string[];
+      newStatus: string;
+      tasks: Array<{ id: string; title: string; status: string }>;
+    }> = [];
+
+    const { spawnSubagent, spawnSubagentParallel } = createMockSpawnFunctions(mockResponses);
+
+    const workflow = createRalphWorkflow();
+    const workflowWithMocks = {
+      ...workflow,
+      config: {
+        ...workflow.config,
+        runtime: {
+          spawnSubagent,
+          spawnSubagentParallel,
+          subagentRegistry: createMockRegistry(),
+          notifyTaskStatusChange: (
+            taskIds: string[],
+            newStatus: string,
+            tasks: Array<{ id: string; title: string; status: string }>
+          ) => {
+            statusChangeCalls.push({ taskIds, newStatus, tasks });
+          },
+        },
+      },
+    };
+
+    const initialState: Partial<RalphWorkflowState> = {
+      ...createRalphState("test-status-change", { yoloPrompt: "test prompt" }),
+      maxIterations: 10,
+      ralphSessionDir: "/tmp/test-session",
+    };
+
+    const result = await executeGraph(workflowWithMocks, {
+      initialState,
+      executionId: "test-status-change",
+    });
+
+    expect(result.status).toBe("completed");
+
+    // notifyTaskStatusChange should have been called at least once with "in_progress"
+    const inProgressCalls = statusChangeCalls.filter((c) => c.newStatus === "in_progress");
+    expect(inProgressCalls.length).toBeGreaterThanOrEqual(1);
+
+    // The first in_progress call should include both task IDs
+    const firstCall = inProgressCalls[0]!;
+    expect(firstCall.taskIds.sort()).toEqual(["#1", "#2"]);
+    expect(firstCall.newStatus).toBe("in_progress");
+
+    // The tasks array should show in_progress status for the ready tasks
+    const inProgressTasks = firstCall.tasks.filter((t) => t.status === "in_progress");
+    expect(inProgressTasks).toHaveLength(2);
+  });
+
+  test("worker prompt includes completed task context from previous batches", async () => {
+    const mockResponses = new Map<
+      string,
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
+    >();
+
+    // Phase 1: Planner returns 2 tasks — #2 depends on #1
+    mockResponses.set("planner", () => ({
+      agentId: "planner-1",
+      success: true,
+      output: JSON.stringify([
+        { id: "#1", content: "Task 1", status: "pending", activeForm: "Doing 1", blockedBy: [] },
+        { id: "#2", content: "Task 2", status: "pending", activeForm: "Doing 2", blockedBy: ["#1"] },
+      ]),
+      toolUses: 0,
+      durationMs: 10,
+    }));
+
+    // Phase 2: Worker — capture the task prompt to verify task context
+    const workerPrompts: string[] = [];
+    mockResponses.set("worker", (opts) => {
+      workerPrompts.push(opts.task);
+      return {
+        agentId: opts.agentId,
+        success: true,
+        output: "Completed",
+        toolUses: 1,
+        durationMs: 10,
+      };
+    });
+
+    // Phase 3: Reviewer
+    mockResponses.set("reviewer", () => ({
+      agentId: "reviewer-1",
+      success: true,
+      output: JSON.stringify({
+        findings: [],
+        overall_correctness: "patch is correct",
+        overall_explanation: "Done",
+      }),
+      toolUses: 1,
+      durationMs: 10,
+    }));
+
+    const workflow = createWorkflowWithMockBridge(mockResponses);
+
+    const initialState: Partial<RalphWorkflowState> = {
+      ...createRalphState("test-progress-context", { yoloPrompt: "test prompt" }),
+      maxIterations: 10,
+      ralphSessionDir: "/tmp/test-session",
+    };
+
+    const result = await executeGraph(workflow, {
+      initialState,
+      executionId: "test-progress-context",
+    });
+
+    expect(result.status).toBe("completed");
+    // Worker called twice: first for #1 (batch 1), then for #2 (batch 2, after #1 completes)
+    expect(workerPrompts).toHaveLength(2);
+
+    // Second worker prompt (for task #2) should show task #1 as completed in context
+    // because buildWorkerAssignment receives the updated tasks after first batch completed
+    expect(workerPrompts[1]).toContain("#1");
+    expect(workerPrompts[1]).toContain("Task 1");
+    // The completed tasks section should be present in the second worker's prompt
+    expect(workerPrompts[1]).toContain("Completed");
+  });
+});

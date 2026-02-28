@@ -145,61 +145,60 @@ export function createRalphWorkflow() {
           description: "Implements assigned tasks",
           retry: { maxAttempts: 1, backoffMs: 0, backoffMultiplier: 1 },
           async execute(ctx: ExecutionContext<RalphWorkflowState>): Promise<NodeResult<RalphWorkflowState>> {
-            const spawnParallel = ctx.config.runtime?.spawnSubagentParallel;
-            const spawnSingle = ctx.config.runtime?.spawnSubagent;
-            if (!spawnParallel && !spawnSingle) {
-              throw new Error("spawnSubagent not initialized. Execute this graph through WorkflowSDK.init().");
+            const spawnSubagentParallel = ctx.config.runtime?.spawnSubagentParallel;
+            if (!spawnSubagentParallel) {
+              throw new Error("spawnSubagentParallel not available in runtime config");
             }
+
             const ready = ctx.state.currentTasks;
             if (ready.length === 0) {
               return { stateUpdate: { iteration: ctx.state.iteration + 1 } as Partial<RalphWorkflowState> };
             }
 
-            // Set tasks to in_progress before dispatching
-            const inProgressTasks = ctx.state.tasks.map((t) => {
-              if (ready.some((r) => r.id === t.id)) {
-                return { ...t, status: "in_progress" };
-              }
-              return t;
+            // Set all ready tasks to "in_progress" before dispatch
+            const tasksWithProgress = ctx.state.tasks.map((t) => {
+              const isReady = ready.some((r) => r.id === t.id);
+              return isReady ? { ...t, status: "in_progress" } : t;
             });
 
-            // Build spawn options for all ready tasks
-            const spawnOptionsList: SubagentSpawnOptions[] = ready.map((task) => ({
+            // Publish workflow.task.statusChange event before spawning.
+            // notifyTaskStatusChange is injected at runtime by the executor when an eventBus is available.
+            const notifyFn = (ctx.config.runtime as Record<string, unknown> | undefined)
+              ?.notifyTaskStatusChange as
+              | ((taskIds: string[], newStatus: string, tasks: Array<{ id: string; title: string; status: string }>) => void)
+              | undefined;
+            notifyFn?.(
+              ready.map((r) => r.id).filter((id): id is string => Boolean(id)),
+              "in_progress",
+              tasksWithProgress.map((t) => ({
+                id: t.id ?? "",
+                title: t.content,
+                status: t.status,
+              })),
+            );
+
+            // Build spawn configs for ALL ready tasks
+            const spawnConfigs: SubagentSpawnOptions[] = ready.map((task) => ({
               agentId: `worker-${task.id ?? ctx.state.executionId}`,
               agentName: "worker",
-              task: buildWorkerAssignment(task, ctx.state.tasks),
+              task: buildWorkerAssignment(task, tasksWithProgress),
             }));
 
-            // Dispatch all ready tasks in parallel if available, else fall back to single
-            let results: Array<{ agentId: string; success: boolean }>;
-            if (spawnParallel && spawnOptionsList.length > 1) {
-              const parallelResults = await spawnParallel(spawnOptionsList, ctx.abortSignal);
-              results = parallelResults.map((r, i) => ({
-                agentId: spawnOptionsList[i]!.agentId,
-                success: r.success,
-              }));
-            } else {
-              // Single task or no parallel support — dispatch first task
-              const opts = spawnOptionsList[0]!;
-              const result = await spawnSingle!(opts, ctx.abortSignal);
-              results = [{ agentId: opts.agentId, success: result.success }];
-            }
+            // Dispatch all concurrently via spawnSubagentParallel
+            const results = await spawnSubagentParallel(spawnConfigs, ctx.abortSignal);
 
-            // Map results back to task statuses
-            const resultByTaskId = new Map(
-              results.map((r, i) => [ready[i]!.id, r.success])
-            );
+            // Map results back independently — each result corresponds to its ready task by index
+            const updatedTasks = tasksWithProgress.map((t) => {
+              const readyIndex = ready.findIndex((r) => r.id === t.id);
+              if (readyIndex === -1) return t;
+              const result = results[readyIndex];
+              return { ...t, status: result?.success ? "completed" : "error" };
+            });
 
             return {
               stateUpdate: {
                 iteration: ctx.state.iteration + 1,
-                tasks: inProgressTasks.map((t) => {
-                  const success = resultByTaskId.get(t.id);
-                  if (success !== undefined) {
-                    return { ...t, status: success ? "completed" : "error" };
-                  }
-                  return t;
-                }),
+                tasks: updatedTasks,
               } as Partial<RalphWorkflowState>,
             };
           },

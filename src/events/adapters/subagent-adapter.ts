@@ -44,6 +44,12 @@ export interface SubagentStreamAdapterOptions {
   parentAgentId?: string;
   /** Workflow run ID for staleness detection (monotonically increasing) */
   runId: number;
+  /** Agent type (e.g., "explore", "task"). When provided, adapter publishes stream.agent.start synchronously in the constructor */
+  agentType?: string;
+  /** Task description given to the agent */
+  task?: string;
+  /** Whether the agent is running in background mode */
+  isBackground?: boolean;
 }
 
 /**
@@ -59,6 +65,9 @@ export class SubagentStreamAdapter {
   private readonly agentId: string;
   private readonly parentAgentId: string | undefined;
   private readonly runId: number;
+  private readonly agentType: string | undefined;
+  private readonly task: string | undefined;
+  private readonly isBackground: boolean;
   private readonly toolTracker: SubagentToolTracker;
 
   /** Accumulated text output from the sub-agent */
@@ -84,6 +93,8 @@ export class SubagentStreamAdapter {
   private syntheticToolCounter = 0;
   /** Monotonic message ID derived from agentId */
   private readonly messageId: string;
+  /** Guard flag for idempotent stream.agent.start publishing (Fix 1A) */
+  private agentStartPublished = false;
 
   constructor(options: SubagentStreamAdapterOptions) {
     this.bus = options.bus;
@@ -91,9 +102,20 @@ export class SubagentStreamAdapter {
     this.agentId = options.agentId;
     this.parentAgentId = options.parentAgentId;
     this.runId = options.runId;
+    this.agentType = options.agentType;
+    this.task = options.task;
+    this.isBackground = options.isBackground ?? false;
     this.messageId = `subagent-${options.agentId}`;
     this.toolTracker = new SubagentToolTracker(options.bus, options.sessionId, options.runId);
     this.toolTracker.registerAgent(options.agentId);
+
+    // Fix 1A: Publish stream.agent.start synchronously in the constructor so
+    // that by the time any tool events arrive, the agent is already registered
+    // on the bus. The executor may also publish stream.agent.start via its own
+    // WorkflowEventAdapter — the idempotent guard in publishAgentStart()
+    // prevents this adapter from emitting a duplicate within the same lifecycle.
+    this.publishAgentStart();
+    console.debug(`[SubagentAdapter] Registered agent: ${this.agentId}`);
   }
 
   /**
@@ -118,6 +140,11 @@ export class SubagentStreamAdapter {
     const startTime = Date.now();
 
     this.reset();
+
+    // Fix 1A: Re-publish stream.agent.start after reset for adapter reuse.
+    // On first consumeStream() call this is a no-op (constructor already published).
+    // On subsequent calls the flag was cleared by buildResult(), allowing re-publish.
+    this.publishAgentStart();
 
     try {
       for await (const chunk of stream) {
@@ -295,6 +322,8 @@ export class SubagentStreamAdapter {
 
     // Publish stream.agent.update with tool count and current tool
     this.toolTracker.onToolStart(this.agentId, toolName);
+    // Fix 1C: Diagnostic logging at tool event handling
+    console.debug(`[SubagentAdapter] onToolStart: agentId=${this.agentId}, tool=${toolName}, toolCount=${this.toolUseCount}`);
 
     const event: BusEvent<"stream.tool.start"> = {
       type: "stream.tool.start",
@@ -453,6 +482,39 @@ export class SubagentStreamAdapter {
   }
 
   /**
+   * Publish a stream.agent.start event if agentType was provided.
+   *
+   * Called synchronously in the constructor to ensure the agent is registered
+   * on the bus before any tool events can fire (Fix 1A). Also called in
+   * consumeStream() for adapter reuse — the idempotent guard prevents
+   * duplicate events within a single stream lifecycle.
+   *
+   * Note: The executor may also publish stream.agent.start via its own
+   * WorkflowEventAdapter for the same agentId. This adapter's guard only
+   * prevents its own duplicates; the executor's publish is a separate concern.
+   */
+  private publishAgentStart(): void {
+    if (!this.agentType) return;
+    if (this.agentStartPublished) return; // Idempotent guard (Fix 1A)
+    this.agentStartPublished = true;
+
+    const event: BusEvent<"stream.agent.start"> = {
+      type: "stream.agent.start",
+      sessionId: this.sessionId,
+      runId: this.runId,
+      timestamp: Date.now(),
+      data: {
+        agentId: this.agentId,
+        agentType: this.agentType,
+        task: this.task ?? this.agentType,
+        isBackground: this.isBackground,
+      },
+    };
+
+    this.bus.publish(event);
+  }
+
+  /**
    * Finalize any open thinking blocks by computing their duration
    * and accumulating into thinkingDurationMs.
    */
@@ -495,6 +557,9 @@ export class SubagentStreamAdapter {
     if (this.toolDetails.length > 0) {
       result.toolDetails = [...this.toolDetails];
     }
+
+    // Clear idempotent guard so adapter reuse can re-publish stream.agent.start
+    this.agentStartPublished = false;
 
     return result;
   }

@@ -54,6 +54,7 @@ export type BusEventType =
   | "workflow.step.start"
   | "workflow.step.complete"
   | "workflow.task.update"
+  | "workflow.task.statusChange"
   | "stream.permission.requested"
   | "stream.human_input_required"
   | "stream.skill.invoked"
@@ -334,6 +335,25 @@ export interface BusEventDataMap {
   };
 
   /**
+   * Individual task status change (e.g., pending → in_progress before spawning workers)
+   */
+  "workflow.task.statusChange": {
+    /** IDs of the tasks whose status changed */
+    taskIds: string[];
+    /** The new status value */
+    newStatus: string;
+    /** Full updated task list snapshot */
+    tasks: Array<{
+      /** Task ID */
+      id: string;
+      /** Task title/description */
+      title: string;
+      /** Task status */
+      status: string;
+    }>;
+  };
+
+  /**
    * Permission requested from user (e.g., for tool execution)
    */
   "stream.permission.requested": {
@@ -538,6 +558,15 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
   }),
   "workflow.task.update": z.object({
     workflowId: z.string(),
+    tasks: z.array(z.object({
+      id: z.string(),
+      title: z.string(),
+      status: z.string(),
+    })),
+  }),
+  "workflow.task.statusChange": z.object({
+    taskIds: z.array(z.string()),
+    newStatus: z.string(),
     tasks: z.array(z.object({
       id: z.string(),
       title: z.string(),

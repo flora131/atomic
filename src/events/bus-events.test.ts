@@ -213,6 +213,7 @@ describe("BusEvent Type Definitions", () => {
       "workflow.step.start",
       "workflow.step.complete",
       "workflow.task.update",
+      "workflow.task.statusChange",
       "stream.permission.requested",
       "stream.human_input_required",
       "stream.skill.invoked",
@@ -225,5 +226,29 @@ describe("BusEvent Type Definitions", () => {
       const _check: keyof BusEventDataMap = type;
       expect(type).toBeDefined();
     });
+  });
+
+  it("should create a valid workflow.task.statusChange event", () => {
+    const event: BusEvent<"workflow.task.statusChange"> = {
+      type: "workflow.task.statusChange",
+      sessionId: "test-session",
+      runId: 1,
+      timestamp: Date.now(),
+      data: {
+        taskIds: ["task-1", "task-2"],
+        newStatus: "in_progress",
+        tasks: [
+          { id: "task-1", title: "First task", status: "in_progress" },
+          { id: "task-2", title: "Second task", status: "in_progress" },
+          { id: "task-3", title: "Third task", status: "pending" },
+        ],
+      },
+    };
+
+    expect(event.type).toBe("workflow.task.statusChange");
+    expect(event.data.taskIds).toEqual(["task-1", "task-2"]);
+    expect(event.data.newStatus).toBe("in_progress");
+    expect(event.data.tasks).toHaveLength(3);
+    expect(event.data.tasks[0]!.status).toBe("in_progress");
   });
 });

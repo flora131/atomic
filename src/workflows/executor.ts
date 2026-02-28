@@ -14,7 +14,7 @@ import {
     initWorkflowSession,
     getWorkflowSessionDir,
 } from "./session.ts";
-import type { NormalizedTodoItem } from "../ui/utils/task-status.ts";
+import type { NormalizedTodoItem, TaskStatus } from "../ui/utils/task-status.ts";
 import type { AtomicEventBus } from "../events/event-bus.ts";
 import { WorkflowEventAdapter } from "../events/adapters/workflow-adapter.ts";
 
@@ -166,6 +166,8 @@ export async function executeWorkflow(
 
     context.setStreaming(true);
 
+    let unsubscribeStatusChange: (() => void) | undefined;
+
     try {
         context.addMessage(
             "assistant",
@@ -262,6 +264,17 @@ export async function executeWorkflow(
                 return results;
             },
             subagentRegistry: registry,
+            notifyTaskStatusChange: options?.eventBus
+                ? (taskIds: string[], newStatus: string, tasks: Array<{ id: string; title: string; status: string }>) => {
+                    options.eventBus!.publish({
+                        type: "workflow.task.statusChange",
+                        sessionId,
+                        runId: workflowRunId,
+                        timestamp: Date.now(),
+                        data: { taskIds, newStatus, tasks },
+                    });
+                }
+                : undefined,
         };
 
         // Phase 5: Stream graph execution with progress
@@ -278,12 +291,35 @@ export async function executeWorkflow(
                 if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
                 saveDebounceTimer = setTimeout(async () => {
                     if (pendingSaveTasks) {
-                        await options.saveTasksToSession!(pendingSaveTasks, sid);
+                        try {
+                            await options.saveTasksToSession!(pendingSaveTasks, sid);
+                        } catch (err) {
+                            console.error('[workflow] Failed to save tasks:', err);
+                        }
                         pendingSaveTasks = null;
                     }
+                    saveDebounceTimer = null;
                 }, 100);
             }
             : undefined;
+
+        // Subscribe to workflow.task.statusChange events for persistence.
+        // When a worker node publishes a status change (e.g., pending → in_progress)
+        // before spawning sub-agents, this subscriber persists the update immediately
+        // via the debounced save, so the file watcher can trigger UI updates.
+        if (options?.eventBus && debouncedSaveTasksToSession) {
+            unsubscribeStatusChange = options.eventBus.on("workflow.task.statusChange", (event) => {
+                if (event.sessionId !== sessionId) return;
+                const { tasks } = event.data;
+                const normalized: NormalizedTodoItem[] = tasks.map((t) => ({
+                    id: t.id,
+                    content: t.title,
+                    status: t.status as TaskStatus,
+                    activeForm: t.title,
+                }));
+                debouncedSaveTasksToSession(normalized, sessionId);
+            });
+        }
 
         for await (const step of streamGraph(compiled, { initialState })) {
             // Show progress for node transitions
@@ -348,11 +384,18 @@ export async function executeWorkflow(
             }
         }
         
+        // Unsubscribe from statusChange events before cleanup
+        unsubscribeStatusChange?.();
+
         // Flush any pending debounced save
         if (saveDebounceTimer) {
             clearTimeout(saveDebounceTimer);
             if (pendingSaveTasks && options?.saveTasksToSession) {
-                await options.saveTasksToSession(pendingSaveTasks, sessionId);
+                try {
+                    await options.saveTasksToSession(pendingSaveTasks, sessionId);
+                } catch (err) {
+                    console.error('[workflow] Failed to flush pending task save:', err);
+                }
             }
         }
         
@@ -381,6 +424,7 @@ export async function executeWorkflow(
             },
         };
     } catch (error) {
+        unsubscribeStatusChange?.();
         context.setStreaming(false);
 
         // Silent exit for workflow cancellation (double Ctrl+C)

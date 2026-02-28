@@ -629,4 +629,314 @@ describe("executeWorkflow", () => {
         expect(capturedParams.sessionDir).toBeDefined();
         expect(capturedParams.maxIterations).toBe(100); // DEFAULT_MAX_ITERATIONS
     });
+
+    test("debounces saveTasksToSession calls", async () => {
+        const context = createMockContext();
+        const saveCalls: Array<{ tasks: any[]; sessionId: string }> = [];
+        const saveTasksToSession = async (tasks: any[], sessionId: string) => {
+            saveCalls.push({ tasks, sessionId });
+        };
+        
+        interface TestState extends BaseState {
+            tasks: Array<{ id: string; content: string; status: string; activeForm: string }>;
+        }
+
+        // Create a graph that yields state with tasks across multiple steps
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "step1",
+                    type: "tool",
+                    execute: async () => ({
+                        stateUpdate: {
+                            tasks: [
+                                { id: "t1", content: "Task 1", status: "pending", activeForm: "Task 1" },
+                            ],
+                        } as Partial<TestState>,
+                    }),
+                },
+                {
+                    id: "step2",
+                    type: "tool",
+                    execute: async () => ({
+                        stateUpdate: {
+                            tasks: [
+                                { id: "t1", content: "Task 1", status: "in_progress", activeForm: "Task 1" },
+                            ],
+                        } as Partial<TestState>,
+                    }),
+                },
+            ],
+            edges: [{ from: "step1", to: "step2" }],
+            startNode: "step1",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Test debounce",
+            command: "/test",
+        };
+
+        const result = await executeWorkflow(
+            definition,
+            "test prompt",
+            context as any,
+            { compiledGraph: compiledGraph as any, saveTasksToSession }
+        );
+
+        expect(result.success).toBe(true);
+        // The debounce + flush should have saved at least once (the flush at the end)
+        expect(saveCalls.length).toBeGreaterThanOrEqual(1);
+        // The last save should contain the final task state
+        const lastSave = saveCalls[saveCalls.length - 1]!;
+        expect(lastSave.tasks.length).toBeGreaterThan(0);
+    });
+
+    test("notifyTaskStatusChange publishes workflow.task.statusChange event on eventBus", async () => {
+        const context = createMockContext();
+        const publishedEvents: any[] = [];
+
+        // Minimal event bus mock that records published events
+        const mockEventBus = {
+            publish: (event: any) => {
+                publishedEvents.push(event);
+            },
+            on: (_type: string, _handler: any) => {
+                return () => {}; // unsubscribe noop
+            },
+            onAll: () => () => {},
+            clear: () => {},
+            hasHandlers: () => false,
+            get handlerCount() { return 0; },
+        };
+
+        interface TestState extends BaseState {
+            value: string;
+        }
+
+        // Capture the notifyTaskStatusChange from runtime config
+        let capturedNotifyFn: any = null;
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "test-node",
+                    type: "tool",
+                    execute: async (ctx: any) => {
+                        // Capture the notifyTaskStatusChange from runtime
+                        capturedNotifyFn = (ctx.config.runtime as any)?.notifyTaskStatusChange;
+                        return { stateUpdate: { value: "done" } as Partial<TestState> };
+                    },
+                },
+            ],
+            edges: [],
+            startNode: "test-node",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Test notify",
+            command: "/test",
+        };
+
+        await executeWorkflow(
+            definition,
+            "test prompt",
+            context as any,
+            { compiledGraph: compiledGraph as any, eventBus: mockEventBus as any }
+        );
+
+        // Verify notifyTaskStatusChange was injected
+        expect(capturedNotifyFn).toBeDefined();
+        expect(typeof capturedNotifyFn).toBe("function");
+
+        // Call it and verify the event is published
+        capturedNotifyFn(
+            ["task-1", "task-2"],
+            "in_progress",
+            [
+                { id: "task-1", title: "First", status: "in_progress" },
+                { id: "task-2", title: "Second", status: "in_progress" },
+            ],
+        );
+
+        // Find the statusChange event among published events
+        const statusChangeEvents = publishedEvents.filter(
+            (e) => e.type === "workflow.task.statusChange"
+        );
+        expect(statusChangeEvents.length).toBe(1);
+        expect(statusChangeEvents[0].data.taskIds).toEqual(["task-1", "task-2"]);
+        expect(statusChangeEvents[0].data.newStatus).toBe("in_progress");
+        expect(statusChangeEvents[0].data.tasks).toHaveLength(2);
+    });
+
+    test("subscribes to workflow.task.statusChange and debounce-saves tasks", async () => {
+        const context = createMockContext();
+        const saveCalls: Array<{ tasks: any[]; sessionId: string }> = [];
+        const saveTasksToSession = async (tasks: any[], sessionId: string) => {
+            saveCalls.push({ tasks, sessionId });
+        };
+
+        // Track subscriptions to verify subscriber is registered
+        const subscriptions: Array<{ type: string; handler: any }> = [];
+        let unsubscribeCalled = false;
+
+        const mockEventBus = {
+            publish: (event: any) => {
+                // When a statusChange event is published, call the registered handler
+                for (const sub of subscriptions) {
+                    if (sub.type === event.type) {
+                        sub.handler(event);
+                    }
+                }
+            },
+            on: (type: string, handler: any) => {
+                subscriptions.push({ type, handler });
+                return () => { unsubscribeCalled = true; };
+            },
+            onAll: () => () => {},
+            clear: () => {},
+            hasHandlers: () => false,
+            get handlerCount() { return 0; },
+        };
+
+        interface TestState extends BaseState {
+            value: string;
+        }
+
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "test-node",
+                    type: "tool",
+                    execute: async (ctx: any) => {
+                        // Simulate the worker node calling notifyTaskStatusChange
+                        const notifyFn = (ctx.config.runtime as any)?.notifyTaskStatusChange;
+                        if (notifyFn) {
+                            notifyFn(
+                                ["t1"],
+                                "in_progress",
+                                [{ id: "t1", title: "Task 1", status: "in_progress" }],
+                            );
+                        }
+                        return { stateUpdate: { value: "done" } as Partial<TestState> };
+                    },
+                },
+            ],
+            edges: [],
+            startNode: "test-node",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Test subscriber",
+            command: "/test",
+        };
+
+        const result = await executeWorkflow(
+            definition,
+            "test prompt",
+            context as any,
+            {
+                compiledGraph: compiledGraph as any,
+                eventBus: mockEventBus as any,
+                saveTasksToSession,
+            }
+        );
+
+        expect(result.success).toBe(true);
+
+        // Verify the statusChange subscriber was registered
+        const statusChangeSubs = subscriptions.filter(
+            (s) => s.type === "workflow.task.statusChange"
+        );
+        expect(statusChangeSubs.length).toBe(1);
+
+        // Verify unsubscribe was called on completion
+        expect(unsubscribeCalled).toBe(true);
+
+        // The debounced save should have been called (via debounce timer or flush)
+        // Wait for any pending debounce timers
+        await new Promise((resolve) => setTimeout(resolve, 150));
+        expect(saveCalls.length).toBeGreaterThanOrEqual(1);
+
+        // Verify normalized data structure
+        const lastSave = saveCalls[saveCalls.length - 1]!;
+        expect(lastSave.tasks[0]).toMatchObject({
+            id: "t1",
+            content: "Task 1",
+            status: "in_progress",
+            activeForm: "Task 1",
+        });
+    });
+
+    test("unsubscribes from statusChange events on error", async () => {
+        let unsubscribeCalled = false;
+
+        const mockEventBus = {
+            publish: () => {},
+            on: (_type: string, _handler: any) => {
+                return () => { unsubscribeCalled = true; };
+            },
+            onAll: () => () => {},
+            clear: () => {},
+            hasHandlers: () => false,
+            get handlerCount() { return 0; },
+        };
+
+        // Create a context where setWorkflowSessionDir throws to
+        // trigger the catch block after subscription is set up
+        const context = createMockContext();
+        const errorContext = {
+            ...context,
+            setWorkflowSessionDir: () => {
+                throw new Error("Session dir error");
+            },
+        };
+
+        interface TestState extends BaseState {
+            tasks: Array<{ id: string; content: string; status: string; activeForm: string }>;
+        }
+
+        // Graph that produces state with tasks, triggering setWorkflowSessionDir
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "task-node",
+                    type: "tool",
+                    execute: async () => ({
+                        stateUpdate: {
+                            tasks: [
+                                { id: "t1", content: "Task 1", status: "pending", activeForm: "Task 1" },
+                            ],
+                        } as Partial<TestState>,
+                    }),
+                },
+            ],
+            edges: [],
+            startNode: "task-node",
+        });
+
+        const definition = {
+            name: "test-workflow",
+            description: "Test error cleanup",
+            command: "/test",
+        };
+
+        const result = await executeWorkflow(
+            definition,
+            "test prompt",
+            errorContext as any,
+            {
+                compiledGraph: compiledGraph as any,
+                eventBus: mockEventBus as any,
+                saveTasksToSession: async () => {},
+            }
+        );
+
+        // The setWorkflowSessionDir error causes the workflow to fail
+        expect(result.success).toBe(false);
+        expect(result.message).toContain("Session dir error");
+        // Verify unsubscribe was called even on error
+        expect(unsubscribeCalled).toBe(true);
+    });
 });

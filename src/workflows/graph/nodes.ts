@@ -30,7 +30,7 @@ import { DEFAULT_RETRY_CONFIG, BACKGROUND_COMPACTION_THRESHOLD, BUFFER_EXHAUSTIO
 import type { z } from "zod";
 import { getToolRegistry } from "../../sdk/tools/registry.ts";
 import { SchemaValidationError, NodeExecutionError } from "./errors.ts";
-import type { SubagentResult, SubagentSpawnOptions } from "./types.ts";
+import type { SubagentStreamResult, SubagentSpawnOptions } from "./types.ts";
 
 // ============================================================================
 // AGENT NODE
@@ -1647,7 +1647,7 @@ export interface SubagentNodeConfig<TState extends BaseState> {
   systemPrompt?: string | ((state: TState) => string);
   model?: string;
   tools?: string[];
-  outputMapper?: (result: SubagentResult, state: TState) => Partial<TState>;
+  outputMapper?: (result: SubagentStreamResult, state: TState) => Partial<TState>;
   retry?: RetryConfig;
 }
 
@@ -1744,9 +1744,9 @@ export interface ParallelSubagentNodeConfig<TState extends BaseState> {
     model?: string;
     tools?: string[];
   }>;
-  outputMapper?: (results: Map<string, SubagentResult>, state: TState) => Partial<TState>;
+  outputMapper?: (results: Map<string, SubagentStreamResult>, state: TState) => Partial<TState>;
   /** @deprecated Use outputMapper instead */
-  merge?: (results: Map<string, SubagentResult>, state: TState) => Partial<TState>;
+  merge?: (results: Map<string, SubagentStreamResult>, state: TState) => Partial<TState>;
   retry?: RetryConfig;
 }
 
@@ -1796,7 +1796,7 @@ export function parallelSubagentNode<TState extends BaseState>(
 
       const results = await spawnSubagentParallel(spawnOptions);
 
-      const resultMap = new Map<string, SubagentResult>();
+      const resultMap = new Map<string, SubagentStreamResult>();
       results.forEach((result, i) => {
         const key = `${config.agents[i]!.agentName}-${i}`;
         resultMap.set(key, result);

@@ -34,7 +34,8 @@ export type {
   WorkflowToolContext,
   CreateSessionFn,
   SubagentSpawnOptions,
-  SubagentResult,
+  SubagentStreamResult,
+  SubagentToolDetail,
 } from "./types.ts";
 export {
   isNodeType,

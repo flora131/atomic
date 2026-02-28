@@ -11,7 +11,7 @@ import { describe, expect, test } from "bun:test";
 import { executeGraph, streamGraph } from "../graph/compiled.ts";
 import type {
   SubagentSpawnOptions,
-  SubagentResult,
+  SubagentStreamResult,
 } from "../graph/types.ts";
 import { createRalphWorkflow } from "./graph.ts";
 import { createRalphState } from "./state.ts";
@@ -28,10 +28,10 @@ import type { RalphWorkflowState } from "./state.ts";
 function createMockSpawnFunctions(
   responses: Map<
     string,
-    (opts: SubagentSpawnOptions) => SubagentResult | Promise<SubagentResult>
+    (opts: SubagentSpawnOptions) => SubagentStreamResult | Promise<SubagentStreamResult>
   >
 ) {
-  async function spawnSubagent(agent: SubagentSpawnOptions): Promise<SubagentResult> {
+  async function spawnSubagent(agent: SubagentSpawnOptions): Promise<SubagentStreamResult> {
     const handler = responses.get(agent.agentName);
     if (!handler) {
       return {
@@ -48,7 +48,7 @@ function createMockSpawnFunctions(
 
   async function spawnSubagentParallel(
     agents: SubagentSpawnOptions[]
-  ): Promise<SubagentResult[]> {
+  ): Promise<SubagentStreamResult[]> {
     return Promise.all(agents.map((a) => spawnSubagent(a)));
   }
 
@@ -84,7 +84,7 @@ function createMockRegistry() {
 function createWorkflowWithMockBridge(
   responses: Map<
     string,
-    (opts: SubagentSpawnOptions) => SubagentResult | Promise<SubagentResult>
+    (opts: SubagentSpawnOptions) => SubagentStreamResult | Promise<SubagentStreamResult>
   >
 ) {
   const baseWorkflow = createRalphWorkflow();
@@ -126,7 +126,7 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
   test("executes 3-phase flow with simple tasks", async () => {
     const mockResponses = new Map<
       string,
-      (opts: SubagentSpawnOptions) => SubagentResult
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
     >();
 
     // Phase 1: Planner returns JSON task list with 2 independent tasks
@@ -202,15 +202,15 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
       "patch is correct"
     );
     expect(result.state.fixesApplied).toBe(false);
-    // Note: Worker is called only once because both tasks are ready on first iteration
-    // and the outputMapper marks ALL ready tasks as completed when worker succeeds
-    expect(workerCallCount).toBe(1);
+    // Worker is called once per task — each iteration dispatches ready[0]
+    // and only marks that single dispatched task as completed
+    expect(workerCallCount).toBe(2);
   });
 
   test("handles task dependencies in worker loop", async () => {
     const mockResponses = new Map<
       string,
-      (opts: SubagentSpawnOptions) => SubagentResult
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
     >();
 
     // Phase 1: Planner returns tasks where #2 is blocked by #1
@@ -292,7 +292,7 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
   test("triggers fixer when review has findings", async () => {
     const mockResponses = new Map<
       string,
-      (opts: SubagentSpawnOptions) => SubagentResult
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
     >();
 
     // Phase 1: Planner
@@ -379,7 +379,7 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
   test("skips fixer when review is clean", async () => {
     const mockResponses = new Map<
       string,
-      (opts: SubagentSpawnOptions) => SubagentResult
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
     >();
 
     // Phase 1: Planner
@@ -460,7 +460,7 @@ describe("createRalphWorkflow - Worker Loop", () => {
   test("exits loop when no actionable tasks remain", async () => {
     const mockResponses = new Map<
       string,
-      (opts: SubagentSpawnOptions) => SubagentResult
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
     >();
 
     // Phase 1: Planner returns tasks where #2 depends on #1, but #1 will error
@@ -542,7 +542,7 @@ describe("createRalphWorkflow - Worker Loop", () => {
   test("respects maxIterations limit", async () => {
     const mockResponses = new Map<
       string,
-      (opts: SubagentSpawnOptions) => SubagentResult
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
     >();
 
     // Phase 1: Planner returns 5 chained tasks (each blocked by previous)
@@ -615,7 +615,7 @@ describe("createRalphWorkflow - Edge Cases", () => {
   test("handles empty task list from planner", async () => {
     const mockResponses = new Map<
       string,
-      (opts: SubagentSpawnOptions) => SubagentResult
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
     >();
 
     // Phase 1: Planner returns empty array
@@ -668,14 +668,14 @@ describe("createRalphWorkflow - Edge Cases", () => {
 
     expect(result.status).toBe("completed");
     expect(result.state.tasks).toHaveLength(0);
-    // Worker is called once even with empty tasks because loop runs before checking exit condition
-    expect(workerCalled).toBe(true);
+    // Worker node exits early when no tasks are ready (no spawnSubagent call)
+    expect(workerCalled).toBe(false);
   });
 
   test("filters out low-priority P3 findings", async () => {
     const mockResponses = new Map<
       string,
-      (opts: SubagentSpawnOptions) => SubagentResult
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
     >();
 
     // Phase 1: Planner

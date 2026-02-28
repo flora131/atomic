@@ -424,14 +424,31 @@ export interface SubagentSpawnOptions {
 }
 
 /**
- * Result returned after a sub-agent completes or fails.
+ * Detail record for a single tool invocation within a sub-agent session.
  */
-export interface SubagentResult {
+export interface SubagentToolDetail {
+  /** Tool invocation ID */
+  toolId: string;
+  /** Tool name */
+  toolName: string;
+  /** Execution duration in milliseconds */
+  durationMs: number;
+  /** Whether the tool completed successfully */
+  success: boolean;
+}
+
+/**
+ * Result returned after a sub-agent completes or fails.
+ *
+ * Replaces the former SubagentResult with richer streaming metadata:
+ * full untruncated output, token usage, thinking duration, and tool details.
+ */
+export interface SubagentStreamResult {
   /** Agent identifier matching SubagentSpawnOptions.agentId */
   agentId: string;
   /** Whether the sub-agent completed successfully */
   success: boolean;
-  /** Summary text returned to parent (truncated to MAX_SUMMARY_LENGTH) */
+  /** Full untruncated text output from the sub-agent */
   output: string;
   /** Error message if the sub-agent failed */
   error?: string;
@@ -439,7 +456,14 @@ export interface SubagentResult {
   toolUses: number;
   /** Execution duration in milliseconds */
   durationMs: number;
+  /** Token usage from the sub-agent session */
+  tokenUsage?: { inputTokens: number; outputTokens: number };
+  /** Total thinking/reasoning duration in milliseconds */
+  thinkingDurationMs?: number;
+  /** Per-tool invocation details */
+  toolDetails?: SubagentToolDetail[];
 }
+
 
 // ============================================================================
 // GRAPH RUNTIME DEPENDENCIES
@@ -448,8 +472,8 @@ export interface SubagentResult {
 export interface GraphRuntimeDependencies {
   clientProvider?: (agentType: string) => CodingAgentClient | null;
   workflowResolver?: (name: string) => RuntimeSubgraph | null;
-  spawnSubagent?: (agent: SubagentSpawnOptions, abortSignal?: AbortSignal) => Promise<SubagentResult>;
-  spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal) => Promise<SubagentResult[]>;
+  spawnSubagent?: (agent: SubagentSpawnOptions, abortSignal?: AbortSignal) => Promise<SubagentStreamResult>;
+  spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal) => Promise<SubagentStreamResult[]>;
   subagentRegistry?: {
     get(name: string): SubagentEntry | undefined;
     getAll(): SubagentEntry[];

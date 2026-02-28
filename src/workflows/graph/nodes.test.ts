@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parallelNode, parallelSubagentNode } from "./nodes.ts";
-import type { BaseState, ExecutionContext, SubagentResult } from "./types.ts";
+import type { BaseState, ExecutionContext, SubagentStreamResult } from "./types.ts";
 
 interface TestState extends BaseState {
   mapperSource?: string;
@@ -24,8 +24,8 @@ function createContext(
   };
 }
 
-function createMockSpawnParallel(results: SubagentResult[]) {
-  return async (): Promise<SubagentResult[]> => results;
+function createMockSpawnParallel(results: SubagentStreamResult[]) {
+  return async (): Promise<SubagentStreamResult[]> => results;
 }
 
 describe("parallelNode mapper standardization", () => {
@@ -72,7 +72,7 @@ describe("parallelNode mapper standardization", () => {
 });
 
 describe("parallelSubagentNode mapper standardization", () => {
-  const mockResult: SubagentResult = {
+  const mockResult: SubagentStreamResult = {
     agentId: "agent-1",
     success: true,
     output: "ok",

@@ -38,7 +38,7 @@ import {
 import type {
   CreateSessionFn,
   SubagentSpawnOptions,
-  SubagentResult,
+  SubagentStreamResult,
 } from "../workflows/graph/types.ts";
 import { SubagentStreamAdapter } from "../events/adapters/subagent-adapter.ts";
 import {
@@ -3961,7 +3961,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // recognises them as owned events.
         const parentSessionId = getSession?.()?.id ?? "workflow";
         // Monotonic runId for staleness detection across all sub-agents
-        const subagentRunId = Date.now();
+        const subagentRunId = crypto.getRandomValues(new Uint32Array(1))[0]!;
 
         // Register the parent session as owned so the correlation pipeline
         // doesn't drop sub-agent events published with this sessionId.
@@ -3973,9 +3973,10 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
          * streaming its response through SubagentStreamAdapter, and
          * destroying the session when done.
          */
-        const spawnOne = async (options: SubagentSpawnOptions): Promise<SubagentResult> => {
+        const spawnOne = async (options: SubagentSpawnOptions): Promise<SubagentStreamResult> => {
           let session: import("../sdk/types.ts").Session | null = null;
           const correlationService = getCorrelationService();
+          const startTime = Date.now();
 
           try {
             const sessionConfig: import("../sdk/types.ts").SessionConfig = {};
@@ -4050,7 +4051,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               output: "",
               error: error instanceof Error ? error.message : String(error ?? "Unknown error"),
               toolUses: 0,
-              durationMs: 0,
+              durationMs: Date.now() - startTime,
             };
           } finally {
             if (session) {

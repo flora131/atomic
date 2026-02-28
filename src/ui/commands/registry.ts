@@ -11,7 +11,7 @@ import type { Session, ModelDisplayInfo, McpServerConfig } from "../../sdk/types
 import type { AgentType, ModelOperations } from "../../models";
 import type { TodoItem } from "../../sdk/tools/todo-write.ts";
 import type { McpServerToggleMap, McpSnapshotView } from "../utils/mcp-output.ts";
-import type { SubagentSpawnOptions, SubagentResult } from "../../workflows/graph/types.ts";
+import type { SubagentSpawnOptions, SubagentStreamResult } from "../../workflows/graph/types.ts";
 
 // ============================================================================
 // TYPES
@@ -107,7 +107,7 @@ export interface CommandContext {
    * @param agents - Array of sub-agent spawn configurations
    * @returns Promise with results for all agents (uses Promise.allSettled internally)
    */
-  spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal) => Promise<SubagentResult[]>;
+  spawnSubagentParallel?: (agents: SubagentSpawnOptions[], abortSignal?: AbortSignal) => Promise<SubagentStreamResult[]>;
   /**
    * Send a message and wait for the streaming response to complete.
    * Returns the accumulated content and whether it was interrupted.
@@ -153,6 +153,8 @@ export interface CommandContext {
    * Update workflow state from a command handler.
    */
   updateWorkflowState: (update: Partial<CommandContextState>) => void;
+  /** The event bus for publishing/subscribing to streaming events */
+  eventBus?: import("../../events/event-bus.ts").AtomicEventBus;
   /** The type of agent currently in use (claude, opencode, copilot) */
   agentType?: AgentType;
   /** Model operations interface for listing, setting, and resolving models */

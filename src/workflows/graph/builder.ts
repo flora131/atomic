@@ -25,7 +25,7 @@ import type {
   RetryConfig,
   NodeType,
 } from "./types.ts";
-import type { SubagentResult } from "./types.ts";
+import type { SubagentStreamResult } from "./types.ts";
 import { subagentNode, toolNode } from "./nodes.ts";
 
 // ============================================================================
@@ -111,7 +111,7 @@ export interface SubAgentConfig<TState extends BaseState> {
   /** Tool allowlist */
   tools?: string[];
   /** Map agent result to state update */
-  outputMapper?: (result: SubagentResult, state: TState) => Partial<TState>;
+  outputMapper?: (result: SubagentStreamResult, state: TState) => Partial<TState>;
   /** Retry configuration */
   retry?: RetryConfig;
   /** Human-readable name */
@@ -248,6 +248,12 @@ export class GraphBuilder<TState extends BaseState = BaseState> {
   /** Counter for generating unique node IDs */
   private nodeCounter = 0;
 
+  /** Pending edge condition for the next then() call (used by loop exit) */
+  private pendingEdgeCondition?: EdgeCondition<TState>;
+
+  /** Pending edge label for the next then() call */
+  private pendingEdgeLabel?: string;
+
   /** Error handler node ID */
   private errorHandlerId: NodeId | null = null;
 
@@ -357,7 +363,10 @@ export class GraphBuilder<TState extends BaseState = BaseState> {
       }
     } else if (this.currentNodeId !== null) {
       // Normal case - connect from current node
-      this.addEdge(this.currentNodeId, node.id);
+      // Use pending edge condition if set (e.g., loop exit edge)
+      this.addEdge(this.currentNodeId, node.id, this.pendingEdgeCondition, this.pendingEdgeLabel);
+      this.pendingEdgeCondition = undefined;
+      this.pendingEdgeLabel = undefined;
     }
 
     this.currentNodeId = node.id;
@@ -730,8 +739,15 @@ export class GraphBuilder<TState extends BaseState = BaseState> {
       "loop-continue"
     );
 
-    // The exit edge will be added by the next then() or end()
+    // The exit edge will be added by the next then() or end(), with a
+    // conditional guard so the reviewer only runs when the loop terminates.
     this.currentNodeId = loopCheckId;
+    this.pendingEdgeCondition = (state) => {
+      const iterationKey = `${loopStartId}_iteration`;
+      const currentIteration = (state.outputs[iterationKey] as number) ?? 0;
+      return config.until(state) || currentIteration >= maxIterations;
+    };
+    this.pendingEdgeLabel = "loop-exit";
 
     return this;
   }

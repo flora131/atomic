@@ -62,7 +62,11 @@ import {
 } from "../types.ts";
 
 import { initOpenCodeConfigOverrides } from "../init.ts";
-import { createToolMcpServerScript } from "../tools/opencode-mcp-bridge.ts";
+import {
+  createToolMcpServerScript,
+  startToolDispatchServer,
+  stopToolDispatchServer,
+} from "../tools/opencode-mcp-bridge.ts";
 
 // Import the real SDK
 import {
@@ -362,6 +366,7 @@ export class OpenCodeClient implements CodingAgentClient {
   private eventSubscriptionController: AbortController | null = null;
   private serverCloseCallback: (() => void) | null = null;
   private isServerSpawned = false;
+  private dispatchServerStop: (() => void) | null = null;
 
   /** Mutable model preference updated by /model command at runtime */
   private activePromptModel: { providerID: string; modelID: string } | undefined;
@@ -1196,13 +1201,30 @@ export class OpenCodeClient implements CodingAgentClient {
 
   /**
    * Register custom tools as a single MCP stdio server.
-   * Bundles all registered tools into a temporary script and registers it via mcp.add().
+   * Starts a local HTTP dispatch server for tool handler IPC, generates a
+   * temporary MCP script that forwards tool calls to it, and registers the
+   * script with the OpenCode server via mcp.add().
    */
   private async registerToolsMcpServer(): Promise<void> {
     if (!this.sdkClient) return;
 
+    // Start the in-process dispatch server so the MCP script can call handlers
+    const contextFactory = () => ({
+      sessionID: this.currentSessionId ?? "",
+      messageID: "",
+      agent: "opencode" as const,
+      directory: this.clientOptions.directory,
+      abort: new AbortController().signal,
+    });
+
+    const { port, stop } = await startToolDispatchServer(
+      this.registeredTools,
+      contextFactory,
+    );
+    this.dispatchServerStop = stop;
+
     const tools = Array.from(this.registeredTools.values());
-    const scriptPath = await createToolMcpServerScript(tools);
+    const scriptPath = await createToolMcpServerScript(tools, port);
 
     try {
       await this.sdkClient.mcp.add({
@@ -1926,6 +1948,13 @@ export class OpenCodeClient implements CodingAgentClient {
       this.serverCloseCallback = null;
       this.isServerSpawned = false;
     }
+
+    // Stop the tool dispatch HTTP server
+    if (this.dispatchServerStop) {
+      this.dispatchServerStop();
+      this.dispatchServerStop = null;
+    }
+    stopToolDispatchServer();
 
     this.eventHandlers.clear();
     this.isRunning = false;

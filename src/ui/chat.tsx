@@ -28,6 +28,7 @@ import {
   type ParallelAgent,
 } from "./components/parallel-agents-tree.tsx";
 import { BackgroundAgentFooter } from "./components/background-agent-footer.tsx";
+import { FooterStatus } from "./components/footer-status.tsx";
 import { TranscriptView } from "./components/transcript-view.tsx";
 import {
   appendCompactionSummary,
@@ -46,6 +47,7 @@ import {
   type UserQuestion,
   type QuestionAnswer,
 } from "./components/user-question-dialog.tsx";
+import { TimestampDisplay } from "./components/timestamp-display.tsx";
 import {
   ModelSelectorDialog,
 } from "./components/model-selector-dialog.tsx";
@@ -56,6 +58,7 @@ import { sortTasksTopologically } from "./components/task-order.ts";
 import { saveTasksToActiveSession } from "./commands/workflow-commands.ts";
 import { type ToolExecutionStatus } from "./parts/types.ts";
 import { useMessageQueue, type QueuedMessage } from "./hooks/use-message-queue.ts";
+import { useVerboseMode } from "./hooks/use-verbose-mode.ts";
 import {
   globalRegistry,
   parseSlashCommand,
@@ -900,6 +903,8 @@ export interface MessageBubbleProps {
   collapsed?: boolean;
   /** Live streaming metadata (tokens, thinking duration) */
   streamingMeta?: StreamingMeta | null;
+  /** Whether verbose mode is enabled (shows timestamps, model info) */
+  isVerbose?: boolean;
 }
 
 // ============================================================================
@@ -1419,7 +1424,7 @@ function getRenderableAssistantParts(
 
   return parts;
 }
-export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, workflowSessionDir, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, workflowSessionDir, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta, isVerbose = false }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
   // Collapsed mode: show compact single-line summary for each message
@@ -1552,6 +1557,17 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
         {shouldShowCompletionSummary(message, hasActiveBackgroundAgents) && (
           <box marginTop={SPACING.ELEMENT}>
             <CompletionSummary durationMs={message.durationMs!} outputTokens={message.outputTokens} thinkingMs={message.thinkingMs} />
+          </box>
+        )}
+
+        {/* Verbose mode: timestamp, duration, and model info */}
+        {isVerbose && !message.streaming && (
+          <box marginTop={SPACING.ELEMENT}>
+            <TimestampDisplay
+              timestamp={message.timestamp}
+              durationMs={message.durationMs}
+              modelId={message.modelId}
+            />
           </box>
         )}
 
@@ -1703,6 +1719,8 @@ export function ChatApp({
   // Transcript mode: full-screen detailed transcript view (ctrl+o toggle)
   const [transcriptMode, setTranscriptMode] = useState(false);
 
+  // Verbose mode: shows timestamps, model info on messages (ctrl+e toggle)
+  const { isVerbose, toggle: toggleVerbose } = useVerboseMode();
 
   // State for showing user question dialog
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
@@ -4928,6 +4946,12 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           return;
         }
 
+        // Ctrl+E - toggle verbose mode (timestamps, model info on messages)
+        if (event.ctrl && event.name === "e") {
+          toggleVerbose();
+          return;
+        }
+
         // Ctrl+T - toggle todo list panel visibility
         if (event.ctrl && !event.shift && event.name === "t") {
           setShowTodoPanel(prev => !prev);
@@ -5940,6 +5964,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           inlineTasksEnabled={!workflowSessionDir}
           workflowSessionDir={workflowSessionDir}
           showTodoPanel={showTodoPanel}
+          isVerbose={isVerbose}
         />
         );
       })}
@@ -6114,6 +6139,14 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 </text>
               </box>
             )}
+            {/* Footer status bar */}
+            <FooterStatus
+              verboseMode={isVerbose}
+              isStreaming={isStreaming}
+              queuedCount={messageQueue.count}
+              modelId={currentModelId ?? initialModelId ?? model}
+              agentType={agentType}
+            />
             {/* Streaming/workflow hints */}
             {isStreaming && !workflowState.workflowActive ? (
               <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>

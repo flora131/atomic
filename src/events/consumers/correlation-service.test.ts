@@ -797,7 +797,7 @@ describe("CorrelationService", () => {
 
   describe("sub-agent text-complete suppression", () => {
     test("stream.text.complete with subagent- messageId is suppressed", () => {
-      service.registerSubagent("worker-1", { parentAgentId: "main-agent" });
+      service.registerSubagent("worker-1", { parentAgentId: "main-agent", workflowRunId: "run-1" });
 
       const event: BusEvent<"stream.text.complete"> = {
         type: "stream.text.complete",
@@ -819,7 +819,7 @@ describe("CorrelationService", () => {
         sessionId: "session_123",
         runId: 1,
         timestamp: Date.now(),
-        data: { agentId: "main-agent", agentType: "chat", task: "test" },
+        data: { agentId: "main-agent", agentType: "chat", task: "test", isBackground: false },
       };
       service.enrich(agentStartEvent);
 
@@ -843,7 +843,7 @@ describe("CorrelationService", () => {
 
   describe("sub-agent tool ID registration on stream.tool.start", () => {
     test("registers tool in toolToAgent so stream.tool.complete resolves agent", () => {
-      service.registerSubagent("worker-1", { parentAgentId: "main-agent" });
+      service.registerSubagent("worker-1", { parentAgentId: "main-agent", workflowRunId: "run-1" });
 
       const toolStartEvent: BusEvent<"stream.tool.start"> = {
         type: "stream.tool.start",
@@ -853,6 +853,7 @@ describe("CorrelationService", () => {
         data: {
           toolId: "tool-abc",
           toolName: "grep",
+          toolInput: {},
           parentAgentId: "worker-1",
         },
       };

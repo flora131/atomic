@@ -15,7 +15,8 @@ import {
     getWorkflowSessionDir,
 } from "./session.ts";
 import type { NormalizedTodoItem } from "../ui/utils/task-status.ts";
-import type { WorkflowEventAdapter } from "../events/adapters/workflow-adapter.ts";
+import type { AtomicEventBus } from "../events/event-bus.ts";
+import { WorkflowEventAdapter } from "../events/adapters/workflow-adapter.ts";
 
 /**
  * Result of a workflow execution.
@@ -126,12 +127,31 @@ export async function executeWorkflow(
     options?: {
         compiledGraph?: CompiledGraph<BaseState>;
         saveTasksToSession?: (tasks: NormalizedTodoItem[], sessionId: string) => Promise<void>;
-        eventAdapter?: WorkflowEventAdapter;
+        eventBus?: AtomicEventBus;
     },
 ): Promise<CommandResult> {
     // Phase 1: Session initialization
     const sessionId = crypto.randomUUID();
     const sessionDir = getWorkflowSessionDir(sessionId);
+    const workflowRunId = crypto.getRandomValues(new Uint32Array(1))[0]!;
+
+    // Construct WorkflowEventAdapter if event bus is available
+    const eventAdapter = options?.eventBus
+        ? new WorkflowEventAdapter(options.eventBus, sessionId, workflowRunId)
+        : undefined;
+
+    // Publish synthetic stream.session.start to register this session with the
+    // correlation pipeline so sub-agent events are recognized as owned.
+    if (options?.eventBus) {
+        options.eventBus.publish({
+            type: "stream.session.start",
+            sessionId,
+            runId: workflowRunId,
+            timestamp: Date.now(),
+            data: { config: { workflowName: definition.name } },
+        });
+    }
+
     void initWorkflowSession(definition.name, sessionId).then((session) => {
         registerActiveSession(session);
     }).catch((err) => {
@@ -149,7 +169,7 @@ export async function executeWorkflow(
     try {
         context.addMessage(
             "assistant",
-            `Starting **${definition.name}** workflow with prompt: "${prompt}"\n\nInitializing task decomposition...`,
+            `Starting **${definition.name}** workflow with prompt: "${prompt}"`,
         );
 
         // Phase 2: Determine compiled graph
@@ -188,8 +208,8 @@ export async function executeWorkflow(
             ...compiled.config.runtime,
             spawnSubagent: async (agent, abortSignal) => {
                 // Publish agent start event if adapter is available
-                if (options?.eventAdapter) {
-                    options.eventAdapter.publishAgentStart(
+                if (eventAdapter) {
+                    eventAdapter.publishAgentStart(
                         agent.agentId,
                         agent.agentName,
                         agent.task,
@@ -201,8 +221,8 @@ export async function executeWorkflow(
                 if (!result) throw new Error("Subagent spawn returned no results");
 
                 // Publish agent complete event if adapter is available
-                if (options?.eventAdapter) {
-                    options.eventAdapter.publishAgentComplete(
+                if (eventAdapter) {
+                    eventAdapter.publishAgentComplete(
                         agent.agentId,
                         result.success,
                         result.output,
@@ -214,9 +234,9 @@ export async function executeWorkflow(
             },
             spawnSubagentParallel: async (agents, abortSignal) => {
                 // Publish agent start events for all agents if adapter is available
-                if (options?.eventAdapter) {
+                if (eventAdapter) {
                     for (const agent of agents) {
-                        options.eventAdapter.publishAgentStart(
+                        eventAdapter.publishAgentStart(
                             agent.agentId,
                             agent.agentName,
                             agent.task,
@@ -228,9 +248,9 @@ export async function executeWorkflow(
                 const results = await spawnFn(agents, abortSignal);
 
                 // Publish agent complete events for all agents if adapter is available
-                if (options?.eventAdapter) {
+                if (eventAdapter) {
                     for (const result of results) {
-                        options.eventAdapter.publishAgentComplete(
+                        eventAdapter.publishAgentComplete(
                             result.agentId,
                             result.success,
                             result.output,
@@ -249,14 +269,30 @@ export async function executeWorkflow(
         let lastNodeId: string | null = null;
         const nodeDescriptions = definition.nodeDescriptions;
 
+        // Debounced saveTasksToSession to avoid I/O contention during rapid updates
+        let saveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+        let pendingSaveTasks: NormalizedTodoItem[] | null = null;
+        const debouncedSaveTasksToSession = options?.saveTasksToSession
+            ? (tasks: NormalizedTodoItem[], sid: string) => {
+                pendingSaveTasks = tasks;
+                if (saveDebounceTimer) clearTimeout(saveDebounceTimer);
+                saveDebounceTimer = setTimeout(async () => {
+                    if (pendingSaveTasks) {
+                        await options.saveTasksToSession!(pendingSaveTasks, sid);
+                        pendingSaveTasks = null;
+                    }
+                }, 100);
+            }
+            : undefined;
+
         for await (const step of streamGraph(compiled, { initialState })) {
             // Show progress for node transitions
             if (step.nodeId !== lastNodeId) {
                 const description = nodeDescriptions?.[step.nodeId];
                 
                 // Publish step complete event for previous node (if any)
-                if (lastNodeId !== null && options?.eventAdapter) {
-                    options.eventAdapter.publishStepComplete(
+                if (lastNodeId !== null && eventAdapter) {
+                    eventAdapter.publishStepComplete(
                         sessionId,
                         nodeDescriptions?.[lastNodeId] ?? lastNodeId,
                         lastNodeId,
@@ -264,8 +300,8 @@ export async function executeWorkflow(
                 }
                 
                 // Publish step start event for new node
-                if (options?.eventAdapter) {
-                    options.eventAdapter.publishStepStart(
+                if (eventAdapter) {
+                    eventAdapter.publishStepStart(
                         sessionId,
                         description ?? step.nodeId,
                         step.nodeId,
@@ -278,21 +314,21 @@ export async function executeWorkflow(
             // Sync task list to UI and session
             const state = step.state as BaseState & { tasks?: Array<{ id?: string; content: string; status: string; activeForm: string; blockedBy?: string[] }> };
             if (state.tasks && state.tasks.length > 0) {
-                if (options?.saveTasksToSession) {
-                    await options.saveTasksToSession(
+                if (debouncedSaveTasksToSession) {
+                    debouncedSaveTasksToSession(
                         state.tasks as NormalizedTodoItem[],
                         sessionId,
                     );
                 }
                 
                 // Publish task update event
-                if (options?.eventAdapter) {
+                if (eventAdapter) {
                     const formattedTasks = state.tasks.map(task => ({
                         id: task.id ?? crypto.randomUUID(),
                         title: task.content,
                         status: task.status,
                     }));
-                    options.eventAdapter.publishTaskUpdate(sessionId, formattedTasks);
+                    eventAdapter.publishTaskUpdate(sessionId, formattedTasks);
                 }
 
                 if (!sessionTracked) {
@@ -312,9 +348,17 @@ export async function executeWorkflow(
             }
         }
         
+        // Flush any pending debounced save
+        if (saveDebounceTimer) {
+            clearTimeout(saveDebounceTimer);
+            if (pendingSaveTasks && options?.saveTasksToSession) {
+                await options.saveTasksToSession(pendingSaveTasks, sessionId);
+            }
+        }
+        
         // Publish final step complete event
-        if (lastNodeId !== null && options?.eventAdapter) {
-            options.eventAdapter.publishStepComplete(
+        if (lastNodeId !== null && eventAdapter) {
+            eventAdapter.publishStepComplete(
                 sessionId,
                 nodeDescriptions?.[lastNodeId] ?? lastNodeId,
                 lastNodeId,

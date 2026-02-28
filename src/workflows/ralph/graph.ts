@@ -145,30 +145,58 @@ export function createRalphWorkflow() {
           description: "Implements assigned tasks",
           retry: { maxAttempts: 1, backoffMs: 0, backoffMultiplier: 1 },
           async execute(ctx: ExecutionContext<RalphWorkflowState>): Promise<NodeResult<RalphWorkflowState>> {
-            const spawnSubagent = ctx.config.runtime?.spawnSubagent;
-            if (!spawnSubagent) {
+            const spawnParallel = ctx.config.runtime?.spawnSubagentParallel;
+            const spawnSingle = ctx.config.runtime?.spawnSubagent;
+            if (!spawnParallel && !spawnSingle) {
               throw new Error("spawnSubagent not initialized. Execute this graph through WorkflowSDK.init().");
             }
             const ready = ctx.state.currentTasks;
-            const task = ready[0];
-            const taskPrompt = task
-              ? buildWorkerAssignment(task, ctx.state.tasks)
-              : "No tasks ready";
+            if (ready.length === 0) {
+              return { stateUpdate: { iteration: ctx.state.iteration + 1 } as Partial<RalphWorkflowState> };
+            }
 
-            const spawnOpts: SubagentSpawnOptions = {
-              agentId: `worker-${task?.id ?? ctx.state.executionId}`,
+            // Set tasks to in_progress before dispatching
+            const inProgressTasks = ctx.state.tasks.map((t) => {
+              if (ready.some((r) => r.id === t.id)) {
+                return { ...t, status: "in_progress" };
+              }
+              return t;
+            });
+
+            // Build spawn options for all ready tasks
+            const spawnOptionsList: SubagentSpawnOptions[] = ready.map((task) => ({
+              agentId: `worker-${task.id ?? ctx.state.executionId}`,
               agentName: "worker",
-              task: taskPrompt,
-            };
-            const result = await spawnSubagent(spawnOpts, ctx.abortSignal);
+              task: buildWorkerAssignment(task, ctx.state.tasks),
+            }));
+
+            // Dispatch all ready tasks in parallel if available, else fall back to single
+            let results: Array<{ agentId: string; success: boolean }>;
+            if (spawnParallel && spawnOptionsList.length > 1) {
+              const parallelResults = await spawnParallel(spawnOptionsList, ctx.abortSignal);
+              results = parallelResults.map((r, i) => ({
+                agentId: spawnOptionsList[i]!.agentId,
+                success: r.success,
+              }));
+            } else {
+              // Single task or no parallel support — dispatch first task
+              const opts = spawnOptionsList[0]!;
+              const result = await spawnSingle!(opts, ctx.abortSignal);
+              results = [{ agentId: opts.agentId, success: result.success }];
+            }
+
+            // Map results back to task statuses
+            const resultByTaskId = new Map(
+              results.map((r, i) => [ready[i]!.id, r.success])
+            );
 
             return {
               stateUpdate: {
                 iteration: ctx.state.iteration + 1,
-                tasks: ctx.state.tasks.map((t) => {
-                  const wasReady = ctx.state.currentTasks.some((ct) => ct.id === t.id);
-                  if (wasReady) {
-                    return { ...t, status: result.success ? "completed" : "error" };
+                tasks: inProgressTasks.map((t) => {
+                  const success = resultByTaskId.get(t.id);
+                  if (success !== undefined) {
+                    return { ...t, status: success ? "completed" : "error" };
                   }
                   return t;
                 }),

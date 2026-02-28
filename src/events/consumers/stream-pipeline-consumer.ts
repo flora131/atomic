@@ -132,7 +132,7 @@ export class StreamPipelineConsumer {
         // Run through echo suppressor to filter duplicate tool result echoes
         const filtered = this.echoSuppressor.filterDelta(data.delta);
         if (!filtered) return null;
-        return [{ type: "text-delta", delta: filtered }];
+        return [{ type: "text-delta", delta: filtered, ...(data.agentId ? { agentId: data.agentId } : {}) }];
       }
 
       case "stream.thinking.delta": {
@@ -154,6 +154,7 @@ export class StreamPipelineConsumer {
           toolId: data.toolId,
           toolName: data.toolName,
           input: data.toolInput,
+          ...(data.parentAgentId ? { agentId: data.parentAgentId } : {}),
         }];
       }
 
@@ -167,6 +168,7 @@ export class StreamPipelineConsumer {
           success: data.success,
           error: data.error,
           ...(data.toolInput ? { input: data.toolInput } : {}),
+          ...(data.parentAgentId ? { agentId: data.parentAgentId } : {}),
         };
         return [mapped];
       }

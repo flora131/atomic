@@ -147,6 +147,8 @@ export interface BusEventDataMap {
     error?: string;
     /** SDK correlation ID for tracking across adapters */
     sdkCorrelationId?: string;
+    /** Parent agent ID if this tool was invoked by a sub-agent */
+    parentAgentId?: string;
   };
 
   /**
@@ -493,6 +495,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
     success: z.boolean(),
     error: z.string().optional(),
     sdkCorrelationId: z.string().optional(),
+    parentAgentId: z.string().optional(),
   }),
   "stream.tool.partial_result": z.object({
     toolCallId: z.string(),

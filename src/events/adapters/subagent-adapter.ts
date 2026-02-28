@@ -407,6 +407,7 @@ export class SubagentStreamAdapter {
             : String(content)
           : undefined,
         sdkCorrelationId: explicitToolId ?? toolId,
+        parentAgentId: this.agentId,
       },
     };
 

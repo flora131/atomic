@@ -2556,21 +2556,30 @@ export function ChatApp({
       return;
     }
 
-    setParallelAgents((currentAgents) => {
-      // Filter agents to only include those that belong to this message
-      // (agents that were part of the streaming message's parallelAgents array).
-      // This prevents orphaned agents from previous messages from being baked into this message.
+    // Path 3: Normal completion — consolidate state updates.
+    // Read current agents from the ref (always in sync via useEffect) to
+    // avoid nesting setMessagesWindowed inside setParallelAgents, which
+    // previously caused an extra no-op state update and delayed renders.
+    const currentAgents = parallelAgentsRef.current;
+    const remaining = getActiveBackgroundAgents(currentAgents);
+    if (remaining.length > 0 && messageId) {
+      backgroundAgentMessageIdRef.current = messageId;
+    }
+
+    // Single setMessagesWindowed call: reads existing agent IDs from the
+    // message being finalized AND applies the final streaming state in one
+    // updater, eliminating the previous no-op read-only state update.
+    setMessagesWindowed((prev: ChatMessage[]) => {
+      // Collect agent IDs already baked onto this message to filter out
+      // orphaned agents from previous messages.
       const existingAgentIds = new Set<string>();
-      setMessagesWindowed((prev: ChatMessage[]) => {
-        const msg = prev.find((m) => m.id === messageId);
-        if (msg?.parallelAgents) {
-          for (const agent of msg.parallelAgents) {
-            existingAgentIds.add(agent.id);
-          }
+      const targetMsg = prev.find((m) => m.id === messageId);
+      if (targetMsg?.parallelAgents) {
+        for (const agent of targetMsg.parallelAgents) {
+          existingAgentIds.add(agent.id);
         }
-        return prev;
-      });
-      
+      }
+
       const finalizedAgents = currentAgents.length > 0
         ? currentAgents
           .filter((a) => existingAgentIds.has(a.id)) // Only include agents that belong to this message
@@ -2582,36 +2591,34 @@ export function ChatApp({
           })
         : undefined;
 
-      setMessagesWindowed((prev: ChatMessage[]) =>
-        prev.map((msg: ChatMessage) =>
-          msg.id === messageId
-            ? {
-              ...finalizeStreamingReasoningInMessage(msg),
-              streaming: false,
-              durationMs,
-              modelId: currentModelRef.current,
-              // Prefer finalMeta values, but fall back to already-baked message values
-              // (bus subscriptions may have baked values before handleStreamComplete runs)
-              outputTokens: finalMeta?.outputTokens || msg.outputTokens,
-              thinkingMs: finalMeta?.thinkingMs || msg.thinkingMs,
-              thinkingText: finalMeta?.thinkingText || msg.thinkingText || undefined,
-              toolCalls: interruptRunningToolCalls(msg.toolCalls),
-              parts: interruptRunningToolParts(msg.parts),
-              parallelAgents: finalizedAgents,
-              taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
-            }
-            : msg
-        )
+      return prev.map((msg: ChatMessage) =>
+        msg.id === messageId
+          ? {
+            ...finalizeStreamingReasoningInMessage(msg),
+            streaming: false,
+            durationMs,
+            modelId: currentModelRef.current,
+            // Prefer finalMeta values, but fall back to already-baked message values
+            // (bus subscriptions may have baked values before handleStreamComplete runs)
+            outputTokens: finalMeta?.outputTokens || msg.outputTokens,
+            thinkingMs: finalMeta?.thinkingMs || msg.thinkingMs,
+            thinkingText: finalMeta?.thinkingText || msg.thinkingText || undefined,
+            toolCalls: interruptRunningToolCalls(msg.toolCalls),
+            parts: interruptRunningToolParts(msg.parts),
+            parallelAgents: finalizedAgents,
+            taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
+          }
+          : msg
       );
-
-      const remaining = getActiveBackgroundAgents(currentAgents);
-      if (remaining.length > 0 && messageId) {
-        backgroundAgentMessageIdRef.current = messageId;
-      }
-      return remaining;
     });
 
-    const hasRemainingBg = getActiveBackgroundAgents(parallelAgentsRef.current).length > 0;
+    // Update parallel agents state back-to-back in the same synchronous
+    // block so React 18+ batches both into a single re-render.
+    // Eagerly update the ref so stopSharedStreamState reads the correct value.
+    parallelAgentsRef.current = remaining;
+    setParallelAgents(remaining);
+
+    const hasRemainingBg = remaining.length > 0;
     stopSharedStreamState({ preserveStreamingStart: hasRemainingBg });
     finalizeThinkingSourceTracking();
 

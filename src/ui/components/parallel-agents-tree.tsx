@@ -9,10 +9,12 @@
 
 import React from "react";
 import { useTheme, getCatppuccinPalette } from "../theme.tsx";
-import { formatDuration as formatDurationObj, truncateText } from "../utils/format.ts";
+import { formatDuration as formatDurationObj, truncateText, normalizeMarkdownNewlines } from "../utils/format.ts";
 import { STATUS, TREE, CONNECTOR, MISC } from "../constants/icons.ts";
 import { SPACING } from "../constants/spacing.ts";
 import { buildParallelAgentsHeaderHint } from "../utils/background-agent-tree-hints.ts";
+import type { Part, TextPart, ToolPart } from "../parts/types.ts";
+import { AnimatedBlinkIndicator } from "./animated-blink-indicator.tsx";
 
 // Re-export for backward compatibility
 export { truncateText };
@@ -539,6 +541,10 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
   // Current tool shown on separate line only during active execution
   const showCurrentTool = isRunning && agent.currentTool && agent.toolUses !== undefined && agent.toolUses > 0;
 
+  // Inline parts from sub-agent streaming content
+  const inlineParts = agent.inlineParts ?? [];
+  const hasInlineParts = inlineParts.length > 0;
+
   return (
     <box flexDirection="column">
       {/* Tree row: ├─● task */}
@@ -567,8 +573,173 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
           </text>
         </box>
       )}
+      {/* Inline parts from sub-agent (text blocks, tool blocks) */}
+      {hasInlineParts && (
+        <AgentInlineParts
+          parts={inlineParts}
+          continuationPrefix={continuationPrefix}
+          themeColors={themeColors}
+        />
+      )}
     </box>
   );
+}
+
+// ============================================================================
+// AGENT INLINE PARTS (sub-agent streaming content)
+// ============================================================================
+
+/**
+ * Renders inline parts (text and tool blocks) from a sub-agent's
+ * streaming content, nested under the agent row with tree connectors.
+ */
+function AgentInlineParts({
+  parts,
+  continuationPrefix,
+  themeColors,
+}: {
+  parts: Part[];
+  continuationPrefix: string;
+  themeColors: ThemeColors;
+}): React.ReactNode {
+  return (
+    <box flexDirection="column">
+      {parts.map((part, idx) => {
+        const isLastPart = idx === parts.length - 1;
+        if (part.type === "text") {
+          return (
+            <AgentInlineText
+              key={part.id}
+              part={part as TextPart}
+              continuationPrefix={continuationPrefix}
+              themeColors={themeColors}
+            />
+          );
+        }
+        if (part.type === "tool") {
+          return (
+            <AgentInlineTool
+              key={part.id}
+              part={part as ToolPart}
+              continuationPrefix={continuationPrefix}
+              themeColors={themeColors}
+              isLast={isLastPart}
+            />
+          );
+        }
+        return null;
+      })}
+    </box>
+  );
+}
+
+/** Renders a text block from a sub-agent, indented under the tree connector. */
+function AgentInlineText({
+  part,
+  continuationPrefix,
+  themeColors,
+}: {
+  part: TextPart;
+  continuationPrefix: string;
+  themeColors: ThemeColors;
+}): React.ReactNode {
+  const content = normalizeMarkdownNewlines(part.content ?? "");
+  if (!content) return null;
+
+  // Truncate long text from sub-agents
+  const maxLen = 200;
+  const display = content.length > maxLen ? content.slice(0, maxLen) + "…" : content;
+
+  return (
+    <box flexDirection="row">
+      <box flexShrink={0}>
+        <text style={{ fg: themeColors.muted }}>{continuationPrefix}{SUB_STATUS_PAD}  </text>
+      </box>
+      <box flexGrow={1} flexShrink={1}>
+        <text style={{ fg: themeColors.foreground }}>{STATUS.active} {display}</text>
+      </box>
+    </box>
+  );
+}
+
+/** Renders a tool block from a sub-agent, indented under the tree connector. */
+function AgentInlineTool({
+  part,
+  continuationPrefix,
+  themeColors,
+  isLast: _isLast,
+}: {
+  part: ToolPart;
+  continuationPrefix: string;
+  themeColors: ThemeColors;
+  isLast: boolean;
+}): React.ReactNode {
+  const status = part.state.status;
+  const isComplete = status === "completed";
+  const isError = status === "error";
+  const isActive = status === "running";
+
+  const statusColor = isComplete
+    ? themeColors.success
+    : isError
+      ? themeColors.error
+      : isActive
+        ? themeColors.accent
+        : themeColors.muted;
+
+  const toolLabel = truncateText(part.toolName, 30);
+
+  // Build a brief summary of tool input for display
+  const inputSummary = getToolInputSummary(part);
+
+  return (
+    <box flexDirection="column">
+      <box flexDirection="row">
+        <box flexShrink={0}>
+          <text style={{ fg: themeColors.muted }}>{continuationPrefix}{SUB_STATUS_PAD}  </text>
+        </box>
+        <box flexShrink={0}>
+          {isActive ? (
+            <text><AnimatedBlinkIndicator color={statusColor} speed={500} /></text>
+          ) : (
+            <text style={{ fg: statusColor }}>{isComplete ? STATUS.active : isError ? STATUS.error : STATUS.pending}</text>
+          )}
+        </box>
+        <text style={{ fg: themeColors.foreground }}> {toolLabel}</text>
+        {inputSummary && (
+          <text style={{ fg: themeColors.muted }}> {inputSummary}</text>
+        )}
+      </box>
+    </box>
+  );
+}
+
+/** Extract a brief summary from tool input for inline display. */
+function getToolInputSummary(part: ToolPart): string {
+  const input = part.input;
+  if (!input) return "";
+
+  // Common tool input patterns
+  if (typeof input.command === "string") {
+    return truncateText(input.command as string, 40);
+  }
+  if (typeof input.pattern === "string") {
+    return truncateText(input.pattern as string, 40);
+  }
+  if (typeof input.path === "string") {
+    return truncateText(input.path as string, 40);
+  }
+  if (typeof input.query === "string") {
+    return truncateText(input.query as string, 40);
+  }
+  if (typeof input.description === "string") {
+    return truncateText(input.description as string, 40);
+  }
+  if (typeof input.prompt === "string") {
+    return truncateText(input.prompt as string, 40);
+  }
+
+  return "";
 }
 
 // ============================================================================

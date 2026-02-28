@@ -138,16 +138,25 @@ export function TaskListIndicator({
           ? ` › blocked by ${item.blockedBy!.map(id => id.startsWith("#") ? id : `#${id}`).join(", ")}`
           : "";
 
-        return (
+        return isActive ? (
+          // Active tasks use a row layout so the AnimatedBlinkIndicator
+          // lives in its own <text> node — OpenTUI re-renders it reliably
+          // when setInterval triggers a state change.
+          <box key={item.id ?? i} flexDirection="row">
+            <text wrapMode="none">
+              <span style={{ fg: themeColors.dim }}>{showConnector && i === 0 ? `${CONNECTOR.subStatus} ` : `${rail} `}</span>
+            </text>
+            <text><AnimatedBlinkIndicator color={color} speed={500} /></text>
+            <text wrapMode="none">
+              <span style={{ fg: contentColor }}>{` ${displayContent}`}</span>
+            </text>
+          </box>
+        ) : (
           <text key={item.id ?? i} wrapMode="none">
             {/* Left rail */}
             <span style={{ fg: themeColors.dim }}>{showConnector && i === 0 ? `${CONNECTOR.subStatus} ` : `${rail} `}</span>
             {/* Status icon */}
-            {isActive ? (
-              <AnimatedBlinkIndicator color={color} speed={500} />
-            ) : (
-              <span style={{ fg: textColor }}>{icon}</span>
-            )}
+            <span style={{ fg: textColor }}>{icon}</span>
             {/* Content */}
             <span style={{ fg: contentColor }}>{` ${displayContent}`}</span>
             {/* Status label for active/error */}

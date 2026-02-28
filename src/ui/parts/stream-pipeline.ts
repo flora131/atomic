@@ -663,6 +663,85 @@ function insertAgentPartAtTaskBoundary(parts: Part[], agentPart: AgentPart): Par
   ];
 }
 
+/**
+ * Buffer for agent-scoped events that arrive before the AgentPart is created.
+ * Keyed by agentId → array of pending StreamPartEvents.
+ * Replayed when the parallel-agents event creates the AgentPart.
+ */
+const agentEventBuffer = new Map<string, StreamPartEvent[]>();
+
+/** Buffer an event for later replay when agent appears in parts. */
+function bufferAgentEvent(agentId: string, event: StreamPartEvent): void {
+  const existing = agentEventBuffer.get(agentId) ?? [];
+  existing.push(event);
+  agentEventBuffer.set(agentId, existing);
+}
+
+/** Drain buffered events for an agent and apply them to parts. */
+function drainBufferedEvents(parts: Part[], agentId: string): Part[] {
+  const buffered = agentEventBuffer.get(agentId);
+  if (!buffered || buffered.length === 0) return parts;
+
+  agentEventBuffer.delete(agentId);
+  let currentParts = parts;
+  for (const event of buffered) {
+    if (event.type === "text-delta" && event.agentId) {
+      const routed = routeToAgentInlineParts(currentParts, event.agentId, (inlineParts) => {
+        const lastText = inlineParts.length > 0 ? inlineParts[inlineParts.length - 1] : undefined;
+        if (lastText && lastText.type === "text" && (lastText as TextPart).isStreaming) {
+          const updated = [...inlineParts];
+          updated[updated.length - 1] = {
+            ...(lastText as TextPart),
+            content: (lastText as TextPart).content + event.delta,
+          };
+          return updated;
+        }
+        return [...inlineParts, {
+          id: createPartId(),
+          type: "text",
+          content: event.delta,
+          isStreaming: true,
+          createdAt: new Date().toISOString(),
+        } as TextPart];
+      });
+      if (routed) currentParts = routed;
+    } else if (event.type === "tool-start" && event.agentId) {
+      const routed = routeToAgentInlineParts(currentParts, event.agentId, (inlineParts) => {
+        return upsertToolPartStart(inlineParts, event);
+      });
+      if (routed) currentParts = routed;
+    } else if (event.type === "tool-complete" && event.agentId) {
+      const routed = routeToAgentInlineParts(currentParts, event.agentId, (inlineParts) => {
+        return upsertToolPartComplete(inlineParts, event);
+      });
+      if (routed) currentParts = routed;
+    }
+  }
+  return currentParts;
+}
+
+/**
+ * Carry over inlineParts from existing agents when re-merging from
+ * parallelAgents state updates. Without this, every parallel-agents
+ * event would wipe out accumulated streaming content.
+ */
+function carryOverInlineParts(
+  agents: ParallelAgent[],
+  existingInlineParts: Map<string, Part[]>,
+): ParallelAgent[] {
+  if (existingInlineParts.size === 0) return agents;
+  let changed = false;
+  const result = agents.map((agent) => {
+    const existing = existingInlineParts.get(agent.id);
+    if (existing && existing.length > 0 && (!agent.inlineParts || agent.inlineParts.length === 0)) {
+      changed = true;
+      return { ...agent, inlineParts: existing };
+    }
+    return agent;
+  });
+  return changed ? result : agents;
+}
+
 export function mergeParallelAgentsIntoParts(
   parts: Part[],
   parallelAgents: ParallelAgent[],
@@ -673,7 +752,21 @@ export function mergeParallelAgentsIntoParts(
   const nonAgentParts: Part[] = parts.filter((part) => part.type !== "agent");
   const existingAgentParts = parts.filter((part): part is AgentPart => part.type === "agent");
 
-  if (normalizedAgents.length === 0) {
+  // Build a lookup of existing agents' inlineParts so we don't lose
+  // streaming content when re-merging from parallelAgents state updates.
+  const existingInlineParts = new Map<string, Part[]>();
+  for (const agentPart of existingAgentParts) {
+    for (const agent of agentPart.agents) {
+      if (agent.inlineParts && agent.inlineParts.length > 0) {
+        existingInlineParts.set(agent.id, agent.inlineParts);
+      }
+    }
+  }
+
+  // Also replay any buffered events for agents that are now present
+  const mergedAgents = carryOverInlineParts(normalizedAgents, existingInlineParts);
+
+  if (mergedAgents.length === 0) {
     return nonAgentParts;
   }
 
@@ -682,7 +775,7 @@ export function mergeParallelAgentsIntoParts(
     const groupedPart: AgentPart = {
       id: existingGroupedPart?.id ?? createPartId(),
       type: "agent",
-      agents: normalizedAgents,
+      agents: mergedAgents,
       parentToolPartId: undefined,
       createdAt: existingGroupedPart?.createdAt ?? messageTimestamp,
     };
@@ -697,7 +790,7 @@ export function mergeParallelAgentsIntoParts(
   }
 
   const agentsByToolCall = new Map<string | undefined, ParallelAgent[]>();
-  for (const agent of normalizedAgents) {
+  for (const agent of mergedAgents) {
     const toolCallId = agent.taskToolCallId;
     const grouped = agentsByToolCall.get(toolCallId) ?? [];
     grouped.push(agent);
@@ -895,8 +988,8 @@ export function applyStreamPartEvent(
           const nextMessage: ChatMessage = { ...message, parts: routed };
           return carryReasoningPartRegistry(message, nextMessage);
         }
-        // Agent not yet in parts (race with useEffect baking) — drop the
-        // delta rather than leaking sub-agent text into the main chat body.
+        // Agent not yet in parts — buffer for replay when AgentPart is created
+        bufferAgentEvent(event.agentId, event);
         return message;
       }
       const withParts = handleTextDelta(message, event.delta);
@@ -921,7 +1014,8 @@ export function applyStreamPartEvent(
           const nextMessage: ChatMessage = { ...message, toolCalls: nextToolCalls, parts: routed };
           return carryReasoningPartRegistry(message, nextMessage);
         }
-        // Agent not yet in parts — drop rather than adding to main chat
+        // Agent not yet in parts — buffer for replay when AgentPart is created
+        bufferAgentEvent(event.agentId, event);
         return message;
       }
       const nextToolCalls = upsertToolCallStart(message.toolCalls, event);
@@ -945,7 +1039,8 @@ export function applyStreamPartEvent(
           const nextMessage: ChatMessage = { ...message, toolCalls: nextToolCalls, parts: routed };
           return carryReasoningPartRegistry(message, nextMessage);
         }
-        // Agent not yet in parts — drop rather than adding to main chat
+        // Agent not yet in parts — buffer for replay when AgentPart is created
+        bufferAgentEvent(event.agentId, event);
         return message;
       }
       const nextToolCalls = upsertToolCallComplete(message.toolCalls, event);
@@ -993,12 +1088,16 @@ export function applyStreamPartEvent(
 
     case "parallel-agents": {
       const normalizedAgents = normalizeParallelAgents(event.agents);
-      const nextParts = mergeParallelAgentsIntoParts(
+      let nextParts = mergeParallelAgentsIntoParts(
         message.parts ?? [],
         normalizedAgents,
         message.timestamp,
         shouldGroupSubagentTrees({ ...message, parallelAgents: normalizedAgents }, event.isLastMessage),
       );
+      // Drain any buffered events for agents that are now in parts
+      for (const agent of normalizedAgents) {
+        nextParts = drainBufferedEvents(nextParts, agent.id);
+      }
       const nextMessage: ChatMessage = {
         ...message,
         parallelAgents: normalizedAgents,

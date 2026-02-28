@@ -42,9 +42,12 @@ import {
   startChatUI,
   darkTheme,
   lightTheme,
+  darkThemeAnsi,
+  lightThemeAnsi,
   type ChatUIConfig,
   type Theme,
 } from "../ui/index.ts";
+import { supportsTrueColor } from "../utils/detect.ts";
 import { VERSION } from "../version.ts";
 
 // ============================================================================
@@ -108,7 +111,11 @@ function getAgentDisplayName(agentType: AgentType): string {
  * Get theme from name.
  */
 function getTheme(themeName: "dark" | "light"): Theme {
-  return themeName === "light" ? lightTheme : darkTheme;
+  const truecolor = supportsTrueColor();
+  if (themeName === "light") {
+    return truecolor ? lightTheme : lightThemeAnsi;
+  }
+  return truecolor ? darkTheme : darkThemeAnsi;
 }
 
 /**

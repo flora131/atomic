@@ -28,6 +28,7 @@ import type { BatchDispatcher } from "../batch-dispatcher.ts";
 import { CorrelationService } from "./correlation-service.ts";
 import { EchoSuppressor } from "./echo-suppressor.ts";
 import { StreamPipelineConsumer } from "./stream-pipeline-consumer.ts";
+import { pipelineLog } from "../pipeline-logger.ts";
 
 /**
  * Container for wired consumer instances and cleanup.
@@ -83,6 +84,10 @@ export function wireConsumers(bus: AtomicEventBus, dispatcher: BatchDispatcher):
       if (correlation.isOwnedEvent(event)) {
         owned.push(event);
       }
+    }
+    const droppedUnowned = events.length - owned.length;
+    if (droppedUnowned > 0) {
+      pipelineLog("Wire", "filter_unowned", { total: events.length, owned: owned.length, droppedUnowned });
     }
     const enriched = owned.map((event) => correlation.enrich(event));
     // Filter out events marked for suppression (e.g., sub-agent text-complete)

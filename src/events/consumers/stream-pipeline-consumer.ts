@@ -35,6 +35,7 @@ import type { EnrichedBusEvent, BusEventDataMap } from "../bus-events.ts";
 import type { CorrelationService } from "./correlation-service.ts";
 import type { EchoSuppressor } from "./echo-suppressor.ts";
 import type { StreamPartEvent } from "../../ui/parts/stream-pipeline.ts";
+import { pipelineLog } from "../pipeline-logger.ts";
 
 /**
  * Callback type for receiving batches of StreamPartEvents.
@@ -109,6 +110,7 @@ export class StreamPipelineConsumer {
     }
 
     if (parts.length > 0 && this.callback) {
+      pipelineLog("Consumer", "batch_deliver", { count: parts.length });
       this.callback(parts);
     }
   }
@@ -169,14 +171,52 @@ export class StreamPipelineConsumer {
         return [mapped];
       }
 
+      case "stream.tool.partial_result": {
+        const data = event.data as BusEventDataMap["stream.tool.partial_result"];
+        return [{
+          type: "tool-partial-result",
+          toolId: data.toolCallId,
+          partialOutput: data.partialOutput,
+        }];
+      }
+
       case "stream.text.complete": {
         const data = event.data as BusEventDataMap["stream.text.complete"];
         return [{ type: "text-complete", fullText: data.fullText, messageId: data.messageId }];
       }
 
+      case "workflow.step.start": {
+        const data = event.data as BusEventDataMap["workflow.step.start"];
+        return [{
+          type: "workflow-step-start",
+          nodeId: data.nodeId,
+          nodeName: data.nodeName,
+          startedAt: event.timestamp,
+        }];
+      }
+
+      case "workflow.step.complete": {
+        const data = event.data as BusEventDataMap["workflow.step.complete"];
+        return [{
+          type: "workflow-step-complete",
+          nodeId: data.nodeId,
+          status: data.status,
+          completedAt: event.timestamp,
+        }];
+      }
+
+      case "workflow.task.update": {
+        const data = event.data as BusEventDataMap["workflow.task.update"];
+        return [{
+          type: "task-list-update",
+          tasks: data.tasks,
+        }];
+      }
+
       default:
         // Other event types are not mapped to StreamPartEvents
         // (they may be handled by other consumers)
+        pipelineLog("Consumer", "unmapped", { type: event.type });
         return null;
     }
   }

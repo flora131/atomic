@@ -37,6 +37,7 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { useEventBusContext } from "./event-bus-provider.tsx";
 import type { BusEvent, BusEventType, BusHandler, WildcardHandler } from "./bus-events.ts";
 import { wireConsumers } from "./consumers/wire-consumers.ts";
+import type { CorrelationService } from "./consumers/correlation-service.ts";
 import type { StreamPartEvent } from "../ui/parts/stream-pipeline.ts";
 import type { SDKStreamAdapter, StreamAdapterOptions } from "./adapters/types.ts";
 import type { Session } from "../sdk/types.ts";
@@ -214,6 +215,7 @@ export function useStreamConsumer(
   onStreamParts: (parts: StreamPartEvent[]) => void
 ): {
   resetConsumers: () => void;
+  getCorrelationService: () => CorrelationService | null;
   startStreaming: (
     adapter: SDKStreamAdapter,
     session: Session,
@@ -250,6 +252,10 @@ export function useStreamConsumer(
     consumersRef.current?.pipeline.reset();
   }, []);
 
+  const getCorrelationService = useCallback((): CorrelationService | null => {
+    return consumersRef.current?.correlation ?? null;
+  }, []);
+
   const stopStreaming = useCallback(() => {
     if (adapterRef.current) {
       adapterRef.current.dispose();
@@ -284,5 +290,5 @@ export function useStreamConsumer(
     };
   }, [stopStreaming]);
 
-  return { resetConsumers, startStreaming, stopStreaming, isStreaming };
+  return { resetConsumers, getCorrelationService, startStreaming, stopStreaming, isStreaming };
 }

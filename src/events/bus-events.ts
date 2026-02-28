@@ -75,6 +75,8 @@ export interface BusEventDataMap {
     delta: string;
     /** Message ID this delta belongs to */
     messageId: string;
+    /** Agent ID for sub-agent scoped events */
+    agentId?: string;
   };
 
   /**
@@ -97,6 +99,8 @@ export interface BusEventDataMap {
     sourceKey: string;
     /** Message ID this thinking belongs to */
     messageId: string;
+    /** Agent ID for sub-agent scoped events */
+    agentId?: string;
   };
 
   /**
@@ -427,6 +431,8 @@ export interface BusEventDataMap {
     outputTokens: number;
     /** Model identifier (optional) */
     model?: string;
+    /** Agent ID for sub-agent scoped events */
+    agentId?: string;
   };
 }
 
@@ -456,6 +462,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
   "stream.text.delta": z.object({
     delta: z.string(),
     messageId: z.string(),
+    agentId: z.string().optional(),
   }),
   "stream.text.complete": z.object({
     messageId: z.string(),
@@ -465,6 +472,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
     delta: z.string(),
     sourceKey: z.string(),
     messageId: z.string(),
+    agentId: z.string().optional(),
   }),
   "stream.thinking.complete": z.object({
     sourceKey: z.string(),
@@ -607,6 +615,7 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
     inputTokens: z.number(),
     outputTokens: z.number(),
     model: z.string().optional(),
+    agentId: z.string().optional(),
   }),
 };
 
@@ -661,4 +670,6 @@ export interface EnrichedBusEvent extends BusEvent {
   isSubagentTool?: boolean;
   /** Whether this event should be hidden in the main chat UI */
   suppressFromMainChat?: boolean;
+  /** Parent agent ID for sub-agent correlation */
+  parentAgentId?: string;
 }

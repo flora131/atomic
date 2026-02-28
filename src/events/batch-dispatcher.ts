@@ -16,6 +16,7 @@
 import type { BusEvent } from "./bus-events.ts";
 import { coalescingKey } from "./coalescing.ts";
 import type { AtomicEventBus } from "./event-bus.ts";
+import { pipelineLog } from "./pipeline-logger.ts";
 
 const FLUSH_INTERVAL_MS = 16; // ~60 FPS alignment
 
@@ -123,6 +124,7 @@ export class BatchDispatcher {
         // Replace in-place — only latest state matters
         this.writeBuffer[idx] = event;
         this._metrics.totalCoalesced++;
+        pipelineLog("Dispatcher", "coalesce", { key, type: event.type });
         return;
       }
       this.coalescingMap.set(key, this.writeBuffer.length);
@@ -174,6 +176,8 @@ export class BatchDispatcher {
     this._metrics.flushCount++;
     this._metrics.lastFlushSize = flushSize;
     this._metrics.lastFlushDuration = performance.now() - startTime;
+
+    pipelineLog("Dispatcher", "flush", { count: flushSize, durationMs: this._metrics.lastFlushDuration });
   }
 
   /**

@@ -19,6 +19,7 @@ import type {
   WildcardHandler,
 } from "./bus-events.ts";
 import { BusEventSchemas } from "./bus-events.ts";
+import { pipelineLog } from "./pipeline-logger.ts";
 
 /**
  * Core event bus for the streaming architecture.
@@ -142,6 +143,7 @@ export class AtomicEventBus {
       try {
         schema.parse(event.data);
       } catch (error) {
+        pipelineLog("EventBus", "schema_drop", { type: event.type });
         console.error(`[EventBus] Schema validation failed for ${event.type}:`, error);
         // DEBUG: Log the actual event data that failed validation
         if (event.type.startsWith("stream.tool.")) {
@@ -158,6 +160,7 @@ export class AtomicEventBus {
         try {
           handler(event as BusEvent<BusEventType>);
         } catch (error) {
+          pipelineLog("EventBus", "handler_error", { type: event.type });
           console.error(`[EventBus] Error in handler for ${event.type}:`, error);
         }
       }
@@ -168,6 +171,7 @@ export class AtomicEventBus {
       try {
         handler(event);
       } catch (error) {
+        pipelineLog("EventBus", "wildcard_handler_error", { type: event.type });
         console.error(`[EventBus] Error in wildcard handler:`, error);
       }
     }

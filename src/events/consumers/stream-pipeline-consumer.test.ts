@@ -178,6 +178,94 @@ describe("StreamPipelineConsumer", () => {
     });
   });
 
+  it("should map workflow.step.start to workflow-step-start event", () => {
+    const now = Date.now();
+    const event: EnrichedBusEvent = {
+      type: "workflow.step.start",
+      sessionId: "test",
+      runId: 1,
+      timestamp: now,
+      data: { workflowId: "wf1", nodeId: "node1", nodeName: "Planner" },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "workflow-step-start",
+      nodeId: "node1",
+      nodeName: "Planner",
+      startedAt: now,
+    });
+  });
+
+  it("should map workflow.step.complete to workflow-step-complete event", () => {
+    const now = Date.now();
+    const event: EnrichedBusEvent = {
+      type: "workflow.step.complete",
+      sessionId: "test",
+      runId: 1,
+      timestamp: now,
+      data: { workflowId: "wf1", nodeId: "node1", status: "success" },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "workflow-step-complete",
+      nodeId: "node1",
+      status: "success",
+      completedAt: now,
+    });
+  });
+
+  it("should map workflow.task.update to task-list-update event", () => {
+    const event: EnrichedBusEvent = {
+      type: "workflow.task.update",
+      sessionId: "test",
+      runId: 1,
+      timestamp: Date.now(),
+      data: {
+        workflowId: "wf1",
+        tasks: [
+          { id: "t1", title: "Plan", status: "complete" },
+          { id: "t2", title: "Implement", status: "pending" },
+        ],
+      },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "task-list-update",
+      tasks: [
+        { id: "t1", title: "Plan", status: "complete" },
+        { id: "t2", title: "Implement", status: "pending" },
+      ],
+    });
+  });
+
+  it("should map stream.tool.partial_result to tool-partial-result event", () => {
+    const event: EnrichedBusEvent = {
+      type: "stream.tool.partial_result",
+      sessionId: "test",
+      runId: 1,
+      timestamp: Date.now(),
+      data: { toolCallId: "tool1", partialOutput: "partial output line\n" },
+    };
+
+    consumer.processBatch([event]);
+
+    expect(receivedEvents).toHaveLength(1);
+    expect(receivedEvents[0]).toEqual({
+      type: "tool-partial-result",
+      toolId: "tool1",
+      partialOutput: "partial output line\n",
+    });
+  });
+
   it("should ignore unmapped event types", () => {
     const event: EnrichedBusEvent = {
       type: "stream.session.start",

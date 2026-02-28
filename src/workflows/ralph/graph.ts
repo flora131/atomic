@@ -206,9 +206,9 @@ export function createRalphWorkflow() {
       ],
       {
         until: (state) =>
-          state.tasks.every((t) => t.status === "completed" || t.status === "error") ||
+          (state.tasks.length > 0 && state.tasks.every((t) => t.status === "completed" || t.status === "error")) ||
           state.iteration >= state.maxIterations ||
-          !hasActionableTasks(state.tasks),
+          (state.tasks.length > 0 && !hasActionableTasks(state.tasks)),
         maxIterations: 100,
       }
     )

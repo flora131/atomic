@@ -478,6 +478,7 @@ export interface GraphRuntimeDependencies {
     get(name: string): SubagentEntry | undefined;
     getAll(): SubagentEntry[];
   };
+  notifyTaskStatusChange?: (taskIds: string[], newStatus: string, tasks: Array<{ id: string; title: string; status: string }>) => void;
 }
 
 /**

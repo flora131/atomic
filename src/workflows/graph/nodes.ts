@@ -31,6 +31,7 @@ import type { z } from "zod";
 import { getToolRegistry } from "../../sdk/tools/registry.ts";
 import { SchemaValidationError, NodeExecutionError } from "./errors.ts";
 import type { SubagentStreamResult, SubagentSpawnOptions } from "./types.ts";
+import { pipelineLog } from "../../events/pipeline-logger.ts";
 
 // ============================================================================
 // AGENT NODE
@@ -1688,6 +1689,7 @@ export function subagentNode<TState extends BaseState>(
       }
       const entry = registry.get(config.agentName);
       if (!entry) {
+        pipelineLog("Subagent", "registry_miss", { agentName: config.agentName });
         throw new Error(
           `Sub-agent "${config.agentName}" not found in registry. ` +
           `Available agents: ${registry.getAll().map(a => a.name).join(", ")}`
@@ -1710,6 +1712,8 @@ export function subagentNode<TState extends BaseState>(
         model: config.model ?? ctx.model,
         tools: config.tools,
       });
+
+      pipelineLog("Subagent", "spawn_complete", { agentName: config.agentName, success: result.success });
 
       if (!result.success) {
         throw new Error(
@@ -1794,7 +1798,11 @@ export function parallelSubagentNode<TState extends BaseState>(
         tools: agent.tools,
       }));
 
+      pipelineLog("Subagent", "parallel_spawn", { count: spawnOptions.length, agents: spawnOptions.map(o => o.agentName) });
+
       const results = await spawnSubagentParallel(spawnOptions);
+
+      pipelineLog("Subagent", "parallel_complete", { count: results.length });
 
       const resultMap = new Map<string, SubagentStreamResult>();
       results.forEach((result, i) => {

@@ -280,6 +280,8 @@ export async function executeWorkflow(
         // Phase 5: Stream graph execution with progress
         let sessionTracked = false;
         let lastNodeId: string | null = null;
+        let lastStepStatus: string | null = null;
+        let lastStepError: string | undefined;
         const nodeDescriptions = definition.nodeDescriptions;
 
         // Debounced saveTasksToSession to avoid I/O contention during rapid updates
@@ -322,6 +324,10 @@ export async function executeWorkflow(
         }
 
         for await (const step of streamGraph(compiled, { initialState })) {
+            // Track step status for failure detection
+            lastStepStatus = step.status;
+            lastStepError = step.error?.error instanceof Error ? step.error.error.message : step.error?.error;
+
             // Show progress for node transitions
             if (step.nodeId !== lastNodeId) {
                 const description = nodeDescriptions?.[step.nodeId];
@@ -408,12 +414,46 @@ export async function executeWorkflow(
             );
         }
 
-        // Phase 6: Success
+        // Phase 6: Check execution status and report result
+        context.setStreaming(false);
+
+        // Silent exit for workflow cancellation (e.g., double Ctrl+C).
+        // Cancellation can surface as status "cancelled" (via AbortSignal) or
+        // status "failed" with "Workflow cancelled" error (thrown by node).
+        if (lastStepStatus === "cancelled" ||
+            (lastStepStatus === "failed" && lastStepError === "Workflow cancelled")) {
+            return {
+                success: true,
+                stateUpdate: {
+                    workflowActive: false,
+                    workflowType: null,
+                    initialPrompt: null,
+                },
+            };
+        }
+
+        if (lastStepStatus === "failed") {
+            const errorDetail = lastStepError ? `: ${lastStepError}` : "";
+            context.addMessage(
+                "assistant",
+                `**${definition.name}** workflow failed at node "${lastNodeId ?? "unknown"}"${errorDetail}`,
+            );
+
+            return {
+                success: false,
+                message: `Workflow failed at node "${lastNodeId ?? "unknown"}"${errorDetail}`,
+                stateUpdate: {
+                    workflowActive: false,
+                    workflowType: null,
+                    initialPrompt: null,
+                },
+            };
+        }
+
         context.addMessage(
             "assistant",
             `**${definition.name}** workflow completed successfully.`,
         );
-        context.setStreaming(false);
 
         return {
             success: true,

@@ -307,7 +307,6 @@ Top-level Atomic CLI commands.
 | `-w, --workflow` | `false` | Enable graph workflow mode |
 | `-t, --theme <name>` | `"dark"` | UI theme (`dark`, `light`) |
 | `-m, --model <name>` | (none) | Model to use for the chat session |
-| `--max-iterations <n>` | `"100"` | Maximum iterations for workflow mode |
 | `[prompt...]` | (none) | Initial prompt to send |
 
 #### `atomic init` Flags

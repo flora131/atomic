@@ -1213,7 +1213,7 @@ export class OpenCodeClient implements CodingAgentClient {
       sessionID: this.currentSessionId ?? "",
       messageID: "",
       agent: "opencode" as const,
-      directory: this.clientOptions.directory,
+      directory: this.clientOptions.directory ?? process.cwd(),
       abort: new AbortController().signal,
     });
 

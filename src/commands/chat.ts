@@ -36,6 +36,7 @@ import {
   createCopilotClient,
 } from "../sdk/clients/index.ts";
 import { createTodoWriteTool } from "../sdk/tools/todo-write.ts";
+import { registerCustomTools } from "../sdk/tools/index.ts";
 
 // Chat UI imports
 import {
@@ -63,8 +64,6 @@ export interface ChatCommandOptions {
   model?: string;
   /** Enable graph workflow mode */
   workflow?: boolean;
-  /** Maximum iterations for workflow */
-  maxIterations?: number;
   /** Initial prompt to send on session start */
   initialPrompt?: string;
 }
@@ -246,6 +245,9 @@ export async function chatCommand(options: ChatCommandOptions = {}): Promise<num
   if (agentType === "copilot") {
     client.registerTool(createTodoWriteTool());
   }
+
+  // Discover and register custom tools before starting the client
+  await registerCustomTools(client);
 
   try {
     await client.start();

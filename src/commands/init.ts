@@ -29,6 +29,7 @@ import {
 import { displayBanner } from "../utils/banner";
 import { copyFile, pathExists } from "../utils/copy";
 import { detectInstallationType, getConfigRoot } from "../utils/config-path";
+import { mergeJsonFile } from "../utils/merge";
 import { isWindows, isWslInstalled, WSL_INSTALL_URL, getOppositeScriptExtension } from "../utils/detect";
 import { trackAtomicCommand, handleTelemetryConsent, type AgentType } from "../telemetry";
 import { saveAtomicConfig } from "../utils/atomic-config";
@@ -390,6 +391,20 @@ export async function initCommand(options: InitOptions = {}): Promise<void> {
       targetDir,
       configRoot,
     });
+
+    // Merge JSON config files (e.g., .mcp.json, mcp-config.json)
+    for (const file of agent.merge_files) {
+      const srcFile = join(configRoot, file);
+      const destFile = join(targetDir, file);
+
+      if (await pathExists(srcFile)) {
+        if (await pathExists(destFile)) {
+          await mergeJsonFile(srcFile, destFile);
+        } else {
+          await copyFile(srcFile, destFile);
+        }
+      }
+    }
 
     // Save SCM selection to .atomic/settings.json
     await saveAtomicConfig(targetDir, {

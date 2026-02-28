@@ -3,7 +3,7 @@
     "version": "0.4.19",
     "description": "Configuration management CLI for coding agents",
     "type": "module",
-    "license": "MIT",
+    "license": "BUSL-1.1",
     "repository": {
         "type": "git",
         "url": "git+https://github.com/flora131/atomic.git"

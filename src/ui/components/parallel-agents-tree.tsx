@@ -541,8 +541,17 @@ function AgentRow({ agent, isLast, compact, themeColors }: AgentRowProps): React
   // Current tool shown on separate line only during active execution
   const showCurrentTool = isRunning && agent.currentTool && agent.toolUses !== undefined && agent.toolUses > 0;
 
-  // Inline parts from sub-agent streaming content
-  const inlineParts = agent.inlineParts ?? [];
+  // Inline parts from sub-agent streaming content.
+  // Suppress the last inline part when it's a tool that duplicates currentTool
+  // to avoid showing the same tool call twice (once as name-only, once with args).
+  const rawInlineParts = agent.inlineParts ?? [];
+  const inlineParts = showCurrentTool && rawInlineParts.length > 0
+    ? (() => {
+      const last = rawInlineParts[rawInlineParts.length - 1];
+      if (last && last.type === "tool") return rawInlineParts.slice(0, -1);
+      return rawInlineParts;
+    })()
+    : rawInlineParts;
   const hasInlineParts = inlineParts.length > 0;
 
   return (
@@ -602,33 +611,29 @@ function AgentInlineParts({
   continuationPrefix: string;
   themeColors: ThemeColors;
 }): React.ReactNode {
+  // Only display the latest part to avoid cluttering the tree
+  const latestPart = parts.length > 0 ? parts[parts.length - 1] : undefined;
+
+  if (!latestPart) return null;
+
   return (
     <box flexDirection="column">
-      {parts.map((part, idx) => {
-        const isLastPart = idx === parts.length - 1;
-        if (part.type === "text") {
-          return (
-            <AgentInlineText
-              key={part.id}
-              part={part as TextPart}
-              continuationPrefix={continuationPrefix}
-              themeColors={themeColors}
-            />
-          );
-        }
-        if (part.type === "tool") {
-          return (
-            <AgentInlineTool
-              key={part.id}
-              part={part as ToolPart}
-              continuationPrefix={continuationPrefix}
-              themeColors={themeColors}
-              isLast={isLastPart}
-            />
-          );
-        }
-        return null;
-      })}
+      {latestPart.type === "text" ? (
+        <AgentInlineText
+          key={latestPart.id}
+          part={latestPart as TextPart}
+          continuationPrefix={continuationPrefix}
+          themeColors={themeColors}
+        />
+      ) : latestPart.type === "tool" ? (
+        <AgentInlineTool
+          key={latestPart.id}
+          part={latestPart as ToolPart}
+          continuationPrefix={continuationPrefix}
+          themeColors={themeColors}
+          isLast={true}
+        />
+      ) : null}
     </box>
   );
 }

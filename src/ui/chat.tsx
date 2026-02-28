@@ -47,7 +47,6 @@ import {
   type UserQuestion,
   type QuestionAnswer,
 } from "./components/user-question-dialog.tsx";
-import { TimestampDisplay } from "./components/timestamp-display.tsx";
 import {
   ModelSelectorDialog,
 } from "./components/model-selector-dialog.tsx";
@@ -104,13 +103,8 @@ import {
   type NormalizedTodoItem,
 } from "./utils/task-status.ts";
 import {
-  AUTO_COMPACTION_INDICATOR_IDLE_STATE,
-  AUTO_COMPACTION_RESULT_VISIBILITY_MS,
   clearRunningAutoCompactionIndicator,
-  completeAutoCompactionIndicator,
-  getAutoCompactionIndicatorLabel,
-  shouldShowAutoCompactionIndicator,
-  startAutoCompactionIndicator,
+  isAutoCompactionToolName,
   type AutoCompactionIndicatorState,
 } from "./utils/auto-compaction-lifecycle.ts";
 import {
@@ -127,7 +121,6 @@ import {
 import { getNextKittyKeyboardDetectionState } from "./utils/kitty-keyboard-detection.ts";
 import {
   getEnqueueShortcutLabel,
-  isBareLinefeedEvent,
   shouldApplyBackslashLineContinuation,
   shouldEnqueueMessageFromKeyEvent,
   shouldInsertNewlineFallbackFromKeyEvent,
@@ -901,8 +894,6 @@ export interface MessageBubbleProps {
   collapsed?: boolean;
   /** Live streaming metadata (tokens, thinking duration) */
   streamingMeta?: StreamingMeta | null;
-  /** Whether verbose mode is enabled (shows timestamps, model info) */
-  isVerbose?: boolean;
 }
 
 // ============================================================================
@@ -1422,7 +1413,7 @@ function getRenderableAssistantParts(
 
   return parts;
 }
-export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, workflowSessionDir, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta, isVerbose = false }: MessageBubbleProps): React.ReactNode {
+export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestion = false, hideLoading = false, todoItems, tasksExpanded = false, inlineTasksEnabled = true, workflowSessionDir, showTodoPanel = true, elapsedMs, collapsed = false, streamingMeta }: MessageBubbleProps): React.ReactNode {
   const themeColors = useThemeColors();
 
   // Collapsed mode: show compact single-line summary for each message
@@ -1498,10 +1489,8 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
 
   // Assistant message: parts-based rendering only
   if (message.role === "assistant") {
-    const shouldRenderInlineTasks = inlineTasksEnabled && !message.tasksPinned;
-    const taskItemsToShow = shouldRenderInlineTasks
-      ? (message.streaming ? todoItems : message.taskItems)
-      : undefined;
+    const shouldRenderInlineTasks = inlineTasksEnabled && !message.tasksPinned && message.streaming;
+    const taskItemsToShow = shouldRenderInlineTasks ? todoItems : undefined;
     const inlineTaskExpansion = shouldRenderInlineTasks ? (tasksExpanded || undefined) : false;
     const renderableMessage = {
       ...message,
@@ -1558,16 +1547,6 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
           </box>
         )}
 
-        {/* Verbose mode: timestamp, duration, and model info */}
-        {isVerbose && !message.streaming && (
-          <box marginTop={SPACING.ELEMENT}>
-            <TimestampDisplay
-              timestamp={message.timestamp}
-              durationMs={message.durationMs}
-              modelId={message.modelId}
-            />
-          </box>
-        )}
 
       </box>
     );
@@ -1718,7 +1697,7 @@ export function ChatApp({
   const [transcriptMode, setTranscriptMode] = useState(false);
 
   // Verbose mode: shows timestamps, model info on messages (ctrl+e toggle)
-  const { isVerbose, toggle: toggleVerbose } = useVerboseMode();
+  const { toggle: toggleVerbose } = useVerboseMode();
 
   // State for showing user question dialog
   const [activeQuestion, setActiveQuestion] = useState<UserQuestion | null>(null);
@@ -1794,13 +1773,10 @@ export function ChatApp({
   // Compaction state: stores summary text after /compact for Ctrl+O history
   const [compactionSummary, setCompactionSummary] = useState<string | null>(null);
   const [showCompactionHistory, setShowCompactionHistory] = useState(false);
-  const [autoCompactionIndicator, setAutoCompactionIndicator] = useState<AutoCompactionIndicatorState>(
-    AUTO_COMPACTION_INDICATOR_IDLE_STATE
-  );
+  const [isAutoCompacting, setIsAutoCompacting] = useState(false);
   const autoCompactionIndicatorRef = useRef<AutoCompactionIndicatorState>(
-    AUTO_COMPACTION_INDICATOR_IDLE_STATE
+    { status: "idle" }
   );
-  const autoCompactionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // TodoWrite persistent state
   const [todoItems, setTodoItems] = useState<NormalizedTodoItem[]>([]);
   const todoItemsRef = useRef<NormalizedTodoItem[]>([]);
@@ -1872,6 +1848,8 @@ export function ChatApp({
   // Ref to track streaming state synchronously (for immediate check in handleSubmit)
   // This avoids race conditions where React state hasn't updated yet
   const isStreamingRef = useRef(false);
+  // Ref to track workflow active state synchronously for async callbacks
+  const workflowActiveRef = useRef(false);
   // Ref to keep a synchronous copy of streaming meta for baking into message on completion
   const streamingMetaRef = useRef<StreamingMeta | null>(null);
   // Source keys closed by stream finalize/interrupt/error.
@@ -2012,7 +1990,11 @@ export function ChatApp({
     // Clean up when all background agents reach terminal state
     if (getActiveBackgroundAgents(agents).length === 0) {
       backgroundAgentMessageIdRef.current = null;
-      streamingStartRef.current = null;
+      // Preserve streamingStartRef during workflow execution so the
+      // "Running workflow… (Xs)" timer survives agent completions.
+      if (!workflowActiveRef.current) {
+        streamingStartRef.current = null;
+      }
     }
   }, [setMessagesWindowed]);
 
@@ -2115,26 +2097,54 @@ export function ChatApp({
     return snapshotTaskItems(updated) as TaskItem[] | undefined;
   }, [isWorkflowTaskUpdate]);
 
-  const clearAutoCompactionTimeout = useCallback(() => {
-    if (autoCompactionTimeoutRef.current) {
-      clearTimeout(autoCompactionTimeoutRef.current);
-      autoCompactionTimeoutRef.current = null;
+  const applyAutoCompactionIndicator = useCallback((next: AutoCompactionIndicatorState) => {
+    autoCompactionIndicatorRef.current = next;
+
+    if (next.status === "running") {
+      setIsAutoCompacting(true);
+      // Override spinner verb on current streaming message so the existing
+      // LoadingIndicator above the chatbox shows "Compacting" instead of
+      // rendering a separate indicator below.
+      const messageId = streamingMessageIdRef.current;
+      if (messageId) {
+        setMessagesWindowed((prev) =>
+          prev.map((msg) =>
+            msg.id === messageId ? { ...msg, spinnerVerb: "Compacting" } : msg
+          )
+        );
+      }
+    } else if (next.status === "completed") {
+      setIsAutoCompacting(false);
+      // Compaction succeeded: persist current messages as summary to history buffer,
+      // then clear chat and create a fresh streaming message so the active stream
+      // continues seamlessly into the new (compacted) context.
+      const newMsg = createMessage("assistant", "", true);
+      streamingMessageIdRef.current = newMsg.id;
+      setMessagesWindowed((prev) => {
+        clearHistoryBuffer();
+        const summaryText = `[Auto-compaction completed at ${new Date().toISOString()}] Context was automatically compacted to reduce token usage.`;
+        appendCompactionSummary(summaryText);
+        setCompactionSummary(summaryText);
+        setShowCompactionHistory(false);
+        return [newMsg];
+      });
+    } else if (next.status === "error") {
+      setIsAutoCompacting(false);
+      // Clear the "Compacting" verb override so the spinner falls back to default
+      const messageId = streamingMessageIdRef.current;
+      if (messageId) {
+        setMessagesWindowed((prev) =>
+          prev.map((msg) =>
+            msg.id === messageId && msg.spinnerVerb === "Compacting"
+              ? { ...msg, spinnerVerb: undefined }
+              : msg
+          )
+        );
+      }
+    } else {
+      setIsAutoCompacting(false);
     }
   }, []);
-
-  const applyAutoCompactionIndicator = useCallback((next: AutoCompactionIndicatorState) => {
-    clearAutoCompactionTimeout();
-    autoCompactionIndicatorRef.current = next;
-    setAutoCompactionIndicator(next);
-
-    if (next.status === "completed" || next.status === "error") {
-      autoCompactionTimeoutRef.current = setTimeout(() => {
-        autoCompactionIndicatorRef.current = AUTO_COMPACTION_INDICATOR_IDLE_STATE;
-        setAutoCompactionIndicator(AUTO_COMPACTION_INDICATOR_IDLE_STATE);
-        autoCompactionTimeoutRef.current = null;
-      }, AUTO_COMPACTION_RESULT_VISIBILITY_MS);
-    }
-  }, [clearAutoCompactionTimeout]);
 
   const stopSharedStreamState = useCallback((options?: {
     preserveStreamingStart?: boolean;
@@ -2243,12 +2253,8 @@ export function ChatApp({
     input: Record<string, unknown>,
     agentId?: string,
   ) => {
-    const nextCompactionState = startAutoCompactionIndicator(
-      autoCompactionIndicatorRef.current,
-      toolName,
-    );
-    if (nextCompactionState !== autoCompactionIndicatorRef.current) {
-      applyAutoCompactionIndicator(nextCompactionState);
+    if (isAutoCompactionToolName(toolName) && autoCompactionIndicatorRef.current.status !== "running") {
+      applyAutoCompactionIndicator({ status: "running" });
     }
 
     toolNameByIdRef.current.set(toolId, toolName);
@@ -2373,16 +2379,12 @@ export function ChatApp({
     agentId?: string,
   ) => {
     const completedToolName = toolNameByIdRef.current.get(toolId) ?? toolName;
-    if (completedToolName && completedToolName !== "unknown") {
-      const nextCompactionState = completeAutoCompactionIndicator(
-        autoCompactionIndicatorRef.current,
-        completedToolName,
-        success,
-        error,
+    if (completedToolName && completedToolName !== "unknown" && isAutoCompactionToolName(completedToolName)) {
+      applyAutoCompactionIndicator(
+        success
+          ? { status: "completed" }
+          : { status: "error", errorMessage: error?.trim() || undefined },
       );
-      if (nextCompactionState !== autoCompactionIndicatorRef.current) {
-        applyAutoCompactionIndicator(nextCompactionState);
-      }
     }
 
     const completedAskQuestion = isAskQuestionToolName(completedToolName);
@@ -2771,6 +2773,21 @@ export function ChatApp({
           )
         );
       }
+      // Workflow step and task list events — route through the same parts
+      // pipeline as the main chat so workflow sub-agent trees, tool blocks,
+      // and step markers render in the unified TUI.
+      if (part.type === "workflow-step-start" || part.type === "workflow-step-complete" || part.type === "task-list-update") {
+        const messageId = streamingMessageIdRef.current;
+        if (!messageId) continue;
+        setMessagesWindowed((prev: ChatMessage[]) =>
+          prev.map((msg: ChatMessage) =>
+            msg.id === messageId
+              ? applyStreamPartEvent(msg, part)
+              : msg
+          )
+        );
+        continue;
+      }
     }
   });
 
@@ -3043,7 +3060,6 @@ export function ChatApp({
       if (interruptTimeoutRef.current) {
         clearTimeout(interruptTimeoutRef.current);
       }
-      clearAutoCompactionTimeout();
       if (deferredCompleteTimeoutRef.current) {
         clearTimeout(deferredCompleteTimeoutRef.current);
       }
@@ -3051,7 +3067,7 @@ export function ChatApp({
         clearTimeout(backgroundTerminationTimeoutRef.current);
       }
     };
-  }, [clearAutoCompactionTimeout]);
+  }, []);
 
   const startAssistantStream = useCallback((
     content: string,
@@ -3118,6 +3134,11 @@ export function ChatApp({
     if (!workflowState.workflowActive) {
       workflowStartedRef.current = null;
     }
+  }, [workflowState.workflowActive]);
+
+  // Keep workflowActiveRef in sync for async callbacks (spawnSubagentParallel, addMessage)
+  useEffect(() => {
+    workflowActiveRef.current = workflowState.workflowActive;
   }, [workflowState.workflowActive]);
 
   // Auto-hide task list panel when workflow ends naturally
@@ -3844,6 +3865,14 @@ export function ChatApp({
     // and addMessage together.
     const streaming = role === "assistant" && isStreamingRef.current;
     const msg = createMessage(role, content, streaming);
+    // During workflow execution, set the spinner verb and start the elapsed timer
+    // so the user sees "Running workflow… (Xs)" throughout the workflow lifecycle.
+    if (streaming && workflowActiveRef.current) {
+      msg.spinnerVerb = "Running workflow";
+      if (!streamingStartRef.current) {
+        streamingStartRef.current = Date.now();
+      }
+    }
     // Set streamingMessageIdRef so downstream handlers (text-delta, parallel-agents sync,
     // tool events) can target this message. Without this, workflow sub-agent events have
     // no target message and get silently dropped.
@@ -3870,6 +3899,8 @@ export function ChatApp({
   const setStreamingWithFinalize = useCallback((streaming: boolean) => {
     // When turning off streaming, finalize the last assistant message
     if (!streaming && isStreamingRef.current) {
+      // Reset the elapsed timer so the next workflow/stream starts fresh.
+      streamingStartRef.current = null;
       setMessagesWindowed((prev) => {
         const lastMsg = prev[prev.length - 1];
         if (lastMsg && lastMsg.role === "assistant" && lastMsg.streaming) {
@@ -4214,8 +4245,14 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           } else {
             streamCompletionResolverRef.current = previousResolver ?? null;
           }
-          setStreamingWithFinalize(false);
-          setStreamingState?.(false);
+          // During workflow execution, keep the streaming message alive so the
+          // spinner, sub-agent tree, and tool blocks continue rendering across
+          // graph step boundaries. The executor's setStreaming(false) call at
+          // workflow end handles final finalization.
+          if (!workflowActiveRef.current) {
+            setStreamingWithFinalize(false);
+            setStreamingState?.(false);
+          }
         }
       },
       streamAndWait: (prompt: string, options?: { hideContent?: boolean }) => {
@@ -4349,7 +4386,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         // Reset UI state on session destroy (/clear)
         setCompactionSummary(null);
         setShowCompactionHistory(false);
-        applyAutoCompactionIndicator(AUTO_COMPACTION_INDICATOR_IDLE_STATE);
+        setIsAutoCompacting(false);
+        autoCompactionIndicatorRef.current = { status: "idle" };
         setParallelAgents([]);
         setTranscriptMode(false);
         clearHistoryBuffer();
@@ -5016,7 +5054,10 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             parallelAgentsRef.current = remainingLiveAgents;
             setParallelAgents(remainingLiveAgents);
             backgroundAgentMessageIdRef.current = null;
-            streamingStartRef.current = null;
+            // Preserve streamingStartRef during workflow so the timer persists.
+            if (!workflowActiveRef.current) {
+              streamingStartRef.current = null;
+            }
             clearDeferredCompletion();
 
             void Promise.resolve(onTerminateBackgroundAgents?.()).catch((error) => {
@@ -5457,35 +5498,8 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               hasAgentMentions,
             });
             messageQueue.enqueue(value);
-            if (textarea) {
-              textarea.gotoBufferHome();
-              textarea.gotoBufferEnd({ select: true });
-              textarea.deleteChar();
-            }
-          }
-          event.stopPropagation();
-          return;
-        }
-
-        // In non-Kitty terminals, Ctrl+Shift+Enter produces a bare `\n` byte
-        // that is identical to Ctrl+J — the terminal can't encode modifiers.
-        // Treat bare linefeed as an enqueue action so Ctrl+Shift+Enter works.
-        // (Ctrl+J also triggers enqueue as a side-effect; users can use `\` +
-        // Enter for newlines in non-Kitty terminals instead.)
-        if (isBareLinefeedEvent(event) && !kittyKeyboardDetectedRef.current) {
-          const textarea = textareaRef.current;
-          const value = textarea?.plainText?.trim() ?? "";
-          if (value) {
-            const hasAgentMentions = parseAtMentions(value).length > 0;
-            const hasAnyMentionToken = hasAnyAtReferenceToken(value);
-            emitMessageSubmitTelemetry({
-              messageLength: value.length,
-              queued: true,
-              fromInitialPrompt: false,
-              hasFileMentions: hasAnyMentionToken && !hasAgentMentions,
-              hasAgentMentions,
-            });
-            messageQueue.enqueue(value);
+            // Auto-dispatch if no stream is active (e.g. first message in session)
+            continueQueuedConversation();
             if (textarea) {
               textarea.gotoBufferHome();
               textarea.gotoBufferEnd({ select: true });
@@ -6065,7 +6079,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           inlineTasksEnabled={!workflowSessionDir}
           workflowSessionDir={workflowSessionDir}
           showTodoPanel={showTodoPanel}
-          isVerbose={isVerbose}
         />
         );
       })}
@@ -6221,25 +6234,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                 </box>
               )}
             </box>
-            {shouldShowAutoCompactionIndicator(autoCompactionIndicator) && (
-              <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
-                <text style={{ fg: themeColors.muted }}>
-                  auto-compaction
-                </text>
-                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
-                <text
-                  style={{
-                    fg: autoCompactionIndicator.status === "running"
-                      ? themeColors.accent
-                      : autoCompactionIndicator.status === "completed"
-                        ? themeColors.success
-                        : themeColors.error,
-                  }}
-                >
-                  {getAutoCompactionIndicatorLabel(autoCompactionIndicator)}
-                </text>
-              </box>
-            )}
+            {/* Auto-compaction spinner is now shown via spinnerVerb override on the streaming message above */}
             {/* Footer status bar */}
             <FooterStatus
               isStreaming={isStreaming}

@@ -7,7 +7,7 @@
  * Reference: Feature 19 - Implement theme support with dark/light modes
  */
 
-import React, { createContext, useContext, useState, useCallback } from "react";
+import React, { createContext, useContext, useState, useCallback, useMemo } from "react";
 import { SyntaxStyle, RGBA, type StyleDefinition } from "@opentui/core";
 
 // ============================================================================
@@ -271,6 +271,68 @@ export const lightTheme: Theme = {
   },
 };
 
+/**
+ * ANSI-safe dark theme for terminals without truecolor support (e.g. macOS Terminal.app).
+ * Uses standard ANSI color names that map to the terminal's own palette,
+ * guaranteeing legible text regardless of color capability.
+ */
+export const darkThemeAnsi: Theme = {
+  name: "dark",
+  isDark: true,
+  colors: {
+    background: "black",
+    foreground: "white",
+    accent: "cyan",
+    border: "brightBlack",
+    userMessage: "blue",
+    assistantMessage: "cyan",
+    systemMessage: "magenta",
+    error: "red",
+    success: "green",
+    warning: "yellow",
+    muted: "brightBlack",
+    inputFocus: "brightBlack",
+    inputStreaming: "brightBlack",
+    userBubbleBg: "brightBlack",
+    userBubbleFg: "white",
+    dim: "brightBlack",
+    scrollbarFg: "brightBlack",
+    scrollbarBg: "black",
+    codeBorder: "brightBlack",
+    codeTitle: "cyan",
+  },
+};
+
+/**
+ * ANSI-safe light theme for terminals without truecolor support.
+ */
+export const lightThemeAnsi: Theme = {
+  name: "light",
+  isDark: false,
+  colors: {
+    background: "white",
+    foreground: "black",
+    accent: "cyan",
+    border: "brightWhite",
+    userMessage: "blue",
+    assistantMessage: "cyan",
+    systemMessage: "magenta",
+    error: "red",
+    success: "green",
+    warning: "yellow",
+    muted: "brightBlack",
+    inputFocus: "brightWhite",
+    inputStreaming: "brightBlack",
+    userBubbleBg: "brightWhite",
+    userBubbleFg: "black",
+    dim: "brightWhite",
+    scrollbarFg: "brightBlack",
+    scrollbarBg: "white",
+    codeBorder: "brightWhite",
+    codeTitle: "cyan",
+  },
+};
+
 // ============================================================================
 // THEME CONTEXT
 // ============================================================================
@@ -361,12 +423,19 @@ export function ThemeProvider({
 }: ThemeProviderProps): React.ReactNode {
   const [theme, setThemeState] = useState<Theme>(initialTheme);
 
+  // Determine the paired themes from the initial theme so toggles stay
+  // within the same capability tier (truecolor vs ANSI-safe).
+  const [dark, light] = useMemo(() => {
+    const isAnsi = initialTheme === darkThemeAnsi || initialTheme === lightThemeAnsi;
+    return isAnsi ? [darkThemeAnsi, lightThemeAnsi] : [darkTheme, lightTheme];
+  }, [initialTheme]);
+
   /**
    * Toggle between dark and light themes.
    */
   const toggleTheme = useCallback(() => {
-    setThemeState((current) => (current.isDark ? lightTheme : darkTheme));
-  }, []);
+    setThemeState((current) => (current.isDark ? light : dark));
+  }, [dark, light]);
 
   /**
    * Set a specific theme.

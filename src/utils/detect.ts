@@ -107,21 +107,44 @@ export function supportsColor(): boolean {
 }
 
 /**
- * Check if the terminal supports true color (24-bit)
+ * Check if the terminal supports true color (24-bit).
  *
- * Following gemini-cli pattern: default to true for modern terminals,
- * only disable when NO_COLOR is set. Most terminals today support
- * true color even without COLORTERM being explicitly set.
+ * Checks COLORTERM, TERM, and TERM_PROGRAM environment variables.
+ * macOS Terminal.app (Apple_Terminal) does NOT support truecolor and
+ * will degrade hex colors to washed-out 256-color approximations.
  */
 export function supportsTrueColor(): boolean {
-  // Respect NO_COLOR standard first
   if (!supportsColor()) {
     return false;
   }
 
-  // Default to true - most modern terminals support true color
-  // Only explicit indicators are used as hints, not requirements
-  return true;
+  // Explicit truecolor indicator — most reliable signal
+  const colorterm = (process.env.COLORTERM ?? "").toLowerCase();
+  if (colorterm === "truecolor" || colorterm === "24bit") {
+    return true;
+  }
+
+  // macOS Terminal.app does NOT support truecolor
+  const termProgram = (process.env.TERM_PROGRAM ?? "").toLowerCase();
+  if (termProgram === "apple_terminal") {
+    return false;
+  }
+
+  // Known truecolor-capable terminals
+  const knownTruecolorTerminals = ["iterm.app", "hyper", "wezterm", "alacritty", "kitty", "ghostty"];
+  if (knownTruecolorTerminals.some(t => termProgram.includes(t))) {
+    return true;
+  }
+
+  // TERM hints
+  const term = (process.env.TERM ?? "").toLowerCase();
+  if (term.includes("24bit") || term.includes("direct")) {
+    return true;
+  }
+
+  // When we can't confirm, default to false for safety —
+  // ANSI colors are always legible, hex colors may not be
+  return false;
 }
 
 /**

@@ -127,12 +127,19 @@ interface TaskListUpdateEvent {
   }>;
 }
 
+interface ToolPartialResultEvent {
+  type: "tool-partial-result";
+  toolId: string;
+  partialOutput: string;
+}
+
 export type StreamPartEvent =
   | TextDeltaEvent
   | TextCompleteEvent
   | ThinkingMetaEvent
   | ToolStartEvent
   | ToolCompleteEvent
+  | ToolPartialResultEvent
   | HitlRequestEvent
   | HitlResponseEvent
   | ParallelAgentsEvent
@@ -951,6 +958,22 @@ export function applyStreamPartEvent(
       return carryReasoningPartRegistry(message, nextMessage);
     }
 
+    case "tool-partial-result": {
+      const parts = [...(message.parts ?? [])];
+      const toolPartIdx = parts.findIndex(
+        (part) => part.type === "tool" && (part as ToolPart).toolCallId === event.toolId,
+      );
+      if (toolPartIdx >= 0) {
+        const existing = parts[toolPartIdx] as ToolPart;
+        parts[toolPartIdx] = {
+          ...existing,
+          partialOutput: (existing.partialOutput ?? "") + event.partialOutput,
+        };
+      }
+      const nextMessage: ChatMessage = { ...message, parts };
+      return carryReasoningPartRegistry(message, nextMessage);
+    }
+
     case "tool-hitl-request": {
       const nextParts = upsertHitlRequest(message.parts ?? [], event);
       const nextMessage: ChatMessage = {
@@ -1006,7 +1029,7 @@ export function applyStreamPartEvent(
       );
       if (stepIdx >= 0) {
         const existing = parts[stepIdx] as WorkflowStepPart;
-        const durationMs = event.durationMs ?? (event.completedAt - existing.startedAt);
+        const durationMs = event.durationMs ?? (event.completedAt - (existing.startedAt ?? event.completedAt));
         parts[stepIdx] = {
           ...existing,
           status: event.status === "success" ? "completed" : "error",

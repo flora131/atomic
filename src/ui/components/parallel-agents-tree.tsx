@@ -12,6 +12,7 @@ import { useTheme, getCatppuccinPalette } from "../theme.tsx";
 import { formatDuration as formatDurationObj, truncateText } from "../utils/format.ts";
 import { STATUS, TREE, CONNECTOR, MISC } from "../constants/icons.ts";
 import { SPACING } from "../constants/spacing.ts";
+import { buildParallelAgentsHeaderHint } from "../utils/background-agent-tree-hints.ts";
 
 // Re-export for backward compatibility
 export { truncateText };
@@ -57,6 +58,8 @@ export interface ParallelAgent {
   tokens?: number;
   /** Current tool operation (e.g., "Bash: Find files...") */
   currentTool?: string;
+  /** Inline parts for agent-scoped streaming content */
+  inlineParts?: import("../parts/types").Part[];
 }
 
 /**
@@ -73,6 +76,8 @@ export interface ParallelAgentsTreeProps {
   noTopMargin?: boolean;
   /** Render in background-agent mode (green header, "launched", background sub-status) */
   background?: boolean;
+  /** Whether to show the expand/collapse keyboard hint (default: false) */
+  showExpandHint?: boolean;
 }
 
 // ============================================================================
@@ -596,6 +601,7 @@ export function ParallelAgentsTree({
   maxVisible = 5,
   noTopMargin = false,
   background = false,
+  showExpandHint = false,
 }: ParallelAgentsTreeProps): React.ReactNode {
   const { theme } = useTheme();
 
@@ -651,6 +657,7 @@ export function ParallelAgentsTree({
   if (background) {
     const bgHeaderColor = themeColors.success;
     const bgHeaderText = `${agents.length} Task agent${agents.length !== 1 ? "s" : ""} launched…`;
+    const bgHintText = buildParallelAgentsHeaderHint(agents, showExpandHint);
 
     return (
       <box
@@ -662,6 +669,9 @@ export function ParallelAgentsTree({
         <box flexDirection="row">
           <text style={{ fg: bgHeaderColor }}>●</text>
           <text style={{ fg: themeColors.foreground }}> {bgHeaderText}</text>
+          {bgHintText !== "" && (
+            <text style={{ fg: themeColors.muted }}> · {bgHintText}</text>
+          )}
         </box>
 
         {/* Background agent tree */}
@@ -701,6 +711,9 @@ export function ParallelAgentsTree({
       ? `${completedCount} agent${completedCount !== 1 ? "s" : ""} finished`
       : `${pendingCount} agent${pendingCount !== 1 ? "s" : ""} pending`;
 
+  // Build header hint from background agent tree hints
+  const headerHintText = buildParallelAgentsHeaderHint(agents, showExpandHint);
+
   return (
     <box
       flexDirection="column"
@@ -711,6 +724,9 @@ export function ParallelAgentsTree({
       <box flexDirection="row">
         <text style={{ fg: headerColor }}>{headerIcon}</text>
         <text style={{ fg: headerColor }}> {headerText}</text>
+        {headerHintText !== "" && (
+          <text style={{ fg: themeColors.muted }}> · {headerHintText}</text>
+        )}
       </box>
 
       {/* Agent tree */}

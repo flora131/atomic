@@ -84,10 +84,8 @@ import {
 import {
   getActiveBackgroundAgents,
   resolveBackgroundAgentsForFooter,
-  formatBackgroundAgentFooterStatus,
   isBackgroundAgent,
 } from "./utils/background-agent-footer.ts";
-import { BACKGROUND_FOOTER_CONTRACT } from "./utils/background-agent-contracts.ts";
 import {
   getBackgroundTerminationDecision,
   interruptActiveBackgroundAgents,
@@ -2776,6 +2774,30 @@ export function ChatApp({
     }
   });
 
+  // Turn lifecycle events — visual turn boundary markers emitted by OpenCode
+  // and Copilot adapters.  Claude sessions never fire these, so the handlers
+  // are defensive (guard on isStreamingRef).
+  useBusSubscription("stream.turn.start", () => {
+    // Safety-net: ensure streaming state is active when the agent begins a
+    // turn.  Under normal flow startAssistantStream already sets this, but
+    // multi-turn agentic loops may fire additional turn.start events.
+    if (!isStreamingRef.current) {
+      isStreamingRef.current = true;
+      setIsStreaming(true);
+      if (!streamingStartRef.current) {
+        streamingStartRef.current = Date.now();
+      }
+    }
+  });
+
+  useBusSubscription("stream.turn.end", () => {
+    // Flush pending batched events at the turn boundary so trailing content
+    // (e.g. tool-only responses) is delivered before session.idle finalizes.
+    if (isStreamingRef.current) {
+      batchDispatcher.flush();
+    }
+  });
+
   useBusSubscription("stream.session.idle", () => {
     if (isStreamingRef.current) {
       // Flush pending batched events before finalization so no trailing
@@ -2787,6 +2809,63 @@ export function ChatApp({
 
   useBusSubscription("stream.session.error", (event) => {
     handleStreamStartupError(new Error(event.data.error));
+  });
+
+  // ── Session notification events ────────────────────────────────
+  // Info, warning, title, truncation, and compaction events emitted by
+  // OpenCode and Copilot adapters.  Surface them as system messages or
+  // feed them into existing indicator state machines.
+
+  useBusSubscription("stream.session.info", (event) => {
+    const { message } = event.data;
+    if (message) {
+      setMessagesWindowed((prev) => [
+        ...prev,
+        createMessage("system", `${STATUS.active} ${message}`),
+      ]);
+    }
+  });
+
+  useBusSubscription("stream.session.warning", (event) => {
+    const { message } = event.data;
+    if (message) {
+      setMessagesWindowed((prev) => [
+        ...prev,
+        createMessage("system", `${MISC.warning} ${message}`),
+      ]);
+    }
+  });
+
+  useBusSubscription("stream.session.title_changed", (event) => {
+    const { title } = event.data;
+    if (title) {
+      // Update terminal window title via OSC escape sequence
+      process.stdout.write(`\x1b]2;${title}\x07`);
+    }
+  });
+
+  useBusSubscription("stream.session.truncation", (event) => {
+    const { tokensRemoved, messagesRemoved } = event.data;
+    setMessagesWindowed((prev) => [
+      ...prev,
+      createMessage(
+        "system",
+        `${MISC.warning} Context truncated: ${tokensRemoved.toLocaleString()} tokens removed (${messagesRemoved} message${messagesRemoved === 1 ? "" : "s"})`,
+      ),
+    ]);
+  });
+
+  useBusSubscription("stream.session.compaction", (event) => {
+    const { phase, success, error } = event.data;
+    if (phase === "start") {
+      applyAutoCompactionIndicator({ status: "running" });
+    } else if (phase === "complete") {
+      applyAutoCompactionIndicator(
+        success === false
+          ? { status: "error", errorMessage: error?.trim() || undefined }
+          : { status: "completed" },
+      );
+    }
   });
 
   useBusSubscription("stream.usage", (event) => {
@@ -3225,6 +3304,28 @@ export function ChatApp({
       nodeId: data.nodeId,
     };
     handleAskUserQuestion(askEvent);
+  });
+
+  useBusSubscription("stream.skill.invoked", (event) => {
+    const { skillName } = event.data;
+    if (loadedSkillsRef.current.has(skillName)) return;
+    loadedSkillsRef.current.add(skillName);
+    const skillLoad: MessageSkillLoad = {
+      skillName,
+      status: "loaded",
+    };
+    setMessagesWindowed((prev) => {
+      const lastMsg = prev[prev.length - 1];
+      if (lastMsg && lastMsg.role === "assistant") {
+        return [
+          ...prev.slice(0, -1),
+          { ...lastMsg, skillLoads: [...(lastMsg.skillLoads || []), skillLoad] },
+        ];
+      }
+      const msg = createMessage("assistant", "");
+      msg.skillLoads = [skillLoad];
+      return [...prev, msg];
+    });
   });
 
   // Keep live sub-agent updates anchored to the active streaming message so
@@ -6141,62 +6242,11 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             )}
             {/* Footer status bar */}
             <FooterStatus
-              verboseMode={isVerbose}
               isStreaming={isStreaming}
-              queuedCount={messageQueue.count}
-              modelId={currentModelId ?? initialModelId ?? model}
-              agentType={agentType}
+              workflowActive={workflowState.workflowActive}
+              enqueueShortcutLabel={enqueueShortcutLabel}
+              backgroundAgents={footerBackgroundAgents}
             />
-            {/* Streaming/workflow hints */}
-            {isStreaming && !workflowState.workflowActive ? (
-              <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
-                <text style={{ fg: themeColors.muted }}>
-                  esc to interrupt
-                </text>
-                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
-                <text style={{ fg: themeColors.muted }}>
-                  {enqueueShortcutLabel} enqueue
-                </text>
-                {footerBackgroundAgents.length > 0 && (
-                  <>
-                    <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
-                    <text style={{ fg: themeColors.accent }}>
-                      {formatBackgroundAgentFooterStatus(footerBackgroundAgents)}
-                    </text>
-                    <text style={{ fg: themeColors.dim }}>{MISC.separator} {BACKGROUND_FOOTER_CONTRACT.terminateHintText}</text>
-                  </>
-                )}
-              </box>
-            ) : null}
-            {/* Workflow mode label with hints - shown when workflow is active */}
-            {workflowState.workflowActive && (
-              <box paddingLeft={SPACING.CONTAINER_PAD} flexDirection="row" gap={SPACING.ELEMENT} flexShrink={0}>
-                <text style={{ fg: themeColors.accent }}>
-                  workflow
-                </text>
-                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
-                <text style={{ fg: themeColors.muted }}>
-                  esc to interrupt
-                </text>
-                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
-                <text style={{ fg: themeColors.muted }}>
-                  {enqueueShortcutLabel} enqueue
-                </text>
-                <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
-                <text style={{ fg: themeColors.muted }}>
-                  ctrl+c twice to exit workflow
-                </text>
-                {footerBackgroundAgents.length > 0 && (
-                  <>
-                    <text style={{ fg: themeColors.muted }}>{MISC.separator}</text>
-                    <text style={{ fg: themeColors.accent }}>
-                      {formatBackgroundAgentFooterStatus(footerBackgroundAgents)}
-                    </text>
-                    <text style={{ fg: themeColors.dim }}>{MISC.separator} {BACKGROUND_FOOTER_CONTRACT.terminateHintText}</text>
-                  </>
-                )}
-              </box>
-            )}
           </>
         )}
 

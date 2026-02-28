@@ -2,158 +2,57 @@
  * FooterStatus Component
  *
  * Displays a status bar at the bottom of the chat UI showing:
- * - Verbose mode toggle state
- * - Streaming status
- * - Queued message count
- * - Current model
- * - Permission mode
+ * - Streaming hints (esc to interrupt, enqueue keybind) when streaming
+ * - Workflow hints (ctrl+c twice to exit) when workflow is active
+ * - Background agent status (ctrl+f to kill) when background agents exist
  *
  * Reference: Task #4 - Create FooterStatus component
  */
 
 import React from "react";
 import { useTheme } from "../theme.tsx";
-import type { FooterState } from "../types.ts";
 import { SPACING } from "../constants/spacing.ts";
+import { MISC } from "../constants/icons.ts";
+import type { ParallelAgent } from "./parallel-agents-tree.tsx";
+import { formatBackgroundAgentFooterStatus } from "../utils/background-agent-footer.ts";
+import { BACKGROUND_FOOTER_CONTRACT } from "../utils/background-agent-contracts.ts";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-/**
- * Internal props for the FooterStatus component.
- * Accepts either a state object or individual props.
- */
 export interface FooterStatusComponentProps {
-  /** Footer state object (alternative to individual props) */
-  state?: FooterState;
-  /** Whether verbose mode is enabled */
-  verboseMode?: boolean;
   /** Whether streaming is active */
   isStreaming?: boolean;
-  /** Number of queued messages */
-  queuedCount?: number;
-  /** Current model ID */
-  modelId?: string;
-  /** Permission mode */
-  permissionMode?: "auto" | "prompt" | "deny" | "bypass";
-  /** Agent type */
-  agentType?: string;
-}
-
-// ============================================================================
-// UTILITY FUNCTIONS
-// ============================================================================
-
-/**
- * Format verbose mode for display.
- */
-function formatVerboseMode(isVerbose: boolean): string {
-  return isVerbose ? "verbose" : "compact";
-}
-
-/**
- * Format queued count for display.
- */
-function formatQueuedCount(count: number): string {
-  if (count === 0) return "";
-  return ` · ${count} queued`;
-}
-
-/**
- * Format permission mode for display.
- */
-function formatPermissionMode(
-  mode: "auto" | "prompt" | "deny" | "bypass" | undefined,
-): string {
-  if (!mode || mode === "bypass") return "";
-  return ` · ${mode}`;
+  /** Whether a workflow is currently active */
+  workflowActive?: boolean;
+  /** Enqueue shortcut label (e.g. "ctrl+shift+enter") */
+  enqueueShortcutLabel?: string;
+  /** Active background agents */
+  backgroundAgents?: readonly ParallelAgent[];
 }
 
 // ============================================================================
 // FOOTER STATUS COMPONENT
 // ============================================================================
 
-/**
- * Status bar component for the chat UI footer.
- *
- * Displays real-time status information including:
- * - Model ID
- * - Streaming indicator
- * - Verbose mode toggle state
- * - Queued message count
- * - Permission mode
- *
- * @example
- * ```tsx
- * <FooterStatus
- *   state={{
- *     verboseMode: false,
- *     isStreaming: true,
- *     queuedCount: 2,
- *     modelId: "claude-sonnet-4",
- *   }}
- * />
- * ```
- */
 export function FooterStatus({
-  state,
-  verboseMode = false,
   isStreaming = false,
-  queuedCount = 0,
-  modelId = "",
-  permissionMode,
-  agentType,
+  workflowActive = false,
+  enqueueShortcutLabel = "ctrl+shift+enter",
+  backgroundAgents = [],
 }: FooterStatusComponentProps): React.ReactNode {
   const { theme } = useTheme();
   const colors = theme.colors;
 
-  // Use state object if provided, otherwise use individual props
-  const actualVerboseMode = state?.verboseMode ?? verboseMode;
-  const actualIsStreaming = state?.isStreaming ?? isStreaming;
-  const actualQueuedCount = state?.queuedCount ?? queuedCount;
-  const actualModelId = state?.modelId ?? modelId;
-  const actualPermissionMode = state?.permissionMode ?? permissionMode;
-  const actualAgentType = state?.agentType ?? agentType;
+  const showStreamingHints = isStreaming && !workflowActive;
+  const showWorkflowHints = workflowActive;
+  const hasBackgroundAgents = backgroundAgents.length > 0;
 
-  // Build status parts
-  const parts: string[] = [];
-
-  // Model ID (always shown)
-  if (actualModelId) {
-    parts.push(actualModelId);
+  // Nothing to show when idle with no background agents
+  if (!showStreamingHints && !showWorkflowHints && !hasBackgroundAgents) {
+    return null;
   }
-
-  // Streaming indicator
-  if (actualIsStreaming) {
-    parts.push("streaming");
-  }
-
-  // Verbose mode indicator with toggle hint
-  parts.push(formatVerboseMode(actualVerboseMode));
-
-  // Queue count
-  const queueText = formatQueuedCount(actualQueuedCount);
-  if (queueText) {
-    parts.push(`${actualQueuedCount} queued`);
-  }
-
-  // Permission mode
-  const permText = formatPermissionMode(actualPermissionMode);
-  if (permText) {
-    parts.push(actualPermissionMode!);
-  }
-
-  // Agent type
-  if (actualAgentType) {
-    parts.push(actualAgentType);
-  }
-
-  // Join with separator
-  const statusText = parts.join(" · ");
-
-  // Add Ctrl+O hint for verbose mode
-  const verboseHint = actualVerboseMode ? " (ctrl+o to collapse)" : " (ctrl+o to expand)";
 
   return (
     <box
@@ -162,12 +61,41 @@ export function FooterStatus({
       paddingRight={SPACING.CONTAINER_PAD}
       paddingTop={SPACING.NONE}
       paddingBottom={SPACING.NONE}
+      gap={SPACING.ELEMENT}
       flexShrink={0}
     >
-      <text style={{ fg: colors.muted }}>
-        {statusText}
-        <span style={{ fg: colors.dim }}>{verboseHint}</span>
-      </text>
+      {showWorkflowHints && (
+        <>
+          <text style={{ fg: colors.accent }}>workflow</text>
+          <text style={{ fg: colors.muted }}>{MISC.separator}</text>
+        </>
+      )}
+      {(showStreamingHints || showWorkflowHints) && (
+        <>
+          <text style={{ fg: colors.muted }}>esc to interrupt</text>
+          <text style={{ fg: colors.muted }}>{MISC.separator}</text>
+          <text style={{ fg: colors.muted }}>{enqueueShortcutLabel} enqueue</text>
+        </>
+      )}
+      {showWorkflowHints && (
+        <>
+          <text style={{ fg: colors.muted }}>{MISC.separator}</text>
+          <text style={{ fg: colors.muted }}>ctrl+c twice to exit workflow</text>
+        </>
+      )}
+      {hasBackgroundAgents && (
+        <>
+          {(showStreamingHints || showWorkflowHints) && (
+            <text style={{ fg: colors.muted }}>{MISC.separator}</text>
+          )}
+          <text style={{ fg: colors.accent }}>
+            {formatBackgroundAgentFooterStatus(backgroundAgents)}
+          </text>
+          <text style={{ fg: colors.dim }}>
+            {MISC.separator} {BACKGROUND_FOOTER_CONTRACT.terminateHintText}
+          </text>
+        </>
+      )}
     </box>
   );
 }

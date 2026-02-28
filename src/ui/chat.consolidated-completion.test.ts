@@ -18,7 +18,7 @@ import { describe, expect, test } from "bun:test";
 import type { ParallelAgent } from "./components/parallel-agents-tree.tsx";
 import { getActiveBackgroundAgents } from "./utils/background-agent-footer.ts";
 import { finalizeStreamingReasoningInMessage } from "./parts/index.ts";
-import type { ChatMessage } from "./types.ts";
+import type { ChatMessage } from "./chat.tsx";
 
 // ---------------------------------------------------------------------------
 // Helpers — mirror the consolidated Path 3 logic from handleStreamComplete
@@ -391,7 +391,7 @@ describe("Consolidated completion state updates (Fix 5C)", () => {
       expect(finalMsg!.streaming).toBe(false);
       expect(finalMsg!.parallelAgents).toBeDefined();
       expect(finalMsg!.parallelAgents!.length).toBe(2); // orphan filtered out
-      expect(finalMsg!.parallelAgents!.every((a) => a.status === "completed")).toBe(true);
+      expect(finalMsg!.parallelAgents!.every((a: ParallelAgent) => a.status === "completed")).toBe(true);
 
       // Verify the other message was NOT modified
       const otherMsg = updatedMessages.find((m) => m.id === "msg-other");

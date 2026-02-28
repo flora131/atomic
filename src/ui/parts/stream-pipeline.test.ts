@@ -391,6 +391,50 @@ describe("applyStreamPartEvent", () => {
     }
   });
 
+  test("accumulates partial output on running tool part", () => {
+    let msg = createAssistantMessage();
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-start",
+      toolId: "tool_1",
+      toolName: "bash",
+      input: { command: "ls -la" },
+    });
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-partial-result",
+      toolId: "tool_1",
+      partialOutput: "file1.txt\n",
+    });
+
+    const toolPart1 = msg.parts?.find((p) => p.type === "tool" && p.toolCallId === "tool_1");
+    expect(toolPart1?.type).toBe("tool");
+    if (toolPart1?.type === "tool") {
+      expect(toolPart1.partialOutput).toBe("file1.txt\n");
+      expect(toolPart1.state.status).toBe("running");
+    }
+
+    msg = applyStreamPartEvent(msg, {
+      type: "tool-partial-result",
+      toolId: "tool_1",
+      partialOutput: "file2.txt\n",
+    });
+
+    const toolPart2 = msg.parts?.find((p) => p.type === "tool" && p.toolCallId === "tool_1");
+    if (toolPart2?.type === "tool") {
+      expect(toolPart2.partialOutput).toBe("file1.txt\nfile2.txt\n");
+    }
+  });
+
+  test("ignores partial result for unknown tool id", () => {
+    const msg = createAssistantMessage();
+    const next = applyStreamPartEvent(msg, {
+      type: "tool-partial-result",
+      toolId: "nonexistent",
+      partialOutput: "output",
+    });
+    expect(next.parts).toHaveLength(0);
+  });
+
   test("keeps thinking, pre-tool text, and post-tool text segmented", () => {
     let msg = createAssistantMessage();
     msg = applyStreamPartEvent(msg, {

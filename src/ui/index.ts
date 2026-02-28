@@ -38,6 +38,8 @@ import { ClaudeStreamAdapter } from "../events/adapters/claude-adapter.ts";
 import { CopilotStreamAdapter } from "../events/adapters/copilot-adapter.ts";
 import type { SDKStreamAdapter } from "../events/adapters/types.ts";
 import { registerAgentToolNames } from "./tools/registry.ts";
+import { attachDebugSubscriber } from "../events/debug-subscriber.ts";
+import { cleanupMcpBridgeScripts } from "../sdk/tools/opencode-mcp-bridge.ts";
 
 /**
  * Build a system prompt section describing all registered capabilities.
@@ -240,6 +242,9 @@ export async function startChatUI(
   const sharedBus = new AtomicEventBus();
   const sharedDispatcher = new BatchDispatcher(sharedBus);
 
+  // Attach file-based debug subscriber when ATOMIC_DEBUG=1
+  const debugSub = await attachDebugSubscriber(sharedBus);
+
   // Initialize state
   const state: ChatUIState = {
     renderer: null,
@@ -282,8 +287,12 @@ export async function startChatUI(
     state.isStreaming = false;
 
     // Dispose event bus infrastructure
+    await debugSub.unsubscribe();
     state.dispatcher.dispose();
     state.bus.clear();
+
+    // Remove generated MCP bridge scripts
+    cleanupMcpBridgeScripts();
 
     // Remove signal handlers
     for (const handler of state.cleanupHandlers) {
@@ -921,15 +930,6 @@ export {
   type Theme,
   type ThemeColors,
 } from "./theme.tsx";
-export {
-  default as CodeBlock,
-  type CodeBlockProps,
-  type ParsedCodeBlock,
-  normalizeLanguage,
-  extractCodeBlocks,
-  hasCodeBlocks,
-  extractInlineCode,
-} from "./code-block.tsx";
 
 // Parts module - type exports for rendering system
 export { type ToolExecutionStatus } from "./parts/types.ts";

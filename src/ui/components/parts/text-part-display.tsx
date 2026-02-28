@@ -16,7 +16,6 @@ import type { TextPart } from "../../parts/types.ts";
 import { createMarkdownSyntaxStyle, useTheme, useThemeColors } from "../../theme.tsx";
 import { normalizeMarkdownNewlines } from "../../utils/format.ts";
 import { STATUS } from "../../constants/icons.ts";
-import { StreamingBullet } from "../../chat.tsx";
 
 // Patch MarkdownRenderable to support text selection.
 // MarkdownRenderable extends Renderable (not TextBufferRenderable), so its
@@ -53,11 +52,9 @@ export function TextPartDisplay({ part, syntaxStyle }: TextPartDisplayProps) {
     return null;
   }
 
-  // Animated ● while streaming; static ● once complete.
+  // Static ● bullet for text blocks (no blinking).
   // Green ● is reserved for tool/agent blocks on success.
-  const bullet = part.isStreaming
-    ? <StreamingBullet />
-    : <text style={{ fg: colors.foreground }}>{STATUS.active}</text>;
+  const bullet = <text style={{ fg: colors.foreground }}>{STATUS.active}</text>;
 
   return (
     <box flexDirection="row">

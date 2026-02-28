@@ -283,7 +283,8 @@ describe("review step in /ralph", () => {
 
     const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
     const result = await ralphCommand!.execute("Build a feature", context);
-    expect(result.success).toBe(true);
+    // When the planner subagent fails, the workflow should report failure
+    expect(result.success).toBe(false);
     
     // Reviewer should NOT be spawned since not all tasks completed
     expect(spawnCalls.length).toBe(0);

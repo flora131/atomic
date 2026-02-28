@@ -7,6 +7,8 @@ import {
   getStatusIndicatorColor,
 } from "./parallel-agents-tree.tsx";
 import type { ParallelAgent } from "./parallel-agents-tree.tsx";
+import { buildParallelAgentsHeaderHint } from "../utils/background-agent-tree-hints.ts";
+import { BACKGROUND_TREE_HINT_CONTRACT } from "../utils/background-agent-contracts.ts";
 
 describe("ParallelAgentsTree status indicator colors", () => {
   const colors = {
@@ -244,5 +246,51 @@ describe("getBackgroundSubStatusText", () => {
     expect(getBackgroundSubStatusText(completed)).toBe("Done");
     expect(getBackgroundSubStatusText(errored)).toBe("Failed");
     expect(getBackgroundSubStatusText(interrupted)).toBe("Interrupted");
+  });
+});
+
+describe("buildParallelAgentsHeaderHint integration with ParallelAgent", () => {
+  function makeAgent(overrides: Partial<ParallelAgent> & { id: string }): ParallelAgent {
+    return {
+      name: "reviewer",
+      task: "Sub-agent task",
+      status: "running",
+      startedAt: "2026-01-01T00:00:00.000Z",
+      ...overrides,
+    };
+  }
+
+  test("returns running hint for active background agents", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({ id: "bg-1", background: true, status: "running" }),
+    ];
+    expect(buildParallelAgentsHeaderHint(agents, false)).toBe(
+      BACKGROUND_TREE_HINT_CONTRACT.whenRunning,
+    );
+  });
+
+  test("returns completion hint for completed background agents with showExpandHint", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({ id: "bg-1", background: true, status: "completed" }),
+    ];
+    expect(buildParallelAgentsHeaderHint(agents, true)).toBe(
+      BACKGROUND_TREE_HINT_CONTRACT.whenComplete,
+    );
+  });
+
+  test("returns default hint for foreground-only agents with showExpandHint", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({ id: "fg-1", status: "completed" }),
+    ];
+    expect(buildParallelAgentsHeaderHint(agents, true)).toBe(
+      BACKGROUND_TREE_HINT_CONTRACT.defaultHint,
+    );
+  });
+
+  test("returns empty string when no hint should show", () => {
+    const agents: ParallelAgent[] = [
+      makeAgent({ id: "fg-1", status: "completed" }),
+    ];
+    expect(buildParallelAgentsHeaderHint(agents, false)).toBe("");
   });
 });

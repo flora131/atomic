@@ -75,6 +75,8 @@ export interface ToolPart extends BasePart {
   toolName: string;
   input: Record<string, unknown>;
   output?: unknown;
+  /** Incremental output streamed while tool is still running */
+  partialOutput?: string;
   state: ToolState;
   hitlResponse?: HitlResponseRecord;
 
@@ -116,6 +118,16 @@ export interface CompactionPart extends BasePart {
   summary: string;
 }
 
+export interface WorkflowStepPart extends BasePart {
+  type: "workflow-step";
+  nodeId: string;
+  nodeName: string;
+  status: "running" | "completed" | "error";
+  startedAt?: number;
+  completedAt?: number;
+  durationMs?: number;
+}
+
 // ============================================================================
 // PART UNION
 // ============================================================================
@@ -129,4 +141,5 @@ export type Part =
   | TaskListPart
   | SkillLoadPart
   | McpSnapshotPart
-  | CompactionPart;
+  | CompactionPart
+  | WorkflowStepPart;

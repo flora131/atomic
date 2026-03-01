@@ -86,8 +86,8 @@ import {
   isBackgroundAgent,
 } from "./utils/background-agent-footer.ts";
 import {
-  getBackgroundTerminationDecision,
-  interruptActiveBackgroundAgents,
+  evaluateBackgroundTerminationPress,
+  executeBackgroundTermination,
   isBackgroundTerminationKey,
 } from "./utils/background-agent-termination.ts";
 import { loadCommandHistory, appendCommandHistory } from "./utils/command-history.ts";
@@ -138,6 +138,11 @@ import {
   preferTerminalTaskItems,
   snapshotTaskItems,
 } from "./utils/workflow-task-state.ts";
+import {
+  consumeWorkflowInputSubmission,
+  rejectPendingWorkflowInput,
+  type WorkflowInputResolver,
+} from "./utils/workflow-input-resolver.ts";
 import type {
   Part,
   TextPart,
@@ -1646,9 +1651,11 @@ export function ChatApp({
   // Ctrl+F confirmation state for terminating active background agents.
   const [backgroundTerminationCount, setBackgroundTerminationCount] = useState(0);
   const [ctrlFPressed, setCtrlFPressed] = useState(false);
+  const backgroundTerminationCountRef = useRef(0);
   const backgroundTerminationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const backgroundTerminationInFlightRef = useRef(false);
   const clearBackgroundTerminationConfirmation = useCallback(() => {
+    backgroundTerminationCountRef.current = 0;
     setBackgroundTerminationCount(0);
     setCtrlFPressed(false);
     if (backgroundTerminationTimeoutRef.current) {
@@ -1796,7 +1803,7 @@ export function ChatApp({
   // Resolver for streamAndWait: when set, handleComplete resolves the Promise instead of processing the queue
   const streamCompletionResolverRef = useRef<((result: import("./commands/registry.ts").StreamResult) => void) | null>(null);
   // Resolver for waitForUserInput: when set, handleSubmit resolves the Promise with the user's prompt
-  const waitForUserInputResolverRef = useRef<{ resolve: (prompt: string) => void; reject: (reason: Error) => void } | null>(null);
+  const waitForUserInputResolverRef = useRef<WorkflowInputResolver | null>(null);
   // When true, streaming chunks are accumulated but NOT rendered in the assistant message (for hidden workflow steps)
   const hideStreamContentRef = useRef(false);
   const [showTodoPanel, setShowTodoPanel] = useState(true);
@@ -2785,6 +2792,9 @@ export function ChatApp({
   }, [continueQueuedConversation, finalizeThinkingSourceTracking, setMessagesWindowed, stopSharedStreamState]);
 
   const { resetConsumers, getCorrelationService } = useStreamConsumer((parts) => {
+    if (parts.length > 0) {
+  
+    }
     for (const part of parts) {
       if (part.type === "tool-start") {
         handleToolStart(part.toolId, part.toolName, part.input, part.agentId);
@@ -2954,9 +2964,11 @@ export function ChatApp({
         streamingStartRef.current = Date.now();
       }
     }
+
   });
 
   useBusSubscription("stream.turn.end", () => {
+
     // Flush pending batched events at the turn boundary so trailing content
     // (e.g. tool-only responses) is delivered before session.idle finalizes.
     if (isStreamingRef.current) {
@@ -3035,6 +3047,7 @@ export function ChatApp({
   });
 
   useBusSubscription("stream.usage", (event) => {
+
     const usageAgentId = event.data.agentId;
     const incoming = event.data.outputTokens ?? 0;
 
@@ -3145,6 +3158,7 @@ export function ChatApp({
   });
 
   useBusSubscription("stream.agent.start", (event) => {
+
     const data = event.data;
     const startedAt = new Date(event.timestamp).toISOString();
     const status: ParallelAgent["status"] = data.isBackground ? "background" : "running";
@@ -3227,6 +3241,7 @@ export function ChatApp({
   });
 
   useBusSubscription("stream.agent.update", (event) => {
+
     const data = event.data;
     const existingAgent = parallelAgentsRef.current.find((agent) => agent.id === data.agentId);
     const nextCurrentTool = data.currentTool ?? existingAgent?.currentTool;
@@ -3277,6 +3292,7 @@ export function ChatApp({
   });
 
   useBusSubscription("stream.agent.complete", (event) => {
+
     const data = event.data;
 
     // Check if the completing agent is a background agent before state update
@@ -3414,6 +3430,15 @@ export function ChatApp({
   // Keep workflowActiveRef in sync for async callbacks (spawnSubagentParallel, addMessage)
   useEffect(() => {
     workflowActiveRef.current = workflowState.workflowActive;
+  }, [workflowState.workflowActive]);
+
+  useEffect(() => {
+    if (!workflowState.workflowActive) {
+      waitForUserInputResolverRef.current = rejectPendingWorkflowInput(
+        waitForUserInputResolverRef.current,
+        "Workflow ended before input was received",
+      );
+    }
   }, [workflowState.workflowActive]);
 
   // Auto-hide task list panel when workflow ends naturally
@@ -5338,15 +5363,20 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
             return;
           }
 
+          if (backgroundTerminationInFlightRef.current) {
+            return;
+          }
+
           const currentAgents = parallelAgentsRef.current;
           const activeBackgroundAgents = getActiveBackgroundAgents(currentAgents);
-          const decision = getBackgroundTerminationDecision(
-            backgroundTerminationCount,
+          const pressEvaluation = evaluateBackgroundTerminationPress(
+            backgroundTerminationCountRef,
             activeBackgroundAgents.length,
           );
+          const decision = pressEvaluation.decision;
 
           console.debug("[background-termination] decision:", decision.action, {
-            pressCount: backgroundTerminationCount,
+            pressCount: pressEvaluation.pressCount,
             activeAgents: activeBackgroundAgents.length,
           });
 
@@ -5357,67 +5387,77 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
           }
 
           if (decision.action === "terminate") {
-            if (backgroundTerminationInFlightRef.current) {
-              return;
-            }
             backgroundTerminationInFlightRef.current = true;
             clearBackgroundTerminationConfirmation();
 
-            const { agents: interruptedAgents, interruptedIds } = interruptActiveBackgroundAgents(currentAgents);
-            if (interruptedIds.length === 0) {
+            void executeBackgroundTermination({
+              getAgents: () => parallelAgentsRef.current,
+              onTerminateBackgroundAgents,
+            }).then((result) => {
+              if (result.status === "failed") {
+                console.error("[background-termination] parent callback failed:", result.error);
+                const errorMessage = result.error instanceof Error
+                  ? result.error.message
+                  : String(result.error ?? "Unknown error");
+                addMessage("system", `${STATUS.error} Failed to terminate background agents: ${errorMessage}`);
+                return;
+              }
+
+              if (result.status === "noop") {
+                return;
+              }
+
+              const interruptedIds = result.interruptedIds;
+              if (interruptedIds.length > 0) {
+                const interruptedIdSet = new Set(interruptedIds);
+                console.debug("[background-termination] executing termination", {
+                  interruptedIds,
+                  remainingCount: result.agents.filter((agent) => !interruptedIdSet.has(agent.id)).length,
+                });
+
+                const remainingLiveAgents = result.agents.filter((agent) => !interruptedIdSet.has(agent.id));
+
+                const interruptedMessageId = backgroundAgentMessageIdRef.current
+                  ?? streamingMessageIdRef.current
+                  ?? lastStreamedMessageIdRef.current;
+                if (interruptedMessageId) {
+                  setMessagesWindowed((prev: ChatMessage[]) =>
+                    prev.map((msg: ChatMessage) =>
+                      msg.id === interruptedMessageId
+                        ? {
+                          ...msg,
+                          parallelAgents: result.agents,
+                        }
+                        : msg
+                    )
+                  );
+                }
+
+                parallelAgentsRef.current = remainingLiveAgents;
+                setParallelAgents(remainingLiveAgents);
+                backgroundAgentMessageIdRef.current = null;
+                // Preserve streamingStartRef during workflow so the timer persists.
+                if (!workflowActiveRef.current) {
+                  streamingStartRef.current = null;
+                }
+                clearDeferredCompletion();
+              }
+
+              addMessage("system", `${STATUS.active} ${decision.message}`);
+            }).finally(() => {
               backgroundTerminationInFlightRef.current = false;
-              return;
-            }
-
-            console.debug("[background-termination] executing termination", {
-              interruptedIds,
-              remainingCount: currentAgents.filter((agent) => !new Set(interruptedIds).has(agent.id)).length,
             });
-
-            const interruptedIdSet = new Set(interruptedIds);
-            const remainingLiveAgents = currentAgents.filter((agent) => !interruptedIdSet.has(agent.id));
-
-            const interruptedMessageId = backgroundAgentMessageIdRef.current ?? streamingMessageIdRef.current;
-            if (interruptedMessageId) {
-              setMessagesWindowed((prev: ChatMessage[]) =>
-                prev.map((msg: ChatMessage) =>
-                  msg.id === interruptedMessageId
-                    ? {
-                      ...msg,
-                      parallelAgents: interruptedAgents,
-                    }
-                    : msg
-                )
-              );
-            }
-
-            parallelAgentsRef.current = remainingLiveAgents;
-            setParallelAgents(remainingLiveAgents);
-            backgroundAgentMessageIdRef.current = null;
-            // Preserve streamingStartRef during workflow so the timer persists.
-            if (!workflowActiveRef.current) {
-              streamingStartRef.current = null;
-            }
-            clearDeferredCompletion();
-
-            void Promise.resolve(onTerminateBackgroundAgents?.()).catch((error) => {
-              console.error("[background-termination] parent callback failed:", error);
-            });
-            addMessage("system", `${STATUS.active} ${decision.message}`);
-            backgroundTerminationInFlightRef.current = false;
             return;
           }
 
           console.debug("[background-termination] armed: awaiting confirmation");
-          setBackgroundTerminationCount(1);
+          setBackgroundTerminationCount(pressEvaluation.nextPressCount);
           setCtrlFPressed(true);
           if (backgroundTerminationTimeoutRef.current) {
             clearTimeout(backgroundTerminationTimeoutRef.current);
           }
           backgroundTerminationTimeoutRef.current = setTimeout(() => {
-            setBackgroundTerminationCount(0);
-            setCtrlFPressed(false);
-            backgroundTerminationTimeoutRef.current = null;
+            clearBackgroundTerminationConfirmation();
           }, 1000);
           return;
         }
@@ -6035,7 +6075,6 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
         onTerminateBackgroundAgents,
         isStreaming,
         interruptCount,
-        backgroundTerminationCount,
         handleCopy,
         workflowState.showAutocomplete,
         workflowState.selectedSuggestionIndex,
@@ -6248,11 +6287,16 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
       // If a workflow is waiting for user input (after Ctrl+C stream interrupt),
       // resolve the pending promise with the user's prompt instead of sending normally.
       if (waitForUserInputResolverRef.current) {
-        const { resolve } = waitForUserInputResolverRef.current;
-        waitForUserInputResolverRef.current = null;
-        addMessage("user", trimmedValue);
-        resolve(trimmedValue);
-        return;
+        const workflowInput = consumeWorkflowInputSubmission(
+          waitForUserInputResolverRef.current,
+          workflowState.workflowActive,
+          trimmedValue,
+        );
+        waitForUserInputResolverRef.current = workflowInput.nextResolver;
+        if (workflowInput.consumed) {
+          addMessage("user", trimmedValue);
+          return;
+        }
       }
 
       // Dismiss workflow panel when user sends a non-workflow message (Copilot only)

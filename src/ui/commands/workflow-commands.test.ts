@@ -269,6 +269,142 @@ describe("workflow-commands /ralph", () => {
       }
     }
   });
+
+  test("publishes Ralph sub-agent completion events for successful execution", async () => {
+    const bus = new EventBus();
+    const agentStarts: Array<{ agentId: string; agentType: string }> = [];
+    const agentCompletes: Array<{
+      agentId: string;
+      success: boolean;
+      result?: string;
+      error?: string;
+    }> = [];
+    const sessionStarts: string[] = [];
+    const unsubscribeSession = bus.on("stream.session.start", () => {
+      sessionStarts.push("stream.session.start");
+    });
+    const unsubscribeStart = bus.on("stream.agent.start", (event) => {
+      agentStarts.push({
+        agentId: event.data.agentId,
+        agentType: event.data.agentType,
+      });
+    });
+    const unsubscribeComplete = bus.on("stream.agent.complete", (event) => {
+      agentCompletes.push({
+        agentId: event.data.agentId,
+        success: event.data.success,
+        result: event.data.result,
+        error: event.data.error,
+      });
+    });
+
+    let sessionDir: string | null = null;
+    const context = createMockContext({
+      eventBus: bus,
+      spawnSubagentParallel: async (agents) =>
+        agents.map((agent) => {
+          if (agent.agentName === "planner") {
+            return {
+              agentId: agent.agentId,
+              success: true,
+              output: JSON.stringify([
+                {
+                  id: "#1",
+                  content: "Add integration test for Claude sub-agent completion in Ralph",
+                  status: "pending",
+                  activeForm: "Adding integration test for Claude sub-agent completion in Ralph",
+                  blockedBy: [],
+                },
+              ]),
+              toolUses: 1,
+              durationMs: 100,
+            };
+          }
+          if (agent.agentName === "worker") {
+            return {
+              agentId: agent.agentId,
+              success: true,
+              output: "Implemented task #1",
+              toolUses: 2,
+              durationMs: 120,
+            };
+          }
+          if (agent.agentName === "reviewer") {
+            return {
+              agentId: agent.agentId,
+              success: true,
+              output: JSON.stringify({
+                findings: [],
+                overall_correctness: "patch is correct",
+                overall_explanation: "No issues found",
+              }),
+              toolUses: 1,
+              durationMs: 80,
+            };
+          }
+          return {
+            agentId: agent.agentId,
+            success: true,
+            output: "Done",
+            toolUses: 1,
+            durationMs: 100,
+          };
+        }),
+      setWorkflowSessionDir: (dir: string | null) => {
+        sessionDir = dir;
+        if (dir) {
+          const { mkdirSync } = require("fs");
+          mkdirSync(dir, { recursive: true });
+        }
+      },
+    });
+
+    try {
+      const ralphCommand = getWorkflowCommands().find((cmd) => cmd.name === "ralph");
+      expect(ralphCommand).toBeDefined();
+
+      const result = await ralphCommand!.execute(
+        "Add integration test for Claude sub-agent completion in Ralph",
+        context,
+      );
+
+      expect(result.success).toBe(true);
+      expect(sessionStarts.length).toBeGreaterThan(0);
+      expect(
+        agentStarts.some(
+          (event) => event.agentType === "planner" && event.agentId.startsWith("planner-"),
+        ),
+      ).toBe(true);
+      expect(
+        agentCompletes.some(
+          (event) =>
+            event.agentId.startsWith("planner-")
+            && event.success
+            && event.result?.includes('"id":"#1"'),
+        ),
+      ).toBe(true);
+      expect(
+        agentCompletes.some(
+          (event) => event.agentId === "worker-#1" && event.success && event.result === "Implemented task #1",
+        ),
+      ).toBe(true);
+      expect(
+        agentCompletes.some(
+          (event) =>
+            event.agentId.startsWith("reviewer-")
+            && event.success
+            && event.result?.includes('"overall_correctness":"patch is correct"'),
+        ),
+      ).toBe(true);
+    } finally {
+      unsubscribeSession();
+      unsubscribeStart();
+      unsubscribeComplete();
+      if (sessionDir) {
+        await rm(sessionDir, { recursive: true, force: true });
+      }
+    }
+  });
 });
 
 describe("review step in /ralph", () => {

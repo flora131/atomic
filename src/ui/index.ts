@@ -650,29 +650,35 @@ export async function startChatUI(
       handleInterrupt("ui");
     };
 
-    const handleTerminateBackgroundAgentsFromUI: OnTerminateBackgroundAgents = () => {
-      // Mark that background agents were terminated so the next user message
-      // includes a system notification in the model context.
-      state.backgroundAgentsTerminated = true;
-
+    const handleTerminateBackgroundAgentsFromUI: OnTerminateBackgroundAgents = async () => {
       // Prefer the selective abortBackgroundAgents method which targets only
       // background agents. Falls back to full abort for clients that don't
       // implement the selective method yet.
       if (state.session?.abortBackgroundAgents) {
-        void state.session.abortBackgroundAgents().catch((error) => {
+        try {
+          await state.session.abortBackgroundAgents();
+          // Mark that background agents were terminated so the next user
+          // message includes a system notification in the model context.
+          state.backgroundAgentsTerminated = true;
+          state.telemetryTracker?.trackBackgroundTermination("execute", 1, 1);
+        } catch (error) {
           console.error("Failed to abort background agents:", error);
-        });
-        state.telemetryTracker?.trackBackgroundTermination("execute", 1, 1);
+          throw error;
+        }
         return;
       }
 
       // Fallback: abort the entire session (safe because Ctrl+F only fires
       // when NOT streaming, so no foreground work will be affected).
       if (state.session?.abort) {
-        void state.session.abort().catch((error) => {
+        try {
+          await state.session.abort();
+          state.backgroundAgentsTerminated = true;
+          state.telemetryTracker?.trackBackgroundTermination("fallback", 1, 1);
+        } catch (error) {
           console.error("Failed to abort session during background-agent termination:", error);
-        });
-        state.telemetryTracker?.trackBackgroundTermination("fallback", 1, 1);
+          throw error;
+        }
         return;
       }
 

@@ -77,7 +77,11 @@ function createToolPart(toolCallId: string, toolName: string): ToolPart {
   };
 }
 
-function createAgent(taskToolCallId: string, name: string): ParallelAgent {
+function createAgent(
+  taskToolCallId: string,
+  name: string,
+  inlineParts?: Part[],
+): ParallelAgent {
   return {
     id: `agent-${taskToolCallId}`,
     taskToolCallId,
@@ -85,6 +89,7 @@ function createAgent(taskToolCallId: string, name: string): ParallelAgent {
     task: `Task for ${name}`,
     status: "running",
     startedAt: "2026-01-01T00:00:00.000Z",
+    inlineParts,
   };
 }
 
@@ -169,6 +174,21 @@ describe("getConsumedTaskToolCallIds", () => {
     expect(consumed.has("tool-2")).toBe(true);
     // tool-3 (bash) has no matching AgentPart, so it should NOT be consumed
     expect(consumed.has("tool-3")).toBe(false);
+  });
+
+  test("consumes top-level ToolPart duplicated by agent inline tool activity", () => {
+    const inlineTool = createToolPart("inline-tool-1", "bash");
+    const parts: Part[] = [
+      createToolPart("inline-tool-1", "bash"),
+      createToolPart("standalone-tool", "bash"),
+      createAgentPart([
+        createAgent("task-tool-1", "codebase-analyzer", [inlineTool]),
+      ]),
+    ];
+
+    const consumed = getConsumedTaskToolCallIds(parts);
+    expect(consumed.has("inline-tool-1")).toBe(true);
+    expect(consumed.has("standalone-tool")).toBe(false);
   });
 
   test("consumes task ToolPart when agent lacks taskToolCallId (Claude SDK fallback)", () => {

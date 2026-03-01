@@ -75,3 +75,4 @@ export function shouldShowCompletionSummary(
     && message.durationMs != null
     && message.durationMs >= 1000;
 }
+

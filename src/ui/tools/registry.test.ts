@@ -670,6 +670,18 @@ describe("editToolRenderer.render()", () => {
 });
 
 describe("applyPatchToolRenderer.render()", () => {
+  test("shows empty apply patch block until patch text is available", () => {
+    const props: ToolRenderProps = {
+      input: {},
+      output: undefined,
+    };
+
+    const result = applyPatchToolRenderer.render(props);
+    expect(result.title).toBe("Apply patch");
+    expect(result.content).toEqual([]);
+    expect(result.expandable).toBe(false);
+  });
+
   test("renders patchText content instead of unknown file placeholders", () => {
     const props: ToolRenderProps = {
       input: {

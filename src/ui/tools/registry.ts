@@ -418,7 +418,7 @@ export const applyPatchToolRenderer: ToolRenderer = {
       return getApplyPatchTitle(outputOperations);
     }
 
-    return editToolRenderer.getTitle(props);
+    return getApplyPatchTitle([]);
   },
 
   render(props: ToolRenderProps): ToolRenderResult {
@@ -456,7 +456,12 @@ export const applyPatchToolRenderer: ToolRenderer = {
       };
     }
 
-    return editToolRenderer.render(props);
+    return {
+      title: getApplyPatchTitle([]),
+      content: [],
+      language: "diff",
+      expandable: false,
+    };
   },
 };
 

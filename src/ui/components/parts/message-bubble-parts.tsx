@@ -13,9 +13,10 @@ import { PART_REGISTRY } from "./registry.tsx";
 import { SPACING } from "../../constants/spacing.ts";
 
 /**
- * Build a set of task-tool toolCallIds that are represented by an AgentPart.
+ * Build a set of toolCallIds that are already represented by an AgentPart.
  * These ToolParts should be hidden because the agent tree already displays
- * the same information (task description, status, tool uses, result).
+ * the same information (task description, status, tool uses, result, and
+ * nested inline tool activity).
  *
  * The check is purely ID-based (agentTaskToolCallIds set) — no tool-name
  * guard is needed because Copilot uses the agent's own name as the tool
@@ -26,11 +27,19 @@ export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<stri
   if (!hasAgentPart) return new Set();
 
   const agentTaskToolCallIds = new Set<string>();
+  const inlineToolCallIds = new Set<string>();
   for (const part of parts) {
     if (part.type !== "agent") continue;
     for (const agent of (part as AgentPart).agents) {
       if (agent.taskToolCallId) {
         agentTaskToolCallIds.add(agent.taskToolCallId);
+      }
+      for (const inlinePart of agent.inlineParts ?? []) {
+        if (inlinePart.type !== "tool") continue;
+        const inlineToolCallId = (inlinePart as ToolPart).toolCallId;
+        if (inlineToolCallId) {
+          inlineToolCallIds.add(inlineToolCallId);
+        }
       }
     }
   }
@@ -39,7 +48,10 @@ export function getConsumedTaskToolCallIds(parts: ReadonlyArray<Part>): Set<stri
   for (const part of parts) {
     if (part.type !== "tool") continue;
     const toolPart = part as ToolPart;
-    if (agentTaskToolCallIds.has(toolPart.toolCallId)) {
+    if (
+      agentTaskToolCallIds.has(toolPart.toolCallId)
+      || inlineToolCallIds.has(toolPart.toolCallId)
+    ) {
       consumed.add(toolPart.toolCallId);
     }
   }

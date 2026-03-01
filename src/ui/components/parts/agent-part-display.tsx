@@ -4,7 +4,7 @@
  * surfaced via a separate background-mode tree.
  */
 
-import React from "react";
+import React, { useMemo } from "react";
 import type { SyntaxStyle } from "@opentui/core";
 import type { AgentPart } from "../../parts/types.ts";
 import { ParallelAgentsTree, deduplicateAgents } from "../parallel-agents-tree.tsx";
@@ -52,18 +52,30 @@ export function getAgentTreeDisplayMode(
   return "mixed";
 }
 
-export function AgentPartDisplay({ part, syntaxStyle }: AgentPartDisplayProps): React.ReactNode {
+function AgentPartDisplayInner({ part, syntaxStyle }: AgentPartDisplayProps): React.ReactNode {
   // Deduplicate before splitting so eager+real entries merge and
   // the `background` flag is preserved on the winner.
-  const allAgents = deduplicateAgents([...part.agents]);
+  const allAgents = useMemo(() => deduplicateAgents(part.agents), [part.agents]);
 
   if (allAgents.length === 0) {
     return null;
   }
 
-  const foregroundAgents = getForegroundTreeAgents(allAgents);
-  const backgroundAgents = getBackgroundTreeAgents(allAgents);
-  const displayMode = getAgentTreeDisplayMode(foregroundAgents, backgroundAgents);
+  const {
+    foregroundAgents,
+    backgroundAgents,
+    displayMode,
+    hasActiveAgents,
+  } = useMemo(() => {
+    const nextForegroundAgents = getForegroundTreeAgents(allAgents);
+    const nextBackgroundAgents = getBackgroundTreeAgents(allAgents);
+    return {
+      foregroundAgents: nextForegroundAgents,
+      backgroundAgents: nextBackgroundAgents,
+      displayMode: getAgentTreeDisplayMode(nextForegroundAgents, nextBackgroundAgents),
+      hasActiveAgents: hasActiveForegroundTreeAgents(nextForegroundAgents),
+    };
+  }, [allAgents]);
 
   if (displayMode === "background") {
     return (
@@ -76,8 +88,6 @@ export function AgentPartDisplay({ part, syntaxStyle }: AgentPartDisplayProps): 
       />
     );
   }
-
-  const hasActiveAgents = hasActiveForegroundTreeAgents(foregroundAgents);
 
   if (displayMode === "mixed") {
     return (
@@ -108,6 +118,20 @@ export function AgentPartDisplay({ part, syntaxStyle }: AgentPartDisplayProps): 
       noTopMargin
     />
   );
+}
+
+const MemoizedAgentPartDisplay = React.memo(
+  AgentPartDisplayInner,
+  (prev, next) =>
+    prev.part === next.part
+    && prev.syntaxStyle === next.syntaxStyle
+    && prev.isLast === next.isLast,
+);
+
+MemoizedAgentPartDisplay.displayName = "AgentPartDisplay";
+
+export function AgentPartDisplay(props: AgentPartDisplayProps): React.ReactNode {
+  return <MemoizedAgentPartDisplay {...props} />;
 }
 
 export default AgentPartDisplay;

@@ -63,6 +63,7 @@ import type {
   SessionWarningEventData,
   SessionTitleChangedEventData,
 } from "../../sdk/types.ts";
+import { classifyError, computeDelay, retrySleep, DEFAULT_MAX_RETRIES } from "./retry.ts";
 
 /**
  * Stream adapter for OpenCode SDK.
@@ -126,6 +127,10 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     options: StreamAdapterOptions,
   ): Promise<void> {
     const { runId, messageId, agent } = options;
+
+    // Clean up any existing subscriptions from a previous startStreaming() call
+    // to prevent subscription accumulation on re-entry without dispose()
+    this.cleanupSubscriptions();
 
     // Create abort controller for cancellation
     this.abortController = new AbortController();
@@ -337,19 +342,51 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
 
         this.publishSessionIdle(runId, completion.reason);
       } else {
-        // Legacy fallback: iterate stream for non-OpenCode clients
-        const stream = session.stream(message, agent ? { agent } : undefined);
-        for await (const chunk of stream) {
-          if (this.abortController.signal.aborted) {
-            break;
-          }
-          await this.processStreamChunk(chunk, runId, messageId);
-        }
+        // Legacy fallback with retry: iterate stream for non-OpenCode clients
+        let lastError: unknown = null;
+        for (let attempt = 1; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+          try {
+            const stream = session.stream(message, agent ? { agent } : undefined);
+            for await (const chunk of stream) {
+              if (this.abortController.signal.aborted) {
+                break;
+              }
+              await this.processStreamChunk(chunk, runId, messageId);
+            }
 
-        if (this.textAccumulator.length > 0) {
-          this.publishTextComplete(runId, messageId);
+            if (this.textAccumulator.length > 0) {
+              this.publishTextComplete(runId, messageId);
+            }
+            this.publishSessionIdle(runId, "generator-complete");
+            lastError = null;
+            break;
+          } catch (error) {
+            lastError = error;
+            if (this.abortController?.signal.aborted) break;
+
+            const classified = classifyError(error);
+            if (!classified.isRetryable || attempt >= DEFAULT_MAX_RETRIES) break;
+
+            const delay = computeDelay(attempt, classified);
+            const retryEvent: BusEvent<"stream.session.retry"> = {
+              type: "stream.session.retry",
+              sessionId: this.sessionId,
+              runId,
+              timestamp: Date.now(),
+              data: {
+                attempt,
+                delay,
+                message: `${classified.message} — retrying in ${Math.ceil(delay / 1000)}s`,
+                nextRetryAt: Date.now() + delay,
+              },
+            };
+            this.bus.publish(retryEvent);
+
+            this.textAccumulator = "";
+            await retrySleep(delay, this.abortController.signal);
+          }
         }
-        this.publishSessionIdle(runId, "generator-complete");
+        if (lastError) throw lastError;
       }
     } catch (error) {
       // Handle stream errors
@@ -359,6 +396,8 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       // Always publish idle on error so the UI can finalize.
       this.publishSessionIdle(runId, "error");
     } finally {
+      // Force-complete any tools still pending/running — prevents orphaned tool state
+      this.cleanupOrphanedTools(runId);
       // Keep subscriptions active until dispose() so late lifecycle events
       // (e.g. delayed tool.complete) can still be published to the bus.
     }
@@ -1323,6 +1362,32 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
   /**
    * Clean up SDK event subscriptions.
    */
+  /**
+   * Force-complete any tools that received start but no complete event.
+   * Prevents tools from being stuck in running state after stream abort.
+   */
+  private cleanupOrphanedTools(runId: number): void {
+    for (const [toolName, toolIds] of this.pendingToolIdsByName.entries()) {
+      for (const toolId of toolIds) {
+        const event: BusEvent<"stream.tool.complete"> = {
+          type: "stream.tool.complete",
+          sessionId: this.sessionId,
+          runId,
+          timestamp: Date.now(),
+          data: {
+            toolId,
+            toolName,
+            toolResult: null,
+            success: false,
+            error: "Tool execution aborted",
+          },
+        };
+        this.bus.publish(event);
+      }
+    }
+    this.pendingToolIdsByName.clear();
+  }
+
   private cleanupSubscriptions(): void {
     for (const unsub of this.unsubscribers) {
       unsub();

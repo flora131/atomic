@@ -705,6 +705,7 @@ export class OpenCodeClient implements CodingAgentClient {
    */
   private async runEventLoop(): Promise<void> {
     const SSE_RECONNECT_DELAY_MS = 250;
+    let isReconnect = false;
 
     while (!this.eventSubscriptionController?.signal.aborted && this.isRunning) {
       try {
@@ -712,15 +713,22 @@ export class OpenCodeClient implements CodingAgentClient {
           directory: this.clientOptions.directory,
         });
 
+        // On reconnection, reconcile state to recover any events missed during the gap
+        if (isReconnect) {
+          await this.reconcileStateOnReconnect();
+        }
+
         await this.processEventStream(result.stream);
 
         // Generator ended normally — if not aborted, reconnect
         if (this.eventSubscriptionController?.signal.aborted) break;
+        isReconnect = true;
       } catch (error) {
         if ((error as Error)?.name === "AbortError") break;
         if (this.eventSubscriptionController?.signal.aborted) break;
 
         console.error("SSE connection error, reconnecting:", error);
+        isReconnect = true;
       }
 
       // Brief delay before reconnecting (SDK handles exponential backoff internally)
@@ -731,22 +739,70 @@ export class OpenCodeClient implements CodingAgentClient {
   }
 
   /**
-   * Process SSE event stream
+   * Reconcile state after SSE reconnection.
+   *
+   * Re-fetches session list from the server and re-emits current state so the
+   * UI is in sync after any events missed during the connection gap.
+   * Modeled after OpenCode's bootstrap() call on server.connected.
+   */
+  private async reconcileStateOnReconnect(): Promise<void> {
+    try {
+      const sessions = await this.listSessions();
+      for (const session of sessions) {
+        this.emitEvent("session.start", session.id, {
+          title: session.title ?? "Reconnected session",
+        });
+      }
+    } catch (error) {
+      console.warn("State reconciliation failed after reconnect:", error);
+    }
+  }
+
+  /**
+   * Process SSE event stream with heartbeat watchdog.
+   *
+   * Tracks the last event timestamp and aborts the connection if no events
+   * arrive within the watchdog timeout (15s). This detects dead SSE
+   * connections proactively — the server sends heartbeats every ~10s.
    */
   private async processEventStream(
     eventStream: AsyncGenerator<unknown, unknown, unknown>
   ): Promise<void> {
+    const HEARTBEAT_TIMEOUT_MS = 15_000;
+    let lastEventAt = Date.now();
+    let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Create a local abort controller for the watchdog to signal
+    const watchdogAbort = new AbortController();
+
+    const resetWatchdog = () => {
+      lastEventAt = Date.now();
+      if (watchdogTimer) clearTimeout(watchdogTimer);
+      watchdogTimer = setTimeout(() => {
+        const elapsed = Date.now() - lastEventAt;
+        if (elapsed >= HEARTBEAT_TIMEOUT_MS) {
+          console.warn(`SSE heartbeat timeout: no events for ${elapsed}ms, forcing reconnect`);
+          watchdogAbort.abort();
+        }
+      }, HEARTBEAT_TIMEOUT_MS);
+    };
+
+    resetWatchdog();
+
     try {
       for await (const event of eventStream) {
-        if (this.eventSubscriptionController?.signal.aborted) {
+        if (this.eventSubscriptionController?.signal.aborted || watchdogAbort.signal.aborted) {
           break;
         }
+        resetWatchdog();
         this.handleSdkEvent(event as Record<string, unknown>);
       }
     } catch (error) {
       if ((error as Error)?.name !== "AbortError") {
         throw error;
       }
+    } finally {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
     }
   }
 

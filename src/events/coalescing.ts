@@ -50,6 +50,8 @@ export function coalescingKey(event: BusEvent): string | undefined {
       return `session.idle:${event.sessionId}`;
     case "stream.session.error":
       return `session.error:${event.sessionId}`;
+    case "stream.session.retry":
+      return `session.retry:${event.sessionId}`;
 
     // Workflow task list coalesces per workflow
     case "workflow.task.update": {

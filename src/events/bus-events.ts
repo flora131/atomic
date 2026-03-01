@@ -57,6 +57,7 @@ export type BusEventType =
   | "workflow.task.statusChange"
   | "stream.permission.requested"
   | "stream.human_input_required"
+  | "stream.session.retry"
   | "stream.skill.invoked"
   | "stream.usage";
 
@@ -420,6 +421,20 @@ export interface BusEventDataMap {
   };
 
   /**
+   * Session retry state broadcast (retryable error, waiting before next attempt)
+   */
+  "stream.session.retry": {
+    /** Current attempt number (1-based) */
+    attempt: number;
+    /** Delay in milliseconds before next retry */
+    delay: number;
+    /** Human-readable reason for retry */
+    message: string;
+    /** Unix timestamp (ms) when next retry will occur */
+    nextRetryAt: number;
+  };
+
+  /**
    * Skill invoked (custom command executed)
    */
   "stream.skill.invoked": {
@@ -535,6 +550,12 @@ export const BusEventSchemas: Record<BusEventType, z.ZodType> = {
   "stream.session.error": z.object({
     error: z.string(),
     code: z.string().optional(),
+  }),
+  "stream.session.retry": z.object({
+    attempt: z.number(),
+    delay: z.number(),
+    message: z.string(),
+    nextRetryAt: z.number(),
   }),
   "stream.session.info": z.object({
     infoType: z.string(),

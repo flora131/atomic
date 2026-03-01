@@ -21,6 +21,12 @@ import { pipelineLog } from "./pipeline-logger.ts";
 const FLUSH_INTERVAL_MS = 16; // ~60 FPS alignment
 
 /**
+ * Maximum buffer size before oldest non-lifecycle events are dropped.
+ * Prevents unbounded memory growth during event bursts.
+ */
+const MAX_BUFFER_SIZE = 10_000;
+
+/**
  * Metrics tracking for batch dispatcher operations.
  */
 export interface BatchMetrics {
@@ -34,7 +40,17 @@ export interface BatchMetrics {
   lastFlushDuration: number;
   /** Number of events in last flush */
   lastFlushSize: number;
+  /** Total events dropped due to buffer overflow */
+  totalDropped: number;
 }
+
+/** Session lifecycle event types that should never be dropped */
+const LIFECYCLE_EVENT_TYPES = new Set([
+  "stream.session.start",
+  "stream.session.idle",
+  "stream.session.error",
+  "stream.session.retry",
+]);
 
 /**
  * Batch dispatcher for frame-aligned event batching with coalescing.
@@ -74,6 +90,7 @@ export class BatchDispatcher {
   private writeBuffer: BusEvent[] = [];
   private readBuffer: BusEvent[] = [];
   private coalescingMap = new Map<string, number>(); // key → index in writeBuffer
+  private staleDeltas = new Set<string>(); // delta keys superseded by complete events
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private lastFlush = Date.now();
   private flushIntervalMs: number;
@@ -84,6 +101,7 @@ export class BatchDispatcher {
     flushCount: 0,
     lastFlushDuration: 0,
     lastFlushSize: 0,
+    totalDropped: 0,
   };
 
   /**
@@ -124,11 +142,45 @@ export class BatchDispatcher {
         // Replace in-place — only latest state matters
         this.writeBuffer[idx] = event;
         this._metrics.totalCoalesced++;
+
+        // When a complete event coalesces (replaces an earlier complete),
+        // mark corresponding deltas in the buffer as stale since the
+        // latest complete already contains the full accumulated state.
+        if (event.type === "stream.text.complete") {
+          const data = event.data as { messageId: string };
+          this.staleDeltas.add(`text.delta:${event.sessionId}:${data.messageId}`);
+        } else if (event.type === "stream.thinking.complete") {
+          const data = event.data as { sourceKey: string };
+          this.staleDeltas.add(`thinking.delta:${event.sessionId}:${data.sourceKey}`);
+        }
+
         pipelineLog("Dispatcher", "coalesce", { key, type: event.type });
         return;
       }
       this.coalescingMap.set(key, this.writeBuffer.length);
     }
+
+    // Enforce buffer size limit — drop oldest non-lifecycle event on overflow
+    if (this.writeBuffer.length >= MAX_BUFFER_SIZE) {
+      let dropIdx = -1;
+      for (let i = 0; i < this.writeBuffer.length; i++) {
+        const buffered = this.writeBuffer[i];
+        if (buffered && !LIFECYCLE_EVENT_TYPES.has(buffered.type)) {
+          dropIdx = i;
+          break;
+        }
+      }
+      if (dropIdx >= 0) {
+        const dropped = this.writeBuffer.splice(dropIdx, 1)[0];
+        this._metrics.totalDropped++;
+        // Rebuild coalescing map indices after splice
+        this.rebuildCoalescingMap();
+        if (dropped) {
+          pipelineLog("Dispatcher", "buffer_overflow_drop", { droppedType: dropped.type });
+        }
+      }
+    }
+
     this.writeBuffer.push(event);
     this.scheduleFlush();
   }
@@ -157,21 +209,41 @@ export class BatchDispatcher {
     this.flushTimer = null;
     const startTime = performance.now();
 
+    // Capture stale delta keys before clearing
+    const skip = this.staleDeltas.size > 0 ? new Set(this.staleDeltas) : undefined;
+
     // Double-buffer swap
     const toFlush = this.writeBuffer;
     this.writeBuffer = this.readBuffer;
     this.readBuffer = toFlush;
     this.writeBuffer.length = 0;
     this.coalescingMap.clear();
+    this.staleDeltas.clear();
     this.lastFlush = Date.now();
+
+    // Filter stale deltas during dispatch
+    let filteredFlush = toFlush;
+    if (skip) {
+      filteredFlush = toFlush.filter((event) => {
+        if (event.type === "stream.text.delta") {
+          const data = event.data as { messageId: string };
+          return !skip.has(`text.delta:${event.sessionId}:${data.messageId}`);
+        }
+        if (event.type === "stream.thinking.delta") {
+          const data = event.data as { sourceKey: string };
+          return !skip.has(`thinking.delta:${event.sessionId}:${data.sourceKey}`);
+        }
+        return true;
+      });
+    }
 
     // Dispatch batched events to all consumers
     for (const consumer of this.consumers) {
-      consumer(toFlush);
+      consumer(filteredFlush);
     }
 
     // Update metrics
-    const flushSize = toFlush.length;
+    const flushSize = filteredFlush.length;
     this._metrics.totalFlushed += flushSize;
     this._metrics.flushCount++;
     this._metrics.lastFlushSize = flushSize;
@@ -211,6 +283,7 @@ export class BatchDispatcher {
     this.writeBuffer.length = 0;
     this.readBuffer.length = 0;
     this.coalescingMap.clear();
+    this.staleDeltas.clear();
     this.consumers.length = 0;
     this._metrics = {
       totalFlushed: 0,
@@ -218,6 +291,22 @@ export class BatchDispatcher {
       flushCount: 0,
       lastFlushDuration: 0,
       lastFlushSize: 0,
+      totalDropped: 0,
     };
+  }
+
+  /**
+   * Rebuild the coalescing map after a splice operation shifts indices.
+   */
+  private rebuildCoalescingMap(): void {
+    this.coalescingMap.clear();
+    for (let i = 0; i < this.writeBuffer.length; i++) {
+      const ev = this.writeBuffer[i];
+      if (!ev) continue;
+      const key = coalescingKey(ev);
+      if (key !== undefined) {
+        this.coalescingMap.set(key, i);
+      }
+    }
   }
 }

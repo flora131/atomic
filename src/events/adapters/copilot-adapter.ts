@@ -171,6 +171,10 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     message: string,
     options: StreamAdapterOptions,
   ): Promise<void> {
+    // Clean up any existing subscriptions from a previous startStreaming() call
+    // to prevent subscription accumulation on re-entry without dispose()
+    this.cleanupSubscriptions();
+
     this.sessionId = session.id;
     this.runId = options.runId;
     this.messageId = options.messageId;
@@ -230,6 +234,8 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
         });
       }
     } finally {
+      // Force-complete any tools still pending/running — prevents orphaned tool state
+      this.cleanupOrphanedTools();
       this.isActive = false;
     }
   }
@@ -1226,14 +1232,46 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
    *
    * Removes all registered event listeners and clears internal state.
    */
-  dispose(): void {
-    this.isActive = false;
+  /**
+   * Force-complete any tools that received start but no complete event.
+   * Prevents tools from being stuck in running state after stream abort.
+   */
+  private cleanupOrphanedTools(): void {
+    for (const [toolName, toolIds] of this.pendingToolIdsByName.entries()) {
+      for (const toolId of toolIds) {
+        this.publishEvent({
+          type: "stream.tool.complete",
+          sessionId: this.sessionId,
+          runId: this.runId,
+          timestamp: Date.now(),
+          data: {
+            toolId,
+            toolName,
+            toolResult: null,
+            success: false,
+            error: "Tool execution aborted",
+          },
+        });
+      }
+    }
+    this.pendingToolIdsByName.clear();
+  }
 
-    // Unsubscribe all event handlers
+  /**
+   * Clean up SDK event subscriptions without full state reset.
+   */
+  private cleanupSubscriptions(): void {
     for (const unsubscribe of this.unsubscribers) {
       unsubscribe();
     }
     this.unsubscribers = [];
+  }
+
+  dispose(): void {
+    this.isActive = false;
+
+    // Unsubscribe all event handlers
+    this.cleanupSubscriptions();
 
     // Clear buffer and state
     this.eventBuffer = [];

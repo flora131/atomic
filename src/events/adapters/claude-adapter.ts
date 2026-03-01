@@ -47,6 +47,7 @@ import type {
   PermissionRequestedEventData,
 } from "../../sdk/types.ts";
 import { SubagentToolTracker } from "./subagent-tool-tracker.ts";
+import { classifyError, computeDelay, retrySleep, DEFAULT_MAX_RETRIES } from "./retry.ts";
 
 /**
  * Stream adapter for Claude Agent SDK.
@@ -100,6 +101,10 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     options: StreamAdapterOptions,
   ): Promise<void> {
     const { runId, messageId, agent } = options;
+
+    // Clean up any existing subscriptions from a previous startStreaming() call
+    // to prevent subscription accumulation on re-entry without dispose()
+    this.cleanupSubscriptions();
 
     // Create abort controller for cancellation
     this.abortController = new AbortController();
@@ -170,29 +175,82 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
     }
 
     try {
-      // Start streaming from the Claude SDK
-      const stream = session.stream(message, agent ? { agent } : undefined);
+      // Retry loop for transient failures (429, 503, ECONNRESET, etc.)
+      let lastError: unknown = null;
+      for (let attempt = 1; attempt <= DEFAULT_MAX_RETRIES; attempt++) {
+        try {
+          // Start streaming from the Claude SDK
+          const stream = session.stream(message, agent ? { agent } : undefined);
 
-      // Iterate over the AsyncIterable stream
-      for await (const chunk of stream) {
-        // Check for cancellation
-        if (this.abortController.signal.aborted) {
+          // Iterate over the AsyncIterable stream
+          for await (const chunk of stream) {
+            // Check for cancellation
+            if (this.abortController.signal.aborted) {
+              break;
+            }
+
+            this.processStreamChunk(chunk, runId, messageId);
+          }
+
+          // Publish stream.text.complete event if we accumulated any text
+          if (this.textAccumulator.length > 0) {
+            this.publishTextComplete(runId, messageId);
+          }
+
+          // Stream completed successfully — exit retry loop
+          lastError = null;
           break;
+        } catch (error) {
+          lastError = error;
+
+          // Don't retry aborted requests
+          if (this.abortController?.signal.aborted) break;
+
+          const classified = classifyError(error);
+          if (!classified.isRetryable || attempt >= DEFAULT_MAX_RETRIES) break;
+
+          const delay = computeDelay(attempt, classified);
+          const retryEvent: BusEvent<"stream.session.retry"> = {
+            type: "stream.session.retry",
+            sessionId: this.sessionId,
+            runId,
+            timestamp: Date.now(),
+            data: {
+              attempt,
+              delay,
+              message: `${classified.message} — retrying in ${Math.ceil(delay / 1000)}s`,
+              nextRetryAt: Date.now() + delay,
+            },
+          };
+          this.bus.publish(retryEvent);
+
+          // Reset accumulated state for retry
+          this.textAccumulator = "";
+
+          await retrySleep(delay, this.abortController.signal);
         }
-
-        this.processStreamChunk(chunk, runId, messageId);
       }
 
-      // Publish stream.text.complete event if we accumulated any text
-      if (this.textAccumulator.length > 0) {
-        this.publishTextComplete(runId, messageId);
-      }
+      // If we exhausted retries or hit a non-retryable error, rethrow
+      if (lastError) throw lastError;
     } catch (error) {
       // Handle stream errors
       if (this.abortController && !this.abortController.signal.aborted) {
         this.publishSessionError(runId, error);
+        // Publish session.idle after error so the UI can finalize
+        // (matches OpenCode adapter pattern for consistent state transitions)
+        const idleEvent: BusEvent<"stream.session.idle"> = {
+          type: "stream.session.idle",
+          sessionId: this.sessionId,
+          runId,
+          timestamp: Date.now(),
+          data: { reason: "error" },
+        };
+        this.bus.publish(idleEvent);
       }
     } finally {
+      // Force-complete any tools still pending/running — prevents orphaned tool state
+      this.cleanupOrphanedTools(runId);
       // Keep subscriptions until dispose() so delayed hook events can complete tools.
     }
   }
@@ -800,6 +858,42 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
   }
 
   /**
+   * Force-complete any tools that received start but no complete event.
+   * Prevents tools from being stuck in running state after stream abort.
+   */
+  private cleanupOrphanedTools(runId: number): void {
+    for (const [toolName, toolIds] of this.pendingToolIdsByName.entries()) {
+      for (const toolId of toolIds) {
+        const event: BusEvent<"stream.tool.complete"> = {
+          type: "stream.tool.complete",
+          sessionId: this.sessionId,
+          runId,
+          timestamp: Date.now(),
+          data: {
+            toolId,
+            toolName,
+            toolResult: null,
+            success: false,
+            error: "Tool execution aborted",
+          },
+        };
+        this.bus.publish(event);
+      }
+    }
+    this.pendingToolIdsByName.clear();
+  }
+
+  /**
+   * Clean up SDK event subscriptions without full state reset.
+   */
+  private cleanupSubscriptions(): void {
+    for (const unsubscribe of this.unsubscribers) {
+      unsubscribe();
+    }
+    this.unsubscribers = [];
+  }
+
+  /**
    * Cancel the ongoing stream and cleanup resources.
    */
   dispose(): void {
@@ -807,10 +901,7 @@ export class ClaudeStreamAdapter implements SDKStreamAdapter {
       this.abortController.abort();
       this.abortController = null;
     }
-    for (const unsubscribe of this.unsubscribers) {
-      unsubscribe();
-    }
-    this.unsubscribers = [];
+    this.cleanupSubscriptions();
     this.textAccumulator = "";
     this.thinkingStartTimes.clear();
     this.pendingToolIdsByName.clear();

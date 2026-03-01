@@ -495,6 +495,8 @@ export class OpenCodeClient implements CodingAgentClient {
    */
   private reasoningPartIds = new Set<string>();
   private reasoningTextByPartId = new Map<string, string>();
+  /** Track full text for text parts to compute diffs (v2 fallback). */
+  private textPartTexts = new Map<string, string>();
 
   /**
    * Create a new OpenCodeClient
@@ -640,6 +642,9 @@ export class OpenCodeClient implements CodingAgentClient {
     this.currentSessionId = null;
     this.subagentStateByParentSession.clear();
     this.childSessionToParentSession.clear();
+    this.reasoningPartIds.clear();
+    this.reasoningTextByPartId.clear();
+    this.textPartTexts.clear();
 
     this.emitEvent("session.idle", "connection", { reason: "disconnected" });
   }
@@ -981,11 +986,22 @@ export class OpenCodeClient implements CodingAgentClient {
         const sessionSubagentState = parentSessionId
           ? this.getSubagentSessionState(parentSessionId)
           : this.createSubagentSessionState();
-        if (part?.type === "text" && delta) {
-          this.emitEvent("message.delta", partSessionId, {
-            delta,
-            contentType: "text",
-          });
+        if (part?.type === "text") {
+          const partId = (part?.id as string) ?? undefined;
+          // v2 SDK omits `delta` from message.part.updated; compute it from
+          // the full text by diffing against previously seen text.
+          const fullText = (part?.text as string) ?? "";
+          const prevText = partId ? (this.textPartTexts.get(partId) ?? "") : "";
+          const computedDelta = delta ?? (fullText.length > prevText.length ? fullText.slice(prevText.length) : "");
+          if (partId) {
+            this.textPartTexts.set(partId, fullText);
+          }
+          if (computedDelta) {
+            this.emitEvent("message.delta", partSessionId, {
+              delta: computedDelta,
+              contentType: "text",
+            });
+          }
         } else if (part?.type === "reasoning") {
           const partId = (part?.id as string) ?? undefined;
           if (partId) {
@@ -2528,10 +2544,12 @@ export class OpenCodeClient implements CodingAgentClient {
       }
     }
 
+    // Mark running BEFORE starting SSE so the event loop's while-condition
+    // (which checks `this.isRunning` synchronously) evaluates to true.
+    this.isRunning = true;
+
     // Start SSE event subscription
     await this.subscribeToSdkEvents();
-
-    this.isRunning = true;
   }
 
   /**

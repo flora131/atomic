@@ -1554,6 +1554,13 @@ export function MessageBubble({ message, isLast, syntaxStyle, hideAskUserQuestio
           />
         )}
 
+        {/* Inline cancellation indicator — rendered below message parts, above spinner */}
+        {message.wasInterrupted && !message.streaming && (
+          <box marginTop={SPACING.ELEMENT}>
+            <text style={{ fg: themeColors.error }}>{STATUS.active} Operation cancelled by user</text>
+          </box>
+        )}
+
         {/* Loading spinner while work is active (stops once task progress is fully complete). */}
         {showLoadingIndicator && !hideLoading && (
           <box flexDirection="row" alignItems="flex-start" marginTop={renderableMessage.parts.length > 0 ? SPACING.ELEMENT : SPACING.NONE}>
@@ -3082,7 +3089,12 @@ export function ChatApp({
   // feed them into existing indicator state machines.
 
   useBusSubscription("stream.session.info", (event) => {
-    const { message } = event.data;
+    const { message, infoType } = event.data;
+    // Skip cancellation events — they are rendered inline on the interrupted
+    // assistant message (via wasInterrupted flag) rather than as a separate
+    // system message.  This also prevents duplicates when both the old and
+    // new adapters forward the same SDK cancellation event.
+    if (infoType === "cancellation") return;
     if (message) {
       setMessagesWindowed((prev) => [
         ...prev,
@@ -6482,6 +6494,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               msg.id === interruptedId
                 ? {
                   ...finalizeStreamingReasoningInMessage(msg),
+                  wasInterrupted: true,
                   streaming: false,
                   durationMs,
                   modelId: currentModelRef.current,

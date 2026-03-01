@@ -742,6 +742,7 @@ describe("OpenCodeClient event mapping", () => {
       });
     });
 
+    // First, register the reasoning part via message.part.updated
     (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
       type: "message.part.updated",
       properties: {
@@ -751,6 +752,15 @@ describe("OpenCodeClient event mapping", () => {
           messageID: "msg_reasoning",
           type: "reasoning",
         },
+      },
+    });
+
+    // Then, send the delta via message.part.delta (v2)
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "message.part.delta",
+      properties: {
+        partID: "reasoning_part_1",
+        sessionID: "ses_reasoning",
         delta: "inspect constraints",
       },
     });

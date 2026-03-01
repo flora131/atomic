@@ -179,6 +179,18 @@ describe("Unified provider event parity", () => {
           messageID: "msg_reasoning",
           type: "reasoning",
         },
+      },
+    });
+
+    (
+      openCodeClient as unknown as {
+        handleSdkEvent: (event: Record<string, unknown>) => void;
+      }
+    ).handleSdkEvent({
+      type: "message.part.delta",
+      properties: {
+        partID: "reasoning_part_a",
+        sessionID: "ses_reasoning",
         delta: "alpha",
       },
     });
@@ -188,14 +200,10 @@ describe("Unified provider event parity", () => {
         handleSdkEvent: (event: Record<string, unknown>) => void;
       }
     ).handleSdkEvent({
-      type: "message.part.updated",
+      type: "message.part.delta",
       properties: {
-        part: {
-          id: "reasoning_part_a",
-          sessionID: "ses_reasoning",
-          messageID: "msg_reasoning",
-          type: "reasoning",
-        },
+        partID: "reasoning_part_a",
+        sessionID: "ses_reasoning",
         delta: "beta",
       },
     });

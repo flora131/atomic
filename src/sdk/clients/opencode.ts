@@ -967,9 +967,7 @@ export class OpenCodeClient implements CodingAgentClient {
       }
 
       case "message.part.updated": {
-        // Handle streaming text parts
         const part = properties?.part as Record<string, unknown> | undefined;
-        const delta = properties?.delta as string | undefined;
         // Session IDs can appear on both the event envelope and the part.
         // Prefer part.sessionID because tool parts emitted by sub-agent child
         // sessions can still carry properties.sessionID from the parent frame.
@@ -980,26 +978,14 @@ export class OpenCodeClient implements CodingAgentClient {
         const sessionSubagentState = parentSessionId
           ? this.getSubagentSessionState(parentSessionId)
           : this.createSubagentSessionState();
-        if (part?.type === "text" && delta) {
-          // v1 SDK includes `delta` on message.part.updated; v2 sends
-          // incremental deltas via the separate message.part.delta event
-          // so we only emit here when an explicit delta is present.
-          this.emitEvent("message.delta", partSessionId, {
-            delta,
-            contentType: "text",
-          });
+        if (part?.type === "text") {
+          // Text streaming is handled entirely by message.part.delta (v2).
         } else if (part?.type === "reasoning") {
+          // Register reasoning part IDs so message.part.delta can route
+          // them as "thinking" content; streaming handled by that handler.
           const partId = (part?.id as string) ?? undefined;
           if (partId) {
             this.reasoningPartIds.add(partId);
-          }
-          // Same as text: only emit when v1 provides an explicit delta.
-          if (delta) {
-            this.emitEvent("message.delta", partSessionId, {
-              delta,
-              contentType: "thinking",
-              thinkingSourceKey: partId,
-            });
           }
         } else if (part?.type === "tool") {
           const toolState = part?.state as Record<string, unknown> | undefined;

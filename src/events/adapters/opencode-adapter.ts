@@ -50,7 +50,6 @@ import type {
   SubagentStartEventData,
   SubagentCompleteEventData,
   SubagentUpdateEventData,
-  MessageDeltaEventData,
   PermissionRequestedEventData,
   HumanInputRequiredEventData,
   SkillInvokedEventData,
@@ -155,13 +154,6 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     // Note: The OpenCode SDK emits most events through the CodingAgentClient event emitter
     const client = this.client ?? (session as Session & { __client?: CodingAgentClient }).__client;
     if (client && typeof client.on === "function") {
-      // Subscribe to message.delta events (backup - primarily handled in stream)
-      const unsubDelta = client.on(
-        "message.delta",
-        this.createMessageDeltaHandler(runId, messageId),
-      );
-      this.unsubscribers.push(unsubDelta);
-
       // Subscribe to message.complete events
       const unsubComplete = client.on(
         "message.complete",
@@ -504,68 +496,6 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       };
       this.bus.publish(event);
     }
-  }
-
-  /**
-   * Create a handler for message.delta events from the SDK.
-   */
-  private createMessageDeltaHandler(
-    runId: number,
-    messageId: string,
-  ): EventHandler<"message.delta"> {
-    return (event) => {
-      // Only process events for this session
-      if (event.sessionId !== this.sessionId) {
-        return;
-      }
-
-      const data = event.data as MessageDeltaEventData;
-      const delta = data.delta;
-      const contentType = data.contentType;
-      const thinkingSourceKey = data.thinkingSourceKey;
-
-      if (contentType === "thinking") {
-        // Handle thinking deltas
-        const sourceKey = thinkingSourceKey ?? "default";
-
-        // Track the start time for this thinking block
-        if (!this.thinkingBlocks.has(sourceKey)) {
-          this.thinkingBlocks.set(sourceKey, { startTime: Date.now() });
-        }
-
-        const busEvent: BusEvent<"stream.thinking.delta"> = {
-          type: "stream.thinking.delta",
-          sessionId: this.sessionId,
-          runId,
-          timestamp: Date.now(),
-          data: {
-            delta,
-            sourceKey,
-            messageId,
-          },
-        };
-
-        this.bus.publish(busEvent);
-      } else {
-        // Handle text deltas
-        this.textAccumulator += delta;
-
-        if (delta.length > 0) {
-          const busEvent: BusEvent<"stream.text.delta"> = {
-            type: "stream.text.delta",
-            sessionId: this.sessionId,
-            runId,
-            timestamp: Date.now(),
-            data: {
-              delta,
-              messageId,
-            },
-          };
-
-          this.bus.publish(busEvent);
-        }
-      }
-    };
   }
 
   /**

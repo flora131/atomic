@@ -431,16 +431,18 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
       // Regular text delta
       this.accumulatedText += delta;
 
-      this.publishEvent({
-        type: "stream.text.delta",
-        sessionId: this.sessionId,
-        runId: this.runId,
-        timestamp: Date.now(),
-        data: {
-          delta,
-          messageId: this.messageId,
-        },
-      });
+      if (delta.length > 0) {
+        this.publishEvent({
+          type: "stream.text.delta",
+          sessionId: this.sessionId,
+          runId: this.runId,
+          timestamp: Date.now(),
+          data: {
+            delta,
+            messageId: this.messageId,
+          },
+        });
+      }
     }
   }
 
@@ -531,7 +533,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
     //
     // When tool requests are present, finalization is deferred to session.idle
     // or a subsequent message.complete without tool requests.
-    if (!hasToolRequests) {
+    if (!hasToolRequests && this.accumulatedText.length > 0) {
       this.publishEvent({
         type: "stream.text.complete",
         sessionId: this.sessionId,
@@ -658,6 +660,7 @@ export class CopilotStreamAdapter implements SDKStreamAdapter {
         success: normalizedSuccess,
         error,
         sdkCorrelationId: explicitToolId ?? toolId,
+        parentAgentId: resolvedParentId,
       },
     });
   }

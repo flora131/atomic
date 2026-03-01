@@ -185,6 +185,7 @@ export class StreamPipelineConsumer {
 
       case "stream.text.complete": {
         const data = event.data as BusEventDataMap["stream.text.complete"];
+        if (!data.fullText) return [];
         return [{ type: "text-complete", fullText: data.fullText, messageId: data.messageId }];
       }
 

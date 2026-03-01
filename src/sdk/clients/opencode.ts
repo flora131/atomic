@@ -754,8 +754,12 @@ export class OpenCodeClient implements CodingAgentClient {
         // Handle streaming text parts
         const part = properties?.part as Record<string, unknown> | undefined;
         const delta = properties?.delta as string | undefined;
-        // Session ID is in properties, not in part
-        const partSessionId = (properties?.sessionID as string) ?? (part?.sessionID as string) ?? "";
+        // Session IDs can appear on both the event envelope and the part.
+        // Prefer part.sessionID because tool parts emitted by sub-agent child
+        // sessions can still carry properties.sessionID from the parent frame.
+        // Using properties first collapses child tools into the parent stream,
+        // which breaks inline task anchoring and pushes agent trees to the end.
+        const partSessionId = (part?.sessionID as string) ?? (properties?.sessionID as string) ?? "";
         if (part?.type === "text" && delta) {
           this.emitEvent("message.delta", partSessionId, {
             delta,

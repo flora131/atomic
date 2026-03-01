@@ -764,6 +764,9 @@ describe("OpenCodeClient event mapping", () => {
     handle({
       type: "message.part.updated",
       properties: {
+        // OpenCode can keep the parent session ID at the envelope level
+        // while the part itself belongs to the child session.
+        sessionID: "ses_parent",
         part: {
           id: "tool_child_1",
           sessionID: "ses_child",
@@ -894,6 +897,8 @@ describe("OpenCodeClient event mapping", () => {
     handle({
       type: "message.part.updated",
       properties: {
+        // Regression guard: envelope may still report the parent session.
+        sessionID: "ses_parent",
         part: {
           id: "nested_task_1",
           sessionID: "ses_child_debugger",

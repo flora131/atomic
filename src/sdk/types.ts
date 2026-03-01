@@ -550,6 +550,8 @@ export interface SubagentStartEventData extends BaseEventData {
   subagentType?: string;
   /** Task assigned to the subagent */
   task?: string;
+  /** SDK-native tool use ID (camelCase variant) */
+  toolUseId?: string;
   /** SDK-native tool use ID (Claude hook variant) */
   toolUseID?: string;
   /** SDK-native tool call ID (Copilot variant) */

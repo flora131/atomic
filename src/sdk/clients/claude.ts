@@ -339,6 +339,27 @@ export class ClaudeAgentClient implements CodingAgentClient {
      * with the correct sub-agent for emitting subagent.update events.
      */
     private toolUseIdToAgentId = new Map<string, string>();
+    /** Maps tool_use_id → wrapped session ID for terminal hook routing. */
+    private toolUseIdToSessionId = new Map<string, string>();
+
+    /**
+     * Maps sub-agent SDK session ID → agent_id.
+     * Populated reactively: when a tool hook fires with an unknown session_id
+     * that differs from the main session's sdkSessionId, it gets bound to the
+     * first unmapped sub-agent.
+     */
+    private subagentSdkSessionIdToAgentId = new Map<string, string>();
+    /**
+     * Agent IDs of sub-agents that have started but haven't yet had their
+     * SDK session ID discovered via a tool hook.
+     */
+    private unmappedSubagentIds: string[] = [];
+
+    protected async loadConfiguredAgents(
+        projectRoot: string,
+    ): Promise<Awaited<ReturnType<typeof loadCopilotAgents>>> {
+        return loadCopilotAgents(projectRoot);
+    }
 
     /**
      * Register native SDK hooks for event handling.
@@ -1140,6 +1161,14 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     }
                     this.pendingToolBySession.delete(sessionId);
                     this.pendingSubagentBySession.delete(sessionId);
+                    for (const [toolUseId, mappedSessionId] of this.toolUseIdToSessionId.entries()) {
+                        if (mappedSessionId === sessionId) {
+                            this.toolUseIdToSessionId.delete(toolUseId);
+                        }
+                    }
+                    // Clean up sub-agent session tracking
+                    this.subagentSdkSessionIdToAgentId.clear();
+                    this.unmappedSubagentIds.length = 0;
                     this.sessions.delete(sessionId);
                     this.emitEvent("session.idle", sessionId, {
                         reason: "destroyed",
@@ -1204,6 +1233,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 });
                 if (toolUseId) {
                     this.toolUseIdToAgentId.delete(toolUseId);
+                    this.toolUseIdToSessionId.delete(toolUseId);
                 }
             }
         }
@@ -1439,6 +1469,95 @@ export class ClaudeAgentClient implements CodingAgentClient {
     }
 
     /**
+     * Resolve tool use correlation ID from either hook callback argument or hook payload.
+     */
+    private resolveHookToolUseId(
+        toolUseID: string | undefined,
+        hookInput: Record<string, unknown>,
+    ): string | undefined {
+        if (typeof toolUseID === "string" && toolUseID.trim().length > 0) {
+            return toolUseID;
+        }
+
+        const candidates = [
+            hookInput.tool_use_id,
+            hookInput.toolUseId,
+            hookInput.toolUseID,
+            hookInput.tool_call_id,
+            hookInput.toolCallId,
+        ];
+        for (const candidate of candidates) {
+            if (typeof candidate === "string" && candidate.trim().length > 0) {
+                return candidate;
+            }
+        }
+        return undefined;
+    }
+
+    /**
+     * Fallback session routing for hooks that omit session_id.
+     */
+    private resolveFallbackHookSessionId(toolUseId?: string): string {
+        if (toolUseId) {
+            const mappedSessionId = this.toolUseIdToSessionId.get(toolUseId);
+            if (mappedSessionId) {
+                const mappedState = this.sessions.get(mappedSessionId);
+                if (mappedState && !mappedState.isClosed) {
+                    return mappedSessionId;
+                }
+                this.toolUseIdToSessionId.delete(toolUseId);
+            }
+        }
+
+        const openActiveSessions = Array.from(this.sessions.entries()).filter(
+            ([, state]) => !state.isClosed && state.query !== null,
+        );
+        if (openActiveSessions.length === 1) {
+            return openActiveSessions[0]![0];
+        }
+        return "";
+    }
+
+    /**
+     * Get the SDK session ID for a given wrapped session ID.
+     * Returns null if the session doesn't exist or hasn't been bound yet.
+     */
+    private getMainSdkSessionId(wrappedSessionId: string): string | null {
+        const state = this.sessions.get(wrappedSessionId);
+        return state?.sdkSessionId ?? null;
+    }
+
+    /**
+     * Detect if a hook event originates from a sub-agent based on its SDK session ID.
+     * If the hook's session_id differs from the main session's sdkSessionId,
+     * attribute the event to a sub-agent and return the agent ID.
+     */
+    private resolveSubagentParentId(
+        hookSdkSessionId: string,
+        wrappedSessionId: string,
+    ): string | undefined {
+        if (!hookSdkSessionId) return undefined;
+
+        const mainSdkSessionId = this.getMainSdkSessionId(wrappedSessionId);
+        if (!mainSdkSessionId || hookSdkSessionId === mainSdkSessionId) {
+            return undefined;
+        }
+
+        // Check if we've already mapped this SDK session ID to a sub-agent
+        const knownAgentId = this.subagentSdkSessionIdToAgentId.get(hookSdkSessionId);
+        if (knownAgentId) return knownAgentId;
+
+        // Bind to the first unmapped sub-agent
+        if (this.unmappedSubagentIds.length > 0) {
+            const agentId = this.unmappedSubagentIds.shift()!;
+            this.subagentSdkSessionIdToAgentId.set(hookSdkSessionId, agentId);
+            return agentId;
+        }
+
+        return undefined;
+    }
+
+    /**
      * Create a new agent session
      */
     async createSession(config: SessionConfig = {}): Promise<Session> {
@@ -1457,7 +1576,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
 
         // Load custom agents from project and global directories
         const projectRoot = process.cwd();
-        const loadedAgents = await loadCopilotAgents(projectRoot);
+        const loadedAgents = await this.loadConfiguredAgents(projectRoot);
         
         const agentsMap: Record<string, { description: string; prompt: string; tools?: string[]; model?: "sonnet" | "opus" | "haiku" | "inherit" }> = { ...config.agents };
         
@@ -1567,9 +1686,13 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     // The HookInput has fields like tool_name, tool_input, tool_result
                     // but the UI expects toolName, toolInput, toolResult
                     const hookInput = input as Record<string, unknown>;
+                    const resolvedToolUseId = this.resolveHookToolUseId(
+                        toolUseID,
+                        hookInput,
+                    );
                     const eventData: Record<string, unknown> = {
                         hookInput: input,
-                        toolUseID,
+                        toolUseID: resolvedToolUseId,
                     };
 
                     // Map tool-related fields for tool.start and tool.complete events
@@ -1602,15 +1725,27 @@ export class ClaudeAgentClient implements CodingAgentClient {
                     if (targetHookEvent === "SubagentStop") {
                         // SubagentStop implies successful completion
                         eventData.success = true;
-                        // Clean up tool use ID mapping
-                        if (toolUseID) {
-                            this.toolUseIdToAgentId.delete(toolUseID);
+                        // Fill missing agent_id from previously registered tool_use_id.
+                        const mappedAgentId = resolvedToolUseId
+                            ? this.toolUseIdToAgentId.get(resolvedToolUseId)
+                            : undefined;
+                        if (!eventData.subagentId && mappedAgentId) {
+                            eventData.subagentId = mappedAgentId;
                         }
                     }
 
                     // Store toolUseID → agent_id mapping for task_progress correlation
-                    if (targetHookEvent === "SubagentStart" && toolUseID && hookInput.agent_id) {
-                        this.toolUseIdToAgentId.set(toolUseID, hookInput.agent_id as string);
+                    if (
+                        targetHookEvent === "SubagentStart"
+                        && resolvedToolUseId
+                        && hookInput.agent_id
+                    ) {
+                        this.toolUseIdToAgentId.set(
+                            resolvedToolUseId,
+                            hookInput.agent_id as string,
+                        );
+                        // Track as unmapped until we discover its SDK session ID
+                        this.unmappedSubagentIds.push(hookInput.agent_id as string);
                     }
 
                     const hookSessionId =
@@ -1619,7 +1754,50 @@ export class ClaudeAgentClient implements CodingAgentClient {
                             : "";
                     const sessionId = hookSessionId
                         ? this.resolveHookSessionId(hookSessionId)
-                        : hookSessionId;
+                        : this.resolveFallbackHookSessionId(resolvedToolUseId);
+
+                    if (
+                        targetHookEvent === "SubagentStart"
+                        && resolvedToolUseId
+                        && sessionId
+                    ) {
+                        this.toolUseIdToSessionId.set(resolvedToolUseId, sessionId);
+                    }
+                    if (targetHookEvent === "SubagentStop" && resolvedToolUseId) {
+                        this.toolUseIdToAgentId.delete(resolvedToolUseId);
+                        this.toolUseIdToSessionId.delete(resolvedToolUseId);
+                        // Clean up sub-agent session tracking
+                        const stoppedAgentId = (eventData.subagentId ?? hookInput.agent_id) as string | undefined;
+                        if (stoppedAgentId) {
+                            const idx = this.unmappedSubagentIds.indexOf(stoppedAgentId);
+                            if (idx >= 0) this.unmappedSubagentIds.splice(idx, 1);
+                            for (const [sid, aid] of this.subagentSdkSessionIdToAgentId) {
+                                if (aid === stoppedAgentId) {
+                                    this.subagentSdkSessionIdToAgentId.delete(sid);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    // Detect if this tool hook originates from a sub-agent.
+                    // Sub-agent tool hooks carry a different SDK session_id than
+                    // the main session. When detected, add parentAgentId so the
+                    // adapter can route events to the agent tree.
+                    if (
+                        targetHookEvent !== "SubagentStart"
+                        && targetHookEvent !== "SubagentStop"
+                        && hookSessionId
+                        && sessionId
+                    ) {
+                        const parentAgentId = this.resolveSubagentParentId(
+                            hookSessionId,
+                            sessionId,
+                        );
+                        if (parentAgentId) {
+                            eventData.parentAgentId = parentAgentId;
+                        }
+                    }
 
                     const event: AgentEvent<T> = {
                         type: eventType,

@@ -486,6 +486,42 @@ describe("ClaudeStreamAdapter", () => {
     expect(thinkingCompleteEvents[0].data.durationMs).toBe(500);
   });
 
+  test("publishes session idle events from SDK client", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test message", {
+      runId: 100,
+      messageId: "msg-2",
+    });
+
+    // Ignore events from other sessions.
+    client.emit("session.idle" as EventType, {
+      type: "session.idle",
+      sessionId: "other-session",
+      timestamp: Date.now(),
+      data: { reason: "ignored" },
+    } as AgentEvent<"session.idle">);
+
+    client.emit("session.idle" as EventType, {
+      type: "session.idle",
+      sessionId: "test-session-123",
+      timestamp: Date.now(),
+      data: { reason: "completed" },
+    } as AgentEvent<"session.idle">);
+
+    await streamPromise;
+
+    const idleEvents = events.filter((e) => e.type === "stream.session.idle");
+    expect(idleEvents.length).toBe(1);
+    expect(idleEvents[0].data.reason).toBe("completed");
+    expect(idleEvents[0].runId).toBe(100);
+  });
+
   test("publishes session error on stream error", async () => {
     const events = collectEvents(bus);
 
@@ -692,6 +728,56 @@ describe("ClaudeStreamAdapter", () => {
     expect(agentStartEvents[0].data.task).toBe("Find files");
     expect(agentStartEvents[0].data.sdkCorrelationId).toBe("tool_use_123");
     expect(agentStartEvents[0].runId).toBe(100);
+  });
+
+  test("normalizes OpenCode subagent correlation IDs to the canonical tool ID", async () => {
+    const events = collectEvents(bus);
+    const client = createMockClient();
+
+    const chunks: AgentMessage[] = [{ type: "text", content: "done" }];
+    const stream = mockAsyncStream(chunks);
+    const session = createMockSession(stream, client);
+
+    const streamPromise = adapter.startStreaming(session, "test", {
+      runId: 100,
+      messageId: "msg-2",
+    });
+
+    // Tool emits both IDs. Adapter canonicalizes to toolUseId as toolId,
+    // while preserving an alias so subagent.start with toolCallId still maps.
+    client.emit("tool.start" as EventType, {
+      type: "tool.start",
+      sessionId: "test-session-123",
+      timestamp: new Date().toISOString(),
+      data: {
+        toolName: "Task",
+        toolInput: { description: "Investigate" },
+        toolUseId: "tool-use-123",
+        toolCallId: "call-456",
+      },
+    } as AgentEvent);
+
+    client.emit("subagent.start" as EventType, {
+      type: "subagent.start",
+      sessionId: "test-session-123",
+      timestamp: new Date().toISOString(),
+      data: {
+        subagentId: "agent-001",
+        subagentType: "explore",
+        task: "Find files",
+        toolCallId: "call-456",
+      },
+    } as AgentEvent);
+
+    await streamPromise;
+
+    const toolStartEvents = events.filter((e) => e.type === "stream.tool.start");
+    expect(toolStartEvents.length).toBe(1);
+    expect(toolStartEvents[0].data.toolId).toBe("tool-use-123");
+
+    const agentStartEvents = events.filter((e) => e.type === "stream.agent.start");
+    expect(agentStartEvents.length).toBe(1);
+    expect(agentStartEvents[0].data.sdkCorrelationId).toBe("tool-use-123");
   });
 
   test("real usage events publish stream.usage with accumulated tokens", async () => {
@@ -1881,9 +1967,10 @@ describe("CopilotStreamAdapter", () => {
     const toolStarts = events.filter((e) => e.type === "stream.tool.start");
     expect(toolStarts.length).toBe(0);
 
-    // The parent message.complete should have emitted stream.text.complete
+    // The parent message.complete should NOT have emitted stream.text.complete
+    // because no text was accumulated (no message.delta events were sent)
     const textCompletes = events.filter((e) => e.type === "stream.text.complete");
-    expect(textCompletes.length).toBe(1);
+    expect(textCompletes.length).toBe(0);
   });
 });
 

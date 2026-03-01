@@ -80,6 +80,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
   // Track thinking blocks to emit complete events
   private thinkingBlocks = new Map<string, { startTime: number }>();
   private pendingToolIdsByName = new Map<string, string[]>();
+  private toolCorrelationAliases = new Map<string, string>();
   private syntheticToolCounter = 0;
 
   /**
@@ -90,6 +91,17 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
    */
   private lastSeenOutputTokens = 0;
   private accumulatedOutputTokens = 0;
+
+  /**
+   * Deferred session.idle event: the SSE `session.idle` can arrive before the
+   * REST response from `session.prompt()` resolves.  If we publish
+   * `stream.session.idle` immediately, the UI calls `handleStreamComplete()`
+   * and sets `isStreamingRef = false` *before* the generator yields text from
+   * `result.data.parts`.  Guard 1 in the text-delta callback then drops every
+   * delta.  Deferring ensures the idle event is published only after all
+   * generator text has been processed by the `for await` loop.
+   */
+  private pendingIdleEvent: { runId: number; reason: string } | null = null;
 
   /**
    * Create a new OpenCode stream adapter.
@@ -131,9 +143,11 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.textAccumulator = "";
     this.thinkingBlocks.clear();
     this.pendingToolIdsByName.clear();
+    this.toolCorrelationAliases.clear();
     this.syntheticToolCounter = 0;
     this.lastSeenOutputTokens = 0;
     this.accumulatedOutputTokens = 0;
+    this.pendingIdleEvent = null;
 
     this.publishSessionStart(runId);
 
@@ -304,11 +318,17 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       if (this.textAccumulator.length > 0) {
         this.publishTextComplete(runId, messageId);
       }
+
+      // Publish deferred session.idle now that all generator text has been
+      // processed and stream.text.complete has been emitted.
+      this.flushPendingIdleEvent();
     } catch (error) {
       // Handle stream errors
       if (this.abortController && !this.abortController.signal.aborted) {
         this.publishSessionError(runId, error);
       }
+      // Still flush the deferred idle event on error so the UI can finalize.
+      this.flushPendingIdleEvent();
     } finally {
       // Keep subscriptions active until dispose() so late lifecycle events
       // (e.g. delayed tool.complete) can still be published to the bus.
@@ -523,18 +543,20 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         // Handle text deltas
         this.textAccumulator += delta;
 
-        const busEvent: BusEvent<"stream.text.delta"> = {
-          type: "stream.text.delta",
-          sessionId: this.sessionId,
-          runId,
-          timestamp: Date.now(),
-          data: {
-            delta,
-            messageId,
-          },
-        };
+        if (delta.length > 0) {
+          const busEvent: BusEvent<"stream.text.delta"> = {
+            type: "stream.text.delta",
+            sessionId: this.sessionId,
+            runId,
+            timestamp: Date.now(),
+            data: {
+              delta,
+              messageId,
+            },
+          };
 
-        this.bus.publish(busEvent);
+          this.bus.publish(busEvent);
+        }
       }
     };
   }
@@ -570,11 +592,12 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       }
 
       const data = event.data as ToolStartEventData;
-      const sdkCorrelationId = this.asString(
-        data.toolUseId ?? data.toolUseID ?? data.toolCallId,
-      );
+      const sdkToolUseId = this.asString(data.toolUseId ?? data.toolUseID);
+      const sdkToolCallId = this.asString(data.toolCallId);
+      const sdkCorrelationId = sdkToolUseId ?? sdkToolCallId;
       const toolName = this.normalizeToolName(data.toolName);
       const toolId = this.resolveToolStartId(sdkCorrelationId, runId, toolName);
+      this.registerToolCorrelationAliases(toolId, sdkToolUseId, sdkToolCallId);
 
       const busEvent: BusEvent<"stream.tool.start"> = {
         type: "stream.tool.start",
@@ -606,12 +629,15 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       }
 
       const data = event.data as ToolCompleteEventData;
-      const sdkCorrelationId = this.asString(
-        data.toolUseId ?? data.toolUseID ?? data.toolCallId,
+      const sdkToolUseId = this.asString(data.toolUseId ?? data.toolUseID);
+      const sdkToolCallId = this.asString(data.toolCallId);
+      const sdkCorrelationId = this.resolveToolCorrelationId(
+        sdkToolUseId ?? sdkToolCallId,
       );
       const toolName = this.normalizeToolName(data.toolName);
       const toolId = this.resolveToolCompleteId(sdkCorrelationId, runId, toolName);
       const toolInput = this.asRecord((data as Record<string, unknown>).toolInput);
+      this.registerToolCorrelationAliases(toolId, sdkToolUseId, sdkToolCallId);
 
       const busEvent: BusEvent<"stream.tool.complete"> = {
         type: "stream.tool.complete",
@@ -648,7 +674,10 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       const data = event.data as SubagentStartEventData;
 
       // Extract SDK correlation ID
-      const sdkCorrelationId = data.toolUseID ?? data.toolCallId;
+      const rawSdkCorrelationId = this.asString(
+        data.toolUseId ?? data.toolUseID ?? data.toolCallId,
+      );
+      const sdkCorrelationId = this.resolveToolCorrelationId(rawSdkCorrelationId);
 
       const busEvent: BusEvent<"stream.agent.start"> = {
         type: "stream.agent.start",
@@ -726,6 +755,10 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
 
   /**
    * Create a handler for session.idle events from the SDK.
+   *
+   * The SSE `session.idle` event can arrive before the REST response from
+   * `session.prompt()` resolves, so we defer publishing `stream.session.idle`
+   * until after the `for await` loop in `startStreaming` finishes.
    */
   private createSessionIdleHandler(
     runId: number,
@@ -736,17 +769,8 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         return;
       }
 
-      const busEvent: BusEvent<"stream.session.idle"> = {
-        type: "stream.session.idle",
-        sessionId: this.sessionId,
-        runId,
-        timestamp: Date.now(),
-        data: {
-          reason: event.data.reason,
-        },
-      };
-
-      this.bus.publish(busEvent);
+      // Defer — will be published after the stream iteration completes
+      this.pendingIdleEvent = { runId, reason: event.data.reason ?? "idle" };
     };
   }
 
@@ -1115,6 +1139,33 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.bus.publish(event);
   }
 
+  /**
+   * Publish a deferred stream.session.idle event.
+   */
+  private publishSessionIdle(runId: number, reason: string): void {
+    const busEvent: BusEvent<"stream.session.idle"> = {
+      type: "stream.session.idle",
+      sessionId: this.sessionId,
+      runId,
+      timestamp: Date.now(),
+      data: {
+        reason,
+      },
+    };
+
+    this.bus.publish(busEvent);
+  }
+
+  /**
+   * Flush any deferred session.idle event.
+   */
+  private flushPendingIdleEvent(): void {
+    if (this.pendingIdleEvent) {
+      this.publishSessionIdle(this.pendingIdleEvent.runId, this.pendingIdleEvent.reason);
+      this.pendingIdleEvent = null;
+    }
+  }
+
   private publishSessionStart(runId: number): void {
     const event: BusEvent<"stream.session.start"> = {
       type: "stream.session.start",
@@ -1161,6 +1212,25 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
 
   private normalizeToolName(value: unknown): string {
     return this.asString(value) ?? "unknown";
+  }
+
+  private resolveToolCorrelationId(correlationId: string | undefined): string | undefined {
+    if (!correlationId) {
+      return undefined;
+    }
+    return this.toolCorrelationAliases.get(correlationId) ?? correlationId;
+  }
+
+  private registerToolCorrelationAliases(
+    toolId: string,
+    ...correlationIds: Array<string | undefined>
+  ): void {
+    for (const correlationId of correlationIds) {
+      if (!correlationId || correlationId === toolId) {
+        continue;
+      }
+      this.toolCorrelationAliases.set(correlationId, toolId);
+    }
   }
 
   private createSyntheticToolId(runId: number, toolName: string): string {
@@ -1246,6 +1316,7 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.textAccumulator = "";
     this.thinkingBlocks.clear();
     this.pendingToolIdsByName.clear();
+    this.toolCorrelationAliases.clear();
     this.syntheticToolCounter = 0;
     this.lastSeenOutputTokens = 0;
     this.accumulatedOutputTokens = 0;

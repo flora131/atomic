@@ -113,10 +113,7 @@ const DEFAULT_OPENCODE_BASE_URL = "http://localhost:4096";
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_RETRY_DELAY = 1000;
 const PRE_PROMPT_TERMINAL_SETTLE_MS = 500;
-const POST_PROMPT_STREAM_DRAIN_GRACE_MS = 1000;
-const POST_PROMPT_STREAM_DRAIN_ACTIVE_TOOL_GRACE_MS = 15000;
-const POST_PROMPT_STREAM_DRAIN_MAX_WAIT_MS = 30000;
-const POST_PROMPT_STREAM_DRAIN_POLL_MS = 25;
+const STREAM_POLL_MS = 25;
 
 type OpenCodeSessionStatus = "idle" | "busy" | "retry";
 
@@ -1758,6 +1755,28 @@ export class OpenCodeClient implements CodingAgentClient {
         };
       },
 
+      sendAsync: async (message: string, options?: { agent?: string }): Promise<void> => {
+        if (sessionState.isClosed) {
+          throw new Error("Session is closed");
+        }
+        if (!client.sdkClient) {
+          throw new Error("Client not connected");
+        }
+
+        const result = await client.sdkClient.session.promptAsync({
+          sessionID: sessionId,
+          directory: client.clientOptions.directory,
+          agent: agentMode,
+          model: client.activePromptModel ?? initialPromptModel,
+          system: config.systemPrompt || undefined,
+          parts: buildOpenCodePromptParts(message, options?.agent),
+        });
+
+        if (result?.error) {
+          throw new Error(extractOpenCodeErrorMessage(result.error));
+        }
+      },
+
       stream: (message: string, options?: { agent?: string }): AsyncIterable<AgentMessage> => {
         return {
           async *[Symbol.asyncIterator]() {
@@ -1778,23 +1797,12 @@ export class OpenCodeClient implements CodingAgentClient {
             let streamError: Error | null = null;
             let terminalEventSeen = false;
             let terminalEventAt: number | null = null;
-            let lastStreamActivityAt = Date.now();
             const isSubagentDispatch =
               typeof options?.agent === "string" && options.agent.trim().length > 0;
-            const allowTerminalIdleBeforePromptResolution = isSubagentDispatch;
             const relatedSessionIds = new Set<string>([sessionId]);
             const startedToolUseIds = new Set<string>();
             const completedToolUseIds = new Set<string>();
-            const inFlightHookToolUseIds = new Set<string>();
             let syntheticToolUseCounter = 0;
-
-            const markStreamActivity = () => {
-              lastStreamActivityAt = Date.now();
-            };
-
-            const hasInFlightHookTools = (): boolean => {
-              return inFlightHookToolUseIds.size > 0;
-            };
 
             const isRelatedSession = (candidateSessionId: string): boolean => {
               if (!isSubagentDispatch) {
@@ -1839,7 +1847,6 @@ export class OpenCodeClient implements CodingAgentClient {
                     },
                   } : {}),
                 });
-                markStreamActivity();
                 resolveNext?.();
               }
             };
@@ -1849,7 +1856,6 @@ export class OpenCodeClient implements CodingAgentClient {
               if (!isSubagentDispatch) return;
               if (!isRelatedSession(event.sessionId)) return;
               registerRelatedSession((event.data as Record<string, unknown>)?.subagentSessionId);
-              markStreamActivity();
             };
 
             const handleToolStart = (event: AgentEvent<"tool.start">) => {
@@ -1870,7 +1876,6 @@ export class OpenCodeClient implements CodingAgentClient {
               }
 
               startedToolUseIds.add(toolUseId);
-              inFlightHookToolUseIds.add(toolUseId);
               deltaQueue.push({
                 type: "tool_use",
                 content: {
@@ -1884,7 +1889,6 @@ export class OpenCodeClient implements CodingAgentClient {
                   toolId: toolUseId,
                 },
               });
-              markStreamActivity();
               resolveNext?.();
             };
 
@@ -1905,7 +1909,6 @@ export class OpenCodeClient implements CodingAgentClient {
               }
 
               completedToolUseIds.add(toolUseId);
-              inFlightHookToolUseIds.delete(toolUseId);
               const success = (toolData.success as boolean | undefined) ?? true;
               const toolResult = success
                 ? toolData.toolResult
@@ -1921,7 +1924,6 @@ export class OpenCodeClient implements CodingAgentClient {
                   error: !success,
                 },
               });
-              markStreamActivity();
               resolveNext?.();
             };
 
@@ -1930,7 +1932,6 @@ export class OpenCodeClient implements CodingAgentClient {
               if (!isRelatedSession(event.sessionId)) return;
               terminalEventSeen = true;
               terminalEventAt = Date.now();
-              markStreamActivity();
               resolveNext?.();
             };
 
@@ -1940,7 +1941,6 @@ export class OpenCodeClient implements CodingAgentClient {
               streamError = new Error(String(event.data?.error ?? "Stream error"));
               terminalEventSeen = true;
               terminalEventAt = Date.now();
-              markStreamActivity();
               streamDone = true;
               resolveNext?.();
             };
@@ -1960,13 +1960,10 @@ export class OpenCodeClient implements CodingAgentClient {
             const unsubError = client.on("session.error", handleError);
 
             try {
-              // Start the prompt (this initiates the agentic loop).
-              // Do not block exclusively on prompt() resolution: OpenCode can
-              // emit terminal session events before the prompt promise settles,
-              // especially under parallel sub-agent load.
-              let promptResult: unknown = null;
-              let promptFailure: Error | null = null;
-              void client.sdkClient.session.prompt({
+              // Fire-and-forget: promptAsync() returns 204 immediately.
+              // All streaming content arrives exclusively through SSE events
+              // (message.delta, session.idle, session.error).
+              await client.sdkClient.session.promptAsync({
                 sessionID: sessionId,
                 directory: client.clientOptions.directory,
                 agent: agentMode,
@@ -1974,26 +1971,23 @@ export class OpenCodeClient implements CodingAgentClient {
                 system: config.systemPrompt || undefined,
                 parts: buildOpenCodePromptParts(message, options?.agent),
               }).then((result) => {
-                promptResult = result;
-                markStreamActivity();
-                resolveNext?.();
+                if (result?.error) {
+                  streamError = new Error(extractOpenCodeErrorMessage(result.error));
+                  streamDone = true;
+                  resolveNext?.();
+                }
               }).catch((error: unknown) => {
-                promptFailure = error instanceof Error ? error : new Error(String(error));
-                markStreamActivity();
+                streamError = error instanceof Error ? error : new Error(String(error));
+                streamDone = true;
                 resolveNext?.();
               });
-
-              // Track if we already yielded text content from direct response
-              // to avoid duplicating with SSE deltas
-              let yieldedTextFromResponse = false;
 
               // Wall-clock thinking timing
               let reasoningStartMs: number | null = null;
               let reasoningDurationMs = 0;
 
-              // Wait for prompt resolution OR a terminal stream event while
-              // still yielding queued SSE deltas for responsive progress.
-              while (promptResult === null && !promptFailure) {
+              // Drain SSE deltas until session.idle or session.error
+              while (!streamDone || deltaQueue.length > 0) {
                 if (deltaQueue.length > 0) {
                   const msg = deltaQueue.shift()!;
                   if (msg.type === "thinking") {
@@ -2015,267 +2009,30 @@ export class OpenCodeClient implements CodingAgentClient {
                 }
 
                 if (streamDone) {
-                  if (streamError || allowTerminalIdleBeforePromptResolution) {
-                    break;
-                  }
+                  break;
                 }
 
                 if (
-                  allowTerminalIdleBeforePromptResolution
-                  &&
                   terminalEventSeen
                   && terminalEventAt !== null
                   && Date.now() - terminalEventAt >= PRE_PROMPT_TERMINAL_SETTLE_MS
                 ) {
-                  // session.idle/session.error can arrive before prompt settles.
-                  // Allow a short settle window for late chunks, then continue
-                  // with fallback completion without blocking indefinitely.
                   streamDone = true;
                   break;
                 }
 
+                // Wait for next delta or completion
                 await new Promise<void>((resolve) => {
                   resolveNext = resolve;
-                  setTimeout(resolve, POST_PROMPT_STREAM_DRAIN_POLL_MS);
+                  setTimeout(resolve, STREAM_POLL_MS);
                 });
                 resolveNext = null;
-              }
-
-              if (promptFailure) {
-                throw promptFailure;
-              }
-
-              const result = promptResult as {
-                error?: unknown;
-                data?: {
-                  parts?: Array<{
-                    type: string;
-                    id?: string;
-                    text?: string;
-                    tool?: string;
-                    state?: Record<string, unknown>;
-                  }>;
-                  info?: {
-                    tokens?: {
-                      input?: number;
-                      output?: number;
-                      cache?: {
-                        write?: number;
-                        read?: number;
-                      };
-                    };
-                  };
-                };
-              } | null;
-
-              if (result?.error) {
-                throw new Error(extractOpenCodeErrorMessage(result.error));
-              }
-
-              // If we got a direct response (no SSE streaming), yield it
-              // This handles cases where the SDK returns immediately
-              if (result?.data?.parts) {
-                const parts = result.data.parts;
-                for (const part of parts) {
-                  if (part.type === "text" && part.text) {
-                    yieldedTextFromResponse = true;
-                    yield {
-                      type: "text" as const,
-                      content: part.text,
-                      role: "assistant" as const,
-                    };
-                  } else if (part.type === "reasoning" && part.text) {
-                    if (reasoningStartMs === null) {
-                      reasoningStartMs = Date.now();
-                    }
-                    const reasoningPartId = (part as { id?: string }).id;
-                    yield {
-                      type: "thinking" as const,
-                      content: part.text,
-                      role: "assistant" as const,
-                      metadata: {
-                        provider: "opencode",
-                        thinkingSourceKey: reasoningPartId,
-                        streamingStats: {
-                          thinkingMs: reasoningDurationMs + (Date.now() - reasoningStartMs),
-                          outputTokens: 0,
-                        },
-                      },
-                    };
-                  } else if (part.type === "tool") {
-                    // Accumulate reasoning duration when transitioning away from reasoning
-                    if (reasoningStartMs !== null) {
-                      reasoningDurationMs += Date.now() - reasoningStartMs;
-                      reasoningStartMs = null;
-                    }
-                    const toolPart = part as Record<string, unknown>;
-                    const toolState = toolPart.state as Record<string, unknown> | undefined;
-                    const toolName = toolPart.tool as string;
-                    const toolUseId =
-                      (toolPart.id as string | undefined) ?? buildSyntheticToolUseId();
-
-                    // Yield tool_use message for pending/running tools
-                    if (
-                      (toolState?.status === "pending" || toolState?.status === "running") &&
-                      !startedToolUseIds.has(toolUseId)
-                    ) {
-                      startedToolUseIds.add(toolUseId);
-                      yield {
-                        type: "tool_use" as const,
-                        content: {
-                          name: toolName,
-                          input: toolState?.input ?? {},
-                          toolUseId,
-                        },
-                        role: "assistant" as const,
-                        metadata: {
-                          toolId: toolUseId,
-                        },
-                      };
-                    }
-
-                    // Yield tool_result message for completed tools
-                    if (
-                      toolState?.status === "completed" &&
-                      !completedToolUseIds.has(toolUseId) &&
-                      toolState?.output
-                    ) {
-                      completedToolUseIds.add(toolUseId);
-                      yield {
-                        type: "tool_result" as const,
-                        content: toolState.output,
-                        role: "assistant" as const,
-                        metadata: {
-                          toolName,
-                          toolId: toolUseId,
-                        },
-                      };
-                    }
-
-                    // Yield error message for failed tools
-                    if (toolState?.status === "error" && !completedToolUseIds.has(toolUseId)) {
-                      completedToolUseIds.add(toolUseId);
-                      yield {
-                        type: "tool_result" as const,
-                        content: { error: toolState?.error ?? "Tool execution failed" },
-                        role: "assistant" as const,
-                        metadata: {
-                          toolName,
-                          toolId: toolUseId,
-                          error: true,
-                        },
-                      };
-                    }
-                  }
-                }
-
-                // Update token counts from response
-                const tokens = result.data.info?.tokens;
-                if (tokens) {
-                  sessionState.inputTokens = tokens.input ?? sessionState.inputTokens;
-                  sessionState.outputTokens = tokens.output ?? 0;
-
-                  // Capture system/tools baseline from cache tokens
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  const cacheTokens = (((tokens as any).cache?.write ?? 0) + ((tokens as any).cache?.read ?? 0));
-                  if (cacheTokens > 0) {
-                    sessionState.systemToolsBaseline = cacheTokens;
-                  }
-                }
-
-                // Yield actual token counts to UI
-                if (sessionState.outputTokens > 0 || reasoningDurationMs > 0) {
-                  yield {
-                    type: "text" as const,
-                    content: "",
-                    role: "assistant" as const,
-                    metadata: {
-                      streamingStats: {
-                        outputTokens: sessionState.outputTokens,
-                        thinkingMs: reasoningDurationMs,
-                      },
-                    },
-                  };
-                }
-              }
-
-              // Yield any SSE deltas that arrived, but skip if we already yielded text from direct response
-              // This prevents duplication when OpenCode returns content both in direct response AND via SSE
-              if (!yieldedTextFromResponse) {
-                // Clear any stale terminal state from before prompt resolution.
-                // Stale session.idle events from previous requests (via the
-                // persistent SSE connection) can set terminalEventSeen before the
-                // new prompt's processing begins. Only terminal events arriving
-                // during the drain should trigger the settle logic.
-                terminalEventSeen = false;
-                terminalEventAt = null;
-
-                const drainStart = Date.now();
-                while (!streamDone || deltaQueue.length > 0) {
-                  if (deltaQueue.length > 0) {
-                    const msg = deltaQueue.shift()!;
-                    // Track reasoning duration from SSE deltas
-                    if (msg.type === "thinking") {
-                      if (reasoningStartMs === null) {
-                        reasoningStartMs = Date.now();
-                      }
-                      const currentMs = reasoningDurationMs + (Date.now() - reasoningStartMs);
-                      const existingMetadata = (msg.metadata ?? {}) as Record<string, unknown>;
-                      msg.metadata = {
-                        ...existingMetadata,
-                        streamingStats: { thinkingMs: currentMs, outputTokens: 0 },
-                      };
-                    } else if (reasoningStartMs !== null) {
-                      reasoningDurationMs += Date.now() - reasoningStartMs;
-                      reasoningStartMs = null;
-                    }
-                    yield msg;
-                  } else if (!streamDone) {
-                    const now = Date.now();
-                    if (terminalEventSeen && terminalEventAt !== null) {
-                      const terminalSettled = now - terminalEventAt >= PRE_PROMPT_TERMINAL_SETTLE_MS;
-                      if (terminalSettled) {
-                        // Terminal lifecycle event has been observed and queue is
-                        // drained. Wait briefly for any late-arriving chunks, then
-                        // finalize.
-                        streamDone = true;
-                        break;
-                      }
-                    }
-
-                    const inactivityLimit = hasInFlightHookTools()
-                      ? POST_PROMPT_STREAM_DRAIN_ACTIVE_TOOL_GRACE_MS
-                      : POST_PROMPT_STREAM_DRAIN_GRACE_MS;
-                    const inactivityExceeded = now - lastStreamActivityAt >= inactivityLimit;
-                    const hardTimeoutExceeded = now - drainStart >= POST_PROMPT_STREAM_DRAIN_MAX_WAIT_MS;
-                    if (inactivityExceeded || hardTimeoutExceeded) {
-                      // Fallback: OpenCode can complete prompt() without emitting
-                      // a terminal idle event on some event contracts. Use
-                      // inactivity + hard max wait so long-running tool phases do
-                      // not terminate after a brief scheduling gap.
-                      streamDone = true;
-                      break;
-                    }
-                    // Wait for next delta or completion
-                    await new Promise<void>((resolve) => {
-                      resolveNext = resolve;
-                      setTimeout(resolve, POST_PROMPT_STREAM_DRAIN_POLL_MS);
-                    });
-                    resolveNext = null;
-                  }
-                }
-              } else {
-                // Clear the delta queue since we already have the response
-                deltaQueue.length = 0;
-                streamDone = true;
               }
 
               // Check for stream error
               if (streamError) {
                 throw streamError;
               }
-
-              // Actual token counts come from result.data.info?.tokens (yielded above).
             } catch (error) {
               throw new Error(extractOpenCodeErrorMessage(error));
             } finally {

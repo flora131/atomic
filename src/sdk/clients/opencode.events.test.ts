@@ -86,18 +86,24 @@ describe("OpenCodeClient event mapping", () => {
       resolveModelContextWindow: (modelHint?: string) => Promise<number>;
     }).resolveModelContextWindow = async () => 200_000;
 
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
     (client as unknown as {
       sdkClient: {
         session: {
-          prompt: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+          promptAsync: (params: Record<string, unknown>) => Promise<void>;
         };
       };
     }).sdkClient = {
       session: {
-        prompt: async () => ({
-          data: {
-            parts: [
-              {
+        promptAsync: async () => {
+          // Fire tool event during prompt, then idle after a delay
+          handle({
+            type: "message.part.updated",
+            properties: {
+              sessionID: sessionId,
+              part: {
                 id: "task_tool_1",
                 type: "tool",
                 tool: "task",
@@ -106,12 +112,18 @@ describe("OpenCodeClient event mapping", () => {
                   input: { description: "Investigate hang" },
                 },
               },
-            ],
-            info: {
-              tokens: { input: 5, output: 0 },
             },
-          },
-        }),
+          });
+          setTimeout(() => {
+            handle({
+              type: "session.status",
+              properties: {
+                sessionID: sessionId,
+                status: "idle",
+              },
+            });
+          }, 50);
+        },
       },
     };
 
@@ -154,29 +166,20 @@ describe("OpenCodeClient event mapping", () => {
       resolveModelContextWindow: (modelHint?: string) => Promise<number>;
     }).resolveModelContextWindow = async () => 200_000;
 
-    let resolvePrompt!: (value: {
-      data: { parts: unknown[]; info: { tokens: { input: number; output: number } } };
-    }) => void;
-    const pendingPrompt = new Promise<{
-      data: { parts: unknown[]; info: { tokens: { input: number; output: number } } };
-    }>((resolve) => {
-      resolvePrompt = resolve;
-    });
-
     const handle = (event: Record<string, unknown>) =>
       (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
 
     (client as unknown as {
       sdkClient: {
         session: {
-          prompt: (params: Record<string, unknown>) => Promise<{
-            data: { parts: unknown[]; info: { tokens: { input: number; output: number } } };
-          }>;
+          promptAsync: (params: Record<string, unknown>) => Promise<void>;
         };
       };
     }).sdkClient = {
       session: {
-        prompt: async () => pendingPrompt,
+        promptAsync: async () => {
+          // promptAsync returns immediately; idle and tool events arrive via SSE
+        },
       },
     };
 
@@ -225,7 +228,7 @@ describe("OpenCodeClient event mapping", () => {
           },
         },
       });
-    }, 120);
+    }, 10);
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
     try {
@@ -239,12 +242,6 @@ describe("OpenCodeClient event mapping", () => {
       clearTimeout(idleTimer);
       clearTimeout(toolTimer);
       if (timeoutId) clearTimeout(timeoutId);
-      resolvePrompt({
-        data: {
-          parts: [],
-          info: { tokens: { input: 0, output: 0 } },
-        },
-      });
     }
 
     expect(chunks.some((chunk) => {
@@ -267,12 +264,12 @@ describe("OpenCodeClient event mapping", () => {
     (client as unknown as {
       sdkClient: {
         session: {
-          prompt: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+          promptAsync: (params: Record<string, unknown>) => Promise<void>;
         };
       };
     }).sdkClient = {
       session: {
-        prompt: async (params) => {
+        promptAsync: async (params) => {
           const sid = params.sessionID as string;
           const childSid = `${sid}_child`;
 
@@ -309,9 +306,7 @@ describe("OpenCodeClient event mapping", () => {
             },
           });
 
-          // Fire the idle event AFTER prompt resolution so it arrives during
-          // the post-prompt drain window (the drain resets stale terminal
-          // state from before prompt resolution).
+          // Fire the idle event after a short delay
           setTimeout(() => {
             handle({
               type: "session.status",
@@ -321,15 +316,6 @@ describe("OpenCodeClient event mapping", () => {
               },
             });
           }, 50);
-
-          return {
-            data: {
-              parts: [],
-              info: {
-                tokens: { input: 1, output: 0 },
-              },
-            },
-          };
         },
       },
     };
@@ -366,26 +352,17 @@ describe("OpenCodeClient event mapping", () => {
       resolveModelContextWindow: (modelHint?: string) => Promise<number>;
     }).resolveModelContextWindow = async () => 200_000;
 
-    let resolvePrompt!: (value: {
-      data: { parts: unknown[]; info: { tokens: { input: number; output: number } } };
-    }) => void;
-    const pendingPrompt = new Promise<{
-      data: { parts: unknown[]; info: { tokens: { input: number; output: number } } };
-    }>((resolve) => {
-      resolvePrompt = resolve;
-    });
-
     (client as unknown as {
       sdkClient: {
         session: {
-          prompt: (params: Record<string, unknown>) => Promise<{
-            data: { parts: unknown[]; info: { tokens: { input: number; output: number } } };
-          }>;
+          promptAsync: (params: Record<string, unknown>) => Promise<void>;
         };
       };
     }).sdkClient = {
       session: {
-        prompt: async () => pendingPrompt,
+        promptAsync: async () => {
+          // promptAsync returns immediately
+        },
       },
     };
 
@@ -424,52 +401,31 @@ describe("OpenCodeClient event mapping", () => {
       ]);
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
-      resolvePrompt({
-        data: {
-          parts: [],
-          info: { tokens: { input: 0, output: 0 } },
-        },
-      });
     }
   });
 
-  test("non-subagent stream ignores early idle and waits for prompt result", async () => {
+  test("non-subagent stream completes on idle and yields text from SSE deltas", async () => {
     const client = new OpenCodeClient();
-    const sessionId = "ses_non_subagent_early_idle";
+    const sessionId = "ses_non_subagent_idle";
 
     (client as unknown as {
       resolveModelContextWindow: (modelHint?: string) => Promise<number>;
     }).resolveModelContextWindow = async () => 200_000;
 
-    let resolvePrompt!: (value: {
-      data: {
-        parts: Array<{ type: string; text?: string }>;
-        info: { tokens: { input: number; output: number } };
-      };
-    }) => void;
-    const pendingPrompt = new Promise<{
-      data: {
-        parts: Array<{ type: string; text?: string }>;
-        info: { tokens: { input: number; output: number } };
-      };
-    }>((resolve) => {
-      resolvePrompt = resolve;
-    });
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
 
     (client as unknown as {
       sdkClient: {
         session: {
-          prompt: (params: Record<string, unknown>) => Promise<{
-            data: {
-              parts: Array<{ type: string; text?: string }>;
-              info: { tokens: { input: number; output: number } };
-            };
-          }>;
+          promptAsync: (params: Record<string, unknown>) => Promise<void>;
         };
       };
     }).sdkClient = {
       session: {
-        prompt: async () => pendingPrompt,
+        promptAsync: async () => {
+          // promptAsync returns immediately; text and idle arrive via SSE
+        },
       },
     };
 
@@ -489,21 +445,24 @@ describe("OpenCodeClient event mapping", () => {
       }
     })();
 
+    // Emit a text delta via SSE
     setTimeout(() => {
-      (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
-        type: "session.status",
+      handle({
+        type: "message.part.delta",
         properties: {
           sessionID: sessionId,
-          status: "idle",
+          delta: "final response",
         },
       });
     }, 20);
 
+    // Then emit idle to signal completion
     setTimeout(() => {
-      resolvePrompt({
-        data: {
-          parts: [{ type: "text", text: "final response" }],
-          info: { tokens: { input: 3, output: 5 } },
+      handle({
+        type: "session.status",
+        properties: {
+          sessionID: sessionId,
+          status: "idle",
         },
       });
     }, 80);
@@ -1671,12 +1630,12 @@ describe("OpenCodeClient event mapping", () => {
     (client as unknown as {
       sdkClient: {
         session: {
-          prompt: () => Promise<Record<string, unknown>>;
+          promptAsync: () => Promise<Record<string, unknown>>;
         };
       };
     }).sdkClient = {
       session: {
-        prompt: async () => ({
+        promptAsync: async () => ({
           error: {
             message: "OpenCode quota exceeded",
           },

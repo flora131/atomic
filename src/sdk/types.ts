@@ -251,6 +251,16 @@ export interface Session {
   stream(message: string, options?: { agent?: string }): AsyncIterable<AgentMessage>;
 
   /**
+   * Fire-and-forget message send for async/event-driven streaming.
+   * The prompt is initiated but the response is delivered exclusively
+   * through SSE events (message.delta, session.idle, etc.).
+   * Only implemented by OpenCode; other clients may omit this.
+   * @param message - The message to send
+   * @param options - Optional dispatch options
+   */
+  sendAsync?(message: string, options?: { agent?: string }): Promise<void>;
+
+  /**
    * Summarize the current conversation to reduce context usage.
    * Useful for long-running sessions approaching context limits.
    * @returns Promise resolving when summarization is complete

@@ -1,12 +1,12 @@
 /**
  * OpenCode SDK Stream Adapter
  *
- * Consumes streaming events from the OpenCode SDK's event emitter and
- * AsyncIterable stream, and publishes them to the event bus as normalized BusEvents.
+ * Consumes streaming events from the OpenCode SDK's event emitter
+ * and publishes them to the event bus as normalized BusEvents.
  *
  * Key responsibilities:
- * - Subscribe to SDK events via client.on() (tool, subagent, session events)
- * - Consume session.stream() AsyncIterable for text and thinking deltas
+ * - Subscribe to SDK events via client.on() (text, thinking, tool, subagent, session events)
+ * - Fire prompt via session.sendAsync() (fire-and-forget)
  * - Map OpenCode SDK AgentEvent types to BusEvent types
  * - Support cancellation via AbortController
  * - Publish events directly to the event bus (no batching)
@@ -23,8 +23,9 @@
  * - session.error → stream.session.error
  * - usage → stream.usage
  *
- * Note: OpenCode emits most events through the SDK's event emitter,
- * while the stream yields AgentMessage chunks for text and thinking content.
+ * Note: All events flow through the SDK's event emitter. The adapter uses
+ * session.sendAsync() to fire the prompt and relies exclusively on SSE events
+ * for streaming content.
  *
  * Usage:
  * ```typescript
@@ -66,8 +67,10 @@ import type {
 /**
  * Stream adapter for OpenCode SDK.
  *
- * Consumes events from both the SDK's event emitter (for tool/subagent/session events)
- * and the AsyncIterable stream from session.stream() (for text/thinking deltas).
+ * Consumes events from the SDK's event emitter for all streaming content
+ * (text/thinking deltas, tool events, subagent events, session lifecycle).
+ * Uses session.sendAsync() to fire the prompt, then waits for session.idle
+ * or session.error to signal completion.
  */
 export class OpenCodeStreamAdapter implements SDKStreamAdapter {
   private bus: EventBus;
@@ -92,17 +95,6 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
   private accumulatedOutputTokens = 0;
 
   /**
-   * Deferred session.idle event: the SSE `session.idle` can arrive before the
-   * REST response from `session.prompt()` resolves.  If we publish
-   * `stream.session.idle` immediately, the UI calls `handleStreamComplete()`
-   * and sets `isStreamingRef = false` *before* the generator yields text from
-   * `result.data.parts`.  Guard 1 in the text-delta callback then drops every
-   * delta.  Deferring ensures the idle event is published only after all
-   * generator text has been processed by the `for await` loop.
-   */
-  private pendingIdleEvent: { runId: number; reason: string } | null = null;
-
-  /**
    * Create a new OpenCode stream adapter.
    *
    * @param bus - The event bus to publish events to
@@ -118,11 +110,11 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
    * Start consuming the OpenCode SDK stream and publishing BusEvents.
    *
    * This method will:
-   * 1. Subscribe to SDK events (tool, subagent, session, usage events)
-   * 2. Iterate over the AsyncIterable stream from session.stream()
-   * 3. Map each AgentMessage to the appropriate BusEvent
+   * 1. Subscribe to SDK events (text, thinking, tool, subagent, session, usage events)
+   * 2. Fire prompt via session.sendAsync() (fire-and-forget)
+   * 3. Wait for session.idle or session.error to signal completion
    * 4. Publish events directly to the bus
-   * 5. Complete with a stream.text.complete event
+   * 5. Complete with stream.text.complete and stream.session.idle events
    *
    * @param session - Active OpenCode SDK session
    * @param message - User message to stream
@@ -146,7 +138,6 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     this.syntheticToolCounter = 0;
     this.lastSeenOutputTokens = 0;
     this.accumulatedOutputTokens = 0;
-    this.pendingIdleEvent = null;
 
     this.publishSessionStart(runId);
 
@@ -154,6 +145,13 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     // Note: The OpenCode SDK emits most events through the CodingAgentClient event emitter
     const client = this.client ?? (session as Session & { __client?: CodingAgentClient }).__client;
     if (client && typeof client.on === "function") {
+      // Subscribe to message.delta events for text and thinking content
+      const unsubDelta = client.on(
+        "message.delta",
+        this.createMessageDeltaHandler(runId, messageId),
+      );
+      this.unsubscribers.push(unsubDelta);
+
       // Subscribe to message.complete events
       const unsubComplete = client.on(
         "message.complete",
@@ -293,41 +291,73 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     }
 
     try {
-      // Start streaming from the OpenCode SDK
-      const stream = session.stream(message, agent ? { agent } : undefined);
+      // Fire prompt via sendAsync (fire-and-forget) — all content arrives via SSE events.
+      // Fall back to stream() for clients that don't implement sendAsync.
+      if (session.sendAsync) {
+        // Create a promise that resolves when session.idle or session.error fires
+        const completionPromise = new Promise<{ reason: string; error?: string }>((resolve) => {
+          const checkAbort = () => {
+            if (this.abortController?.signal.aborted) {
+              resolve({ reason: "aborted" });
+            }
+          };
 
-      // Iterate over the AsyncIterable stream
-      for await (const chunk of stream) {
-        // Check for cancellation
-        if (this.abortController.signal.aborted) {
-          break;
+          const onIdle = client?.on("session.idle", (event) => {
+            if (event.sessionId !== this.sessionId) return;
+            resolve({ reason: event.data.reason ?? "idle" });
+          });
+          if (onIdle) this.unsubscribers.push(onIdle);
+
+          const onError = client?.on("session.error", (event) => {
+            if (event.sessionId !== this.sessionId) return;
+            const error = typeof event.data.error === "string"
+              ? event.data.error
+              : (event.data.error as Error).message;
+            resolve({ reason: "error", error });
+          });
+          if (onError) this.unsubscribers.push(onError);
+
+          // Also check abort periodically
+          this.abortController?.signal.addEventListener("abort", checkAbort, { once: true });
+        });
+
+        await session.sendAsync(message, agent ? { agent } : undefined);
+
+        // Wait for completion signal from SSE
+        const completion = await completionPromise;
+
+        // Publish stream.text.complete if we accumulated any text
+        if (this.textAccumulator.length > 0) {
+          this.publishTextComplete(runId, messageId);
         }
 
-        await this.processStreamChunk(chunk, runId, messageId);
-      }
+        if (completion.error) {
+          this.publishSessionError(runId, new Error(completion.error));
+        }
 
-      // Publish stream.text.complete event if we accumulated any text
-      if (this.textAccumulator.length > 0) {
-        this.publishTextComplete(runId, messageId);
-      }
+        this.publishSessionIdle(runId, completion.reason);
+      } else {
+        // Legacy fallback: iterate stream for non-OpenCode clients
+        const stream = session.stream(message, agent ? { agent } : undefined);
+        for await (const chunk of stream) {
+          if (this.abortController.signal.aborted) {
+            break;
+          }
+          await this.processStreamChunk(chunk, runId, messageId);
+        }
 
-      // Always publish session idle after the for-await loop completes.
-      // The generator finishing means the session is done processing.
-      // Use the deferred idle reason if available, otherwise signal
-      // generator completion. This ensures the UI always finalizes the
-      // message even if no SSE session.idle event was received.
-      const idleReason = (this.pendingIdleEvent as { runId: number; reason: string } | null)?.reason ?? "generator-complete";
-      this.pendingIdleEvent = null;
-      this.publishSessionIdle(runId, idleReason);
+        if (this.textAccumulator.length > 0) {
+          this.publishTextComplete(runId, messageId);
+        }
+        this.publishSessionIdle(runId, "generator-complete");
+      }
     } catch (error) {
       // Handle stream errors
       if (this.abortController && !this.abortController.signal.aborted) {
         this.publishSessionError(runId, error);
       }
       // Always publish idle on error so the UI can finalize.
-      const idleReason = (this.pendingIdleEvent as { runId: number; reason: string } | null)?.reason ?? "generator-error";
-      this.pendingIdleEvent = null;
-      this.publishSessionIdle(runId, idleReason);
+      this.publishSessionIdle(runId, "error");
     } finally {
       // Keep subscriptions active until dispose() so late lifecycle events
       // (e.g. delayed tool.complete) can still be published to the bus.
@@ -496,6 +526,59 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       };
       this.bus.publish(event);
     }
+  }
+
+  /**
+   * Create a handler for message.delta events from the SDK.
+   * Handles both text and thinking content from SSE events.
+   */
+  private createMessageDeltaHandler(
+    runId: number,
+    messageId: string,
+  ): EventHandler<"message.delta"> {
+    return (event) => {
+      if (event.sessionId !== this.sessionId) return;
+      if (this.abortController?.signal.aborted) return;
+
+      const { delta, contentType, thinkingSourceKey } = event.data;
+
+      if (!delta || delta.length === 0) return;
+
+      if (contentType === "thinking") {
+        const sourceKey = thinkingSourceKey ?? "default";
+
+        if (!this.thinkingBlocks.has(sourceKey)) {
+          this.thinkingBlocks.set(sourceKey, { startTime: Date.now() });
+        }
+
+        const busEvent: BusEvent<"stream.thinking.delta"> = {
+          type: "stream.thinking.delta",
+          sessionId: this.sessionId,
+          runId,
+          timestamp: Date.now(),
+          data: {
+            delta,
+            sourceKey,
+            messageId,
+          },
+        };
+        this.bus.publish(busEvent);
+      } else {
+        this.textAccumulator += delta;
+
+        const busEvent: BusEvent<"stream.text.delta"> = {
+          type: "stream.text.delta",
+          sessionId: this.sessionId,
+          runId,
+          timestamp: Date.now(),
+          data: {
+            delta,
+            messageId,
+          },
+        };
+        this.bus.publish(busEvent);
+      }
+    };
   }
 
   /**
@@ -710,21 +793,20 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
   /**
    * Create a handler for session.idle events from the SDK.
    *
-   * The SSE `session.idle` event can arrive before the REST response from
-   * `session.prompt()` resolves, so we defer publishing `stream.session.idle`
-   * until after the `for await` loop in `startStreaming` finishes.
+   * With the `promptAsync()` pattern, the completion promise in
+   * `startStreaming()` handles publishing idle. This handler is a no-op for
+   * the `sendAsync` path to avoid double-publishing. For the legacy stream
+   * path, idle is published after the `for await` loop completes.
    */
   private createSessionIdleHandler(
-    runId: number,
+    _runId: number,
   ): EventHandler<"session.idle"> {
     return (event) => {
-      // Only process events for this session
       if (event.sessionId !== this.sessionId) {
         return;
       }
-
-      // Defer — will be published after the stream iteration completes
-      this.pendingIdleEvent = { runId, reason: event.data.reason ?? "idle" };
+      // No-op: completion is handled by the sendAsync completion promise
+      // or the post-loop logic in the legacy stream fallback path.
     };
   }
 
@@ -1108,16 +1190,6 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
     };
 
     this.bus.publish(busEvent);
-  }
-
-  /**
-   * Flush any deferred session.idle event.
-   */
-  private flushPendingIdleEvent(): void {
-    if (this.pendingIdleEvent) {
-      this.publishSessionIdle(this.pendingIdleEvent.runId, this.pendingIdleEvent.reason);
-      this.pendingIdleEvent = null;
-    }
   }
 
   private publishSessionStart(runId: number): void {

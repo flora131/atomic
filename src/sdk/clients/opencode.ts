@@ -488,15 +488,11 @@ export class OpenCodeClient implements CodingAgentClient {
   private childSessionToParentSession = new Map<string, string>();
 
   /**
-   * Track reasoning part IDs and their accumulated text so we can:
-   * 1. Identify `message.part.delta` events that belong to reasoning parts
-   * 2. Compute deltas from full text when `message.part.updated` omits `delta`
-   *    (v2 SDK moved incremental deltas to `message.part.delta`)
+   * Track reasoning part IDs so `message.part.delta` can distinguish
+   * reasoning deltas from text deltas (the delta event only carries a
+   * partID, not the part type).
    */
   private reasoningPartIds = new Set<string>();
-  private reasoningTextByPartId = new Map<string, string>();
-  /** Track full text for text parts to compute diffs (v2 fallback). */
-  private textPartTexts = new Map<string, string>();
 
   /**
    * Create a new OpenCodeClient
@@ -643,8 +639,6 @@ export class OpenCodeClient implements CodingAgentClient {
     this.subagentStateByParentSession.clear();
     this.childSessionToParentSession.clear();
     this.reasoningPartIds.clear();
-    this.reasoningTextByPartId.clear();
-    this.textPartTexts.clear();
 
     this.emitEvent("session.idle", "connection", { reason: "disconnected" });
   }
@@ -986,38 +980,23 @@ export class OpenCodeClient implements CodingAgentClient {
         const sessionSubagentState = parentSessionId
           ? this.getSubagentSessionState(parentSessionId)
           : this.createSubagentSessionState();
-        if (part?.type === "text") {
-          const partId = (part?.id as string) ?? undefined;
-          // v2 SDK omits `delta` from message.part.updated; compute it from
-          // the full text by diffing against previously seen text.
-          const fullText = (part?.text as string) ?? "";
-          const prevText = partId ? (this.textPartTexts.get(partId) ?? "") : "";
-          const computedDelta = delta ?? (fullText.length > prevText.length ? fullText.slice(prevText.length) : "");
-          if (partId) {
-            this.textPartTexts.set(partId, fullText);
-          }
-          if (computedDelta) {
-            this.emitEvent("message.delta", partSessionId, {
-              delta: computedDelta,
-              contentType: "text",
-            });
-          }
+        if (part?.type === "text" && delta) {
+          // v1 SDK includes `delta` on message.part.updated; v2 sends
+          // incremental deltas via the separate message.part.delta event
+          // so we only emit here when an explicit delta is present.
+          this.emitEvent("message.delta", partSessionId, {
+            delta,
+            contentType: "text",
+          });
         } else if (part?.type === "reasoning") {
           const partId = (part?.id as string) ?? undefined;
           if (partId) {
             this.reasoningPartIds.add(partId);
           }
-          // v2 SDK omits `delta` from message.part.updated; compute it from
-          // the full text by diffing against previously seen text.
-          const fullText = (part?.text as string) ?? "";
-          const prevText = partId ? (this.reasoningTextByPartId.get(partId) ?? "") : "";
-          const computedDelta = delta ?? (fullText.length > prevText.length ? fullText.slice(prevText.length) : "");
-          if (partId) {
-            this.reasoningTextByPartId.set(partId, fullText);
-          }
-          if (computedDelta) {
+          // Same as text: only emit when v1 provides an explicit delta.
+          if (delta) {
             this.emitEvent("message.delta", partSessionId, {
-              delta: computedDelta,
+              delta,
               contentType: "thinking",
               thinkingSourceKey: partId,
             });

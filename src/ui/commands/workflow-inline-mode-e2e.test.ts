@@ -195,7 +195,7 @@ describe("Workflow inline mode E2E", () => {
                     priority: 1,
                   },
                 ],
-                overall_correctness: "needs fixes",
+                overall_correctness: "patch is correct",
                 overall_explanation: "Missing input validation in auth handler",
               }),
               toolUses: 2,

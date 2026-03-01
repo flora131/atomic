@@ -144,11 +144,17 @@ export const AGENT_COLORS: Record<string, string> = getAgentColors(true);
  */
 const SUB_STATUS_PAD = "   ";
 
+/**
+ * Part types that should never be rendered inside the sub-agent tree.
+ * Tool calls and text blocks are suppressed to keep the tree compact.
+ */
+const SUPPRESSED_INLINE_PART_TYPES: ReadonlySet<Part["type"]> = new Set(["tool", "text"]);
+
 export function getAgentInlineDisplayParts(
   parts: ReadonlyArray<Part>,
 ): Part[] {
   if (parts.length === 0) return [];
-  return [...parts];
+  return parts.filter((p) => !SUPPRESSED_INLINE_PART_TYPES.has(p.type));
 }
 
 export function buildAgentInlinePrefix(continuationPrefix: string): string {

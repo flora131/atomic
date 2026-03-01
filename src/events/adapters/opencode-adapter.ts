@@ -319,16 +319,23 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
         this.publishTextComplete(runId, messageId);
       }
 
-      // Publish deferred session.idle now that all generator text has been
-      // processed and stream.text.complete has been emitted.
-      this.flushPendingIdleEvent();
+      // Always publish session idle after the for-await loop completes.
+      // The generator finishing means the session is done processing.
+      // Use the deferred idle reason if available, otherwise signal
+      // generator completion. This ensures the UI always finalizes the
+      // message even if no SSE session.idle event was received.
+      const idleReason = (this.pendingIdleEvent as { runId: number; reason: string } | null)?.reason ?? "generator-complete";
+      this.pendingIdleEvent = null;
+      this.publishSessionIdle(runId, idleReason);
     } catch (error) {
       // Handle stream errors
       if (this.abortController && !this.abortController.signal.aborted) {
         this.publishSessionError(runId, error);
       }
-      // Still flush the deferred idle event on error so the UI can finalize.
-      this.flushPendingIdleEvent();
+      // Always publish idle on error so the UI can finalize.
+      const idleReason = (this.pendingIdleEvent as { runId: number; reason: string } | null)?.reason ?? "generator-error";
+      this.pendingIdleEvent = null;
+      this.publishSessionIdle(runId, idleReason);
     } finally {
       // Keep subscriptions active until dispose() so late lifecycle events
       // (e.g. delayed tool.complete) can still be published to the bus.
@@ -573,6 +580,23 @@ export class OpenCodeStreamAdapter implements SDKStreamAdapter {
       if (event.sessionId !== this.sessionId) {
         return;
       }
+
+      // Finalize any open thinking blocks by emitting stream.thinking.complete
+      for (const [sourceKey, block] of this.thinkingBlocks.entries()) {
+        const durationMs = Date.now() - block.startTime;
+        const completeEvent: BusEvent<"stream.thinking.complete"> = {
+          type: "stream.thinking.complete",
+          sessionId: this.sessionId,
+          runId,
+          timestamp: Date.now(),
+          data: {
+            sourceKey,
+            durationMs,
+          },
+        };
+        this.bus.publish(completeEvent);
+      }
+      this.thinkingBlocks.clear();
 
       // Publish text complete if we have accumulated text
       if (this.textAccumulator.length > 0) {

@@ -742,3 +742,84 @@ describe("CopilotClient stream() filters sub-agent deltas", () => {
     expect(textChunks[1]!.content).toBe(" continues");
   });
 });
+
+describe("CopilotClient error propagation", () => {
+  test("maps structured session.error payloads to readable error strings", () => {
+    const client = new CopilotClient({});
+    const errors: Array<{ error?: unknown; code?: unknown }> = [];
+
+    client.on("session.error", (event) => {
+      const data = event.data as { error?: unknown; code?: unknown };
+      errors.push({ error: data.error, code: data.code });
+    });
+
+    const handleSdkEvent = (client as unknown as {
+      handleSdkEvent: (sessionId: string, event: { type: string; data: Record<string, unknown> }) => void;
+    }).handleSdkEvent.bind(client);
+
+    handleSdkEvent("copilot-session", {
+      type: "session.error",
+      data: {
+        error: {
+          message: "Copilot rate limit exceeded",
+        },
+        code: "RATE_LIMIT",
+      },
+    });
+
+    expect(errors).toEqual([
+      {
+        error: "Copilot rate limit exceeded",
+        code: "RATE_LIMIT",
+      },
+    ]);
+  });
+
+  test("stream propagates normalized provider errors", async () => {
+    const listeners: Array<(event: {
+      type: string;
+      data: Record<string, unknown>;
+    }) => void> = [];
+
+    const mockSdkSession = {
+      sessionId: "copilot-error-session",
+      on: mock((handler: (event: { type: string; data: Record<string, unknown> }) => void) => {
+        listeners.push(handler);
+        return () => {
+          const idx = listeners.indexOf(handler);
+          if (idx >= 0) listeners.splice(idx, 1);
+        };
+      }),
+      send: mock(async () => {
+        throw {
+          error: {
+            message: "Authentication failed",
+          },
+        };
+      }),
+      sendAndWait: mock(() => Promise.resolve({ data: { content: "" } })),
+      destroy: mock(() => Promise.resolve()),
+      abort: mock(() => Promise.resolve()),
+    };
+
+    const client = new CopilotClient({});
+    const wrapSession = (client as unknown as {
+      wrapSession: (
+        sdkSession: unknown,
+        config: Record<string, unknown>,
+      ) => {
+        stream: (message: string) => AsyncIterable<unknown>;
+      };
+    }).wrapSession.bind(client);
+
+    const session = wrapSession(mockSdkSession, {});
+
+    const consumeStream = async (): Promise<void> => {
+      for await (const _chunk of session.stream("hello")) {
+        // stream should throw before yielding when send() fails
+      }
+    };
+
+    await expect(consumeStream()).rejects.toThrow("Authentication failed");
+  });
+});

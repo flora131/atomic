@@ -28,6 +28,503 @@ describe("OpenCodeClient event mapping", () => {
     expect(sessionStarts).toEqual(["ses_test_created"]);
   });
 
+  test("maps session.status idle payloads to session.idle", () => {
+    const client = new OpenCodeClient();
+    const idles: string[] = [];
+
+    const unsubscribe = client.on("session.idle", (event) => {
+      idles.push(event.sessionId);
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "session.status",
+      properties: {
+        sessionID: "ses_status_string",
+        status: "idle",
+      },
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "session.status",
+      properties: {
+        info: { id: "ses_status_structured" },
+        status: { type: "idle" },
+      },
+    });
+
+    unsubscribe();
+
+    expect(idles).toEqual(["ses_status_string", "ses_status_structured"]);
+  });
+
+  test("maps session.idle info.id payloads to session.idle", () => {
+    const client = new OpenCodeClient();
+    const idles: string[] = [];
+
+    const unsubscribe = client.on("session.idle", (event) => {
+      idles.push(event.sessionId);
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "session.idle",
+      properties: {
+        info: { id: "ses_idle_info" },
+      },
+    });
+
+    unsubscribe();
+
+    expect(idles).toEqual(["ses_idle_info"]);
+  });
+
+  test("stream resolves even when no terminal idle event arrives", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_stream_no_idle";
+
+    // Avoid provider metadata lookups in wrapSession().
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          prompt: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        prompt: async () => ({
+          data: {
+            parts: [
+              {
+                id: "task_tool_1",
+                type: "tool",
+                tool: "task",
+                state: {
+                  status: "running",
+                  input: { description: "Investigate hang" },
+                },
+              },
+            ],
+            info: {
+              tokens: { input: 5, output: 0 },
+            },
+          },
+        }),
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        stream: (message: string, options?: { agent?: string }) => AsyncIterable<{
+          type: string;
+          content: unknown;
+        }>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    const chunks: Array<{ type: string; content: unknown }> = [];
+    const consumePromise = (async () => {
+      for await (const chunk of session.stream("run worker", { agent: "worker" })) {
+        chunks.push({ type: chunk.type, content: chunk.content });
+      }
+    })();
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        consumePromise,
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error("stream timed out")), 2500);
+        }),
+      ]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+
+    expect(chunks.some((chunk) => chunk.type === "tool_use")).toBe(true);
+  });
+
+  test("stream drains late tool events when idle arrives before prompt settles", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_idle_before_prompt_settle";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    let resolvePrompt!: (value: {
+      data: { parts: unknown[]; info: { tokens: { input: number; output: number } } };
+    }) => void;
+    const pendingPrompt = new Promise<{
+      data: { parts: unknown[]; info: { tokens: { input: number; output: number } } };
+    }>((resolve) => {
+      resolvePrompt = resolve;
+    });
+
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          prompt: (params: Record<string, unknown>) => Promise<{
+            data: { parts: unknown[]; info: { tokens: { input: number; output: number } } };
+          }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        prompt: async () => pendingPrompt,
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        stream: (message: string, options?: { agent?: string }) => AsyncIterable<{
+          type: string;
+          content: unknown;
+        }>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    const chunks: Array<{ type: string; content: unknown }> = [];
+    const consumePromise = (async () => {
+      for await (const chunk of session.stream("run task", { agent: "worker" })) {
+        chunks.push({ type: chunk.type, content: chunk.content });
+      }
+    })();
+
+    const idleTimer = setTimeout(() => {
+      handle({
+        type: "session.status",
+        properties: {
+          sessionID: sessionId,
+          status: "idle",
+        },
+      });
+    }, 20);
+
+    const toolTimer = setTimeout(() => {
+      handle({
+        type: "message.part.updated",
+        properties: {
+          sessionID: sessionId,
+          part: {
+            id: "tool_late_1",
+            callID: "call_late_1",
+            sessionID: sessionId,
+            messageID: "msg_late_1",
+            type: "tool",
+            tool: "Read",
+            state: {
+              status: "pending",
+              input: { filePath: "src/index.ts" },
+            },
+          },
+        },
+      });
+    }, 120);
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        consumePromise,
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error("stream did not complete")), 2000);
+        }),
+      ]);
+    } finally {
+      clearTimeout(idleTimer);
+      clearTimeout(toolTimer);
+      if (timeoutId) clearTimeout(timeoutId);
+      resolvePrompt({
+        data: {
+          parts: [],
+          info: { tokens: { input: 0, output: 0 } },
+        },
+      });
+    }
+
+    expect(chunks.some((chunk) => {
+      if (chunk.type !== "tool_use") return false;
+      const content = chunk.content as { name?: string };
+      return content.name === "Read";
+    })).toBe(true);
+  });
+
+  test("stream keeps child-session progress isolated when currentSessionId points to another session", async () => {
+    const client = new OpenCodeClient();
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          prompt: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        prompt: async (params) => {
+          const sid = params.sessionID as string;
+          const childSid = `${sid}_child`;
+
+          handle({
+            type: "message.part.updated",
+            properties: {
+              sessionID: sid,
+              part: {
+                id: `agent_${sid}`,
+                sessionID: sid,
+                messageID: `msg_${sid}_1`,
+                type: "agent",
+                name: "worker",
+              },
+            },
+          });
+
+          handle({
+            type: "message.part.updated",
+            properties: {
+              sessionID: sid,
+              part: {
+                id: `tool_${sid}`,
+                sessionID: childSid,
+                messageID: `msg_${sid}_2`,
+                type: "tool",
+                tool: "Read",
+                callID: `call_${sid}`,
+                state: {
+                  status: "pending",
+                  input: { filePath: "src/index.ts" },
+                },
+              },
+            },
+          });
+
+          // Fire the idle event AFTER prompt resolution so it arrives during
+          // the post-prompt drain window (the drain resets stale terminal
+          // state from before prompt resolution).
+          setTimeout(() => {
+            handle({
+              type: "session.status",
+              properties: {
+                sessionID: sid,
+                status: "idle",
+              },
+            });
+          }, 50);
+
+          return {
+            data: {
+              parts: [],
+              info: {
+                tokens: { input: 1, output: 0 },
+              },
+            },
+          };
+        },
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        stream: (message: string, options?: { agent?: string }) => AsyncIterable<{
+          type: string;
+          content: unknown;
+        }>;
+      }>;
+    }).wrapSession("ses_A", {});
+
+    // Simulate another parallel session being marked current.
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_B";
+
+    const chunks: Array<{ type: string; content: unknown }> = [];
+    for await (const chunk of session.stream("run task", { agent: "worker" })) {
+      chunks.push({ type: chunk.type, content: chunk.content });
+    }
+
+    expect(chunks.some((chunk) => {
+      if (chunk.type !== "tool_use") return false;
+      const content = chunk.content as { name?: string };
+      return content.name === "Read";
+    })).toBe(true);
+  });
+
+  test("stream completes when terminal session event arrives before prompt resolves", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_terminal_before_prompt";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    let resolvePrompt!: (value: {
+      data: { parts: unknown[]; info: { tokens: { input: number; output: number } } };
+    }) => void;
+    const pendingPrompt = new Promise<{
+      data: { parts: unknown[]; info: { tokens: { input: number; output: number } } };
+    }>((resolve) => {
+      resolvePrompt = resolve;
+    });
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          prompt: (params: Record<string, unknown>) => Promise<{
+            data: { parts: unknown[]; info: { tokens: { input: number; output: number } } };
+          }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        prompt: async () => pendingPrompt,
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        stream: (message: string, options?: { agent?: string }) => AsyncIterable<{
+          type: string;
+          content: unknown;
+        }>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    const consumePromise = (async () => {
+      for await (const _chunk of session.stream("run task", { agent: "worker" })) {
+        // No-op: this regression only verifies completion.
+      }
+    })();
+
+    setTimeout(() => {
+      (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+        type: "session.status",
+        properties: {
+          sessionID: sessionId,
+          status: "idle",
+        },
+      });
+    }, 20);
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        consumePromise,
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error("stream did not complete")), 1000);
+        }),
+      ]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+      resolvePrompt({
+        data: {
+          parts: [],
+          info: { tokens: { input: 0, output: 0 } },
+        },
+      });
+    }
+  });
+
+  test("non-subagent stream ignores early idle and waits for prompt result", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_non_subagent_early_idle";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    let resolvePrompt!: (value: {
+      data: {
+        parts: Array<{ type: string; text?: string }>;
+        info: { tokens: { input: number; output: number } };
+      };
+    }) => void;
+    const pendingPrompt = new Promise<{
+      data: {
+        parts: Array<{ type: string; text?: string }>;
+        info: { tokens: { input: number; output: number } };
+      };
+    }>((resolve) => {
+      resolvePrompt = resolve;
+    });
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          prompt: (params: Record<string, unknown>) => Promise<{
+            data: {
+              parts: Array<{ type: string; text?: string }>;
+              info: { tokens: { input: number; output: number } };
+            };
+          }>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        prompt: async () => pendingPrompt,
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (sid: string, config: Record<string, unknown>) => Promise<{
+        stream: (message: string, options?: { agent?: string }) => AsyncIterable<{
+          type: string;
+          content: unknown;
+        }>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    const chunks: Array<{ type: string; content: unknown }> = [];
+    const consumePromise = (async () => {
+      for await (const chunk of session.stream("plain prompt")) {
+        chunks.push({ type: chunk.type, content: chunk.content });
+      }
+    })();
+
+    setTimeout(() => {
+      (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+        type: "session.status",
+        properties: {
+          sessionID: sessionId,
+          status: "idle",
+        },
+      });
+    }, 20);
+
+    setTimeout(() => {
+      resolvePrompt({
+        data: {
+          parts: [{ type: "text", text: "final response" }],
+          info: { tokens: { input: 3, output: 5 } },
+        },
+      });
+    }, 80);
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        consumePromise,
+        new Promise<never>((_, reject) => {
+          timeoutId = setTimeout(() => reject(new Error("stream did not finish")), 1000);
+        }),
+      ]);
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+    }
+
+    expect(
+      chunks.some((chunk) => chunk.type === "text" && chunk.content === "final response")
+    ).toBe(true);
+  });
+
   test("maps tool part updates using part.sessionID when properties.sessionID is absent", () => {
     const client = new OpenCodeClient();
     const starts: Array<{ sessionId: string; toolName?: string; toolCallId?: string }> = [];
@@ -264,7 +761,7 @@ describe("OpenCodeClient event mapping", () => {
       {
         sessionId: "ses_reasoning",
         delta: "inspect constraints",
-        contentType: "reasoning",
+        contentType: "thinking",
         thinkingSourceKey: "reasoning_part_1",
       },
     ]);
@@ -793,6 +1290,73 @@ describe("OpenCodeClient event mapping", () => {
     expect(toolStarts[0]!.toolName).toBe("Read");
   });
 
+  test("routes child-session discovery to envelope parent session during parallel runs", () => {
+    const client = new OpenCodeClient();
+    const handle = (event: Record<string, unknown>) =>
+      (client as unknown as { handleSdkEvent: (e: Record<string, unknown>) => void }).handleSdkEvent(event);
+
+    // Simulate another session becoming "current" while session A events arrive.
+    (client as unknown as { currentSessionId: string | null }).currentSessionId = "ses_parallel_other";
+
+    const starts: Array<{
+      sessionId: string;
+      subagentId?: string;
+      subagentSessionId?: string;
+    }> = [];
+
+    const unsubStart = client.on("subagent.start", (event) => {
+      const data = event.data as { subagentId?: string; subagentSessionId?: string };
+      starts.push({
+        sessionId: event.sessionId,
+        subagentId: data.subagentId,
+        subagentSessionId: data.subagentSessionId,
+      });
+    });
+
+    // Parent session A agent start
+    handle({
+      type: "message.part.updated",
+      properties: {
+        sessionID: "ses_A",
+        part: {
+          id: "agent_A",
+          sessionID: "ses_A",
+          messageID: "msg_A_1",
+          type: "agent",
+          name: "worker",
+        },
+      },
+    });
+
+    // Child tool event for session A
+    handle({
+      type: "message.part.updated",
+      properties: {
+        sessionID: "ses_A",
+        part: {
+          id: "tool_child_A",
+          sessionID: "ses_child_A",
+          messageID: "msg_A_2",
+          type: "tool",
+          tool: "Read",
+          state: {
+            status: "pending",
+            input: { filePath: "src/a.ts" },
+          },
+        },
+      },
+    });
+
+    unsubStart();
+
+    expect(starts).toHaveLength(2);
+    expect(starts[0]!.sessionId).toBe("ses_A");
+    expect(starts[0]!.subagentId).toBe("agent_A");
+    expect(starts[1]!.sessionId).toBe("ses_A");
+    expect(starts[1]!.subagentId).toBe("agent_A");
+    expect(starts[1]!.subagentSessionId).toBe("ses_child_A");
+  });
+
   test("does not re-emit subagent.start for subsequent tool events on same child session", () => {
     const client = new OpenCodeClient();
     const handle = (event: Record<string, unknown>) =>
@@ -1021,5 +1585,110 @@ describe("OpenCodeClient event mapping", () => {
     expect(debuggerStarts[1]?.subagentType).toBe("debugger");
     expect(debuggerStarts[2]?.subagentType).toBe("debugger");
     expect(debuggerStarts[2]?.subagentSessionId).toBe("ses_child_debugger");
+  });
+
+  test("maps structured session.error payloads to readable error strings", () => {
+    const client = new OpenCodeClient();
+    const errors: Array<{ sessionId: string; error: unknown }> = [];
+
+    const unsubscribe = client.on("session.error", (event) => {
+      errors.push({
+        sessionId: event.sessionId,
+        error: (event.data as { error?: unknown }).error,
+      });
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "session.error",
+      properties: {
+        sessionID: "ses_structured_error",
+        error: {
+          message: "Rate limit exceeded",
+          code: "RATE_LIMIT",
+        },
+      },
+    });
+
+    unsubscribe();
+
+    expect(errors).toEqual([
+      {
+        sessionId: "ses_structured_error",
+        error: "Rate limit exceeded",
+      },
+    ]);
+  });
+
+  test("maps session.error info.id payloads and extracts top-level stderr text", () => {
+    const client = new OpenCodeClient();
+    const errors: Array<{ sessionId: string; error: unknown }> = [];
+
+    const unsubscribe = client.on("session.error", (event) => {
+      errors.push({
+        sessionId: event.sessionId,
+        error: (event.data as { error?: unknown }).error,
+      });
+    });
+
+    (client as unknown as { handleSdkEvent: (event: Record<string, unknown>) => void }).handleSdkEvent({
+      type: "session.error",
+      error: {
+        stderr: "OpenCode process exited with code 1",
+      },
+      properties: {
+        info: { id: "ses_error_info_id" },
+      },
+    });
+
+    unsubscribe();
+
+    expect(errors).toEqual([
+      {
+        sessionId: "ses_error_info_id",
+        error: "OpenCode process exited with code 1",
+      },
+    ]);
+  });
+
+  test("stream throws prompt errors instead of yielding assistant error text", async () => {
+    const client = new OpenCodeClient();
+    const sessionId = "ses_stream_error";
+
+    (client as unknown as {
+      resolveModelContextWindow: (modelHint?: string) => Promise<number>;
+    }).resolveModelContextWindow = async () => 200_000;
+
+    (client as unknown as {
+      sdkClient: {
+        session: {
+          prompt: () => Promise<Record<string, unknown>>;
+        };
+      };
+    }).sdkClient = {
+      session: {
+        prompt: async () => ({
+          error: {
+            message: "OpenCode quota exceeded",
+          },
+        }),
+      },
+    };
+
+    const session = await (client as unknown as {
+      wrapSession: (
+        sid: string,
+        config: Record<string, unknown>,
+      ) => Promise<{
+        stream: (message: string) => AsyncIterable<unknown>;
+      }>;
+    }).wrapSession(sessionId, {});
+
+    const consumeStream = async (): Promise<void> => {
+      for await (const _chunk of session.stream("trigger")) {
+        // stream should throw before yielding error text chunks
+      }
+    };
+
+    await expect(consumeStream()).rejects.toThrow("OpenCode quota exceeded");
   });
 });

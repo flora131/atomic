@@ -224,6 +224,61 @@ function extractCopilotToolResult(result: unknown): unknown {
   return result;
 }
 
+function extractCopilotErrorMessage(error: unknown, fallback = "Unknown error"): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  const direct = asNonEmptyString(error);
+  if (direct) {
+    return direct;
+  }
+
+  const record = asRecord(error);
+  if (!record) {
+    return fallback;
+  }
+
+  const directFields = [
+    record.message,
+    record.error,
+    record.details,
+    record.reason,
+    record.stderr,
+    record.stdout,
+  ];
+
+  for (const field of directFields) {
+    const value = asNonEmptyString(field);
+    if (value) {
+      return value;
+    }
+  }
+
+  const nestedError = record.error;
+  if (nestedError !== undefined && nestedError !== error) {
+    const nested = extractCopilotErrorMessage(nestedError, "");
+    if (nested.length > 0) {
+      return nested;
+    }
+  }
+
+  if (Array.isArray(record.errors) && record.errors.length > 0) {
+    const entries = record.errors
+      .map((entry) => extractCopilotErrorMessage(entry, ""))
+      .filter((entry) => entry.length > 0);
+    if (entries.length > 0) {
+      return entries.join("; ");
+    }
+  }
+
+  try {
+    return JSON.stringify(record);
+  } catch {
+    return fallback;
+  }
+}
+
 /**
  * CopilotClient implements CodingAgentClient for the GitHub Copilot SDK.
  *
@@ -357,8 +412,13 @@ export class CopilotClient implements CodingAgentClient {
           throw new Error("Session is closed");
         }
 
-        // Use sendAndWait for blocking send
-        const response = await state.sdkSession.sendAndWait({ prompt: message });
+        let response: Awaited<ReturnType<SdkCopilotSession["sendAndWait"]>>;
+        try {
+          // Use sendAndWait for blocking send
+          response = await state.sdkSession.sendAndWait({ prompt: message });
+        } catch (error) {
+          throw new Error(extractCopilotErrorMessage(error));
+        }
 
         // Track token usage from usage events
         if (response) {
@@ -508,7 +568,11 @@ export class CopilotClient implements CodingAgentClient {
             try {
               // Send the message (non-blocking - returns immediately)
               // Events will start arriving via eventHandler
-              await state.sdkSession.send({ prompt: message });
+              try {
+                await state.sdkSession.send({ prompt: message });
+              } catch (error) {
+                throw new Error(extractCopilotErrorMessage(error));
+              }
 
               // Yield chunks as they arrive
               // The loop continues until done is true AND all chunks are consumed
@@ -658,7 +722,10 @@ export class CopilotClient implements CodingAgentClient {
           eventData = { reason: "idle" };
           break;
         case "session.error":
-          eventData = { error: data.message };
+          eventData = {
+            error: extractCopilotErrorMessage(data),
+            code: asNonEmptyString(data.code),
+          };
           break;
         case "assistant.message_delta":
           eventData = {

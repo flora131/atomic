@@ -343,17 +343,43 @@ describe("agent inline display helpers", () => {
     expect(Object.keys(PART_REGISTRY).sort()).toEqual(expectedInlinePartTypes);
   });
 
-  test("shows all inline parts in compact mode", () => {
-    const result = getAgentInlineDisplayParts(inlineParts);
-    expect(result).toHaveLength(2);
-    expect(result.map((part) => part.id)).toEqual(["part-1", "part-2"]);
-    expect(result.every((part) => Boolean(PART_REGISTRY[part.type]))).toBe(true);
+  test("suppresses tool and text parts from inline display", () => {
+    const mixedParts: Part[] = [
+      {
+        id: "part-text",
+        type: "text",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        content: "hello",
+        isStreaming: false,
+      },
+      {
+        id: "part-tool",
+        type: "tool",
+        createdAt: "2026-01-01T00:00:01.000Z",
+        toolCallId: "tc-1",
+        toolName: "bash",
+        input: {},
+        state: { status: "pending" },
+      },
+      {
+        id: "part-reasoning",
+        type: "reasoning",
+        createdAt: "2026-01-01T00:00:02.000Z",
+        content: "thinking",
+        durationMs: 100,
+        isStreaming: false,
+      },
+    ] as Part[];
+    const result = getAgentInlineDisplayParts(mixedParts);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe("part-reasoning");
   });
 
-  test("shows all inline parts in verbose mode", () => {
+  test("filters out text and tool parts in inline display", () => {
     const result = getAgentInlineDisplayParts(inlineParts);
-    expect(result).toHaveLength(2);
-    expect(result.map((part) => part.id)).toEqual(["part-1", "part-2"]);
+    // part-1 is "text" (suppressed), part-2 is "reasoning" (kept)
+    expect(result).toHaveLength(1);
+    expect(result.map((part) => part.id)).toEqual(["part-2"]);
     expect(result.every((part) => Boolean(PART_REGISTRY[part.type]))).toBe(true);
   });
 

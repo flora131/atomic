@@ -380,6 +380,87 @@ describe("createRalphWorkflow - 3-Phase Flow", () => {
     expect(reviewFixTask?.status).toBe("completed");
   });
 
+  test("triggers fixer for actionable findings even when review says patch is correct", async () => {
+    const mockResponses = new Map<
+      string,
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
+    >();
+
+    mockResponses.set("planner", () => ({
+      agentId: "planner-1",
+      success: true,
+      output: JSON.stringify([
+        {
+          id: "#1",
+          content: "Task 1",
+          status: "pending",
+          activeForm: "Doing task 1",
+          blockedBy: [],
+        },
+      ]),
+      toolUses: 0,
+      durationMs: 10,
+    }));
+
+    mockResponses.set("worker", () => ({
+      agentId: "worker-1",
+      success: true,
+      output: "Completed task 1",
+      toolUses: 2,
+      durationMs: 50,
+    }));
+
+    mockResponses.set("reviewer", () => ({
+      agentId: "reviewer-1",
+      success: true,
+      output: JSON.stringify({
+        findings: [
+          {
+            title: "[P2] Missing edge-case coverage",
+            body: "Add a guard test for malformed input",
+            confidence_score: 0.84,
+            priority: 2,
+          },
+        ],
+        overall_correctness: "patch is correct",
+        overall_explanation: "Feature works, but robustness can improve",
+      }),
+      toolUses: 1,
+      durationMs: 30,
+    }));
+
+    let fixerCalled = false;
+    mockResponses.set("debugger", () => {
+      fixerCalled = true;
+      return {
+        agentId: "fixer-1",
+        success: true,
+        output: "Applied robustness fix",
+        toolUses: 1,
+        durationMs: 60,
+      };
+    });
+
+    const workflow = createWorkflowWithMockBridge(mockResponses);
+
+    const initialState: Partial<RalphWorkflowState> = {
+      ...createRalphState("test-exec-3b", { yoloPrompt: "test prompt" }),
+      maxIterations: 10,
+      ralphSessionDir: "/tmp/test-session",
+    };
+
+    const result = await executeGraph(workflow, {
+      initialState,
+      executionId: "test-exec-3b",
+    });
+
+    expect(result.status).toBe("completed");
+    expect(result.state.reviewResult?.overall_correctness).toBe("patch is correct");
+    expect(result.state.reviewResult?.findings).toHaveLength(1);
+    expect(fixerCalled).toBe(true);
+    expect(result.state.fixesApplied).toBe(true);
+  });
+
   test("skips fixer when review is clean", async () => {
     const mockResponses = new Map<
       string,
@@ -980,6 +1061,94 @@ describe("createRalphWorkflow - Parallel Worker Dispatch", () => {
     expect(task1?.status).toBe("completed");
     expect(task2?.status).toBe("error");
     expect(task3?.status).toBe("completed");
+  });
+
+  test("assigns unique worker agent IDs when task IDs are duplicated", async () => {
+    const mockResponses = new Map<
+      string,
+      (opts: SubagentSpawnOptions) => SubagentStreamResult
+    >();
+
+    mockResponses.set("planner", () => ({
+      agentId: "planner-dup",
+      success: true,
+      output: JSON.stringify([
+        { id: "#1", content: "Task A", status: "pending", activeForm: "Doing A", blockedBy: [] },
+        { id: "#1", content: "Task B", status: "pending", activeForm: "Doing B", blockedBy: [] },
+        { id: "#2", content: "Task C", status: "pending", activeForm: "Doing C", blockedBy: [] },
+      ]),
+      toolUses: 0,
+      durationMs: 10,
+    }));
+
+    mockResponses.set("worker", (opts) => {
+      const secondDuplicate = opts.agentId.endsWith("-2");
+      return {
+        agentId: opts.agentId,
+        success: !secondDuplicate,
+        output: secondDuplicate ? "duplicate failed" : "ok",
+        error: secondDuplicate ? "duplicate failure" : undefined,
+        toolUses: 1,
+        durationMs: 10,
+      };
+    });
+
+    mockResponses.set("reviewer", () => ({
+      agentId: "reviewer-dup",
+      success: true,
+      output: JSON.stringify({
+        findings: [],
+        overall_correctness: "patch is correct",
+        overall_explanation: "All good",
+      }),
+      toolUses: 1,
+      durationMs: 10,
+    }));
+
+    const workerBatchAgentIds: string[] = [];
+    const { spawnSubagent, spawnSubagentParallel } = createMockSpawnFunctions(mockResponses);
+    const trackingSpawnParallel = async (agents: SubagentSpawnOptions[]) => {
+      if (agents.some((agent) => agent.agentName === "worker")) {
+        workerBatchAgentIds.push(...agents.map((agent) => agent.agentId));
+      }
+      return spawnSubagentParallel(agents);
+    };
+
+    const workflow = createRalphWorkflow();
+    const workflowWithMocks = {
+      ...workflow,
+      config: {
+        ...workflow.config,
+        runtime: {
+          spawnSubagent,
+          spawnSubagentParallel: trackingSpawnParallel,
+          subagentRegistry: createMockRegistry(),
+        },
+      },
+    };
+
+    const initialState: Partial<RalphWorkflowState> = {
+      ...createRalphState("test-duplicate-task-ids", { yoloPrompt: "test prompt" }),
+      maxIterations: 10,
+      ralphSessionDir: "/tmp/test-session",
+    };
+
+    const result = await executeGraph(workflowWithMocks, {
+      initialState,
+      executionId: "test-duplicate-task-ids",
+    });
+
+    expect(result.status).toBe("completed");
+    expect(workerBatchAgentIds.sort()).toEqual([
+      "worker-#1",
+      "worker-#1-2",
+      "worker-#2",
+    ]);
+    expect(result.state.tasks.map((task: any) => task.status)).toEqual([
+      "completed",
+      "error",
+      "completed",
+    ]);
   });
 
   test("increments iteration by 1 per batch, not per task", async () => {

@@ -248,15 +248,6 @@ function normalizeClaudeModelLabel(model: string): string {
     return stripped;
 }
 
-function buildSubagentInvocationPrompt(agentName: string, task: string): string {
-    return `Invoke the "${agentName}" sub-agent with the following task. Return ONLY the sub-agent's complete output with no additional commentary or explanation.
-
-Task for ${agentName}:
-${task}
-
-Important: Do not add any text before or after the sub-agent's output. Pass through the complete response exactly as produced.`;
-}
-
 type ReasoningEffort = "low" | "medium" | "high" | "max";
 
 interface AskUserQuestionInput {
@@ -692,40 +683,44 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 let lastAssistantMessage: AgentMessage | null = null;
                 let sawTerminalEvent = false;
 
-                for await (const sdkMessage of newQuery) {
-                    this.processMessage(sdkMessage, sessionId, state);
-                    if (sdkMessage.type === "result") {
-                        sawTerminalEvent = true;
-                    }
+                try {
+                    for await (const sdkMessage of newQuery) {
+                        this.processMessage(sdkMessage, sessionId, state);
+                        if (sdkMessage.type === "result") {
+                            sawTerminalEvent = true;
+                        }
 
-                    if (sdkMessage.type === "assistant") {
-                        const { type, content, thinkingSourceKey } =
-                            extractMessageContent(sdkMessage);
-                        lastAssistantMessage = {
-                            type,
-                            content,
-                            role: "assistant",
-                            metadata: {
-                                tokenUsage: {
-                                    inputTokens:
-                                        sdkMessage.message.usage
-                                            ?.input_tokens ?? 0,
-                                    outputTokens:
-                                        sdkMessage.message.usage
-                                            ?.output_tokens ?? 0,
+                        if (sdkMessage.type === "assistant") {
+                            const { type, content, thinkingSourceKey } =
+                                extractMessageContent(sdkMessage);
+                            lastAssistantMessage = {
+                                type,
+                                content,
+                                role: "assistant",
+                                metadata: {
+                                    tokenUsage: {
+                                        inputTokens:
+                                            sdkMessage.message.usage
+                                                ?.input_tokens ?? 0,
+                                        outputTokens:
+                                            sdkMessage.message.usage
+                                                ?.output_tokens ?? 0,
+                                    },
+                                    model: sdkMessage.message.model,
+                                    stopReason:
+                                        sdkMessage.message.stop_reason ?? undefined,
+                                    ...(type === "thinking"
+                                        ? {
+                                              provider: "claude",
+                                              thinkingSourceKey,
+                                          }
+                                        : {}),
                                 },
-                                model: sdkMessage.message.model,
-                                stopReason:
-                                    sdkMessage.message.stop_reason ?? undefined,
-                                ...(type === "thinking"
-                                    ? {
-                                          provider: "claude",
-                                          thinkingSourceKey,
-                                      }
-                                    : {}),
-                            },
-                        };
+                            };
+                        }
                     }
+                } catch (error) {
+                    throw error instanceof Error ? error : new Error(String(error));
                 }
 
                 if (!sawTerminalEvent) {
@@ -760,13 +755,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 };
                 // Capture SDK session ID for resume
                 const getSdkSessionId = () => state.sdkSessionId;
-                const resolvePrompt = () => {
-                    const requestedAgent = optionsArg?.agent?.trim();
-                    if (!requestedAgent) {
-                        return message;
-                    }
-                    return buildSubagentInvocationPrompt(requestedAgent, message);
-                };
+                const requestedAgent = optionsArg?.agent?.trim();
                 const emitStreamingUsage = (outputTokens: number) => {
                     state.hasEmittedStreamingUsage = true;
                     this.emitEvent("usage", sessionId, {
@@ -783,7 +772,7 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         }
                         state.hasEmittedStreamingUsage = false;
                         emitRuntimeSelection();
-                        const options = {
+                        const options: Options = {
                             ...buildOptions(),
                             includePartialMessages: true,
                         };
@@ -791,9 +780,12 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         if (sdkSessionId) {
                             options.resume = sdkSessionId;
                         }
+                        if (requestedAgent) {
+                            options.agent = requestedAgent;
+                        }
 
                         const streamSource = query({
-                            prompt: resolvePrompt(),
+                            prompt: message,
                             options,
                         });
                         state.query = streamSource;
@@ -810,14 +802,15 @@ export class ClaudeAgentClient implements CodingAgentClient {
                         let outputTokens = 0;
                         let sawTerminalEvent = false;
 
-                        for await (const sdkMessage of streamSource) {
-                            processMsg(sdkMessage);
-                            if (sdkMessage.type === "result") {
-                                sawTerminalEvent = true;
-                            }
+                        try {
+                            for await (const sdkMessage of streamSource) {
+                                processMsg(sdkMessage);
+                                if (sdkMessage.type === "result") {
+                                    sawTerminalEvent = true;
+                                }
 
-                            if (sdkMessage.type === "stream_event") {
-                                const event = sdkMessage.event;
+                                if (sdkMessage.type === "stream_event") {
+                                    const event = sdkMessage.event;
 
                                 // Track thinking block boundaries
                                 if (event.type === "content_block_start") {
@@ -950,60 +943,63 @@ export class ClaudeAgentClient implements CodingAgentClient {
                                         };
                                     }
                                 }
-                            } else if (sdkMessage.type === "assistant") {
-                                const { type, content, thinkingSourceKey } =
-                                    extractMessageContent(sdkMessage);
+                                } else if (sdkMessage.type === "assistant") {
+                                    const { type, content, thinkingSourceKey } =
+                                        extractMessageContent(sdkMessage);
 
                                 // Always yield tool_use messages so callers can track tool
                                 // invocations (e.g. spawnSubagentParallel counts them for
                                 // the tree view).  Text messages are only yielded when we
                                 // haven't already streamed text deltas to avoid duplication.
-                                if (type === "tool_use") {
-                                    yield {
-                                        type,
-                                        content,
-                                        role: "assistant",
-                                        metadata: {
-                                            toolName:
-                                                typeof content === "object" &&
-                                                content !== null
-                                                    ? ((
-                                                          content as Record<
-                                                              string,
-                                                              unknown
-                                                          >
-                                                      ).name as string)
-                                                    : undefined,
-                                        },
-                                    };
-                                } else if (!hasYieldedDeltas) {
-                                    yield {
-                                        type,
-                                        content,
-                                        role: "assistant",
-                                        metadata: {
-                                            tokenUsage: {
-                                                inputTokens:
-                                                    sdkMessage.message.usage
-                                                        ?.input_tokens ?? 0,
-                                                outputTokens:
-                                                    sdkMessage.message.usage
-                                                        ?.output_tokens ?? 0,
+                                    if (type === "tool_use") {
+                                        yield {
+                                            type,
+                                            content,
+                                            role: "assistant",
+                                            metadata: {
+                                                toolName:
+                                                    typeof content === "object" &&
+                                                    content !== null
+                                                        ? ((
+                                                              content as Record<
+                                                                  string,
+                                                                  unknown
+                                                              >
+                                                          ).name as string)
+                                                        : undefined,
                                             },
-                                            model: sdkMessage.message.model,
-                                            stopReason:
-                                                sdkMessage.message
-                                                    .stop_reason ?? undefined,
-                                            ...(type === "thinking"
-                                                ? {
-                                                      provider: "claude",
-                                                      thinkingSourceKey,
-                                                  }
-                                                : {}),
-                                        },
-                                    };
+                                        };
+                                    } else if (!hasYieldedDeltas) {
+                                        yield {
+                                            type,
+                                            content,
+                                            role: "assistant",
+                                            metadata: {
+                                                tokenUsage: {
+                                                    inputTokens:
+                                                        sdkMessage.message.usage
+                                                            ?.input_tokens ?? 0,
+                                                    outputTokens:
+                                                        sdkMessage.message.usage
+                                                            ?.output_tokens ?? 0,
+                                                },
+                                                model: sdkMessage.message.model,
+                                                stopReason:
+                                                    sdkMessage.message
+                                                        .stop_reason ?? undefined,
+                                                ...(type === "thinking"
+                                                    ? {
+                                                          provider: "claude",
+                                                          thinkingSourceKey,
+                                                      }
+                                                    : {}),
+                                            },
+                                        };
+                                    }
                                 }
                             }
+                        } catch (error) {
+                            throw error instanceof Error ? error : new Error(String(error));
                         }
 
                         if (!sawTerminalEvent) {
@@ -1047,8 +1043,12 @@ export class ClaudeAgentClient implements CodingAgentClient {
                 state.query = newQuery;
 
                 // Consume all messages to complete the compaction
-                for await (const sdkMessage of newQuery) {
-                    this.processMessage(sdkMessage, sessionId, state);
+                try {
+                    for await (const sdkMessage of newQuery) {
+                        this.processMessage(sdkMessage, sessionId, state);
+                    }
+                } catch (error) {
+                    throw error instanceof Error ? error : new Error(String(error));
                 }
             },
 

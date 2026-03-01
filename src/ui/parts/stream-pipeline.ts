@@ -192,28 +192,31 @@ function finalizeLastStreamingTextPart(parts: Part[]): Part[] {
   return updated;
 }
 
-export function finalizeStreamingReasoningParts(parts: Part[]): Part[] {
+export function finalizeStreamingReasoningParts(parts: Part[], fallbackDurationMs?: number): Part[] {
   let changed = false;
   const updated = parts.map((part) => {
     if (part.type !== "reasoning" || !part.isStreaming) {
       return part;
     }
     changed = true;
+    const rp = part as ReasoningPart;
     return {
-      ...part,
+      ...rp,
       isStreaming: false,
+      // Use existing durationMs if available, otherwise fall back to message-level thinkingMs
+      durationMs: rp.durationMs || fallbackDurationMs || 0,
     };
   });
 
   return changed ? updated : parts;
 }
 
-export function finalizeStreamingReasoningInMessage<T extends { parts?: Part[] }>(message: T): T {
+export function finalizeStreamingReasoningInMessage<T extends { parts?: Part[]; thinkingMs?: number }>(message: T): T {
   if (!message.parts || message.parts.length === 0) {
     return message;
   }
 
-  const finalizedParts = finalizeStreamingReasoningParts(message.parts);
+  const finalizedParts = finalizeStreamingReasoningParts(message.parts, message.thinkingMs);
   if (finalizedParts === message.parts) {
     return message;
   }

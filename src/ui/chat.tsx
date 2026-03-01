@@ -86,6 +86,10 @@ import {
   isBackgroundAgent,
 } from "./utils/background-agent-footer.ts";
 import {
+  shouldScheduleBackgroundUpdateFollowUpFlush,
+  shouldStartBackgroundUpdateFlush,
+} from "./utils/background-update-flush.ts";
+import {
   evaluateBackgroundTerminationPress,
   executeBackgroundTermination,
   isBackgroundTerminationKey,
@@ -155,6 +159,7 @@ import type {
 import {
   createPartId,
   finalizeStreamingReasoningInMessage,
+  finalizeStreamingReasoningParts,
   hasActiveForegroundAgents,
   shouldFinalizeDeferredStream,
   applyStreamPartEvent,
@@ -969,6 +974,16 @@ export function reconcilePreviousStreamingPlaceholder(
  */
 export function getSpinnerVerbForCommand(commandName: string): string | undefined {
   return commandName === "compact" ? "Compacting" : undefined;
+}
+
+/**
+ * Guard stream lifecycle handlers against stale cross-run events.
+ */
+export function shouldProcessStreamLifecycleEvent(
+  activeRunId: number | null,
+  eventRunId: number,
+): boolean {
+  return activeRunId !== null && activeRunId === eventRunId;
 }
 
 /**
@@ -1858,6 +1873,9 @@ export function ChatApp({
 
   // Refs for streaming message updates
   const streamingMessageIdRef = useRef<string | null>(null);
+  // Tracks the runId of the currently active stream.session.start event so
+  // stale lifecycle events from a prior run do not finalize a new message.
+  const activeStreamRunIdRef = useRef<number | null>(null);
   // Persists the message ID after handleStreamComplete clears streamingMessageIdRef,
   // so late-arriving bus events (stream.usage, stream.thinking.complete) can still
   // bake metadata onto the completed message.
@@ -2050,9 +2068,13 @@ export function ChatApp({
   }, []);
 
   const flushPendingBackgroundUpdatesToAgent = useCallback(() => {
-    if (backgroundUpdateFlushInFlightRef.current) return;
-    if (isStreamingRef.current) return;
-    if (pendingBackgroundUpdatesRef.current.length === 0) return;
+    if (!shouldStartBackgroundUpdateFlush({
+      hasFlushInFlight: backgroundUpdateFlushInFlightRef.current,
+      isStreaming: isStreamingRef.current,
+      pendingUpdateCount: pendingBackgroundUpdatesRef.current.length,
+    })) {
+      return;
+    }
 
     const session = getSession?.();
     if (!session?.send) return;
@@ -2061,12 +2083,14 @@ export function ChatApp({
     if (updates.length === 0) return;
 
     const payload = `[Background updates]\n\n${updates.join("\n\n")}`;
+    let sendSucceeded = false;
     backgroundUpdateFlushInFlightRef.current = true;
     backgroundAgentSendChainRef.current = backgroundAgentSendChainRef.current
       .catch(() => undefined)
       .then(async () => {
         try {
           await session.send(payload);
+          sendSucceeded = true;
         } catch (error) {
           pendingBackgroundUpdatesRef.current.unshift(...updates);
           console.debug("[background-update] failed to send to agent:", error);
@@ -2074,6 +2098,15 @@ export function ChatApp({
       })
       .finally(() => {
         backgroundUpdateFlushInFlightRef.current = false;
+        if (shouldScheduleBackgroundUpdateFollowUpFlush({
+          sendSucceeded,
+          isStreaming: isStreamingRef.current,
+          pendingUpdateCount: pendingBackgroundUpdatesRef.current.length,
+        })) {
+          queueMicrotask(() => {
+            flushPendingBackgroundUpdatesToAgent();
+          });
+        }
       });
   }, [getSession]);
 
@@ -2300,6 +2333,9 @@ export function ChatApp({
     isAgentOnlyStreamRef.current = next.isAgentOnlyStream;
     isStreamingRef.current = next.isStreaming;
     hasRunningToolRef.current = next.hasRunningTool;
+    if (!next.isStreaming) {
+      activeStreamRunIdRef.current = null;
+    }
     runningBlockingToolIdsRef.current.clear();
     runningAskQuestionToolIdsRef.current.clear();
     setIsStreaming(next.isStreaming);
@@ -2319,6 +2355,7 @@ export function ChatApp({
 
   const handleStreamStartupError = useCallback((error: unknown) => {
     console.error("[stream] Failed to start stream:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error ?? "Unknown error");
 
     const failedMessageId = streamingMessageIdRef.current;
     if (failedMessageId) {
@@ -2342,6 +2379,11 @@ export function ChatApp({
 
     stopSharedStreamState();
     finalizeThinkingSourceTracking();
+
+    setMessagesWindowed((prev: ChatMessage[]) => [
+      ...prev,
+      createMessage("system", `${STATUS.error} ${errorMessage}`),
+    ]);
 
     const resolver = streamCompletionResolverRef.current;
     streamCompletionResolverRef.current = null;
@@ -2667,11 +2709,17 @@ export function ChatApp({
 
     const hasActiveAgents = hasActiveForegroundAgents(parallelAgentsRef.current);
     if (hasActiveAgents || hasRunningToolRef.current) {
+      const deferredMessageId = messageId;
       let spawnTimeout: ReturnType<typeof setTimeout> | null = null;
       const deferredComplete = () => {
         if (spawnTimeout) {
           clearTimeout(spawnTimeout);
           spawnTimeout = null;
+        }
+        // Guard: skip if the streaming message changed (new user message sent)
+        if (streamingMessageIdRef.current !== deferredMessageId) {
+          pendingCompleteRef.current = null;
+          return;
         }
         handleStreamCompleteImpl();
       };
@@ -2756,7 +2804,7 @@ export function ChatApp({
             thinkingMs: finalMeta?.thinkingMs || msg.thinkingMs,
             thinkingText: finalMeta?.thinkingText || msg.thinkingText || undefined,
             toolCalls: interruptRunningToolCalls(msg.toolCalls),
-            parts: interruptRunningToolParts(msg.parts),
+            parts: interruptRunningToolParts(finalizeStreamingReasoningParts(msg.parts ?? [], finalMeta?.thinkingMs || msg.thinkingMs)),
             parallelAgents: finalizedAgents,
             taskItems: snapshotTaskItems(todoItemsRef.current) as TaskItem[] | undefined,
           }
@@ -2854,7 +2902,12 @@ export function ChatApp({
           // Even if no missing text, update the ref to the authoritative value
           lastStreamingContentRef.current = fullText;
         }
-        handleStreamComplete();
+        // Do NOT call handleStreamComplete() here. During multi-turn agentic
+        // loops, message.complete SSE events fire after each assistant message
+        // update (not just at session end). Calling handleStreamComplete() on
+        // each text-complete would prematurely finalize the message before
+        // tools have started. Finalization is handled exclusively by the
+        // stream.session.idle lifecycle event.
         continue;
       }
       if (part.type === "thinking-meta") {
@@ -2896,7 +2949,11 @@ export function ChatApp({
         };
         const thinkingMessageBySource = {
           ...previousMeta.thinkingMessageBySource,
-          [sourceKey]: part.targetMessageId,
+          // Use the resolved streaming message ID (from React state), not
+          // part.targetMessageId (adapter-level bus event ID).  These are
+          // independent UUIDs; resolveValidatedThinkingMetaEvent compares
+          // against expectedMessageId which is the React-state ID.
+          [sourceKey]: messageId,
         };
         const thinkingText = Object.values(thinkingTextBySource).join("");
         const nextMeta: StreamingMeta = {
@@ -2953,7 +3010,26 @@ export function ChatApp({
   // Turn lifecycle events — visual turn boundary markers emitted by OpenCode
   // and Copilot adapters.  Claude sessions never fire these, so the handlers
   // are defensive (guard on isStreamingRef).
-  useBusSubscription("stream.turn.start", () => {
+  useBusSubscription("stream.session.start", (event) => {
+    if (!isStreamingRef.current) {
+      return;
+    }
+    activeStreamRunIdRef.current = event.runId;
+  });
+
+  useBusSubscription("stream.turn.start", (event) => {
+    const activeRunId = activeStreamRunIdRef.current;
+    if (activeRunId !== null && !shouldProcessStreamLifecycleEvent(activeRunId, event.runId)) {
+      return;
+    }
+
+    if (activeRunId === null) {
+      if (!isStreamingRef.current) {
+        return;
+      }
+      activeStreamRunIdRef.current = event.runId;
+    }
+
     // Safety-net: ensure streaming state is active when the agent begins a
     // turn.  Under normal flow startAssistantStream already sets this, but
     // multi-turn agentic loops may fire additional turn.start events.
@@ -2967,7 +3043,10 @@ export function ChatApp({
 
   });
 
-  useBusSubscription("stream.turn.end", () => {
+  useBusSubscription("stream.turn.end", (event) => {
+    if (!shouldProcessStreamLifecycleEvent(activeStreamRunIdRef.current, event.runId)) {
+      return;
+    }
 
     // Flush pending batched events at the turn boundary so trailing content
     // (e.g. tool-only responses) is delivered before session.idle finalizes.
@@ -2976,7 +3055,11 @@ export function ChatApp({
     }
   });
 
-  useBusSubscription("stream.session.idle", () => {
+  useBusSubscription("stream.session.idle", (event) => {
+    if (!shouldProcessStreamLifecycleEvent(activeStreamRunIdRef.current, event.runId)) {
+      return;
+    }
+
     if (isStreamingRef.current) {
       // Flush pending batched events before finalization so no trailing
       // content is lost (e.g. tool-only responses where text.complete never fires).
@@ -2986,6 +3069,10 @@ export function ChatApp({
   });
 
   useBusSubscription("stream.session.error", (event) => {
+    if (!shouldProcessStreamLifecycleEvent(activeStreamRunIdRef.current, event.runId)) {
+      return;
+    }
+
     handleStreamStartupError(new Error(event.data.error));
   });
 
@@ -3034,6 +3121,10 @@ export function ChatApp({
   });
 
   useBusSubscription("stream.session.compaction", (event) => {
+    if (!shouldProcessStreamLifecycleEvent(activeStreamRunIdRef.current, event.runId)) {
+      return;
+    }
+
     const { phase, success, error } = event.data;
     if (phase === "start") {
       applyAutoCompactionIndicator({ status: "running" });
@@ -3368,6 +3459,7 @@ export function ChatApp({
     isStreamingRef.current = true;
     setIsStreaming(true);
     streamingStartRef.current = Date.now();
+    activeStreamRunIdRef.current = null;
     lastStreamedMessageIdRef.current = null;
     resetThinkingSourceTracking();
     resetTodoItemsForNewStream();
@@ -4262,6 +4354,7 @@ export function ChatApp({
         );
       });
       streamingMessageIdRef.current = null;
+      activeStreamRunIdRef.current = null;
     }
 
     isStreamingRef.current = streaming;
@@ -4519,6 +4612,19 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
               agentAbort.abort();
             } else {
               parentSignal.addEventListener("abort", () => agentAbort.abort(), { once: true });
+            }
+
+            // Ensure abort/timeout interrupts provider streams that are blocked
+            // awaiting SDK prompt completion (e.g. OpenCode sub-agent dispatch).
+            if (session.abort) {
+              const abortSession = () => {
+                void session?.abort?.().catch(() => {});
+              };
+              if (agentAbort.signal.aborted) {
+                abortSession();
+              } else {
+                agentAbort.signal.addEventListener("abort", abortSession, { once: true });
+              }
             }
 
             // Create SubagentStreamAdapter to bridge sub-agent SDK stream to the
@@ -5192,7 +5298,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                       parallelAgents: interruptedAgents,
                       taskItems: interruptedTaskItems,
                       toolCalls: interruptRunningToolCalls(msg.toolCalls),
-                      parts: interruptRunningToolParts(msg.parts),
+                      parts: interruptRunningToolParts(finalizeStreamingReasoningParts(msg.parts ?? [], finalMeta?.thinkingMs || msg.thinkingMs)),
                     }
                     : msg
                 )
@@ -5548,7 +5654,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                       parallelAgents: interruptedAgents,
                       taskItems: interruptedTaskItems,
                       toolCalls: interruptRunningToolCalls(msg.toolCalls),
-                      parts: interruptRunningToolParts(msg.parts),
+                      parts: interruptRunningToolParts(finalizeStreamingReasoningParts(msg.parts ?? [], frozenMeta?.thinkingMs || msg.thinkingMs)),
                     }
                     : msg
                 )
@@ -6383,7 +6489,7 @@ Important: Do not add any text before or after the sub-agent's output. Pass thro
                   thinkingMs: finalMeta?.thinkingMs,
                   thinkingText: finalMeta?.thinkingText || undefined,
                   toolCalls: interruptRunningToolCalls(msg.toolCalls),
-                  parts: interruptRunningToolParts(msg.parts),
+                  parts: interruptRunningToolParts(finalizeStreamingReasoningParts(msg.parts ?? [], finalMeta?.thinkingMs || msg.thinkingMs)),
                   taskItems: interruptedTaskItems,
                   parallelAgents: interruptedAgents,
                 }

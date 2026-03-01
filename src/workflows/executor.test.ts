@@ -575,6 +575,51 @@ describe("executeWorkflow", () => {
         expect(result.stateUpdate?.workflowActive).toBe(false);
     });
 
+    test("returns failure message without adding a duplicate chat error line", async () => {
+        const context = createMockContext();
+
+        interface TestState extends BaseState {
+            value: string;
+        }
+
+        const compiledGraph = compileGraphConfig<TestState>({
+            nodes: [
+                {
+                    id: "failing-node",
+                    type: "tool",
+                    execute: async () => {
+                        throw new Error("Sub-agent \"reviewer\" failed: Claude Code process exited with code 1");
+                    },
+                },
+            ],
+            edges: [],
+            startNode: "failing-node",
+        });
+
+        const definition = {
+            name: "ralph",
+            description: "Test workflow failure surface",
+            command: "/ralph",
+        };
+
+        const result = await executeWorkflow(
+            definition,
+            "test prompt",
+            context as any,
+            { compiledGraph: compiledGraph as any },
+        );
+
+        expect(result.success).toBe(false);
+        expect(result.message).toBeUndefined();
+
+        const messages = context._getMessages();
+        const failureLines = messages.filter((m: { content: string }) =>
+            m.content.toLowerCase().includes("workflow failed at node"),
+        );
+        expect(failureLines).toHaveLength(1);
+        expect(failureLines[0]?.role).toBe("system");
+    });
+
     test("creates state using createState factory when provided", async () => {
         const context = createMockContext();
         
@@ -1025,7 +1070,14 @@ describe("executeWorkflow", () => {
 
         // The setWorkflowSessionDir error causes the workflow to fail
         expect(result.success).toBe(false);
-        expect(result.message).toContain("Session dir error");
+        expect(result.message).toBeUndefined();
+        expect(
+            context
+                ._getMessages()
+                .some((m: { role: string; content: string }) =>
+                    m.role === "system" && m.content.includes("Session dir error"),
+                ),
+        ).toBe(true);
         // Verify unsubscribe was called even on error
         expect(unsubscribeCalled).toBe(true);
     });

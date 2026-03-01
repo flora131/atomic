@@ -161,7 +161,7 @@ describe("Unified provider event parity", () => {
     const openCodeSourceKeys: string[] = [];
     const unsubscribeOpenCode = openCodeClient.on("message.delta", (event) => {
       const data = event.data as { contentType?: string; thinkingSourceKey?: string };
-      if (data.contentType === "reasoning" && data.thinkingSourceKey) {
+      if (data.contentType === "thinking" && data.thinkingSourceKey) {
         openCodeSourceKeys.push(data.thinkingSourceKey);
       }
     });

@@ -9,7 +9,6 @@
 
 import {
   graph,
-  subagentNode,
   toolNode,
 } from "../graph/index.ts";
 import type { NodeDefinition, ExecutionContext, NodeResult } from "../graph/types.ts";
@@ -190,11 +189,19 @@ export function createRalphWorkflow() {
               return { stateUpdate: { iteration: ctx.state.iteration + 1 } as Partial<RalphWorkflowState> };
             }
 
+            // Build a stable ready-task index once so status/result mapping stays
+            // deterministic even when task IDs are missing or duplicated.
+            const readyIndexByTask = new Map<TaskItem, number>();
+            for (const [index, task] of ready.entries()) {
+              readyIndexByTask.set(task, index);
+            }
+
             // Set all ready tasks to "in_progress" before dispatch
-            const tasksWithProgress = ctx.state.tasks.map((t) => {
-              const isReady = ready.some((r) => r.id === t.id);
-              return isReady ? { ...t, status: "in_progress" } : t;
-            });
+            const tasksWithProgress = ctx.state.tasks.map((task) =>
+              readyIndexByTask.has(task)
+                ? { ...task, status: "in_progress" }
+                : task,
+            );
 
             // Publish workflow.task.statusChange event before spawning.
             // notifyTaskStatusChange is injected at runtime by the executor when an eventBus is available.
@@ -217,22 +224,34 @@ export function createRalphWorkflow() {
               })),
             );
 
-            // Build spawn configs for ALL ready tasks
-            const spawnConfigs: SubagentSpawnOptions[] = ready.map((task) => ({
-              agentId: `worker-${task.id ?? ctx.state.executionId}`,
-              agentName: "worker",
-              task: buildWorkerAssignment(task, tasksWithProgress),
-            }));
+            // Build spawn configs for ALL ready tasks.
+            // Keep IDs stable for normal flows while guaranteeing uniqueness
+            // when tasks have duplicate IDs.
+            const agentIdCounts = new Map<string, number>();
+            const spawnConfigs: SubagentSpawnOptions[] = ready.map((task, index) => {
+              const baseAgentId = `worker-${task.id ?? `${ctx.state.executionId}-${ctx.state.iteration}-${index}`}`;
+              const nextCount = (agentIdCounts.get(baseAgentId) ?? 0) + 1;
+              agentIdCounts.set(baseAgentId, nextCount);
+
+              return {
+                agentId: nextCount === 1 ? baseAgentId : `${baseAgentId}-${nextCount}`,
+                agentName: "worker",
+                task: buildWorkerAssignment(task, tasksWithProgress),
+              };
+            });
 
             // Dispatch all concurrently via spawnSubagentParallel
             const results = await spawnSubagentParallel(spawnConfigs, ctx.abortSignal);
 
-            // Map results back independently — each result corresponds to its ready task by index
-            const updatedTasks = tasksWithProgress.map((t) => {
-              const readyIndex = ready.findIndex((r) => r.id === t.id);
-              if (readyIndex === -1) return t;
+            // Map results back independently — each result corresponds to the
+            // matched ready task index from the precomputed map.
+            const updatedTasks = tasksWithProgress.map((task, taskIndex) => {
+              const sourceTask = ctx.state.tasks[taskIndex];
+              if (!sourceTask) return task;
+              const readyIndex = readyIndexByTask.get(sourceTask);
+              if (readyIndex === undefined) return task;
               const result = results[readyIndex];
-              return { ...t, status: result?.success ? "completed" : "error" };
+              return { ...task, status: result?.success ? "completed" : "error" };
             });
 
             return {
@@ -277,8 +296,7 @@ export function createRalphWorkflow() {
     .if({
       condition: (state) =>
         state.reviewResult !== null &&
-        state.reviewResult.findings.length > 0 &&
-        state.reviewResult.overall_correctness !== "patch is correct",
+        state.reviewResult.findings.length > 0,
       then: [
         toolNode<RalphWorkflowState, { findings: NonNullable<RalphWorkflowState["reviewResult"]>["findings"] }, TaskItem[]>({
           id: "prepare-fix-tasks",

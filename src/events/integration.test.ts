@@ -345,8 +345,21 @@ describe("Event Bus Integration", () => {
       messageId: "msg-5",
     });
 
-    // Verify both adapters produced equivalent bus events
-    expect(opencodeEvents.length).toBe(claudeEvents.length);
+    // OpenCode adapter always publishes session.idle after stream completes;
+    // Claude adapter only publishes if the SDK client emits session.idle.
+    // Verify both share the same core events, then verify OpenCode has the
+    // additional session.idle.
+    const coreFilter = (e: BusEvent) => e.type !== "stream.session.idle";
+    const opencodeCore = opencodeEvents.filter(coreFilter);
+    const claudeCore = claudeEvents.filter(coreFilter);
+    expect(opencodeCore.length).toBe(claudeCore.length);
+
+    // OpenCode should have the extra session.idle event
+    const opencodeIdleEvents = opencodeEvents.filter(
+      (e) => e.type === "stream.session.idle",
+    );
+    expect(opencodeIdleEvents.length).toBe(1);
+    expect(opencodeIdleEvents[0].data.reason).toBe("generator-complete");
 
     // Check text delta events
     const opencodeTextDeltas = opencodeEvents.filter(

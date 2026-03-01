@@ -132,8 +132,8 @@ describe("OpenCodeStreamAdapter", () => {
       messageId: "msg-1",
     });
 
-    // Should have session.start + 2 delta events + 1 complete event
-    expect(events.length).toBe(4);
+    // Should have session.start + 2 delta events + 1 complete event + 1 session.idle
+    expect(events.length).toBe(5);
 
     const deltaEvents = events.filter((e) => e.type === "stream.text.delta");
     expect(deltaEvents.length).toBe(2);
@@ -147,6 +147,11 @@ describe("OpenCodeStreamAdapter", () => {
     expect(completeEvent?.data.fullText).toBe("Hello world");
     expect(completeEvent?.data.messageId).toBe("msg-1");
     expect(completeEvent?.runId).toBe(42);
+
+    // OpenCode adapter always publishes session.idle after the for-await loop
+    const idleEvent = events.find((e) => e.type === "stream.session.idle");
+    expect(idleEvent).toBeDefined();
+    expect(idleEvent?.data.reason).toBe("generator-complete");
   });
 
   test("publishes tool start events from SDK client", async () => {
@@ -364,10 +369,11 @@ describe("OpenCodeStreamAdapter", () => {
 
     await streamPromise;
 
-    // Should only have session.start, text delta, and text complete events
-    expect(events.length).toBe(3);
+    // Should only have session.start, text delta, text complete, and session.idle events
+    expect(events.length).toBe(4);
     expect(events.some((e) => e.type === "stream.text.delta")).toBe(true);
     expect(events.some((e) => e.type === "stream.text.complete")).toBe(true);
+    expect(events.some((e) => e.type === "stream.session.idle")).toBe(true);
   });
 
   test("complete events are published at stream end", async () => {
@@ -386,10 +392,20 @@ describe("OpenCodeStreamAdapter", () => {
       messageId: "msg-1",
     });
 
-    // Complete event should be the last event
+    // Text complete event should precede the session.idle event
+    const completeIdx = events.findIndex((e) => e.type === "stream.text.complete");
+    const idleIdx = events.findIndex((e) => e.type === "stream.session.idle");
+    expect(completeIdx).toBeGreaterThan(-1);
+    expect(idleIdx).toBeGreaterThan(-1);
+    expect(completeIdx).toBeLessThan(idleIdx);
+
+    // Session.idle is always the final event
     const lastEvent = events[events.length - 1];
-    expect(lastEvent.type).toBe("stream.text.complete");
-    expect(lastEvent.data.fullText).toBe("Hello world");
+    expect(lastEvent.type).toBe("stream.session.idle");
+
+    // Text complete event should still contain the full text
+    const completeEvent = events.find((e) => e.type === "stream.text.complete");
+    expect(completeEvent?.data.fullText).toBe("Hello world");
   });
 });
 

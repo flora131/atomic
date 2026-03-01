@@ -459,14 +459,10 @@ export async function executeWorkflow(
 
         if (lastStepStatus === "failed") {
             const errorDetail = lastStepError ? `: ${lastStepError}` : "";
-            context.addMessage(
-                "assistant",
-                `**${definition.name}** workflow failed at node "${lastNodeId ?? "unknown"}"${errorDetail}`,
-            );
-
+            const failureMessage = `Workflow failed at node "${lastNodeId ?? "unknown"}"${errorDetail}`;
+            context.addMessage("system", failureMessage);
             return {
                 success: false,
-                message: `Workflow failed at node "${lastNodeId ?? "unknown"}"${errorDetail}`,
                 stateUpdate: {
                     workflowActive: false,
                     workflowType: null,
@@ -504,9 +500,11 @@ export async function executeWorkflow(
             };
         }
 
+        const errorMessage = `Workflow failed: ${error instanceof Error ? error.message : String(error)}`;
+        context.addMessage("system", errorMessage);
+
         return {
             success: false,
-            message: `Workflow failed: ${error instanceof Error ? error.message : String(error)}`,
             stateUpdate: {
                 workflowActive: false,
                 workflowType: null,
